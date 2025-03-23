@@ -1,0 +1,11 @@
+[package]
+name = "ffotest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.28", features = ["derive"] }
+colored = "3.0.0"
+num-format = "0.4.4"
+
+reversi_core = { path = "../reversi_core" }

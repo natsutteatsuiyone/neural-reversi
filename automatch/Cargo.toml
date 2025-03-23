@@ -1,0 +1,9 @@
+[package]
+name = "automatch"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+reversi_core = { path = "../reversi_core" }
+colored = "3.0.0"

@@ -1,0 +1,15 @@
+[package]
+name = "datagen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.5.0"
+clap = { version = "4.5.28", features = ["derive"] }
+chrono = "0.4"
+rand = "0.9.0"
+rayon = "1.10.0"
+zstd = "0.13.2"
+regex = "1.9.5"
+
+reversi_core = { path = "../reversi_core" }

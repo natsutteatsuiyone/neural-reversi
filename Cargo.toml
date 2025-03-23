@@ -1,0 +1,6 @@
+[workspace]
+members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "codegen", "datagen", "ffotest", "automatch"]
+resolver = "2"
+
+[profile.release]
+lto = true
