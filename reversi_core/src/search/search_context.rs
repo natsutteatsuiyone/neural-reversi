@@ -169,7 +169,7 @@ impl SearchContext {
 
         let mut root_moves = self.root_moves.lock().unwrap();
         let rm = root_moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
-        rm.average_score = if rm.average_score == -(SCORE_INF << 6) {
+        rm.average_score = if rm.average_score == -SCORE_INF {
             score
         } else {
             (rm.average_score + score) / 2
@@ -190,12 +190,40 @@ impl SearchContext {
         }
     }
 
-    pub fn get_best_root_move(&self) -> Option<RootMove> {
+    pub fn get_best_root_move(&self, skip_seached_move: bool) -> Option<RootMove> {
         let root_moves = self
             .root_moves
             .lock()
             .expect("Failed to acquire lock on root_moves");
-        root_moves.iter().max_by_key(|rm| rm.score).cloned()
+        if skip_seached_move {
+            root_moves
+                .iter()
+                .filter(|rm| !rm.searched)
+                .max_by_key(|rm| rm.score)
+                .cloned()
+        } else {
+            root_moves.iter().max_by_key(|rm| rm.score).cloned()
+        }
+    }
+
+    pub fn mark_root_move_searched(&mut self, sq: Square) {
+        let mut root_moves = self
+            .root_moves
+            .lock()
+            .unwrap();
+        if let Some(rm) = root_moves.iter_mut().find(|rm| rm.sq == sq) {
+            rm.searched = true;
+        }
+    }
+
+    pub fn reset_root_move_searched(&mut self) {
+        let mut root_moves = self
+            .root_moves
+            .lock()
+            .unwrap();
+        for rm in root_moves.iter_mut() {
+            rm.searched = false;
+        }
     }
 
     fn create_root_moves(board: &Board) -> Vec<RootMove> {
@@ -204,12 +232,21 @@ impl SearchContext {
         for m in move_list.iter() {
             root_moves.push(RootMove {
                 sq: m.sq,
-                score: -(SCORE_INF << 6),
-                average_score: -(SCORE_INF << 6),
+                score: -SCORE_INF,
+                average_score: -SCORE_INF,
                 pv: Vec::new(),
+                searched: false,
             });
         }
         root_moves
+    }
+
+    pub fn is_move_searched(&self, sq: Square) -> bool {
+        let root_moves = self
+            .root_moves
+            .lock()
+            .unwrap();
+        root_moves.iter().any(|rm| rm.sq == sq && rm.searched)
     }
 
     pub fn update_pv(&mut self, sq: Square) {
@@ -247,5 +284,9 @@ impl SearchContext {
 
     pub fn is_search_aborted(&self) -> bool {
         self.pool.is_aborted()
+    }
+
+    pub fn root_moves_count(&self) -> usize {
+        self.root_moves.lock().unwrap().len()
     }
 }

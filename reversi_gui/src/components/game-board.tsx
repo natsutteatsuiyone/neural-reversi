@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 import { GamePiece } from "./game-piece";
 import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { AIMoveProgress } from "@/lib/ai";
+import type { Board } from "@/types";
+import { calculateScores } from "@/lib/game-logic";
 
 interface MoveHistoryItem {
   row: number;
@@ -35,6 +38,60 @@ function ThinkingRippleEffect() {
         />
       ))}
     </>
+  );
+}
+
+function AIScoreDisplay({
+  rowIndex,
+  colIndex,
+  analyzeResults,
+  gameMode,
+  maxScore,
+  aiLevel,
+  gameOver,
+  board,
+}: {
+  rowIndex: number;
+  colIndex: number;
+  analyzeResults: Map<string, AIMoveProgress> | null;
+  gameMode: string;
+  maxScore: number | null;
+  aiLevel: number;
+  gameOver: boolean;
+  board: Board;
+}) {
+  if (gameMode !== "analyze" || !analyzeResults || gameOver) {
+    return null;
+  }
+
+  const key = `${rowIndex},${colIndex}`;
+  const result = analyzeResults.get(key);
+
+  if (result === undefined) {
+    return null;
+  }
+
+  const score = result.score;
+  const depth = result.depth;
+  const acc = result.acc;
+
+  const { black, white } = calculateScores(board);
+  const emptyCount = 64 - black - white;
+
+  const displayScore = score > 0 ? `+${score.toFixed(1)}` : score.toFixed(1);
+  const textColor = maxScore !== null && score === maxScore ? "text-green-500" : "text-white";
+
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
+      <div className={`text-lg font-bold ${textColor} px-1 rounded`}>
+        {displayScore}
+      </div>
+      {depth !== aiLevel && depth !== emptyCount && (
+        <div className="text-xs text-gray-200 px-1 rounded mt-1">
+          {depth}@{acc}%
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -133,9 +190,24 @@ export function GameBoard() {
   const isValidMove = useReversiStore((state) => state.isValidMove);
   const makeMove = useReversiStore((state) => state.makeMove);
   const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress);
+  const analyzeResults = useReversiStore((state) => state.analyzeResults);
+  const gameMode = useReversiStore((state) => state.gameMode);
+  const aiLevel = useReversiStore((state) => state.aiLevel);
 
   const [moveHistory, setMoveHistory] = useState<MoveHistoryItem[]>([]);
   const [lastAIMove, setLastAIMove] = useState<{row: number; col: number; timestamp: number} | null>(null);
+
+  const maxScore = useMemo(() => {
+    if (!analyzeResults || analyzeResults.size === 0) return null;
+
+    let highest = Number.NEGATIVE_INFINITY;
+    for (const result of analyzeResults.values()) {
+      if (result.score > highest) {
+        highest = result.score;
+      }
+    }
+    return highest;
+  }, [analyzeResults]);
 
   useEffect(() => {
     if (
@@ -222,13 +294,13 @@ export function GameBoard() {
           ))}
         </div>
 
-        {/* ボード */}
+        {/* Board */}
         <div className="flex-1 bg-[#0d6245] p-4 rounded-lg shadow-[inset_0_2px_12px_rgba(0,0,0,0.3)]">
           <div className="grid grid-cols-8 gap-1">
             {board.map((row, rowIndex) =>
               row.map((cell, colIndex) => (
                 <motion.button
-                  key={`${rowIndex}-${colIndex}`}
+                  key={`${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]}`}
                   className={cn(
                     "w-full pt-[100%] relative bg-[#0e7250] rounded-sm",
                     "hover:bg-[#0f8259] transition-colors",
@@ -268,7 +340,8 @@ export function GameBoard() {
 
                     {!cell.color &&
                       isValidMove(rowIndex, colIndex) &&
-                      !isAITurn() && (
+                      !isAITurn() &&
+                      !(gameMode === "analyze" && analyzeResults && analyzeResults.has(`${rowIndex},${colIndex}`)) && (
                         <div className="w-[20%] h-[20%] rounded-full bg-emerald-100 opacity-20" />
                       )}
 
@@ -278,6 +351,17 @@ export function GameBoard() {
                       aiMoveProgress={aiMoveProgress}
                       moveHistory={moveHistory}
                       lastAIMove={lastAIMove}
+                    />
+
+                    <AIScoreDisplay
+                      rowIndex={rowIndex}
+                      colIndex={colIndex}
+                      analyzeResults={analyzeResults}
+                      gameMode={gameMode}
+                      maxScore={maxScore}
+                      aiLevel={aiLevel}
+                      gameOver={gameOver}
+                      board={board}
                     />
                   </div>
                 </motion.button>

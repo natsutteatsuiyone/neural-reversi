@@ -31,6 +31,6 @@ export type GameState = {
   moves: MoveRecord[]
 }
 
-export type GameMode = "pvp" | "ai-black" | "ai-white"
+export type GameMode = "analyze" | "ai-black" | "ai-white"
 export type GameStatus = "waiting" | "playing" | "finished"
 

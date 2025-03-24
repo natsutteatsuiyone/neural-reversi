@@ -1,4 +1,4 @@
-import { type AIMoveProgress, type AIMoveResult, abortAISearch, getAIMove, initializeAI } from "@/lib/ai";
+import { type AIMoveProgress, type AIMoveResult, abortAISearch, analyze, getAIMove, initializeAI } from "@/lib/ai";
 import {
   calculateScores,
   getFlippedDiscs,
@@ -33,6 +33,8 @@ interface ReversiState {
   aiMoveProgress: AIMoveProgress | null;
   showPassNotification: boolean;
   isAIThinking: boolean;
+  isAnalyzing: boolean;
+  analyzeResults: Map<string, AIMoveProgress> | null;
 
   getScores: () => { black: number; white: number };
   isAITurn: () => boolean;
@@ -48,6 +50,7 @@ interface ReversiState {
   setGameMode: (mode: GameMode) => void;
   setGameStatus: (status: "waiting" | "playing" | "finished") => void;
   hidePassNotification: () => void;
+  analyzeBoard: () => Promise<void>;
 }
 
 export const useReversiStore = create<ReversiState>((set, get) => ({
@@ -66,9 +69,37 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
   aiMoveProgress: null,
   showPassNotification: false,
   isAIThinking: false,
+  isAnalyzing: false,
+  analyzeResults: null,
 
   getScores: () => {
     return calculateScores(get().board);
+  },
+
+  analyzeBoard: async () => {
+    if (get().gameMode !== "analyze" || get().gameStatus !== "playing") {
+      return;
+    }
+
+    await abortAISearch();
+
+    const board = get().board;
+    const player = get().currentPlayer;
+    const results = new Map<string, AIMoveProgress>();
+
+    set({ analyzeResults: null, isAnalyzing: true });
+
+    try {
+      await analyze(board, player, get().aiLevel, get().aiAccuracy, (ev) => {
+        if (ev.payload.row !== undefined && ev.payload.col !== undefined) {
+          const key = `${ev.payload.row},${ev.payload.col}`;
+          results.set(key, ev.payload);
+          set({ analyzeResults: new Map(results) });
+        }
+      });
+    } finally {
+      set({ isAnalyzing: false });
+    }
   },
 
   isAITurn: () => {
@@ -110,9 +141,9 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
   },
 
   abortAIMove: async () => {
-    if (get().isAIThinking) {
+    if (get().isAIThinking || get().isAnalyzing) {
       await abortAISearch();
-      set({ isAIThinking: false, aiMoveProgress: null });
+      set({ isAIThinking: false, isAnalyzing: false, aiMoveProgress: null });
     }
   },
 
@@ -156,6 +187,7 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
         isPass: false,
         lastMove: move,
         validMoves: getValidMoves(newBoard, nextPlayer(currentPlayer)),
+        analyzeResults: null,
       };
     });
 
@@ -176,6 +208,8 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
     } else {
       if (get().isAITurn()) {
         void get().makeAIMove();
+      } else if (get().gameMode === "analyze") {
+        void get().analyzeBoard();
       }
     }
   },
@@ -185,7 +219,7 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       const currentPlayer = state.currentPlayer;
       const passMove = {
         id: state.moves.length,
-        player: currentPlayer, // 修正: 現在のプレイヤーを使用
+        player: currentPlayer,
         row: -1,
         col: -1,
         notation: "Pass",
@@ -204,8 +238,7 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
   },
 
   resetGame: async () => {
-    // AIが思考中なら中断する
-    if (get().isAIThinking) {
+    if (get().isAIThinking || get().isAnalyzing) {
       await get().abortAIMove();
     }
 
@@ -220,6 +253,8 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       lastAIMove: null,
       showPassNotification: false,
       isAIThinking: false,
+      isAnalyzing: false,
+      analyzeResults: null,
     });
   },
 
@@ -235,7 +270,9 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       };
     });
 
-    if (get().gameMode === "ai-black") {
+    if (get().gameMode === "analyze") {
+      void get().analyzeBoard();
+    } else if (get().gameMode === "ai-black") {
       void get().makeAIMove();
     }
   },
@@ -244,7 +281,16 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
 
   setAIAccuracyChange: (accuracy) => set({ aiAccuracy: accuracy }),
 
-  setGameMode: (mode) => set({ gameMode: mode }),
+  setGameMode: (mode) => {
+    set({
+      gameMode: mode,
+      analyzeResults: null
+    });
+
+    if (mode === "analyze" && get().gameStatus === "playing") {
+      void get().analyzeBoard();
+    }
+  },
 
   setGameStatus: (status) => set({ gameStatus: status }),
 
@@ -253,6 +299,8 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
     get().makePass();
     if (get().isAITurn()) {
       void get().makeAIMove();
+    } else if (get().gameMode === "analyze") {
+      void get().analyzeBoard();
     }
   },
 }));

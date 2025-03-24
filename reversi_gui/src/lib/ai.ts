@@ -25,12 +25,11 @@ export async function getAIMove(
   player: Player,
   level: number,
   selectivity: number,
-  callback: ((arg0: Event<AIMoveProgress>) => void)
+  callback: (arg0: Event<AIMoveProgress>) => void
 ): Promise<AIMoveResult> {
   const validMoves = getValidMoves(board, player);
   if (validMoves.length === 0) return null;
 
-  // ボード文字列を作成（プレイヤーをX、相手をOとして）
   const boardString = board
     .flat()
     .map((cell) =>
@@ -58,16 +57,49 @@ export async function getAIMove(
 
 export async function initializeAI(): Promise<void> {
   try {
-    await invoke('init_ai_command');
+    await invoke("init_ai_command");
   } catch (error) {
-    console.error('Failed to initialize search:', error);
+    console.error("Failed to initialize search:", error);
   }
 }
 
 export async function abortAISearch(): Promise<void> {
   try {
-    await invoke('abort_ai_search_command');
+    await invoke("abort_ai_search_command");
   } catch (error) {
-    console.error('Failed to abort search:', error);
+    console.error("Failed to abort search:", error);
+  }
+}
+
+export async function analyze(
+  board: Board,
+  player: Player,
+  level: number,
+  selectivity: number,
+  callback: (arg0: Event<AIMoveProgress>) => void
+): Promise<void> {
+  const validMoves = getValidMoves(board, player);
+  if (validMoves.length === 0) return;
+
+  const boardString = board
+    .flat()
+    .map((cell) =>
+      cell.color === player ? "X" : cell.color === null ? "-" : "O"
+    )
+    .join("");
+
+  const unlisten = await listen<AIMoveProgress>("ai-move-progress", (data) => {
+    console.log(data);
+    callback(data);
+  });
+
+  try {
+    await invoke<AIMoveResult>("analyze_command", {
+      boardString,
+      level,
+      selectivity,
+    });
+  } finally {
+    unlisten();
   }
 }

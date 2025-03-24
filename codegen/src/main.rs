@@ -40,7 +40,7 @@ fn generate_EVAL_FEATURE() {
 
 #[allow(non_snake_case)]
 fn generate_EVAL_X2F() {
-    const MAX_FEATURES_PER_SQUARE: usize = 1;
+    const MAX_FEATURES_PER_SQUARE: usize = 4;
 
     println!("#[rustfmt::skip]");
     println!("static EVAL_X2F: [CoordinateToFeature; 64] = [");

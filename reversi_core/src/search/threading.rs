@@ -607,8 +607,8 @@ fn main_thread_loop(thread: Arc<Thread>, receiver: Arc<std::sync::Mutex<Receiver
                         ctx.set_callback(callback.clone());
                     }
 
-                    let (score, depth, selectivity) = search::search_root(&mut ctx, &board, task.level);
-                    let rm = ctx.get_best_root_move();
+                    let (score, depth, selectivity) = search::search_root(&mut ctx, &board, task.level, task.multi_pv);
+                    let rm = ctx.get_best_root_move(false);
 
                     thread.state_mut().searching = false;
 

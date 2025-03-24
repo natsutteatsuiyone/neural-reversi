@@ -21,7 +21,7 @@ This is an experimental project to bring an NNUE-like neural network evaluation 
 ### Features
 
 - Mobility: Number of legal moves for the current player.
-- Patterns: 6561 x 8  
+- Patterns: 6561 x 14  
   ![Pattern features](docs/img/pattern_features.svg)
 
 ### Training

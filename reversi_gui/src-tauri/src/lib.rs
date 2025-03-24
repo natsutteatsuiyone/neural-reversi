@@ -51,8 +51,16 @@ fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn abort_ai_search_command(state: State<'_, AppState>) -> Result<(), String> {
+async fn abort_ai_search_command(state: State<'_, AppState>) -> Result<(), String> {
     state.thread_pool.abort_search();
+
+    let thread_pool = state.thread_pool.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        thread_pool.wait_for_search_finished();
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -84,7 +92,7 @@ async fn ai_move_command(
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
-        let result = search_guard.run(&board, lv, selectivity, Some(callback));
+        let result = search_guard.run(&board, lv, selectivity, false, Some(callback));
 
         AIMoveResult {
             best_move: result.best_move.map(|square| square as usize),
@@ -99,6 +107,42 @@ async fn ai_move_command(
     .map_err(|e| e.to_string())?;
 
     Ok(result)
+}
+
+#[tauri::command]
+async fn analyze_command(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    board_string: String,
+    level: usize,
+    selectivity: Selectivity,
+) -> Result<(), String> {
+    let search_arc = state.search.clone();
+    let board_string_clone = board_string.clone();
+    let level_clone = level;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let board = board::Board::from_string(&board_string_clone, Piece::Black);
+        let lv = get_level(level_clone);
+
+        let mut search_guard = search_arc.lock().unwrap();
+        let callback = move |progress: search::SearchProgress| {
+            let payload = SearchProgressPayload {
+                depth: progress.depth,
+                score: (progress.score * 10.0).round() / 10.0,
+                best_move: format!("{}", progress.best_move),
+                row: (progress.best_move as i32 / 8),
+                col: (progress.best_move as i32 % 8),
+                acc: progress.probability,
+            };
+            app.emit("ai-move-progress", payload).unwrap();
+        };
+        search_guard.run(&board, lv, selectivity, true, Some(callback));
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -122,7 +166,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![ai_move_command, init_ai_command, abort_ai_search_command])
+        .invoke_handler(tauri::generate_handler![ai_move_command, init_ai_command, abort_ai_search_command, analyze_command])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

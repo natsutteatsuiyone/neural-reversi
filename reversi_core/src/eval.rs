@@ -89,9 +89,13 @@ impl Eval {
             &ctx.feature_set.o_features[ply]
         };
         let mobility = board.get_moves().count_ones();
+        let mut indicies = [0usize; NUM_FEATURES];
+        for i in 0..NUM_FEATURES {
+            indicies[i] = unsafe { feature_indices.v1 }[i] as usize + PATTERN_FEATURE_OFFSETS[i];
+        }
 
         let mut score = self.forward(
-            unsafe { &feature_indices.v1[..NUM_FEATURES] },
+            &indicies,
             mobility as u8,
             ply,
         );
@@ -102,9 +106,9 @@ impl Eval {
         score
     }
 
-    fn forward(&self, feature_indices: &[u16], mobility: u8, ply: usize) -> Score {
-        let li_univ_out = self.forward_input_base(feature_indices, mobility);
-        let li_pa_out = self.forward_input_ps(feature_indices, ply);
+    fn forward(&self, feature_indices: &[usize], mobility: u8, ply: usize) -> Score {
+        let li_univ_out = self.forward_input_univ(feature_indices);
+        let li_pa_out = self.forward_input_pa(feature_indices, mobility, ply);
 
         let ls = &self.layer_stacks[ply / (60 / NUM_LAYER_STACKS)];
         let l1_out = self.forward_l1(ls, li_univ_out.as_slice(), li_pa_out.as_slice());
@@ -113,26 +117,26 @@ impl Eval {
     }
 
     #[inline]
-    fn forward_input_base(
+    fn forward_input_univ(
         &self,
-        feature_indices: &[u16],
-        mobility: u8,
+        feature_indices:&[usize],
     ) -> Aligned<A64, [u8; L1_UNIV_PADDED_INPUT_DIMS]> {
         let mut out = Aligned([0; L1_UNIV_PADDED_INPUT_DIMS]);
         self.univ_input.forward(feature_indices, &mut out[0..UNIV_INPUT_OUTPUT_DIMS]);
-        out[L1_UNIV_INPUT_DIMS - 1] = mobility * 3;
         out
     }
 
     #[inline]
-    fn forward_input_ps(
+    fn forward_input_pa(
         &self,
-        feature_indices: &[u16],
+        feature_indices: &[usize],
+        mobility: u8,
         ply: usize,
-    ) -> Aligned<A64, [u8; L1_PS_PADDED_INPUT_DIMS]> {
-        let mut out = Aligned([0; L1_PS_PADDED_INPUT_DIMS]);
+    ) -> Aligned<A64, [u8; L1_PA_PADDED_INPUT_DIMS]> {
+        let mut out = Aligned([0; L1_PA_PADDED_INPUT_DIMS]);
         self.pa_inputs[ply / (60 / NUM_PHASE_ADAPTIVE_INPUT)]
             .forward(feature_indices, out.as_mut_slice());
+        out[L1_PA_INPUT_DIMS - 1] = mobility * 3;
         out
     }
 
@@ -146,16 +150,16 @@ impl Eval {
         let mut l1_univ_out: Aligned<A64, [i32; L1_UNIV_PADDED_OUTPUT_DIMS]> = Aligned([0; L1_UNIV_PADDED_OUTPUT_DIMS]);
         ls.l1_univ.forward(input_univ, l1_univ_out.as_mut_slice());
 
-        let mut l1_pa_out: Aligned<A64, [i32; L1_PS_PADDED_OUTPUT_DIMS]> = Aligned([0; L1_PS_PADDED_OUTPUT_DIMS]);
+        let mut l1_pa_out: Aligned<A64, [i32; L1_PA_PADDED_OUTPUT_DIMS]> = Aligned([0; L1_PA_PADDED_OUTPUT_DIMS]);
         ls.l1_pa.forward(input_pa, l1_pa_out.as_mut_slice());
 
         let mut l1_out: Aligned<A64, [i32; L2_INPUT_DIMS]> = Aligned([0; L2_INPUT_DIMS]);
         l1_out[0..L1_UNIV_OUTPUT_DIMS]
             .copy_from_slice(&l1_univ_out[0..L1_UNIV_OUTPUT_DIMS]);
-        l1_out[L1_UNIV_OUTPUT_DIMS..(L1_UNIV_OUTPUT_DIMS + L1_PS_OUTPUT_DIMS)]
-            .copy_from_slice(&l1_pa_out[0..L1_PS_OUTPUT_DIMS]);
+        l1_out[L1_UNIV_OUTPUT_DIMS..(L1_UNIV_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS)]
+            .copy_from_slice(&l1_pa_out[0..L1_PA_OUTPUT_DIMS]);
 
-        const L1_OUTPUT_DIMS: usize = ceil_to_multiple(L1_UNIV_OUTPUT_DIMS + L1_PS_OUTPUT_DIMS, 32);
+        const L1_OUTPUT_DIMS: usize = ceil_to_multiple(L1_UNIV_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS, 32);
 
         let mut l1_sqr_relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
         sqr_clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(

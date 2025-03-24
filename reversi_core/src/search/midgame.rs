@@ -35,6 +35,7 @@ const MIN_SPLIT_DEPTH: Depth = 4;
 /// * `ctx` - Search context containing game state and statistics
 /// * `board` - Current board position
 /// * `level` - Search level
+/// * `multi_pv` - Flag indicating if multiple principal variations should be searched
 ///
 /// # Returns
 ///
@@ -43,8 +44,9 @@ pub fn search_root(
     ctx: &mut SearchContext,
     board: &Board,
     level: Level,
+    multi_pv: bool,
 ) -> (Scoref, Depth, Selectivity) {
-    const INITIAL_DELTA: Score = 4 << EVAL_SCORE_SCALE_BITS;
+    const INITIAL_DELTA: Score = 3 << EVAL_SCORE_SCALE_BITS;
     let mut best_score = 0;
     let mut alpha = -SCORE_INF;
     let mut beta = SCORE_INF;
@@ -55,40 +57,70 @@ pub fn search_root(
         return (to_scoref(score), max_depth, 100);
     }
 
+    let num_root_moves = ctx.root_moves_count();
+    let pv_count = if multi_pv { num_root_moves } else { 1 };
+
     let org_selectivty = ctx.selectivity;
-    for d in 1..=max_depth {
-        ctx.selectivity = org_selectivty - ((max_depth - d) as u8).min(org_selectivty);
+    let start_depth = if max_depth % 2 == 0 { 2 } else { 1 };
+    let mut depth = start_depth;
+    while depth <= max_depth {
+        ctx.selectivity = org_selectivty - ((max_depth - depth) as u8).min(org_selectivty);
+        ctx.reset_root_move_searched();
 
         let mut delta = INITIAL_DELTA;
-        loop {
-            best_score = search::<Root, false>(ctx, board, d, alpha, beta);
+        if depth <= 10 {
+            alpha = -SCORE_INF;
+            beta = SCORE_INF;
+        }
+
+        for pv_idx in 0..pv_count {
+            if pv_idx >= 1 {
+                alpha = -SCORE_INF;
+                beta = best_score;
+            }
+
+            loop {
+                best_score = search::<Root, false>(ctx, board, depth, alpha, beta);
+
+                if ctx.is_search_aborted() {
+                    break;
+                }
+
+                if best_score <= alpha {
+                    beta = (alpha + beta) / 2;
+                    alpha = (best_score - delta).max(-SCORE_INF);
+                } else if best_score >= beta {
+                    alpha = (alpha + beta) / 2;
+                    beta = (best_score + delta).min(SCORE_INF);
+                } else {
+                    break;
+                }
+
+                delta += delta / 2;
+            }
+
+            let best_move = ctx.get_best_root_move(true).unwrap();
+            ctx.mark_root_move_searched(best_move.sq);
+            ctx.notify_progress(depth, to_scoref(best_score), best_move.sq, ctx.selectivity);
 
             if ctx.is_search_aborted() {
                 break;
             }
-
-            if best_score <= alpha {
-                beta = (alpha + beta) / 2;
-                alpha = (best_score - delta).max(-SCORE_INF);
-            } else if best_score >= beta {
-                beta = (best_score + delta).min(SCORE_INF);
-            } else {
-                break;
-            }
-
-            delta += delta / 2;
         }
+
+        let best_move = ctx.get_best_root_move(false).unwrap();
+        alpha = (best_move.average_score - INITIAL_DELTA).max(-SCORE_INF);
+        beta = (best_move.average_score + INITIAL_DELTA).min(SCORE_INF);
 
         if ctx.is_search_aborted() {
-            return (to_scoref(best_score), d, ctx.selectivity);
+            return (to_scoref(best_move.score), depth, ctx.selectivity);
         }
 
-        let best_move = ctx.get_best_root_move();
-        let (sq, avg) = best_move.map(|rm| (rm.sq, rm.average_score)).unwrap();
-        alpha = (avg - delta).max(-SCORE_INF);
-        beta = (avg + delta).min(SCORE_INF);
-
-        ctx.notify_progress(d, to_scoref(best_score), sq, ctx.selectivity);
+        if depth <= 10 {
+            depth += 2;
+        } else {
+            depth += 1;
+        }
     }
 
     (to_scoref(best_score), max_depth, ctx.selectivity)
@@ -193,7 +225,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         if move_list.count > 1 {
-            move_list.evaluate_moves(ctx, board, depth, tt_move);
+            move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
             move_list.sort();
         }
 
@@ -201,6 +233,10 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     }
 
     while let Some((mv, move_count)) = move_iter.next() {
+        if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
+            continue;
+        }
+
         if SP_NODE {
             ctx.split_point.as_ref().unwrap().unlock();
         }
@@ -295,7 +331,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             best_move = m;
             ctx.n_nodes += n;
 
-            if ctx.is_search_aborted() ||  ctx.this_thread.cutoff_occurred() {
+            if ctx.is_search_aborted() || ctx.this_thread.cutoff_occurred() {
                 return 0;
             }
 
@@ -482,7 +518,7 @@ pub fn shallow_search<NT: NodeType>(
     }
 
     if move_list.count > 1 {
-        move_list.evaluate_moves(ctx, board, depth, tt_move);
+        move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
         move_list.sort();
     }
 
@@ -536,7 +572,9 @@ fn solve(board: &Board, n_empties: Depth) -> Score {
 }
 
 fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
-    if let Some(score) = stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS) {
+    if let Some(score) =
+        stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS)
+    {
         return Some(score << EVAL_SCORE_SCALE_BITS);
     }
     None

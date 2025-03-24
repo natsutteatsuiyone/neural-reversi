@@ -27,6 +27,7 @@ pub fn ui_loop(selectvity: Selectivity) {
                 &game.board,
                 level::get_level(level),
                 selectvity,
+                false,
                 None::<fn(reversi_core::search::SearchProgress)>,
             );
             if let Some(computer_move) = result.pv_line.first() {
@@ -93,6 +94,7 @@ pub fn ui_loop(selectvity: Selectivity) {
                                 &game.board,
                                 level::get_level(level),
                                 selectvity,
+                                false,
                                 None::<fn(reversi_core::search::SearchProgress)>,
                             );
                             if let Some(computer_move) = result.pv_line.first() {

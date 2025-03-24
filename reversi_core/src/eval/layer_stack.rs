@@ -11,11 +11,11 @@ pub struct LayerStack {
         L1_UNIV_NUM_REGS,
     >,
     pub l1_pa: LinearLayer<
-        L1_PS_INPUT_DIMS,
-        L1_PS_OUTPUT_DIMS,
-        L1_PS_PADDED_INPUT_DIMS,
-        L1_PS_PADDED_OUTPUT_DIMS,
-        L1_PS_NUM_REGS,
+        L1_PA_INPUT_DIMS,
+        L1_PA_OUTPUT_DIMS,
+        L1_PA_PADDED_INPUT_DIMS,
+        L1_PA_PADDED_OUTPUT_DIMS,
+        L1_PA_NUM_REGS,
     >,
     pub l2: LinearLayer<
         L2_INPUT_DIMS,

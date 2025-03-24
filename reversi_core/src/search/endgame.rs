@@ -37,6 +37,7 @@ pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 12;
 /// * `ctx` - Search context containing game state and statistics
 /// * `board` - Current board position
 /// * `level` - Search level
+/// * `multi_pv` - Flag indicating if multiple principal variations should be searched
 ///
 /// # Returns
 ///
@@ -45,52 +46,79 @@ pub fn search_root(
     ctx: &mut SearchContext,
     board: &Board,
     level: Level,
+    multi_pv: bool,
 ) -> (Scoref, Depth, Selectivity) {
     let n_empties = ctx.empty_list.count;
     let mut best_score = 0;
 
     ctx.selectivity = NO_SELECTIVITY;
     let score = midgame::evaluate(ctx, board) >> EVAL_SCORE_SCALE_BITS;
-    let mut alpha = score - 8;
-    let mut beta = score + 8;
+    let mut alpha = score - 6;
+    let mut beta = score + 6;
 
-    for selectivity in 1..=NO_SELECTIVITY {
-        if level.get_end_depth(selectivity) < n_empties {
-            break;
+    let num_root_moves = ctx.root_moves_count();
+    let pv_count = if multi_pv { num_root_moves } else { 1 };
+
+    for pv_idx in 0..pv_count {
+        if pv_idx >= 1 {
+            alpha = -SCORE_INF;
+            beta = best_score;
         }
 
-        ctx.selectivity = selectivity;
-        let mut delta = 2;
-        loop {
-            best_score = search::<Root, false>(ctx, board, alpha, beta);
+        let mut best_move_sq = Square::None;
+        for selectivity in 1..=NO_SELECTIVITY {
+            if level.get_end_depth(selectivity) < n_empties {
+                break;
+            }
+
+            ctx.selectivity = selectivity;
+            let mut delta = 2;
+
+            loop {
+                best_score = search::<Root, false>(ctx, board, alpha, beta);
+
+                if ctx.is_search_aborted() {
+                    break;
+                }
+
+                if best_score <= alpha {
+                    beta = (alpha + beta) / 2;
+                    alpha = (best_score - delta).max(-SCORE_INF);
+                } else if best_score >= beta {
+                    alpha = (alpha + beta) / 2;
+                    beta = (best_score + delta).min(SCORE_INF);
+                } else {
+                    break;
+                }
+
+                delta += delta / 2;
+            }
+
+            let best_move = ctx.get_best_root_move(true).unwrap();
+            alpha = (best_score - 2).max(-SCORE_INF);
+            beta = (best_score + 2).min(SCORE_INF);
+            best_move_sq = best_move.sq;
+
+            ctx.notify_progress(
+                n_empties,
+                best_score as Scoref,
+                best_move.sq,
+                ctx.selectivity,
+            );
 
             if ctx.is_search_aborted() {
                 break;
             }
-
-            if best_score <= alpha {
-                beta = (alpha + beta) / 2;
-                alpha = (best_score - delta).max(-SCORE_INF);
-            } else if best_score >= beta {
-                alpha = (alpha + beta) / 2;
-                beta = (best_score + delta).min(SCORE_INF);
-            } else {
-                break;
-            }
-
-            delta += delta / 2;
         }
+
+        ctx.mark_root_move_searched(best_move_sq);
+
+        let best_move = ctx.get_best_root_move(false).unwrap();
+        best_score = best_move.score;
 
         if ctx.is_search_aborted() {
             return (best_score as Scoref, n_empties, ctx.selectivity);
         }
-
-        let best_move = ctx.get_best_root_move();
-        let sq = best_move.map(|rm| rm.sq).unwrap();
-        alpha = (best_score - delta).max(-SCORE_INF);
-        beta = (best_score + delta).min(SCORE_INF);
-
-        ctx.notify_progress(n_empties, best_score as Scoref, sq, ctx.selectivity);
     }
 
     (best_score as Scoref, n_empties, ctx.selectivity)
@@ -186,7 +214,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         if move_list.count > 1 {
-            move_list.evaluate_moves(ctx, board, n_empties, tt_move);
+            move_list.evaluate_moves::<NT>(ctx, board, n_empties, tt_move);
             move_list.sort();
         }
 
@@ -194,6 +222,10 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     }
 
     while let Some((mv, move_count)) = move_iter.next() {
+        if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
+            continue;
+        }
+
         if SP_NODE {
             ctx.split_point.as_ref().unwrap().unlock();
         }
@@ -225,7 +257,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             alpha = sp_state.alpha;
         }
 
-        if ctx.is_search_aborted() ||  ctx.this_thread.cutoff_occurred() {
+        if ctx.is_search_aborted() || ctx.this_thread.cutoff_occurred() {
             return 0;
         }
 
@@ -288,7 +320,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             best_move = m;
             ctx.n_nodes += n;
 
-            if ctx.is_search_aborted() ||  ctx.this_thread.cutoff_occurred() {
+            if ctx.is_search_aborted() || ctx.this_thread.cutoff_occurred() {
                 return 0;
             }
 

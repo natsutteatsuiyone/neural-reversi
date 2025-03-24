@@ -267,16 +267,16 @@ fn main() -> io::Result<()> {
                     }
 
                     print!(
-                        "\r\x1B[2KGame {}-{} | {} ({:2}%) {}-{}-{} {} ({:2}%) | Score: {}",
+                        "\r\x1B[2KGame {}-{} | {} ({:2.1}%) {}-{}-{} {} ({:2.1}%) | Score: {}",
                         opening_idx + 1,
                         game_round + 1,
                         engine1_name.bold(),
-                        ((engine1_wins as f64 / current_game as f64) * 100.0).round(),
+                        ((engine1_wins as f64 / current_game as f64) * 1000.0).round() / 10.0,
                         engine1_wins,
                         draws,
                         engine2_wins,
                         engine2_name.bold(),
-                        ((engine2_wins as f64 / current_game as f64) * 100.0).round(),
+                        ((engine2_wins as f64 / current_game as f64) * 1000.0).round() / 10.0,
                         total_score
                     );
 

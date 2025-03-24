@@ -26,7 +26,6 @@ export function InfoPanel() {
   const scores = getScores();
   const winner = gameOver ? getWinner(scores) : null;
 
-  // AIの情報を表示するコンポーネント
   const AIInfo = ({
     thinking,
     lastMove,
@@ -108,7 +107,7 @@ export function InfoPanel() {
                 Game Status
               </h2>
               <div className="flex flex-col gap-3">
-                {/* 黒の情報 */}
+                {/* Black */}
                 <div
                   className={cn(
                     "rounded-lg h-14",
@@ -209,12 +208,10 @@ export function InfoPanel() {
             </div>
           )}
 
-          {/* 棋譜 */}
           <div className="flex-1 min-h-0 mt-4">
             <MoveHistory />
           </div>
 
-          {/* コントロール */}
           <div className="mt-4 shrink-0">
             <Button
               variant="outline"
@@ -222,7 +219,7 @@ export function InfoPanel() {
               className="w-full bg-white/10 hover:bg-white/20 text-white/90 border-white/20"
               onClick={async () => {
                 await abortAIMove();
-                resetGame();
+                await resetGame();
               }}
             >
               <RotateCcw className="w-4 h-4 mr-2" />
@@ -230,7 +227,6 @@ export function InfoPanel() {
             </Button>
           </div>
 
-          {/* ゲームオーバー */}
           <AnimatePresence>
             {gameOver && (
               <motion.div
@@ -248,9 +244,7 @@ export function InfoPanel() {
                         : `${winner === "black" ? "Black" : "White"} wins!`}
                     </p>
 
-                    {/* 最終スコア */}
                     <div className="grid grid-cols-2 gap-3 pt-2">
-                      {/* 黒のスコア */}
                       <div className="space-y-1.5">
                         <div className="w-6 h-6 rounded-full bg-gradient-to-br from-neutral-600 to-black shadow-md mx-auto" />
                         <motion.div
@@ -262,7 +256,6 @@ export function InfoPanel() {
                           {scores.black}
                         </motion.div>
                       </div>
-                      {/* 白のスコア */}
                       <div className="space-y-1.5">
                         <div className="w-6 h-6 rounded-full bg-gradient-to-br from-white to-neutral-200 border border-white/20 shadow-md mx-auto" />
                         <motion.div

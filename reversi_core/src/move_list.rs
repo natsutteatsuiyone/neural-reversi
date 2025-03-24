@@ -8,13 +8,14 @@ use crate::flip;
 use crate::search::midgame;
 use crate::search::search_context::SearchContext;
 use crate::square::Square;
-use crate::types::Depth;
+use crate::types::{Depth, NodeType};
 
 const MAX_MOVES: usize = 34;
 const WIPEOUT_VALUE: i32 = 1 << 30;
 const TT_MOVE_VALUE: i32 = 1 << 20;
 const MOBILITY_WEIGHT: i32 = 1 << 14;
 const CORNER_STABILITY_WEIGHT: i32 = 1 << 11;
+const EXCLUDE_MOVE_VALUE: i32 = i32::MIN;
 
 /// Represents a single move in the game.
 #[derive(Clone, Copy)]
@@ -125,7 +126,7 @@ impl MoveList {
         BestFirstMoveIterator::new(self)
     }
 
-    pub fn evaluate_moves(
+    pub fn evaluate_moves<NT: NodeType>(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,
@@ -152,7 +153,9 @@ impl MoveList {
 
             let mut max_value = -SCORE_INF;
             for mv in self.moves.iter_mut().take(self.count) {
-                if mv.flipped == board.opponent {
+                if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
+                    mv.value = EXCLUDE_MOVE_VALUE;
+                } else if mv.flipped == board.opponent {
                     mv.value = WIPEOUT_VALUE;
                 } else if mv.sq == tt_move {
                     mv.value = TT_MOVE_VALUE;

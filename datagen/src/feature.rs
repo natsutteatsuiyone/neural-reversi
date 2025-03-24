@@ -59,8 +59,6 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize) -> io::Result<
     let processed_files = AtomicUsize::new(0);
     let start_time = std::time::Instant::now();
 
-    println!("Starting parallel processing...");
-
     entry_groups
         .par_iter()
         .enumerate()

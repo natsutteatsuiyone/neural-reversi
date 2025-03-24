@@ -33,6 +33,7 @@ pub struct SearchTask {
     pub pool: Arc<ThreadPool>,
     pub eval: Arc<Eval>,
     pub level: Level,
+    pub multi_pv: bool,
     pub callback: Option<Arc<SearchProgressCallback>>,
 }
 
@@ -86,7 +87,7 @@ impl Search {
         self.generation = 0;
     }
 
-    pub fn run<F>(&mut self, board: &Board, level: Level, selectivity: Selectivity, callback: Option<F>) -> SearchResult
+    pub fn run<F>(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool, callback: Option<F>) -> SearchResult
     where
         F: Fn(SearchProgress) + Send + Sync + 'static,
     {
@@ -100,6 +101,7 @@ impl Search {
             pool: self.threads.clone(),
             eval: self.eval.clone(),
             level,
+            multi_pv,
             callback: callback.map(|f| Arc::new(f) as Arc<SearchProgressCallback>),
         };
 
@@ -130,6 +132,7 @@ impl Search {
             pool: self.threads.clone(),
             eval: self.eval.clone(),
             level,
+            multi_pv: false,
             callback: None,
         };
 
@@ -138,17 +141,17 @@ impl Search {
     }
 }
 
-pub fn search_root(ctx: &mut SearchContext, board: &Board, level: Level) -> (Scoref, Depth, u8) {
+pub fn search_root(ctx: &mut SearchContext, board: &Board, level: Level, multi_pv: bool) -> (Scoref, Depth, u8) {
     let min_end_depth = level.get_end_depth(0);
     let n_empties = ctx.empty_list.count;
 
-    if n_empties == 60 {
+    if n_empties == 60 && !multi_pv {
         ctx.update_root_move(random_move(board), 0, 1, -SCORE_INF);
         (0.0, 0, NO_SELECTIVITY)
     } else if min_end_depth < n_empties {
-        midgame::search_root(ctx, board, level)
+        midgame::search_root(ctx, board, level, multi_pv)
     } else {
-        endgame::search_root(ctx, board, level)
+        endgame::search_root(ctx, board, level, multi_pv)
     }
 }
 

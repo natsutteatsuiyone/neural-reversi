@@ -254,6 +254,7 @@ impl GtpEngine {
                     &self.game.board,
                     level::get_level(self.level),
                     self.selectivity,
+                    false,
                     None::<fn(SearchProgress)>,
                 );
 

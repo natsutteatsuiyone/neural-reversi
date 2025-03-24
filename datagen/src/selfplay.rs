@@ -64,6 +64,7 @@ pub fn execute(
                 &board,
                 lv,
                 selectivity,
+                false,
                 None::<fn(reversi_core::search::SearchProgress) -> ()>,
             );
             let ply = 60 - board.get_empty_count() as u8;
