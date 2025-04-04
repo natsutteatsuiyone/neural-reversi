@@ -27,8 +27,8 @@ enum SubCommands {
         #[arg(long, default_value = "100000000")]
         games: u32,
 
-        #[arg(long, default_value = "10000")]
-        games_per_file: u32,
+        #[arg(long, default_value = "1000000")]
+        records_per_file: u32,
 
         #[arg(long, default_value = "128")]
         hash_size: i32,
@@ -68,14 +68,14 @@ fn main() {
         }
         SubCommands::Selfplay {
             games,
-            games_per_file,
+            records_per_file,
             hash_size,
             level,
             selectivity,
             prefix,
             output_dir,
         } => {
-            selfplay::execute(games, games_per_file, hash_size, level, selectivity, &prefix, &output_dir);
+            selfplay::execute(games, records_per_file, hash_size, level, selectivity, &prefix, &output_dir);
         }
         SubCommands::Probcut {
             input,

@@ -19,7 +19,7 @@ datagen selfplay --games 100000 --hash-size 128 --level 12 --selectivity 1 --pre
 #### Options
 
 - `--games`: Number of games to generate
-- `--games_per_file`: Number of games to store in each output file (default: 10000)
+- `--records_per_file`: Number of records to store in each output file (default: 1,000,000)
 - `--hash-size`: Transposition table size in MB for the search algorithm
 - `--level`: Search depth level - higher values result in stronger play but slower generation
 - `--selectivity`: Search selectivity parameter controlling move pruning (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%)
