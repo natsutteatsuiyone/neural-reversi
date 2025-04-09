@@ -7,19 +7,19 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::CACHE_LINE_SIZE;
 
-use super::constants::{UNIV_INPUT_OUTPUT_DIMS, INPUT_FEATURE_DIMS};
+use super::constants::{BASE_INPUT_OUTPUT_DIMS, INPUT_FEATURE_DIMS};
 
-const OUTPUT_DIMS: usize = UNIV_INPUT_OUTPUT_DIMS;
+const OUTPUT_DIMS: usize = BASE_INPUT_OUTPUT_DIMS;
 const HIDDEN_DIMS: usize = OUTPUT_DIMS * 2;
 const NUM_REGS: usize = HIDDEN_DIMS / 16;
 
 #[derive(Debug)]
-pub struct UniversalInput {
+pub struct BaseInput {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-impl UniversalInput
+impl BaseInput
 {
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS];
@@ -62,7 +62,7 @@ impl UniversalInput
             }
         }
 
-        Ok(UniversalInput { biases, weights })
+        Ok(BaseInput { biases, weights })
     }
 
     pub fn forward(&self, feature_indices: &[usize], output: &mut [u8]) {

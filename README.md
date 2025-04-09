@@ -1,6 +1,6 @@
 # Neural Reversi
 
-This is an experimental project to bring an NNUE-like neural network evaluation function to Reversi (Othello). But it lacks the "UE" (efficiently updatable) part, so it's basically just an "NN."
+This is an experimental project to develop a high-accuracy neural network evaluation function for Reversi (Othello).
 
 ## Crates
 
@@ -21,7 +21,7 @@ This is an experimental project to bring an NNUE-like neural network evaluation 
 ### Features
 
 - Mobility: Number of legal moves for the current player.
-- Patterns: 6561 x 14  
+- Patterns: 6561 x 22  
   ![Pattern features](docs/img/pattern_features.svg)
 
 ### Training

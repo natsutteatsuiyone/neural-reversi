@@ -201,11 +201,8 @@ fn write_feature_record(
     ply: u8,
 ) -> io::Result<()> {
     encoder.write_f32::<LittleEndian>(score)?;
-
-    for feature_chunk in features.chunks(32) {
-        for &feature in feature_chunk {
-            encoder.write_u16::<LittleEndian>(feature)?;
-        }
+    for &feature in features {
+        encoder.write_u16::<LittleEndian>(feature)?;
     }
     encoder.write_u8(mobility)?;
     encoder.write_u8(ply)?;

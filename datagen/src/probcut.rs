@@ -71,7 +71,7 @@ pub fn execute(input: &str, output: &str) {
                 }
             }
 
-            let num_depth = 14;
+            let num_depth = 12;
             let max_shallow_depth = 8;
             let ply = 60 - board.get_empty_count();
 

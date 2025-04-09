@@ -11,7 +11,7 @@ fn main() {
 fn generate_EVAL_FEATURE() {
     let mut feature_defs = EVAL_F2X.iter().collect::<Vec<_>>();
     let len = feature_defs.len();
-    for _i in len..16 {
+    for _i in len..48 {
         feature_defs.push(&FeatureToCoordinate {
             n_square: 0,
             squares: [Sq::None; 10],

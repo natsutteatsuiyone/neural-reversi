@@ -46,7 +46,7 @@ impl GtpEngine {
             level,
             selectivity,
             name: "Neural Reversi".to_string(),
-            version: env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1".to_string()),
+            version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
 

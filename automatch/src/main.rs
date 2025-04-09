@@ -5,12 +5,15 @@ use reversi_core::square::Square;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 mod engine;
 mod game;
 
 use engine::GtpEngine;
 use game::GameState;
+
+const ELO_K: f64 = 400.0; // Elo K-factor
 
 #[derive(Parser, Debug)]
 #[command(
@@ -226,6 +229,8 @@ fn main() -> io::Result<()> {
     let mut total_score = 0;
     let mut current_game = 0;
 
+    let mut last_update = Instant::now();
+
     for (opening_idx, opening_str) in openings.iter().enumerate() {
         for game_round in 0..2 {
             let is_swapped = game_round == 1;
@@ -266,21 +271,24 @@ fn main() -> io::Result<()> {
                         total_score += black_score;
                     }
 
-                    print!(
-                        "\r\x1B[2KGame {}-{} | {} ({:2.1}%) {}-{}-{} {} ({:2.1}%) | Score: {}",
-                        opening_idx + 1,
-                        game_round + 1,
-                        engine1_name.bold(),
-                        ((engine1_wins as f64 / current_game as f64) * 1000.0).round() / 10.0,
-                        engine1_wins,
-                        draws,
-                        engine2_wins,
-                        engine2_name.bold(),
-                        ((engine2_wins as f64 / current_game as f64) * 1000.0).round() / 10.0,
-                        total_score
-                    );
+                    if last_update.elapsed() >= Duration::from_secs(1) {
+                        print!(
+                            "\r\x1B[2KGame {}-{} | {} ({:2.1}%) {}-{}-{} {} ({:2.1}%) | Score: {}",
+                            opening_idx + 1,
+                            game_round + 1,
+                            engine1_name.bold(),
+                            ((engine1_wins as f64 / current_game as f64) * 1000.0).round() / 10.0,
+                            engine1_wins,
+                            draws,
+                            engine2_wins,
+                            engine2_name.bold(),
+                            ((engine2_wins as f64 / current_game as f64) * 1000.0).round() / 10.0,
+                            total_score
+                        );
 
-                    std::io::stdout().flush().unwrap();
+                        io::stdout().flush()?;
+                        last_update = Instant::now();
+                    }
                 }
                 Err(e) => {
                     eprintln!("\nFatal error in game {}: {}", game_number, e);
@@ -301,9 +309,7 @@ fn main() -> io::Result<()> {
     let name_max_len = std::cmp::max(engine1_name.len(), engine2_name.len());
     let name_width = std::cmp::max(name_max_len, 10);
 
-    println!();
-    println!();
-    println!("### Match Results");
+    println!("\r\x1B[2K### Match Results");
     println!();
     println!("Total games: {}", total_games);
 
@@ -329,6 +335,9 @@ fn main() -> io::Result<()> {
     let engine1_win_rate = (engine1_wins as f64 / total_games as f64) * 100.0;
     let engine2_win_rate = (engine2_wins as f64 / total_games as f64) * 100.0;
 
+    // ELO計算と信頼区間の計算
+    let elo_stats = calculate_elo_stats(engine1_wins, engine2_wins, draws, total_games);
+
     println!(
         "| {:Name$} | {:5} | {:7} | {:7} | {:7.1}% | {:5.2} |",
         engine1_name,
@@ -351,5 +360,62 @@ fn main() -> io::Result<()> {
         Name = name_width
     );
 
+    println!();
+    println!("Engine | {}", engine1_name);
+    println!(
+        "Elo    | {:+.2} ± {:.2} (95%)",
+        elo_stats.elo_diff, elo_stats.confidence_interval
+    );
+    println!(
+        "Games  | N: {} W: {} L: {} D: {}",
+        total_games, engine1_wins, engine2_wins, draws
+    );
+
     Ok(())
+}
+
+struct EloStats {
+    elo_diff: f64,
+    confidence_interval: f64,
+}
+
+fn calculate_elo_stats(wins: u32, losses: u32, draws: u32, total_games: u32) -> EloStats {
+    if total_games == 0 {
+        return EloStats {
+            elo_diff: 0.0,
+            confidence_interval: 0.0,
+        };
+    }
+
+    let n = total_games as f64;
+    let w = wins as f64;
+    let d = draws as f64;
+    let l = losses as f64;
+
+    let p_hat = (w + 0.5 * d) / n;
+
+    let elo_diff = if p_hat == 0.0 || p_hat == 1.0 {
+        if p_hat > 0.5 {
+            f64::INFINITY
+        } else {
+            f64::NEG_INFINITY
+        }
+    } else {
+        -ELO_K * (-(p_hat / (1.0 - p_hat)).ln()) / std::f64::consts::LN_10
+    };
+
+    let wld_var = w * (1.0 - p_hat).powi(2) + l * p_hat.powi(2) + d * (0.5 - p_hat).powi(2);
+    let se_elo = if p_hat == 0.0 || p_hat == 1.0 {
+        f64::INFINITY
+    } else {
+        (ELO_K / (std::f64::consts::LN_10 * n)) * wld_var.sqrt() / (p_hat * (1.0 - p_hat))
+    };
+
+    let z_score = 1.96;
+    let confidence_interval = z_score * se_elo;
+
+    EloStats {
+        elo_diff,
+        confidence_interval,
+    }
 }

@@ -3,12 +3,12 @@ use super::linear_layer::LinearLayer;
 use crate::misc::ceil_to_multiple;
 
 pub struct LayerStack {
-    pub l1_univ: LinearLayer<
-        L1_UNIV_INPUT_DIMS,
-        L1_UNIV_OUTPUT_DIMS,
-        L1_UNIV_PADDED_INPUT_DIMS,
-        L1_UNIV_PADDED_OUTPUT_DIMS,
-        L1_UNIV_NUM_REGS,
+    pub l1_base: LinearLayer<
+        L1_BASE_INPUT_DIMS,
+        L1_BASE_OUTPUT_DIMS,
+        L1_BASE_PADDED_INPUT_DIMS,
+        L1_BASE_PADDED_OUTPUT_DIMS,
+        L1_BASE_NUM_REGS,
     >,
     pub l1_pa: LinearLayer<
         L1_PA_INPUT_DIMS,

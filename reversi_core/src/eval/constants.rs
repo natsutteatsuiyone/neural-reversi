@@ -6,13 +6,13 @@ pub const CACHE_LINE_SIZE: usize = 64;
 pub const AVX2_SIMD_WIDTH: usize = 32;
 
 pub const INPUT_FEATURE_DIMS: usize = sum_eval_f2x();
-pub const UNIV_INPUT_OUTPUT_DIMS: usize = 160;
+pub const BASE_INPUT_OUTPUT_DIMS: usize = 96;
 
-pub const L1_UNIV_INPUT_DIMS: usize = UNIV_INPUT_OUTPUT_DIMS;
-pub const L1_UNIV_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_UNIV_INPUT_DIMS, 32);
-pub const L1_UNIV_OUTPUT_DIMS: usize = 8;
-pub const L1_UNIV_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_UNIV_OUTPUT_DIMS, 32);
-pub const L1_UNIV_NUM_REGS: usize = 1;
+pub const L1_BASE_INPUT_DIMS: usize = BASE_INPUT_OUTPUT_DIMS + 1;
+pub const L1_BASE_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_BASE_INPUT_DIMS, 32);
+pub const L1_BASE_OUTPUT_DIMS: usize = 8;
+pub const L1_BASE_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_BASE_OUTPUT_DIMS, 32);
+pub const L1_BASE_NUM_REGS: usize = 1;
 
 pub const L1_PA_INPUT_DIMS: usize = 96 + 1;
 pub const L1_PA_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_PA_INPUT_DIMS, 32);
@@ -20,7 +20,7 @@ pub const L1_PA_OUTPUT_DIMS: usize = 8;
 pub const L1_PA_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
 pub const L1_PA_NUM_REGS: usize = 1;
 
-pub const L2_INPUT_DIMS: usize = (L1_UNIV_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS) * 2;
+pub const L2_INPUT_DIMS: usize = (L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS) * 2;
 pub const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
 pub const L2_OUTPUT_DIMS: usize = 64;
 pub const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
