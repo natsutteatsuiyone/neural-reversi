@@ -1,6 +1,5 @@
 use std::sync::atomic;
 
-use crate::bitboard;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
 use crate::constants::SCORE_INF;
@@ -9,13 +8,14 @@ use crate::search::midgame;
 use crate::search::search_context::SearchContext;
 use crate::square::Square;
 use crate::types::{Depth, NodeType};
+use crate::{bitboard, constants};
 
 const MAX_MOVES: usize = 34;
 const WIPEOUT_VALUE: i32 = 1 << 30;
 const TT_MOVE_VALUE: i32 = 1 << 20;
 const MOBILITY_WEIGHT: i32 = 1 << 14;
 const CORNER_STABILITY_WEIGHT: i32 = 1 << 11;
-const EXCLUDE_MOVE_VALUE: i32 = i32::MIN;
+const SEARCHED_MOVE_VALUE: i32 = -(1 << 20);
 
 /// Represents a single move in the game.
 #[derive(Clone, Copy)]
@@ -154,7 +154,7 @@ impl MoveList {
             let mut max_value = -SCORE_INF;
             for mv in self.moves.iter_mut().take(self.count) {
                 if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-                    mv.value = EXCLUDE_MOVE_VALUE;
+                    mv.value = SEARCHED_MOVE_VALUE;
                 } else if mv.flipped == board.opponent {
                     mv.value = WIPEOUT_VALUE;
                 } else if mv.sq == tt_move {
@@ -167,12 +167,25 @@ impl MoveList {
                         1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
                         2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
                         _ => -midgame::shallow_search::<crate::types::PV>(
-                            ctx, &next, sort_depth as Depth, -SCORE_INF, SCORE_INF,
+                            ctx,
+                            &next,
+                            sort_depth as Depth,
+                            -SCORE_INF,
+                            SCORE_INF,
                         ),
                     };
                     ctx.undo(mv);
                     max_value = max_value.max(mv.value);
                 };
+            }
+
+            const MARGIN: i32 = 12 << constants::EVAL_SCORE_SCALE_BITS;
+            let reduction_threshold = max_value - MARGIN;
+            for mv in self.moves.iter_mut().take(self.count) {
+                if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
+                    let diff = (max_value - mv.value) as f64 * 0.5;
+                    mv.reduction_depth = (diff / MARGIN as f64).round() as Depth;
+                }
             }
         }
     }

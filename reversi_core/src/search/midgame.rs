@@ -245,7 +245,18 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         ctx.update(mv);
 
         let mut score = -SCORE_INF;
-        if !NT::PV_NODE || move_count > 1 {
+        if depth >= 2 && mv.reduction_depth > 0 {
+            if SP_NODE {
+                let sp_state = ctx.split_point.as_ref().unwrap().state();
+                alpha = sp_state.alpha;
+            }
+
+            let reduction_depth = mv.reduction_depth.min(depth - 1);
+            score = -search::<NonPV, false>(ctx, &next, depth - 1 - reduction_depth, -(alpha + 1), -alpha);
+            if score > alpha {
+                score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha);
+            }
+        } else if !NT::PV_NODE || move_count > 1 {
             if SP_NODE {
                 let sp_state = ctx.split_point.as_ref().unwrap().state();
                 alpha = sp_state.alpha;
