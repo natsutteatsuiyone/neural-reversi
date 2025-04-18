@@ -249,7 +249,7 @@ impl TranspositionTable {
             let cluster_byte_size = mem::size_of::<TTEntry>() * CLUSTER_SIZE;
             (mb_size as u64 * 1024 * 1024) / cluster_byte_size as u64
         };
-        let entries_size = cluster_count as usize * CLUSTER_SIZE;
+        let entries_size = cluster_count as usize * CLUSTER_SIZE + 1;
 
         TranspositionTable {
             entries: (0..entries_size).map(|_| TTEntry::default()).collect(),
@@ -298,10 +298,13 @@ impl TranspositionTable {
     /// - The second element is the retrieved `TTData`.
     /// - The third element is the index of the entry in the transposition table.
     pub fn probe(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { self.probe_avx2(key, generation) };
+        }
+
         let key16 = key as u16;
         let cluster_idx = self.get_cluster_idx(key);
 
-        // First check if the entry is a direct hit
         for i in 0..CLUSTER_SIZE {
             let idx = cluster_idx + i;
             let entry = unsafe { self.entries.get_unchecked(idx) };
@@ -312,10 +315,10 @@ impl TranspositionTable {
             }
         }
 
-        // Find the best entry to replace
         let mut replace_idx = cluster_idx;
         let replace_data = unsafe { self.entries.get_unchecked(cluster_idx).unpack() };
-        let mut replace_score = replace_data.depth as i32 - replace_data.relative_age(generation) * 8;
+        let mut replace_score =
+            replace_data.depth as i32 - replace_data.relative_age(generation) * 8;
 
         for i in 1..CLUSTER_SIZE {
             let idx = cluster_idx + i;
@@ -330,6 +333,66 @@ impl TranspositionTable {
         }
 
         (false, TTData::default(), replace_idx)
+    }
+
+    unsafe fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
+        use std::arch::x86_64::*;
+
+        let key16 = key as u16;
+        let base = self.get_cluster_idx(key);
+
+        let ptr = self.entries.as_ptr().add(base) as *const __m256i;
+        let words = _mm256_loadu_si256(ptr);
+
+        let key_mask = _mm256_set1_epi64x(0xFFFF_i64);
+        let keys = _mm256_and_si256(words, key_mask);
+        let needle = _mm256_set1_epi16(key16 as i16);
+
+        let key_match_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi16(keys, needle));
+
+        let hit_mask = (key_match_mask as u32) & 0x0001_0101;
+
+        if hit_mask != 0 {
+            let idx_off = (hit_mask.trailing_zeros() >> 3) as usize; // バイト単位で計算
+            let idx = base + idx_off;
+            let data = self.entries.get_unchecked(idx).unpack();
+            if data.key == key16 && data.is_occupied() {
+                return (true, data, idx);
+            }
+        }
+
+        let lanes: [u64; 4] = core::mem::transmute(words);
+
+        const DEP_SHIFT: u32 = TTEntry::DEPTH_SHIFT as u32;
+        const DEP_MASK: u64 = TTEntry::DEPTH_MASK;
+        const GEN_SHIFT: u32 = TTEntry::GENERATION_SHIFT as u32;
+        const GEN_MASK: u64 = TTEntry::GENERATION_MASK;
+
+        let depth0 = ((lanes[0] >> DEP_SHIFT) & DEP_MASK) as i32;
+        let depth1 = ((lanes[1] >> DEP_SHIFT) & DEP_MASK) as i32;
+        let depth2 = ((lanes[2] >> DEP_SHIFT) & DEP_MASK) as i32;
+
+        let age0 = generation as i32 - ((lanes[0] >> GEN_SHIFT) & GEN_MASK) as i32;
+        let age1 = generation as i32 - ((lanes[1] >> GEN_SHIFT) & GEN_MASK) as i32;
+        let age2 = generation as i32 - ((lanes[2] >> GEN_SHIFT) & GEN_MASK) as i32;
+
+        let score0 = depth0 - (age0 << 3);
+        let score1 = depth1 - (age1 << 3);
+        let score2 = depth2 - (age2 << 3);
+
+        let mut best_idx = 0;
+        let mut best_score = score0;
+
+        if score1 < best_score {
+            best_score = score1;
+            best_idx = 1;
+        }
+
+        if score2 < best_score {
+            best_idx = 2;
+        }
+
+        (false, TTData::default(), base + best_idx)
     }
 
     /// Stores data in the transposition table at the specified entry index.
