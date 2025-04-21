@@ -14,6 +14,7 @@ use crate::types::{Depth, NodeType, NonPV, Root, Score, Scoref, Selectivity, PV}
 use crate::{bitboard, probcut, stability};
 
 use super::midgame;
+use super::search_context::GamePhase;
 
 /// Quadrant masks used for prioritizing moves in shallow search.
 #[rustfmt::skip]
@@ -51,8 +52,11 @@ pub fn search_root(
     let n_empties = ctx.empty_list.count;
     let mut best_score = 0;
 
+    ctx.game_phase = GamePhase::MidGame;
     ctx.selectivity = NO_SELECTIVITY;
     let score = midgame::evaluate(ctx, board) >> EVAL_SCORE_SCALE_BITS;
+
+    ctx.game_phase = GamePhase::EndGame;
     let mut alpha = score - 6;
     let mut beta = score + 6;
 

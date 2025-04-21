@@ -7,23 +7,28 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::CACHE_LINE_SIZE;
 
-use super::constants::{BASE_INPUT_OUTPUT_DIMS, INPUT_FEATURE_DIMS};
-
-const OUTPUT_DIMS: usize = BASE_INPUT_OUTPUT_DIMS;
-const HIDDEN_DIMS: usize = OUTPUT_DIMS * 2;
-const NUM_REGS: usize = HIDDEN_DIMS / 16;
 
 #[derive(Debug)]
-pub struct BaseInput {
+pub struct BaseInput<
+    const INPUT_DIMS: usize,
+    const OUTPUT_DIMS: usize,
+    const HIDDEN_DIMS: usize,
+    const NUM_REGS: usize,
+> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-impl BaseInput
+impl<
+    const INPUT_DIMS: usize,
+    const OUTPUT_DIMS: usize,
+    const HIDDEN_DIMS: usize,
+    const NUM_REGS: usize,
+> BaseInput<INPUT_DIMS, OUTPUT_DIMS, HIDDEN_DIMS, NUM_REGS>
 {
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS];
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN_DIMS];
+        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * HIDDEN_DIMS];
 
         reader.read_i16_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
@@ -32,7 +37,7 @@ impl BaseInput
             biases[i] *= 2;
         }
 
-        for i in 0..INPUT_FEATURE_DIMS * HIDDEN_DIMS {
+        for i in 0..INPUT_DIMS * HIDDEN_DIMS {
             weights[i] *= 2;
         }
 
@@ -49,7 +54,7 @@ impl BaseInput
                     bias_slice.swap(base + 3, base + 5);
                 }
 
-                for i in 0..INPUT_FEATURE_DIMS {
+                for i in 0..INPUT_DIMS {
                     let ptr = weights.as_mut_ptr().add(i * HIDDEN_DIMS) as *mut u64;
                     let weight_slice: &mut [u64] = std::slice::from_raw_parts_mut(ptr, num_chunks);
 

@@ -77,7 +77,7 @@ impl Search {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
             generation: 0,
             threads: Arc::new(pool),
-            eval: Arc::new(Eval::new("eval.zst").unwrap()),
+            eval: Arc::new(Eval::new("eval.zst", "eval_sm.zst").unwrap()),
         }
     }
 

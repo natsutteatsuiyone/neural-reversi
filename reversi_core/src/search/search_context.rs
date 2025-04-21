@@ -15,6 +15,12 @@ use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, Score, Scoref};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GamePhase {
+    MidGame,
+    EndGame,
+}
+
 #[derive(Clone, Copy)]
 pub struct StackRecord {
     pub pv: [Square; MAX_PLY],
@@ -35,6 +41,7 @@ pub struct SearchContext {
     pub feature_set: FeatureSet,
     pub callback: Option<Arc<SearchProgressCallback>>,
     stack: [StackRecord; MAX_PLY],
+    pub game_phase: GamePhase,
 }
 
 impl SearchContext {
@@ -66,6 +73,7 @@ impl SearchContext {
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
             }; MAX_PLY],
+            game_phase: GamePhase::MidGame,
         }
     }
 
@@ -97,6 +105,7 @@ impl SearchContext {
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
             }; MAX_PLY],
+            game_phase: task.game_phase,
         }
     }
 

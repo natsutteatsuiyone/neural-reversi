@@ -149,7 +149,7 @@ impl MoveList {
             self.evaluate_moves_fast(board, tt_move);
         } else {
             let mut sort_depth = (depth as i32 - 15) / 3;
-            sort_depth = sort_depth.clamp(0, 3);
+            sort_depth = sort_depth.clamp(0, 4);
 
             let mut max_value = -SCORE_INF;
             for mv in self.moves.iter_mut().take(self.count) {

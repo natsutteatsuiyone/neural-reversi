@@ -27,6 +27,8 @@ use crate::search::root_move::RootMove;
 use crate::search::search_context::SearchContext;
 use crate::search::spinlock;
 
+use super::search_context::GamePhase;
+
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 const MAX_SLAVES_PER_SPLITPOINT: usize = 3;
 
@@ -52,6 +54,7 @@ pub struct SplitPointSharedTask {
     pub player: u8,
     pub generation: u8,
     pub selectivity: u8,
+    pub game_phase: GamePhase,
     pub tt: Arc<TranspositionTable>,
     pub root_moves: Arc<std::sync::Mutex<Vec<RootMove>>>,
     pub pool: Arc<ThreadPool>,
@@ -325,6 +328,7 @@ impl Thread {
             root_moves: ctx.root_moves.clone(),
             pool: ctx.pool.clone(),
             eval: ctx.eval.clone(),
+            game_phase: ctx.game_phase,
         });
         sp_state.n_nodes = 0;
         sp_state.cutoff = false;

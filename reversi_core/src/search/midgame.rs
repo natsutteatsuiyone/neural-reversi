@@ -13,6 +13,7 @@ use crate::move_list::Move;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::search::endgame;
+use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
 use crate::square::Square;
 use crate::stability;
@@ -50,6 +51,7 @@ pub fn search_root(
     let mut best_score = 0;
     let mut alpha = -SCORE_INF;
     let mut beta = SCORE_INF;
+    ctx.game_phase = GamePhase::MidGame;
 
     let max_depth = level.mid_depth;
     if max_depth == 0 {

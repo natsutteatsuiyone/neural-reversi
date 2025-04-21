@@ -64,7 +64,7 @@ impl EvalCache {
     /// The evaluation score if the key matches, None otherwise
     pub fn probe(&self, key: u64) -> Option<i32> {
         let index = self.index(key);
-        let entry = self.table[index].load(Ordering::Relaxed);
+        let entry = unsafe { self.table.get_unchecked(index).load(Ordering::Relaxed) };
 
         if entry == 0 {
             return None;

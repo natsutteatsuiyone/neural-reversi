@@ -76,7 +76,38 @@ pub fn probcut_midgame(
     beta: Score,
 ) -> Option<Score> {
     if depth >= 3 && ctx.selectivity < NO_SELECTIVITY {
-        return probcut(ctx, board, depth, alpha, beta);
+        let ply = ctx.ply();
+        let pc_depth = determine_probcut_depth(depth);
+        let mean = calc_mean(ply, pc_depth, depth);
+        let sigma = calc_sigma(ply, pc_depth, depth);
+        let t = get_t(ctx.selectivity);
+        let current_selectivity = ctx.selectivity;
+
+        let eval_score = midgame::evaluate(ctx, board);
+        let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
+        let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
+
+        let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
+        let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
+        if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
+            ctx.update_probcut();
+            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta);
+            ctx.undo_probcut(current_selectivity);
+            if score >= pc_beta {
+                return Some(beta);
+            }
+        }
+
+        let eval_alpha = (alpha as f64 + eval_sigma - eval_mean).ceil() as Score;
+        let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
+        if eval_score < eval_alpha && pc_alpha > MID_SCORE_MIN {
+            ctx.update_probcut();
+            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1);
+            ctx.undo_probcut(current_selectivity);
+            if score <= pc_alpha {
+                return Some(alpha);
+            }
+        }
     }
     None
 }
@@ -91,34 +122,30 @@ pub fn probcut_endgame(
     if depth >= 10 && ctx.selectivity < NO_SELECTIVITY {
         let scaled_alpha = alpha << EVAL_SCORE_SCALE_BITS;
         let scaled_beta = beta << EVAL_SCORE_SCALE_BITS;
-        if let Some(score) = probcut(ctx, board, depth, scaled_alpha, scaled_beta) {
+        if let Some(score) = probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta) {
             return Some(score >> EVAL_SCORE_SCALE_BITS);
         }
     }
     None
 }
 
-fn probcut(
+fn probcut_endgame_internal(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
     alpha: Score,
     beta: Score,
 ) -> Option<Score> {
-    let ply = ctx.ply();
     let pc_depth = determine_probcut_depth(depth);
-    let mean = calc_mean(ply, pc_depth, depth);
-    let sigma = calc_sigma(ply, pc_depth, depth);
+    let mean: f64 = PROBCUT_ENDGAME_PARAMS.mean(pc_depth as f64, depth as f64) * EVAL_SCORE_SCALE as f64;
+    let sigma: f64 = PROBCUT_ENDGAME_PARAMS.sigma(pc_depth as f64, depth as f64) * EVAL_SCORE_SCALE as f64;
     let t = get_t(ctx.selectivity);
     let current_selectivity = ctx.selectivity;
 
     let eval_score = midgame::evaluate(ctx, board);
-    let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
-    let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
 
-    let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
-    if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
+    if eval_score > alpha && pc_beta < MID_SCORE_MAX {
         ctx.update_probcut();
         let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta);
         ctx.undo_probcut(current_selectivity);
@@ -127,9 +154,8 @@ fn probcut(
         }
     }
 
-    let eval_alpha = (alpha as f64 + eval_sigma - eval_mean).ceil() as Score;
     let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
-    if eval_score < eval_alpha && pc_alpha > MID_SCORE_MIN {
+    if eval_score < beta &&  pc_alpha > MID_SCORE_MIN {
         ctx.update_probcut();
         let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1);
         ctx.undo_probcut(current_selectivity);
@@ -140,6 +166,16 @@ fn probcut(
 
     None
 }
+
+#[rustfmt::skip]
+const PROBCUT_ENDGAME_PARAMS: ProbcutParams = ProbcutParams {
+    mean_intercept: -1.192882481,
+    mean_coef_shallow: 0.1433213255,
+    mean_coef_deep: 0.005958478026,
+    std_intercept: 1.65272932,
+    std_coef_shallow: -0.07145816068,
+    std_coef_deep: 0.001187215727,
+};
 
 #[rustfmt::skip]
 const PROBCUT_PARAMS: [ProbcutParams; 60] = [

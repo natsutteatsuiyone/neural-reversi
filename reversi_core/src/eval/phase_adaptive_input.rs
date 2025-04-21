@@ -6,22 +6,26 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::CACHE_LINE_SIZE;
 
-use super::constants::{INPUT_FEATURE_DIMS, L1_PA_INPUT_DIMS};
-
-const OUTPUT_DIMS: usize = L1_PA_INPUT_DIMS - 1;
-const NUM_REGS: usize = OUTPUT_DIMS / 16;
 
 #[derive(Debug)]
-pub struct PhaseAdaptiveInput {
+pub struct PhaseAdaptiveInput<
+    const INPUT_DIMS: usize,
+    const OUTPUT_DIMS: usize,
+    const NUM_REGS: usize,
+> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-impl PhaseAdaptiveInput
+impl<
+    const INPUT_DIMS: usize,
+    const OUTPUT_DIMS: usize,
+    const NUM_REGS: usize,
+> PhaseAdaptiveInput<INPUT_DIMS, OUTPUT_DIMS, NUM_REGS>
 {
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS];
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS];
+        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * OUTPUT_DIMS];
 
         reader.read_i16_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
@@ -39,8 +43,8 @@ impl PhaseAdaptiveInput
                     bias_slice.swap(base + 3, base + 5);
                 }
 
-                for i in 0..INPUT_FEATURE_DIMS {
-                    let ptr = weights.as_mut_ptr().add(i * OUTPUT_DIMS) as *mut u64;
+                for i in 0..INPUT_DIMS {
+                     let ptr = weights.as_mut_ptr().add(i * OUTPUT_DIMS) as *mut u64;
                     let weight_slice: &mut [u64] = std::slice::from_raw_parts_mut(ptr, num_chunks);
 
                     for j in 0..num_chunks/8 {

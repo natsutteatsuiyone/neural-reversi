@@ -53,7 +53,7 @@ pub fn execute(
         let mut side_to_move = Piece::Black;
 
         let mut game_records = Vec::new();
-        let num_random = rand::rng().random_range(10..40);
+        let num_random = rand::rng().random_range(10..30);
         let mut is_random = true;
         while !board.is_game_over() {
             if !board.has_legal_moves() {
