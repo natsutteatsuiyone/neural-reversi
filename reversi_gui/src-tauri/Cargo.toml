@@ -1,6 +1,6 @@
 [package]
 name = "neural-reversi"
-version = "0.4.0"
+version = "0.5.0"
 description = "Neural Reversi"
 authors = ["natsutteatsuiyone"]
 edition = "2021"
