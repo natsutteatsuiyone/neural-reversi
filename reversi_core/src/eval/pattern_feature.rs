@@ -255,51 +255,42 @@ impl FeatureSet {
                 let o_in = self.o_features[ply].v16;
                 let o_out = &mut self.o_features[ply + 1].v16;
 
-                let mut p = [p_in[0], p_in[1]];
-                let mut o = [o_in[0], o_in[1]];
                 let sq = mv.sq as usize;
                 let f = &EVAL_FEATURE[sq].v16;
 
-                if player == 0 {
-                    p[0] = _mm256_sub_epi16(p[0], _mm256_slli_epi16(f[0], 1));
-                    p[1] = _mm256_sub_epi16(p[1], _mm256_slli_epi16(f[1], 1));
-                    o[0] = _mm256_sub_epi16(o[0], f[0]);
-                    o[1] = _mm256_sub_epi16(o[1], f[1]);
+                let (p_scale, o_scale, p_sign, o_sign) = if player == 0 {
+                    (
+                        _mm256_set1_epi16(2),
+                        _mm256_set1_epi16(1),
+                        _mm256_set1_epi16(-1), // p: subtract sum
+                        _mm256_set1_epi16(1),  // o: add sum
+                    )
                 } else {
-                    p[0] = _mm256_sub_epi16(p[0], f[0]);
-                    p[1] = _mm256_sub_epi16(p[1], f[1]);
-                    o[0] = _mm256_sub_epi16(o[0], _mm256_slli_epi16(f[0], 1));
-                    o[1] = _mm256_sub_epi16(o[1], _mm256_slli_epi16(f[1], 1));
-                }
+                    (
+                        _mm256_set1_epi16(1),
+                        _mm256_set1_epi16(2),
+                        _mm256_set1_epi16(1),  // p: add sum
+                        _mm256_set1_epi16(-1), // o: subtract sum
+                    )
+                };
 
-                let mut sum = [
-                    _mm256_setzero_si256(),
-                    _mm256_setzero_si256(),
-                    _mm256_setzero_si256(),
-                ];
+                p_out[0] = _mm256_sub_epi16(p_in[0], _mm256_mullo_epi16(f[0], p_scale));
+                p_out[1] = _mm256_sub_epi16(p_in[1], _mm256_mullo_epi16(f[1], p_scale));
+                o_out[0] = _mm256_sub_epi16(o_in[0], _mm256_mullo_epi16(f[0], o_scale));
+                o_out[1] = _mm256_sub_epi16(o_in[1], _mm256_mullo_epi16(f[1], o_scale));
 
+                let mut sum0 = _mm256_setzero_si256();
+                let mut sum1 = _mm256_setzero_si256();
                 for x in BitboardIterator::new(flip) {
                     let f = &EVAL_FEATURE[x as usize].v16;
-                    sum[0] = _mm256_add_epi16(sum[0], f[0]);
-                    sum[1] = _mm256_add_epi16(sum[1], f[1]);
+                    sum0 = _mm256_add_epi16(sum0, f[0]);
+                    sum1 = _mm256_add_epi16(sum1, f[1]);
                 }
 
-                if player == 0 {
-                    p[0] = _mm256_sub_epi16(p[0], sum[0]);
-                    p[1] = _mm256_sub_epi16(p[1], sum[1]);
-                    o[0] = _mm256_add_epi16(o[0], sum[0]);
-                    o[1] = _mm256_add_epi16(o[1], sum[1]);
-                } else {
-                    p[0] = _mm256_add_epi16(p[0], sum[0]);
-                    p[1] = _mm256_add_epi16(p[1], sum[1]);
-                    o[0] = _mm256_sub_epi16(o[0], sum[0]);
-                    o[1] = _mm256_sub_epi16(o[1], sum[1]);
-                }
-
-                p_out[0] = p[0];
-                p_out[1] = p[1];
-                o_out[0] = o[0];
-                o_out[1] = o[1];
+                p_out[0] = _mm256_add_epi16(p_out[0], _mm256_mullo_epi16(sum0, p_sign));
+                p_out[1] = _mm256_add_epi16(p_out[1], _mm256_mullo_epi16(sum1, p_sign));
+                o_out[0] = _mm256_add_epi16(o_out[0], _mm256_mullo_epi16(sum0, o_sign));
+                o_out[1] = _mm256_add_epi16(o_out[1], _mm256_mullo_epi16(sum1, o_sign));
             }
         } else {
             self.p_features.copy_within(ply..ply + 1, ply + 1);
