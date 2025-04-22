@@ -85,6 +85,15 @@ impl Square {
 
 }
 
+// We want Square::None as the default value, not the first variant (A1)
+// which would be chosen by #[derive(Default)]
+#[allow(clippy::derivable_impls)]
+impl Default for Square {
+    fn default() -> Self {
+        Square::None
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseSquareError;
 

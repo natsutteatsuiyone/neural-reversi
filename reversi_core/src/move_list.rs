@@ -1,3 +1,4 @@
+use std::slice;
 use std::sync::atomic;
 
 use crate::bitboard::BitboardIterator;
@@ -18,15 +19,15 @@ const CORNER_STABILITY_WEIGHT: i32 = 1 << 11;
 const SEARCHED_MOVE_VALUE: i32 = -(1 << 20);
 
 /// Represents a single move in the game.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Move {
     /// The square where the move is placed.
     pub sq: Square,
     /// The bitboard representing the pieces flipped by this move.
     pub flipped: u64,
-    /// The value associated with this move.
+    /// The evaluated value of this move, used for sorting.
     pub value: i32,
-
+    /// The suggested depth reduction for this.
     pub reduction_depth: Depth,
 }
 
@@ -41,6 +42,7 @@ impl Move {
     /// # Returns
     ///
     /// A new instance of `Move`.
+    #[inline]
     pub fn new(sq: Square, flipped: u64) -> Move {
         Move {
             sq,
@@ -52,30 +54,26 @@ impl Move {
 }
 
 /// A list of possible moves.
+#[derive(Clone, Debug)]
 pub struct MoveList {
     /// Buffer storing the moves.
     moves: [Move; MAX_MOVES],
     /// The count of moves in the list.
-    pub count: usize,
+    count: usize,
 }
 
 impl MoveList {
-    /// Creates a new `MoveList` based on the current `Board` state.
+    /// Creates a new `MoveList` containing all legal moves for the current player on the board.
     ///
     /// # Arguments
     ///
-    /// * `board` - A reference to the current game board.
+    /// * `board` - A reference to the current game board state.
     ///
     /// # Returns
     ///
-    /// A new instance of `MoveList` containing all valid moves.
+    /// A new instance of `MoveList`.
     pub fn new(board: &Board) -> MoveList {
-        let mut move_buffer = [Move {
-            sq: Square::None,
-            flipped: 0,
-            value: 0,
-            reduction_depth: 0,
-        }; MAX_MOVES];
+        let mut move_buffer = [Move::default(); MAX_MOVES];
         let mut count = 0;
         for sq in BitboardIterator::new(board.get_moves()) {
             move_buffer[count].sq = sq;
@@ -90,6 +88,16 @@ impl MoveList {
         }
     }
 
+    /// Returns the number of moves in the list.
+    ///
+    /// # Returns
+    ///
+    /// The number of moves in the list.
+    #[inline]
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
     /// Retrieves the first move in the list, if any.
     ///
     /// # Returns
@@ -100,7 +108,7 @@ impl MoveList {
         if self.count == 0 {
             None
         } else {
-            Some(&self.moves[0])
+            self.moves.first()
         }
     }
 
@@ -108,13 +116,20 @@ impl MoveList {
     ///
     /// # Returns
     ///
-    /// An instance of `MoveIterator`.
+    /// An instance of `slice::Iter`.
     #[inline]
-    pub fn iter(&self) -> MoveIterator {
-        MoveIterator {
-            move_list: self,
-            current: 0,
-        }
+    pub fn iter(&self) -> slice::Iter<'_, Move> {
+        self.moves[..self.count].iter()
+    }
+
+    /// Returns a mutable iterator over the moves in the list.
+    ///
+    /// # Returns
+    ///
+    /// An instance of `slice::IterMut`.
+    #[inline]
+    pub fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
+        self.moves[..self.count].iter_mut()
     }
 
     /// Returns an iterator over the moves in the list sorted by their values.
@@ -126,6 +141,16 @@ impl MoveList {
         BestFirstMoveIterator::new(self)
     }
 
+
+    /// Evaluates moves using heuristics or shallow search to assign `value` for sorting.
+    /// Also calculates `reduction_depth` for potential score-based reductions.
+    ///
+    /// # Arguments
+    /// * `ctx` - Search context, providing info like transposition table hits and node statistics.
+    /// * `board` - The current board state *before* making any move from this list.
+    /// * `depth` - The remaining search depth.
+    /// * `tt_move` - The move suggested by the transposition table (if any).
+    /// * `NT` - Node type (e.g., PV node, non-PV node) influencing evaluation details.
     pub fn evaluate_moves<NT: NodeType>(
         &mut self,
         ctx: &mut SearchContext,
@@ -179,12 +204,13 @@ impl MoveList {
                 };
             }
 
-            const MARGIN: i32 = 12 << constants::EVAL_SCORE_SCALE_BITS;
-            let reduction_threshold = max_value - MARGIN;
-            for mv in self.moves.iter_mut().take(self.count) {
+            // Reduce search depth for moves significantly worse than the best found so far
+            const SBR_MARGIN: i32 = 12 << constants::EVAL_SCORE_SCALE_BITS;
+            let reduction_threshold = max_value - SBR_MARGIN;
+            for mv in self.iter_mut() {
                 if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
                     let diff = (max_value - mv.value) as f64 * 0.5;
-                    mv.reduction_depth = (diff / MARGIN as f64).round() as Depth;
+                    mv.reduction_depth = (diff / SBR_MARGIN as f64).round() as Depth;
                 }
             }
         }
@@ -216,34 +242,7 @@ impl MoveList {
     /// Sorts the move list based on their evaluated values.
     #[inline]
     pub fn sort(&mut self) {
-        self.moves[..self.count].sort_unstable_by(|a, b| b.value.cmp(&a.value));
-    }
-}
-
-/// An iterator over the `MoveList`.
-pub struct MoveIterator<'a> {
-    /// Reference to the `MoveList` being iterated.
-    move_list: &'a MoveList,
-    /// The current index in the iteration.
-    current: usize,
-}
-
-impl<'a> Iterator for MoveIterator<'a> {
-    type Item = &'a Move;
-
-    /// Returns the next move in the iteration.
-    ///
-    /// # Returns
-    ///
-    /// An `Option` containing a reference to the next `Move` if available, otherwise `None`.
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current < self.move_list.count {
-            let result = Some(&self.move_list.moves[self.current]);
-            self.current += 1;
-            result
-        } else {
-            None
-        }
+        self.moves[..self.count].sort_unstable_by_key(|m| -m.value);
     }
 }
 
@@ -298,7 +297,7 @@ pub struct BestFirstMoveIterator<'a> {
 }
 
 impl BestFirstMoveIterator<'_> {
-    /// Creates a new `SortedMoveIterator` with initial indices.
+    /// Creates a new `BestFirstMoveIterator` with initial indices.
     ///
     /// # Arguments
     ///
@@ -308,7 +307,6 @@ impl BestFirstMoveIterator<'_> {
     ///
     /// A new instance of `SortedMoveIterator`.
     pub fn new(move_list: &MoveList) -> BestFirstMoveIterator {
-        #[rustfmt::skip]
         let indices = BestFirstMoveIterator::create_indices();
 
         BestFirstMoveIterator {

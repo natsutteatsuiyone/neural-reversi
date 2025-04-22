@@ -237,7 +237,7 @@ impl SearchContext {
 
     fn create_root_moves(board: &Board) -> Vec<RootMove> {
         let move_list = MoveList::new(board);
-        let mut root_moves = Vec::<RootMove>::with_capacity(move_list.count);
+        let mut root_moves = Vec::<RootMove>::with_capacity(move_list.count());
         for m in move_list.iter() {
             root_moves.push(RootMove {
                 sq: m.sq,

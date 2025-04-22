@@ -190,7 +190,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         ctx.tt.prefetch(tt_key);
 
         let mut move_list = MoveList::new(board);
-        if move_list.count == 0 {
+        if move_list.count() == 0 {
             let next = board.switch_players();
             if next.has_legal_moves() {
                 ctx.update_pass();
@@ -226,7 +226,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             }
         }
 
-        if move_list.count > 1 {
+        if move_list.count() > 1 {
             move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
             move_list.sort();
         }
@@ -501,7 +501,7 @@ pub fn shallow_search<NT: NodeType>(
     ctx.tt.prefetch(tt_key);
 
     let mut move_list = MoveList::new(board);
-    if move_list.count == 0 {
+    if move_list.count() == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -530,7 +530,7 @@ pub fn shallow_search<NT: NodeType>(
         return tt_data.score;
     }
 
-    if move_list.count > 1 {
+    if move_list.count() > 1 {
         move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
         move_list.sort();
     }

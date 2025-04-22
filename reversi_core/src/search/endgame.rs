@@ -181,7 +181,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         ctx.tt.prefetch(tt_key);
 
         let mut move_list = MoveList::new(board);
-        if move_list.count == 0 {
+        if move_list.count() == 0 {
             let next = board.switch_players();
             if next.has_legal_moves() {
                 ctx.update_pass();
@@ -217,7 +217,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             }
         }
 
-        if move_list.count > 1 {
+        if move_list.count() > 1 {
             move_list.evaluate_moves::<NT>(ctx, board, n_empties, tt_move);
             move_list.sort();
         }
@@ -364,7 +364,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 
     let mut move_list = MoveList::new(board);
-    if move_list.count >= 2 {
+    if move_list.count() >= 2 {
         // transposition table lookup
         let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
         let tt_move = if tt_hit {
@@ -412,7 +412,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             NO_SELECTIVITY,
             ctx.generation,
         );
-    } else if move_list.count == 1 {
+    } else if move_list.count() == 1 {
         let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update_endgame(mv.sq);

@@ -15,7 +15,7 @@ pub fn perft(board: &Board, depth: u32) -> u64 {
     let mut nodes = 0;
     let move_list = MoveList::new(board);
 
-    if move_list.count > 0 {
+    if move_list.count() > 0 {
         for m in move_list.iter() {
             let next = board.make_move_with_flipped(m.flipped, m.sq);
             if depth <= 1 {
