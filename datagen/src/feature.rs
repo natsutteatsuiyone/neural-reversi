@@ -155,7 +155,7 @@ fn process_file_group(
 fn load_game_records(file_path: &str) -> io::Result<Vec<GameRecord>> {
     let metadata = fs::metadata(file_path)?;
     let file_size = metadata.len() as usize;
-    let entry_size = 26;
+    let entry_size = 24;
 
     if file_size % entry_size != 0 {
         return Err(io::Error::new(
@@ -172,14 +172,15 @@ fn load_game_records(file_path: &str) -> io::Result<Vec<GameRecord>> {
         let player = u64::from_le_bytes(chunk[0..8].try_into().unwrap());
         let opponent = u64::from_le_bytes(chunk[8..16].try_into().unwrap());
         let mut score = f32::from_le_bytes(chunk[16..20].try_into().unwrap());
-        let game_score = f32::from_le_bytes(chunk[20..24].try_into().unwrap());
-        let ply = chunk[24];
-        let is_random = chunk[25] == 1;
+        let game_score = chunk[20] as i8;
+        let ply = chunk[21];
+        let is_random = chunk[22] == 1;
+        // let mv = chunk[23];
 
         if ply <= 1 {
             score = 0.0;
         } else if !is_random {
-            score = ((ply as f32 * game_score) + (59.0 - ply as f32) * score) / 59.0;
+            score = ((ply as f32 * game_score as f32) + (59.0 - ply as f32) * score) / 59.0;
         }
 
         records.push(GameRecord {

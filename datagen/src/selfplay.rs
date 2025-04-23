@@ -15,15 +15,16 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Instant;
 
-const RECORD_SIZE: u64 = 8 * 2 + 4 * 2 + 1 + 1;
+const RECORD_SIZE: u64 = 24;
 
 struct GameRecord {
     ply: u8,
     board: Board,
     score: Scoref,
-    game_score: Scoref,
+    game_score: i8,
     side_to_move: Piece,
     is_random: bool,
+    sq: Square,
 }
 
 pub fn execute(
@@ -73,9 +74,10 @@ pub fn execute(
                 ply,
                 board,
                 score: result.score,
-                game_score: 0.0,
+                game_score: 0,
                 side_to_move,
                 is_random,
+                sq: result.best_move.unwrap(),
             };
 
             game_records.push(record);
@@ -98,9 +100,9 @@ pub fn execute(
         let game_score = last_record.score;
         for record in game_records.iter_mut() {
             record.game_score = if record.side_to_move == last_side {
-                game_score
+                game_score as i8
             } else {
-                -game_score
+                -game_score as i8
             };
         }
 
@@ -133,9 +135,10 @@ fn write_records_to_file(path_str: &str, records: &[GameRecord]) -> std::io::Res
         writer.write_u64::<LittleEndian>(record.board.player)?;
         writer.write_u64::<LittleEndian>(record.board.opponent)?;
         writer.write_f32::<LittleEndian>(record.score)?;
-        writer.write_f32::<LittleEndian>(record.game_score)?;
+        writer.write_i8(record.game_score)?;
         writer.write_u8(record.ply)?;
         writer.write_u8(if record.is_random { 1 } else { 0 })?;
+        writer.write_u8(record.sq as u8)?;
     }
     writer.flush()?;
     Ok(())
