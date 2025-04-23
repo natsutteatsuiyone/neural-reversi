@@ -1,8 +1,9 @@
 use crate::board::Board;
 use crate::square::Square;
 
+/// Bit‑mask per quadrant
 #[rustfmt::skip]
-pub const QUADRANT_ID: [usize; 64] = [
+pub const QUADRANT_ID: [u8; 64] = [
     1, 1, 1, 1, 2, 2, 2, 2,
     1, 1, 1, 1, 2, 2, 2, 2,
     1, 1, 1, 1, 2, 2, 2, 2,
@@ -12,25 +13,6 @@ pub const QUADRANT_ID: [usize; 64] = [
     4, 4, 4, 4, 8, 8, 8, 8,
     4, 4, 4, 4, 8, 8, 8, 8,
 ];
-
-/// Represents a single empty square in the list.
-#[derive(Clone, Copy)]
-struct EmptySquare {
-    next: Square,
-    prev: Square,
-    quad_id: usize,
-}
-
-/// Manages a linked list of empty squares on the board.
-///
-/// The `EmptyList` maintains an array of `EmptySquare` structs to efficiently
-/// track and manipulate empty squares in a predefined order.
-#[derive(Clone)]
-pub struct EmptyList {
-    squares: [EmptySquare; 65],
-    pub count: u32,
-    pub parity: usize,
-}
 
 /// A presorted list of squares based on strategic importance.
 #[rustfmt::skip]
@@ -65,6 +47,24 @@ const PRESORTED: [Square; 64] = [
     Square::D4, Square::E4, Square::D5, Square::E5,
 ];
 
+/// Represents a single empty square in the list.
+#[derive(Clone, Copy, Default)]
+struct EmptySquare {
+    next: Square,
+    prev: Square,
+    quad_id: u8,
+}
+
+/// Manages a linked list of empty squares on the board.
+///
+/// The `EmptyList` maintains an array of `EmptySquare` structs to efficiently
+/// track and manipulate empty squares in a predefined order.
+#[derive(Clone)]
+pub struct EmptyList {
+    squares: [EmptySquare; 65],
+    pub count: u32,
+    pub parity: u8,
+}
 impl EmptyList {
     /// Creates a new `EmptyList` by scanning the board for empty squares.
     ///
@@ -77,16 +77,13 @@ impl EmptyList {
     /// An instance of `EmptyList` containing all empty squares in the presorted order.
     pub fn new(board: &Board) -> Self {
         let mut count = 0;
-        let mut parity: usize = 0;
-        let mut squares = [EmptySquare {
-            next: Square::None,
-            prev: Square::None,
-            quad_id: 0,
-        }; 65];
+        let mut parity: u8 = 0;
+        let mut squares: [EmptySquare; 65] = [EmptySquare::default(); 65];
 
         let mut prev_sq = Square::None;
+        let empty_board = board.get_empty();
         for &sq in PRESORTED.iter() {
-            if board.is_square_empty(sq) {
+            if sq.bitboard() & empty_board != 0 {
                 let sq_idx = sq as usize;
                 squares[prev_sq as usize].next = sq;
                 squares[sq_idx].prev = prev_sq;
@@ -109,15 +106,22 @@ impl EmptyList {
     /// # Returns
     ///
     /// The `Square` representing the first empty square.
-    #[inline]
+    #[inline(always)]
     pub fn first(&self) -> Square {
-        self.squares[Square::None as usize].next
+        unsafe { self.squares.get_unchecked(Square::None as usize).next }
     }
 
-    pub fn first_with_quad_id(&self) -> (Square, usize) {
+    /// Retrieves the first empty square and its quadrant ID.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the first `Square` and its `quad_id`,
+    /// or (`Square::None`, 0) if the list is empty.
+    #[inline(always)]
+    pub fn first_with_quad_id(&self) -> (Square, u8) {
         (
-            self.squares[Square::None as usize].next,
-            self.squares[Square::None as usize].quad_id,
+            unsafe { self.squares.get_unchecked(Square::None as usize).next },
+            unsafe { self.squares.get_unchecked(Square::None as usize).quad_id },
         )
     }
 
@@ -130,16 +134,26 @@ impl EmptyList {
     /// # Returns
     ///
     /// The `Square` representing the next empty square, or `Square::NONE` if `sq` is the last square.
-    #[inline]
+    #[inline(always)]
     pub fn next(&self, sq: Square) -> Square {
-        self.squares[sq as usize].next
+        unsafe { self.squares.get_unchecked(sq as usize).next }
     }
 
-    #[inline]
-    pub fn next_with_quad_id(&self, sq: Square) -> (Square, usize) {
+    /// Retrieves the next empty square and its quadrant ID following the given square.
+    ///
+    /// # Arguments
+    ///
+    /// * `sq` - The current `Square`. Must be a square currently in the empty list.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the next `Square` and its `quad_id`.
+    /// Returns (`Square::None`, 0) if `sq` is the last square in the list.
+    #[inline(always)]
+    pub fn next_with_quad_id(&self, sq: Square) -> (Square, u8) {
         (
-            self.squares[sq as usize].next,
-            self.squares[sq as usize].quad_id,
+            unsafe { self.squares.get_unchecked(sq as usize).next },
+            unsafe { self.squares.get_unchecked(sq as usize).quad_id },
         )
     }
 
@@ -153,14 +167,14 @@ impl EmptyList {
     ///
     /// Updates the `next` and `prev` references of adjacent squares to exclude `sq`,
     /// toggles the `parity`, and decrements the `count` of empty squares.
-    #[inline]
+    #[inline(always)]
     pub fn remove(&mut self, sq: Square) {
-        let square = self.squares[sq as usize];
-        let prev = square.prev;
-        let next = square.next;
-        self.squares[prev as usize].next = next;
-        self.squares[next as usize].prev = prev;
-        self.parity ^= square.quad_id;
+        let emp = self.squares[sq as usize];
+        let prev = emp.prev;
+        let next = emp.next;
+        unsafe { self.squares.get_unchecked_mut(prev as usize).next = next };
+        unsafe { self.squares.get_unchecked_mut(next as usize).prev = prev };
+        self.parity ^= emp.quad_id;
         self.count -= 1;
     }
 
@@ -174,18 +188,21 @@ impl EmptyList {
     ///
     /// Updates the `next` and `prev` references of adjacent squares to include `sq`,
     /// toggles the `parity`, and increments the `count` of empty squares.
-    #[inline]
+    #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
-        let square = self.squares[sq as usize];
-        let prev = square.prev;
-        let next = square.next;
-        self.squares[prev as usize].next = sq;
-        self.squares[next as usize].prev = sq;
-        self.parity ^= square.quad_id;
+        // Extract all values we need before mutating self.squares
+        let prev = unsafe { self.squares.get_unchecked(sq as usize).prev };
+        let next = unsafe { self.squares.get_unchecked(sq as usize).next };
+        let quad_id = unsafe { self.squares.get_unchecked(sq as usize).quad_id };
+
+        unsafe { self.squares.get_unchecked_mut(prev as usize).next = sq };
+        unsafe { self.squares.get_unchecked_mut(next as usize).prev = sq };
+        self.parity ^= quad_id;
         self.count += 1;
     }
 
-    #[inline]
+    /// Current ply (= moves already played).
+    #[inline(always)]
     pub fn ply(&self) -> usize {
         (60 - self.count) as usize
     }

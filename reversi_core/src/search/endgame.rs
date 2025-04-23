@@ -450,7 +450,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         return score;
     }
 
-    let mut priority_moves = moves & QUADRANT_MASK[ctx.empty_list.parity];
+    let mut priority_moves = moves & QUADRANT_MASK[ctx.empty_list.parity as usize];
     if priority_moves == 0 {
         priority_moves = moves;
     }
