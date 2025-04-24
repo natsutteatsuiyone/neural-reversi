@@ -107,13 +107,12 @@ impl<
 
         let output_ptr = output.as_mut_ptr() as *mut __m256i;
         let one = _mm256_set1_epi16(127);
-        let zero = _mm256_setzero_si256();
         let mut j = 0;
         while j < NUM_REGS {
             let acc_j = *acc.get_unchecked(j);
             let acc_j1 = *acc.get_unchecked(j + 1);
-            let clamped_j = _mm256_max_epi16(zero, _mm256_min_epi16(acc_j, one));
-            let clamped_j1 = _mm256_max_epi16(zero, _mm256_min_epi16(acc_j1, one));
+            let clamped_j = _mm256_min_epi16(acc_j, one);
+            let clamped_j1 = _mm256_min_epi16(acc_j1, one);
             _mm256_store_si256(output_ptr.add(j / 2), _mm256_packus_epi16(clamped_j, clamped_j1));
             j += 2;
         }
