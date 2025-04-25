@@ -152,7 +152,7 @@ impl Network {
     ) -> Aligned<A64, [u8; L1_PA_PADDED_INPUT_DIMS]> {
         let mut out = Aligned([0; L1_PA_PADDED_INPUT_DIMS]);
         self.pa_inputs[ply / (60 / NUM_PHASE_ADAPTIVE_INPUT)]
-            .forward(feature_indices, out.as_mut_slice());
+            .forward_leaky_relu(feature_indices, out.as_mut_slice());
         out[L1_PA_INPUT_DIMS - 1] = mobility * 3;
         out
     }
