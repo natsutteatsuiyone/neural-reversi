@@ -1,23 +1,44 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { useEffect, useRef } from "react"
-import { Bot } from "lucide-react"
+import { useRef, useLayoutEffect } from "react"
+import { Bot, RotateCcw } from "lucide-react"
 import { useReversiStore } from "@/stores/use-reversi-store"
+import { Button } from "@/components/ui/button"
 
 export function MoveHistory() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const moves = useReversiStore((state) => state.moves);
+  const gameStatus = useReversiStore((state) => state.gameStatus);
+  const isAIThinking = useReversiStore((state) => state.isAIThinking);
+  const undoMove = useReversiStore((state) => state.undoMove);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  const prevMovesLengthRef = useRef(moves.length);
+
+  useLayoutEffect(() => {
+    if (prevMovesLengthRef.current !== moves.length) {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+      prevMovesLengthRef.current = moves.length;
     }
-  }, [moves])
+  });
 
   return (
     <div className="h-full flex flex-col">
-      <h2 className="text-lg font-medium text-white/90 mb-2">Move History</h2>
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-lg font-medium text-white/90">Move History</h2>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={undoMove}
+          disabled={moves.length === 0 || gameStatus !== "playing" || isAIThinking}
+          className="h-8 w-8 text-white/90 hover:bg-white/10 cursor-pointer"
+          aria-label="Undo Move"
+        >
+          <RotateCcw className="h-4 w-4 " />
+        </Button>
+      </div>
       <div
         ref={scrollRef}
         className="flex-1 bg-white/10 rounded-lg p-2 overflow-y-auto

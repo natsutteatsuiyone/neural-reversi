@@ -43,6 +43,7 @@ interface ReversiState {
   abortAIMove: () => Promise<void>;
   makeMove: (move: Move) => void;
   makePass: () => void;
+  undoMove: () => void;
   resetGame: () => void;
   startGame: () => void;
   setAILevelChange: (level: number) => void;
@@ -300,6 +301,81 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
     if (get().isAITurn()) {
       void get().makeAIMove();
     } else if (get().gameMode === "analyze") {
+      void get().analyzeBoard();
+    }
+  },
+
+  undoMove: () => {
+    set((state) => {
+      if (state.gameStatus !== "playing" || state.moves.length === 0) {
+        return state;
+      }
+
+      const newMoves = [...state.moves];
+
+      if ((state.gameMode === "ai-black" || state.gameMode === "ai-white") && newMoves.length >= 1) {
+        const lastMove = newMoves[newMoves.length - 1];
+
+        if (lastMove.isAI) {
+          newMoves.pop();
+
+          if (newMoves.length > 0 && !newMoves[newMoves.length - 1].isAI) {
+            newMoves.pop();
+          }
+        } else {
+          newMoves.pop();
+        }
+      }
+      else {
+        newMoves.pop();
+      }
+
+      const newBoard = initializeBoard();
+
+      for (const move of newMoves) {
+        if (move.row >= 0 && move.col >= 0) {
+          const flipped = getFlippedDiscs(
+            newBoard,
+            move.row,
+            move.col,
+            move.player
+          );
+
+          newBoard[move.row][move.col] = {
+            color: move.player,
+          };
+
+          for (const [r, c] of flipped) {
+            newBoard[r][c] = { color: move.player };
+          }
+        }
+      }
+
+      let currentPlayer: "black" | "white" = "black";
+      if (newMoves.length > 0) {
+        currentPlayer = nextPlayer(newMoves[newMoves.length - 1].player);
+      }
+
+      const validMoves = getValidMoves(newBoard, currentPlayer);
+
+      return {
+        board: newBoard,
+        moves: newMoves,
+        currentPlayer,
+        lastMove: newMoves.length > 0 ? {
+          row: newMoves[newMoves.length - 1].row,
+          col: newMoves[newMoves.length - 1].col,
+          isAI: !!newMoves[newMoves.length - 1].isAI, // boolean型に確実に変換
+          score: newMoves[newMoves.length - 1].score || undefined
+        } : null,
+        validMoves,
+        isPass: false,
+        analyzeResults: null,
+      };
+    });
+
+    // Analyzeモードの場合は盤面を分析
+    if (get().gameMode === "analyze" && get().gameStatus === "playing") {
       void get().analyzeBoard();
     }
   },
