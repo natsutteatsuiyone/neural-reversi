@@ -6,7 +6,7 @@ use std::{
 };
 
 /// Size of each cluster in the transposition table.
-const CLUSTER_SIZE: usize = 3;
+const CLUSTER_SIZE: usize = 4;
 
 /// Bound indicator for the transposition table entries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,32 +68,32 @@ impl Default for TTData {
 }
 
 impl TTEntry {
-    const KEY_SIZE: u64 = 16;
-    const KEY_SHIFT: u64 = 0;
+    const KEY_SIZE: i32 = 16;
+    const KEY_SHIFT: i32 = 0;
     const KEY_MASK: u64 = (1 << (Self::KEY_SIZE)) - 1;
 
-    const SCORE_SIZE: u64 = 16;
-    const SCORE_SHIFT: u64 = Self::KEY_SHIFT + Self::KEY_SIZE;
+    const SCORE_SIZE: i32 = 16;
+    const SCORE_SHIFT: i32 = Self::KEY_SHIFT + Self::KEY_SIZE;
     const SCORE_MASK: u64 = (1 << (Self::SCORE_SIZE)) - 1;
 
-    const BEST_MOVE_SIZE: u64 = 7;
-    const BEST_MOVE_SHIFT: u64 = Self::SCORE_SHIFT + Self::SCORE_SIZE;
+    const BEST_MOVE_SIZE: i32 = 7;
+    const BEST_MOVE_SHIFT: i32 = Self::SCORE_SHIFT + Self::SCORE_SIZE;
     const BEST_MOVE_MASK: u64 = (1 << (Self::BEST_MOVE_SIZE)) - 1;
 
-    const BOUND_SIZE: u64 = 2;
-    const BOUND_SHIFT: u64 = Self::BEST_MOVE_SHIFT + Self::BEST_MOVE_SIZE;
+    const BOUND_SIZE: i32 = 2;
+    const BOUND_SHIFT: i32 = Self::BEST_MOVE_SHIFT + Self::BEST_MOVE_SIZE;
     const BOUND_MASK: u64 = (1 << (Self::BOUND_SIZE)) - 1;
 
-    const DEPTH_SIZE: u64 = 6;
-    const DEPTH_SHIFT: u64 = Self::BOUND_SHIFT + Self::BOUND_SIZE;
+    const DEPTH_SIZE: i32 = 6;
+    const DEPTH_SHIFT: i32 = Self::BOUND_SHIFT + Self::BOUND_SIZE;
     const DEPTH_MASK: u64 = (1 << (Self::DEPTH_SIZE)) - 1;
 
-    const SELECTIVITY_SIZE: u64 = 3;
-    const SELECTIVITY_SHIFT: u64 = Self::DEPTH_SHIFT + Self::DEPTH_SIZE;
+    const SELECTIVITY_SIZE: i32 = 3;
+    const SELECTIVITY_SHIFT: i32 = Self::DEPTH_SHIFT + Self::DEPTH_SIZE;
     const SELECTIVITY_MASK: u64 = (1 << (Self::SELECTIVITY_SIZE)) - 1;
 
-    const GENERATION_SIZE: u64 = 7;
-    const GENERATION_SHIFT: u64 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
+    const GENERATION_SIZE: i32 = 7;
+    const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
     const GENERATION_MASK: u64 = (1 << (Self::GENERATION_SIZE)) - 1;
 
     #[allow(clippy::too_many_arguments)]
@@ -117,26 +117,32 @@ impl TTEntry {
         self.data.store(data, Ordering::Relaxed);
     }
 
-    fn unpack(&self) -> TTData {
-        let data = self.data.load(Ordering::Relaxed);
-        let key = ((data >> Self::KEY_SHIFT) & Self::KEY_MASK) as u16;
-        let score = ((data >> Self::SCORE_SHIFT) & Self::SCORE_MASK) as i16;
-        let best_move = ((data >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8;
-        let bound = ((data >> Self::BOUND_SHIFT) & Self::BOUND_MASK) as u8;
-        let depth = ((data >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u8;
-        let selectivity = ((data >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
-        let generation = ((data >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
+   #[inline]
+   fn unpack_from_u64(data_u64: u64) -> TTData {
+       let key = ((data_u64 >> Self::KEY_SHIFT) & Self::KEY_MASK) as u16;
+       let score = ((data_u64 >> Self::SCORE_SHIFT) & Self::SCORE_MASK) as i16;
+       let best_move = ((data_u64 >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8;
+       let bound = ((data_u64 >> Self::BOUND_SHIFT) & Self::BOUND_MASK) as u8;
+       let depth = ((data_u64 >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u8;
+       let selectivity = ((data_u64 >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
+       let generation = ((data_u64 >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
 
-        TTData {
-            key,
-            score: score as Score,
-            best_move: Square::from_usize_unchecked(best_move as usize),
-            bound,
-            depth: depth as Depth,
-            selectivity,
-            generation,
-        }
-    }
+       TTData {
+           key,
+           score: score as Score,
+           best_move: Square::from_usize_unchecked(best_move as usize),
+           bound,
+           depth: depth as Depth,
+           selectivity,
+           generation,
+       }
+   }
+
+   #[inline]
+   fn unpack(&self) -> TTData {
+       let data = self.data.load(Ordering::Relaxed);
+       Self::unpack_from_u64(data)
+   }
 
     /// Saves data into the transposition table entry.
     ///
@@ -335,64 +341,67 @@ impl TranspositionTable {
         (false, TTData::default(), replace_idx)
     }
 
+    #[inline]
     unsafe fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
         use std::arch::x86_64::*;
 
         let key16 = key as u16;
         let base = self.get_cluster_idx(key);
-
         let ptr = self.entries.as_ptr().add(base) as *const __m256i;
-        let words = _mm256_loadu_si256(ptr);
+        let v = _mm256_load_si256(ptr);
 
-        let key_mask = _mm256_set1_epi64x(0xFFFF_i64);
-        let keys = _mm256_and_si256(words, key_mask);
-        let needle = _mm256_set1_epi16(key16 as i16);
+        let key_vec = _mm256_set1_epi16(key16 as i16);
+        let cmp = _mm256_cmpeq_epi16(v, key_vec);
+        let hit_mask = _mm256_movemask_epi8(cmp) as u32;
 
-        let key_match_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi16(keys, needle));
+        const LANE_MASK: u32 = 0x0303_0303;
+        let relevant_hits = hit_mask & LANE_MASK;
 
-        let hit_mask = (key_match_mask as u32) & 0x0001_0101;
+        if relevant_hits != 0 {
+            let lane_idx = (relevant_hits.trailing_zeros() / 8) as usize;
 
-        if hit_mask != 0 {
-            let idx_off = (hit_mask.trailing_zeros() >> 3) as usize; // バイト単位で計算
-            let idx = base + idx_off;
-            let data = self.entries.get_unchecked(idx).unpack();
-            if data.key == key16 && data.is_occupied() {
-                return (true, data, idx);
+            let entries_array: [u64; 4] = std::mem::transmute(v);
+            let raw = entries_array[lane_idx];
+
+            let data = TTEntry::unpack_from_u64(raw);
+            if data.is_occupied() {
+                return (true, data, base + lane_idx);
             }
         }
 
-        let lanes: [u64; 4] = core::mem::transmute(words);
+        let depth_mask_vec = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
+        let gen_mask_vec = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
 
-        const DEP_SHIFT: u32 = TTEntry::DEPTH_SHIFT as u32;
-        const DEP_MASK: u64 = TTEntry::DEPTH_MASK;
-        const GEN_SHIFT: u32 = TTEntry::GENERATION_SHIFT as u32;
-        const GEN_MASK: u64 = TTEntry::GENERATION_MASK;
+        let depth_vec = _mm256_and_si256(
+            _mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT),
+            depth_mask_vec,
+        );
+        let gen_vec = _mm256_and_si256(
+            _mm256_srli_epi64(v, TTEntry::GENERATION_SHIFT),
+            gen_mask_vec,
+        );
 
-        let depth0 = ((lanes[0] >> DEP_SHIFT) & DEP_MASK) as i32;
-        let depth1 = ((lanes[1] >> DEP_SHIFT) & DEP_MASK) as i32;
-        let depth2 = ((lanes[2] >> DEP_SHIFT) & DEP_MASK) as i32;
+        let current_gen_vec = _mm256_set1_epi64x(generation as i64);
+        let age_vec = _mm256_sub_epi64(current_gen_vec, gen_vec);
+        let score_vec = _mm256_sub_epi64(depth_vec, _mm256_slli_epi64(age_vec, 3));
+        let scores: [i64; 4] = core::mem::transmute(score_vec);
 
-        let age0 = generation as i32 - ((lanes[0] >> GEN_SHIFT) & GEN_MASK) as i32;
-        let age1 = generation as i32 - ((lanes[1] >> GEN_SHIFT) & GEN_MASK) as i32;
-        let age2 = generation as i32 - ((lanes[2] >> GEN_SHIFT) & GEN_MASK) as i32;
+        let mut replace_idx = 0;
+        let mut min_score = scores[0];
 
-        let score0 = depth0 - (age0 << 3);
-        let score1 = depth1 - (age1 << 3);
-        let score2 = depth2 - (age2 << 3);
-
-        let mut best_idx = 0;
-        let mut best_score = score0;
-
-        if score1 < best_score {
-            best_score = score1;
-            best_idx = 1;
+        if scores[1] < min_score {
+            min_score = scores[1];
+            replace_idx = 1;
+        }
+        if scores[2] < min_score {
+            min_score = scores[2];
+            replace_idx = 2;
+        }
+        if scores[3] < min_score {
+            replace_idx = 3;
         }
 
-        if score2 < best_score {
-            best_idx = 2;
-        }
-
-        (false, TTData::default(), base + best_idx)
+        (false, TTData::default(), base + replace_idx)
     }
 
     /// Stores data in the transposition table at the specified entry index.
