@@ -51,12 +51,11 @@ pub fn search_root(
 ) -> (Scoref, Depth, Selectivity) {
     let n_empties = ctx.empty_list.count;
     let mut best_score = 0;
+    ctx.game_phase = GamePhase::EndGame;
 
-    ctx.game_phase = GamePhase::MidGame;
     ctx.selectivity = NO_SELECTIVITY;
     let score = midgame::evaluate(ctx, board) >> EVAL_SCORE_SCALE_BITS;
 
-    ctx.game_phase = GamePhase::EndGame;
     let mut alpha = score - 6;
     let mut beta = score + 6;
 

@@ -299,7 +299,7 @@ struct Args {
     #[arg(long, default_value = "1")]
     selectivity: Selectivity,
 
-    #[arg(long, default_value = "1024")]
+    #[arg(long, default_value = "256")]
     hash_size: i32,
 
     #[arg(long)]

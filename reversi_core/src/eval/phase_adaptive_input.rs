@@ -55,6 +55,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
         Ok(PhaseAdaptiveInput { biases, weights })
     }
 
+    #[allow(dead_code)]
     pub fn forward(&self, feature_indices: &[usize], output: &mut [u8]) {
         if is_x86_feature_detected!("avx2") {
             unsafe {

@@ -9,7 +9,7 @@ use crate::eval::constants::HIDDEN_WEIGHT_SCALE_BITS;
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
-use crate::eval::relu::{clipped_relu, sqr_clipped_relu};
+use crate::eval::relu::clipped_relu;
 use crate::misc::ceil_to_multiple;
 use crate::search::search_context::SearchContext;
 use crate::types::Score;
@@ -22,11 +22,11 @@ const L1_PA_OUTPUT_DIMS: usize = 8;
 const L1_PA_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
 const L1_PA_NUM_REGS: usize = 1;
 
-const L2_INPUT_DIMS: usize = L1_PA_OUTPUT_DIMS * 2;
+const L2_INPUT_DIMS: usize = L1_PA_OUTPUT_DIMS;
 const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
 const L2_OUTPUT_DIMS: usize = 32;
 const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
-const L2_NUM_REGS: usize = (L2_INPUT_DIMS * 2) / 8 * 2;
+const L2_NUM_REGS: usize = L2_OUTPUT_DIMS / 8;
 
 const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS;
 
@@ -133,8 +133,8 @@ impl NetworkSmall {
         ply: usize,
     ) -> Aligned<A64, [u8; L1_PA_PADDED_INPUT_DIMS]> {
         let mut out = Aligned([0; L1_PA_PADDED_INPUT_DIMS]);
-        self.pa_inputs[ply / (60 / NUM_PHASE_ADAPTIVE_INPUT)]
-            .forward(feature_indices, out.as_mut_slice());
+        let pa_input = &self.pa_inputs[ply / (60 / NUM_PHASE_ADAPTIVE_INPUT)];
+        pa_input.forward_leaky_relu(feature_indices, out.as_mut_slice());
         out[L1_PA_INPUT_DIMS - 1] = mobility * 3;
         out
     }
@@ -150,22 +150,10 @@ impl NetworkSmall {
         ls.l1_pa.forward(input_pa, l1_out.as_mut_slice());
 
         const L1_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
-
-        let mut l1_sqr_relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
-        sqr_clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(
-            l1_out.as_slice(),
-            l1_sqr_relu_out.as_mut_slice(),
-        );
-
         let mut l1_relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
         clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(l1_out.as_slice(), l1_relu_out.as_mut_slice());
 
-        let mut out: Aligned<A64, [u8; L2_PADDED_INPUT_DIMS]> = Aligned([0; L2_PADDED_INPUT_DIMS]);
-        out[0..(L2_INPUT_DIMS / 2)].copy_from_slice(&l1_sqr_relu_out[0..(L2_INPUT_DIMS / 2)]);
-        out[(L2_INPUT_DIMS / 2)..L2_INPUT_DIMS]
-            .copy_from_slice(&l1_relu_out[0..(L2_INPUT_DIMS / 2)]);
-
-        out
+        l1_relu_out
     }
 
     #[inline]
