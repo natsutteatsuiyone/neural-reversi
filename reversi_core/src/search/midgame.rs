@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use rand::seq::IteratorRandom;
+
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
 use crate::constants::EVAL_SCORE_SCALE;
@@ -7,11 +9,11 @@ use crate::constants::EVAL_SCORE_SCALE_BITS;
 use crate::constants::MID_SCORE_MAX;
 use crate::constants::SCORE_INF;
 use crate::flip;
-use crate::level::Level;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::move_list::Move;
 use crate::move_list::MoveList;
 use crate::probcut;
+use crate::probcut::NO_SELECTIVITY;
 use crate::search::endgame;
 use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
@@ -24,8 +26,11 @@ use crate::types::NonPV;
 use crate::types::Root;
 use crate::types::Score;
 use crate::types::Scoref;
-use crate::types::Selectivity;
 use crate::types::PV;
+
+use super::search_result::SearchResult;
+use super::threading::Thread;
+use super::SearchTask;
 
 const MIN_SPLIT_DEPTH: Depth = 4;
 
@@ -41,12 +46,38 @@ const MIN_SPLIT_DEPTH: Depth = 4;
 /// # Returns
 ///
 /// The score of the current position, the search depth, and the selectivity
-pub fn search_root(
-    ctx: &mut SearchContext,
-    board: &Board,
-    level: Level,
-    multi_pv: bool,
-) -> (Scoref, Depth, Selectivity) {
+pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
+    let board = task.board;
+    let level = task.level;
+    let multi_pv = task.multi_pv;
+
+    let mut ctx = SearchContext::new(
+        &board,
+        task.generation,
+        task.selectivity,
+        task.tt.clone(),
+        task.pool.clone(),
+        task.eval.clone(),
+        thread.clone(),
+    );
+
+    let n_empties = ctx.empty_list.count;
+    if n_empties == 60 && !task.multi_pv {
+        let mv = random_move(&board);
+        return SearchResult {
+            score: 0.0,
+            best_move: Some(mv),
+            n_nodes: 0,
+            pv_line: vec![],
+            depth: 0,
+            selectivity: NO_SELECTIVITY,
+        };
+    }
+
+    if let Some(ref callback) = task.callback {
+        ctx.set_callback(callback.clone());
+    }
+
     const INITIAL_DELTA: Score = 3 << EVAL_SCORE_SCALE_BITS;
     let mut best_score = 0;
     let mut alpha = -SCORE_INF;
@@ -55,8 +86,15 @@ pub fn search_root(
 
     let max_depth = level.mid_depth;
     if max_depth == 0 {
-        let score = search::<Root, false>(ctx, board, max_depth, alpha, beta);
-        return (to_scoref(score), max_depth, 100);
+        let score = search::<Root, false>(&mut ctx, &board, max_depth, alpha, beta);
+        return SearchResult {
+            score: to_scoref(score),
+            best_move: None,
+            n_nodes: ctx.n_nodes,
+            pv_line: Vec::new(),
+            depth: 0,
+            selectivity: NO_SELECTIVITY,
+        };
     }
 
     let num_root_moves = ctx.root_moves_count();
@@ -82,7 +120,7 @@ pub fn search_root(
             }
 
             loop {
-                best_score = search::<Root, false>(ctx, board, depth, alpha, beta);
+                best_score = search::<Root, false>(&mut ctx, &board, depth, alpha, beta);
 
                 if ctx.is_search_aborted() {
                     break;
@@ -115,7 +153,14 @@ pub fn search_root(
         beta = (best_move.average_score + INITIAL_DELTA).min(SCORE_INF);
 
         if ctx.is_search_aborted() {
-            return (to_scoref(best_move.score), depth, ctx.selectivity);
+            return SearchResult {
+                score: to_scoref(best_move.score),
+                best_move: Some(best_move.sq),
+                n_nodes: ctx.n_nodes,
+                pv_line: best_move.pv,
+                depth,
+                selectivity: ctx.selectivity,
+            };
         }
 
         if depth <= 10 {
@@ -125,11 +170,26 @@ pub fn search_root(
         }
     }
 
-    (to_scoref(best_score), max_depth, ctx.selectivity)
+    let rm = ctx.get_best_root_move(false).unwrap();
+    SearchResult {
+        score: to_scoref(best_score),
+        best_move: Some(rm.sq),
+        n_nodes: ctx.n_nodes,
+        pv_line: rm.pv,
+        depth,
+        selectivity: ctx.selectivity,
+    }
 }
 
 fn to_scoref(score: Score) -> Scoref {
     score as Scoref / EVAL_SCORE_SCALE as Scoref
+}
+
+fn random_move(board: &Board) -> Square {
+    let mut rng = rand::rng();
+    BitboardIterator::new(board.get_moves())
+        .choose(&mut rng)
+        .unwrap()
 }
 
 /// Performs an alpha-beta search with principal variation (PV) or non-PV nodes
@@ -253,8 +313,8 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 alpha = sp_state.alpha;
             }
 
-            let reduction_depth = mv.reduction_depth.min(depth - 1);
-            score = -search::<NonPV, false>(ctx, &next, depth - 1 - reduction_depth, -(alpha + 1), -alpha);
+            let d = depth - 1 - mv.reduction_depth.min(depth - 1);
+            score = -search::<NonPV, false>(ctx, &next, d, -(alpha + 1), -alpha);
             if score > alpha {
                 score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha);
             }

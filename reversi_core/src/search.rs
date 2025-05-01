@@ -6,19 +6,14 @@ pub mod search_result;
 mod spinlock;
 pub mod threading;
 
-use rand;
-use rand::seq::IteratorRandom;
-use search_context::SearchContext;
 use search_result::SearchResult;
-use threading::ThreadPool;
+use threading::{Thread, ThreadPool};
 use std::sync::Arc;
 
-use crate::bitboard::BitboardIterator;
 use crate::board::Board;
 use crate::constants::SCORE_INF;
 use crate::eval::Eval;
 use crate::level::Level;
-use crate::probcut::NO_SELECTIVITY;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, Score, Scoref, Selectivity};
@@ -141,25 +136,15 @@ impl Search {
     }
 }
 
-pub fn search_root(ctx: &mut SearchContext, board: &Board, level: Level, multi_pv: bool) -> (Scoref, Depth, u8) {
-    let min_end_depth = level.get_end_depth(0);
-    let n_empties = ctx.empty_list.count;
+pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
+    let min_end_depth = task.level.get_end_depth(0);
+    let n_empties = task.board.get_empty_count();
 
-    if n_empties == 60 && !multi_pv {
-        ctx.update_root_move(random_move(board), 0, 1, -SCORE_INF);
-        (0.0, 0, NO_SELECTIVITY)
-    } else if min_end_depth < n_empties {
-        midgame::search_root(ctx, board, level, multi_pv)
+    if min_end_depth < n_empties {
+        midgame::search_root(task, thread)
     } else {
-        endgame::search_root(ctx, board, level, multi_pv)
+        endgame::search_root(task, thread)
     }
-}
-
-fn random_move(board: &Board) -> Square {
-    let mut rng = rand::rng();
-    BitboardIterator::new(board.get_moves())
-        .choose(&mut rng)
-        .unwrap()
 }
 
 impl Drop for Search {

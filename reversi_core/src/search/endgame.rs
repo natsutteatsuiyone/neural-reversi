@@ -4,17 +4,18 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
 use crate::count_last_flip::count_last_flip;
-use crate::level::Level;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::NO_SELECTIVITY;
 use crate::search::search_context::SearchContext;
 use crate::square::Square;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, NodeType, NonPV, Root, Score, Scoref, Selectivity, PV};
+use crate::types::{Depth, NodeType, NonPV, Root, Score, Scoref, PV};
 use crate::{bitboard, probcut, stability};
 
-use super::midgame;
 use super::search_context::GamePhase;
+use super::search_result::SearchResult;
+use super::threading::Thread;
+use super::{midgame, SearchTask};
 
 /// Quadrant masks used for prioritizing moves in shallow search.
 #[rustfmt::skip]
@@ -43,18 +44,30 @@ pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 12;
 /// # Returns
 ///
 /// The score of the current position, the search depth, and the selectivity
-pub fn search_root(
-    ctx: &mut SearchContext,
-    board: &Board,
-    level: Level,
-    multi_pv: bool,
-) -> (Scoref, Depth, Selectivity) {
+pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
+    let board = task.board;
+    let level = task.level;
+    let multi_pv = task.multi_pv;
+    let mut ctx = SearchContext::new(
+        &board,
+        task.generation,
+        task.selectivity,
+        task.tt.clone(),
+        task.pool.clone(),
+        task.eval.clone(),
+        thread.clone(),
+    );
+
+    if let Some(ref callback) = task.callback {
+        ctx.set_callback(callback.clone());
+    }
+
     let n_empties = ctx.empty_list.count;
     let mut best_score = 0;
     ctx.game_phase = GamePhase::EndGame;
 
     ctx.selectivity = NO_SELECTIVITY;
-    let score = midgame::evaluate(ctx, board) >> EVAL_SCORE_SCALE_BITS;
+    let score = midgame::evaluate(&ctx, &board) >> EVAL_SCORE_SCALE_BITS;
 
     let mut alpha = score - 6;
     let mut beta = score + 6;
@@ -78,7 +91,7 @@ pub fn search_root(
             let mut delta = 2;
 
             loop {
-                best_score = search::<Root, false>(ctx, board, alpha, beta);
+                best_score = search::<Root, false>(&mut ctx, &board, alpha, beta);
 
                 if ctx.is_search_aborted() {
                     break;
@@ -120,11 +133,26 @@ pub fn search_root(
         best_score = best_move.score;
 
         if ctx.is_search_aborted() {
-            return (best_score as Scoref, n_empties, ctx.selectivity);
+            return SearchResult {
+                score: best_score as Scoref,
+                best_move: Some(best_move.sq),
+                n_nodes: ctx.n_nodes,
+                pv_line: best_move.pv,
+                depth: n_empties,
+                selectivity: ctx.selectivity,
+            };
         }
     }
 
-    (best_score as Scoref, n_empties, ctx.selectivity)
+    let rm = ctx.get_best_root_move(false).unwrap();
+    SearchResult {
+        score: best_score as Scoref,
+        best_move: Some(rm.sq),
+        n_nodes: ctx.n_nodes,
+        pv_line: rm.pv,
+        depth: n_empties,
+        selectivity: ctx.selectivity,
+    }
 }
 
 /// Performs an alpha-beta search with principal variation (PV) or non-PV nodes

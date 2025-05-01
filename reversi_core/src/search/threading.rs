@@ -594,52 +594,10 @@ fn main_thread_loop(thread: Arc<Thread>, receiver: Arc<std::sync::Mutex<Receiver
                 Message::StartThinking(task, thread, result_sender) => {
                     thread.state_mut().searching = true;
 
-                    let board = task.board;
-                    let mut ctx = SearchContext::new(
-                        &board,
-                        task.generation,
-                        task.selectivity,
-                        task.tt.clone(),
-                        task.pool.clone(),
-                        task.eval.clone(),
-                        thread.clone(),
-                    );
+                    task.pool.notify_all();
 
-                    ctx.pool.notify_all();
-
-                    if let Some(ref callback) = task.callback {
-                        ctx.set_callback(callback.clone());
-                    }
-
-                    let (score, depth, selectivity) = search::search_root(&mut ctx, &board, task.level, task.multi_pv);
-                    let rm = ctx.get_best_root_move(false);
-
+                    let result = search::search_root(task, &thread);
                     thread.state_mut().searching = false;
-
-                    let result = if let Some(mv) = rm {
-                        SearchResult {
-                            score,
-                            best_move: Some(mv.sq),
-                            n_nodes: ctx.n_nodes,
-                            pv_line: mv.pv,
-                            depth,
-                            selectivity,
-                        }
-                    } else {
-                        SearchResult {
-                            score,
-                            best_move: None,
-                            n_nodes: ctx.n_nodes,
-                            pv_line: Vec::new(),
-                            depth,
-                            selectivity,
-                        }
-                    };
-
-                    drop(task);
-
-                    ctx.pool.wait_for_search_finished();
-                    drop(ctx);
 
                     thread.thinking.store(false, Ordering::SeqCst);
                     result_sender.send(result).unwrap();
