@@ -124,15 +124,22 @@ impl<
         let output_ptr = output.as_mut_ptr() as *mut __m256i;
         let one = _mm256_set1_epi16(127 * 2);
         let zero = _mm256_setzero_si256();
+        let offset = _mm256_set1_epi16(127); // 63.5 * 2
         let in0 = &acc[0..acc.len() / 2];
         let in1 = &acc[(acc.len() / 2)..];
         for j in 0..(acc.len() / 4) {
-            let sum0a = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2], one), zero), 7);
-            let sum0b = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2 + 1], one), zero), 7);
-            let sum1a = _mm256_min_epi16(in1[j * 2], one);
-            let sum1b = _mm256_min_epi16(in1[j * 2 + 1], one);
-            let pa = _mm256_mulhi_epi16(sum0a, sum1a);
-            let pb = _mm256_mulhi_epi16(sum0b, sum1b);
+            let sum0 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2], one), zero), 7);
+            let sum1 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2 + 1], one), zero), 7);
+
+            // Hard Sigmoid x * 0.25 + 0.5
+            let mut hs0 = _mm256_add_epi16(_mm256_srai_epi16(in1[j * 2], 2), offset);
+            let mut hs1 = _mm256_add_epi16(_mm256_srai_epi16(in1[j * 2 + 1], 2), offset);
+            hs0 = _mm256_min_epi16(hs0, one);
+            hs1 = _mm256_min_epi16(hs1, one);
+
+            let pa = _mm256_mulhi_epi16(sum0, hs0);
+            let pb = _mm256_mulhi_epi16(sum1, hs1);
+
             *output_ptr.add(j) = _mm256_packus_epi16(pa, pb);
         }
     }
