@@ -176,7 +176,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         pv_line: rm.pv,
-        depth,
+        depth: max_depth,
         selectivity: ctx.selectivity,
     }
 }
