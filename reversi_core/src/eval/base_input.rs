@@ -7,7 +7,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::CACHE_LINE_SIZE;
 
-
 #[derive(Debug)]
 pub struct BaseInput<
     const INPUT_DIMS: usize,
@@ -20,11 +19,11 @@ pub struct BaseInput<
 }
 
 impl<
-    const INPUT_DIMS: usize,
-    const OUTPUT_DIMS: usize,
-    const HIDDEN_DIMS: usize,
-    const NUM_REGS: usize,
-> BaseInput<INPUT_DIMS, OUTPUT_DIMS, HIDDEN_DIMS, NUM_REGS>
+        const INPUT_DIMS: usize,
+        const OUTPUT_DIMS: usize,
+        const HIDDEN_DIMS: usize,
+        const NUM_REGS: usize,
+    > BaseInput<INPUT_DIMS, OUTPUT_DIMS, HIDDEN_DIMS, NUM_REGS>
 {
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS];
@@ -48,7 +47,7 @@ impl<
                 let bias_slice: &mut [u64] =
                     std::slice::from_raw_parts_mut(biases.as_mut_ptr() as *mut u64, num_chunks);
 
-                for i in 0..num_chunks/8 {
+                for i in 0..num_chunks / 8 {
                     let base = i * 8;
                     bias_slice.swap(base + 2, base + 4);
                     bias_slice.swap(base + 3, base + 5);
@@ -58,7 +57,7 @@ impl<
                     let ptr = weights.as_mut_ptr().add(i * HIDDEN_DIMS) as *mut u64;
                     let weight_slice: &mut [u64] = std::slice::from_raw_parts_mut(ptr, num_chunks);
 
-                    for j in 0..num_chunks/8 {
+                    for j in 0..num_chunks / 8 {
                         let base = j * 8;
                         weight_slice.swap(base + 2, base + 4);
                         weight_slice.swap(base + 3, base + 5);
@@ -86,13 +85,14 @@ impl<
             }
         }
 
-
-        for i in 0..OUTPUT_DIMS {
-            let sum0 = acc[i] + self.biases[i];
-            let sum1 = acc[i + OUTPUT_DIMS] + self.biases[i + OUTPUT_DIMS];
-            let sum0 = sum0.clamp(0, 127 * 2) as u32;
-            let sum1 = sum1.clamp(0, 127 * 2) as u32;
-            output[i] = ((sum0 * sum1) / 512) as u8;
+        let half_len = acc.len() / 2;
+        let (acc0, acc1) = acc.split_at(half_len);
+        let (bias0, bias1) = self.biases.split_at(half_len);
+        for i in 0..half_len {
+            let sum = (acc0[i] + bias0[i]).clamp(0, 127 * 2) as i32;
+            let hs = ((acc1[i] + bias1[i]) >> 2) + 127;
+            let hs = hs.clamp(0, 127 * 2) as i32;
+            output[i] = ((sum * hs) / 512) as u8;
         }
     }
 
@@ -114,10 +114,8 @@ impl<
             let weight_ptr = weight_ptr.add(idx * HIDDEN_DIMS) as *const __m256i;
 
             for j in 0..NUM_REGS {
-                *acc.get_unchecked_mut(j) = _mm256_add_epi16(
-                    *acc.get_unchecked(j),
-                    _mm256_loadu_si256(weight_ptr.add(j))
-                );
+                *acc.get_unchecked_mut(j) =
+                    _mm256_add_epi16(*acc.get_unchecked(j), _mm256_loadu_si256(weight_ptr.add(j)));
             }
         }
 
@@ -125,8 +123,7 @@ impl<
         let one = _mm256_set1_epi16(127 * 2);
         let zero = _mm256_setzero_si256();
         let offset = _mm256_set1_epi16(127); // 63.5 * 2
-        let in0 = &acc[0..acc.len() / 2];
-        let in1 = &acc[(acc.len() / 2)..];
+        let (in0, in1) = acc.split_at_unchecked(acc.len() / 2);
         for j in 0..(acc.len() / 4) {
             let sum0 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2], one), zero), 7);
             let sum1 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2 + 1], one), zero), 7);

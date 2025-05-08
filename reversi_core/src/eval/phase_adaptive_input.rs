@@ -130,19 +130,12 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
         }
 
         for i in 0..OUTPUT_DIMS {
-            let mut v = acc[i] + self.biases[i];
-
-            if v >= 0 {
-                if v > 111 {
-                    v = 111;
-                }
+            let v = acc[i] + self.biases[i];
+            let v = if v >= 0 {
+                v.min(111)
             } else {
-                v >>= 3;
-                if v < -16 {
-                    v = -16;
-                }
-            }
-
+                (v >> 3).max(-16)
+            };
             output[i] = (v + 16) as u8;
         }
     }
@@ -173,8 +166,8 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
         let mut acc_ptr = acc.as_mut_ptr();
         let mut output_ptr = output.as_mut_ptr() as *mut __m256i;
 
-        let bias8  = _mm256_set1_epi8(16);
-        let zero8  = _mm256_set1_epi8(0);
+        let bias8 = _mm256_set1_epi8(16);
+        let zero8 = _mm256_set1_epi8(0);
 
         let iterations = NUM_REGS / 2;
         for _ in 0..iterations {
@@ -182,7 +175,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
             let b = _mm256_load_si256(acc_ptr.add(1));
             acc_ptr = acc_ptr.add(2);
 
-            // LeakyReLU part: result = max(original, original >> 3)
+            // LeakyReLU: result = max(original, original >> 3)
             let sa = _mm256_max_epi16(a, _mm256_srai_epi16(a, 3));
             let sb = _mm256_max_epi16(b, _mm256_srai_epi16(b, 3));
 
@@ -191,7 +184,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
 
             // Input range (packed): [-128, 127]
             // Intermediate range: [-128+16, 127+16] -> [-112, 143]
-            // Result range (added): [-112, 127]
+            // Output range (added): [-112, 127]
             let added = _mm256_adds_epi8(packed, bias8);
 
             // Input range (added): [-112, 127]
