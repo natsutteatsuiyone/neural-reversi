@@ -8,6 +8,7 @@ This is an experimental project to develop a high-accuracy neural network evalua
 - **reversi_cli**: Command-line interface for playing Reversi.
 - **reversi_gui**: Graphical user interface built with Tauri for playing Reversi.
 - **automatch**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
+- **build_common**: Common build script utilities shared across different crates.
 - **codegen**: Utility for generating evaluation feature-related code.
 - **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.
 - **ffotest**: [FFO endgame test suite](http://radagast.se/othello/ffotest.html). [Edax problems](https://github.com/abulmo/edax-reversi/tree/master/problem).
@@ -28,9 +29,11 @@ This is an experimental project to develop a high-accuracy neural network evalua
 
 [neural-reversi-training](https://github.com/natsutteatsuiyone/neural-reversi-training)
 
-### Weight File
+### Weight Files
 
-The neural network weight file (eval.zst) can be downloaded from the [Releases page](https://github.com/natsutteatsuiyone/neural-reversi/releases).
+The neural network weight files (`eval.zst` and `eval_sm.zst`) can be downloaded from the [Releases page](https://github.com/natsutteatsuiyone/neural-reversi/releases).
+
+When developing and running the application locally from the source code (e.g., using `cargo run`), make sure to place `eval.zst` and `eval_sm.zst` in the root directory.
 
 ## License
 

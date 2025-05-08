@@ -2,6 +2,7 @@
 name = "datagen"
 version = "0.8.1"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 byteorder = "1.5.0"
@@ -13,3 +14,6 @@ zstd = "0.13.2"
 regex = "1.9.5"
 
 reversi_core = { path = "../reversi_core" }
+
+[build-dependencies]
+build_common = { workspace = true }

@@ -1,6 +1,9 @@
 [workspace]
-members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "codegen", "datagen", "ffotest", "automatch"]
+members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "codegen", "datagen", "ffotest", "automatch", "build_common"]
 resolver = "2"
+
+[workspace.dependencies]
+build_common = { path = "build_common" }
 
 [profile.release]
 lto = true

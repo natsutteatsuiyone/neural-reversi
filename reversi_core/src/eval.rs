@@ -9,6 +9,7 @@ mod phase_adaptive_input;
 mod relu;
 
 use std::io;
+use std::env;
 
 use constants::*;
 use eval_cache::EvalCache;
@@ -28,9 +29,22 @@ pub struct Eval {
 }
 
 impl Eval {
-    pub fn new(file_path: &str, small_file_path: &str) -> io::Result<Self> {
-        let network = Network::new(file_path)?;
-        let network_sm = NetworkSmall::new(small_file_path)?;
+    pub fn new() -> io::Result<Self> {
+        let exe_path = env::current_exe().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get current executable path: {}", e)))?;
+        let exe_dir = exe_path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Failed to get parent directory of executable"))?;
+
+        let eval_file_path = exe_dir.join("eval.zst");
+        let eval_sm_file_path = exe_dir.join("eval_sm.zst");
+
+        if !eval_file_path.exists() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, format!("\"eval.zst\" not found: {}", eval_file_path.display())));
+        }
+        if !eval_sm_file_path.exists() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, format!("\"eval_sm.zst\" not found: {}", eval_sm_file_path.display())));
+        }
+
+        let network = Network::new(eval_file_path.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Failed to convert eval_file_path to str"))?)?;
+        let network_sm = NetworkSmall::new(eval_sm_file_path.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Failed to convert eval_sm_file_path to str"))?)?;
         Ok(Eval {
             network,
             network_sm,

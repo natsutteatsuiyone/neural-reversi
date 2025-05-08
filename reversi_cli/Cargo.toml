@@ -2,12 +2,16 @@
 name = "reversi_cli"
 version = "0.8.1"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 clap = { version = "4.5.29", features = ["derive"] }
 colored = "3.0.0"
 reversi_core = { path = "../reversi_core" }
 rustyline = "15.0.0"
+
+[build-dependencies]
+build_common = { workspace = true }
 
 [[bin]]
 name = "neural-reversi-cli"
