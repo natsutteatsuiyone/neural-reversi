@@ -20,13 +20,11 @@ const L1_PA_INPUT_DIMS: usize = 64 + 1;
 const L1_PA_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_PA_INPUT_DIMS, 32);
 const L1_PA_OUTPUT_DIMS: usize = 8;
 const L1_PA_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
-const L1_PA_NUM_REGS: usize = 1;
 
 const L2_INPUT_DIMS: usize = L1_PA_OUTPUT_DIMS;
 const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
 const L2_OUTPUT_DIMS: usize = 32;
 const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
-const L2_NUM_REGS: usize = L2_OUTPUT_DIMS / 8;
 
 const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS;
 
@@ -39,21 +37,18 @@ struct LayerStack {
         L1_PA_OUTPUT_DIMS,
         L1_PA_PADDED_INPUT_DIMS,
         L1_PA_PADDED_OUTPUT_DIMS,
-        L1_PA_NUM_REGS,
     >,
     pub l2: LinearLayer<
         L2_INPUT_DIMS,
         L2_OUTPUT_DIMS,
         L2_PADDED_INPUT_DIMS,
         L2_PADDED_OUTPUT_DIMS,
-        L2_NUM_REGS,
     >,
     pub lo: LinearLayer<
         LO_INPUT_DIMS,
         1,
         { ceil_to_multiple(LO_INPUT_DIMS, 32) },
         { ceil_to_multiple(1, 32) },
-        0,
     >,
 }
 
@@ -61,7 +56,6 @@ pub struct NetworkSmall {
     pa_inputs: Vec<PhaseAdaptiveInput<
         INPUT_FEATURE_DIMS,
         { L1_PA_INPUT_DIMS - 1 },
-        { (L1_PA_INPUT_DIMS - 1) / 16 },
     > >,
     layer_stacks: Vec<LayerStack>,
 }
@@ -77,7 +71,6 @@ impl NetworkSmall {
             let pa_input = PhaseAdaptiveInput::<
                 INPUT_FEATURE_DIMS,
                 { L1_PA_INPUT_DIMS - 1 },
-                { (L1_PA_INPUT_DIMS - 1) / 16 },
             >::load(&mut decoder)?;
             pa_inputs.push(pa_input);
         }

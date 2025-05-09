@@ -16,7 +16,6 @@ pub struct LinearLayer<
     const OUTPUT_DIMS: usize,
     const PADDED_INPUT_DIMS: usize,
     const PADDED_OUTPUT_DIMS: usize,
-    const NUM_REGS: usize,
 > {
     biases: AVec<i32, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i8, ConstAlign<CACHE_LINE_SIZE>>,
@@ -27,8 +26,7 @@ impl<
         const OUTPUT_DIMS: usize,
         const PADDED_INPUT_DIMS: usize,
         const PADDED_OUTPUT_DIMS: usize,
-        const NUM_REGS: usize,
-    > LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS, NUM_REGS>
+    > LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
 {
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i32; PADDED_OUTPUT_DIMS];
@@ -75,28 +73,34 @@ impl<
 
     unsafe fn forward_avx2(&self, input: &[u8], output: &mut [i32]) {
         if OUTPUT_DIMS > 1 {
+            let mut acc: [i32; OUTPUT_DIMS] = std::mem::zeroed();
+            let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
+
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+            let num_regs = OUTPUT_DIMS / 8;
+
+            std::ptr::copy_nonoverlapping(
+                self.biases.as_ptr() as *const __m256i,
+                acc_ptr,
+                num_regs,
+            );
 
             let input32 = input.as_ptr() as *const i32;
-            let biasvec = self.biases.as_ptr() as *const __m256i;
-            let mut acc: [__m256i; NUM_REGS] = std::mem::zeroed();
-            for (k, acc_item) in acc.iter_mut().enumerate() {
-                *acc_item = *biasvec.add(k);
-            }
-
             for i in 0..num_chunks {
                 let in0 = _mm256_set1_epi32(*input32.add(i));
                 let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m256i;
 
-                for (k, acc_item) in acc.iter_mut().enumerate() {
-                    *acc_item = mm256_dpbusd_epi32(*acc_item, in0, *col0.add(k));
+                for j in 0..num_regs {
+                    let a = acc_ptr.add(j);
+                    *a = mm256_dpbusd_epi32(*a, in0, *col0.add(j));
                 }
             }
 
-            let outptr = output.as_mut_ptr() as *mut __m256i;
-            for (k, acc_item) in acc.iter().enumerate() {
-                _mm256_store_si256(outptr.add(k), *acc_item);
-            }
+            std::ptr::copy_nonoverlapping(
+                acc_ptr,
+                output.as_ptr() as *mut __m256i,
+                num_regs,
+            );
         } else {
             const INPUT_SIMD_WIDTH: usize =
                 std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();

@@ -21,28 +21,24 @@ struct LayerStack {
         L1_BASE_OUTPUT_DIMS,
         L1_BASE_PADDED_INPUT_DIMS,
         L1_BASE_PADDED_OUTPUT_DIMS,
-        L1_BASE_NUM_REGS,
     >,
     pub l1_pa: LinearLayer<
         L1_PA_INPUT_DIMS,
         L1_PA_OUTPUT_DIMS,
         L1_PA_PADDED_INPUT_DIMS,
         L1_PA_PADDED_OUTPUT_DIMS,
-        L1_PA_NUM_REGS,
     >,
     pub l2: LinearLayer<
         L2_INPUT_DIMS,
         L2_OUTPUT_DIMS,
         L2_PADDED_INPUT_DIMS,
         L2_PADDED_OUTPUT_DIMS,
-        L2_NUM_REGS,
     >,
     pub lo: LinearLayer<
         LO_INPUT_DIMS,
         1,
         { ceil_to_multiple(LO_INPUT_DIMS, 32) },
         { ceil_to_multiple(1, 32) },
-        0,
     >,
 }
 
@@ -51,13 +47,11 @@ pub struct Network {
         INPUT_FEATURE_DIMS,
         BASE_INPUT_OUTPUT_DIMS,
         { BASE_INPUT_OUTPUT_DIMS * 2 },
-        { (BASE_INPUT_OUTPUT_DIMS * 2) / 16 },
     >,
     pa_inputs: Vec<PhaseAdaptiveInput<
         INPUT_FEATURE_DIMS,
         { L1_PA_INPUT_DIMS - 1 },
-        { (L1_PA_INPUT_DIMS - 1) / 16 },
-    > >,
+    >>,
     layer_stacks: Vec<LayerStack>,
 }
 
@@ -71,14 +65,12 @@ impl Network {
             INPUT_FEATURE_DIMS,
             BASE_INPUT_OUTPUT_DIMS,
             { BASE_INPUT_OUTPUT_DIMS * 2 },
-            { (BASE_INPUT_OUTPUT_DIMS * 2) / 16 },
         >::load(&mut decoder)?;
         let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
         for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
             let pa_input = PhaseAdaptiveInput::<
                 INPUT_FEATURE_DIMS,
                 { L1_PA_INPUT_DIMS - 1 },
-                { (L1_PA_INPUT_DIMS - 1) / 16 },
             >::load(&mut decoder)?;
             pa_inputs.push(pa_input);
         }

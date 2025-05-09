@@ -10,14 +10,13 @@ use crate::eval::CACHE_LINE_SIZE;
 pub struct PhaseAdaptiveInput<
     const INPUT_DIMS: usize,
     const OUTPUT_DIMS: usize,
-    const NUM_REGS: usize,
 > {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
-    PhaseAdaptiveInput<INPUT_DIMS, OUTPUT_DIMS, NUM_REGS>
+impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
+    PhaseAdaptiveInput<INPUT_DIMS, OUTPUT_DIMS>
 {
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS];
@@ -79,12 +78,14 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
 
     unsafe fn forward_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
         use std::arch::x86_64::*;
-        let mut acc: [__m256i; NUM_REGS] = std::mem::zeroed();
+        let mut acc: [i16; OUTPUT_DIMS] = std::mem::zeroed();
+        let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
+        let num_regs = OUTPUT_DIMS / 16;
 
         std::ptr::copy_nonoverlapping(
             self.biases.as_ptr() as *const __m256i,
-            acc.as_mut_ptr(),
-            NUM_REGS,
+            acc_ptr,
+            num_regs,
         );
 
         let weight_ptr = self.weights.as_ptr();
@@ -94,21 +95,20 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
             let idx = *feature_indices.get_unchecked(i);
             let weight_ptr = weight_ptr.add(idx * OUTPUT_DIMS) as *const __m256i;
 
-            for j in 0..NUM_REGS {
-                *acc.get_unchecked_mut(j) =
-                    _mm256_add_epi16(*acc.get_unchecked(j), _mm256_loadu_si256(weight_ptr.add(j)));
+            for j in 0..num_regs {
+                *acc_ptr.add(j) = _mm256_add_epi16(*acc_ptr.add(j), _mm256_loadu_si256(weight_ptr.add(j)));
             }
         }
 
         let output_ptr = output.as_mut_ptr() as *mut __m256i;
         let one = _mm256_set1_epi16(127);
         let mut j = 0;
-        while j < NUM_REGS {
-            let acc_j = *acc.get_unchecked(j);
-            let acc_j1 = *acc.get_unchecked(j + 1);
-            let clamped_j = _mm256_min_epi16(acc_j, one);
-            let clamped_j1 = _mm256_min_epi16(acc_j1, one);
-            _mm256_store_si256(output_ptr.add(j / 2), _mm256_packus_epi16(clamped_j, clamped_j1));
+        while j < num_regs {
+            let acc0 = *acc_ptr.add(j);
+            let acc1 = *acc_ptr.add(j + 1);
+            let clamped0 = _mm256_min_epi16(acc0, one);
+            let clamped1 = _mm256_min_epi16(acc1, one);
+            _mm256_store_si256(output_ptr.add(j / 2), _mm256_packus_epi16(clamped0, clamped1));
             j += 2;
         }
     }
@@ -142,12 +142,14 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
 
     unsafe fn forward_leaky_relu_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
         use std::arch::x86_64::*;
-        let mut acc: [__m256i; NUM_REGS] = std::mem::zeroed();
+        let mut acc: [i16; OUTPUT_DIMS] = std::mem::zeroed();
+        let mut acc_ptr = acc.as_mut_ptr() as *mut __m256i;
+        let num_regs = OUTPUT_DIMS / 16;
 
         std::ptr::copy_nonoverlapping(
             self.biases.as_ptr() as *const __m256i,
-            acc.as_mut_ptr(),
-            NUM_REGS,
+            acc_ptr,
+            num_regs,
         );
 
         let weight_ptr = self.weights.as_ptr();
@@ -157,19 +159,16 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const NUM_REGS: usize>
             let idx = *feature_indices.get_unchecked(i);
             let weight_ptr = weight_ptr.add(idx * OUTPUT_DIMS) as *const __m256i;
 
-            for j in 0..NUM_REGS {
-                *acc.get_unchecked_mut(j) =
-                    _mm256_add_epi16(*acc.get_unchecked(j), _mm256_loadu_si256(weight_ptr.add(j)));
+            for j in 0..num_regs {
+                *acc_ptr.add(j) = _mm256_add_epi16(*acc_ptr.add(j), _mm256_loadu_si256(weight_ptr.add(j)));
             }
         }
 
-        let mut acc_ptr = acc.as_mut_ptr();
         let mut output_ptr = output.as_mut_ptr() as *mut __m256i;
-
         let bias8 = _mm256_set1_epi8(16);
         let zero8 = _mm256_set1_epi8(0);
 
-        let iterations = NUM_REGS / 2;
+        let iterations = num_regs / 2;
         for _ in 0..iterations {
             let a = _mm256_load_si256(acc_ptr);
             let b = _mm256_load_si256(acc_ptr.add(1));

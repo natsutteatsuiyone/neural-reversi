@@ -8,22 +8,13 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crate::eval::CACHE_LINE_SIZE;
 
 #[derive(Debug)]
-pub struct BaseInput<
-    const INPUT_DIMS: usize,
-    const OUTPUT_DIMS: usize,
-    const HIDDEN_DIMS: usize,
-    const NUM_REGS: usize,
-> {
+pub struct BaseInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-impl<
-        const INPUT_DIMS: usize,
-        const OUTPUT_DIMS: usize,
-        const HIDDEN_DIMS: usize,
-        const NUM_REGS: usize,
-    > BaseInput<INPUT_DIMS, OUTPUT_DIMS, HIDDEN_DIMS, NUM_REGS>
+impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize>
+    BaseInput<INPUT_DIMS, OUTPUT_DIMS, HIDDEN_DIMS>
 {
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS];
@@ -98,12 +89,14 @@ impl<
 
     unsafe fn forward_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
         use std::arch::x86_64::*;
-        let mut acc: [__m256i; NUM_REGS] = std::mem::zeroed();
+        let mut acc: [i16; HIDDEN_DIMS] = std::mem::zeroed();
+        let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
+        let num_regs = HIDDEN_DIMS / 16;
 
         std::ptr::copy_nonoverlapping(
             self.biases.as_ptr() as *const __m256i,
-            acc.as_mut_ptr(),
-            NUM_REGS,
+            acc_ptr,
+            num_regs,
         );
 
         let weight_ptr = self.weights.as_ptr();
@@ -113,9 +106,8 @@ impl<
             let idx = *feature_indices.get_unchecked(i);
             let weight_ptr = weight_ptr.add(idx * HIDDEN_DIMS) as *const __m256i;
 
-            for j in 0..NUM_REGS {
-                *acc.get_unchecked_mut(j) =
-                    _mm256_add_epi16(*acc.get_unchecked(j), _mm256_loadu_si256(weight_ptr.add(j)));
+            for j in 0..num_regs {
+                *acc_ptr.add(j) = _mm256_add_epi16(*acc_ptr.add(j), _mm256_loadu_si256(weight_ptr.add(j)));
             }
         }
 
@@ -123,14 +115,20 @@ impl<
         let one = _mm256_set1_epi16(127 * 2);
         let zero = _mm256_setzero_si256();
         let offset = _mm256_set1_epi16(127); // 63.5 * 2
-        let (in0, in1) = acc.split_at_unchecked(acc.len() / 2);
-        for j in 0..(acc.len() / 4) {
-            let sum0 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2], one), zero), 7);
-            let sum1 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in0[j * 2 + 1], one), zero), 7);
+        let in0_ptr = acc_ptr;
+        let in1_ptr = acc_ptr.add(num_regs / 2);
+        for j in 0..(num_regs / 4) {
+            let in00 = *in0_ptr.add(j * 2);
+            let in01 = *in0_ptr.add(j * 2 + 1);
+            let sum0 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in00, one), zero), 7);
+            let sum1 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in01, one), zero), 7);
+
+            let in10 = *in1_ptr.add(j * 2);
+            let in11 = *in1_ptr.add(j * 2 + 1);
 
             // Hard Sigmoid x * 0.25 + 0.5
-            let mut hs0 = _mm256_add_epi16(_mm256_srai_epi16(in1[j * 2], 2), offset);
-            let mut hs1 = _mm256_add_epi16(_mm256_srai_epi16(in1[j * 2 + 1], 2), offset);
+            let mut hs0 = _mm256_add_epi16(_mm256_srai_epi16(in10, 2), offset);
+            let mut hs1 = _mm256_add_epi16(_mm256_srai_epi16(in11, 2), offset);
             hs0 = _mm256_min_epi16(hs0, one);
             hs1 = _mm256_min_epi16(hs1, one);
 
