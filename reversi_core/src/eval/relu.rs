@@ -2,69 +2,71 @@
 //! https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h
 use std::arch::x86_64::*;
 
+use aligned::{Aligned, A64};
+
 use crate::eval::AVX2_SIMD_WIDTH;
 
-/// Applies a clipped ReLU activation function to a slice of 32-bit integers,
-/// writing the results as 8-bit integers to the output slice.
+use super::constants::HIDDEN_WEIGHT_SCALE_BITS;
+
+/// Applies a clipped ReLU activation function to `input`.
 ///
-/// The clipped ReLU function returns the input value if it is positive, and zero otherwise.
-/// The result is then clamped to the maximum value of an 8-bit signed integer (`i8::MAX`).
+/// Values are right-shifted by `WEIGHT_SCALE_BITS`, then clamped to `0..=127`.
 ///
 /// # Arguments
 ///
-/// * `input` - A slice containing the 32-bit integer input values.
-/// * `output` - A mutable slice where the 8-bit integer results will be written.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers.
 ///
-/// # Safety
+/// # Returns
 ///
-/// This function has the following safety requirements:
-///
-/// * The `input` and `output` slices must have the same length.
-/// * Both `input` and `output` slices must be aligned to 32-byte boundaries. This is crucial for the AVX2 implementation to function correctly.
-/// * The lengths of both `input` and `output` slices must be multiples of 32. This ensures that the vectorized operations process complete chunks of data.
-pub fn clipped_relu<const WEIGHT_SCALE_BITS: i32>(input: &[i32], output: &mut [u8]) {
-    debug_assert!(input.len() == output.len());
+/// * An aligned array of `SIZE` 8-bit unsigned integers.
+pub fn clipped_relu<const SIZE: usize>(
+    input: &Aligned<A64, [i32; SIZE]>,
+) -> Aligned<A64, [u8; SIZE]> {
+    let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
 
     if is_x86_feature_detected!("avx2") {
-        unsafe { return clipped_relu_avx2::<WEIGHT_SCALE_BITS>(input, output) }
+        unsafe { clipped_relu_avx2::<SIZE>(input, &mut output) }
+    } else {
+        clipped_relu_fallback::<SIZE>(input, &mut output, 0);
     }
 
-    clipped_relu_fallback::<WEIGHT_SCALE_BITS>(input, output, 0);
+    output
 }
 
-/// Applies a clipped ReLU activation function to a slice of 32-bit integers using AVX2 intrinsics,
-/// writing the results as 8-bit integers to the output slice.
+/// Clipped ReLU with AVX2.
 ///
-/// This is an optimized version of `clipped_relu` that leverages AVX2 vector instructions for increased performance.
+/// Optimized implementation of `clipped_relu`.
 ///
 /// # Arguments
 ///
-/// * `input` - A slice containing the 32-bit integer input values.
-/// * `output` - A mutable slice where the 8-bit integer results will be written.
-unsafe fn clipped_relu_avx2<const WEIGHT_SCALE_BITS: i32>(input: &[i32], output: &mut [u8]) {
-    if input.len() % AVX2_SIMD_WIDTH == 0 {
-        let num_chunks = input.len() / AVX2_SIMD_WIDTH;
-        let offsets: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
+/// * `input` - An aligned slice of `SIZE` 32-bit integers.
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+#[inline(always)]
+unsafe fn clipped_relu_avx2<const SIZE: usize>(
+    input: &Aligned<A64, [i32; SIZE]>,
+    output: &mut Aligned<A64, [u8; SIZE]>,
+) {
+    if SIZE % AVX2_SIMD_WIDTH == 0 {
+        let num_chunks = SIZE / AVX2_SIMD_WIDTH;
+        let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
         let input_ptr = input.as_ptr() as *const __m256i;
         let output_ptr = output.as_mut_ptr() as *mut __m256i;
         for i in 0..num_chunks {
-            let words0 = _mm256_srli_epi16(
-                _mm256_packus_epi32(
-                    _mm256_load_si256(input_ptr.add(i * 4)),
-                    _mm256_load_si256(input_ptr.add(i * 4 + 1)),
-                ),
-                WEIGHT_SCALE_BITS,
+            let packed0 = _mm256_packus_epi32(
+                _mm256_load_si256(input_ptr.add(i * 4)),
+                _mm256_load_si256(input_ptr.add(i * 4 + 1)),
             );
-            let words1 = _mm256_srli_epi16(
-                _mm256_packus_epi32(
-                    _mm256_load_si256(input_ptr.add(i * 4 + 2)),
-                    _mm256_load_si256(input_ptr.add(i * 4 + 3)),
-                ),
-                WEIGHT_SCALE_BITS,
+            let packed1 = _mm256_packus_epi32(
+                _mm256_load_si256(input_ptr.add(i * 4 + 2)),
+                _mm256_load_si256(input_ptr.add(i * 4 + 3)),
             );
+
+            let words0 = _mm256_srli_epi16(packed0, HIDDEN_WEIGHT_SCALE_BITS);
+            let words1 = _mm256_srli_epi16(packed1, HIDDEN_WEIGHT_SCALE_BITS);
+
             _mm256_store_si256(
                 output_ptr.add(i),
-                _mm256_permutevar8x32_epi32(_mm256_packs_epi16(words0, words1), offsets),
+                _mm256_permutevar8x32_epi32(_mm256_packs_epi16(words0, words1), shuffle),
             );
         }
     } else {
@@ -77,7 +79,7 @@ unsafe fn clipped_relu_avx2<const WEIGHT_SCALE_BITS: i32>(input: &[i32], output:
                     _mm_load_si128(input_ptr.add(i * 4)),
                     _mm_load_si128(input_ptr.add(i * 4 + 1)),
                 ),
-                WEIGHT_SCALE_BITS,
+                HIDDEN_WEIGHT_SCALE_BITS,
             );
 
             let words1 = _mm_srli_epi16(
@@ -85,62 +87,79 @@ unsafe fn clipped_relu_avx2<const WEIGHT_SCALE_BITS: i32>(input: &[i32], output:
                     _mm_load_si128(input_ptr.add(i * 4 + 2)),
                     _mm_load_si128(input_ptr.add(i * 4 + 3)),
                 ),
-                WEIGHT_SCALE_BITS,
+                HIDDEN_WEIGHT_SCALE_BITS,
             );
 
             _mm_store_si128(output_ptr.add(i), _mm_packs_epi16(words0, words1));
         }
     }
 
-    let start = if input.len() % AVX2_SIMD_WIDTH == 0 {
-        input.len() / AVX2_SIMD_WIDTH * AVX2_SIMD_WIDTH
+    let start = if SIZE % AVX2_SIMD_WIDTH == 0 {
+        SIZE / AVX2_SIMD_WIDTH * AVX2_SIMD_WIDTH
     } else {
-        input.len() / (AVX2_SIMD_WIDTH / 2) * (AVX2_SIMD_WIDTH / 2)
+        SIZE / (AVX2_SIMD_WIDTH / 2) * (AVX2_SIMD_WIDTH / 2)
     };
 
-    clipped_relu_fallback::<WEIGHT_SCALE_BITS>(input, output, start);
+    clipped_relu_fallback::<SIZE>(input, output, start);
 }
 
-/// Applies a clipped ReLU activation function to a slice of 32-bit integers using a scalar fallback implementation,
+/// Clipped ReLU (scalar fallback).
 ///
 /// # Arguments
 ///
-/// * `input` - A slice containing the 32-bit integer input values.
-/// * `output` - A mutable slice where the 8-bit integer results will be written.
-/// * `start_idx` - The index at which to start processing the input slice.
-fn clipped_relu_fallback<const WEIGHT_SCALE_BITS: i32>(
-    input: &[i32],
-    output: &mut [u8],
+/// * `input` - An aligned slice of `SIZE` 32-bit integers.
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+/// * `start_idx` - Start index for processing.
+#[inline(always)]
+fn clipped_relu_fallback<const SIZE: usize>(
+    input: &Aligned<A64, [i32; SIZE]>,
+    output: &mut Aligned<A64, [u8; SIZE]>,
     start_idx: usize,
 ) {
     for i in start_idx..input.len() {
-        let val = input[i] >> WEIGHT_SCALE_BITS;
+        let val = input[i] >> HIDDEN_WEIGHT_SCALE_BITS;
         output[i] = val.clamp(0, 127) as u8;
     }
 }
 
-/// Applies a squared clipped ReLU activation function to a slice of 32-bit integers,
+/// Applies a sqr clipped ReLU activation function to `input`.
+///
+/// Input values are squared, then scaled and clamped to `0..=127`.
+/// The scaling involves a right shift by `(2 * WEIGHT_SCALE_BITS + 7)`.
 ///
 /// # Arguments
 ///
-/// * `input` - A slice containing the 32-bit integer input values.
-/// * `output` - A mutable slice where the 8-bit integer results will be written.
-pub fn sqr_clipped_relu<const WEIGHT_SCALE_BITS: i32>(input: &[i32], output: &mut [u8]) {
+/// * `input` - An aligned slice of `SIZE` 32-bit integers.
+///
+/// # Returns
+///
+/// * An aligned array of `SIZE` 8-bit unsigned integers.
+pub fn sqr_clipped_relu<const SIZE: usize>(
+    input: &Aligned<A64, [i32; SIZE]>,
+) -> Aligned<A64, [u8; SIZE]> {
+    let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+
     if is_x86_feature_detected!("avx2") {
-        unsafe { return sqr_clipped_relu_avx2::<WEIGHT_SCALE_BITS>(input, output) }
+        unsafe { sqr_clipped_relu_avx2::<SIZE>(input, &mut output) }
+    } else {
+        sqr_clipped_relu_fallback::<SIZE>(input, &mut output, 0);
     }
 
-    sqr_clipped_relu_fallback::<WEIGHT_SCALE_BITS>(input, output, 0);
+    output
 }
 
-/// Applies a squared clipped ReLU activation function to a slice of 32-bit integers using AVX2 intrinsics,
+/// Sqr clipped ReLU with AVX2.
 ///
 /// # Arguments
 ///
-/// * `input` - A slice containing the 32-bit integer input values.
-/// * `output` - A mutable slice where the 8-bit integer results will be written.
-unsafe fn sqr_clipped_relu_avx2<const WEIGHT_SCALE_BITS: i32>(input: &[i32], output: &mut [u8]) {
-    let num_chunks = input.len() / 16;
+/// * `input` - An aligned slice of `SIZE` 32-bit integers.
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+#[inline(always)]
+unsafe fn sqr_clipped_relu_avx2<const SIZE: usize>(
+    input: &Aligned<A64, [i32; SIZE]>,
+    output: &mut Aligned<A64, [u8; SIZE]>,
+) {
+    let num_chunks = SIZE / 16;
     let input_ptr = input.as_ptr() as *const __m128i;
     let output_ptr = output.as_mut_ptr() as *mut __m128i;
     for i in 0..num_chunks {
@@ -156,30 +175,31 @@ unsafe fn sqr_clipped_relu_avx2<const WEIGHT_SCALE_BITS: i32>(input: &[i32], out
         // We shift by WeightScaleBits * 2 = 12 and divide by 128
         // which is an additional shift-right of 7, meaning 19 in total.
         // MulHi strips the lower 16 bits so we need to shift out 3 more to match.
-        words0 = _mm_srli_epi16(_mm_mulhi_epi16(words0, words0), 3);
-        words1 = _mm_srli_epi16(_mm_mulhi_epi16(words1, words1), 3);
+        const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 7 - 16;
+        words0 = _mm_srli_epi16(_mm_mulhi_epi16(words0, words0), SHIFT);
+        words1 = _mm_srli_epi16(_mm_mulhi_epi16(words1, words1), SHIFT);
         _mm_store_si128(output_ptr.add(i), _mm_packs_epi16(words0, words1));
     }
 
     let start_idx = num_chunks * 16;
-    sqr_clipped_relu_fallback::<WEIGHT_SCALE_BITS>(input, output, start_idx);
+    sqr_clipped_relu_fallback::<SIZE>(input, output, start_idx);
 }
 
-/// Applies a squared clipped ReLU activation function to a slice of 32-bit integers using a scalar fallback implementation,
+/// Sqr clipped ReLU (scalar fallback).
 ///
 /// # Arguments
 ///
-/// * `input` - A slice containing the 32-bit integer input values.
-/// * `output` - A mutable slice where the 8-bit integer results will be written.
-/// * `start_idx` - The index at which to start processing the input slice.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers.
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+/// * `start_idx` - Start index for processing.
 #[inline(always)]
-fn sqr_clipped_relu_fallback<const WEIGHT_SCALE_BITS: i32>(
-    input: &[i32],
-    output: &mut [u8],
+fn sqr_clipped_relu_fallback<const SIZE: usize>(
+    input: &Aligned<A64, [i32; SIZE]>,
+    output: &mut Aligned<A64, [u8; SIZE]>,
     start_idx: usize,
 ) {
     for i in start_idx..input.len() {
-        let val = ((input[i] * input[i]) as u64 >> (2 * WEIGHT_SCALE_BITS + 7)).min(127);
+        let val = ((input[i] * input[i]) as u64 >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 7)).min(127);
         output[i] = val as u8;
     }
 }
@@ -187,18 +207,105 @@ fn sqr_clipped_relu_fallback<const WEIGHT_SCALE_BITS: i32>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::CACHE_LINE_SIZE;
-    use aligned_vec::{avec, AVec, ConstAlign};
+    use aligned::{Aligned, A64};
 
     #[test]
     fn test_clipped_relu_fallback() {
-        let input: AVec<i32, ConstAlign<CACHE_LINE_SIZE>> =
-            avec![[CACHE_LINE_SIZE] | 100, -50, 200, i32::MAX, i32::MIN, 0];
-        let mut output = avec![[CACHE_LINE_SIZE]|0; input.len()];
+        const SIZE: usize = 6;
 
-        clipped_relu_fallback::<2>(&input, &mut output, 0);
+        let input_data = [100, -50, 200, i32::MAX, i32::MIN, 0];
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
 
-        let expected = avec![[CACHE_LINE_SIZE] | 25, 0, 50, 127, 0, 0];
-        assert_eq!(output, expected);
+        clipped_relu_fallback::<SIZE>(&input, &mut output, 0);
+
+        let expected = [1, 0, 3, 127, 0, 0];
+        assert_eq!(output.as_ref(), &expected);
+    }
+
+    #[test]
+    fn test_clipped_relu() {
+        const SIZE: usize = 32;
+
+        let mut input_data = [0i32; SIZE];
+        let mut expected = [0u8; SIZE];
+
+        input_data[0] = 100;
+        expected[0] = 1;
+
+        input_data[1] = 0;
+        expected[1] = 0;
+
+        input_data[2] = 1000;
+        expected[2] = 15;
+
+        input_data[3] = i32::MAX;
+        expected[3] = 127;
+
+        input_data[4] = i32::MIN;
+        expected[4] = 0;
+
+        input_data[5] = 0;
+        expected[5] = 0;
+
+        input_data[6] = 127 << 6;
+        expected[6] = 127;
+
+        input_data[7] = (127 << 6) + 1;
+        expected[7] = 127;
+
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let output = clipped_relu::<SIZE>(&input);
+        assert_eq!(output.as_ref(), &expected);
+    }
+
+    #[test]
+    fn test_sqr_clipped_relu_fallback() {
+        const SIZE: usize = 6;
+
+        let input_data = [10, -5, 20, 5000, -5000, 127 << HIDDEN_WEIGHT_SCALE_BITS];
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+
+        sqr_clipped_relu_fallback::<SIZE>(&input, &mut output, 0);
+
+        let expected = [0, 0, 0, 47, 47, 126];
+        assert_eq!(output.as_ref(), &expected);
+    }
+
+    #[test]
+    fn test_sqr_clipped_relu() {
+        const SIZE: usize = 16;
+
+        let mut input_data = [0i32; SIZE];
+        let mut expected = [0u8; SIZE];
+
+        input_data[0] = 10;
+        expected[0] = 0;
+
+        input_data[1] = -5;
+        expected[1] = 0;
+
+        input_data[2] = 5000;
+        expected[2] = 47;
+
+        input_data[3] = -5000;
+        expected[3] = 47;
+
+        input_data[4] = 1000;
+        expected[4] = 1;
+
+        input_data[5] = -1000;
+        expected[5] = 1;
+
+        input_data[6] = 0;
+        expected[6] = 0;
+
+        input_data[7] = 127 << HIDDEN_WEIGHT_SCALE_BITS;
+        expected[7] = 126;
+
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let output = sqr_clipped_relu::<SIZE>(&input);
+        assert_eq!(output.as_ref(), &expected);
     }
 }

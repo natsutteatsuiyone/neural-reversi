@@ -15,6 +15,25 @@ use crate::misc::ceil_to_multiple;
 use crate::search::search_context::SearchContext;
 use crate::types::Score;
 
+const BASE_INPUT_OUTPUT_DIMS: usize = 96;
+
+const L1_BASE_INPUT_DIMS: usize = BASE_INPUT_OUTPUT_DIMS + 1;
+const L1_BASE_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_BASE_INPUT_DIMS, 32);
+const L1_BASE_OUTPUT_DIMS: usize = 8;
+const L1_BASE_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_BASE_OUTPUT_DIMS, 32);
+
+const L1_PA_INPUT_DIMS: usize = 96 + 1;
+const L1_PA_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_PA_INPUT_DIMS, 32);
+const L1_PA_OUTPUT_DIMS: usize = 8;
+const L1_PA_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
+
+const L2_INPUT_DIMS: usize = (L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS) * 2;
+const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
+const L2_OUTPUT_DIMS: usize = 64;
+const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
+
+const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS;
+
 struct LayerStack {
     pub l1_base: LinearLayer<
         L1_BASE_INPUT_DIMS,
@@ -156,34 +175,45 @@ impl Network {
         input_base: &[u8],
         input_pa: &[u8],
     ) -> Aligned<A64, [u8; L2_PADDED_INPUT_DIMS]> {
-        let mut l1_base_out: Aligned<A64, [i32; L1_BASE_PADDED_OUTPUT_DIMS]> =
-            Aligned([0; L1_BASE_PADDED_OUTPUT_DIMS]);
+        let mut l1_base_out: Aligned<A64, [i32; L1_BASE_PADDED_OUTPUT_DIMS]> = Aligned([0; L1_BASE_PADDED_OUTPUT_DIMS]);
         ls.l1_base.forward(input_base, l1_base_out.as_mut_slice());
 
-        let mut l1_pa_out: Aligned<A64, [i32; L1_PA_PADDED_OUTPUT_DIMS]> =
-            Aligned([0; L1_PA_PADDED_OUTPUT_DIMS]);
+        let mut l1_pa_out: Aligned<A64, [i32; L1_PA_PADDED_OUTPUT_DIMS]> = Aligned([0; L1_PA_PADDED_OUTPUT_DIMS]);
         ls.l1_pa.forward(input_pa, l1_pa_out.as_mut_slice());
 
-        let mut l1_out: Aligned<A64, [i32; L2_INPUT_DIMS]> = Aligned([0; L2_INPUT_DIMS]);
-        l1_out[0..L1_BASE_OUTPUT_DIMS].copy_from_slice(&l1_base_out[0..L1_BASE_OUTPUT_DIMS]);
-        l1_out[L1_BASE_OUTPUT_DIMS..(L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS)]
-            .copy_from_slice(&l1_pa_out[0..L1_PA_OUTPUT_DIMS]);
+        const L1_OUTPUT_DIMS: usize = L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS;
+        let mut l1_out: Aligned<A64, [i32; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                l1_base_out.as_ptr(),
+                l1_out.as_mut_ptr(),
+                L1_BASE_OUTPUT_DIMS,
+            );
 
-        const L1_OUTPUT_DIMS: usize = ceil_to_multiple(L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS, 32);
+            std::ptr::copy_nonoverlapping(
+                l1_pa_out.as_ptr(),
+                l1_out.as_mut_ptr().add(L1_BASE_OUTPUT_DIMS),
+                L1_PA_OUTPUT_DIMS,
+            );
+        }
 
-        let mut l1_sqr_relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
-        sqr_clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(
-            l1_out.as_slice(),
-            l1_sqr_relu_out.as_mut_slice(),
-        );
-
-        let mut l1_relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
-        clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(l1_out.as_slice(), l1_relu_out.as_mut_slice());
+        let l1_sqr_relu_out = sqr_clipped_relu::<L1_OUTPUT_DIMS>(&l1_out);
+        let l1_relu_out = clipped_relu::<L1_OUTPUT_DIMS>(&l1_out);
 
         let mut out: Aligned<A64, [u8; L2_PADDED_INPUT_DIMS]> = Aligned([0; L2_PADDED_INPUT_DIMS]);
-        out[0..(L2_INPUT_DIMS / 2)].copy_from_slice(&l1_sqr_relu_out[0..(L2_INPUT_DIMS / 2)]);
-        out[(L2_INPUT_DIMS / 2)..L2_INPUT_DIMS]
-            .copy_from_slice(&l1_relu_out[0..(L2_INPUT_DIMS / 2)]);
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                l1_sqr_relu_out.as_ptr(),
+                out.as_mut_ptr(),
+                L2_INPUT_DIMS / 2,
+            );
+
+            std::ptr::copy_nonoverlapping(
+                l1_relu_out.as_ptr(),
+                out.as_mut_ptr().add(L2_INPUT_DIMS / 2),
+                L2_INPUT_DIMS / 2,
+            );
+        }
 
         out
     }
@@ -194,15 +224,10 @@ impl Network {
         ls: &LayerStack,
         input: &[u8],
     ) -> Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]> {
-        let mut l2_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]> =
-            Aligned([0; L2_PADDED_OUTPUT_DIMS]);
+        let mut l2_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]> = Aligned([0; L2_PADDED_OUTPUT_DIMS]);
         ls.l2.forward(input, l2_out.as_mut_slice());
 
-        let mut l2_act: Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]> =
-            Aligned([0; L2_PADDED_OUTPUT_DIMS]);
-        clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(l2_out.as_slice(), l2_act.as_mut_slice());
-
-        l2_act
+        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&l2_out)
     }
 
     #[inline]

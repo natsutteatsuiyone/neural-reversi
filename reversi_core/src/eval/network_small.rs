@@ -5,7 +5,6 @@ use aligned::{Aligned, A64};
 
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
-use crate::eval::constants::HIDDEN_WEIGHT_SCALE_BITS;
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
@@ -14,7 +13,9 @@ use crate::misc::ceil_to_multiple;
 use crate::search::search_context::SearchContext;
 use crate::types::Score;
 
-use super::constants::{INPUT_FEATURE_DIMS, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS, PATTERN_FEATURE_OFFSETS};
+use super::constants::{
+    INPUT_FEATURE_DIMS, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS, PATTERN_FEATURE_OFFSETS,
+};
 
 const L1_PA_INPUT_DIMS: usize = 64 + 1;
 const L1_PA_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_PA_INPUT_DIMS, 32);
@@ -38,12 +39,7 @@ struct LayerStack {
         L1_PA_PADDED_INPUT_DIMS,
         L1_PA_PADDED_OUTPUT_DIMS,
     >,
-    pub l2: LinearLayer<
-        L2_INPUT_DIMS,
-        L2_OUTPUT_DIMS,
-        L2_PADDED_INPUT_DIMS,
-        L2_PADDED_OUTPUT_DIMS,
-    >,
+    pub l2: LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>,
     pub lo: LinearLayer<
         LO_INPUT_DIMS,
         1,
@@ -53,10 +49,7 @@ struct LayerStack {
 }
 
 pub struct NetworkSmall {
-    pa_inputs: Vec<PhaseAdaptiveInput<
-        INPUT_FEATURE_DIMS,
-        { L1_PA_INPUT_DIMS - 1 },
-    > >,
+    pa_inputs: Vec<PhaseAdaptiveInput<INPUT_FEATURE_DIMS, { L1_PA_INPUT_DIMS - 1 }>>,
     layer_stacks: Vec<LayerStack>,
 }
 
@@ -68,10 +61,10 @@ impl NetworkSmall {
 
         let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
         for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
-            let pa_input = PhaseAdaptiveInput::<
-                INPUT_FEATURE_DIMS,
-                { L1_PA_INPUT_DIMS - 1 },
-            >::load(&mut decoder)?;
+            let pa_input =
+                PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, { L1_PA_INPUT_DIMS - 1 }>::load(
+                    &mut decoder,
+                )?;
             pa_inputs.push(pa_input);
         }
         let mut layer_stacks = Vec::with_capacity(NUM_LAYER_STACKS);
@@ -79,11 +72,7 @@ impl NetworkSmall {
             let l1_pa = LinearLayer::load(&mut decoder)?;
             let l2 = LinearLayer::load(&mut decoder)?;
             let lo = LinearLayer::load(&mut decoder)?;
-            layer_stacks.push(LayerStack {
-                l1_pa,
-                l2,
-                lo,
-            });
+            layer_stacks.push(LayerStack { l1_pa, l2, lo });
         }
 
         Ok(NetworkSmall {
@@ -138,15 +127,11 @@ impl NetworkSmall {
         ls: &LayerStack,
         input_pa: &[u8],
     ) -> Aligned<A64, [u8; L2_PADDED_INPUT_DIMS]> {
-        let mut l1_out: Aligned<A64, [i32; L1_PA_PADDED_OUTPUT_DIMS]> =
-            Aligned([0; L1_PA_PADDED_OUTPUT_DIMS]);
+        let mut l1_out: Aligned<A64, [i32; L1_PA_PADDED_OUTPUT_DIMS]> = Aligned([0; L1_PA_PADDED_OUTPUT_DIMS]);
         ls.l1_pa.forward(input_pa, l1_out.as_mut_slice());
 
         const L1_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
-        let mut l1_relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
-        clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(l1_out.as_slice(), l1_relu_out.as_mut_slice());
-
-        l1_relu_out
+        clipped_relu::<L1_OUTPUT_DIMS>(&l1_out)
     }
 
     #[inline]
@@ -155,15 +140,10 @@ impl NetworkSmall {
         ls: &LayerStack,
         input: &[u8],
     ) -> Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]> {
-        let mut l2_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]> =
-            Aligned([0; L2_PADDED_OUTPUT_DIMS]);
+        let mut l2_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]> = Aligned([0; L2_PADDED_OUTPUT_DIMS]);
         ls.l2.forward(input, l2_out.as_mut_slice());
 
-        let mut l2_act: Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]> =
-            Aligned([0; L2_PADDED_OUTPUT_DIMS]);
-        clipped_relu::<HIDDEN_WEIGHT_SCALE_BITS>(l2_out.as_slice(), l2_act.as_mut_slice());
-
-        l2_act
+        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&l2_out)
     }
 
     #[inline]
