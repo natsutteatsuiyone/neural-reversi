@@ -14,7 +14,7 @@ use crate::search::search_context::SearchContext;
 use crate::types::Score;
 
 use super::constants::{
-    INPUT_FEATURE_DIMS, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS, PATTERN_FEATURE_OFFSETS,
+    INPUT_FEATURE_DIMS, MOBILITY_SCALE, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS, PATTERN_FEATURE_OFFSETS
 };
 
 const L1_PA_INPUT_DIMS: usize = 64 + 1;
@@ -117,7 +117,7 @@ impl NetworkSmall {
         let mut out = Aligned([0; L1_PA_PADDED_INPUT_DIMS]);
         let pa_input = &self.pa_inputs[ply / (60 / NUM_PHASE_ADAPTIVE_INPUT)];
         pa_input.forward_leaky_relu(feature_indices, out.as_mut_slice());
-        out[L1_PA_INPUT_DIMS - 1] = mobility * 3;
+        out[L1_PA_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
         out
     }
 
@@ -131,7 +131,10 @@ impl NetworkSmall {
         ls.l1_pa.forward(input_pa, l1_out.as_mut_slice());
 
         const L1_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
-        clipped_relu::<L1_OUTPUT_DIMS>(&l1_out)
+        let mut act_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
+        clipped_relu::<L1_OUTPUT_DIMS>(&l1_out, &mut act_out);
+
+        act_out
     }
 
     #[inline]
@@ -143,14 +146,16 @@ impl NetworkSmall {
         let mut l2_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]> = Aligned([0; L2_PADDED_OUTPUT_DIMS]);
         ls.l2.forward(input, l2_out.as_mut_slice());
 
-        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&l2_out)
+        let mut act_out: Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]> = Aligned([0; L2_PADDED_OUTPUT_DIMS]);
+        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&l2_out, &mut act_out);
+
+        act_out
     }
 
     #[inline]
     fn forward_output(&self, ls: &LayerStack, input: &[u8]) -> Score {
-        let mut out: Aligned<A64, [i32; 1]> = Aligned([0; 1]);
-        ls.lo.forward(input, out.as_mut_slice());
-
-        out[0] >> OUTPUT_WEIGHT_SCALE_BITS
+        let mut out: i32 = 0;
+        ls.lo.forward(input, std::slice::from_mut(&mut out));
+        out >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }

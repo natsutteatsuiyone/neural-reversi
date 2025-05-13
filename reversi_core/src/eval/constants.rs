@@ -8,6 +8,7 @@ pub const INPUT_FEATURE_DIMS: usize = sum_eval_f2x();
 pub const NUM_FEATURES: usize = pattern_feature::NUM_PATTERN_FEATURES;
 pub const PATTERN_FEATURE_OFFSETS: [usize; pattern_feature::NUM_PATTERN_FEATURES] = calc_feature_offsets();
 
+pub const MOBILITY_SCALE: u8 = 3;
 pub const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 pub const OUTPUT_WEIGHT_SCALE_BITS: i32 = 4;
 pub const NUM_LAYER_STACKS: usize = 60;

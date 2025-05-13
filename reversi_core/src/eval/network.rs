@@ -148,9 +148,8 @@ impl Network {
         mobility: u8,
     ) -> Aligned<A64, [u8; L1_BASE_PADDED_INPUT_DIMS]> {
         let mut out = Aligned([0; L1_BASE_PADDED_INPUT_DIMS]);
-        self.base_input
-            .forward(feature_indices, &mut out[0..BASE_INPUT_OUTPUT_DIMS]);
-        out[L1_BASE_INPUT_DIMS - 1] = mobility * 3;
+        self.base_input.forward(feature_indices, &mut out[0..BASE_INPUT_OUTPUT_DIMS]);
+        out[L1_BASE_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
         out
     }
 
@@ -164,7 +163,7 @@ impl Network {
         let mut out = Aligned([0; L1_PA_PADDED_INPUT_DIMS]);
         self.pa_inputs[ply / (60 / NUM_PHASE_ADAPTIVE_INPUT)]
             .forward_leaky_relu(feature_indices, out.as_mut_slice());
-        out[L1_PA_INPUT_DIMS - 1] = mobility * 3;
+        out[L1_PA_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
         out
     }
 
@@ -197,19 +196,22 @@ impl Network {
             );
         }
 
-        let l1_sqr_relu_out = sqr_clipped_relu::<L1_OUTPUT_DIMS>(&l1_out);
-        let l1_relu_out = clipped_relu::<L1_OUTPUT_DIMS>(&l1_out);
+        let mut sqr_relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
+        sqr_clipped_relu::<L1_OUTPUT_DIMS>(&l1_out, &mut sqr_relu_out);
+
+        let mut relu_out: Aligned<A64, [u8; L1_OUTPUT_DIMS]> = Aligned([0; L1_OUTPUT_DIMS]);
+        clipped_relu::<L1_OUTPUT_DIMS>(&l1_out, &mut relu_out);
 
         let mut out: Aligned<A64, [u8; L2_PADDED_INPUT_DIMS]> = Aligned([0; L2_PADDED_INPUT_DIMS]);
         unsafe {
             std::ptr::copy_nonoverlapping(
-                l1_sqr_relu_out.as_ptr(),
+                sqr_relu_out.as_ptr(),
                 out.as_mut_ptr(),
                 L2_INPUT_DIMS / 2,
             );
 
             std::ptr::copy_nonoverlapping(
-                l1_relu_out.as_ptr(),
+                relu_out.as_ptr(),
                 out.as_mut_ptr().add(L2_INPUT_DIMS / 2),
                 L2_INPUT_DIMS / 2,
             );
@@ -227,14 +229,16 @@ impl Network {
         let mut l2_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]> = Aligned([0; L2_PADDED_OUTPUT_DIMS]);
         ls.l2.forward(input, l2_out.as_mut_slice());
 
-        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&l2_out)
+        let mut act_out: Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]> = Aligned([0; L2_PADDED_OUTPUT_DIMS]);
+        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&l2_out, &mut act_out);
+
+        act_out
     }
 
     #[inline]
     fn forward_output(&self, ls: &LayerStack, input: &[u8]) -> Score {
-        let mut out: Aligned<A64, [i32; 1]> = Aligned([0; 1]);
-        ls.lo.forward(input, out.as_mut_slice());
-
-        out[0] >> OUTPUT_WEIGHT_SCALE_BITS
+        let mut out: i32 = 0;
+        ls.lo.forward(input, std::slice::from_mut(&mut out));
+        out >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }

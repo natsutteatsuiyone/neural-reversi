@@ -10,27 +10,21 @@ use super::constants::HIDDEN_WEIGHT_SCALE_BITS;
 
 /// Applies a clipped ReLU activation function to `input`.
 ///
-/// Values are right-shifted by `WEIGHT_SCALE_BITS`, then clamped to `0..=127`.
+/// Values are right-shifted by `HIDDEN_WEIGHT_SCALE_BITS`, then clamped to `0..=127`.
 ///
 /// # Arguments
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers.
-///
-/// # Returns
-///
-/// * An aligned array of `SIZE` 8-bit unsigned integers.
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
 pub fn clipped_relu<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
-) -> Aligned<A64, [u8; SIZE]> {
-    let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
-
+    output: &mut Aligned<A64, [u8; SIZE]>,
+) {
     if is_x86_feature_detected!("avx2") {
-        unsafe { clipped_relu_avx2::<SIZE>(input, &mut output) }
+        unsafe { clipped_relu_avx2::<SIZE>(input, output) }
     } else {
-        clipped_relu_fallback::<SIZE>(input, &mut output, 0);
+        clipped_relu_fallback::<SIZE>(input, output, 0);
     }
-
-    output
 }
 
 /// Clipped ReLU with AVX2.
@@ -125,27 +119,21 @@ fn clipped_relu_fallback<const SIZE: usize>(
 /// Applies a sqr clipped ReLU activation function to `input`.
 ///
 /// Input values are squared, then scaled and clamped to `0..=127`.
-/// The scaling involves a right shift by `(2 * WEIGHT_SCALE_BITS + 7)`.
+/// The scaling involves a right shift by `(2 * HIDDEN_WEIGHT_SCALE_BITS + 7)`.
 ///
 /// # Arguments
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers.
-///
-/// # Returns
-///
-/// * An aligned array of `SIZE` 8-bit unsigned integers.
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
 pub fn sqr_clipped_relu<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
-) -> Aligned<A64, [u8; SIZE]> {
-    let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
-
+    output: &mut Aligned<A64, [u8; SIZE]>,
+) {
     if is_x86_feature_detected!("avx2") {
-        unsafe { sqr_clipped_relu_avx2::<SIZE>(input, &mut output) }
+        unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) }
     } else {
-        sqr_clipped_relu_fallback::<SIZE>(input, &mut output, 0);
+        sqr_clipped_relu_fallback::<SIZE>(input, output, 0);
     }
-
-    output
 }
 
 /// Sqr clipped ReLU with AVX2.
@@ -255,7 +243,8 @@ mod tests {
         expected[7] = 127;
 
         let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
-        let output = clipped_relu::<SIZE>(&input);
+        let mut output = Aligned::<A64, [u8; SIZE]>::default();
+        clipped_relu::<SIZE>(&input, &mut output);
         assert_eq!(output.as_ref(), &expected);
     }
 
@@ -305,7 +294,8 @@ mod tests {
         expected[7] = 126;
 
         let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
-        let output = sqr_clipped_relu::<SIZE>(&input);
+        let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+        sqr_clipped_relu::<SIZE>(&input, &mut output);
         assert_eq!(output.as_ref(), &expected);
     }
 }
