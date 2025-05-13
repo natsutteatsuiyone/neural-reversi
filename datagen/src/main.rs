@@ -22,6 +22,9 @@ enum SubCommands {
 
         #[arg(short, long, default_value = "1")]
         threads: usize,
+
+        #[arg(long, default_value = "false")]
+        score_correction: bool,
     },
     Selfplay {
         #[arg(long, default_value = "100000000")]
@@ -63,8 +66,9 @@ fn main() {
             input_dir,
             output_dir,
             threads,
+            score_correction,
         } => {
-            feature::execute(&input_dir, &output_dir, threads).unwrap();
+            feature::execute(&input_dir, &output_dir, threads, score_correction).unwrap();
         }
         SubCommands::Selfplay {
             games,

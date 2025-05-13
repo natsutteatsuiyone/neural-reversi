@@ -25,7 +25,7 @@ struct GameRecord {
     ply: u8,
 }
 
-pub fn execute(input_dir: &str, output_dir: &str, threads: usize) -> io::Result<()> {
+pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correction: bool) -> io::Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build_global()
@@ -65,7 +65,7 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize) -> io::Result<
         .for_each(|(group_idx, entry_group)| {
             let group_start_time = std::time::Instant::now();
 
-            if let Err(e) = process_file_group(group_idx, entry_group, output_dir) {
+            if let Err(e) = process_file_group(group_idx, entry_group, output_dir, score_correction) {
                 eprintln!("Failed to process group {}: {}", group_idx, e);
             }
 
@@ -94,6 +94,7 @@ fn process_file_group(
     group_idx: usize,
     entry_paths: &[std::path::PathBuf],
     output_dir: &Path,
+    score_correction: bool,
 ) -> io::Result<()> {
     let mut unique_positions = HashMap::new();
     for path in entry_paths {
@@ -101,7 +102,7 @@ fn process_file_group(
             io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8")
         })?;
 
-        let game_records = load_game_records(input_path_str)?;
+        let game_records = load_game_records(input_path_str, score_correction)?;
 
         for record in game_records {
             let base_board = Board::from_bitboards(record.player, record.opponent);
@@ -152,7 +153,7 @@ fn process_file_group(
     Ok(())
 }
 
-fn load_game_records(file_path: &str) -> io::Result<Vec<GameRecord>> {
+fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<GameRecord>> {
     let metadata = fs::metadata(file_path)?;
     let file_size = metadata.len() as usize;
     let entry_size = 24;
@@ -179,7 +180,7 @@ fn load_game_records(file_path: &str) -> io::Result<Vec<GameRecord>> {
 
         if ply <= 1 {
             score = 0.0;
-        } else if !is_random {
+        } else if !is_random && score_correction {
             score = ((ply as f32 * game_score as f32) + (59.0 - ply as f32) * score) / 59.0;
         }
 
