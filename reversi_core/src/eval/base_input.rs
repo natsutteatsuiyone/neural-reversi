@@ -2,6 +2,7 @@
 use std::io::{self, Read};
 use std::mem::size_of;
 
+use aligned::{Aligned, A64};
 use aligned_vec::{avec, AVec, ConstAlign};
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -89,7 +90,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
 
     unsafe fn forward_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
         use std::arch::x86_64::*;
-        let mut acc: [i16; HIDDEN_DIMS] = std::mem::zeroed();
+        let mut acc: Aligned::<A64, [i16; HIDDEN_DIMS]> = std::mem::zeroed();
         let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
         let num_regs = HIDDEN_DIMS / 16;
 

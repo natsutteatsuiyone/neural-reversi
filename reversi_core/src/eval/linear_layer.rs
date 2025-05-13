@@ -5,6 +5,7 @@ use std::{
     is_x86_feature_detected,
 };
 
+use aligned::{Aligned, A64};
 use aligned_vec::{avec, AVec, ConstAlign};
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -73,7 +74,7 @@ impl<
 
     unsafe fn forward_avx2(&self, input: &[u8], output: &mut [i32]) {
         if OUTPUT_DIMS > 1 {
-            let mut acc: [i32; OUTPUT_DIMS] = std::mem::zeroed();
+            let mut acc: Aligned::<A64, [i32; OUTPUT_DIMS]> = std::mem::zeroed();
             let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
 
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;

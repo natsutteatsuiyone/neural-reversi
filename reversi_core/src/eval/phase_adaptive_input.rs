@@ -1,6 +1,7 @@
 use std::io::{self, Read};
 use std::mem::size_of;
 
+use aligned::{Aligned, A64};
 use aligned_vec::{avec, AVec, ConstAlign};
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -78,7 +79,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 
     unsafe fn forward_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
         use std::arch::x86_64::*;
-        let mut acc: [i16; OUTPUT_DIMS] = std::mem::zeroed();
+        let mut acc: Aligned::<A64, [i16; OUTPUT_DIMS]> = std::mem::zeroed();
         let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
         let num_regs = OUTPUT_DIMS / 16;
 
@@ -142,7 +143,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 
     unsafe fn forward_leaky_relu_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
         use std::arch::x86_64::*;
-        let mut acc: [i16; OUTPUT_DIMS] = std::mem::zeroed();
+        let mut acc: Aligned::<A64, [i16; OUTPUT_DIMS]> = std::mem::zeroed();
         let mut acc_ptr = acc.as_mut_ptr() as *mut __m256i;
         let num_regs = OUTPUT_DIMS / 16;
 
