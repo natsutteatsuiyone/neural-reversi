@@ -348,7 +348,7 @@ impl TranspositionTable {
         let key16 = key as u16;
         let base = self.get_cluster_idx(key);
         let ptr = self.entries.as_ptr().add(base) as *const __m256i;
-        let v = _mm256_load_si256(ptr);
+        let v = _mm256_loadu_si256(ptr);
 
         let key_vec = _mm256_set1_epi16(key16 as i16);
         let cmp = _mm256_cmpeq_epi16(v, key_vec);
