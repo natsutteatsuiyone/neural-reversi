@@ -10,7 +10,7 @@ mod flip_avx;
 mod flip_bmi2;
 pub mod level;
 mod misc;
-mod move_list;
+pub mod move_list;
 pub mod perft;
 pub mod piece;
 mod probcut;

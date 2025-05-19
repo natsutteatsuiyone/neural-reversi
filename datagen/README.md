@@ -36,6 +36,18 @@ Binary format with the following information for each board position:
 - Ply (u8) - the move number in the game (0-60)
 - Random move flag (u8) - indicates whether this position resulted from a random move (1) or AI search (0)
 
+### opening
+
+Generates all possible Reversi opening sequences up to a specified depth, starting with F5 as the first move.
+
+```bash
+datagen opening --depth 9 > openings.txt
+```
+
+#### Options
+
+- `--depth`: Maximum number of moves to include in the sequences (default: 8)
+
 ### feature
 
 Extracts neural network training features from self-play data.

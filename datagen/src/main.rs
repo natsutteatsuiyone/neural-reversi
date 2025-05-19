@@ -1,9 +1,10 @@
 mod feature;
+mod opening;
 mod probcut;
 mod selfplay;
 
 use clap::{Parser, Subcommand};
-use reversi_core::types::Selectivity;
+use reversi_core::types::{Depth, Selectivity};
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -48,6 +49,10 @@ enum SubCommands {
         #[arg(short, long)]
         output_dir: String,
     },
+    Opening {
+        #[arg(short, long)]
+        depth: Depth,
+    },
     Probcut {
         #[arg(short, long)]
         input: String,
@@ -80,6 +85,9 @@ fn main() {
             output_dir,
         } => {
             selfplay::execute(games, records_per_file, hash_size, level, selectivity, &prefix, &output_dir);
+        }
+        SubCommands::Opening { depth } => {
+            opening::generate(depth);
         }
         SubCommands::Probcut {
             input,
