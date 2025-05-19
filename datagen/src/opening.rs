@@ -1,6 +1,8 @@
 use std::{
     collections::HashSet,
-    io::{self, BufWriter, Write},
+    fs::File,
+    io::{self, BufRead, BufReader, BufWriter, Write},
+    path::Path,
 };
 
 use reversi_core::{board::Board, move_list::MoveList, square::Square, types::Depth};
@@ -78,4 +80,47 @@ fn generate_openings(
             generate_openings(&next, depth, path, visited_boards, writer);
         }
     }
+}
+
+/// Loads opening sequences from a file.
+///
+/// Each line in the file should represent one opening sequence,
+/// with squares specified in algebraic notation (e.g., "F5D6C3").
+///
+/// # Parameters
+///
+/// * `path` - Path to the file containing opening sequences
+///
+/// # Returns
+///
+/// A vector of sequences, where each sequence is a vector of squares
+pub fn load_openings(path: &str) -> io::Result<Vec<Vec<Square>>> {
+    let file = File::open(Path::new(path))?;
+    let reader = BufReader::new(file);
+    let mut openings = Vec::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        let mut sequence = Vec::new();
+        let mut i = 0;
+
+        while i + 1 < line.len() {
+            // Parse two characters at a time into a square
+            let square_str = &line[i..i + 2];
+            match square_str.parse::<Square>() {
+                Ok(sq) => sequence.push(sq),
+                Err(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Invalid square notation: {}", square_str),
+                    ))
+                }
+            }
+            i += 2;
+        }
+
+        openings.push(sequence);
+    }
+
+    Ok(openings)
 }

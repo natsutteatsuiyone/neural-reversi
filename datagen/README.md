@@ -6,9 +6,9 @@ A tool for generating and processing Reversi AI neural network training data.
 
 ### selfplay
 
-Generates game data through AI self-play for neural network training. The self-play process works by having the AI play against itself, with the following characteristics:
+Generates game data through AI self-play for neural network training. The self-play process works by having the AI play against itself. It can either generate a specified number of games or play through a list of predefined opening sequences. Key characteristics include:
 
-- Early game moves (first 10-30 plies) are selected randomly to ensure diversity in the training data
+- Early game moves (first 10-30 plies) are selected randomly to ensure diversity in the training data when not using predefined openings.
 - Subsequent moves use the AI search algorithm to find optimal plays
 - Each position is recorded with evaluation scores and game outcome information
 
@@ -16,15 +16,23 @@ Generates game data through AI self-play for neural network training. The self-p
 datagen selfplay --games 100000 --hash-size 128 --level 12 --selectivity 1 --prefix game --output-dir ./data
 ```
 
+To use predefined openings:
+
+```bash
+datagen selfplay --openings openings.txt --resume --hash-size 128 --level 12 --selectivity 1 --prefix game --output-dir ./data
+```
+
 #### Options
 
-- `--games`: Number of games to generate
+- `--games`: Number of games to generate (ignored if `--openings` is used). Default: 100,000,000.
 - `--records_per_file`: Number of records to store in each output file (default: 1,000,000)
-- `--hash-size`: Transposition table size in MB for the search algorithm
-- `--level`: Search depth level - higher values result in stronger play but slower generation
-- `--selectivity`: Search selectivity parameter controlling move pruning (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%)
-- `--prefix`: Output file prefix for generated data files
+- `--hash-size`: Transposition table size in MB for the search algorithm (default: 128)
+- `--level`: Search depth level - higher values result in stronger play but slower generation (default: 12)
+- `--selectivity`: Search selectivity parameter controlling move pruning (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
+- `--prefix`: Output file prefix for generated data files (default: "game")
 - `--output-dir`: Output directory where game data will be stored
+- `--openings`: Optional path to a file containing opening sequences. If provided, selfplay will iterate through these openings instead of generating a set number of games.
+- `--resume`: Resume selfplay from the last processed opening in the `--openings` file. Requires `--openings` to be set. (default: false)
 
 #### Data format
 
@@ -32,9 +40,10 @@ Binary format with the following information for each board position:
 
 - Player and opponent bitboards (u64 x 2) - representing the current board state
 - Evaluation score (f32) - the position evaluation from the search algorithm
-- Game score (f32) - the final game outcome from the current player's perspective
+- Game score (i8) - the final game outcome (e.g., disc difference) from the current player's perspective, stored as an 8-bit integer.
 - Ply (u8) - the move number in the game (0-60)
 - Random move flag (u8) - indicates whether this position resulted from a random move (1) or AI search (0)
+- Best move (u8) - the square index (0-63) of the move made from this position.
 
 ### opening
 

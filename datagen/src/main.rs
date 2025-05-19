@@ -48,6 +48,12 @@ enum SubCommands {
 
         #[arg(short, long)]
         output_dir: String,
+
+        #[arg(long)]
+        openings: Option<String>,
+
+        #[arg(long, default_value = "false")]
+        resume: bool,
     },
     Opening {
         #[arg(short, long)]
@@ -83,8 +89,31 @@ fn main() {
             selectivity,
             prefix,
             output_dir,
+            openings,
+            resume,
         } => {
-            selfplay::execute(games, records_per_file, hash_size, level, selectivity, &prefix, &output_dir);
+            if let Some(openings_path) = openings {
+                selfplay::execute_with_openings(
+                    &openings_path,
+                    resume,
+                    records_per_file,
+                    hash_size,
+                    level,
+                    selectivity,
+                    &prefix,
+                    &output_dir,
+                );
+            } else {
+                selfplay::execute(
+                    games,
+                    records_per_file,
+                    hash_size,
+                    level,
+                    selectivity,
+                    &prefix,
+                    &output_dir,
+                );
+            }
         }
         SubCommands::Opening { depth } => {
             opening::generate(depth);
