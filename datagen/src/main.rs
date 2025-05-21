@@ -2,6 +2,7 @@ mod feature;
 mod opening;
 mod probcut;
 mod selfplay;
+mod shuffle;
 
 use clap::{Parser, Subcommand};
 use reversi_core::types::{Depth, Selectivity};
@@ -65,7 +66,23 @@ enum SubCommands {
 
         #[arg(short, long)]
         output: String,
-    }
+    },
+    Shuffle {
+        #[arg(short, long)]
+        input_dir: String,
+
+        #[arg(short, long)]
+        output_dir: String,
+
+        #[arg(short = 'p', long, default_value = "*.bin")]
+        pattern: String,
+
+        #[arg(short = 'c', long, default_value_t = 10)]
+        files_per_chunk: usize,
+
+        #[arg(short = 'n', long)]
+        num_output_files: Option<usize>,
+    },
 }
 
 fn main() {
@@ -123,6 +140,22 @@ fn main() {
             output,
         } => {
             probcut::execute(&input, &output);
+        },
+        SubCommands::Shuffle {
+            input_dir,
+            output_dir,
+            pattern,
+            files_per_chunk,
+            num_output_files,
+        } => {
+            shuffle::execute(
+                &input_dir,
+                &output_dir,
+                &pattern,
+                files_per_chunk,
+                num_output_files,
+            )
+            .unwrap();
         }
     }
 }

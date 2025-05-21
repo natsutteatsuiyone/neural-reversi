@@ -93,6 +93,22 @@ datagen probcut --input ./games.txt --output ./probcut_params.csv
 - `--input`: Input file (game records)
 - `--output`: Output file (CSV format)
 
+### shuffle
+
+Shuffles and redistributes game records from input files into a new set of output files. This is useful for preparing training data by randomizing the order of game records and potentially splitting them into a different number of files.
+
+```bash
+datagen shuffle --input-dir ./data --output-dir ./shuffled_data --pattern "*.bin" --files-per-chunk 10 --num-output-files 50
+```
+
+#### Options
+
+- `--input-dir`: Input directory containing the game data files to be shuffled.
+- `--output-dir`: Output directory where the shuffled game data files will be stored. This directory will be created if it doesn't exist.
+- `--pattern`: Glob pattern to match input files within the `input-dir` (default: "*.bin").
+- `--files-per-chunk`: Number of input files to read and shuffle in memory at a time (default: 10). Adjust based on available memory and the size of your input files.
+- `--num-output-files`: Optional number of output files to create. If not specified, it defaults to the number of input files. The shuffled records will be distributed among these output files.
+
 ## Workflow
 
 1. Generate self-play data
