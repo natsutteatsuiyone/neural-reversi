@@ -57,7 +57,7 @@ pub fn execute(
     let mut total_records: u64 = 0;
     let mut total_bytes: u64 = 0;
 
-    for chunk in input_files.chunks(files_per_chunk) {
+    for (chunk_id, chunk) in input_files.chunks(files_per_chunk).enumerate() {
         let mut chunk_records: Vec<Record> = Vec::new();
 
         for path in chunk {
@@ -66,7 +66,12 @@ pub fn execute(
 
         chunk_records.shuffle(&mut rng);
 
-        distribute_records(output_dir_path, &chunk_records, &mut records_per_output)?;
+        distribute_records(
+            output_dir_path,
+            &chunk_records,
+            &mut records_per_output,
+            chunk_id,
+        )?;
 
         total_records += chunk_records.len() as u64;
         total_bytes += (chunk_records.len() * RECORD_SIZE) as u64;
@@ -104,7 +109,11 @@ fn find_input_files(dir: &Path, pattern: &str, rng: &mut SmallRng) -> anyhow::Re
         match entry {
             Ok(p) if p.is_file() => v.push(p),
             Ok(_) => {}
-            Err(e) => eprintln!("Warning: Failed to access path matched by glob ({}): {}", e.path().display(), e),
+            Err(e) => eprintln!(
+                "Warning: Failed to access path matched by glob ({}): {}",
+                e.path().display(),
+                e
+            ),
         }
     }
     v.shuffle(rng);
@@ -142,22 +151,25 @@ fn distribute_records(
     out_dir: &Path,
     records: &[Record],
     per_file_counter: &mut [u64],
+    offset: usize,
 ) -> io::Result<()> {
     if per_file_counter.is_empty() {
         return Ok(());
     }
+
     let n_out = per_file_counter.len();
     let base = records.len() / n_out;
     let extra = records.len() % n_out;
 
     let mut idx = 0;
-    for (file_no, counter) in per_file_counter.iter_mut().enumerate() {
-        let take = base + usize::from(file_no < extra);
+    for local_i in 0..n_out {
+        let file_no = (local_i + offset) % n_out;
+        let take = base + usize::from(local_i < extra);
         if take == 0 {
             continue;
         }
 
-        let path = out_dir.join(format!("output_{file_no:05}.bin"));
+        let path = out_dir.join(format!("shuffled_{file_no:05}.bin"));
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
         let mut writer = BufWriter::new(file);
 
@@ -166,7 +178,7 @@ fn distribute_records(
         }
         writer.flush()?;
 
-        *counter += take as u64;
+        per_file_counter[file_no] += take as u64;
         idx += take;
     }
     Ok(())
