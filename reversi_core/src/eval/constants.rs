@@ -11,8 +11,6 @@ pub const PATTERN_FEATURE_OFFSETS: [usize; pattern_feature::NUM_PATTERN_FEATURES
 pub const MOBILITY_SCALE: u8 = 3;
 pub const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 pub const OUTPUT_WEIGHT_SCALE_BITS: i32 = 4;
-pub const NUM_LAYER_STACKS: usize = 60;
-pub const NUM_PHASE_ADAPTIVE_INPUT: usize = 6;
 
 const fn calc_pattern_size(pattern_index: usize) -> usize {
     let mut value = 1;
