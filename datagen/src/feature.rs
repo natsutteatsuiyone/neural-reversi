@@ -4,9 +4,11 @@ use std::{
     io::{self, BufWriter},
     path::Path,
     sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
 };
 
 use byteorder::{LittleEndian, WriteBytesExt};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle, ProgressDrawTarget};
 use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use zstd::stream::write::Encoder;
@@ -52,35 +54,44 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
         .collect::<Vec<_>>();
 
     let total_files = entries.len();
+    if total_files == 0 {
+        println!("No bin files found to process.");
+        return Ok(());
+    }
     println!("Found {} bin files to process", total_files);
     entries.shuffle(&mut rand::rng());
 
     let entry_groups: Vec<_> = entries.chunks(BATCH_SIZE).collect();
-    let processed_files = AtomicUsize::new(0);
+    let processed_files_count = AtomicUsize::new(0); // 変数名を変更
     let start_time = std::time::Instant::now();
+
+    let mp = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
+    let pb = mp.add(ProgressBar::new(total_files as u64));
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%) ETA:{eta_precise}",
+        )
+        .unwrap()
+        .progress_chars("#>-"),
+    );
+    pb.enable_steady_tick(Duration::from_millis(100));
+
 
     entry_groups
         .par_iter()
         .enumerate()
         .for_each(|(group_idx, entry_group)| {
-            let group_start_time = std::time::Instant::now();
-
             if let Err(e) = process_file_group(group_idx, entry_group, output_dir, score_correction) {
                 eprintln!("Failed to process group {}: {}", group_idx, e);
             }
 
             let completed_files =
-                processed_files.fetch_add(entry_group.len(), Ordering::SeqCst) + entry_group.len();
-            let elapsed = group_start_time.elapsed();
-
-            println!(
-                "Processed {}/{} files ({:.1}% complete) in {:.2?}",
-                completed_files,
-                total_files,
-                (completed_files as f64 / total_files as f64) * 100.0,
-                elapsed
-            );
+                processed_files_count.fetch_add(entry_group.len(), Ordering::SeqCst) + entry_group.len();
+            pb.set_position(completed_files as u64);
         });
+
+    pb.finish_with_message("Feature generation completed");
+    mp.clear()?;
 
     let total_time = start_time.elapsed();
     println!(
