@@ -12,6 +12,9 @@ pub const MOBILITY_SCALE: u8 = 3;
 pub const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 pub const OUTPUT_WEIGHT_SCALE_BITS: i32 = 4;
 
+pub const EVAL_FILE_NAME: &str = "eval.zst";
+pub const EVAL_SM_FILE_NAME: &str = "eval_sm.zst";
+
 const fn calc_pattern_size(pattern_index: usize) -> usize {
     let mut value = 1;
     let mut j = 0;

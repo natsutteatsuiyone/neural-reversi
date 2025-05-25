@@ -3,6 +3,9 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+use reversi_core::eval::constants::EVAL_FILE_NAME;
+use reversi_core::eval::constants::EVAL_SM_FILE_NAME;
+
 #[derive(Debug)]
 pub enum Error {
     Io(std::io::Error),
@@ -61,7 +64,7 @@ fn get_target_profile_dir(out_dir: &Path, profile: &str) -> Result<PathBuf, Erro
 ///
 /// * `Ok(())` if the files were copied successfully.
 /// * `Err(Error)` if there was an error during the process.
-pub fn copy_files_to_target_profile_dir(
+fn copy_files_to_target_profile_dir(
     files_to_copy: &[(&str, &str)],
 ) -> Result<(), Error> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
@@ -120,4 +123,25 @@ pub fn copy_files_to_target_profile_dir(
         }
     }
     Ok(())
+}
+
+/// Copies weight files to the target profile directory.
+///
+/// # Arguments
+/// * `weights_directory` - The directory containing the weight files.
+///
+/// # Returns
+///
+/// * `Ok(())` if the files were copied successfully.
+/// * `Err(Error)` if there was an error during the process.
+pub fn copy_weight_files(weights_directory: &str) -> Result<(), Error> {
+    let eval_path = format!("{}/{}", weights_directory, EVAL_FILE_NAME);
+    let eval_sm_path = format!("{}/{}", weights_directory, EVAL_SM_FILE_NAME);
+
+    let files_to_copy = [
+        (eval_path.as_str(), EVAL_FILE_NAME),
+        (eval_sm_path.as_str(), EVAL_SM_FILE_NAME),
+    ];
+
+    copy_files_to_target_profile_dir(&files_to_copy)
 }

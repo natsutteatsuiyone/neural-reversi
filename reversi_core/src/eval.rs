@@ -33,14 +33,14 @@ impl Eval {
         let exe_path = env::current_exe().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get current executable path: {}", e)))?;
         let exe_dir = exe_path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Failed to get parent directory of executable"))?;
 
-        let eval_file_path = exe_dir.join("eval.zst");
-        let eval_sm_file_path = exe_dir.join("eval_sm.zst");
+        let eval_file_path = exe_dir.join(EVAL_FILE_NAME);
+        let eval_sm_file_path = exe_dir.join(EVAL_SM_FILE_NAME);
 
         if !eval_file_path.exists() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, format!("\"eval.zst\" not found: {}", eval_file_path.display())));
+            return Err(io::Error::new(io::ErrorKind::NotFound, format!("\"{}\" not found: {}", EVAL_FILE_NAME, eval_file_path.display())));
         }
         if !eval_sm_file_path.exists() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, format!("\"eval_sm.zst\" not found: {}", eval_sm_file_path.display())));
+            return Err(io::Error::new(io::ErrorKind::NotFound, format!("\"{}\" not found: {}", EVAL_SM_FILE_NAME, eval_sm_file_path.display())));
         }
 
         let network = Network::new(eval_file_path.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Failed to convert eval_file_path to str"))?)?;
