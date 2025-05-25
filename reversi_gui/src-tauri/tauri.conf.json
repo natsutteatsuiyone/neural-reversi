@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Neural Reversi",
-        "width": 1024,
-        "height": 640
+        "width": 1100,
+        "height": 680
       }
     ],
     "security": {

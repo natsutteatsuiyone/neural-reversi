@@ -26,6 +26,7 @@ export function MoveHistory() {
 
   return (
     <div className="h-full flex flex-col">
+
       <div className="flex justify-between items-center mb-2">
         <h2 className="text-lg font-medium text-white/90">Move History</h2>
         <Button
@@ -39,6 +40,7 @@ export function MoveHistory() {
           <RotateCcw className="h-4 w-4 " />
         </Button>
       </div>
+
       <div
         ref={scrollRef}
         className="flex-1 bg-white/10 rounded-lg p-2 overflow-y-auto

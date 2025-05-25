@@ -266,7 +266,7 @@ export function GameBoard() {
   }
 
   return (
-    <div className="w-full max-w-2xl lg:w-[600px] shrink-0">
+    <div className="w-full max-w-2xl lg:w-[calc(100vh-2rem)] lg:max-w-[calc(100vh-2rem)] shrink-0 p-2">
       {/* Column labels */}
       <div className="flex mb-2 ms-12 me-4">
         {COLUMN_LABELS.map((label) => (

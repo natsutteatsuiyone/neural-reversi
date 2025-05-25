@@ -8,6 +8,7 @@ import { GameModeSelector } from "./game-mode-selector";
 import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { getNotation, getWinner } from "@/lib/game-logic";
+import { AIEvaluationChart } from "./ai-evaluation-chart";
 
 export function InfoPanel() {
   const currentPlayer = useReversiStore((state) => state.currentPlayer);
@@ -98,14 +99,11 @@ export function InfoPanel() {
   };
 
   return (
-    <div className="w-full lg:w-80 h-full lg:h-[600px] bg-white/20 dark:bg-slate-900/30 rounded-xl shadow-lg p-6 shrink-0 backdrop-blur-md border border-white/20 flex flex-col">
+    <div className="w-full lg:w-96 h-full lg:h-[calc(100vh-2rem)] bg-white/20 dark:bg-slate-900/30 rounded-xl shadow-lg p-6 shrink-0 backdrop-blur-md border border-white/20 flex flex-col">
       {isPlaying ? (
         <>
           {!gameOver && (
             <div className="mb-3">
-              <h2 className="text-lg font-medium text-white/90 mb-2">
-                Game Status
-              </h2>
               <div className="flex flex-col gap-3">
                 {/* Black */}
                 <div
@@ -208,7 +206,11 @@ export function InfoPanel() {
             </div>
           )}
 
-          <div className="flex-1 min-h-0 mt-4">
+            <div className="">
+              <AIEvaluationChart />
+            </div>
+
+          <div className="flex-1 min-h-0 mt-2">
             <MoveHistory />
           </div>
 

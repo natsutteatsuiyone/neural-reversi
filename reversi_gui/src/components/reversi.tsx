@@ -32,7 +32,7 @@ export default function Reversi() {
   }, [showPassNotification, hidePassNotification]);
 
   return (
-    <div className="flex flex-col lg:flex-row items-start justify-center gap-6 p-4 min-h-screen bg-[#0c513a]">
+    <div className="flex flex-col lg:flex-row items-start justify-center gap-6 p-4 min-h-screen h-screen bg-[#0c513a]">
       <GameBoard />
       <InfoPanel />
     </div>
