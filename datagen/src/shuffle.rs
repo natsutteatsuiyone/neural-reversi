@@ -92,7 +92,7 @@ pub fn execute(
         HumanBytes(total_bytes)
     );
     for (i, n) in records_per_output.iter().enumerate() {
-        println!("output_{i:05}.bin : {n} recs");
+        println!("shuffled_{i:05}.bin : {n} recs");
     }
     println!("-----------------------------------");
     Ok(())
