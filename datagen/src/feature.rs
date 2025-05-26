@@ -195,6 +195,11 @@ fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<
             score = ((ply as f32 * game_score as f32) + (59.0 - ply as f32) * score) / 59.0;
         }
 
+        assert!(player & opponent == 0, "Player and opponent bitboards overlap: {} {}", player, opponent);
+        assert!((-64.0..=64.0).contains(&score), "Score out of range: {}", score);
+        assert!((-64..=64).contains(&game_score), "Game score out of range: {}", game_score);
+        assert!(ply <= 59, "Ply value out of range: {}", ply);
+
         records.push(GameRecord {
             player,
             opponent,
