@@ -325,7 +325,7 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "automatch"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "clap",
  "colored",
@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "build_common"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "reversi_core",
 ]
@@ -679,7 +679,7 @@ dependencies = [
 
 [[package]]
 name = "codegen"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "reversi_core",
 ]
@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "datagen"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "build_common",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "ffotest"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "build_common",
  "clap",
@@ -2480,7 +2480,7 @@ dependencies = [
 
 [[package]]
 name = "neural-reversi"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "build_common",
  "reversi_core",
@@ -3552,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "reversi_cli"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "build_common",
  "clap",
@@ -3563,7 +3563,7 @@ dependencies = [
 
 [[package]]
 name = "reversi_core"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "aligned",
  "aligned-vec",

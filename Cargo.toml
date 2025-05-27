@@ -2,6 +2,9 @@
 members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "codegen", "datagen", "ffotest", "automatch", "build_common"]
 resolver = "2"
 
+[workspace.package]
+version = "0.9.0"
+
 [workspace.dependencies]
 build_common = { path = "build_common" }
 
