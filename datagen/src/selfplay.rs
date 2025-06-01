@@ -32,7 +32,7 @@ struct GameRecord {
 pub fn execute(
     num_games: u32,
     records_per_file: u32,
-    hash_size: i32,
+    hash_size: usize,
     level: usize,
     selectivity: Selectivity,
     prefix: &str,
@@ -124,7 +124,7 @@ pub fn execute_with_openings(
     openings_path: &str,
     resume: bool,
     records_per_file: u32,
-    hash_size: i32,
+    hash_size: usize,
     level: usize,
     selectivity: Selectivity,
     prefix: &str,

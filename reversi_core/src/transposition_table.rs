@@ -244,11 +244,7 @@ impl TranspositionTable {
     /// # Panics
     ///
     /// Panics if `mb_size` is negative.
-    pub fn new(mb_size: i32) -> Self {
-        if mb_size < 0 {
-            panic!("mb_size must be non-negative");
-        }
-
+    pub fn new(mb_size: usize) -> Self {
         let cluster_count = if mb_size == 0 {
             16
         } else {

@@ -300,7 +300,7 @@ struct Args {
     selectivity: Selectivity,
 
     #[arg(long, default_value = "256")]
-    hash_size: i32,
+    hash_size: usize,
 
     #[arg(long)]
     threads: Option<usize>,

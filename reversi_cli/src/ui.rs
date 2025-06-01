@@ -1,5 +1,5 @@
 use reversi_core::{
-    self, level,
+    self, level::{self},
     piece::Piece,
     search::{self, SearchOptions},
     square::Square, types::Selectivity,
@@ -8,12 +8,15 @@ use rustyline::{error::ReadlineError, DefaultEditor};
 
 use crate::game::GameState;
 
-pub fn ui_loop(selectvity: Selectivity) {
+pub fn ui_loop(hash_size: usize, level: usize, selectvity: Selectivity) {
     let mut rl = DefaultEditor::new().unwrap();
     let mut game = GameState::new();
-    let mut search = search::Search::new(&SearchOptions::default());
-    let mut level: usize = 10;
+    let mut search = search::Search::new(&SearchOptions {
+        tt_mb_size: hash_size,
+        ..Default::default()
+    });
     let mut game_mode: usize = 3;
+    let mut level = level;
 
     loop {
         game.print();

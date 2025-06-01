@@ -47,7 +47,7 @@ pub struct Search {
 }
 
 pub struct SearchOptions {
-    pub tt_mb_size: i32,
+    pub tt_mb_size: usize,
     pub n_threads: usize,
 }
 

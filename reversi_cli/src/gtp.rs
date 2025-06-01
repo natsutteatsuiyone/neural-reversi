@@ -39,10 +39,13 @@ pub struct GtpEngine {
 }
 
 impl GtpEngine {
-    pub fn new(level: usize, selectivity: Selectivity) -> Self {
+    pub fn new(hash_size: usize, level: usize, selectivity: Selectivity) -> Self {
         Self {
             game: GameState::new(),
-            search: search::Search::new(&SearchOptions::default()),
+            search: search::Search::new(&SearchOptions {
+                tt_mb_size: hash_size,
+                ..Default::default()
+            }),
             level,
             selectivity,
             name: "Neural Reversi".to_string(),

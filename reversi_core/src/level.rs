@@ -13,6 +13,9 @@ impl Level {
 }
 
 pub fn get_level(lv: usize) -> Level {
+    if lv >= LEVELS.len() {
+        panic!("Invalid level: {}. Valid range is 0 to {}", lv, LEVELS.len() - 1);
+    }
     LEVELS[lv]
 }
 
@@ -39,5 +42,5 @@ const LEVELS: [Level; 22] = [
     Level { mid_depth: 18, end_depth: [25,25,25,25,25,25,24] },
     Level { mid_depth: 19, end_depth: [26,26,26,26,26,25,24] },
     Level { mid_depth: 20, end_depth: [27,27,27,27,27,26,25] },
-    Level { mid_depth: 21, end_depth: [28,28,28,28,28,27,26] },
+    Level { mid_depth: 21, end_depth: [30,30,30,30,28,27,25] },
 ];

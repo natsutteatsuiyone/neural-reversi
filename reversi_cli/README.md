@@ -9,8 +9,14 @@ A command-line interface for playing Reversi (Othello) with an AI opponent power
 Run the CLI without arguments to start in interactive mode:
 
 ```bash
-neural-reversi-cli
+neural-reversi-cli [options]
 ```
+
+Options:
+
+- `--hash-size <size>` - Set the transposition table size in MB (default: 64)
+- `-l, --level <level>` - Set the AI difficulty level (default: 21)
+- `--selectivity <value>` - Set the search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
 
 In interactive mode, you can use the following commands:
 
@@ -30,12 +36,14 @@ In interactive mode, you can use the following commands:
 Run the CLI in GTP mode for integration with other applications:
 
 ```bash
-neural-reversi-cli gtp --level <level> --selectivity <selectivity>
+neural-reversi-cli gtp [options]
 ```
 
 Options:
 
-- `--level <level>`: Set the AI search level (default: 10)
+- `--hash-size <size>` - Set the transposition table size in MB (default: 64)
+- `--level <level>` - Set the AI search level (default: 21)
+- `--selectivity <value>` - Set the search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
 
 In GTP mode, the program accepts standard GTP commands plus some Reversi-specific extensions:
 
@@ -46,9 +54,36 @@ In GTP mode, the program accepts standard GTP commands plus some Reversi-specifi
 - `showboard` - Display the current board state
 - `set_level <level>` - Change the AI difficulty level
 
-## Global Options
+### Solve Mode
 
-These options apply to both interactive and GTP modes:
+Run the CLI in solve mode to analyze positions from a file:
 
+```bash
+neural-reversi-cli solve <file> [options]
+```
+
+Options:
+
+- `<file>` - Path to the position file (required)
+- `--hash-size <size>` - Set the transposition table size in MB (default: 64)
+- `-l, --level <level>` - Set the AI search level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
-- `--hash-size <size>` - Set the transposition table size in MB (default: 1)
+
+The position file should contain one position per line in the following format:
+
+```text
+<64-character board><side-to-move>; [optional analysis data]
+```
+
+Where:
+
+- Board positions use `-` for empty, `X` for black, `O` for white
+- Side-to-move is either `X` (black) or `O` (white)
+- Lines starting with `%` are treated as comments
+- Analysis data after `;` is ignored
+
+Example position line:
+
+```text
+O--OOOOX-OOOOOOXOOXXOOOXOOXOOOXXOOOOOOXX---OOOOX----O--X-------- X; A2:+38
+```
