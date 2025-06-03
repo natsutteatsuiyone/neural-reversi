@@ -38,7 +38,6 @@ export async function getAIMove(
     .join("");
 
   const unlisten = await listen<AIMoveProgress>("ai-move-progress", (data) => {
-    console.log(data);
     callback(data);
   });
 
@@ -48,7 +47,7 @@ export async function getAIMove(
       level,
       selectivity,
     });
-  } catch (error) {
+  } catch {
     return null;
   } finally {
     unlisten();
@@ -89,7 +88,6 @@ export async function analyze(
     .join("");
 
   const unlisten = await listen<AIMoveProgress>("ai-move-progress", (data) => {
-    console.log(data);
     callback(data);
   });
 

@@ -1,21 +1,21 @@
 import { type AIMoveProgress, type AIMoveResult, abortAISearch, analyze, getAIMove, initializeAI } from "@/lib/ai";
 import {
   calculateScores,
-  getFlippedDiscs,
-  getNotation,
   getValidMoves,
   initializeBoard,
   opponentPlayer as nextPlayer,
 } from "@/lib/game-logic";
+import {
+  type Move,
+  applyMove,
+  checkGameOver,
+  createMoveRecord,
+  createPassMove,
+  getUndoMoves,
+  reconstructBoardFromMoves,
+} from "@/lib/store-helpers";
 import type { Board, GameMode, MoveRecord } from "@/types";
 import { create } from "zustand";
-
-interface Move {
-  row: number;
-  col: number;
-  isAI: boolean;
-  score?: number;
-}
 
 interface ReversiState {
   board: Board;
@@ -44,8 +44,8 @@ interface ReversiState {
   makeMove: (move: Move) => void;
   makePass: () => void;
   undoMove: () => void;
-  resetGame: () => void;
-  startGame: () => void;
+  resetGame: () => Promise<void>;
+  startGame: () => Promise<void>;
   setAILevelChange: (level: number) => void;
   setAIAccuracyChange: (accuracy: number) => void;
   setGameMode: (mode: GameMode) => void;
@@ -150,89 +150,47 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
 
   makeMove: (move: Move) => {
     set((state) => {
-      const newBoard = state.board.map((row) =>
-        row.map((cell) => ({ ...cell }))
-      );
-      const currentPlayer = get().currentPlayer;
-      const flipped = getFlippedDiscs(
-        state.board,
-        move.row,
-        move.col,
-        currentPlayer
-      );
-
-      newBoard[move.row][move.col] = {
-        color: currentPlayer,
-        isNew: true,
-      };
-
-      for (const [r, c] of flipped) {
-        newBoard[r][c] = { color: currentPlayer };
-      }
+      const currentPlayer = state.currentPlayer;
+      const newBoard = applyMove(state.board, move, currentPlayer);
+      const newMoveRecord = createMoveRecord(state.moves.length, currentPlayer, move);
+      const nextPlayerTurn = nextPlayer(currentPlayer);
 
       return {
         board: newBoard,
-        moves: [
-          ...state.moves,
-          {
-            id: state.moves.length,
-            player: currentPlayer,
-            row: move.row,
-            col: move.col,
-            notation: getNotation(move.row, move.col),
-            score: move.score,
-            isAI: move.isAI,
-          },
-        ],
-        currentPlayer: nextPlayer(state.currentPlayer),
+        moves: [...state.moves, newMoveRecord],
+        currentPlayer: nextPlayerTurn,
         isPass: false,
         lastMove: move,
-        validMoves: getValidMoves(newBoard, nextPlayer(currentPlayer)),
+        validMoves: getValidMoves(newBoard, nextPlayerTurn),
         analyzeResults: null,
       };
     });
 
-    const { validMoves } = get();
-    if (validMoves.length === 0) {
-      const otherPlayer = nextPlayer(get().currentPlayer);
-      const otherMoves = getValidMoves(get().board, otherPlayer);
-      if (otherMoves.length === 0) {
-        set(() => {
-          return {
-            gameOver: true,
-            gameStatus: "finished",
-          };
-        });
-      } else {
-        set({ showPassNotification : true });
-      }
-    } else {
-      if (get().isAITurn()) {
-        void get().makeAIMove();
-      } else if (get().gameMode === "analyze") {
-        void get().analyzeBoard();
-      }
+    const state = get();
+    const { gameOver, shouldPass } = checkGameOver(state.board, state.currentPlayer);
+
+    if (gameOver) {
+      set({ gameOver: true, gameStatus: "finished" });
+    } else if (shouldPass) {
+      set({ showPassNotification: true });
+    } else if (state.isAITurn()) {
+      void state.makeAIMove();
+    } else if (state.gameMode === "analyze") {
+      void state.analyzeBoard();
     }
   },
 
   makePass: () => {
     set((state) => {
       const currentPlayer = state.currentPlayer;
-      const passMove = {
-        id: state.moves.length,
-        player: currentPlayer,
-        row: -1,
-        col: -1,
-        notation: "Pass",
-      };
-
-      const validMoves = getValidMoves(state.board, nextPlayer(currentPlayer));
+      const passMove = createPassMove(state.moves.length, currentPlayer);
+      const nextPlayerTurn = nextPlayer(currentPlayer);
 
       return {
         board: state.board.map((row) => row.map((cell) => ({ ...cell }))),
         moves: [...state.moves, passMove],
-        currentPlayer: nextPlayer(currentPlayer),
-        validMoves,
+        currentPlayer: nextPlayerTurn,
+        validMoves: getValidMoves(state.board, nextPlayerTurn),
         isPass: true,
       };
     });
@@ -311,70 +269,30 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
         return state;
       }
 
-      const newMoves = [...state.moves];
+      const newMoves = getUndoMoves(state.moves, state.gameMode);
+      const { board, currentPlayer } = reconstructBoardFromMoves(newMoves);
+      const validMoves = getValidMoves(board, currentPlayer);
 
-      if ((state.gameMode === "ai-black" || state.gameMode === "ai-white") && newMoves.length >= 1) {
-        const lastMove = newMoves[newMoves.length - 1];
-
-        if (lastMove.isAI) {
-          newMoves.pop();
-
-          if (newMoves.length > 0 && !newMoves[newMoves.length - 1].isAI) {
-            newMoves.pop();
+      const lastMove = newMoves.length > 0
+        ? {
+            row: newMoves[newMoves.length - 1].row,
+            col: newMoves[newMoves.length - 1].col,
+            isAI: !!newMoves[newMoves.length - 1].isAI,
+            score: newMoves[newMoves.length - 1].score,
           }
-        } else {
-          newMoves.pop();
-        }
-      }
-      else {
-        newMoves.pop();
-      }
-
-      const newBoard = initializeBoard();
-
-      for (const move of newMoves) {
-        if (move.row >= 0 && move.col >= 0) {
-          const flipped = getFlippedDiscs(
-            newBoard,
-            move.row,
-            move.col,
-            move.player
-          );
-
-          newBoard[move.row][move.col] = {
-            color: move.player,
-          };
-
-          for (const [r, c] of flipped) {
-            newBoard[r][c] = { color: move.player };
-          }
-        }
-      }
-
-      let currentPlayer: "black" | "white" = "black";
-      if (newMoves.length > 0) {
-        currentPlayer = nextPlayer(newMoves[newMoves.length - 1].player);
-      }
-
-      const validMoves = getValidMoves(newBoard, currentPlayer);
+        : null;
 
       return {
-        board: newBoard,
+        board,
         moves: newMoves,
         currentPlayer,
-        lastMove: newMoves.length > 0 ? {
-          row: newMoves[newMoves.length - 1].row,
-          col: newMoves[newMoves.length - 1].col,
-          isAI: !!newMoves[newMoves.length - 1].isAI, // boolean型に確実に変換
-          score: newMoves[newMoves.length - 1].score || undefined
-        } : null,
+        lastMove,
         validMoves,
         isPass: false,
         analyzeResults: null,
       };
     });
 
-    // Analyzeモードの場合は盤面を分析
     if (get().gameMode === "analyze" && get().gameStatus === "playing") {
       void get().analyzeBoard();
     }

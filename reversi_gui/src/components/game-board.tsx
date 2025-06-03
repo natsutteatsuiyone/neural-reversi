@@ -1,185 +1,18 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Bot, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GamePiece } from "./game-piece";
+import { AIThinkingIndicator } from "./ai-thinking-indicator";
+import { AIScoreDisplay } from "./ai-score-display";
 import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { useEffect, useMemo, useState } from "react";
-import type { AIMoveProgress } from "@/lib/ai";
-import type { Board } from "@/types";
-import { calculateScores } from "@/lib/game-logic";
 
 interface MoveHistoryItem {
   row: number;
   col: number;
   timestamp: number;
-}
-
-function ThinkingRippleEffect() {
-  return (
-    <>
-      {[1, 2, 3].map((i) => (
-        <motion.div
-          key={i}
-          className="absolute inset-0 rounded-sm border-2 border-cyan-400"
-          initial={{ opacity: 0.7, scale: 0.3 }}
-          animate={{
-            opacity: 0,
-            scale: 1.2,
-          }}
-          transition={{
-            duration: 2,
-            ease: "easeOut",
-            repeat: Number.POSITIVE_INFINITY,
-            delay: i * 0.4,
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
-function AIScoreDisplay({
-  rowIndex,
-  colIndex,
-  analyzeResults,
-  gameMode,
-  maxScore,
-  aiLevel,
-  gameOver,
-  board,
-}: {
-  rowIndex: number;
-  colIndex: number;
-  analyzeResults: Map<string, AIMoveProgress> | null;
-  gameMode: string;
-  maxScore: number | null;
-  aiLevel: number;
-  gameOver: boolean;
-  board: Board;
-}) {
-  if (gameMode !== "analyze" || !analyzeResults || gameOver) {
-    return null;
-  }
-
-  const key = `${rowIndex},${colIndex}`;
-  const result = analyzeResults.get(key);
-
-  if (result === undefined) {
-    return null;
-  }
-
-  const score = result.score;
-  const depth = result.depth;
-  const acc = result.acc;
-
-  const { black, white } = calculateScores(board);
-  const emptyCount = 64 - black - white;
-
-  const displayScore = score > 0 ? `+${score.toFixed(1)}` : score.toFixed(1);
-  const textColor = maxScore !== null && score === maxScore ? "text-green-500" : "text-white";
-
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
-      <div className={`text-lg font-bold ${textColor} px-1 rounded`}>
-        {displayScore}
-      </div>
-      {depth !== aiLevel && depth !== emptyCount && (
-        <div className="text-xs text-gray-200 px-1 rounded mt-1">
-          {depth}@{acc}%
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AIThinkingIndicator({
-  rowIndex,
-  colIndex,
-  aiMoveProgress,
-  moveHistory,
-  lastAIMove,
-}: {
-  rowIndex: number;
-  colIndex: number;
-  aiMoveProgress: { row: number; col: number; score: number } | null;
-  moveHistory: MoveHistoryItem[];
-  lastAIMove: { row: number; col: number; timestamp: number } | null;
-}) {
-  if (
-    (!aiMoveProgress && !lastAIMove) ||
-    (lastAIMove &&
-     lastAIMove.row === rowIndex &&
-     lastAIMove.col === colIndex &&
-     Date.now() - lastAIMove.timestamp < 1500)
-  ) {
-    return null;
-  }
-
-  if (aiMoveProgress && aiMoveProgress.row === rowIndex && aiMoveProgress.col === colIndex) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center z-10">
-        <ThinkingRippleEffect />
-        <motion.div
-          animate={{
-            rotate: [0, 20, 0, -20, 0],
-            scale: [1, 1.1, 1, 1.1, 1],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Number.POSITIVE_INFINITY,
-            ease: "easeInOut",
-          }}
-          className="relative"
-        >
-          <Bot
-            className="text-cyan-400 drop-shadow-glow"
-            size={24}
-          />
-          <motion.div
-            animate={{ opacity: [0, 1, 0] }}
-            transition={{ duration: 0.8, repeat: Number.POSITIVE_INFINITY }}
-            className="absolute -top-2 -right-2"
-          >
-            <Zap className="text-yellow-300 fill-yellow-300" size={10} />
-          </motion.div>
-        </motion.div>
-      </div>
-    );
-  }
-
-  const historyIndex = moveHistory.findIndex(
-    (move) => move.row === rowIndex && move.col === colIndex
-  );
-
-  if (historyIndex !== -1 && historyIndex < 3) {
-    const opacity = 0.8 - historyIndex * 0.2; // 0.8, 0.6, 0.4
-    const size = 20 - historyIndex * 4; // 20px, 16px, 12px
-
-    return (
-      <div className="absolute inset-0 flex items-center justify-center z-5">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.5 }}
-          animate={{
-            opacity,
-            scale: size / 24,
-            rotate: historyIndex * 15,
-          }}
-          transition={{
-            type: "spring",
-            stiffness: 200,
-            damping: 10,
-          }}
-        >
-          <Bot className="text-cyan-300/70" size={24} />
-        </motion.div>
-      </div>
-    );
-  }
-
-  return null;
 }
 
 export function GameBoard() {
@@ -195,7 +28,7 @@ export function GameBoard() {
   const aiLevel = useReversiStore((state) => state.aiLevel);
 
   const [moveHistory, setMoveHistory] = useState<MoveHistoryItem[]>([]);
-  const [lastAIMove, setLastAIMove] = useState<{row: number; col: number; timestamp: number} | null>(null);
+  const [lastAIMove, setLastAIMove] = useState<{ row: number; col: number; timestamp: number } | null>(null);
 
   const maxScore = useMemo(() => {
     if (!analyzeResults || analyzeResults.size === 0) return null;
