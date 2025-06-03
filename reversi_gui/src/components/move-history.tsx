@@ -2,16 +2,19 @@
 
 import { cn } from "@/lib/utils"
 import { useRef, useLayoutEffect } from "react"
-import { Bot, RotateCcw } from "lucide-react"
+import { Bot, ChevronLeft, ChevronRight } from "lucide-react"
 import { useReversiStore } from "@/stores/use-reversi-store"
 import { Button } from "@/components/ui/button"
 
 export function MoveHistory() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const moves = useReversiStore((state) => state.moves);
+  const allMoves = useReversiStore((state) => state.allMoves);
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
+  const isAnalyzing = useReversiStore((state) => state.isAnalyzing);
   const undoMove = useReversiStore((state) => state.undoMove);
+  const redoMove = useReversiStore((state) => state.redoMove);
 
   const prevMovesLengthRef = useRef(moves.length);
 
@@ -29,16 +32,28 @@ export function MoveHistory() {
 
       <div className="flex justify-between items-center mb-2">
         <h2 className="text-lg font-medium text-white/90">Move History</h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={undoMove}
-          disabled={moves.length === 0 || gameStatus !== "playing" || isAIThinking}
-          className="h-8 w-8 text-white/90 hover:bg-white/10 cursor-pointer"
-          aria-label="Undo Move"
-        >
-          <RotateCcw className="h-4 w-4 " />
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={undoMove}
+            disabled={moves.length === 0 || gameStatus !== "playing" || isAIThinking || isAnalyzing}
+            className="h-8 w-8 text-white/90 hover:bg-white/10 cursor-pointer"
+            aria-label="Undo Move"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={redoMove}
+            disabled={moves.length >= allMoves.length || gameStatus !== "playing" || isAIThinking || isAnalyzing}
+            className="h-8 w-8 text-white/90 hover:bg-white/10 cursor-pointer"
+            aria-label="Redo Move"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <div
