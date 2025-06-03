@@ -101,6 +101,18 @@ export function checkGameOver(board: Board, currentPlayer: Player): {
   return { gameOver: false, shouldPass: true };
 }
 
+// Helper function to determine whose turn it is based on move count
+function getTurnColor(moveCount: number): Player {
+  return moveCount % 2 === 0 ? "black" : "white";
+}
+
+// Helper function to check if it's the player's turn
+function isPlayerTurn(moveCount: number, gameMode: "ai-black" | "ai-white"): boolean {
+  const currentTurn = getTurnColor(moveCount);
+  const playerIsBlack = gameMode === "ai-white";
+  return (playerIsBlack && currentTurn === "black") || (!playerIsBlack && currentTurn === "white");
+}
+
 export function getUndoMoves(
   moves: MoveRecord[],
   gameMode: "analyze" | "ai-black" | "ai-white"
@@ -111,19 +123,61 @@ export function getUndoMoves(
 
   const newMoves = [...moves];
 
-  if (gameMode === "ai-black" || gameMode === "ai-white") {
-    const lastMove = newMoves[newMoves.length - 1];
+  if (gameMode === "analyze") {
+    // In analyze mode, just remove one move
+    newMoves.pop();
+    return newMoves;
+  }
 
-    if (lastMove.isAI) {
+  // In AI mode, undo to the previous player's turn
+  const currentIsPlayerTurn = isPlayerTurn(newMoves.length, gameMode);
+
+  if (currentIsPlayerTurn) {
+    // Currently player's turn, go back to previous player's turn (remove 2 moves)
+    if (newMoves.length >= 2) {
       newMoves.pop();
-      if (newMoves.length > 0 && !newMoves[newMoves.length - 1].isAI) {
-        newMoves.pop();
-      }
-    } else {
       newMoves.pop();
     }
   } else {
-    newMoves.pop();
+    // Currently AI's turn, go back to player's turn (remove 1 move)
+    if (newMoves.length >= 1) {
+      newMoves.pop();
+    }
+  }
+
+  return newMoves;
+}
+
+export function getRedoMoves(
+  currentMoves: MoveRecord[],
+  allMoves: MoveRecord[],
+  gameMode: "analyze" | "ai-black" | "ai-white"
+): MoveRecord[] {
+  // No moves to redo
+  if (currentMoves.length >= allMoves.length) {
+    return currentMoves;
+  }
+
+  // In analyze mode, redo one move at a time
+  if (gameMode === "analyze") {
+    return [...currentMoves, allMoves[currentMoves.length]];
+  }
+
+  // In AI mode, redo until it's the player's turn
+  const newMoves = [...currentMoves];
+  let index = currentMoves.length;
+
+  // Add moves until we reach a player's turn
+  while (index < allMoves.length) {
+    const move = allMoves[index];
+    newMoves.push(move);
+    index++;
+
+    // Check if it's now the player's turn
+    if (isPlayerTurn(newMoves.length, gameMode)) {
+      // Stop at player's turn
+      break;
+    }
   }
 
   return newMoves;

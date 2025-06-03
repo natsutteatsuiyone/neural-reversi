@@ -12,6 +12,7 @@ import {
   createMoveRecord,
   createPassMove,
   getUndoMoves,
+  getRedoMoves,
   reconstructBoardFromMoves,
 } from "@/lib/store-helpers";
 import type { Board, GameMode, MoveRecord } from "@/types";
@@ -20,6 +21,7 @@ import { create } from "zustand";
 interface ReversiState {
   board: Board;
   moves: MoveRecord[];
+  allMoves: MoveRecord[]; // Store all moves for redo functionality
   currentPlayer: "black" | "white";
   gameOver: boolean;
   gameMode: GameMode;
@@ -44,6 +46,7 @@ interface ReversiState {
   makeMove: (move: Move) => void;
   makePass: () => void;
   undoMove: () => void;
+  redoMove: () => void;
   resetGame: () => Promise<void>;
   startGame: () => Promise<void>;
   setAILevelChange: (level: number) => void;
@@ -57,6 +60,7 @@ interface ReversiState {
 export const useReversiStore = create<ReversiState>((set, get) => ({
   board: initializeBoard(),
   moves: [],
+  allMoves: [],
   currentPlayer: "black",
   gameOver: false,
   gameMode: "ai-white",
@@ -158,6 +162,7 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       return {
         board: newBoard,
         moves: [...state.moves, newMoveRecord],
+        allMoves: [...state.moves, newMoveRecord], // Update allMoves when making a new move
         currentPlayer: nextPlayerTurn,
         isPass: false,
         lastMove: move,
@@ -189,6 +194,7 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       return {
         board: state.board.map((row) => row.map((cell) => ({ ...cell }))),
         moves: [...state.moves, passMove],
+        allMoves: [...state.moves, passMove], // Update allMoves when passing
         currentPlayer: nextPlayerTurn,
         validMoves: getValidMoves(state.board, nextPlayerTurn),
         isPass: true,
@@ -204,6 +210,7 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
     set({
       board: initializeBoard(),
       moves: [],
+      allMoves: [],
       currentPlayer: "black",
       gameOver: false,
       gameStatus: "waiting",
@@ -224,6 +231,8 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       const validMoves = getValidMoves(state.board, state.currentPlayer);
       return {
         board: initializeBoard(),
+        moves: [],
+        allMoves: [],
         gameStatus: "playing",
         validMoves,
       };
@@ -290,6 +299,46 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
         validMoves,
         isPass: false,
         analyzeResults: null,
+        gameOver: false, // Reset game over state when undoing
+      };
+    });
+
+    if (get().gameMode === "analyze" && get().gameStatus === "playing") {
+      void get().analyzeBoard();
+    }
+  },
+
+  redoMove: () => {
+    set((state) => {
+      if (state.gameStatus !== "playing" || state.moves.length >= state.allMoves.length) {
+        return state;
+      }
+
+      const newMoves = getRedoMoves(state.moves, state.allMoves, state.gameMode);
+      const { board, currentPlayer } = reconstructBoardFromMoves(newMoves);
+      const validMoves = getValidMoves(board, currentPlayer);
+
+      const lastMove = newMoves.length > 0
+        ? {
+            row: newMoves[newMoves.length - 1].row,
+            col: newMoves[newMoves.length - 1].col,
+            isAI: !!newMoves[newMoves.length - 1].isAI,
+            score: newMoves[newMoves.length - 1].score,
+          }
+        : null;
+
+      // Check if we're at the end and need to restore game over state
+      const { gameOver } = checkGameOver(board, currentPlayer);
+
+      return {
+        board,
+        moves: newMoves,
+        currentPlayer,
+        lastMove,
+        validMoves,
+        isPass: false,
+        analyzeResults: null,
+        gameOver,
       };
     });
 

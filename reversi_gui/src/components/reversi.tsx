@@ -1,6 +1,7 @@
 import { GameBoard } from "@/components/game-board";
 import { InfoPanel } from "@/components/info-panel";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { Info } from "lucide-react";
@@ -12,6 +13,9 @@ export default function Reversi() {
   const hidePassNotification = useReversiStore(
     (state) => state.hidePassNotification
   );
+
+  // Enable keyboard navigation
+  useKeyboardNavigation();
 
   useEffect(() => {
     if (showPassNotification) {
