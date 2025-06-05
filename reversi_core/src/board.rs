@@ -385,6 +385,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_default_board() {
+        let board = Board::default();
+        assert_eq!(board.get_player_count(), 2);
+        assert_eq!(board.get_opponent_count(), 2);
+        assert_eq!(board.get_empty_count(), 60);
+    }
+
+    #[test]
+    fn test_new_board() {
+        let board = Board::new();
+        // Should be same as default
+        assert_eq!(board, Board::default());
+    }
+
+    #[test]
     fn test_from_bitboards() {
         let player = Square::A1.bitboard();
         let opponent = Square::H8.bitboard();
@@ -411,6 +426,58 @@ mod tests {
     }
 
     #[test]
+    fn test_from_string_white_perspective() {
+        let board_string = "--------\
+                                  --------\
+                                  --------\
+                                  ---XO---\
+                                  ---OX---\
+                                  --------\
+                                  --------\
+                                  --------";
+        let board = Board::from_string(board_string, Piece::White);
+        // From White's perspective, O pieces are the player
+        assert!(bitboard::is_set(board.player, Square::E4));
+        assert!(bitboard::is_set(board.player, Square::D5));
+        assert!(bitboard::is_set(board.opponent, Square::D4));
+        assert!(bitboard::is_set(board.opponent, Square::E5));
+    }
+
+    #[test]
+    fn test_get_piece_at() {
+        let board = Board::new();
+
+        // Check pieces from Black's perspective (Black is the first player)
+        assert_eq!(board.get_piece_at(Square::D5, Piece::Black), Piece::Black);
+        assert_eq!(board.get_piece_at(Square::E4, Piece::Black), Piece::Black);
+        assert_eq!(board.get_piece_at(Square::D4, Piece::Black), Piece::White);
+        assert_eq!(board.get_piece_at(Square::E5, Piece::Black), Piece::White);
+        assert_eq!(board.get_piece_at(Square::A1, Piece::Black), Piece::Empty);
+
+        // Switch to White's perspective
+        let white_board = board.switch_players();
+        assert_eq!(white_board.get_piece_at(Square::D5, Piece::White), Piece::Black);
+        assert_eq!(white_board.get_piece_at(Square::E4, Piece::White), Piece::Black);
+        assert_eq!(white_board.get_piece_at(Square::D4, Piece::White), Piece::White);
+        assert_eq!(white_board.get_piece_at(Square::E5, Piece::White), Piece::White);
+    }
+
+    #[test]
+    fn test_is_game_over() {
+        // Initial position - not over
+        let board = Board::new();
+        assert!(!board.is_game_over());
+
+        // Full board - game over
+        let full_board = Board::from_bitboards(u64::MAX, 0);
+        assert!(full_board.is_game_over());
+
+        // Empty board - game over (no moves)
+        let empty_board = Board::from_bitboards(0, 0);
+        assert!(empty_board.is_game_over());
+    }
+
+    #[test]
     fn test_get_empty() {
         let board = Board::new();
         let empty = board.get_empty();
@@ -423,6 +490,23 @@ mod tests {
     }
 
     #[test]
+    fn test_counts() {
+        let board = Board::new();
+        assert_eq!(board.get_player_count(), 2);
+        assert_eq!(board.get_opponent_count(), 2);
+        assert_eq!(board.get_empty_count(), 60);
+
+        // Custom board
+        let custom = Board::from_bitboards(
+            Square::A1.bitboard() | Square::A2.bitboard() | Square::A3.bitboard(),
+            Square::H8.bitboard()
+        );
+        assert_eq!(custom.get_player_count(), 3);
+        assert_eq!(custom.get_opponent_count(), 1);
+        assert_eq!(custom.get_empty_count(), 60);
+    }
+
+    #[test]
     fn test_switch_players() {
         let board = Board::new();
         let switched_board = board.switch_players();
@@ -431,6 +515,214 @@ mod tests {
         assert!(bitboard::is_set(switched_board.player, Square::E5));
         assert!(bitboard::is_set(switched_board.opponent, Square::D5));
         assert!(bitboard::is_set(switched_board.opponent, Square::E4));
+
+        // Double switch should return to original
+        let double_switched = switched_board.switch_players();
+        assert_eq!(board, double_switched);
+    }
+
+    #[test]
+    fn test_try_make_move() {
+        let board = Board::new();
+
+        // Valid move
+        let result = board.try_make_move(Square::D3);
+        assert!(result.is_some());
+        let new_board = result.unwrap();
+        assert!(bitboard::is_set(new_board.opponent, Square::D3));
+        assert!(bitboard::is_set(new_board.opponent, Square::D4));
+
+        // Invalid move - no adjacent opponent pieces
+        let result = board.try_make_move(Square::A1);
+        assert!(result.is_none());
+
+        // Invalid move - occupied square
+        let result = board.try_make_move(Square::D4);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_make_move() {
+        let board = Board::new();
+
+        // Make a valid move
+        let new_board = board.make_move(Square::D3);
+        assert!(bitboard::is_set(new_board.opponent, Square::D3));
+        assert!(bitboard::is_set(new_board.opponent, Square::D4));
+        assert_eq!(new_board.get_opponent_count(), 4); // 2 original + 1 new + 1 flipped
+        assert_eq!(new_board.get_player_count(), 1);   // 2 original - 1 flipped
+    }
+
+    #[test]
+    fn test_make_move_with_flipped() {
+        let board = Board::new();
+        let flipped = Square::D4.bitboard();
+        let new_board = board.make_move_with_flipped(flipped, Square::D3);
+
+        assert!(bitboard::is_set(new_board.opponent, Square::D3));
+        assert!(bitboard::is_set(new_board.opponent, Square::D4));
+    }
+
+    #[test]
+    fn test_get_moves() {
+        let board = Board::new();
+        let moves = board.get_moves();
+
+        // Initial position has 4 legal moves
+        assert_eq!(moves.count_ones(), 4);
+        assert!(bitboard::is_set(moves, Square::D3));
+        assert!(bitboard::is_set(moves, Square::C4));
+        assert!(bitboard::is_set(moves, Square::F5));
+        assert!(bitboard::is_set(moves, Square::E6));
+    }
+
+    #[test]
+    fn test_has_legal_moves() {
+        let board = Board::new();
+        assert!(board.has_legal_moves());
+
+        // Board with no moves
+        let no_moves = Board::from_bitboards(0, u64::MAX);
+        assert!(!no_moves.has_legal_moves());
+    }
+
+    #[test]
+    fn test_is_legal_move() {
+        let board = Board::new();
+
+        // Legal moves
+        assert!(board.is_legal_move(Square::D3));
+        assert!(board.is_legal_move(Square::C4));
+        assert!(board.is_legal_move(Square::F5));
+        assert!(board.is_legal_move(Square::E6));
+
+        // Illegal moves
+        assert!(!board.is_legal_move(Square::A1));
+        assert!(!board.is_legal_move(Square::D4)); // Occupied
+        assert!(!board.is_legal_move(Square::D2)); // No flip
+    }
+
+    #[test]
+    fn test_is_square_empty() {
+        let board = Board::new();
+
+        assert!(board.is_square_empty(Square::A1));
+        assert!(board.is_square_empty(Square::H8));
+        assert!(!board.is_square_empty(Square::D4));
+        assert!(!board.is_square_empty(Square::E5));
+        assert!(!board.is_square_empty(Square::D5));
+        assert!(!board.is_square_empty(Square::E4));
+    }
+
+    #[test]
+    fn test_hash() {
+        let board1 = Board::new();
+        let board2 = Board::new();
+        let board3 = Board::from_bitboards(1, 2);
+
+        // Same boards should have same hash
+        assert_eq!(board1.hash(), board2.hash());
+
+        // Different boards should (likely) have different hashes
+        assert_ne!(board1.hash(), board3.hash());
+
+        // Switched boards should have different hashes
+        let switched = board1.switch_players();
+        assert_ne!(board1.hash(), switched.hash());
+    }
+
+    #[test]
+    fn test_rotate_90_clockwise() {
+        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
+        let rotated = board.rotate_90_clockwise();
+
+        // A1 -> H1, H8 -> A8
+        assert!(bitboard::is_set(rotated.player, Square::H1));
+        assert!(bitboard::is_set(rotated.opponent, Square::A8));
+
+        // Four rotations should return to original
+        let rotated4 = board
+            .rotate_90_clockwise()
+            .rotate_90_clockwise()
+            .rotate_90_clockwise()
+            .rotate_90_clockwise();
+        assert_eq!(board, rotated4);
+    }
+
+    #[test]
+    fn test_flip_vertical() {
+        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
+        let flipped = board.flip_vertical();
+
+        // A1 -> A8, H8 -> H1
+        assert!(bitboard::is_set(flipped.player, Square::A8));
+        assert!(bitboard::is_set(flipped.opponent, Square::H1));
+
+        // Double flip returns to original
+        let double_flipped = flipped.flip_vertical();
+        assert_eq!(board, double_flipped);
+    }
+
+    #[test]
+    fn test_flip_horizontal() {
+        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
+        let flipped = board.flip_horizontal();
+
+        // A1 -> H1, H8 -> A8
+        assert!(bitboard::is_set(flipped.player, Square::H1));
+        assert!(bitboard::is_set(flipped.opponent, Square::A8));
+
+        // Double flip returns to original
+        let double_flipped = flipped.flip_horizontal();
+        assert_eq!(board, double_flipped);
+    }
+
+    #[test]
+    fn test_flip_diag_a1h8() {
+        let board = Board::from_bitboards(Square::A2.bitboard(), Square::B1.bitboard());
+        let flipped = board.flip_diag_a1h8();
+
+        // A2 -> B1, B1 -> A2
+        assert!(bitboard::is_set(flipped.player, Square::B1));
+        assert!(bitboard::is_set(flipped.opponent, Square::A2));
+
+        // Double flip returns to original
+        let double_flipped = flipped.flip_diag_a1h8();
+        assert_eq!(board, double_flipped);
+    }
+
+    #[test]
+    fn test_flip_diag_a8h1() {
+        let board = Board::from_bitboards(Square::A7.bitboard(), Square::B8.bitboard());
+        let flipped = board.flip_diag_a8h1();
+
+        // A7 -> B8, B8 -> A7
+        assert!(bitboard::is_set(flipped.player, Square::B8));
+        assert!(bitboard::is_set(flipped.opponent, Square::A7));
+
+        // Double flip returns to original
+        let double_flipped = flipped.flip_diag_a8h1();
+        assert_eq!(board, double_flipped);
+    }
+
+    #[test]
+    fn test_to_string_as_board() {
+        let board = Board::new();
+
+        // As Black
+        let black_str = board.to_string_as_board(Piece::Black);
+        assert!(black_str.contains("OX"));
+        assert!(black_str.contains("XO"));
+
+        // As White
+        let white_str = board.to_string_as_board(Piece::White);
+        assert!(white_str.contains("XO"));
+        assert!(white_str.contains("OX"));
+
+        // Check length and newlines
+        let lines: Vec<&str> = black_str.split('\n').collect();
+        assert_eq!(lines.len(), 8);
+        assert_eq!(lines[0].len(), 8);
     }
 
     #[test]
@@ -446,5 +738,32 @@ mod tests {
                                       --------\n\
                                       --------";
         assert_eq!(board_display, expected_display);
+    }
+
+    #[test]
+    fn test_board_equality() {
+        let board1 = Board::new();
+        let board2 = Board::new();
+        let board3 = Board::from_bitboards(1, 2);
+
+        assert_eq!(board1, board2);
+        assert_ne!(board1, board3);
+    }
+
+    #[test]
+    fn test_complex_game_sequence() {
+        let mut board = Board::new();
+
+        // Play a few moves
+        board = board.make_move(Square::D3); // Black
+        board = board.make_move(Square::C3); // White
+        board = board.make_move(Square::C4); // Black
+        board = board.make_move(Square::C5); // White
+
+        // Verify board state
+        assert!(board.get_player_count() > 0);
+        assert!(board.get_opponent_count() > 0);
+        assert!(!board.is_game_over());
+        assert!(board.has_legal_moves());
     }
 }
