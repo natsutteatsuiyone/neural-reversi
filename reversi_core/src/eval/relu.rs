@@ -1,5 +1,6 @@
-//! https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h
-//! https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h
+//! - [Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h)
+//! - [Squared Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h)
+
 use std::arch::x86_64::*;
 
 use aligned::{Aligned, A64};
@@ -10,12 +11,15 @@ use super::constants::HIDDEN_WEIGHT_SCALE_BITS;
 
 /// Applies a clipped ReLU activation function to `input`.
 ///
-/// Values are right-shifted by `HIDDEN_WEIGHT_SCALE_BITS`, then clamped to `0..=127`.
+/// This function performs the following operations:
+/// 1. Right-shifts values by `HIDDEN_WEIGHT_SCALE_BITS` for scaling
+/// 2. Clamps the results to the range `[0, 127]`
+/// 3. Stores as 8-bit unsigned integers
 ///
 /// # Arguments
 ///
-/// * `input` - An aligned slice of `SIZE` 32-bit integers.
-/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers representing pre-activation values
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
 pub fn clipped_relu<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
     output: &mut Aligned<A64, [u8; SIZE]>,
@@ -27,14 +31,12 @@ pub fn clipped_relu<const SIZE: usize>(
     }
 }
 
-/// Clipped ReLU with AVX2.
-///
-/// Optimized implementation of `clipped_relu`.
+/// Clipped ReLU with AVX2 SIMD optimization.
 ///
 /// # Arguments
 ///
-/// * `input` - An aligned slice of `SIZE` 32-bit integers.
-/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
 #[inline(always)]
 unsafe fn clipped_relu_avx2<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
@@ -97,13 +99,13 @@ unsafe fn clipped_relu_avx2<const SIZE: usize>(
     clipped_relu_fallback::<SIZE>(input, output, start);
 }
 
-/// Clipped ReLU (scalar fallback).
+/// Clipped ReLU scalar fallback implementation.
 ///
 /// # Arguments
 ///
-/// * `input` - An aligned slice of `SIZE` 32-bit integers.
-/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
-/// * `start_idx` - Start index for processing.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
+/// * `start_idx` - Start index for processing (allows partial processing)
 #[inline(always)]
 fn clipped_relu_fallback<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
@@ -118,13 +120,16 @@ fn clipped_relu_fallback<const SIZE: usize>(
 
 /// Applies a sqr clipped ReLU activation function to `input`.
 ///
-/// Input values are squared, then scaled and clamped to `0..=127`.
-/// The scaling involves a right shift by `(2 * HIDDEN_WEIGHT_SCALE_BITS + 7)`.
+/// This function performs the following operations:
+/// 1. Squares the input values
+/// 2. Right-shifts by `(2 * HIDDEN_WEIGHT_SCALE_BITS + 7)` for scaling
+/// 3. Clamps the results to the range `[0, 127]`
+/// 4. Stores as 8-bit unsigned integers
 ///
 /// # Arguments
 ///
-/// * `input` - An aligned slice of `SIZE` 32-bit integers.
-/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers representing pre-activation values
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
 pub fn sqr_clipped_relu<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
     output: &mut Aligned<A64, [u8; SIZE]>,
@@ -136,12 +141,12 @@ pub fn sqr_clipped_relu<const SIZE: usize>(
     }
 }
 
-/// Sqr clipped ReLU with AVX2.
+/// Sqr clipped ReLU with AVX2 SIMD optimization.
 ///
 /// # Arguments
 ///
-/// * `input` - An aligned slice of `SIZE` 32-bit integers.
-/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
 #[inline(always)]
 unsafe fn sqr_clipped_relu_avx2<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
@@ -173,13 +178,13 @@ unsafe fn sqr_clipped_relu_avx2<const SIZE: usize>(
     sqr_clipped_relu_fallback::<SIZE>(input, output, start_idx);
 }
 
-/// Sqr clipped ReLU (scalar fallback).
+/// Sqr clipped ReLU scalar fallback implementation.
 ///
 /// # Arguments
 ///
-/// * `input` - An aligned slice of `SIZE` 32-bit integers.
-/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results.
-/// * `start_idx` - Start index for processing.
+/// * `input` - An aligned slice of `SIZE` 32-bit integers
+/// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
+/// * `start_idx` - Start index for processing (allows partial processing)
 #[inline(always)]
 fn sqr_clipped_relu_fallback<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
