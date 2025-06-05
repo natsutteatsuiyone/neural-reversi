@@ -303,4 +303,236 @@ mod tests {
         sqr_clipped_relu::<SIZE>(&input, &mut output);
         assert_eq!(output.as_ref(), &expected);
     }
+
+    #[test]
+    fn test_clipped_relu_edge_cases() {
+        const SIZE: usize = 16;
+        let mut input_data = [0i32; SIZE];
+        let mut expected = [0u8; SIZE];
+
+        // Test negative values get clipped to 0
+        input_data[0] = -1;
+        expected[0] = 0;
+
+        input_data[1] = -1000;
+        expected[1] = 0;
+
+        // Test exact boundary values
+        input_data[2] = 127 << HIDDEN_WEIGHT_SCALE_BITS;
+        expected[2] = 127;
+
+        input_data[3] = 128 << HIDDEN_WEIGHT_SCALE_BITS;
+        expected[3] = 127;  // Should be clipped to 127
+
+        // Test values just below the boundary
+        input_data[4] = (127 << HIDDEN_WEIGHT_SCALE_BITS) - 1;
+        expected[4] = 126;
+
+        // Test very large positive values
+        input_data[5] = 1000000;
+        expected[5] = 127;  // Should be clipped to 127
+
+        // Test scaling edge cases
+        input_data[6] = (1 << HIDDEN_WEIGHT_SCALE_BITS) - 1;
+        expected[6] = 0;  // Just below 1 after shifting
+
+        input_data[7] = 1 << HIDDEN_WEIGHT_SCALE_BITS;
+        expected[7] = 1;  // Exactly 1 after shifting
+
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+        clipped_relu::<SIZE>(&input, &mut output);
+        assert_eq!(output.as_ref(), &expected);
+    }
+
+    #[test]
+    fn test_sqr_clipped_relu_edge_cases() {
+        const SIZE: usize = 16;
+        let mut input_data = [0i32; SIZE];
+        let mut expected = [0u8; SIZE];
+
+        // Test that negative values squared become positive
+        input_data[0] = -100;
+        input_data[1] = 100;
+        // Both should produce same result after squaring
+        expected[0] = 0;
+        expected[1] = 0;
+
+        // Test maximum safe value that won't overflow
+        // sqrt(127 * 2^19) ≈ 8128
+        input_data[2] = 8128;
+        expected[2] = 126;
+
+        input_data[3] = -8128;
+        expected[3] = 126;
+
+        // Test values that will saturate to 127
+        input_data[4] = 10000;
+        expected[4] = 127;
+
+        input_data[5] = -10000;
+        expected[5] = 127;
+
+        // Test boundary for producing 1
+        // sqrt(1 * 2^19) ≈ 724, but calculation differs
+        input_data[6] = 724;
+        expected[6] = 0;  // Actually produces 0 with this implementation
+
+        input_data[7] = -724;
+        expected[7] = 0;  // Actually produces 0 with this implementation
+
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+        sqr_clipped_relu::<SIZE>(&input, &mut output);
+        assert_eq!(output.as_ref(), &expected);
+    }
+
+    #[test]
+    fn test_clipped_relu_different_sizes() {
+        // Test size 8 (smaller than AVX2 width)
+        {
+            const SIZE: usize = 8;
+            let input_data = [100, -50, 8192, 16384, -8192, 0, 127 << 6, 128 << 6];
+            let expected = [1, 0, 127, 127, 0, 0, 127, 127];
+
+            let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+            let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+            clipped_relu::<SIZE>(&input, &mut output);
+            assert_eq!(output.as_ref(), &expected);
+        }
+
+        // Test size 64 (multiple of AVX2 width)
+        {
+            const SIZE: usize = 64;
+            let mut input_data = [0i32; SIZE];
+            let mut expected = [0u8; SIZE];
+
+            // Set some test values
+            for i in 0..SIZE {
+                input_data[i] = (i as i32 - 32) * 100;
+                let val = input_data[i] >> HIDDEN_WEIGHT_SCALE_BITS;
+                expected[i] = val.clamp(0, 127) as u8;
+            }
+
+            let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+            let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+            clipped_relu::<SIZE>(&input, &mut output);
+            assert_eq!(output.as_ref(), &expected);
+        }
+
+        // Test odd size (not divisible by AVX2 width)
+        {
+            const SIZE: usize = 37;
+            let mut input_data = [0i32; SIZE];
+            let mut expected = [0u8; SIZE];
+
+            for i in 0..SIZE {
+                input_data[i] = (i as i32) * 200 - 2000;
+                let val = input_data[i] >> HIDDEN_WEIGHT_SCALE_BITS;
+                expected[i] = val.clamp(0, 127) as u8;
+            }
+
+            let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+            let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+            clipped_relu::<SIZE>(&input, &mut output);
+            assert_eq!(output.as_ref(), &expected);
+        }
+    }
+
+    #[test]
+    fn test_sqr_clipped_relu_different_sizes() {
+        // Test size 16 (exactly one chunk)
+        {
+            const SIZE: usize = 16;
+            let mut input_data = [0i32; SIZE];
+            let mut expected = [0u8; SIZE];
+
+            for i in 0..SIZE {
+                input_data[i] = (i as i32 - 8) * 500;
+                let val = ((input_data[i] as i64 * input_data[i] as i64) >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 7)).min(127);
+                expected[i] = val as u8;
+            }
+
+            let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+            let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+            sqr_clipped_relu::<SIZE>(&input, &mut output);
+            assert_eq!(output.as_ref(), &expected);
+        }
+
+        // Test size 48 (multiple chunks)
+        {
+            const SIZE: usize = 48;
+            let mut input_data = [0i32; SIZE];
+            let mut expected = [0u8; SIZE];
+
+            for i in 0..SIZE {
+                input_data[i] = (i as i32 - 24) * 300;
+                let val = ((input_data[i] as i64 * input_data[i] as i64) >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 7)).min(127);
+                expected[i] = val as u8;
+            }
+
+            let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+            let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+            sqr_clipped_relu::<SIZE>(&input, &mut output);
+            assert_eq!(output.as_ref(), &expected);
+        }
+
+        // Test odd size
+        {
+            const SIZE: usize = 23;
+            let mut input_data = [0i32; SIZE];
+            let mut expected = [0u8; SIZE];
+
+            for i in 0..SIZE {
+                input_data[i] = (i as i32) * 400 - 4000;
+                let val = ((input_data[i] as i64 * input_data[i] as i64) >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 7)).min(127);
+                expected[i] = val as u8;
+            }
+
+            let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+            let mut output: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+            sqr_clipped_relu::<SIZE>(&input, &mut output);
+            assert_eq!(output.as_ref(), &expected);
+        }
+    }
+
+    #[test]
+    fn test_clipped_relu_consistency() {
+        // Test that AVX2 and fallback produce same results
+        const SIZE: usize = 128;
+        let mut input_data = [0i32; SIZE];
+
+        for i in 0..SIZE {
+            input_data[i] = ((i * 12345 + 6789) % 20000) as i32 - 10000;
+        }
+
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let mut output_main: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+        let mut output_fallback: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+
+        clipped_relu::<SIZE>(&input, &mut output_main);
+        clipped_relu_fallback::<SIZE>(&input, &mut output_fallback, 0);
+
+        assert_eq!(output_main.as_ref(), output_fallback.as_ref());
+    }
+
+    #[test]
+    fn test_sqr_clipped_relu_consistency() {
+        // Test that AVX2 and fallback produce same results
+        const SIZE: usize = 80;
+        let mut input_data = [0i32; SIZE];
+
+        for i in 0..SIZE {
+            input_data[i] = ((i * 9876 + 1000) % 10000) as i32 - 3000;
+        }
+
+        let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
+        let mut output_main: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+        let mut output_fallback: Aligned<A64, [u8; SIZE]> = Aligned([0; SIZE]);
+
+        sqr_clipped_relu::<SIZE>(&input, &mut output_main);
+        sqr_clipped_relu_fallback::<SIZE>(&input, &mut output_fallback, 0);
+
+        assert_eq!(output_main.as_ref(), output_fallback.as_ref());
+    }
 }
