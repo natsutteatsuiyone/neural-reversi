@@ -2,8 +2,11 @@ use crate::bit;
 use crate::square::Square;
 use std::arch::x86_64::*;
 
-/// The mask for the adjacent squares.
-/// https://eukaryote.hateblo.jp/entry/2020/04/26/031246
+/// Pre-computed masks for adjacent squares around each board position.
+///
+/// Each entry corresponds to the 8 squares adjacent to a given position on the board.
+/// Used for checking if pieces have adjacent neighbors.
+/// Reference: https://eukaryote.hateblo.jp/entry/2020/04/26/031246
 #[rustfmt::skip]
 const NEIGHBOUR_MASK: [u64; 64] = [
 	0x0000000000000302, 0x0000000000000604, 0x0000000000000e0a, 0x0000000000001c14,
@@ -24,7 +27,7 @@ const NEIGHBOUR_MASK: [u64; 64] = [
 	0x2838000000000000, 0x5070000000000000, 0x2060000000000000, 0x40c0000000000000,
 ];
 
-/// The mask for the corner squares.
+/// Bitboard mask representing the four corner squares (A1, H1, A8, H8).
 const CORNER_MASK: u64 = 0x8100000000000081;
 
 /// Flips the player's bitboard at the specified square and the flipped bits.
@@ -105,6 +108,8 @@ pub fn empty_board(player: u64, opponent: u64) -> u64 {
 
 /// Gets the possible moves for the player.
 ///
+/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L822
+///
 /// # Arguments
 ///
 /// * `player` - The player's bitboard.
@@ -123,6 +128,15 @@ pub fn get_moves(player: u64, opponent: u64) -> u64 {
 }
 
 /// Fallback implementation of `get_moves` for architectures without AVX2 support.
+///
+/// # Arguments
+///
+/// * `player` - The player's bitboard.
+/// * `opponent` - The opponent's bitboard.
+///
+/// # Returns
+///
+/// A `u64` value representing the possible moves for the player.
 #[inline]
 fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
     let empty = empty_board(player, opponent);
@@ -156,6 +170,15 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 }
 
 /// AVX2-optimized implementation of `get_moves`.
+///
+/// # Arguments
+///
+/// * `player` - The player's bitboard.
+/// * `opponent` - The opponent's bitboard.
+///
+/// # Returns
+///
+/// A `u64` value representing the possible moves for the player.
 #[inline]
 unsafe fn get_moves_avx(player: u64, opponent: u64) -> u64 {
     let pp = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(player as i64));
@@ -211,6 +234,8 @@ unsafe fn get_moves_avx(player: u64, opponent: u64) -> u64 {
 
 /// Counts the number of set bits in the bitboard, giving double weight to corner squares.
 ///
+/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L918C5-L918C26
+///
 /// # Arguments
 ///
 /// * `b` - A 64-bit bitboard where each bit represents a square on the board.
@@ -224,6 +249,8 @@ pub fn corner_weighted_mobility(b: u64) -> u32 {
 }
 
 /// Counts the number of stable corners in the bitboard.
+///
+/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L1453
 ///
 /// # Arguments
 ///
@@ -256,7 +283,7 @@ pub fn has_adjacent_bit(b: u64, sq: Square) -> bool {
     (b & NEIGHBOUR_MASK[sq as usize]) != 0
 }
 
-/// An iterator over the bits in a bitboard.
+/// An iterator that yields each set bit position in a bitboard as a `Square`.
 pub struct BitboardIterator {
     bitboard: u64,
 }
