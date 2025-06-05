@@ -21,5 +21,6 @@ mod transposition_table;
 pub mod types;
 
 pub fn init() {
+    probcut::init();
     stability::init();
 }
