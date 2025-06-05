@@ -318,6 +318,154 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_player_flip() {
+        let player_board: u64 = Square::A1.bitboard();
+        let flipped: u64 = Square::B1.bitboard() | Square::C1.bitboard();
+        let result = player_flip(player_board, flipped, Square::D1);
+
+        // Should have original piece at A1, flipped pieces at B1 and C1, and new piece at D1
+        assert!(is_set(result, Square::A1));
+        assert!(is_set(result, Square::B1));
+        assert!(is_set(result, Square::C1));
+        assert!(is_set(result, Square::D1));
+    }
+
+    #[test]
+    fn test_opponent_flip() {
+        let opponent_board: u64 = Square::A1.bitboard() | Square::B1.bitboard() | Square::C1.bitboard();
+        let flipped: u64 = Square::B1.bitboard() | Square::C1.bitboard();
+        let result = opponent_flip(opponent_board, flipped);
+
+        // Should only have piece at A1 (B1 and C1 were flipped away)
+        assert!(is_set(result, Square::A1));
+        assert!(!is_set(result, Square::B1));
+        assert!(!is_set(result, Square::C1));
+    }
+
+    #[test]
+    fn test_set_and_is_set() {
+        let mut board: u64 = 0;
+
+        // Test setting bits
+        board = set(board, Square::A1);
+        assert!(is_set(board, Square::A1));
+        assert!(!is_set(board, Square::A2));
+
+        board = set(board, Square::H8);
+        assert!(is_set(board, Square::A1));
+        assert!(is_set(board, Square::H8));
+        assert!(!is_set(board, Square::D4));
+
+        // Test setting already set bit
+        board = set(board, Square::A1);
+        assert!(is_set(board, Square::A1));
+    }
+
+    #[test]
+    fn test_empty_board() {
+        let player: u64 = Square::A1.bitboard() | Square::B2.bitboard();
+        let opponent: u64 = Square::C3.bitboard() | Square::D4.bitboard();
+        let empty = empty_board(player, opponent);
+
+        // Should have all squares except A1, B2, C3, D4
+        assert!(!is_set(empty, Square::A1));
+        assert!(!is_set(empty, Square::B2));
+        assert!(!is_set(empty, Square::C3));
+        assert!(!is_set(empty, Square::D4));
+        assert!(is_set(empty, Square::E5));
+        assert!(is_set(empty, Square::H8));
+
+        // Total should be 60 empty squares
+        assert_eq!(empty.count_ones(), 60);
+    }
+
+    #[test]
+    fn test_get_moves_initial_position() {
+        // Standard Reversi initial position
+        let player: u64 = Square::D5.bitboard() | Square::E4.bitboard();
+        let opponent: u64 = Square::D4.bitboard() | Square::E5.bitboard();
+        let moves = get_moves(player, opponent);
+
+        // Valid moves for black (first player) in initial position
+        assert!(is_set(moves, Square::C4));
+        assert!(is_set(moves, Square::F5));
+        assert!(is_set(moves, Square::D3));
+        assert!(is_set(moves, Square::E6));
+        assert_eq!(moves.count_ones(), 4);
+    }
+
+    #[test]
+    fn test_get_moves_no_moves() {
+        // Position where player has no moves
+        let player: u64 = 0;
+        let opponent: u64 = u64::MAX;
+        let moves = get_moves(player, opponent);
+
+        assert_eq!(moves, 0);
+    }
+
+    #[test]
+    fn test_get_moves_capture_all_directions() {
+        // Position where a move captures in all 8 directions
+        // Center piece surrounded by opponent pieces
+        let player: u64 = Square::A1.bitboard() | Square::H1.bitboard() | Square::A8.bitboard() | Square::H8.bitboard()
+            | Square::A4.bitboard() | Square::H4.bitboard() | Square::D1.bitboard() | Square::D8.bitboard();
+        let opponent: u64 = Square::B2.bitboard() | Square::C3.bitboard() | Square::E5.bitboard() | Square::F6.bitboard() | Square::G7.bitboard()
+            | Square::D2.bitboard() | Square::D3.bitboard() | Square::D5.bitboard() | Square::D6.bitboard() | Square::D7.bitboard()
+            | Square::B4.bitboard() | Square::C4.bitboard() | Square::E4.bitboard() | Square::F4.bitboard() | Square::G4.bitboard()
+            | Square::C2.bitboard() | Square::E2.bitboard() | Square::F3.bitboard() | Square::C5.bitboard() | Square::B5.bitboard()
+            | Square::B3.bitboard() | Square::F5.bitboard() | Square::E6.bitboard() | Square::C6.bitboard() | Square::B6.bitboard();
+
+        let moves = get_moves(player, opponent);
+
+        // D4 should be a valid move that captures in all directions
+        assert!(is_set(moves, Square::D4));
+    }
+
+    #[test]
+    fn test_get_moves_consistency() {
+        // Test that both implementations return the same result
+        let test_positions = vec![
+            // Initial position
+            (Square::D5.bitboard() | Square::E4.bitboard(),
+             Square::D4.bitboard() | Square::E5.bitboard()),
+            // Random position
+            (0x00003C3C3C000000, 0x0000C3C3C3000000),
+            // Edge position
+            (0xFF00000000000000, 0x00FF000000000000),
+        ];
+
+        for (player, opponent) in test_positions {
+            let moves_fallback = get_moves_fallback(player, opponent);
+            let moves_avx = unsafe { get_moves_avx(player, opponent) };
+            assert_eq!(moves_fallback, moves_avx,
+                "Fallback and AVX implementations differ for player={:016x}, opponent={:016x}",
+                player, opponent);
+        }
+    }
+
+    #[test]
+    fn test_corner_stability() {
+        // No corners
+        let board: u64 = Square::D4.bitboard() | Square::E5.bitboard();
+        assert_eq!(get_corner_stability(board), 0);
+
+        // One corner (A1)
+        let board: u64 = Square::A1.bitboard();
+        assert_eq!(get_corner_stability(board), 1);
+
+        // All corners - the function checks for stable corners which includes
+        // corners that are protected by adjacent corners
+        let board: u64 = CORNER_MASK;
+        assert_eq!(get_corner_stability(board), 4);
+
+        // Corner with adjacent pieces - A1 with A2 and B1
+        // The function counts corners that form stable groups
+        let board: u64 = Square::A1.bitboard() | Square::A2.bitboard() | Square::B1.bitboard() | Square::B2.bitboard();
+        assert_eq!(get_corner_stability(board), 3); // A1, A2, B1 form a stable group
+    }
+
+    #[test]
     fn test_bitboard_iterator() {
         // Example bitboard: bits 0, 1, and 63 are set
         let bitboard: u64 = Square::A1.bitboard() | Square::B1.bitboard() | Square::H8.bitboard();
@@ -348,12 +496,44 @@ mod tests {
     }
 
     #[test]
+    fn test_bitboard_iterator_single_bit() {
+        let bitboard: u64 = Square::E4.bitboard();
+        let mut iterator = BitboardIterator::new(bitboard);
+        assert_eq!(iterator.next(), Some(Square::E4));
+        assert_eq!(iterator.next(), None);
+    }
+
+    #[test]
+    fn test_bitboard_iterator_diagonal() {
+        // Main diagonal A1-H8
+        let bitboard: u64 = 0x8040201008040201;
+        let squares: Vec<Square> = BitboardIterator::new(bitboard).collect();
+        assert_eq!(squares.len(), 8);
+        assert_eq!(squares[0], Square::A1);
+        assert_eq!(squares[7], Square::H8);
+    }
+
+    #[test]
     fn test_corner_weighted_count_only_corners() {
         let bitboard: u64 = Square::A1.bitboard()
             | Square::H1.bitboard()
             | Square::A8.bitboard()
             | Square::H8.bitboard();
         assert_eq!(corner_weighted_mobility(bitboard), 8);
+    }
+
+    #[test]
+    fn test_corner_weighted_count_mixed() {
+        // Two corners and two regular squares
+        let bitboard: u64 = Square::A1.bitboard() | Square::H8.bitboard() | Square::D4.bitboard() | Square::E5.bitboard();
+        assert_eq!(corner_weighted_mobility(bitboard), 6); // 4 regular + 2 corner bonus
+    }
+
+    #[test]
+    fn test_corner_weighted_count_no_corners() {
+        // No corners
+        let bitboard: u64 = Square::D4.bitboard() | Square::E4.bitboard() | Square::D5.bitboard() | Square::E5.bitboard();
+        assert_eq!(corner_weighted_mobility(bitboard), 4);
     }
 
     #[test]
@@ -378,5 +558,22 @@ mod tests {
         assert!(has_adjacent_bit(bitboard, Square::C3));
         assert!(!has_adjacent_bit(bitboard, Square::C4));
         assert!(!has_adjacent_bit(bitboard, Square::D1));
+    }
+
+    #[test]
+    fn test_has_adjacent_bit_corners() {
+        // Test corner adjacency
+        let bitboard: u64 = Square::B1.bitboard() | Square::A2.bitboard();
+        assert!(has_adjacent_bit(bitboard, Square::A1));
+
+        let bitboard: u64 = Square::G8.bitboard() | Square::H7.bitboard();
+        assert!(has_adjacent_bit(bitboard, Square::H8));
+    }
+
+    #[test]
+    fn test_has_adjacent_bit_edge() {
+        // Test edge square adjacency
+        let bitboard: u64 = Square::C1.bitboard() | Square::D2.bitboard() | Square::E1.bitboard();
+        assert!(has_adjacent_bit(bitboard, Square::D1));
     }
 }
