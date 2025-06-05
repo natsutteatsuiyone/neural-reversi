@@ -24,6 +24,11 @@ pub struct Board {
 }
 
 impl Default for Board {
+    /// Creates a board with the standard Reversi starting position.
+    ///
+    /// The initial position has:
+    /// - Black pieces on D5 and E4
+    /// - White pieces on D4 and E5
     fn default() -> Self {
         Board {
             player: Square::D5.bitboard() | Square::E4.bitboard(),
@@ -55,6 +60,12 @@ impl Board {
 
     /// Creates a `Board` from a string representation.
     ///
+    /// The string should contain 64 characters representing the board squares from A1 to H8.
+    /// Characters are interpreted as:
+    /// - The current player's piece character (e.g., 'X' for Black)
+    /// - The opponent's piece character (e.g., 'O' for White)
+    /// - '-' for empty squares
+    ///
     /// # Arguments
     /// * `board_string` - A string representing the board.
     /// * `current_player` - The current player.
@@ -74,6 +85,14 @@ impl Board {
         Board::from_bitboards(player, opponent)
     }
 
+    /// Gets the piece at a specific square from the perspective of the current player.
+    ///
+    /// # Arguments
+    /// * `sq` - The square to check.
+    /// * `side_to_move` - The current player's color.
+    ///
+    /// # Returns
+    /// The piece at the specified square (current player's piece, opponent's piece, or empty).
     #[inline]
     pub fn get_piece_at(&self, sq: Square, side_to_move: Piece) -> Piece {
         if bitboard::is_set(self.player, sq) {
@@ -85,6 +104,10 @@ impl Board {
         }
     }
 
+    /// Checks if the game is over (neither player can make a move).
+    ///
+    /// # Returns
+    /// `true` if the game is over, `false` otherwise.
     #[inline]
     pub fn is_game_over(&self) -> bool {
         if self.has_legal_moves() {
@@ -225,6 +248,13 @@ impl Board {
         self.get_moves() != 0
     }
 
+    /// Checks if a move to a specific square is legal for the current player.
+    ///
+    /// # Arguments
+    /// * `sq` - The square to check.
+    ///
+    /// # Returns
+    /// `true` if the move is legal, `false` otherwise.
     pub fn is_legal_move(&self, sq: Square) -> bool {
         self.get_moves() & sq.bitboard() != 0
     }
@@ -273,24 +303,40 @@ impl Board {
             bit::rotate_90_clockwise(self.opponent))
     }
 
+    /// Flips the board vertically (top to bottom).
+    ///
+    /// # Returns
+    /// A new `Board` instance with the board flipped vertically.
     pub fn flip_vertical(&self) -> Board {
         Board::from_bitboards(
             bit::flip_vertical(self.player),
             bit::flip_vertical(self.opponent))
     }
 
+    /// Flips the board horizontally (left to right).
+    ///
+    /// # Returns
+    /// A new `Board` instance with the board flipped horizontally.
     pub fn flip_horizontal(&self) -> Board {
         Board::from_bitboards(
             bit::flip_horizontal(self.player),
             bit::flip_horizontal(self.opponent))
     }
 
+    /// Flips the board along the main diagonal (A1-H8).
+    ///
+    /// # Returns
+    /// A new `Board` instance with the board flipped along the main diagonal.
     pub fn flip_diag_a1h8(&self) -> Board {
         Board::from_bitboards(
             bit::flip_diag_a1h8(self.player),
             bit::flip_diag_a1h8(self.opponent))
     }
 
+    /// Flips the board along the anti-diagonal (A8-H1).
+    ///
+    /// # Returns
+    /// A new `Board` instance with the board flipped along the anti-diagonal.
     pub fn flip_diag_a8h1(&self) -> Board {
         Board::from_bitboards(
             bit::flip_diag_a8h1(self.player),
@@ -299,11 +345,16 @@ impl Board {
 
     /// Converts the board to a string representation.
     ///
+    /// The output format shows the board as an 8x8 grid with:
+    /// - 'X' for Black pieces
+    /// - 'O' for White pieces
+    /// - '-' for empty squares
+    ///
     /// # Arguments
-    /// * `current_player` - The current player.
+    /// * `current_player` - The current player (determines which pieces are shown as 'X' or 'O').
     ///
     /// # Returns
-    /// A string representation of the board.
+    /// A string representation of the board with newlines between rows.
     pub fn to_string_as_board(&self, current_player: Piece) -> String {
         let mut s = String::with_capacity(64 + 8);
         for (i, sq) in Square::iter().enumerate() {
@@ -323,6 +374,7 @@ impl Board {
 }
 
 impl fmt::Display for Board {
+    /// Formats the board for display, showing Black as the current player.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_string_as_board(Piece::Black))
     }
