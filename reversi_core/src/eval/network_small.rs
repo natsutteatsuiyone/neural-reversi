@@ -163,7 +163,7 @@ impl NetworkSmall {
         ls: &LayerStack,
         buffers: &mut NetworkBuffers,
     ) {
-        ls.l1_pa.forward(buffers.pa_out.as_slice(), buffers.l1_pa_out.as_mut_slice());
+        ls.l1_pa.forward(&buffers.pa_out, &mut buffers.l1_pa_out);
         clipped_relu::<L2_PADDED_INPUT_DIMS>(&buffers.l1_pa_out, &mut buffers.l1_out);
     }
 
@@ -173,14 +173,16 @@ impl NetworkSmall {
         ls: &LayerStack,
         buffers: &mut NetworkBuffers,
     ) {
-        ls.l2.forward(buffers.l1_out.as_slice(), buffers.l2_li_out.as_mut_slice());
+        ls.l2.forward(&buffers.l1_out, &mut buffers.l2_li_out);
         clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&buffers.l2_li_out, &mut buffers.l2_out);
     }
 
     #[inline(always)]
     fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> Score {
-        let mut out: i32 = 0;
-        ls.lo.forward(buffers.l2_out.as_slice(), std::slice::from_mut(&mut out));
-        out >> OUTPUT_WEIGHT_SCALE_BITS
+        let input = &buffers.l2_out;
+        let mut output: Aligned<A64, [i32; 32]> = Aligned([0; 32]);
+
+        ls.lo.forward(input, &mut output);
+        output[0] >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }

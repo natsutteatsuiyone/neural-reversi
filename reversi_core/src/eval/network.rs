@@ -202,12 +202,12 @@ impl Network {
     #[inline(always)]
     fn forward_l1(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
         ls.l1_base.forward(
-            buffers.base_out.as_slice(),
-            buffers.l1_base_out.as_mut_slice(),
+            &buffers.base_out,
+            &mut buffers.l1_base_out,
         );
         ls.l1_pa.forward(
-            buffers.pa_out.as_slice(),
-            buffers.l1_pa_out.as_mut_slice());
+            &buffers.pa_out,
+            &mut buffers.l1_pa_out);
 
         buffers.l1_li_out[..L1_BASE_OUTPUT_DIMS]
             .copy_from_slice(&buffers.l1_base_out[..L1_BASE_OUTPUT_DIMS]);
@@ -230,16 +230,16 @@ impl Network {
         let li_output = &mut buffers.l2_li_out;
         let output = &mut buffers.l2_out;
 
-        ls.l2.forward(input.as_slice(), li_output.as_mut_slice());
+        ls.l2.forward(input, li_output);
         clipped_relu::<L2_PADDED_OUTPUT_DIMS>(li_output, output);
     }
 
     #[inline(always)]
     fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> Score {
         let input = &buffers.l2_out;
-        let mut output: i32 = 0;
+        let mut output: Aligned<A64, [i32; 32]> = Aligned([0; 32]);
 
-        ls.lo.forward(input.as_slice(), std::slice::from_mut(&mut output));
-        output >> OUTPUT_WEIGHT_SCALE_BITS
+        ls.lo.forward(input, &mut output);
+        output[0] >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }

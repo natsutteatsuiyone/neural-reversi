@@ -1,4 +1,4 @@
-//! https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h
+//! Reference: https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h
 use std::{
     arch::x86_64::*,
     io::{self, Read},
@@ -11,6 +11,14 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::{eval::CACHE_LINE_SIZE, misc::ceil_to_multiple};
 
+/// Linear transformation layer with AVX2-optimized weight layout.
+///
+/// # Type Parameters
+///
+/// * `INPUT_DIMS` - Actual number of input features
+/// * `OUTPUT_DIMS` - Actual number of output neurons
+/// * `PADDED_INPUT_DIMS` - Input dimensions padded to SIMD width (must be ≥ INPUT_DIMS)
+/// * `PADDED_OUTPUT_DIMS` - Output dimensions padded to SIMD width (must be ≥ OUTPUT_DIMS)
 #[derive(Debug)]
 pub struct LinearLayer<
     const INPUT_DIMS: usize,
@@ -29,6 +37,16 @@ impl<
         const PADDED_OUTPUT_DIMS: usize,
     > LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
 {
+    /// Loads weights and biases from binary format.
+    ///
+    /// Format: biases (i32 LE) followed by weights (i8) in packed layout.
+    ///
+    /// # Arguments
+    /// * `reader` - Input stream to read from
+    ///
+    /// # Returns
+    /// * `Ok(LinearLayer)` on success
+    /// * `Err(io::Error)` on failure
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i32; PADDED_OUTPUT_DIMS];
         let mut weights = avec![[CACHE_LINE_SIZE]|0i8; PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS];
@@ -46,6 +64,7 @@ impl<
         Ok(LinearLayer { biases, weights })
     }
 
+    /// Converts matrix index to packed format for SIMD efficiency.
     #[inline(always)]
     fn get_weight_index(i: usize, input_size: usize, output_size: usize) -> usize {
         const STRIDE_MULTIPLIER: usize = 4;
@@ -53,16 +72,20 @@ impl<
         (i / 4) % (input_size / 4) * output_stride + i / input_size * STRIDE_MULTIPLIER + i % 4
     }
 
+    /// Gets packed index for weight at (input_idx, output_idx).
     #[inline(always)]
     fn get_packed_weight_index(&self, input_idx: usize, output_idx: usize) -> usize {
         let conceptual_index = output_idx * PADDED_INPUT_DIMS + input_idx;
         Self::get_weight_index(conceptual_index, PADDED_INPUT_DIMS, OUTPUT_DIMS)
     }
 
-    pub fn forward(&self, input: &[u8], output: &mut [i32]) {
-        debug_assert!(input.len() >= INPUT_DIMS, "Input slice too short");
-        debug_assert!(output.len() >= OUTPUT_DIMS, "Output slice too short");
-
+    /// Performs the forward pass of the linear layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Aligned input activations (u8 values)
+    /// * `output` - Aligned output buffer for results (i32 accumulators)
+    pub fn forward(&self, input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>, output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>) {
         if is_x86_feature_detected!("avx2") {
             unsafe {
                 self.forward_avx2(input, output);
@@ -72,9 +95,14 @@ impl<
         }
     }
 
-    unsafe fn forward_avx2(&self, input: &[u8], output: &mut [i32]) {
+    /// AVX2-accelerated forward pass.
+    unsafe fn forward_avx2(
+        &self,
+        input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>,
+        output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>,
+    ) {
         if OUTPUT_DIMS > 1 {
-            let mut acc: Aligned::<A64, [i32; OUTPUT_DIMS]> = std::mem::zeroed();
+            let mut acc: Aligned<A64, [i32; OUTPUT_DIMS]> = std::mem::zeroed();
             let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
 
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
@@ -97,11 +125,7 @@ impl<
                 }
             }
 
-            std::ptr::copy_nonoverlapping(
-                acc_ptr,
-                output.as_ptr() as *mut __m256i,
-                num_regs,
-            );
+            std::ptr::copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
         } else {
             const INPUT_SIMD_WIDTH: usize =
                 std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
@@ -122,7 +146,8 @@ impl<
         }
     }
 
-    fn forward_fallback(&self, input: &[u8], output: &mut [i32]) {
+    /// Portable forward pass.
+    fn forward_fallback(&self, input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>, output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>) {
         if OUTPUT_DIMS > 1 {
             output[..OUTPUT_DIMS].copy_from_slice(&self.biases[..OUTPUT_DIMS]);
 
@@ -142,6 +167,10 @@ impl<
             let mut acc: i32 = self.biases[0];
             for (i, &input_byte) in input.iter().take(INPUT_DIMS).enumerate() {
                 let input_val = input_byte as i32;
+                if input_val == 0 {
+                    continue;
+                }
+
                 let weight_idx = self.get_packed_weight_index(i, 0); // output_idx is 0
                 let weight_val = self.weights[weight_idx] as i32;
                 acc += input_val * weight_val;
@@ -151,6 +180,10 @@ impl<
     }
 }
 
+/// Emulates the VPDPBUSD instruction for dot product of unsigned and signed bytes.
+///
+/// Computes: `acc += sum(a[i] * b[i])` for i in 0..32
+/// where `a` contains unsigned bytes and `b` contains signed bytes.
 #[inline(always)]
 unsafe fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
     let product0 = _mm256_maddubs_epi16(a, b);
@@ -158,12 +191,17 @@ unsafe fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
     _mm256_add_epi32(acc, product1)
 }
 
+/// Horizontal sum of all 32-bit integers in a 256-bit vector plus bias.
+///
+/// Efficiently reduces 8×32-bit values to a single sum using shuffle operations.
 #[inline(always)]
 unsafe fn m256_hadd(sum_vec: __m256i, bias: i32) -> i32 {
+    // Add upper and lower 128-bit lanes
     let mut sum128 = _mm_add_epi32(
         _mm256_castsi256_si128(sum_vec),
         _mm256_extracti128_si256(sum_vec, 1),
     );
+    // Horizontal add within 128-bit lane
     sum128 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b01_00_11_10));
     sum128 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b10_11_00_01));
     _mm_cvtsi128_si32(sum128) + bias
