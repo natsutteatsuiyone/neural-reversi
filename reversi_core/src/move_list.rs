@@ -414,6 +414,8 @@ impl<'a> Iterator for BestFirstMoveIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::piece::Piece;
+    use std::collections::HashSet;
 
     /// Tests move generation for the starting position.
     #[test]
@@ -421,6 +423,108 @@ mod tests {
         let board = Board::new();
         let move_list = MoveList::new(&board);
         assert_eq!(move_list.count, 4);
+
+        // Verify moves are at correct positions
+        let moves: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+        assert!(moves.contains(&Square::D3));
+        assert!(moves.contains(&Square::C4));
+        assert!(moves.contains(&Square::F5));
+        assert!(moves.contains(&Square::E6));
+    }
+
+    /// Tests move generation with more complex position.
+    #[test]
+    fn test_move_list_generation_complex() {
+        // Create a position with known moves - use standard reversi position
+        let board = Board::from_string(
+            "--------\
+             --------\
+             ---OX---\
+             --OXX---\
+             --XXX---\
+             --------\
+             --------\
+             --------",
+            Piece::Black
+        );
+
+        let move_list = MoveList::new(&board);
+        assert!(move_list.count > 0);
+
+        // Verify all moves have valid flipped pieces
+        for mv in move_list.iter() {
+            assert!(mv.flipped != 0);
+            assert_eq!(mv.value, i32::MIN); // Initial value
+            assert_eq!(mv.reduction_depth, 0);
+        }
+    }
+
+    /// Tests move generation when no moves are available.
+    #[test]
+    fn test_move_list_no_moves() {
+        // Create position with no legal moves
+        let board = Board::from_bitboards(u64::MAX, 0);
+        let move_list = MoveList::new(&board);
+        assert_eq!(move_list.count, 0);
+        assert!(move_list.first().is_none());
+    }
+
+    /// Tests Move struct creation and properties.
+    #[test]
+    fn test_move_new() {
+        let sq = Square::E4;
+        let flipped = 0x0000001000000000u64;
+        let mv = Move::new(sq, flipped);
+
+        assert_eq!(mv.sq, sq);
+        assert_eq!(mv.flipped, flipped);
+        assert_eq!(mv.value, 0);
+        assert_eq!(mv.reduction_depth, 0);
+    }
+
+    /// Tests first() method.
+    #[test]
+    fn test_first() {
+        let board = Board::new();
+        let move_list = MoveList::new(&board);
+
+        let first = move_list.first().unwrap();
+        let first_iter = move_list.iter().next().unwrap();
+        assert_eq!(first.sq, first_iter.sq);
+    }
+
+    /// Tests iterator methods.
+    #[test]
+    fn test_iterators() {
+        let board = Board::new();
+        let move_list = MoveList::new(&board);
+
+        // Test iter()
+        let count_iter = move_list.iter().count();
+        assert_eq!(count_iter, move_list.count());
+
+        // Test that iterator returns moves in order
+        let squares: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+        assert_eq!(squares.len(), 4);
+    }
+
+    /// Tests the sort method.
+    #[test]
+    fn test_sort() {
+        let board = Board::new();
+        let mut move_list = MoveList::new(&board);
+
+        // Set values in non-sorted order
+        move_list.move_buffer[0].value = 10;
+        move_list.move_buffer[1].value = 30;
+        move_list.move_buffer[2].value = 20;
+        move_list.move_buffer[3].value = 40;
+
+        move_list.sort();
+
+        // Verify sorted in descending order
+        let values: Vec<i32> = move_list.iter().map(|m| m.value).collect();
+        assert_eq!(values, vec![40, 30, 20, 10]);
     }
 
     /// Tests the best-first iterator with manually set move values.
@@ -442,6 +546,26 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
+    /// Tests best-first iterator with equal values.
+    #[test]
+    fn test_best_first_iter_equal_values() {
+        let board = Board::new();
+        let mut move_list = MoveList::new(&board);
+
+        // Set all values equal
+        for i in 0..move_list.count {
+            move_list.move_buffer[i].value = 100;
+        }
+
+        let iter = move_list.best_first_iter();
+        let mut count = 0;
+        for mv in iter {
+            assert_eq!(mv.value, 100);
+            count += 1;
+        }
+        assert_eq!(count, move_list.count);
+    }
+
     /// Tests best-first iterator behavior with no legal moves.
     #[test]
     fn test_best_first_iter_empty_list() {
@@ -451,5 +575,137 @@ mod tests {
 
         let mut iter = move_list.best_first_iter();
         assert!(iter.next().is_none());
+    }
+
+    /// Tests best-first iterator with single move.
+    #[test]
+    fn test_best_first_iter_single_move() {
+        // Create position with only one legal move
+        let board = Board::from_string(
+            "XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXO\
+             XXXXXXO-",
+            Piece::Black
+        );
+
+        let move_list = MoveList::new(&board);
+        assert_eq!(move_list.count, 1);
+
+        let mut iter = move_list.best_first_iter();
+        assert!(iter.next().is_some());
+        assert!(iter.next().is_none());
+    }
+
+    /// Tests best-first iterator preserves all moves.
+    #[test]
+    fn test_best_first_iter_completeness() {
+        let board = Board::new();
+        let mut move_list = MoveList::new(&board);
+
+        // Set unique values
+        for i in 0..move_list.count {
+            move_list.move_buffer[i].value = (i * 10) as i32;
+        }
+
+        let iter = move_list.best_first_iter();
+        let mut seen_values = HashSet::new();
+
+        for mv in iter {
+            assert!(seen_values.insert(mv.value));
+        }
+
+        assert_eq!(seen_values.len(), move_list.count);
+    }
+
+    /// Tests concurrent move iterator.
+    #[test]
+    fn test_concurrent_move_iterator() {
+        let board = Board::new();
+        let move_list = MoveList::new(&board);
+        let concurrent_iter = ConcurrentMoveIterator::new(move_list);
+
+        assert_eq!(concurrent_iter.count(), 4);
+
+        // Get all moves
+        let mut moves = Vec::new();
+        while let Some((mv, idx)) = concurrent_iter.next() {
+            moves.push((mv.sq, idx));
+        }
+
+        assert_eq!(moves.len(), 4);
+        // Verify indices are 1-based and sequential
+        for (i, (_, idx)) in moves.iter().enumerate() {
+            assert_eq!(*idx, i + 1);
+        }
+
+        // Verify no more moves
+        assert!(concurrent_iter.next().is_none());
+    }
+
+    /// Tests evaluate_moves_fast with various scenarios.
+    #[test]
+    fn test_evaluate_moves_fast() {
+        let board = Board::new();
+        let mut move_list = MoveList::new(&board);
+
+        // Test with no TT move
+        move_list.evaluate_moves_fast(&board, Square::None);
+
+        // All moves should have heuristic values
+        for mv in move_list.iter() {
+            assert_ne!(mv.value, i32::MIN);
+            assert_ne!(mv.value, WIPEOUT_VALUE); // No wipeout in starting position
+            assert_ne!(mv.value, TT_MOVE_VALUE); // No TT move set
+        }
+
+        // Test with TT move
+        let tt_move = move_list.first().unwrap().sq;
+        move_list.evaluate_moves_fast(&board, tt_move);
+
+        let tt_move_found = move_list.iter().any(|m| m.value == TT_MOVE_VALUE);
+        assert!(tt_move_found);
+    }
+
+    /// Tests wipeout move detection.
+    #[test]
+    fn test_wipeout_detection() {
+        // Create position where next move captures all opponent pieces
+        let board = Board::from_string(
+            "........\
+             ........\
+             ........\
+             ...XX...\
+             ...XO...\
+             ........\
+             ........\
+             ........",
+            Piece::Black
+        );
+
+        let mut move_list = MoveList::new(&board);
+
+        // Find the wipeout move manually
+        let mut wipeout_move = None;
+        for mv in move_list.iter() {
+            if mv.flipped == board.opponent {
+                wipeout_move = Some(mv.sq);
+                break;
+            }
+        }
+
+        if let Some(wipeout_sq) = wipeout_move {
+            move_list.evaluate_moves_fast(&board, Square::None);
+
+            let wipeout_mv = move_list.iter().find(|m| m.sq == wipeout_sq).unwrap();
+            assert_eq!(wipeout_mv.value, WIPEOUT_VALUE);
+
+            let best = move_list.best_first_iter().next().unwrap();
+            assert_eq!(best.sq, wipeout_sq);
+        }
     }
 }
