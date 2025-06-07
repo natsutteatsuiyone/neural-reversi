@@ -8,7 +8,13 @@ use std::{
 /// Size of each cluster in the transposition table.
 const CLUSTER_SIZE: usize = 4;
 
-/// Bound indicator for the transposition table entries.
+/// Bound type for transposition table entries.
+///
+/// Indicates the relationship between the stored score and the actual position value:
+/// - `None`: No valid entry
+/// - `Lower`: Score is a lower bound (fail-high occurred)
+/// - `Upper`: Score is an upper bound (fail-low)
+/// - `Exact`: Score is the exact minimax value
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Bound {
@@ -19,6 +25,16 @@ pub enum Bound {
 }
 
 impl Bound {
+    /// Determines the appropriate bound type based on search results.
+    ///
+    /// # Arguments
+    ///
+    /// * `best_score` - The best score found during search
+    /// * `beta` - The beta cutoff value
+    ///
+    /// # Type Parameters
+    ///
+    /// * `NT` - Node type (PV or non-PV) that affects bound determination
     #[inline]
     pub fn determine_bound<NT: NodeType>(best_score: Score, beta: Score) -> Bound {
         if best_score >= beta {
@@ -31,43 +47,24 @@ impl Bound {
     }
 }
 
-/// Represents an entry in the transposition table.
+/// A single entry in the transposition table.
+///
+/// # Entry Format
+///
+/// - 16 bits: Hash key (lower 16 bits for verification)
+/// - 16 bits: Evaluation score
+/// - 7 bits: Best move square
+/// - 2 bits: Bound type (none/lower/upper/exact)
+/// - 6 bits: Search depth
+/// - 3 bits: Selectivity level
+/// - 7 bits: Generation counter for aging
 #[derive(Default)]
 struct TTEntry {
     data: AtomicU64,
 }
 
-/// Represents the transposition table.
-pub struct TranspositionTable {
-    entries: Vec<TTEntry>,
-    cluster_count: u64,
-}
-
-pub struct TTData {
-    pub key: u16,
-    pub score: Score,
-    pub best_move: Square,
-    pub bound: u8,
-    pub depth: Depth,
-    pub selectivity: Selectivity,
-    pub generation: u8,
-}
-
-impl Default for TTData {
-    fn default() -> Self {
-        TTData {
-            key: 0,
-            score: 0,
-            best_move: Square::None,
-            bound: Bound::None as u8,
-            depth: 0,
-            selectivity: 0,
-            generation: 0,
-        }
-    }
-}
-
 impl TTEntry {
+    // Bit layout constants for packing data into 64 bits
     const KEY_SIZE: i32 = 16;
     const KEY_SHIFT: i32 = 0;
     const KEY_MASK: u64 = (1 << (Self::KEY_SIZE)) - 1;
@@ -96,6 +93,7 @@ impl TTEntry {
     const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
     const GENERATION_MASK: u64 = (1 << (Self::GENERATION_SIZE)) - 1;
 
+    /// Packs all fields into a single 64-bit value and stores it.
     #[allow(clippy::too_many_arguments)]
     fn pack(
         &self,
@@ -117,6 +115,7 @@ impl TTEntry {
         self.data.store(data, Ordering::Relaxed);
     }
 
+   /// Unpacks a 64-bit value into TTData fields.
    #[inline]
    fn unpack_from_u64(data_u64: u64) -> TTData {
        let key = ((data_u64 >> Self::KEY_SHIFT) & Self::KEY_MASK) as u16;
@@ -138,6 +137,7 @@ impl TTEntry {
        }
    }
 
+   /// Loads and unpacks the entry data atomically.
    #[inline]
    fn unpack(&self) -> TTData {
        let data = self.data.load(Ordering::Relaxed);
@@ -148,14 +148,13 @@ impl TTEntry {
     ///
     /// # Arguments
     ///
-    /// * `key` - The hash key of the board position.
-    /// * `score` - The evaluation score of the position.
-    /// * `bound` - The bound type (none, lower, upper, exact).
-    /// * `depth` - The search depth at which the position was evaluated.
-    /// * `best_move` - The best move found for the position.
-    /// * `selectivity` - The selectivity of the search.
-    /// * `static_score` - The static evaluation score of the position.
-    /// * `generation` - The current generation count.
+    /// * `key` - The hash key of the board position
+    /// * `score` - The evaluation score of the position
+    /// * `bound` - The bound type (none, lower, upper, exact)
+    /// * `depth` - The search depth at which the position was evaluated
+    /// * `best_move` - The best move found for the position
+    /// * `selectivity` - The selectivity level of the search
+    /// * `generation` - The current generation count for aging
     #[allow(clippy::too_many_arguments)]
     pub fn save(
         &self,
@@ -190,7 +189,42 @@ impl TTEntry {
     }
 }
 
-/// Data retrieved from the transposition table.
+/// Data stored in and retrieved from transposition table entries.
+///
+/// This struct represents the unpacked form of a transposition table entry,
+/// containing all the information needed to use cached search results.
+pub struct TTData {
+    /// Lower 16 bits of the position hash for verification
+    pub key: u16,
+    /// Evaluation score of the position
+    pub score: Score,
+    /// Best move found during search
+    pub best_move: Square,
+    /// Bound type
+    pub bound: u8,
+    /// Search depth at which this position was evaluated
+    pub depth: Depth,
+    /// Selectivity level used during search
+    pub selectivity: Selectivity,
+    /// Generation counter for replacement policy
+    pub generation: u8,
+}
+
+impl Default for TTData {
+    /// Creates an empty TTData instance with default values.
+    fn default() -> Self {
+        TTData {
+            key: 0,
+            score: 0,
+            best_move: Square::None,
+            bound: Bound::None as u8,
+            depth: 0,
+            selectivity: 0,
+            generation: 0,
+        }
+    }
+}
+
 impl TTData {
     /// Determines whether a cutoff should occur based on the bound and beta value.
     ///
@@ -211,11 +245,11 @@ impl TTData {
         (self.bound & bound) != 0
     }
 
-    /// Checks if the transposition table entry is occupied.
+    /// Checks if the transposition table entry contains valid data.
     ///
     /// # Returns
     ///
-    /// `true` if the entry is occupied, otherwise `false`.
+    /// `true` if the entry has a valid bound type (not None), `false` otherwise
     pub fn is_occupied(&self) -> bool {
         self.bound != Bound::None as u8
     }
@@ -224,14 +258,22 @@ impl TTData {
     ///
     /// # Arguments
     ///
-    /// * `generation` - The current generation count.
+    /// * `generation` - The current generation count
     ///
     /// # Returns
     ///
-    /// An `i32` representing the relative age.
+    /// The age difference (positive means this entry is older)
     fn relative_age(&self, generation: u8) -> i32 {
         generation as i32 - self.generation as i32
     }
+}
+
+/// The main transposition table structure.
+pub struct TranspositionTable {
+    /// Array of table entries organized in clusters
+    entries: Vec<TTEntry>,
+    /// Number of clusters in the table
+    cluster_count: u64,
 }
 
 impl TranspositionTable {
@@ -240,10 +282,6 @@ impl TranspositionTable {
     /// # Arguments
     ///
     /// * `mb_size` - The size of the transposition table in megabytes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `mb_size` is negative.
     pub fn new(mb_size: usize) -> Self {
         let cluster_count = if mb_size == 0 {
             16
@@ -259,7 +297,7 @@ impl TranspositionTable {
         }
     }
 
-    /// Clears the transposition table.
+    /// Clears all entries in the transposition table.
     pub fn clear(&self) {
         unsafe {
             let ptr = self.entries.as_ptr() as *mut TTEntry;
@@ -268,10 +306,6 @@ impl TranspositionTable {
     }
 
     /// Prefetches the transposition table entry corresponding to the given hash.
-    ///
-    /// This function uses the `_mm_prefetch` intrinsic to prefetch the memory address
-    /// of the transposition table entry corresponding to the given hash key. This can
-    /// improve performance by reducing cache misses during subsequent accesses.
     ///
     /// # Arguments
     ///
@@ -286,19 +320,19 @@ impl TranspositionTable {
         }
     }
 
-    /// Probes the transposition table for an entry corresponding to the given key.
+    /// Probes the transposition table for an entry matching the given key.
     ///
     /// # Arguments
     ///
-    /// * `key` - The hash key of the board position to probe.
-    /// * `generation` - The current generation count.
+    /// * `key` - The hash key of the board position to probe
+    /// * `generation` - The current generation count for aging
     ///
     /// # Returns
     ///
-    /// A tuple where:
-    /// - The first element is `true` if a valid entry was found, `false` otherwise.
-    /// - The second element is the retrieved `TTData`.
-    /// - The third element is the index of the entry in the transposition table.
+    /// A tuple containing:
+    /// - `bool`: Whether a matching entry was found
+    /// - `TTData`: The entry data (default if not found)
+    /// - `usize`: The index for storing new data (either the found entry or replacement candidate)
     pub fn probe(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
         if is_x86_feature_detected!("avx2") {
             return unsafe { self.probe_avx2(key, generation) };
@@ -307,6 +341,7 @@ impl TranspositionTable {
         let key16 = key as u16;
         let cluster_idx = self.get_cluster_idx(key);
 
+        // look for exact key match
         for i in 0..CLUSTER_SIZE {
             let idx = cluster_idx + i;
             let entry = unsafe { self.entries.get_unchecked(idx) };
@@ -317,6 +352,9 @@ impl TranspositionTable {
             }
         }
 
+        // find best replacement candidate
+        // Score formula: depth - (age * 8)
+        // Lower score = better replacement candidate
         let mut replace_idx = cluster_idx;
         let replace_data = unsafe { self.entries.get_unchecked(cluster_idx).unpack() };
         let mut replace_score =
@@ -337,6 +375,7 @@ impl TranspositionTable {
         (false, TTData::default(), replace_idx)
     }
 
+    /// AVX2-optimized probe implementation for faster cluster scanning.
     #[inline]
     unsafe fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
         use std::arch::x86_64::*;
@@ -346,14 +385,18 @@ impl TranspositionTable {
         let ptr = self.entries.as_ptr().add(base) as *const __m256i;
         let v = _mm256_loadu_si256(ptr);
 
+        // Create a vector with the key repeated in all 16-bit lanes
         let key_vec = _mm256_set1_epi16(key16 as i16);
+        // Compare all keys in the cluster simultaneously
         let cmp = _mm256_cmpeq_epi16(v, key_vec);
         let hit_mask = _mm256_movemask_epi8(cmp) as u32;
 
+        // Mask to check only the key fields (first 16 bits of each 64-bit entry)
         const LANE_MASK: u32 = 0x0303_0303;
         let relevant_hits = hit_mask & LANE_MASK;
 
         if relevant_hits != 0 {
+            // Found a potential key match - extract and verify
             let lane_idx = (relevant_hits.trailing_zeros() / 8) as usize;
 
             let entries_array: [u64; 4] = std::mem::transmute(v);
@@ -365,6 +408,7 @@ impl TranspositionTable {
             }
         }
 
+        // Extract depth and generation fields from all entries using SIMD
         let depth_mask_vec = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
         let gen_mask_vec = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
 
@@ -377,11 +421,13 @@ impl TranspositionTable {
             gen_mask_vec,
         );
 
+        // Calculate replacement scores: depth - (age * 8)
         let current_gen_vec = _mm256_set1_epi64x(generation as i64);
         let age_vec = _mm256_sub_epi64(current_gen_vec, gen_vec);
         let score_vec = _mm256_sub_epi64(depth_vec, _mm256_slli_epi64(age_vec, 3));
         let scores: [i64; 4] = core::mem::transmute(score_vec);
 
+        // Find the entry with the lowest replacement score
         let mut replace_idx = 0;
         let mut min_score = scores[0];
 
@@ -404,13 +450,14 @@ impl TranspositionTable {
     ///
     /// # Arguments
     ///
-    /// * `entry_index` - The index of the entry to store data in.
-    /// * `key` - The hash key of the board position.
-    /// * `score` - The evaluation score of the position.
-    /// * `bound` - The bound type (none, lower, upper, exact).
-    /// * `depth` - The search depth at which the position was evaluated.
-    /// * `best_move` - The best move found for the position.
-    /// * `generation` - The current generation count.
+    /// * `entry_index` - The index returned by `probe`
+    /// * `key` - The hash key of the board position
+    /// * `score` - The evaluation score of the position
+    /// * `bound` - The bound type (none, lower, upper, exact)
+    /// * `depth` - The search depth at which the position was evaluated
+    /// * `best_move` - The best move found for the position
+    /// * `selectivity` - The selectivity level used in search
+    /// * `generation` - The current generation count
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn store(
@@ -428,11 +475,11 @@ impl TranspositionTable {
         entry.save(key, score, bound, depth, best_move, selectivity, generation);
     }
 
-    /// Calculates the cluster index based on the hash key.
+    /// Calculates the cluster index for a given hash key.
     ///
     /// # Arguments
     ///
-    /// * `key` - The hash key of the board position.
+    /// * `key` - The hash key of the board position
     ///
     /// # Returns
     ///
@@ -442,16 +489,16 @@ impl TranspositionTable {
         (Self::mul_hi64(key, self.cluster_count) as usize) * CLUSTER_SIZE
     }
 
-    /// Multiplies two `u64` values and returns the high 64 bits of the product.
+    /// Multiplies two 64-bit values and returns the high 64 bits of the result.
     ///
     /// # Arguments
     ///
-    /// * `a` - The first `u64` value.
-    /// * `b` - The second `u64` value.
+    /// * `a` - The first value (typically the hash key)
+    /// * `b` - The second value (typically the cluster count)
     ///
     /// # Returns
     ///
-    /// The high 64 bits of the product of `a` and `b`.
+    /// The high 64 bits of the 128-bit product
     #[inline(always)]
     fn mul_hi64(a: u64, b: u64) -> u64 {
         let product = (a as u128) * (b as u128);
@@ -463,6 +510,7 @@ impl TranspositionTable {
 mod tests {
     use super::*;
 
+    /// Tests that TTEntry correctly packs and unpacks all fields.
     #[test]
     fn test_ttentry_store_and_read() {
         let entry = TTEntry::default();
