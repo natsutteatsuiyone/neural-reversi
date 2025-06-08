@@ -20,16 +20,21 @@ Options:
 
 In interactive mode, you can use the following commands:
 
-- `play <position>` - Make a move (e.g., `play e3`)
-- `undo` - Undo the last move
-- `new` - Start a new game
-- `mode <number>` - Change game mode:
-  - `0`: Human (Black) vs AI (White)
-  - `1`: AI (Black) vs Human (White)
-  - `2`: AI vs AI
-  - `3`: Human vs Human
-- `level <number>` - Set AI difficulty level (1-21)
-- `quit` - Exit the program
+- `<square>` - Make a move (e.g., `d3`, `e4`)
+- `init`, `i` - Initialize a new game
+- `new`, `n` - Start a new game
+- `undo`, `u` - Undo last move
+- `level`, `l <n>` - Set AI level
+- `mode`, `m [n]` - Show/set game mode:
+  - `0`: Black-Human, White-AI
+  - `1`: Black-AI, White-Human
+  - `2`: Black-AI, White-AI
+  - `3`: Black-Human, White-Human
+- `go` - Let AI make a move with analysis
+- `play <moves>` - Play a sequence of moves
+- `setboard <pos>` - Set board position (64 board chars + optional spaces + 1 side to move char)
+- `help`, `h` - Show this help
+- `quit`, `q` - Exit the program
 
 ### GTP Mode
 

@@ -18,6 +18,15 @@ impl GameState {
         }
     }
 
+    pub fn from_board(board: Board, side_to_move: Piece) -> Self {
+        Self {
+            board,
+            side_to_move,
+            history: Vec::new(),
+            last_move: Square::None,
+        }
+    }
+
     pub fn make_move(&mut self, sq: Square) {
         self.history.push((sq, self.board));
         self.board = self.board.make_move(sq);
