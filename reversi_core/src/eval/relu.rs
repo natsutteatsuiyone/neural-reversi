@@ -502,8 +502,8 @@ mod tests {
         const SIZE: usize = 128;
         let mut input_data = [0i32; SIZE];
 
-        for i in 0..SIZE {
-            input_data[i] = ((i * 12345 + 6789) % 20000) as i32 - 10000;
+        for (i, val) in input_data.iter_mut().enumerate() {
+            *val = ((i * 12345 + 6789) % 20000) as i32 - 10000;
         }
 
         let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
@@ -522,8 +522,8 @@ mod tests {
         const SIZE: usize = 80;
         let mut input_data = [0i32; SIZE];
 
-        for i in 0..SIZE {
-            input_data[i] = ((i * 9876 + 1000) % 10000) as i32 - 3000;
+        for (i, val) in input_data.iter_mut().enumerate() {
+            *val = ((i * 9876 + 1000) % 10000) as i32 - 3000;
         }
 
         let input: Aligned<A64, [i32; SIZE]> = Aligned(input_data);
