@@ -172,5 +172,5 @@ fn last_flip(sq: usize, player: u64) -> i32 {
 
 #[inline]
 pub fn count_last_flip(b: u64, sq: Square) -> i32 {
-    last_flip(sq as usize, b)
+    last_flip(sq.index(), b)
 }

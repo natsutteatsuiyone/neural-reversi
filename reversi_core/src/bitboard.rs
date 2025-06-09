@@ -280,7 +280,7 @@ pub fn get_corner_stability(p: u64) -> u32
 /// `true` if there is an adjacent bit set, otherwise `false`.
 #[inline]
 pub fn has_adjacent_bit(b: u64, sq: Square) -> bool {
-    (b & NEIGHBOUR_MASK[sq as usize]) != 0
+    (b & NEIGHBOUR_MASK[sq.index()]) != 0
 }
 
 /// An iterator that yields each set bit position in a bitboard as a `Square`.
@@ -307,7 +307,7 @@ impl Iterator for BitboardIterator {
             return None;
         }
 
-        let square = Square::from_usize_unchecked(self.bitboard.trailing_zeros() as usize);
+        let square = Square::from_u32_unchecked(self.bitboard.trailing_zeros());
         self.bitboard = bit::clear_lsb_u64(self.bitboard);
         Some(square)
     }
@@ -490,7 +490,7 @@ mod tests {
         let count = bitboard.count_ones();
         let mut iterator = BitboardIterator::new(bitboard);
         for i in 0..count {
-            assert_eq!(iterator.next(), Some(Square::from_usize_unchecked(i as usize)));
+            assert_eq!(iterator.next(), Some(Square::from_u32_unchecked(i)));
         }
         assert_eq!(iterator.next(), None);
     }

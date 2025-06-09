@@ -224,7 +224,7 @@ pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     let mut index: usize;
     let mut flipped: u64;
     let mut mask: u64;
-    let sq_index = sq as usize;
+    let sq_index = sq.index();
     let x = sq_index & 7;
     let mut y = sq_index & 0x38;
     let mut of_index: usize;

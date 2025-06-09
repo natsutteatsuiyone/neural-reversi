@@ -118,8 +118,8 @@ impl EmptyList {
         let empty_board = board.get_empty();
         for &sq in PRESORTED.iter() {
             if sq.bitboard() & empty_board != 0 {
-                let sq_idx = sq as usize;
-                nodes[prev_sq as usize].next = sq;
+                let sq_idx = sq.index();
+                nodes[prev_sq.index()].next = sq;
                 nodes[sq_idx].prev = prev_sq;
                 nodes[sq_idx].quad_id = QUADRANT_ID[sq_idx];
                 parity ^= nodes[sq_idx].quad_id;
@@ -142,7 +142,7 @@ impl EmptyList {
     /// The `Square` representing the first empty square, or `Square::None` if empty.
     #[inline(always)]
     pub fn first(&self) -> Square {
-        unsafe { self.nodes.get_unchecked(Square::None as usize).next }
+        unsafe { self.nodes.get_unchecked(Square::None.index()).next }
     }
 
     /// Retrieves the first empty square and its quadrant ID.
@@ -153,8 +153,8 @@ impl EmptyList {
     /// or (`Square::None`, 0) if the list is empty.
     #[inline(always)]
     pub fn first_with_quad_id(&self) -> (Square, u8) {
-        let first_sq = unsafe { self.nodes.get_unchecked(Square::None as usize).next };
-        let quad_id = unsafe { self.nodes.get_unchecked(first_sq as usize).quad_id };
+        let first_sq = unsafe { self.nodes.get_unchecked(Square::None.index()).next };
+        let quad_id = unsafe { self.nodes.get_unchecked(first_sq.index()).quad_id };
         (first_sq, quad_id)
     }
 
@@ -169,7 +169,7 @@ impl EmptyList {
     /// The `Square` representing the next empty square, or `Square::None` if `sq` is the last square.
     #[inline(always)]
     pub fn next(&self, sq: Square) -> Square {
-        unsafe { self.nodes.get_unchecked(sq as usize).next }
+        unsafe { self.nodes.get_unchecked(sq.index()).next }
     }
 
     /// Retrieves the next empty square and its quadrant ID following the given square.
@@ -184,8 +184,8 @@ impl EmptyList {
     /// Returns (`Square::None`, 0) if `sq` is the last square in the list.
     #[inline(always)]
     pub fn next_with_quad_id(&self, sq: Square) -> (Square, u8) {
-        let next_sq = unsafe { self.nodes.get_unchecked(sq as usize).next };
-        let quad_id = unsafe { self.nodes.get_unchecked(next_sq as usize).quad_id };
+        let next_sq = unsafe { self.nodes.get_unchecked(sq.index()).next };
+        let quad_id = unsafe { self.nodes.get_unchecked(next_sq.index()).quad_id };
         (next_sq, quad_id)
     }
 
@@ -196,12 +196,12 @@ impl EmptyList {
     /// * `sq` - The `Square` to remove. Must currently be in the list.
     #[inline(always)]
     pub fn remove(&mut self, sq: Square) {
-        let emp = self.nodes[sq as usize];
-        let prev = emp.prev;
-        let next = emp.next;
-        unsafe { self.nodes.get_unchecked_mut(prev as usize).next = next };
-        unsafe { self.nodes.get_unchecked_mut(next as usize).prev = prev };
-        self.parity ^= emp.quad_id;
+        let node = self.nodes[sq.index()];
+        let prev = node.prev;
+        let next = node.next;
+        unsafe { self.nodes.get_unchecked_mut(prev.index()).next = next };
+        unsafe { self.nodes.get_unchecked_mut(next.index()).prev = prev };
+        self.parity ^= node.quad_id;
         self.count -= 1;
     }
 
@@ -212,13 +212,10 @@ impl EmptyList {
     /// * `sq` - The `Square` to restore. Must have been previously removed.
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
-        let prev = unsafe { self.nodes.get_unchecked(sq as usize).prev };
-        let next = unsafe { self.nodes.get_unchecked(sq as usize).next };
-        let quad_id = unsafe { self.nodes.get_unchecked(sq as usize).quad_id };
-
-        unsafe { self.nodes.get_unchecked_mut(prev as usize).next = sq };
-        unsafe { self.nodes.get_unchecked_mut(next as usize).prev = sq };
-        self.parity ^= quad_id;
+        let node = self.nodes[sq.index()];
+        unsafe { self.nodes.get_unchecked_mut(node.prev.index()).next = sq };
+        unsafe { self.nodes.get_unchecked_mut(node.next.index()).prev = sq };
+        self.parity ^= node.quad_id;
         self.count += 1;
     }
 
@@ -307,14 +304,14 @@ mod tests {
     #[test]
     fn test_quadrant_id_constants() {
         // Test that QUADRANT_ID correctly maps squares to quadrants
-        assert_eq!(QUADRANT_ID[Square::A1 as usize], 1); // Top-left
-        assert_eq!(QUADRANT_ID[Square::D4 as usize], 1); // Top-left
-        assert_eq!(QUADRANT_ID[Square::E1 as usize], 2); // Top-right
-        assert_eq!(QUADRANT_ID[Square::H4 as usize], 2); // Top-right
-        assert_eq!(QUADRANT_ID[Square::A5 as usize], 4); // Bottom-left
-        assert_eq!(QUADRANT_ID[Square::D8 as usize], 4); // Bottom-left
-        assert_eq!(QUADRANT_ID[Square::E5 as usize], 8); // Bottom-right
-        assert_eq!(QUADRANT_ID[Square::H8 as usize], 8); // Bottom-right
+        assert_eq!(QUADRANT_ID[Square::A1.index()], 1); // Top-left
+        assert_eq!(QUADRANT_ID[Square::D4.index()], 1); // Top-left
+        assert_eq!(QUADRANT_ID[Square::E1.index()], 2); // Top-right
+        assert_eq!(QUADRANT_ID[Square::H4.index()], 2); // Top-right
+        assert_eq!(QUADRANT_ID[Square::A5.index()], 4); // Bottom-left
+        assert_eq!(QUADRANT_ID[Square::D8.index()], 4); // Bottom-left
+        assert_eq!(QUADRANT_ID[Square::E5.index()], 8); // Bottom-right
+        assert_eq!(QUADRANT_ID[Square::H8.index()], 8); // Bottom-right
     }
 
     #[test]
@@ -444,19 +441,19 @@ mod tests {
         // Test removing a few squares from quadrant 1 (top-left)
         empty_list.remove(Square::A1); // quadrant 1
         empty_list.remove(Square::B1); // quadrant 1
-        
+
         // Removing 2 squares from quadrant 1: parity changes by 1^1 = 0
         assert_eq!(empty_list.parity, initial_parity);
-        
+
         // Remove one more from quadrant 1
         empty_list.remove(Square::C1); // quadrant 1
-        
+
         // Now we've removed 3 squares: 1^1^1 = 1, so parity should change by 1
         assert_eq!(empty_list.parity, initial_parity ^ 1);
-        
+
         // Test removing from different quadrants
         empty_list.remove(Square::E1); // quadrant 2
-        
+
         // Parity change: (1^1^1) ^ 2 = 1^2 = 3
         assert_eq!(empty_list.parity, initial_parity ^ 3);
     }
@@ -469,7 +466,7 @@ mod tests {
         // First four squares should be corners
         let corners = [Square::A1, Square::H1, Square::A8, Square::H8];
         let mut current = empty_list.first();
-        
+
         for &expected_corner in &corners {
             assert_eq!(current, expected_corner);
             current = empty_list.next(current);
@@ -486,7 +483,7 @@ mod tests {
         let mut count = 0;
 
         while current != Square::None {
-            let sq_idx = current as usize;
+            let sq_idx = current.index();
             assert!(!visited_squares[sq_idx], "Square visited twice: {:?}", current);
             visited_squares[sq_idx] = true;
             current = empty_list.next(current);
@@ -494,7 +491,7 @@ mod tests {
         }
 
         assert_eq!(count, 60);
-        
+
         // Count visited squares
         let visited_count = visited_squares.iter().filter(|&&v| v).count();
         assert_eq!(visited_count, 60);
@@ -531,41 +528,41 @@ mod tests {
     fn test_clone_functionality() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
-        
+
         // Modify the original list
         empty_list.remove(Square::A1);
         empty_list.remove(Square::H8);
-        
+
         // Clone the list
         let cloned_list = empty_list.clone();
-        
+
         // Verify clone has same properties
         assert_eq!(cloned_list.count, empty_list.count);
         assert_eq!(cloned_list.parity, empty_list.parity);
         assert_eq!(cloned_list.first(), empty_list.first());
-        
+
         // Verify independence - modify original
         empty_list.remove(Square::C1);
-        
+
         // Clone should be unchanged
         assert_ne!(cloned_list.count, empty_list.count);
     }
 
-    #[test] 
+    #[test]
     fn test_presorted_array_completeness() {
         let mut squares_seen = [false; 64];
-        
+
         // Mark all squares in PRESORTED
         for &sq in PRESORTED.iter() {
-            let sq_idx = sq as usize;
+            let sq_idx = sq.index();
             assert!(!squares_seen[sq_idx], "Duplicate square in PRESORTED: {:?}", sq);
             squares_seen[sq_idx] = true;
         }
-        
+
         // Should have exactly 64 squares (A1 to H8, excluding None)
         let count = squares_seen.iter().filter(|&&seen| seen).count();
         assert_eq!(count, 64);
-        
+
         // Every square from 0-63 should be present
         for (idx, &seen) in squares_seen.iter().enumerate() {
             assert!(seen, "Square index {} missing from PRESORTED", idx);

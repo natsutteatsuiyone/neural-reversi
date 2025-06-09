@@ -255,8 +255,8 @@ impl FeatureSet {
                 let o_in = self.o_features[ply].v16;
                 let o_out = &mut self.o_features[ply + 1].v16;
 
-                let sq = mv.sq as usize;
-                let f = &EVAL_FEATURE[sq].v16;
+                let sq_index = mv.sq.index();
+                let f = &EVAL_FEATURE[sq_index].v16;
 
                 let (p_scale, o_scale, p_sign, o_sign) = if player == 0 {
                     (
@@ -297,7 +297,7 @@ impl FeatureSet {
             self.o_features.copy_within(ply..ply + 1, ply + 1);
             let p_out = &mut self.p_features[ply + 1];
             let o_out = &mut self.o_features[ply + 1];
-            let s = &EVAL_X2F[mv.sq as usize];
+            let s = &EVAL_X2F[mv.sq.index()];
 
             if player == 0 {
                 for i in 0..s.n_features {

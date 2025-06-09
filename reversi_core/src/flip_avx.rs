@@ -124,6 +124,6 @@ unsafe fn mm_flip(op: __m128i, pos: usize) -> __m128i {
 #[inline]
 pub unsafe fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
     let op = _mm_set_epi64x(opponent as i64, player as i64);
-    let flip = mm_flip(op, sq as usize);
+    let flip = mm_flip(op, sq.index());
     _mm_cvtsi128_si64(_mm_or_si128(flip, _mm_shuffle_epi32(flip, 0x4e))) as u64
 }

@@ -95,7 +95,7 @@ async fn ai_move_command(
         let result = search_guard.run(&board, lv, selectivity, false, Some(callback));
 
         AIMoveResult {
-            best_move: result.best_move.map(|square| square as usize),
+            best_move: result.best_move.map(|square| square.index()),
             row: result.best_move.map(|square| square as i32 / 8).unwrap_or(-1),
             col: result.best_move.map(|square| square as i32 % 8).unwrap_or(-1),
             score: (result.score * 10.0).round() / 10.0,
