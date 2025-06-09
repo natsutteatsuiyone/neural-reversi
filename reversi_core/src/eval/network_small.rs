@@ -6,11 +6,10 @@ use aligned::{Aligned, A64};
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::linear_layer::LinearLayer;
-use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
+use crate::eval::pattern_feature::{Feature, NUM_PATTERN_FEATURES};
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
 use crate::eval::relu::clipped_relu;
 use crate::misc::ceil_to_multiple;
-use crate::search::search_context::SearchContext;
 use crate::types::Score;
 
 use super::constants::{
@@ -112,20 +111,14 @@ impl NetworkSmall {
         })
     }
 
-    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> Score {
-        let ply = ctx.ply();
+    pub fn evaluate(&self, board: &Board, pattern_feature: &Feature, ply: usize) -> Score {
         let mobility = board.get_moves().count_ones();
-        let feature_indices = if ctx.player == 0 {
-            &ctx.feature_set.p_features[ply]
-        } else {
-            &ctx.feature_set.o_features[ply]
-        };
 
         NETWORK_BUFFERS.with(|buffers_cell| {
             let mut buffers = buffers_cell.borrow_mut();
 
             for (i, &offset) in (0..NUM_PATTERN_FEATURES).zip(PATTERN_FEATURE_OFFSETS.iter()) {
-                buffers.feature_indices[i] = unsafe { feature_indices.v1 }[i] as usize + offset;
+                buffers.feature_indices[i] = unsafe { pattern_feature.v1 }[i] as usize + offset;
             }
 
             let score = self.forward(&mut buffers, mobility as u8, ply);

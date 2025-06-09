@@ -70,7 +70,7 @@ impl Eval {
                 return score_cache;
             }
 
-            let score = self.network.evaluate(ctx, board);
+            let score = self.network.evaluate(board, ctx.get_feature(), ctx.ply());
             self.cache.store(key, score);
             score
         } else {
@@ -78,7 +78,7 @@ impl Eval {
                 return score_cache;
             }
 
-            let score = self.network_sm.evaluate(ctx, board);
+            let score = self.network_sm.evaluate(board, ctx.get_feature(), ctx.ply());
             self.cache_sm.store(key, score);
             score
         }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
-use crate::eval::pattern_feature::FeatureSet;
+use crate::eval::pattern_feature::{Feature, FeatureSet};
 use crate::eval::Eval;
 use crate::move_list::{Move, MoveList};
 use crate::probcut::{self};
@@ -165,6 +165,16 @@ impl SearchContext {
     #[inline]
     pub fn increment_nodes(&mut self) {
         self.n_nodes += 1;
+    }
+
+    #[inline]
+    pub fn get_feature(&self) -> &Feature {
+        let ply = self.ply();
+        if self.player == 0 {
+            &self.feature_set.p_features[ply]
+        } else {
+            &self.feature_set.o_features[ply]
+        }
     }
 
     pub fn update_root_move(&mut self, sq: Square, score: Score, move_count: usize, alpha: Score) {
