@@ -235,7 +235,7 @@ pub fn probcut_midgame(
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
             ctx.update_probcut();
-            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta);
+            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, None);
             ctx.undo_probcut(current_selectivity);
             if score >= pc_beta {
                 return Some(beta);
@@ -246,7 +246,7 @@ pub fn probcut_midgame(
         let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
         if eval_score < eval_alpha && pc_alpha > MID_SCORE_MIN {
             ctx.update_probcut();
-            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1);
+            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, None);
             ctx.undo_probcut(current_selectivity);
             if score <= pc_alpha {
                 return Some(alpha);
@@ -306,7 +306,7 @@ fn probcut_endgame_internal(
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
     if eval_score > alpha && pc_beta < MID_SCORE_MAX {
         ctx.update_probcut();
-        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta);
+        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, None);
         ctx.undo_probcut(current_selectivity);
         if score >= pc_beta {
             return Some(beta);
@@ -316,7 +316,7 @@ fn probcut_endgame_internal(
     let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
     if eval_score < beta &&  pc_alpha > MID_SCORE_MIN {
         ctx.update_probcut();
-        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1);
+        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, None);
         ctx.undo_probcut(current_selectivity);
         if score <= pc_alpha {
             return Some(alpha);

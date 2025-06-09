@@ -642,6 +642,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                         &task.board,
                         sp_state.alpha,
                         sp_state.beta,
+                        Some(sp),
                     );
                 } else if sp.state().node_type == PV::TYPE_ID {
                     search::endgame::search::<PV, true>(
@@ -649,6 +650,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                         &task.board,
                         sp_state.alpha,
                         sp_state.beta,
+                        Some(sp),
                     );
                 } else if sp.state().node_type == Root::TYPE_ID {
                     search::endgame::search::<Root, true>(
@@ -656,6 +658,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                         &task.board,
                         sp_state.alpha,
                         sp_state.beta,
+                        Some(sp),
                     );
                 } else {
                     unreachable!();
@@ -667,6 +670,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                     sp_state.depth,
                     sp_state.alpha,
                     sp_state.beta,
+                    Some(sp),
                 );
             } else if sp.state().node_type == PV::TYPE_ID {
                 search::midgame::search::<PV, true>(
@@ -675,6 +679,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                     sp_state.depth,
                     sp_state.alpha,
                     sp_state.beta,
+                    Some(sp),
                 );
             } else if sp.state().node_type == Root::TYPE_ID {
                 search::midgame::search::<Root, true>(
@@ -683,6 +688,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                     sp_state.depth,
                     sp_state.alpha,
                     sp_state.beta,
+                    Some(sp),
                 );
             } else {
                 unreachable!();
