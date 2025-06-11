@@ -7,7 +7,7 @@ This is an experimental project to develop a high-accuracy neural network evalua
 - **reversi_core**: Core library implementing AI search algorithms.
 - **reversi_cli**: Command-line interface for playing Reversi.
 - **reversi_gui**: Graphical user interface built with Tauri for playing Reversi.
-- **automatch**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
+- **match_runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
 - **build_common**: Common build script utilities shared across different crates.
 - **codegen**: Utility for generating evaluation feature-related code.
 - **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.

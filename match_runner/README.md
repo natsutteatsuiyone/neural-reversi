@@ -1,11 +1,11 @@
-# Auto Match
+# Match Runner
 
 A tool for playing matches between two computer Reversi programs using the Go Text Protocol (GTP).
 
 ## Usage
 
 ```bash
-automatch [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <OPENING_FILE>
+match_runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <OPENING_FILE>
 ```
 
 ### Options
@@ -38,13 +38,13 @@ For each opening sequence in the file, two games will be played (with colors swa
 ### Basic Match
 
 ```bash
-automatch --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 5" --opening-file openings.txt
+match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 5" --opening-file openings.txt
 ```
 
 ### Match with Custom Working Directories
 
 ```bash
-automatch --engine1 "./reversi_cli gtp --level 10" --engine1-working-dir "./engine1_dir" --engine2 "./reversi_cli gtp --level 5" --engine2-working-dir "./engine2_dir" --opening-file openings.txt
+match-runner --engine1 "./reversi_cli gtp --level 10" --engine1-working-dir "./engine1_dir" --engine2 "./reversi_cli gtp --level 5" --engine2-working-dir "./engine2_dir" --opening-file openings.txt
 ```
 
 ## GTP Protocol

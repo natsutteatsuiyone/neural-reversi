@@ -1,4 +1,4 @@
-//! Display management for automatch UI.
+//! Display management for match runner UI.
 //!
 //! This module handles all terminal-based user interface elements including
 //! progress visualization, real-time match statistics, and formatted output.
@@ -72,7 +72,7 @@ impl DisplayManager {
     /// `Ok(())` on success, or an I/O error if the terminal operation fails.
     pub fn show_match_header(&self) -> io::Result<()> {
         self.clear_screen()?;
-        
+
         // Reserve space for visualization (12 lines to avoid overlap with progress bar)
         for _ in 0..12 {
             println!();
@@ -219,17 +219,11 @@ impl DisplayManager {
     }
 
     fn display_score_summary(&self, statistics: &MatchStatistics, name_width: usize, _bar_width: usize) {
-        let score_color = match statistics.total_score.cmp(&0) {
-            std::cmp::Ordering::Greater => format!("{:+}", statistics.total_score).bright_green(),
-            std::cmp::Ordering::Less => format!("{:+}", statistics.total_score).bright_red(),
-            std::cmp::Ordering::Equal => format!("{:+}", statistics.total_score).bright_yellow(),
-        };
-
         let padding = "  ";
         println!("\x1B[2K{}{:>width$}: {}",
             padding,
             "Total Score".bright_white(),
-            score_color,
+            format!("{:+}", statistics.total_score).bright_cyan(),
             width = name_width
         );
     }

@@ -10,7 +10,7 @@ mod statistics;
 
 use config::Config;
 use match_runner::MatchRunner;
-use error::AutomatchError;
+use error::MatchRunnerError;
 
 fn main() -> io::Result<()> {
     let config = Config::parse_args();
@@ -24,7 +24,7 @@ fn main() -> io::Result<()> {
     
     if let Err(e) = match_runner.run_match(&config) {
         match e {
-            AutomatchError::Io(io_err) => return Err(io_err),
+            MatchRunnerError::Io(io_err) => return Err(io_err),
             _ => {
                 eprintln!("Error: {}", e);
                 return Ok(());

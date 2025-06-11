@@ -9,7 +9,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::config::Config;
 use crate::display::DisplayManager;
 use crate::engine::GtpEngine;
-use crate::error::{AutomatchError, Result};
+use crate::error::{MatchRunnerError, Result};
 use crate::game::GameState;
 use crate::statistics::{MatchStatistics, MatchWinner};
 use reversi_core::piece::Piece;
@@ -24,7 +24,7 @@ pub enum GameResult {
 }
 
 /// Result of a completed game, including outcome and score.
-/// 
+///
 /// The score represents the disc difference from the perspective of the black player
 /// (positive means black won by that margin, negative means white won).
 pub struct MatchResult {
@@ -35,19 +35,10 @@ pub struct MatchResult {
 }
 
 /// Orchestrates and executes automated matches between two engines.
-/// 
+///
 /// The MatchRunner handles the complete lifecycle of a match, from engine
 /// initialization through game execution to final result reporting. It manages
 /// both individual game execution and overall match coordination.
-/// 
-/// # Examples
-/// 
-/// ```no_run
-/// # use automatch::{config::Config, match_runner::MatchRunner};
-/// let config = Config::parse_args();
-/// let mut runner = MatchRunner::new();
-/// runner.run_match(&config).unwrap();
-/// ```
 pub struct MatchRunner {
     display: DisplayManager,
 }
@@ -60,9 +51,9 @@ impl Default for MatchRunner {
 
 impl MatchRunner {
     /// Create a new MatchRunner instance.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new MatchRunner with an initialized display manager.
     pub fn new() -> Self {
         Self {
@@ -71,39 +62,39 @@ impl MatchRunner {
     }
 
     /// Execute a complete match using the provided configuration.
-    /// 
+    ///
     /// This is the main entry point for running automated matches. It handles:
     /// - Loading opening positions
     /// - Initializing both engines
     /// - Running all games with progress tracking
     /// - Displaying final results
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `config` - Match configuration including engine commands and opening file
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Ok(())` on successful match completion.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns an error if:
     /// - The opening file is empty or invalid
     /// - Either engine fails to start
     /// - Any game encounters a fatal error
     pub fn run_match(&mut self, config: &Config) -> Result<()> {
         let openings = config.load_openings()?;
-        
+
         if openings.is_empty() {
-            return Err(AutomatchError::Config(
+            return Err(MatchRunnerError::Config(
                 "The opening file doesn't contain any valid positions.".to_string()
             ));
         }
 
         let mut engines = self.initialize_engines(config)?;
         let engine_names = self.get_engine_names(&mut engines)?;
-        
+
         let total_games = openings.len() * 2;
         let mut statistics = MatchStatistics::new();
 
@@ -132,22 +123,22 @@ impl MatchRunner {
     }
 
     /// Execute a single game between two engines.
-    /// 
+    ///
     /// Runs one complete game from the initial position (with optional opening moves)
     /// to completion, handling all move generation and validation.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `black_engine` - Engine playing as black
-    /// * `white_engine` - Engine playing as white  
+    /// * `white_engine` - Engine playing as white
     /// * `opening_moves` - Optional opening sequence in algebraic notation
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A `MatchResult` containing the game outcome and final score.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns an error if:
     /// - Either engine fails to respond to commands
     /// - An invalid move is generated or played
@@ -206,7 +197,7 @@ impl MatchRunner {
             let rank = opening.chars().nth(i + 1).unwrap();
 
             if !('a'..='h').contains(&file) || !('1'..='8').contains(&rank) {
-                return Err(AutomatchError::Game(
+                return Err(MatchRunnerError::Game(
                     format!("Invalid move in opening sequence: {}{}", file, rank)
                 ));
             }
@@ -222,7 +213,7 @@ impl MatchRunner {
 
             game_state
                 .make_move(Some(square))
-                .map_err(AutomatchError::Game)?;
+                .map_err(MatchRunnerError::Game)?;
 
             black_engine.play(color, &mv)?;
             white_engine.play(color, &mv)?;
@@ -244,7 +235,7 @@ impl MatchRunner {
         if mv.to_lowercase() == "pass" {
             game_state
                 .make_move(None)
-                .map_err(AutomatchError::Game)?;
+                .map_err(MatchRunnerError::Game)?;
 
             let opponent_engine = if current_color == "black" {
                 white_engine
@@ -257,7 +248,7 @@ impl MatchRunner {
 
             game_state
                 .make_move(Some(square))
-                .map_err(AutomatchError::Game)?;
+                .map_err(MatchRunnerError::Game)?;
 
             let opponent_engine = if current_color == "black" {
                 white_engine
@@ -272,7 +263,7 @@ impl MatchRunner {
 
     fn parse_move(&self, move_str: &str) -> Result<Square> {
         move_str.parse::<Square>().map_err(|_| {
-            AutomatchError::Game(format!("Invalid move: {}", move_str))
+            MatchRunnerError::Game(format!("Invalid move: {}", move_str))
         })
     }
 
@@ -352,7 +343,7 @@ impl MatchRunner {
                     progress_bar.inc(1);
                 }
                 Err(e) => {
-                    return Err(AutomatchError::Game(
+                    return Err(MatchRunnerError::Game(
                         format!("Fatal error in game {}: {}", game_number, e)
                     ));
                 }
