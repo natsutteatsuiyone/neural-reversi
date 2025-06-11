@@ -59,9 +59,26 @@ static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
 static MEAN_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
 static SIGMA_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
 
+/// Safely allocate a 3D table on the heap to avoid stack overflow
+fn alloc_3d_table() -> Box<MeanTable> {
+    let tbl = vec![[0.0f64; MAX_DEPTH]; MAX_PLY * MAX_DEPTH].into_boxed_slice();
+    unsafe {
+        Box::from_raw(Box::into_raw(tbl) as *mut MeanTable)
+    }
+}
+
+/// Safely allocate a 2D table on the heap to avoid stack overflow
+fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
+    let tbl = vec![0.0f64; MAX_DEPTH * MAX_DEPTH].into_boxed_slice();
+    unsafe {
+        Box::from_raw(Box::into_raw(tbl) as *mut [[f64; MAX_DEPTH]; MAX_DEPTH])
+    }
+}
+
 /// Build the pre-computed mean table for midgame positions
 fn build_mean_table() -> Box<MeanTable> {
-    let mut tbl = Box::new([[[0.0f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY]);
+    let mut tbl = alloc_3d_table();
+
     for ply in 0..MAX_PLY {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
@@ -77,7 +94,10 @@ fn build_mean_table() -> Box<MeanTable> {
 
 /// Build the pre-computed sigma table for midgame positions
 fn build_sigma_table() -> Box<SigmaTable> {
-    let mut tbl = Box::new([[[0.0f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY]);
+    let mut tbl = unsafe {
+        Box::from_raw(Box::into_raw(alloc_3d_table()) as *mut SigmaTable)
+    };
+
     for ply in 0..MAX_PLY {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
@@ -93,7 +113,8 @@ fn build_sigma_table() -> Box<SigmaTable> {
 
 /// Build the pre-computed mean table for endgame positions
 fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
-    let mut tbl = Box::new([[0.0f64; MAX_DEPTH]; MAX_DEPTH]);
+    let mut tbl = alloc_2d_table();
+
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
             let v = PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
@@ -106,7 +127,8 @@ fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 
 /// Build the pre-computed sigma table for endgame positions
 fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
-    let mut tbl = Box::new([[0.0f64; MAX_DEPTH]; MAX_DEPTH]);
+    let mut tbl = alloc_2d_table();
+
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
             let v = PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
