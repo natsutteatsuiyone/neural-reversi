@@ -4,10 +4,10 @@ version.workspace = true
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.5.40", features = ["derive"] }
 reversi_core = { path = "../reversi_core" }
-indicatif = "0.17"
-colored = "2"
+indicatif = "0.17.11"
+colored = "3.0.0"
 
 [target.'cfg(not(windows))'.dependencies]
 shlex = "1.3.0"
