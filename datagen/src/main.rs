@@ -119,7 +119,7 @@ fn main() {
                     selectivity,
                     &prefix,
                     &output_dir,
-                );
+                ).expect("Failed to execute selfplay with openings");
             } else {
                 selfplay::execute(
                     games,
@@ -129,7 +129,7 @@ fn main() {
                     selectivity,
                     &prefix,
                     &output_dir,
-                );
+                ).expect("Failed to execute selfplay");
             }
         }
         SubCommands::Opening { depth } => {
