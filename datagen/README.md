@@ -59,17 +59,18 @@ datagen opening --depth 9 > openings.txt
 
 ### feature
 
-Extracts neural network training features from self-play data.
+Extracts neural network training features from self-play data. The feature extraction process generates all 8 symmetrical variations of each board position (rotations and reflections) to augment the training data, and automatically deduplicates identical positions.
 
 ```bash
-datagen feature --input-dir ./data --output-dir ./features --threads 8
+datagen feature --input-dir ./data --output-dir ./features --threads 8 --score-correction
 ```
 
 #### Options
 
-- `--input-dir`: Input directory with self-play data
-- `--output-dir`: Output directory for feature data
-- `--threads`: Number of threads to use for feature extraction
+- `--input-dir`: Input directory containing self-play data files (`.bin` format)
+- `--output-dir`: Output directory for compressed feature data files
+- `--threads`: Number of threads to use for parallel processing (default: 1)
+- `--score-correction`: Apply endgame score correction by blending evaluation scores with game outcomes (default: false)
 
 #### Data format
 

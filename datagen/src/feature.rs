@@ -1,3 +1,9 @@
+//! Feature extraction module for neural network training.
+//!
+//! This module processes game records from binary files and extracts pattern features
+//! for training the evaluation neural network. It handles board symmetries to augment
+//! the training data and outputs compressed feature files.
+
 use std::{
     collections::HashMap,
     fs::{self, File},
@@ -19,14 +25,38 @@ use reversi_core::eval::pattern_feature;
 const COMPRESSION_LEVEL: i32 = 7;
 const BATCH_SIZE: usize = 1;
 
+/// Represents a single game position with evaluation and metadata.
+///
+/// Each record contains the board state (as bitboards) along with the
+/// evaluation score and game progress information.
 #[derive(Debug)]
 struct GameRecord {
+    /// Player's pieces as a bitboard (current player to move)
     player: u64,
+    /// Opponent's pieces as a bitboard
     opponent: u64,
+    /// Evaluation score from the engine's perspective (-64.0 to 64.0)
     score: f32,
+    /// Move number in the game (0-59)
     ply: u8,
 }
 
+/// Processes game records from binary files and extracts pattern features.
+///
+/// This function reads game records from `.bin` files in the input directory,
+/// extracts pattern features from each position (including all 8 symmetries),
+/// and writes compressed feature files to the output directory.
+///
+/// # Arguments
+///
+/// * `input_dir` - Directory containing binary game record files
+/// * `output_dir` - Directory where compressed feature files will be written
+/// * `threads` - Number of parallel threads to use for processing
+/// * `score_correction` - Whether to apply endgame score correction
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an `io::Error` if file operations fail.
 pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correction: bool) -> io::Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
@@ -62,7 +92,7 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
     entries.shuffle(&mut rand::rng());
 
     let entry_groups: Vec<_> = entries.chunks(BATCH_SIZE).collect();
-    let processed_files_count = AtomicUsize::new(0); // 変数名を変更
+    let processed_files_count = AtomicUsize::new(0);
     let start_time = std::time::Instant::now();
 
     let mp = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
@@ -101,6 +131,18 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
     Ok(())
 }
 
+/// Processes a group of game files and generates a single feature file.
+///
+/// This function reads multiple game files, extracts unique positions with
+/// all 8 symmetrical variations, and writes them to a compressed feature file.
+/// Duplicate positions are automatically deduplicated.
+///
+/// # Arguments
+///
+/// * `group_idx` - Index of this file group (used for output filename)
+/// * `entry_paths` - Paths to the game files to process
+/// * `output_dir` - Directory where the feature file will be written
+/// * `score_correction` - Whether to apply endgame score correction
 fn process_file_group(
     group_idx: usize,
     entry_paths: &[std::path::PathBuf],
@@ -113,7 +155,8 @@ fn process_file_group(
             io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8")
         })?;
 
-        let game_records = load_game_records(input_path_str, score_correction)?;
+        let game_records = load_game_records(input_path_str, score_correction)
+            .map_err(|e| io::Error::new(e.kind(), format!("Failed to load game records from {}: {}", input_path_str, e)))?;
 
         for record in game_records {
             let base_board = Board::from_bitboards(record.player, record.opponent);
@@ -154,9 +197,7 @@ fn process_file_group(
         let mut features = [0; pattern_feature::NUM_PATTERN_FEATURES];
         pattern_feature::set_features(&board, &mut features);
 
-        if write_feature_record(&mut encoder, score, &features, mobility, ply).is_err() {
-            eprintln!("Failed to write feature",);
-        }
+        write_feature_record(&mut encoder, score, &features, mobility, ply)?;
     }
 
     encoder.finish()?;
@@ -164,6 +205,25 @@ fn process_file_group(
     Ok(())
 }
 
+/// Loads game records from a binary file.
+///
+/// The binary file format contains 24-byte records with the following structure:
+/// - Bytes 0-7: Player bitboard (u64, little-endian)
+/// - Bytes 8-15: Opponent bitboard (u64, little-endian)
+/// - Bytes 16-19: Evaluation score (f32, little-endian)
+/// - Byte 20: Final game score (i8)
+/// - Byte 21: Ply number (u8)
+/// - Byte 22: Random move flag (u8, 1 if random)
+/// - Byte 23: Move played (u8, unused)
+///
+/// # Arguments
+///
+/// * `file_path` - Path to the binary game file
+/// * `score_correction` - Whether to blend evaluation scores with game outcomes
+///
+/// # Returns
+///
+/// Returns a vector of `GameRecord` structs on success.
 fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<GameRecord>> {
     let metadata = fs::metadata(file_path)?;
     let file_size = metadata.len() as usize;
@@ -180,14 +240,13 @@ fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<
     let mut records = Vec::with_capacity(num_entries);
     let buffer = fs::read(file_path)?;
 
-    buffer.chunks_exact(entry_size).for_each(|chunk| {
+    for chunk in buffer.chunks_exact(entry_size) {
         let player = u64::from_le_bytes(chunk[0..8].try_into().unwrap());
         let opponent = u64::from_le_bytes(chunk[8..16].try_into().unwrap());
         let mut score = f32::from_le_bytes(chunk[16..20].try_into().unwrap());
         let game_score = chunk[20] as i8;
         let ply = chunk[21];
         let is_random = chunk[22] == 1;
-        // let mv = chunk[23];
 
         if ply <= 1 {
             score = 0.0;
@@ -206,11 +265,26 @@ fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<
             score,
             ply,
         });
-    });
+    }
 
     Ok(records)
 }
 
+/// Writes a single feature record to the compressed output file.
+///
+/// The output format for each record is:
+/// - 4 bytes: Evaluation score (f32, little-endian)
+/// - N*2 bytes: Pattern features (u16 array, little-endian)
+/// - 1 byte: Mobility count (number of legal moves)
+/// - 1 byte: Ply number
+///
+/// # Arguments
+///
+/// * `encoder` - Zstandard encoder for compression
+/// * `score` - Evaluation score for this position
+/// * `features` - Array of pattern feature indices
+/// * `mobility` - Number of legal moves in this position
+/// * `ply` - Move number in the game
 fn write_feature_record(
     encoder: &mut Encoder<BufWriter<File>>,
     score: f32,
