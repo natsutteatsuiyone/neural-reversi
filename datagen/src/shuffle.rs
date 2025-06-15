@@ -1,3 +1,10 @@
+//! Game record shuffling module.
+//!
+//! This module provides functionality to shuffle and redistribute game records
+//! from multiple input files into a new set of output files. This is useful for
+//! preparing training data by randomizing the order of game records and potentially
+//! redistributing them across a different number of files.
+
 use std::{
     fs::{metadata, File, OpenOptions},
     io::{self, BufReader, BufWriter, Read, Write},
@@ -9,9 +16,34 @@ use glob::glob;
 use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 
+/// Size of each game record in bytes
 const RECORD_SIZE: usize = 24;
+
+/// Buffer size for reading files (in number of records)
+const READ_BUFFER_RECORDS: usize = 4096;
+
+/// Random seed for reproducible shuffling
+const SHUFFLE_SEED: u64 = 42;
+
+/// Number of digits used in output file naming
+const OUTPUT_FILE_DIGITS: usize = 5;
+
+/// Represents a single game record as a fixed-size byte array
 type Record = [u8; RECORD_SIZE];
 
+/// Shuffles and redistributes game records from input files.
+///
+/// # Arguments
+///
+/// * `input_dir` - Directory containing input files to shuffle
+/// * `output_dir` - Directory where shuffled files will be written
+/// * `pattern` - Glob pattern to match input files (e.g., "*.bin")
+/// * `files_per_chunk` - Number of input files to process in each chunk
+/// * `num_output_files` - Number of output files to create (defaults to input file count)
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an error if file operations fail.
 pub fn execute(
     input_dir: &str,
     output_dir: &str,
@@ -25,19 +57,19 @@ pub fn execute(
     // Create output directory if it doesn't exist
     std::fs::create_dir_all(output_dir_path)?;
 
-    let mut rng = SmallRng::seed_from_u64(42);
+    let mut rng = SmallRng::seed_from_u64(SHUFFLE_SEED);
     let input_files = find_input_files(input_dir_path, pattern, &mut rng)?;
     if input_files.is_empty() {
         println!("No input files found – nothing to do.");
         return Ok(());
     }
 
-    let num_outputs = num_output_files.unwrap_or(input_files.len()).max(1);
+    let num_output_files = num_output_files.unwrap_or(input_files.len()).max(1);
 
     println!("Input  folder : {:?}", input_dir);
     println!("Output folder : {:?}", output_dir);
     println!("Input files   : {}", input_files.len());
-    println!("Output files  : {}", num_outputs);
+    println!("Output files  : {}", num_output_files);
     println!("Files/chunk   : {}", files_per_chunk);
     println!("----------------------------------------");
 
@@ -53,7 +85,7 @@ pub fn execute(
     );
     chunk_pb.enable_steady_tick(Duration::from_millis(100));
 
-    let mut records_per_output = vec![0u64; num_outputs];
+    let mut records_per_output_file = vec![0u64; num_output_files];
     let mut total_records: u64 = 0;
     let mut total_bytes: u64 = 0;
 
@@ -69,7 +101,7 @@ pub fn execute(
         distribute_records(
             output_dir_path,
             &chunk_records,
-            &mut records_per_output,
+            &mut records_per_output_file,
             chunk_id,
         )?;
 
@@ -91,23 +123,34 @@ pub fn execute(
         total_records,
         HumanBytes(total_bytes)
     );
-    for (i, n) in records_per_output.iter().enumerate() {
-        println!("shuffled_{i:05}.bin : {n} recs");
+    for (i, record_count) in records_per_output_file.iter().enumerate() {
+        println!("shuffled_{i:0width$}.bin : {record_count} recs", width = OUTPUT_FILE_DIGITS);
     }
     println!("-----------------------------------");
     Ok(())
 }
 
+/// Finds and shuffles input files matching the given pattern.
+///
+/// # Arguments
+///
+/// * `dir` - Directory to search for files
+/// * `pattern` - Glob pattern to match files
+/// * `rng` - Random number generator for shuffling file order
+///
+/// # Returns
+///
+/// Returns a vector of file paths in random order.
 fn find_input_files(dir: &Path, pattern: &str, rng: &mut SmallRng) -> anyhow::Result<Vec<PathBuf>> {
     let full_pattern = dir.join(pattern).to_string_lossy().into_owned();
-    let mut v = Vec::new();
+    let mut file_paths = Vec::new();
 
     let paths = glob(&full_pattern)
         .map_err(|e| anyhow::anyhow!("Invalid glob pattern '{}': {}", full_pattern, e))?;
 
     for entry in paths {
         match entry {
-            Ok(p) if p.is_file() => v.push(p),
+            Ok(path) if path.is_file() => file_paths.push(path),
             Ok(_) => {}
             Err(e) => eprintln!(
                 "Warning: Failed to access path matched by glob ({}): {}",
@@ -116,31 +159,42 @@ fn find_input_files(dir: &Path, pattern: &str, rng: &mut SmallRng) -> anyhow::Re
             ),
         }
     }
-    v.shuffle(rng);
-    Ok(v)
+    file_paths.shuffle(rng);
+    Ok(file_paths)
 }
 
+/// Reads game records from a binary file.
+///
+/// # Arguments
+///
+/// * `path` - Path to the binary file to read
+/// * `out` - Vector to append the read records to
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an I/O error if reading fails.
 fn read_records(path: &Path, out: &mut Vec<Record>) -> io::Result<()> {
     let md = metadata(path)?;
     if md.len() == 0 || md.len() % RECORD_SIZE as u64 != 0 {
         eprintln!(
-            "Warning: {} skipped (size not multiple of 24)",
-            path.display()
+            "Warning: {} skipped (size not multiple of {})",
+            path.display(),
+            RECORD_SIZE
         );
         return Ok(());
     }
 
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
-    let mut buf = vec![0u8; RECORD_SIZE * 4096]; // 96 KiB
+    let mut buffer = vec![0u8; RECORD_SIZE * READ_BUFFER_RECORDS];
 
     loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
             break;
         }
-        let rec_cnt = n / RECORD_SIZE;
-        for chunk in buf[..rec_cnt * RECORD_SIZE].chunks_exact(RECORD_SIZE) {
+        let record_count = bytes_read / RECORD_SIZE;
+        for chunk in buffer[..record_count * RECORD_SIZE].chunks_exact(RECORD_SIZE) {
             out.push(chunk.try_into().expect("slice length == RECORD_SIZE"));
         }
     }
@@ -148,38 +202,38 @@ fn read_records(path: &Path, out: &mut Vec<Record>) -> io::Result<()> {
 }
 
 fn distribute_records(
-    out_dir: &Path,
+    output_dir: &Path,
     records: &[Record],
-    per_file_counter: &mut [u64],
-    offset: usize,
+    records_per_file: &mut [u64],
+    chunk_offset: usize,
 ) -> io::Result<()> {
-    if per_file_counter.is_empty() {
+    if records_per_file.is_empty() {
         return Ok(());
     }
 
-    let n_out = per_file_counter.len();
-    let base = records.len() / n_out;
-    let extra = records.len() % n_out;
+    let num_output_files = records_per_file.len();
+    let base_records_per_file = records.len() / num_output_files;
+    let extra_records = records.len() % num_output_files;
 
-    let mut idx = 0;
-    for local_i in 0..n_out {
-        let file_no = (local_i + offset) % n_out;
-        let take = base + usize::from(local_i < extra);
-        if take == 0 {
+    let mut record_index = 0;
+    for file_index in 0..num_output_files {
+        let output_file_index = (file_index + chunk_offset) % num_output_files;
+        let records_to_write = base_records_per_file + usize::from(file_index < extra_records);
+        if records_to_write == 0 {
             continue;
         }
 
-        let path = out_dir.join(format!("shuffled_{file_no:05}.bin"));
-        let file = OpenOptions::new().create(true).append(true).open(&path)?;
-        let mut writer = BufWriter::new(file);
+        let output_path = output_dir.join(format!("shuffled_{output_file_index:0width$}.bin", width = OUTPUT_FILE_DIGITS));
+        let output_file = OpenOptions::new().create(true).append(true).open(&output_path)?;
+        let mut writer = BufWriter::new(output_file);
 
-        for rec in &records[idx..idx + take] {
-            writer.write_all(rec)?;
+        for record in &records[record_index..record_index + records_to_write] {
+            writer.write_all(record)?;
         }
         writer.flush()?;
 
-        per_file_counter[file_no] += take as u64;
-        idx += take;
+        records_per_file[output_file_index] += records_to_write as u64;
+        record_index += records_to_write;
     }
     Ok(())
 }
