@@ -1,17 +1,43 @@
-use reversi_core::{board::Board, piece::Piece};
+//! FFO test case definitions and utilities
 
-#[derive(Debug)]
+use reversi_core::{board::Board, piece::Piece};
+use std::fmt;
+
+/// A single FFO test case containing position and expected results
+#[derive(Debug, Clone)]
 pub struct TestCase {
     pub no: usize,
     board_str: &'static str,
-    side_to_move: &'static str,
+    side_to_move: Piece,
     pub expected_score: i32,
     best_moves: Vec<&'static str>,
     second_best_moves: Vec<&'static str>,
     third_best_moves: Vec<&'static str>,
 }
 
+impl fmt::Display for TestCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "FFO#{:02} ({} to move, score: {})",
+            self.no,
+            if self.side_to_move == Piece::Black { "Black" } else { "White" },
+            self.expected_score
+        )
+    }
+}
+
 impl TestCase {
+    /// Create a new test case
+    ///
+    /// # Arguments
+    /// * `no` - Test case number (1-79)
+    /// * `board_str` - 64-character board representation (X=Black, O=White, -=Empty)
+    /// * `side_to_move` - "X" for Black, "O" for White
+    /// * `expected_score` - Optimal score from the mover's perspective
+    /// * `best_moves` - Comma-separated list of optimal moves
+    /// * `second_best_moves` - Comma-separated list of second-best moves
+    /// * `third_best_moves` - Comma-separated list of third-best moves
     pub fn new(
         no: usize,
         board_str: &'static str,
@@ -21,46 +47,94 @@ impl TestCase {
         second_best_moves: &'static str,
         third_best_moves: &'static str,
     ) -> Self {
+        let stm = match side_to_move {
+            "X" => Piece::Black,
+            "O" => Piece::White,
+            _ => panic!("Invalid side to move: {}", side_to_move),
+        };
+
         Self {
             no,
             board_str,
-            side_to_move,
+            side_to_move: stm,
             expected_score,
-            best_moves: best_moves.split(',').map(str::trim).collect(),
-            second_best_moves: second_best_moves.split(',').map(str::trim).collect(),
-            third_best_moves: third_best_moves.split(',').map(str::trim).collect(),
+            best_moves: Self::parse_moves(best_moves),
+            second_best_moves: Self::parse_moves(second_best_moves),
+            third_best_moves: Self::parse_moves(third_best_moves),
         }
     }
 
+    /// Parse comma-separated moves, filtering out empty strings
+    fn parse_moves(moves_str: &str) -> Vec<&str> {
+        moves_str
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    /// Convert the test case into a playable Board instance
     pub fn get_board(&self) -> Board {
-        let stm = match self.side_to_move {
-            "X" => Piece::Black,
-            "O" => Piece::White,
-            _ => panic!("Invalid side to move"),
-        };
-        Board::from_string(self.board_str, stm)
+        Board::from_string(self.board_str, self.side_to_move)
     }
 
+    /// Check if the given move is one of the best moves
     pub fn is_best_move(&self, move_str: &str) -> bool {
-        self.best_moves.iter().any(|&m| m == move_str)
+        self.best_moves.contains(&move_str)
     }
 
+    /// Check if the given move is one of the second-best moves
     pub fn is_second_best_move(&self, move_str: &str) -> bool {
-        self.second_best_moves.iter().any(|&m| m == move_str)
+        self.second_best_moves.contains(&move_str)
     }
 
+    /// Check if the given move is one of the third-best moves
     pub fn is_third_best_move(&self, move_str: &str) -> bool {
-        self.third_best_moves.iter().any(|&m| m == move_str)
+        self.third_best_moves.contains(&move_str)
     }
 
+    /// Get the best moves as a comma-separated string
     pub fn get_best_moves_str(&self) -> String {
         self.best_moves.join(",")
     }
+
 }
 
+/// Validate all test cases for data integrity
+#[allow(dead_code)]
+fn validate_test_cases(cases: &[TestCase]) -> Result<(), String> {
+    // Check for duplicate test numbers
+    let mut seen = std::collections::HashSet::new();
+    for case in cases {
+        if !seen.insert(case.no) {
+            return Err(format!("Duplicate test case number: {}", case.no));
+        }
+    }
+
+    // Basic validation
+    for case in cases {
+        // Check board string length
+        if case.board_str.len() != 64 {
+            return Err(format!(
+                "Test case {}: Invalid board string length: {} (expected 64)",
+                case.no,
+                case.board_str.len()
+            ));
+        }
+
+        // Check that best moves are provided
+        if case.best_moves.is_empty() {
+            return Err(format!("Test case {}: No best moves specified", case.no));
+        }
+    }
+
+    Ok(())
+}
+
+/// Get all 79 FFO test cases
 pub fn get_test_cases() -> Vec<TestCase> {
     #[rustfmt::skip]
-    return vec![
+    let cases = vec![
         TestCase::new(1, "--XXXXX--OOOXX-O-OOOXXOX-OXOXOXXOXXXOXXX--XOXOXX-XXXOOO--OOOOO--", "X", 18, "G8", "H1", "H7,A2"),
         TestCase::new(2, "-XXXXXX---XOOOO--XOXXOOX-OOOOOOOOOOOXXOOOOOXXOOX--XXOO----XXXXX-", "X", 10, "A4", "B2", "A3"),
         TestCase::new(3, "----OX----OOXX---OOOXX-XOOXXOOOOOXXOXXOOOXXXOOOOOXXXXOXO--OOOOOX", "X", 2, "D1", "G3", "B8"),
@@ -141,4 +215,12 @@ pub fn get_test_cases() -> Vec<TestCase> {
         TestCase::new(78, "----O-----OOOO---OOOX-X-OOXOXXXX-XOOX---XOOO-X----OO-------O----", "X", 8, "F1", "A7", "C8"),
         TestCase::new(79, "--------------X-----O-XX---OOOX-OOOOXOXX--OOOOOO--O-OO-O----OO--", "X", 64, "D7", "D8", "H8"),
     ];
+
+    // Validate test cases in debug builds
+    #[cfg(debug_assertions)]
+    if let Err(e) = validate_test_cases(&cases) {
+        panic!("Test case validation failed: {}", e);
+    }
+
+    cases
 }
