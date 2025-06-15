@@ -83,16 +83,25 @@ zstd compressed format with:
 
 ### probcut
 
-Calculates ProbCut parameters.
+Generates training data for calculating ProbCut parameters. This command analyzes game positions with multiple search depths to create correlation data between shallow and deep search results.
 
 ```bash
-datagen probcut --input ./games.txt --output ./probcut_params.csv
+datagen probcut --input ./games.txt --output ./probcut_training_data.csv
 ```
 
 #### Options
 
-- `--input`: Input file (game records)
-- `--output`: Output file (CSV format)
+- `--input`: Input file containing game sequences (one move sequence per line, moves in algebraic notation like "f5d6c3")
+- `--output`: Output CSV file containing training data with columns: ply, shallow_depth, deep_depth, diff
+
+#### Data format
+
+CSV format with the following columns:
+
+- `ply`: Move number in the game (0-59)
+- `shallow_depth`: Search depth for shallow search
+- `deep_depth`: Search depth for deep search  
+- `diff`: Score difference between deep and shallow search results
 
 ### shuffle
 

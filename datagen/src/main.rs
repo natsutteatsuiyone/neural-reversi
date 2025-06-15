@@ -139,7 +139,7 @@ fn main() {
             input,
             output,
         } => {
-            probcut::execute(&input, &output);
+            probcut::execute(&input, &output).expect("Failed to execute probcut");
         },
         SubCommands::Shuffle {
             input_dir,
