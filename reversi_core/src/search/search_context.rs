@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
-use crate::eval::pattern_feature::{Feature, FeatureSet};
+use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::eval::Eval;
 use crate::move_list::{Move, MoveList};
 use crate::probcut::{self};
@@ -37,7 +37,7 @@ pub struct SearchContext {
     pub pool: Arc<ThreadPool>,
     pub eval: Arc<Eval>,
     pub this_thread: Arc<Thread>,
-    pub feature_set: FeatureSet,
+    pub pattern_features: PatternFeatures,
     pub callback: Option<Arc<SearchProgressCallback>>,
     stack: [StackRecord; MAX_PLY],
     pub game_phase: GamePhase,
@@ -66,7 +66,7 @@ impl SearchContext {
             pool,
             eval,
             this_thread,
-            feature_set: FeatureSet::new(board, ply),
+            pattern_features: PatternFeatures::new(board, ply),
             callback: None,
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
@@ -82,9 +82,9 @@ impl SearchContext {
         let empty_list = EmptyList::new(&task.board);
         let ply = empty_list.ply();
         let feature_set = if task.player == 0 {
-            FeatureSet::new(&task.board, ply)
+            PatternFeatures::new(&task.board, ply)
         } else {
-            FeatureSet::new(&task.board.switch_players(), ply)
+            PatternFeatures::new(&task.board.switch_players(), ply)
         };
         SearchContext {
             n_nodes: 0,
@@ -97,7 +97,7 @@ impl SearchContext {
             pool: task.pool.clone(),
             eval: task.eval.clone(),
             this_thread: this_thread.clone(),
-            feature_set,
+            pattern_features: feature_set,
             callback: None,
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
@@ -114,7 +114,7 @@ impl SearchContext {
     #[inline]
     pub fn update(&mut self, mv: &Move) {
         self.increment_nodes();
-        self.feature_set.update(mv, self.ply(), self.player);
+        self.pattern_features.update(mv, self.ply(), self.player);
         self.switch_players();
         self.empty_list.remove(mv.sq);
     }
@@ -168,12 +168,12 @@ impl SearchContext {
     }
 
     #[inline]
-    pub fn get_feature(&self) -> &Feature {
+    pub fn get_pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
         if self.player == 0 {
-            &self.feature_set.p_features[ply]
+            &self.pattern_features.p_features[ply]
         } else {
-            &self.feature_set.o_features[ply]
+            &self.pattern_features.o_features[ply]
         }
     }
 

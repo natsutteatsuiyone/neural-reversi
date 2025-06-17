@@ -49,7 +49,7 @@ fn generate_EVAL_FEATURE() {
             .collect::<Vec<_>>()
             .join(", ");
 
-        println!("    Feature {{ v1: [{}] }},", indices_str);
+        println!("    PatternFeature {{ v1: [{}] }},", indices_str);
     }
     println!("];");
 }

@@ -9,7 +9,7 @@ use crate::eval::activations::{clipped_relu, sqr_clipped_relu};
 use crate::eval::base_input::BaseInput;
 use crate::eval::constants::*;
 use crate::eval::linear_layer::LinearLayer;
-use crate::eval::pattern_feature::{Feature, NUM_PATTERN_FEATURES};
+use crate::eval::pattern_feature::{PatternFeature, NUM_PATTERN_FEATURES};
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
 use crate::misc::ceil_to_multiple;
 use crate::types::Score;
@@ -145,7 +145,7 @@ impl Network {
         })
     }
 
-    pub fn evaluate(&self, board: &Board, pattern_feature: &Feature, ply: usize) -> Score {
+    pub fn evaluate(&self, board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
         let mobility = board.get_moves().count_ones();
 
         NETWORK_BUFFERS.with(|buffers| {
