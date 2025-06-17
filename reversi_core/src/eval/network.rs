@@ -5,12 +5,12 @@ use aligned::{Aligned, A64};
 
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
+use crate::eval::activations::{clipped_relu, sqr_clipped_relu};
 use crate::eval::base_input::BaseInput;
 use crate::eval::constants::*;
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::pattern_feature::{Feature, NUM_PATTERN_FEATURES};
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
-use crate::eval::relu::{clipped_relu, sqr_clipped_relu};
 use crate::misc::ceil_to_multiple;
 use crate::types::Score;
 

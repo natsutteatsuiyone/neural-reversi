@@ -1,3 +1,4 @@
+mod activations;
 mod base_input;
 pub mod constants;
 mod eval_cache;
@@ -6,7 +7,6 @@ mod network;
 mod network_small;
 pub mod pattern_feature;
 mod phase_adaptive_input;
-mod relu;
 
 use std::io;
 use std::env;
