@@ -27,7 +27,7 @@ use crate::search::root_move::RootMove;
 use crate::search::search_context::SearchContext;
 use crate::search::spinlock;
 
-use super::search_context::GamePhase;
+use super::search_context::{GamePhase, SideToMove};
 
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 const MAX_SLAVES_PER_SPLITPOINT: usize = 3;
@@ -51,7 +51,7 @@ pub struct SplitPointState {
 
 pub struct SplitPointSharedTask {
     pub board: Board,
-    pub player: u8,
+    pub side_to_move: SideToMove,
     pub generation: u8,
     pub selectivity: u8,
     pub game_phase: GamePhase,
@@ -321,7 +321,7 @@ impl Thread {
         sp_state.move_iter = Some(move_iter.clone());
         sp_state.task = Some(SplitPointSharedTask {
             board: *board,
-            player: ctx.player,
+            side_to_move: ctx.side_to_move,
             generation: ctx.generation,
             selectivity: ctx.selectivity,
             tt: ctx.tt.clone(),

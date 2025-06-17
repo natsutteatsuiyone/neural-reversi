@@ -21,6 +21,25 @@ pub enum GamePhase {
     EndGame,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SideToMove {
+    Player = 0,
+    Opponent = 1,
+}
+
+impl SideToMove {
+    pub fn switch(self) -> Self {
+        match self {
+            SideToMove::Player => SideToMove::Opponent,
+            SideToMove::Opponent => SideToMove::Player,
+        }
+    }
+
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct StackRecord {
     pub pv: [Square; MAX_PLY],
@@ -28,7 +47,7 @@ pub struct StackRecord {
 
 pub struct SearchContext {
     pub n_nodes: u64,
-    pub player: u8,
+    pub side_to_move: SideToMove,
     pub generation: u8,
     pub selectivity: u8,
     pub empty_list: EmptyList,
@@ -57,7 +76,7 @@ impl SearchContext {
         let ply = empty_list.ply();
         SearchContext {
             n_nodes: 0,
-            player: 0,
+            side_to_move: SideToMove::Player,
             generation,
             selectivity,
             empty_list,
@@ -81,14 +100,14 @@ impl SearchContext {
         let task = state.task.as_ref().unwrap();
         let empty_list = EmptyList::new(&task.board);
         let ply = empty_list.ply();
-        let feature_set = if task.player == 0 {
+        let pattern_features = if task.side_to_move == SideToMove::Player {
             PatternFeatures::new(&task.board, ply)
         } else {
             PatternFeatures::new(&task.board.switch_players(), ply)
         };
         SearchContext {
             n_nodes: 0,
-            player: task.player,
+            side_to_move: task.side_to_move,
             empty_list,
             generation: task.generation,
             selectivity: task.selectivity,
@@ -97,7 +116,7 @@ impl SearchContext {
             pool: task.pool.clone(),
             eval: task.eval.clone(),
             this_thread: this_thread.clone(),
-            pattern_features: feature_set,
+            pattern_features,
             callback: None,
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
@@ -108,13 +127,13 @@ impl SearchContext {
 
     #[inline]
     fn switch_players(&mut self) {
-        self.player ^= 1;
+        self.side_to_move = self.side_to_move.switch();
     }
 
     #[inline]
     pub fn update(&mut self, mv: &Move) {
         self.increment_nodes();
-        self.pattern_features.update(mv, self.ply(), self.player);
+        self.pattern_features.update(mv, self.ply(), self.side_to_move);
         self.switch_players();
         self.empty_list.remove(mv.sq);
     }
@@ -170,7 +189,7 @@ impl SearchContext {
     #[inline]
     pub fn get_pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
-        if self.player == 0 {
+        if self.side_to_move == SideToMove::Player {
             &self.pattern_features.p_features[ply]
         } else {
             &self.pattern_features.o_features[ply]

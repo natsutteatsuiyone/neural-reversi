@@ -20,6 +20,7 @@ use crate::bitboard;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
 use crate::move_list::Move;
+use crate::search::search_context::SideToMove;
 use crate::square::Square;
 
 /// Number of distinct pattern features used for evaluation.
@@ -338,8 +339,8 @@ impl PatternFeatures {
     ///
     /// * `mv` - The move that was made
     /// * `ply` - The current ply number
-    /// * `player` - The player who made the move (0 or 1)
-    pub fn update(&mut self, mv: &Move, ply: usize, player: u8) {
+    /// * `side_to_move` - The side that made the move (Player or Opponent)
+    pub fn update(&mut self, mv: &Move, ply: usize, player: SideToMove) {
         let flip = mv.flipped;
 
         if is_x86_feature_detected!("avx2") {
@@ -353,7 +354,7 @@ impl PatternFeatures {
                 let sq_index = mv.sq.index();
                 let f = &EVAL_FEATURE[sq_index].v16;
 
-                let (p_scale, o_scale, p_sign, o_sign) = if player == 0 {
+                let (p_scale, o_scale, p_sign, o_sign) = if player == SideToMove::Player {
                     (
                         _mm256_set1_epi16(2),
                         _mm256_set1_epi16(1),
@@ -394,7 +395,7 @@ impl PatternFeatures {
             let o_out = &mut self.o_features[ply + 1];
             let s = &EVAL_X2F[mv.sq.index()];
 
-            if player == 0 {
+            if player == SideToMove::Player {
                 for i in 0..s.n_features {
                     let j = s.features[i as usize][0] as usize;
                     let x = s.features[i as usize][1] as usize;
