@@ -627,68 +627,74 @@ fn idle_loop(thread: &Arc<Thread>) {
         while thread.state().searching {
             thread.lock();
             debug_assert!(thread.state().active_split_point.is_some());
-            let sp = thread.state().active_split_point.as_ref().unwrap();
+            let sp = thread.state().active_split_point.as_ref().unwrap().clone();
             thread.unlock();
 
-            let task = sp.state().task.as_ref().unwrap();
-            let mut ctx = SearchContext::from_split_point(sp, thread);
-
             sp.lock();
+            let task = sp.state().task.as_ref().unwrap();
+            let task_board = task.board;
             let sp_state = sp.state();
-            if ctx.empty_list.count == sp_state.depth {
-                if sp_state.node_type == NonPV::TYPE_ID {
+            let depth = sp_state.depth;
+            let alpha = sp_state.alpha;
+            let beta = sp_state.beta;
+            let node_type = sp_state.node_type;
+
+            let mut ctx = SearchContext::from_split_point(&sp, thread);
+
+            if ctx.empty_list.count == depth {
+                if node_type == NonPV::TYPE_ID {
                     search::endgame::search::<NonPV, true>(
                         &mut ctx,
-                        &task.board,
-                        sp_state.alpha,
-                        sp_state.beta,
-                        Some(sp),
+                        &task_board,
+                        alpha,
+                        beta,
+                        Some(&sp),
                     );
-                } else if sp.state().node_type == PV::TYPE_ID {
+                } else if node_type == PV::TYPE_ID {
                     search::endgame::search::<PV, true>(
                         &mut ctx,
-                        &task.board,
-                        sp_state.alpha,
-                        sp_state.beta,
-                        Some(sp),
+                        &task_board,
+                        alpha,
+                        beta,
+                        Some(&sp),
                     );
-                } else if sp.state().node_type == Root::TYPE_ID {
+                } else if node_type == Root::TYPE_ID {
                     search::endgame::search::<Root, true>(
                         &mut ctx,
-                        &task.board,
-                        sp_state.alpha,
-                        sp_state.beta,
-                        Some(sp),
+                        &task_board,
+                        alpha,
+                        beta,
+                        Some(&sp),
                     );
                 } else {
                     unreachable!();
                 }
-            } else if sp_state.node_type == NonPV::TYPE_ID {
+            } else if node_type == NonPV::TYPE_ID {
                 search::midgame::search::<NonPV, true>(
                     &mut ctx,
-                    &task.board,
-                    sp_state.depth,
-                    sp_state.alpha,
-                    sp_state.beta,
-                    Some(sp),
+                    &task_board,
+                    depth,
+                    alpha,
+                    beta,
+                    Some(&sp),
                 );
-            } else if sp.state().node_type == PV::TYPE_ID {
+            } else if node_type == PV::TYPE_ID {
                 search::midgame::search::<PV, true>(
                     &mut ctx,
-                    &task.board,
-                    sp_state.depth,
-                    sp_state.alpha,
-                    sp_state.beta,
-                    Some(sp),
+                    &task_board,
+                    depth,
+                    alpha,
+                    beta,
+                    Some(&sp),
                 );
-            } else if sp.state().node_type == Root::TYPE_ID {
+            } else if node_type == Root::TYPE_ID {
                 search::midgame::search::<Root, true>(
                     &mut ctx,
-                    &task.board,
-                    sp_state.depth,
-                    sp_state.alpha,
-                    sp_state.beta,
-                    Some(sp),
+                    &task_board,
+                    depth,
+                    alpha,
+                    beta,
+                    Some(&sp),
                 );
             } else {
                 unreachable!();
@@ -709,6 +715,7 @@ fn idle_loop(thread: &Arc<Thread>) {
             // in a safe way because it could have been released under our feet by
             // the sp master.
             sp.unlock();
+            drop(sp);
 
             ctx.pool.try_late_join(thread);
         }
