@@ -94,10 +94,10 @@ pub fn execute(
         // Generate random opening for this game
         let num_random = rand::rng().random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES);
         let opening_sequence = generate_random_opening(num_random);
-        
+
         // Play the game using the common function
         let game_records = play_game(&opening_sequence, &mut search, lv, selectivity, game_id as usize);
-        
+
         // Save the game records
         save_game(game_records, prefix, output_dir, records_per_file)?;
     }
@@ -176,7 +176,7 @@ pub fn execute_with_openings(
     for (game_id, opening_sequence) in opening_sequences.iter().enumerate().skip(start_game_id) {
         // Play the game using the common function
         let game_records = play_game(opening_sequence, &mut search, lv, selectivity, game_id);
-        
+
         // Save the game records
         save_game(game_records, prefix, output_dir, records_per_file)?;
 
@@ -196,12 +196,12 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
     let mut opening = Vec::new();
     let mut board = Board::new();
     let mut side_to_move = Piece::Black;
-    
+
     for _ in 0..num_moves {
         if board.is_game_over() {
             break;
         }
-        
+
         if !board.has_legal_moves() {
             board = board.switch_players();
             side_to_move = side_to_move.opposite();
@@ -209,13 +209,13 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
                 break;
             }
         }
-        
+
         let sq = random_move(&board);
         opening.push(sq);
         board = board.make_move(sq);
         side_to_move = side_to_move.opposite();
     }
-    
+
     opening
 }
 
@@ -241,17 +241,17 @@ fn play_game(
 ) -> Vec<GameRecord> {
     let game_start = Instant::now();
     search.init();
-    
+
     let mut board = Board::new();
     let mut side_to_move = Piece::Black;
     let mut game_records = Vec::new();
-    
+
     // Play opening moves
     for &sq in opening_sequence {
         if board.is_game_over() {
             break;
         }
-        
+
         // Handle pass moves
         if !board.has_legal_moves() {
             board = board.switch_players();
@@ -260,13 +260,13 @@ fn play_game(
                 break;
             }
         }
-        
+
         // Skip invalid moves
         if !board.is_legal_move(sq) {
             eprintln!("Warning: Invalid move in opening sequence: {}", sq);
             continue;
         }
-        
+
         // Evaluate position before making the move
         let result = search.run(
             &board,
@@ -276,7 +276,7 @@ fn play_game(
             None::<fn(reversi_core::search::SearchProgress) -> ()>,
         );
         let ply = 60 - board.get_empty_count() as u8;
-        
+
         let record = GameRecord {
             ply,
             board,
@@ -286,14 +286,14 @@ fn play_game(
             is_random: true, // Opening moves are considered "random"
             sq,
         };
-        
+
         game_records.push(record);
-        
+
         // Make the move
         board = board.make_move(sq);
         side_to_move = side_to_move.opposite();
     }
-    
+
     // Continue playing with search
     while !board.is_game_over() {
         if !board.has_legal_moves() {
@@ -301,7 +301,7 @@ fn play_game(
             side_to_move = side_to_move.opposite();
             continue; // Skip evaluation for pass moves
         }
-        
+
         let result = search.run(
             &board,
             lv,
@@ -309,10 +309,10 @@ fn play_game(
             false,
             None::<fn(reversi_core::search::SearchProgress) -> ()>,
         );
-        
+
         let ply = 60 - board.get_empty_count() as u8;
         let best_move = result.best_move.unwrap();
-        
+
         // Record the position before the move
         let record = GameRecord {
             ply,
@@ -324,17 +324,17 @@ fn play_game(
             sq: best_move,
         };
         game_records.push(record);
-        
+
         board = board.make_move(best_move);
         side_to_move = side_to_move.opposite();
     }
-    
+
     // Calculate final game scores
     if !game_records.is_empty() {
         let last_record = game_records.last().unwrap();
         let last_side = last_record.side_to_move;
         let game_score = last_record.score;
-        
+
         for record in game_records.iter_mut() {
             record.game_score = if record.side_to_move == last_side {
                 game_score as i8
@@ -343,14 +343,14 @@ fn play_game(
             };
         }
     }
-    
+
     let duration = game_start.elapsed();
     println!(
         "Game {} completed in {:.2} seconds",
         game_id + 1,
         duration.as_secs_f64()
     );
-    
+
     game_records
 }
 
@@ -417,7 +417,7 @@ fn save_game(
             .and_then(|stem| {
                 stem.to_string_lossy()
                     .split('_')
-                    .last()
+                    .next_back()
                     .and_then(|id_str| id_str.parse::<u32>().ok())
             })
             .unwrap_or(0);
