@@ -1,7 +1,7 @@
 [package]
 name = "reversi_core"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 aligned = "0.4.2"

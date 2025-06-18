@@ -120,11 +120,14 @@ pub fn empty_board(player: u64, opponent: u64) -> u64 {
 /// A `u64` value representing the possible moves for the player.
 #[inline]
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
-    if is_x86_feature_detected!("avx2") {
-        unsafe { get_moves_avx(player, opponent) }
-    } else {
-        get_moves_fallback(player, opponent)
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { get_moves_avx2(player, opponent) }
+        }
     }
+
+    get_moves_fallback(player, opponent)
 }
 
 /// Fallback implementation of `get_moves` for architectures without AVX2 support.
@@ -179,8 +182,10 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 /// # Returns
 ///
 /// A `u64` value representing the possible moves for the player.
+#[target_feature(enable = "avx2")]
+#[cfg(target_arch = "x86_64")]
 #[inline]
-unsafe fn get_moves_avx(player: u64, opponent: u64) -> u64 {
+fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     let pp = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(player as i64));
     let oo = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(opponent as i64));
     let shift1897 = _mm256_set_epi64x(7, 9, 8, 1);
@@ -423,24 +428,29 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_get_moves_consistency() {
-        // Test that both implementations return the same result
-        let test_positions = vec![
-            // Initial position
-            (Square::D5.bitboard() | Square::E4.bitboard(),
-             Square::D4.bitboard() | Square::E5.bitboard()),
-            // Random position
-            (0x00003C3C3C000000, 0x0000C3C3C3000000),
-            // Edge position
-            (0xFF00000000000000, 0x00FF000000000000),
-        ];
+        // Only run the test if AVX2 is available
+        if is_x86_feature_detected!("avx2") {
+            // Test that both implementations return the same result
+            let test_positions = vec![
+                // Initial position
+                (Square::D5.bitboard() | Square::E4.bitboard(),
+                 Square::D4.bitboard() | Square::E5.bitboard()),
+                // Random position
+                (0x00003C3C3C000000, 0x0000C3C3C3000000),
+                // Edge position
+                (0xFF00000000000000, 0x00FF000000000000),
+            ];
 
-        for (player, opponent) in test_positions {
-            let moves_fallback = get_moves_fallback(player, opponent);
-            let moves_avx = unsafe { get_moves_avx(player, opponent) };
-            assert_eq!(moves_fallback, moves_avx,
-                "Fallback and AVX implementations differ for player={:016x}, opponent={:016x}",
-                player, opponent);
+            for (player, opponent) in test_positions {
+                let moves_fallback = get_moves_fallback(player, opponent);
+                // AVX2 function call must be wrapped in unsafe block
+                let moves_avx = unsafe { get_moves_avx2(player, opponent) };
+                assert_eq!(moves_fallback, moves_avx,
+                    "Fallback and AVX implementations differ for player={:016x}, opponent={:016x}",
+                    player, opponent);
+            }
         }
     }
 

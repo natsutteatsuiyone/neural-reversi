@@ -39,15 +39,13 @@ pub struct SearchProgressPayload {
 fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
     let search_arc = state.search.clone();
 
-    let result = match search_arc.lock() {
+    match search_arc.lock() {
         Ok(mut search) => {
             search.init();
             Ok(())
         },
         Err(e) => Err(format!("Failed to initialize search: {}", e))
-    };
-
-    result
+    }
 }
 
 #[tauri::command]

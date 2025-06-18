@@ -86,63 +86,69 @@ impl<
     /// * `input` - Aligned input activations (u8 values)
     /// * `output` - Aligned output buffer for results (i32 accumulators)
     pub fn forward(&self, input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>, output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>) {
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                self.forward_avx2(input, output);
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx2") {
+                unsafe { self.forward_avx2(input, output) };
+                return;
             }
-        } else {
-            self.forward_fallback(input, output);
         }
+
+        self.forward_fallback(input, output);
     }
 
     /// AVX2-accelerated forward pass.
-    unsafe fn forward_avx2(
+    #[target_feature(enable = "avx2")]
+    #[cfg(target_arch = "x86_64")]
+    fn forward_avx2(
         &self,
         input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>,
         output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        if OUTPUT_DIMS > 1 {
-            let mut acc: Aligned<A64, [i32; OUTPUT_DIMS]> = std::mem::zeroed();
-            let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
+        unsafe {
+            if OUTPUT_DIMS > 1 {
+                let mut acc: Aligned<A64, [i32; OUTPUT_DIMS]> = std::mem::zeroed();
+                let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
 
-            let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
-            let num_regs = OUTPUT_DIMS / 8;
+                let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+                let num_regs = OUTPUT_DIMS / 8;
 
-            std::ptr::copy_nonoverlapping(
-                self.biases.as_ptr() as *const __m256i,
-                acc_ptr,
-                num_regs,
-            );
+                std::ptr::copy_nonoverlapping(
+                    self.biases.as_ptr() as *const __m256i,
+                    acc_ptr,
+                    num_regs,
+                );
 
-            let input32 = input.as_ptr() as *const i32;
-            for i in 0..num_chunks {
-                let in0 = _mm256_set1_epi32(*input32.add(i));
-                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m256i;
+                let input32 = input.as_ptr() as *const i32;
+                for i in 0..num_chunks {
+                    let in0 = _mm256_set1_epi32(*input32.add(i));
+                    let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m256i;
 
-                for j in 0..num_regs {
-                    let a = acc_ptr.add(j);
-                    *a = mm256_dpbusd_epi32(*a, in0, *col0.add(j));
+                    for j in 0..num_regs {
+                        let a = acc_ptr.add(j);
+                        *a = mm256_dpbusd_epi32(*a, in0, *col0.add(j));
+                    }
                 }
+
+                std::ptr::copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
+            } else {
+                const INPUT_SIMD_WIDTH: usize =
+                    std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
+
+                debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
+
+                let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
+                let mut sum0 = _mm256_setzero_si256();
+                let row0 = self.weights.as_ptr() as *const __m256i;
+                let input_vector = input.as_ptr() as *const __m256i;
+
+                for j in 0..num_chunks {
+                    let in_vec = *input_vector.add(j);
+                    sum0 = mm256_dpbusd_epi32(sum0, in_vec, *row0.add(j));
+                }
+
+                output[0] = m256_hadd(sum0, self.biases[0]);
             }
-
-            std::ptr::copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
-        } else {
-            const INPUT_SIMD_WIDTH: usize =
-                std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
-
-            debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
-
-            let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
-            let mut sum0 = _mm256_setzero_si256();
-            let row0 = self.weights.as_ptr() as *const __m256i;
-            let input_vector = input.as_ptr() as *const __m256i;
-
-            for j in 0..num_chunks {
-                let in_vec = *input_vector.add(j);
-                sum0 = mm256_dpbusd_epi32(sum0, in_vec, *row0.add(j));
-            }
-
-            output[0] = m256_hadd(sum0, self.biases[0]);
         }
     }
 
@@ -184,8 +190,10 @@ impl<
 ///
 /// Computes: `acc += sum(a[i] * b[i])` for i in 0..32
 /// where `a` contains unsigned bytes and `b` contains signed bytes.
-#[inline(always)]
-unsafe fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
+#[target_feature(enable = "avx2")]
+#[cfg(target_arch = "x86_64")]
+#[inline]
+fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
     let product0 = _mm256_maddubs_epi16(a, b);
     let product1 = _mm256_madd_epi16(product0, _mm256_set1_epi16(1));
     _mm256_add_epi32(acc, product1)
@@ -194,8 +202,10 @@ unsafe fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
 /// Horizontal sum of all 32-bit integers in a 256-bit vector plus bias.
 ///
 /// Efficiently reduces 8×32-bit values to a single sum using shuffle operations.
-#[inline(always)]
-unsafe fn m256_hadd(sum_vec: __m256i, bias: i32) -> i32 {
+#[target_feature(enable = "avx2")]
+#[cfg(target_arch = "x86_64")]
+#[inline]
+fn m256_hadd(sum_vec: __m256i, bias: i32) -> i32 {
     // Add upper and lower 128-bit lanes
     let mut sum128 = _mm_add_epi32(
         _mm256_castsi256_si128(sum_vec),
@@ -270,11 +280,11 @@ mod tests {
 
         // Create test data
         let mut data = Vec::new();
-        
+
         // Write biases (2 x i32 little-endian)
         data.extend_from_slice(&100i32.to_le_bytes());
         data.extend_from_slice(&200i32.to_le_bytes());
-        
+
         // Write weights (PI * O = 32 * 2 = 64 bytes)
         for i in 0..PI * O {
             data.push((i % 127) as u8);
@@ -299,20 +309,20 @@ mod tests {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
         };
-        
+
         // Set bias
         layer.biases[0] = 100;
-        
+
         // Set some weights directly (avoiding packing complexity for test)
         for i in 0..I {
             let idx = layer.get_packed_weight_index(i, 0);
             layer.weights[idx] = 1; // Simple weight of 1
         }
-        
+
         // Create aligned input and output
         let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
         let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
-        
+
         // Set some input values
         input[0] = 10;
         input[1] = 20;
@@ -333,10 +343,10 @@ mod tests {
         const PO: usize = 32;
 
         let layer = create_test_layer::<I, O, PI, PO>();
-        
+
         let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
         let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
-        
+
         // Set input values
         for i in 0..I {
             input[i] = (i + 1) as u8 * 10;
@@ -362,12 +372,12 @@ mod tests {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
         };
-        
+
         // Set biases
         for i in 0..O {
             layer.biases[i] = (i as i32 + 1) * 100;
         }
-        
+
         let input = Aligned::<A64, [u8; PI]>([0; PI]); // All zeros
         let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
 
@@ -388,11 +398,11 @@ mod tests {
         const PO: usize = 32;
 
         let layer = create_test_layer::<I, O, PI, PO>();
-        
+
         let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
         let mut output_avx2 = Aligned::<A64, [i32; PO]>([0; PO]);
         let mut output_fallback = Aligned::<A64, [i32; PO]>([0; PO]);
-        
+
         // Set random-like input values
         for i in 0..I {
             input[i] = ((i * 37 + 13) % 256) as u8;
@@ -451,12 +461,12 @@ mod tests {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
         };
-        
+
         // Set positive biases
         for i in 0..O {
             layer.biases[i] = 1000;
         }
-        
+
         // Set some weights
         for i in 0..O {
             for j in 0..I {
@@ -464,10 +474,10 @@ mod tests {
                 layer.weights[idx] = 1;
             }
         }
-        
+
         let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
         let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
-        
+
         // Set only a few non-zero values (sparse input)
         input[5] = 100;
         input[15] = 200;

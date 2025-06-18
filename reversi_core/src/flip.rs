@@ -4,11 +4,14 @@ use crate::square::Square;
 
 #[inline]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
-    if is_x86_feature_detected!("avx2") {
-        unsafe { flip_avx::flip(sq, p, o) }
-    } else {
-        flip_bmi2::flip(sq, p, o)
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { flip_avx::flip(sq, p, o) };
+        }
     }
+
+    flip_bmi2::flip(sq, p, o)
 }
 
 #[cfg(test)]

@@ -334,8 +334,11 @@ impl TranspositionTable {
     /// - `TTData`: The entry data (default if not found)
     /// - `usize`: The index for storing new data (either the found entry or replacement candidate)
     pub fn probe(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
-        if is_x86_feature_detected!("avx2") {
-            return unsafe { self.probe_avx2(key, generation) };
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx2") {
+                return unsafe { self.probe_avx2(key, generation) };
+            }
         }
 
         let key16 = key as u16;
@@ -376,74 +379,78 @@ impl TranspositionTable {
     }
 
     /// AVX2-optimized probe implementation for faster cluster scanning.
+    #[target_feature(enable = "avx2")]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
-        use std::arch::x86_64::*;
+    fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
+        unsafe {
+            use std::arch::x86_64::*;
 
-        let key16 = key as u16;
-        let base = self.get_cluster_idx(key);
-        let ptr = self.entries.as_ptr().add(base) as *const __m256i;
-        let v = _mm256_loadu_si256(ptr);
+            let key16 = key as u16;
+            let base = self.get_cluster_idx(key);
+            let ptr = self.entries.as_ptr().add(base) as *const __m256i;
+            let v = _mm256_loadu_si256(ptr);
 
-        // Create a vector with the key repeated in all 16-bit lanes
-        let key_vec = _mm256_set1_epi16(key16 as i16);
-        // Compare all keys in the cluster simultaneously
-        let cmp = _mm256_cmpeq_epi16(v, key_vec);
-        let hit_mask = _mm256_movemask_epi8(cmp) as u32;
+            // Create a vector with the key repeated in all 16-bit lanes
+            let key_vec = _mm256_set1_epi16(key16 as i16);
+            // Compare all keys in the cluster simultaneously
+            let cmp = _mm256_cmpeq_epi16(v, key_vec);
+            let hit_mask = _mm256_movemask_epi8(cmp) as u32;
 
-        // Mask to check only the key fields (first 16 bits of each 64-bit entry)
-        const LANE_MASK: u32 = 0x0303_0303;
-        let relevant_hits = hit_mask & LANE_MASK;
+            // Mask to check only the key fields (first 16 bits of each 64-bit entry)
+            const LANE_MASK: u32 = 0x0303_0303;
+            let relevant_hits = hit_mask & LANE_MASK;
 
-        if relevant_hits != 0 {
-            // Found a potential key match - extract and verify
-            let lane_idx = (relevant_hits.trailing_zeros() / 8) as usize;
+            if relevant_hits != 0 {
+                // Found a potential key match - extract and verify
+                let lane_idx = (relevant_hits.trailing_zeros() / 8) as usize;
 
-            let entries_array: [u64; 4] = std::mem::transmute(v);
-            let raw = entries_array[lane_idx];
+                let entries_array: [u64; 4] = std::mem::transmute(v);
+                let raw = entries_array[lane_idx];
 
-            let data = TTEntry::unpack_from_u64(raw);
-            if data.is_occupied() {
-                return (true, data, base + lane_idx);
+                let data = TTEntry::unpack_from_u64(raw);
+                if data.is_occupied() {
+                    return (true, data, base + lane_idx);
+                }
             }
+
+            // Extract depth and generation fields from all entries using SIMD
+            let depth_mask_vec = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
+            let gen_mask_vec = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
+
+            let depth_vec = _mm256_and_si256(
+                _mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT),
+                depth_mask_vec,
+            );
+            let gen_vec = _mm256_and_si256(
+                _mm256_srli_epi64(v, TTEntry::GENERATION_SHIFT),
+                gen_mask_vec,
+            );
+
+            // Calculate replacement scores: depth - (age * 8)
+            let current_gen_vec = _mm256_set1_epi64x(generation as i64);
+            let age_vec = _mm256_sub_epi64(current_gen_vec, gen_vec);
+            let score_vec = _mm256_sub_epi64(depth_vec, _mm256_slli_epi64(age_vec, 3));
+            let scores: [i64; 4] = core::mem::transmute(score_vec);
+
+            // Find the entry with the lowest replacement score
+            let mut replace_idx = 0;
+            let mut min_score = scores[0];
+
+            if scores[1] < min_score {
+                min_score = scores[1];
+                replace_idx = 1;
+            }
+            if scores[2] < min_score {
+                min_score = scores[2];
+                replace_idx = 2;
+            }
+            if scores[3] < min_score {
+                replace_idx = 3;
+            }
+
+            (false, TTData::default(), base + replace_idx)
         }
-
-        // Extract depth and generation fields from all entries using SIMD
-        let depth_mask_vec = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
-        let gen_mask_vec = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
-
-        let depth_vec = _mm256_and_si256(
-            _mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT),
-            depth_mask_vec,
-        );
-        let gen_vec = _mm256_and_si256(
-            _mm256_srli_epi64(v, TTEntry::GENERATION_SHIFT),
-            gen_mask_vec,
-        );
-
-        // Calculate replacement scores: depth - (age * 8)
-        let current_gen_vec = _mm256_set1_epi64x(generation as i64);
-        let age_vec = _mm256_sub_epi64(current_gen_vec, gen_vec);
-        let score_vec = _mm256_sub_epi64(depth_vec, _mm256_slli_epi64(age_vec, 3));
-        let scores: [i64; 4] = core::mem::transmute(score_vec);
-
-        // Find the entry with the lowest replacement score
-        let mut replace_idx = 0;
-        let mut min_score = scores[0];
-
-        if scores[1] < min_score {
-            min_score = scores[1];
-            replace_idx = 1;
-        }
-        if scores[2] < min_score {
-            min_score = scores[2];
-            replace_idx = 2;
-        }
-        if scores[3] < min_score {
-            replace_idx = 3;
-        }
-
-        (false, TTData::default(), base + replace_idx)
     }
 
     /// Stores data in the transposition table at the specified entry index.

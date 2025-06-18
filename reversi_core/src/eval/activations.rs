@@ -24,11 +24,15 @@ pub fn clipped_relu<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
     output: &mut Aligned<A64, [u8; SIZE]>,
 ) {
-    if is_x86_feature_detected!("avx2") {
-        unsafe { clipped_relu_avx2::<SIZE>(input, output) }
-    } else {
-        clipped_relu_fallback::<SIZE>(input, output, 0);
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            unsafe { clipped_relu_avx2::<SIZE>(input, output) };
+            return;
+        }
     }
+
+    clipped_relu_fallback::<SIZE>(input, output, 0);
 }
 
 /// Clipped ReLU with AVX2 SIMD optimization.
@@ -37,56 +41,60 @@ pub fn clipped_relu<const SIZE: usize>(
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers
 /// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
-#[inline(always)]
-unsafe fn clipped_relu_avx2<const SIZE: usize>(
+#[target_feature(enable = "avx2")]
+#[cfg(target_arch = "x86_64")]
+#[inline]
+fn clipped_relu_avx2<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
     output: &mut Aligned<A64, [u8; SIZE]>,
 ) {
-    if SIZE % AVX2_SIMD_WIDTH == 0 {
-        let num_chunks = SIZE / AVX2_SIMD_WIDTH;
-        let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
-        let input_ptr = input.as_ptr() as *const __m256i;
-        let output_ptr = output.as_mut_ptr() as *mut __m256i;
-        for i in 0..num_chunks {
-            let packed0 = _mm256_packus_epi32(
-                _mm256_load_si256(input_ptr.add(i * 4)),
-                _mm256_load_si256(input_ptr.add(i * 4 + 1)),
-            );
-            let packed1 = _mm256_packus_epi32(
-                _mm256_load_si256(input_ptr.add(i * 4 + 2)),
-                _mm256_load_si256(input_ptr.add(i * 4 + 3)),
-            );
+    unsafe {
+        if SIZE % AVX2_SIMD_WIDTH == 0 {
+            let num_chunks = SIZE / AVX2_SIMD_WIDTH;
+            let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
+            let input_ptr = input.as_ptr() as *const __m256i;
+            let output_ptr = output.as_mut_ptr() as *mut __m256i;
+            for i in 0..num_chunks {
+                let packed0 = _mm256_packus_epi32(
+                    _mm256_load_si256(input_ptr.add(i * 4)),
+                    _mm256_load_si256(input_ptr.add(i * 4 + 1)),
+                );
+                let packed1 = _mm256_packus_epi32(
+                    _mm256_load_si256(input_ptr.add(i * 4 + 2)),
+                    _mm256_load_si256(input_ptr.add(i * 4 + 3)),
+                );
 
-            let words0 = _mm256_srli_epi16(packed0, HIDDEN_WEIGHT_SCALE_BITS);
-            let words1 = _mm256_srli_epi16(packed1, HIDDEN_WEIGHT_SCALE_BITS);
+                let words0 = _mm256_srli_epi16(packed0, HIDDEN_WEIGHT_SCALE_BITS);
+                let words1 = _mm256_srli_epi16(packed1, HIDDEN_WEIGHT_SCALE_BITS);
 
-            _mm256_store_si256(
-                output_ptr.add(i),
-                _mm256_permutevar8x32_epi32(_mm256_packs_epi16(words0, words1), shuffle),
-            );
-        }
-    } else {
-        let num_chunks = input.len() / (AVX2_SIMD_WIDTH / 2);
-        let input_ptr = input.as_ptr() as *const __m128i;
-        let output_ptr = output.as_mut_ptr() as *mut __m128i;
-        for i in 0..num_chunks {
-            let words0 = _mm_srli_epi16(
-                _mm_packus_epi32(
-                    _mm_load_si128(input_ptr.add(i * 4)),
-                    _mm_load_si128(input_ptr.add(i * 4 + 1)),
-                ),
-                HIDDEN_WEIGHT_SCALE_BITS,
-            );
+                _mm256_store_si256(
+                    output_ptr.add(i),
+                    _mm256_permutevar8x32_epi32(_mm256_packs_epi16(words0, words1), shuffle),
+                );
+            }
+        } else {
+            let num_chunks = input.len() / (AVX2_SIMD_WIDTH / 2);
+            let input_ptr = input.as_ptr() as *const __m128i;
+            let output_ptr = output.as_mut_ptr() as *mut __m128i;
+            for i in 0..num_chunks {
+                let words0 = _mm_srli_epi16(
+                    _mm_packus_epi32(
+                        _mm_load_si128(input_ptr.add(i * 4)),
+                        _mm_load_si128(input_ptr.add(i * 4 + 1)),
+                    ),
+                    HIDDEN_WEIGHT_SCALE_BITS,
+                );
 
-            let words1 = _mm_srli_epi16(
-                _mm_packus_epi32(
-                    _mm_load_si128(input_ptr.add(i * 4 + 2)),
-                    _mm_load_si128(input_ptr.add(i * 4 + 3)),
-                ),
-                HIDDEN_WEIGHT_SCALE_BITS,
-            );
+                let words1 = _mm_srli_epi16(
+                    _mm_packus_epi32(
+                        _mm_load_si128(input_ptr.add(i * 4 + 2)),
+                        _mm_load_si128(input_ptr.add(i * 4 + 3)),
+                    ),
+                    HIDDEN_WEIGHT_SCALE_BITS,
+                );
 
-            _mm_store_si128(output_ptr.add(i), _mm_packs_epi16(words0, words1));
+                _mm_store_si128(output_ptr.add(i), _mm_packs_epi16(words0, words1));
+            }
         }
     }
 
@@ -134,11 +142,15 @@ pub fn sqr_clipped_relu<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
     output: &mut Aligned<A64, [u8; SIZE]>,
 ) {
-    if is_x86_feature_detected!("avx2") {
-        unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) }
-    } else {
-        sqr_clipped_relu_fallback::<SIZE>(input, output, 0);
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) };
+            return;
+        }
     }
+
+    sqr_clipped_relu_fallback::<SIZE>(input, output, 0);
 }
 
 /// Sqr clipped ReLU with AVX2 SIMD optimization.
@@ -147,31 +159,35 @@ pub fn sqr_clipped_relu<const SIZE: usize>(
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers
 /// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
-#[inline(always)]
-unsafe fn sqr_clipped_relu_avx2<const SIZE: usize>(
+#[target_feature(enable = "avx2")]
+#[cfg(target_arch = "x86_64")]
+#[inline]
+fn sqr_clipped_relu_avx2<const SIZE: usize>(
     input: &Aligned<A64, [i32; SIZE]>,
     output: &mut Aligned<A64, [u8; SIZE]>,
 ) {
     let num_chunks = SIZE / 16;
-    let input_ptr = input.as_ptr() as *const __m128i;
-    let output_ptr = output.as_mut_ptr() as *mut __m128i;
-    for i in 0..num_chunks {
-        let mut words0 = _mm_packs_epi32(
-            _mm_load_si128(input_ptr.add(i * 4)),
-            _mm_load_si128(input_ptr.add(i * 4 + 1)),
-        );
-        let mut words1 = _mm_packs_epi32(
-            _mm_load_si128(input_ptr.add(i * 4 + 2)),
-            _mm_load_si128(input_ptr.add(i * 4 + 3)),
-        );
+    unsafe {
+        let input_ptr = input.as_ptr() as *const __m128i;
+        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+        for i in 0..num_chunks {
+            let mut words0 = _mm_packs_epi32(
+                _mm_load_si128(input_ptr.add(i * 4)),
+                _mm_load_si128(input_ptr.add(i * 4 + 1)),
+            );
+            let mut words1 = _mm_packs_epi32(
+                _mm_load_si128(input_ptr.add(i * 4 + 2)),
+                _mm_load_si128(input_ptr.add(i * 4 + 3)),
+            );
 
-        // We shift by WeightScaleBits * 2 = 12 and divide by 128
-        // which is an additional shift-right of 7, meaning 19 in total.
-        // MulHi strips the lower 16 bits so we need to shift out 3 more to match.
-        const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 7 - 16;
-        words0 = _mm_srli_epi16(_mm_mulhi_epi16(words0, words0), SHIFT);
-        words1 = _mm_srli_epi16(_mm_mulhi_epi16(words1, words1), SHIFT);
-        _mm_store_si128(output_ptr.add(i), _mm_packs_epi16(words0, words1));
+            // We shift by WeightScaleBits * 2 = 12 and divide by 128
+            // which is an additional shift-right of 7, meaning 19 in total.
+            // MulHi strips the lower 16 bits so we need to shift out 3 more to match.
+            const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 7 - 16;
+            words0 = _mm_srli_epi16(_mm_mulhi_epi16(words0, words0), SHIFT);
+            words1 = _mm_srli_epi16(_mm_mulhi_epi16(words1, words1), SHIFT);
+            _mm_store_si128(output_ptr.add(i), _mm_packs_epi16(words0, words1));
+        }
     }
 
     let start_idx = num_chunks * 16;
