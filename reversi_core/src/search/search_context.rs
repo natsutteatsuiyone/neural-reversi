@@ -98,7 +98,7 @@ impl SearchContext {
     pub fn from_split_point(sp: &Arc<SplitPoint>, this_thread: &Arc<Thread>) -> SearchContext {
         let state = sp.state();
         let task = state.task.as_ref().unwrap();
-        let empty_list = EmptyList::new(&task.board);
+        let empty_list = task.empty_list.clone();
         let ply = empty_list.ply();
         let pattern_features = if task.side_to_move == SideToMove::Player {
             PatternFeatures::new(&task.board, ply)

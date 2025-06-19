@@ -14,6 +14,7 @@ use lock_api::RawMutex;
 
 use crate::{
     board::Board,
+    empty_list::EmptyList,
     eval,
     misc::BitSet,
     move_list::ConcurrentMoveIterator,
@@ -59,6 +60,7 @@ pub struct SplitPointSharedTask {
     pub root_moves: Arc<std::sync::Mutex<Vec<RootMove>>>,
     pub pool: Arc<ThreadPool>,
     pub eval: Arc<eval::Eval>,
+    pub empty_list: EmptyList,
 }
 
 pub struct SplitPoint {
@@ -329,6 +331,7 @@ impl Thread {
             pool: ctx.pool.clone(),
             eval: ctx.eval.clone(),
             game_phase: ctx.game_phase,
+            empty_list: ctx.empty_list.clone(),
         });
         sp_state.n_nodes = 0;
         sp_state.cutoff = false;
