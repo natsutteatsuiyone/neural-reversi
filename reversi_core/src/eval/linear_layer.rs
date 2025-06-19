@@ -9,7 +9,7 @@ use aligned::{Aligned, A64};
 use aligned_vec::{avec, AVec, ConstAlign};
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::{eval::CACHE_LINE_SIZE, misc::ceil_to_multiple};
+use crate::{eval::CACHE_LINE_SIZE, util::ceil_to_multiple};
 
 /// Linear transformation layer with AVX2-optimized weight layout.
 ///

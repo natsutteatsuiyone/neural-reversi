@@ -9,8 +9,8 @@ use crate::eval::activations::clipped_relu;
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::pattern_feature::{PatternFeature, NUM_PATTERN_FEATURES};
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
-use crate::misc::ceil_to_multiple;
 use crate::types::Score;
+use crate::util::ceil_to_multiple;
 
 use super::constants::{
     INPUT_FEATURE_DIMS, MOBILITY_SCALE, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS, PATTERN_FEATURE_OFFSETS

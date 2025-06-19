@@ -16,12 +16,11 @@ use crate::{
     board::Board,
     empty_list::EmptyList,
     eval,
-    misc::BitSet,
     move_list::ConcurrentMoveIterator,
     search::{self, SearchResult, SearchTask},
     square::Square,
     transposition_table::TranspositionTable,
-    types::{Depth, NodeType, NonPV, Root, Score, PV},
+    types::{Depth, NodeType, NonPV, Root, Score, PV}, util::bitset::BitSet,
 };
 
 use crate::search::root_move::RootMove;

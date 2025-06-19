@@ -9,7 +9,6 @@ mod flip;
 mod flip_avx;
 mod flip_bmi2;
 pub mod level;
-mod misc;
 pub mod move_list;
 pub mod perft;
 pub mod piece;
@@ -19,6 +18,7 @@ pub mod square;
 mod stability;
 mod transposition_table;
 pub mod types;
+mod util;
 
 pub fn init() {
     probcut::init();
