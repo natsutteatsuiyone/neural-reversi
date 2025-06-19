@@ -25,9 +25,8 @@ use crate::{
 
 use crate::search::root_move::RootMove;
 use crate::search::search_context::SearchContext;
-use crate::search::spinlock;
-
-use super::search_context::{GamePhase, SideToMove};
+use crate::search::search_context::{GamePhase, SideToMove};
+use crate::util::spinlock;
 
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 const MAX_SLAVES_PER_SPLITPOINT: usize = 3;

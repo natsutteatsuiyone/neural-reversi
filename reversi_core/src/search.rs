@@ -3,7 +3,6 @@ pub mod midgame;
 mod root_move;
 pub mod search_context;
 pub mod search_result;
-mod spinlock;
 pub mod threading;
 
 use search_result::SearchResult;

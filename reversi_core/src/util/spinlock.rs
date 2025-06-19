@@ -1,8 +1,8 @@
-use std::sync::atomic::AtomicBool;
-use lock_api::RawMutex;
 use lock_api::GuardSend;
-use std::sync::atomic::Ordering;
+use lock_api::RawMutex;
 use std::hint::spin_loop;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 /// RawSpinLock is a simple spin lock based on an atomic flag.
 ///
@@ -29,7 +29,11 @@ unsafe impl RawMutex for RawSpinLock {
     #[inline]
     fn lock(&self) {
         // Attempt the Compare-And-Swap (CAS) initially.
-        while self.state.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while self
+            .state
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             // If the attempt fails, spin while the flag remains true.
             while self.state.load(Ordering::Relaxed) {
                 spin_loop();
@@ -51,7 +55,9 @@ unsafe impl RawMutex for RawSpinLock {
     /// Returns true if the lock was successfully acquired, or false if it was already held.
     #[inline]
     fn try_lock(&self) -> bool {
-        self.state.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok()
+        self.state
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
     }
 
     /// Checks whether the lock is currently held.
