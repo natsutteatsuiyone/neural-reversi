@@ -46,11 +46,11 @@ pub struct SplitPointState {
     slaves_mask: BitSet,
     depth: Depth,
     n_nodes: u64,
-    pub task: Option<SplitPointSharedTask>,
+    pub task: Option<SplitPointTask>,
     parent_split_point: Option<Arc<SplitPoint>>,
 }
 
-pub struct SplitPointSharedTask {
+pub struct SplitPointTask {
     pub board: Board,
     pub side_to_move: SideToMove,
     pub generation: u8,
@@ -321,7 +321,7 @@ impl Thread {
         sp_state.beta = beta;
         sp_state.node_type = node_type;
         sp_state.move_iter = Some(move_iter.clone());
-        sp_state.task = Some(SplitPointSharedTask {
+        sp_state.task = Some(SplitPointTask {
             board: *board,
             side_to_move: ctx.side_to_move,
             generation: ctx.generation,
