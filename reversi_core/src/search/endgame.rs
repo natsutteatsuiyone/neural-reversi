@@ -56,7 +56,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         task.tt.clone(),
         task.pool.clone(),
         task.eval.clone(),
-        thread.clone(),
     );
 
     if let Some(ref callback) = task.callback {
@@ -92,7 +91,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             let mut delta = 2;
 
             loop {
-                best_score = search::<Root, false>(&mut ctx, &board, alpha, beta, None);
+                best_score = search::<Root, false>(&mut ctx, &board, alpha, beta, thread, None);
 
                 if ctx.is_search_aborted() {
                     break;
@@ -173,6 +172,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     board: &Board,
     mut alpha: Score,
     beta: Score,
+    thread: &Arc<Thread>,
     split_point: Option<&Arc<SplitPoint>>,
 ) -> Score {
     let n_empties = ctx.empty_list.count;
@@ -214,7 +214,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             let next = board.switch_players();
             if next.has_legal_moves() {
                 ctx.update_pass();
-                let score = -search::<NT, false>(ctx, &next, -beta, -alpha, None);
+                let score = -search::<NT, false>(ctx, &next, -beta, -alpha, thread, None);
                 ctx.undo_pass();
                 return score;
             } else {
@@ -241,7 +241,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         if !NT::PV_NODE {
-            if let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, alpha, beta) {
+            if let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread) {
                 return score;
             }
         }
@@ -272,12 +272,12 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 let sp_state = split_point.as_ref().unwrap().state();
                 alpha = sp_state.alpha;
             }
-            score = -search::<NonPV, false>(ctx, &next, -(alpha + 1), -alpha, None);
+            score = -search::<NonPV, false>(ctx, &next, -(alpha + 1), -alpha, thread, None);
         }
 
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
             ctx.clear_pv();
-            score = -search::<PV, false>(ctx, &next, -beta, -alpha, None);
+            score = -search::<PV, false>(ctx, &next, -beta, -alpha, thread, None);
         }
 
         ctx.undo(mv);
@@ -290,7 +290,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             alpha = sp_state.alpha;
         }
 
-        if ctx.is_search_aborted() || ctx.this_thread.cutoff_occurred() {
+        if ctx.is_search_aborted() || thread.cutoff_occurred() {
             return 0;
         }
 
@@ -336,9 +336,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         if !SP_NODE
             && n_empties >= MIN_SPLIT_DEPTH
             && move_iter.count() > 1
-            && ctx.this_thread.can_split(ctx.pool.size)
+            && thread.can_split(ctx.pool.size)
         {
-            let (s, m, n) = ctx.this_thread.split(
+            let (s, m, n) = thread.split(
                 ctx,
                 board,
                 alpha,
@@ -353,7 +353,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             best_move = m;
             ctx.n_nodes += n;
 
-            if ctx.is_search_aborted() || ctx.this_thread.cutoff_occurred() {
+            if ctx.is_search_aborted() || thread.cutoff_occurred() {
                 return 0;
             }
 

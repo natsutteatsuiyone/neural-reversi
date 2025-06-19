@@ -259,7 +259,7 @@ impl Thread {
     /// search() then split() returns.
     #[allow(clippy::too_many_arguments)]
     pub fn split(
-        &self,
+        self: &Arc<Self>,
         ctx: &SearchContext,
         board: &Board,
         alpha: Score,
@@ -277,7 +277,7 @@ impl Thread {
             sp, ctx, depth, best_score, best_move, alpha, beta, node_type, move_iter, board,
         );
 
-        idle_loop(&ctx.this_thread);
+        idle_loop(self);
 
         self.finalize_split_point(sp);
 
@@ -640,7 +640,7 @@ fn idle_loop(thread: &Arc<Thread>) {
             let beta = sp_state.beta;
             let node_type = sp_state.node_type;
 
-            let mut ctx = SearchContext::from_split_point(&sp, thread);
+            let mut ctx = SearchContext::from_split_point(&sp);
 
             if ctx.empty_list.count == depth {
                 if node_type == NonPV::TYPE_ID {
@@ -649,6 +649,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                         &task_board,
                         alpha,
                         beta,
+                        thread,
                         Some(&sp),
                     );
                 } else if node_type == PV::TYPE_ID {
@@ -657,6 +658,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                         &task_board,
                         alpha,
                         beta,
+                        thread,
                         Some(&sp),
                     );
                 } else if node_type == Root::TYPE_ID {
@@ -665,6 +667,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                         &task_board,
                         alpha,
                         beta,
+                        thread,
                         Some(&sp),
                     );
                 } else {
@@ -677,6 +680,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                     depth,
                     alpha,
                     beta,
+                    thread,
                     Some(&sp),
                 );
             } else if node_type == PV::TYPE_ID {
@@ -686,6 +690,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                     depth,
                     alpha,
                     beta,
+                    thread,
                     Some(&sp),
                 );
             } else if node_type == Root::TYPE_ID {
@@ -695,6 +700,7 @@ fn idle_loop(thread: &Arc<Thread>) {
                     depth,
                     alpha,
                     beta,
+                    thread,
                     Some(&sp),
                 );
             } else {

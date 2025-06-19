@@ -59,7 +59,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         task.tt.clone(),
         task.pool.clone(),
         task.eval.clone(),
-        thread.clone(),
     );
 
     let n_empties = ctx.empty_list.count;
@@ -87,7 +86,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     let max_depth = level.mid_depth;
     if max_depth == 0 {
-        let score = search::<Root, false>(&mut ctx, &board, max_depth, alpha, beta, None);
+        let score = search::<Root, false>(&mut ctx, &board, max_depth, alpha, beta, thread, None);
         return SearchResult {
             score: to_scoref(score),
             best_move: None,
@@ -121,7 +120,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             loop {
-                best_score = search::<Root, false>(&mut ctx, &board, depth, alpha, beta, None);
+                best_score = search::<Root, false>(&mut ctx, &board, depth, alpha, beta, thread, None);
 
                 if ctx.is_search_aborted() {
                     break;
@@ -212,6 +211,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     depth: Depth,
     mut alpha: Score,
     beta: Score,
+    thread: &Arc<Thread>,
     split_point: Option<&Arc<SplitPoint>>,
 ) -> Score {
     let mut best_move = Square::None;
@@ -256,7 +256,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             let next = board.switch_players();
             if next.has_legal_moves() {
                 ctx.update_pass();
-                let score = -search::<NT, false>(ctx, &next, depth, -beta, -alpha, None);
+                let score = -search::<NT, false>(ctx, &next, depth, -beta, -alpha, thread, None);
                 ctx.undo_pass();
                 return score;
             } else {
@@ -283,7 +283,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         if !NT::PV_NODE {
-            if let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta) {
+            if let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread) {
                 return score;
             }
         }
@@ -316,21 +316,21 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             }
 
             let d = depth - 1 - mv.reduction_depth.min(depth - 1);
-            score = -search::<NonPV, false>(ctx, &next, d, -(alpha + 1), -alpha, None);
+            score = -search::<NonPV, false>(ctx, &next, d, -(alpha + 1), -alpha, thread, None);
             if score > alpha {
-                score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, None);
+                score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread, None);
             }
         } else if !NT::PV_NODE || move_count > 1 {
             if SP_NODE {
                 let sp_state = split_point.as_ref().unwrap().state();
                 alpha = sp_state.alpha;
             }
-            score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, None);
+            score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread, None);
         }
 
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
             ctx.clear_pv();
-            score = -search::<PV, false>(ctx, &next, depth - 1, -beta, -alpha, None);
+            score = -search::<PV, false>(ctx, &next, depth - 1, -beta, -alpha, thread, None);
         }
 
         ctx.undo(mv);
@@ -343,7 +343,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             alpha = sp_state.alpha;
         }
 
-        if ctx.is_search_aborted() || ctx.this_thread.cutoff_occurred() {
+        if ctx.is_search_aborted() || thread.cutoff_occurred() {
             return 0;
         }
 
@@ -389,9 +389,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         if !SP_NODE
             && depth >= MIN_SPLIT_DEPTH
             && move_iter.count() > 1
-            && ctx.this_thread.can_split(ctx.pool.size)
+            && thread.can_split(ctx.pool.size)
         {
-            let (s, m, n) = ctx.this_thread.split(
+            let (s, m, n) = thread.split(
                 ctx,
                 board,
                 alpha,
@@ -406,7 +406,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             best_move = m;
             ctx.n_nodes += n;
 
-            if ctx.is_search_aborted() || ctx.this_thread.cutoff_occurred() {
+            if ctx.is_search_aborted() || thread.cutoff_occurred() {
                 return 0;
             }
 

@@ -8,7 +8,7 @@ use crate::eval::Eval;
 use crate::move_list::{Move, MoveList};
 use crate::probcut::{self};
 use crate::search::root_move::RootMove;
-use crate::search::threading::{SplitPoint, Thread, ThreadPool};
+use crate::search::threading::{SplitPoint, ThreadPool};
 use crate::search::SearchProgressCallback;
 use crate::search::{SearchProgress, SCORE_INF};
 use crate::square::Square;
@@ -55,7 +55,6 @@ pub struct SearchContext {
     pub root_moves: Arc<std::sync::Mutex<Vec<RootMove>>>,
     pub pool: Arc<ThreadPool>,
     pub eval: Arc<Eval>,
-    pub this_thread: Arc<Thread>,
     pub pattern_features: PatternFeatures,
     pub callback: Option<Arc<SearchProgressCallback>>,
     stack: [StackRecord; MAX_PLY],
@@ -70,7 +69,6 @@ impl SearchContext {
         tt: Arc<TranspositionTable>,
         pool: Arc<ThreadPool>,
         eval: Arc<Eval>,
-        this_thread: Arc<Thread>,
     ) -> SearchContext {
         let empty_list = EmptyList::new(board);
         let ply = empty_list.ply();
@@ -84,7 +82,6 @@ impl SearchContext {
             root_moves: Arc::new(std::sync::Mutex::new(Self::create_root_moves(board))),
             pool,
             eval,
-            this_thread,
             pattern_features: PatternFeatures::new(board, ply),
             callback: None,
             stack: [StackRecord {
@@ -95,7 +92,7 @@ impl SearchContext {
     }
 
     #[inline]
-    pub fn from_split_point(sp: &Arc<SplitPoint>, this_thread: &Arc<Thread>) -> SearchContext {
+    pub fn from_split_point(sp: &Arc<SplitPoint>) -> SearchContext {
         let state = sp.state();
         let task = state.task.as_ref().unwrap();
         let empty_list = task.empty_list.clone();
@@ -115,7 +112,6 @@ impl SearchContext {
             root_moves: task.root_moves.clone(),
             pool: task.pool.clone(),
             eval: task.eval.clone(),
-            this_thread: this_thread.clone(),
             pattern_features,
             callback: None,
             stack: [StackRecord {

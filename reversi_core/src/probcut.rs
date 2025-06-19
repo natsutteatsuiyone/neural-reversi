@@ -1,9 +1,11 @@
 use std::sync::OnceLock;
 
+use std::sync::Arc;
+
 use crate::{
     board::Board,
     constants::{EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, MID_SCORE_MAX, MID_SCORE_MIN},
-    search::{midgame, search_context::SearchContext},
+    search::{midgame, search_context::SearchContext, threading::Thread},
     types::{Depth, NonPV, Score},
 };
 
@@ -240,6 +242,7 @@ pub fn probcut_midgame(
     depth: Depth,
     alpha: Score,
     beta: Score,
+    thread: &Arc<Thread>,
 ) -> Option<Score> {
     if depth >= 3 && ctx.selectivity < NO_SELECTIVITY {
         let ply = ctx.ply();
@@ -257,7 +260,7 @@ pub fn probcut_midgame(
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
             ctx.update_probcut();
-            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, None);
+            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread, None);
             ctx.undo_probcut(current_selectivity);
             if score >= pc_beta {
                 return Some(beta);
@@ -268,7 +271,7 @@ pub fn probcut_midgame(
         let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
         if eval_score < eval_alpha && pc_alpha > MID_SCORE_MIN {
             ctx.update_probcut();
-            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, None);
+            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, thread, None);
             ctx.undo_probcut(current_selectivity);
             if score <= pc_alpha {
                 return Some(alpha);
@@ -298,11 +301,12 @@ pub fn probcut_endgame(
     depth: Depth,
     alpha: Score,
     beta: Score,
+    thread: &Arc<Thread>,
 ) -> Option<Score> {
     if depth >= 10 && ctx.selectivity < NO_SELECTIVITY {
         let scaled_alpha = alpha << EVAL_SCORE_SCALE_BITS;
         let scaled_beta = beta << EVAL_SCORE_SCALE_BITS;
-        if let Some(score) = probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta) {
+        if let Some(score) = probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta, thread) {
             return Some(score >> EVAL_SCORE_SCALE_BITS);
         }
     }
@@ -316,6 +320,7 @@ fn probcut_endgame_internal(
     depth: Depth,
     alpha: Score,
     beta: Score,
+    thread: &Arc<Thread>,
 ) -> Option<Score> {
     let pc_depth = determine_probcut_depth(depth);
     let mean: f64 = calc_mean_end(pc_depth, depth);
@@ -328,7 +333,7 @@ fn probcut_endgame_internal(
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
     if eval_score > alpha && pc_beta < MID_SCORE_MAX {
         ctx.update_probcut();
-        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, None);
+        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread, None);
         ctx.undo_probcut(current_selectivity);
         if score >= pc_beta {
             return Some(beta);
@@ -338,7 +343,7 @@ fn probcut_endgame_internal(
     let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
     if eval_score < beta &&  pc_alpha > MID_SCORE_MIN {
         ctx.update_probcut();
-        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, None);
+        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, thread, None);
         ctx.undo_probcut(current_selectivity);
         if score <= pc_alpha {
             return Some(alpha);
