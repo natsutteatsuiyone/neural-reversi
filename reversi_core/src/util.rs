@@ -1,3 +1,4 @@
+pub mod align;
 pub mod bitset;
 pub mod spinlock;
 

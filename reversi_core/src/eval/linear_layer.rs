@@ -5,11 +5,12 @@ use std::{
     is_x86_feature_detected,
 };
 
-use aligned::{Aligned, A64};
-use aligned_vec::{avec, AVec, ConstAlign};
+use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::{eval::CACHE_LINE_SIZE, util::ceil_to_multiple};
+use crate::eval::CACHE_LINE_SIZE;
+use crate::util::align::Align64;
+use crate::util::ceil_to_multiple;
 
 /// Linear transformation layer with AVX2-optimized weight layout.
 ///
@@ -31,11 +32,11 @@ pub struct LinearLayer<
 }
 
 impl<
-        const INPUT_DIMS: usize,
-        const OUTPUT_DIMS: usize,
-        const PADDED_INPUT_DIMS: usize,
-        const PADDED_OUTPUT_DIMS: usize,
-    > LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
+    const INPUT_DIMS: usize,
+    const OUTPUT_DIMS: usize,
+    const PADDED_INPUT_DIMS: usize,
+    const PADDED_OUTPUT_DIMS: usize,
+> LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
 {
     /// Loads weights and biases from binary format.
     ///
@@ -85,7 +86,11 @@ impl<
     ///
     /// * `input` - Aligned input activations (u8 values)
     /// * `output` - Aligned output buffer for results (i32 accumulators)
-    pub fn forward(&self, input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>, output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>) {
+    pub fn forward(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("avx2") {
@@ -102,12 +107,12 @@ impl<
     #[cfg(target_arch = "x86_64")]
     fn forward_avx2(
         &self,
-        input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>,
-        output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
         unsafe {
             if OUTPUT_DIMS > 1 {
-                let mut acc: Aligned<A64, [i32; OUTPUT_DIMS]> = std::mem::zeroed();
+                let mut acc: Align64<[i32; OUTPUT_DIMS]> = std::mem::zeroed();
                 let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
 
                 let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
@@ -153,7 +158,11 @@ impl<
     }
 
     /// Portable forward pass.
-    fn forward_fallback(&self, input: &Aligned<A64, [u8; PADDED_INPUT_DIMS]>, output: &mut Aligned<A64, [i32; PADDED_OUTPUT_DIMS]>) {
+    fn forward_fallback(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
         if OUTPUT_DIMS > 1 {
             output[..OUTPUT_DIMS].copy_from_slice(&self.biases[..OUTPUT_DIMS]);
 
@@ -221,15 +230,10 @@ fn m256_hadd(sum_vec: __m256i, bias: i32) -> i32 {
 mod tests {
     use super::*;
     use std::io::Cursor;
-    use aligned::{Aligned, A64};
 
     /// Helper to create a test LinearLayer with known weights and biases
-    fn create_test_layer<
-        const I: usize,
-        const O: usize,
-        const PI: usize,
-        const PO: usize,
-    >() -> LinearLayer<I, O, PI, PO> {
+    fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>()
+    -> LinearLayer<I, O, PI, PO> {
         let mut layer = LinearLayer::<I, O, PI, PO> {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
@@ -300,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_forward_single_output() {
-        const I: usize = 32;  // Must be multiple of 32 for AVX2 single output path
+        const I: usize = 32; // Must be multiple of 32 for AVX2 single output path
         const O: usize = 1;
         const PI: usize = 32;
         const PO: usize = 32;
@@ -320,8 +324,8 @@ mod tests {
         }
 
         // Create aligned input and output
-        let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
-        let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
+        let mut input = Align64([0; PI]);
+        let mut output = Align64([0; PO]);
 
         // Set some input values
         input[0] = 10;
@@ -344,8 +348,8 @@ mod tests {
 
         let layer = create_test_layer::<I, O, PI, PO>();
 
-        let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
-        let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
+        let mut input = Align64([0; PI]);
+        let mut output = Align64([0; PO]);
 
         // Set input values
         for i in 0..I {
@@ -364,7 +368,7 @@ mod tests {
     #[test]
     fn test_forward_with_zero_input() {
         const I: usize = 8;
-        const O: usize = 8;  // Must be multiple of 8 for AVX2
+        const O: usize = 8; // Must be multiple of 8 for AVX2
         const PI: usize = 32;
         const PO: usize = 32;
 
@@ -378,8 +382,8 @@ mod tests {
             layer.biases[i] = (i as i32 + 1) * 100;
         }
 
-        let input = Aligned::<A64, [u8; PI]>([0; PI]); // All zeros
-        let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
+        let input = Align64([0; PI]); // All zeros
+        let mut output = Align64([0; PO]);
 
         layer.forward(&input, &mut output);
 
@@ -399,9 +403,9 @@ mod tests {
 
         let layer = create_test_layer::<I, O, PI, PO>();
 
-        let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
-        let mut output_avx2 = Aligned::<A64, [i32; PO]>([0; PO]);
-        let mut output_fallback = Aligned::<A64, [i32; PO]>([0; PO]);
+        let mut input = Align64([0; PI]);
+        let mut output_avx2 = Align64([0; PO]);
+        let mut output_fallback = Align64([0; PO]);
 
         // Set random-like input values
         for i in 0..I {
@@ -421,7 +425,8 @@ mod tests {
             for i in 0..O {
                 assert_eq!(
                     output_avx2[i], output_fallback[i],
-                    "Mismatch at output index {}", i
+                    "Mismatch at output index {}",
+                    i
                 );
             }
         }
@@ -443,7 +448,9 @@ mod tests {
                 assert!(
                     idx < PI * PO,
                     "Index {} out of bounds for input={}, output={}",
-                    idx, input_idx, output_idx
+                    idx,
+                    input_idx,
+                    output_idx
                 );
             }
         }
@@ -453,7 +460,7 @@ mod tests {
     fn test_forward_sparse_input() {
         // Test the zero-skipping optimization
         const I: usize = 32;
-        const O: usize = 8;  // Must be multiple of 8 for AVX2
+        const O: usize = 8; // Must be multiple of 8 for AVX2
         const PI: usize = 32;
         const PO: usize = 32;
 
@@ -475,8 +482,8 @@ mod tests {
             }
         }
 
-        let mut input = Aligned::<A64, [u8; PI]>([0; PI]);
-        let mut output = Aligned::<A64, [i32; PO]>([0; PO]);
+        let mut input = Align64([0; PI]);
+        let mut output = Align64([0; PO]);
 
         // Set only a few non-zero values (sparse input)
         input[5] = 100;

@@ -1,17 +1,16 @@
 use std::fs::File;
 use std::io::{self, BufReader};
 
-use aligned::{Aligned, A64};
-
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::activations::{clipped_relu, sqr_clipped_relu};
 use crate::eval::base_input::BaseInput;
 use crate::eval::constants::*;
 use crate::eval::linear_layer::LinearLayer;
-use crate::eval::pattern_feature::{PatternFeature, NUM_PATTERN_FEATURES};
+use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
 use crate::types::Score;
+use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
 
 const BASE_OUTPUT_DIMS: usize = 96;
@@ -55,7 +54,7 @@ struct LayerStack {
         L2_INPUT_DIMS,
         L2_OUTPUT_DIMS,
         L2_PADDED_INPUT_DIMS,
-        L2_PADDED_OUTPUT_DIMS
+        L2_PADDED_OUTPUT_DIMS,
     >,
     pub lo: LinearLayer<
         LO_INPUT_DIMS,
@@ -67,16 +66,16 @@ struct LayerStack {
 
 // Thread-local working buffers for network computation
 struct NetworkBuffers {
-    base_out: Aligned<A64, [u8; L1_BASE_PADDED_INPUT_DIMS]>,
-    pa_out: Aligned<A64, [u8; L1_PA_PADDED_INPUT_DIMS]>,
-    l1_base_out: Aligned<A64, [i32; L1_BASE_PADDED_OUTPUT_DIMS]>,
-    l1_pa_out: Aligned<A64, [i32; L1_PA_PADDED_OUTPUT_DIMS]>,
-    l1_li_out: Aligned<A64, [i32; L1_OUTPUT_DIMS]>,
-    l1_sqr_relu: Aligned<A64, [u8; L1_OUTPUT_DIMS]>,
-    l1_relu: Aligned<A64, [u8; L1_OUTPUT_DIMS]>,
-    l1_out: Aligned<A64, [u8; L2_PADDED_INPUT_DIMS]>,
-    l2_li_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]>,
-    l2_out: Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]>,
+    base_out: Align64<[u8; L1_BASE_PADDED_INPUT_DIMS]>,
+    pa_out: Align64<[u8; L1_PA_PADDED_INPUT_DIMS]>,
+    l1_base_out: Align64<[i32; L1_BASE_PADDED_OUTPUT_DIMS]>,
+    l1_pa_out: Align64<[i32; L1_PA_PADDED_OUTPUT_DIMS]>,
+    l1_li_out: Align64<[i32; L1_OUTPUT_DIMS]>,
+    l1_sqr_relu: Align64<[u8; L1_OUTPUT_DIMS]>,
+    l1_relu: Align64<[u8; L1_OUTPUT_DIMS]>,
+    l1_out: Align64<[u8; L2_PADDED_INPUT_DIMS]>,
+    l2_li_out: Align64<[i32; L2_PADDED_OUTPUT_DIMS]>,
+    l2_out: Align64<[u8; L2_PADDED_OUTPUT_DIMS]>,
     feature_indices: [usize; NUM_FEATURES],
 }
 
@@ -84,16 +83,16 @@ impl NetworkBuffers {
     #[inline]
     fn new() -> Self {
         Self {
-            base_out: Aligned([0; L1_BASE_PADDED_INPUT_DIMS]),
-            pa_out: Aligned([0; L1_PA_PADDED_INPUT_DIMS]),
-            l1_base_out: Aligned([0; L1_BASE_PADDED_OUTPUT_DIMS]),
-            l1_pa_out: Aligned([0; L1_PA_PADDED_OUTPUT_DIMS]),
-            l1_li_out: Aligned([0; L1_OUTPUT_DIMS]),
-            l1_sqr_relu: Aligned([0; L1_OUTPUT_DIMS]),
-            l1_relu: Aligned([0; L1_OUTPUT_DIMS]),
-            l1_out: Aligned([0; L2_PADDED_INPUT_DIMS]),
-            l2_li_out: Aligned([0; L2_PADDED_OUTPUT_DIMS]),
-            l2_out: Aligned([0; L2_PADDED_OUTPUT_DIMS]),
+            base_out: Align64([0; L1_BASE_PADDED_INPUT_DIMS]),
+            pa_out: Align64([0; L1_PA_PADDED_INPUT_DIMS]),
+            l1_base_out: Align64([0; L1_BASE_PADDED_OUTPUT_DIMS]),
+            l1_pa_out: Align64([0; L1_PA_PADDED_OUTPUT_DIMS]),
+            l1_li_out: Align64([0; L1_OUTPUT_DIMS]),
+            l1_sqr_relu: Align64([0; L1_OUTPUT_DIMS]),
+            l1_relu: Align64([0; L1_OUTPUT_DIMS]),
+            l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
+            l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
+            l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
             feature_indices: [0; NUM_FEATURES],
         }
     }
@@ -116,11 +115,11 @@ impl Network {
         let reader = BufReader::new(file);
         let mut decoder = zstd::stream::read::Decoder::new(reader)?;
 
-        let base_input = BaseInput::<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>::load(&mut decoder,)?;
+        let base_input = BaseInput::<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>::load(&mut decoder)?;
 
         let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
         for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
-            let pa_input = PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder,)?;
+            let pa_input = PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
             pa_inputs.push(pa_input);
         }
 
@@ -194,13 +193,8 @@ impl Network {
 
     #[inline(always)]
     fn forward_l1(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
-        ls.l1_base.forward(
-            &buffers.base_out,
-            &mut buffers.l1_base_out,
-        );
-        ls.l1_pa.forward(
-            &buffers.pa_out,
-            &mut buffers.l1_pa_out);
+        ls.l1_base .forward(&buffers.base_out, &mut buffers.l1_base_out);
+        ls.l1_pa.forward(&buffers.pa_out, &mut buffers.l1_pa_out);
 
         buffers.l1_li_out[..L1_BASE_OUTPUT_DIMS]
             .copy_from_slice(&buffers.l1_base_out[..L1_BASE_OUTPUT_DIMS]);
@@ -211,10 +205,8 @@ impl Network {
         clipped_relu::<L1_OUTPUT_DIMS>(&buffers.l1_li_out, &mut buffers.l1_relu);
 
         const L2_INPUT_DIMS_HALF: usize = L2_INPUT_DIMS / 2;
-        buffers.l1_out[..L2_INPUT_DIMS_HALF]
-            .copy_from_slice(buffers.l1_sqr_relu.as_slice());
-        buffers.l1_out[L2_INPUT_DIMS_HALF..L2_INPUT_DIMS]
-            .copy_from_slice(buffers.l1_relu.as_slice());
+        buffers.l1_out[..L2_INPUT_DIMS_HALF].copy_from_slice(buffers.l1_sqr_relu.as_slice());
+        buffers.l1_out[L2_INPUT_DIMS_HALF..L2_INPUT_DIMS].copy_from_slice(buffers.l1_relu.as_slice());
     }
 
     #[inline(always)]
@@ -230,7 +222,7 @@ impl Network {
     #[inline(always)]
     fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> Score {
         let input = &buffers.l2_out;
-        let mut output: Aligned<A64, [i32; 32]> = Aligned([0; 32]);
+        let mut output = Align64([0; 32]);
 
         ls.lo.forward(input, &mut output);
         output[0] >> OUTPUT_WEIGHT_SCALE_BITS

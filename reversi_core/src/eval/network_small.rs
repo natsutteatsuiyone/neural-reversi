@@ -1,19 +1,19 @@
 use std::fs::File;
 use std::io::{self, BufReader};
 
-use aligned::{Aligned, A64};
-
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::activations::clipped_relu;
 use crate::eval::linear_layer::LinearLayer;
-use crate::eval::pattern_feature::{PatternFeature, NUM_PATTERN_FEATURES};
+use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
 use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
 use crate::types::Score;
+use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
 
 use super::constants::{
-    INPUT_FEATURE_DIMS, MOBILITY_SCALE, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS, PATTERN_FEATURE_OFFSETS
+    INPUT_FEATURE_DIMS, MOBILITY_SCALE, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS,
+    PATTERN_FEATURE_OFFSETS,
 };
 
 const PA_OUTPUT_DIMS: usize = 64;
@@ -50,11 +50,11 @@ struct LayerStack {
 }
 
 struct NetworkBuffers {
-    pa_out: Aligned<A64, [u8; L1_PA_PADDED_INPUT_DIMS]>,
-    l1_pa_out: Aligned<A64, [i32; L1_PA_PADDED_OUTPUT_DIMS]>,
-    l1_out: Aligned<A64, [u8; L2_PADDED_INPUT_DIMS]>,
-    l2_li_out: Aligned<A64, [i32; L2_PADDED_OUTPUT_DIMS]>,
-    l2_out: Aligned<A64, [u8; L2_PADDED_OUTPUT_DIMS]>,
+    pa_out: Align64<[u8; L1_PA_PADDED_INPUT_DIMS]>,
+    l1_pa_out: Align64<[i32; L1_PA_PADDED_OUTPUT_DIMS]>,
+    l1_out: Align64<[u8; L2_PADDED_INPUT_DIMS]>,
+    l2_li_out: Align64<[i32; L2_PADDED_OUTPUT_DIMS]>,
+    l2_out: Align64<[u8; L2_PADDED_OUTPUT_DIMS]>,
     feature_indices: [usize; NUM_FEATURES],
 }
 
@@ -62,11 +62,11 @@ impl NetworkBuffers {
     #[inline]
     fn new() -> Self {
         Self {
-            pa_out: Aligned([0; L1_PA_PADDED_INPUT_DIMS]),
-            l1_pa_out: Aligned([0; L1_PA_PADDED_OUTPUT_DIMS]),
-            l1_out: Aligned([0; L2_PADDED_INPUT_DIMS]),
-            l2_li_out: Aligned([0; L2_PADDED_OUTPUT_DIMS]),
-            l2_out: Aligned([0; L2_PADDED_OUTPUT_DIMS]),
+            pa_out: Align64([0; L1_PA_PADDED_INPUT_DIMS]),
+            l1_pa_out: Align64([0; L1_PA_PADDED_OUTPUT_DIMS]),
+            l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
+            l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
+            l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
             feature_indices: [0; NUM_FEATURES],
         }
     }
@@ -90,10 +90,7 @@ impl NetworkSmall {
 
         let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
         for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
-            let pa_input =
-                PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(
-                    &mut decoder,
-                )?;
+            let pa_input = PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
             pa_inputs.push(pa_input);
         }
 
@@ -138,12 +135,7 @@ impl NetworkSmall {
     }
 
     #[inline(always)]
-    fn forward_input_pa(
-        &self,
-        buffers: &mut NetworkBuffers,
-        mobility: u8,
-        ply: usize,
-    ) {
+    fn forward_input_pa(&self, buffers: &mut NetworkBuffers, mobility: u8, ply: usize) {
         let pa_index = ply / (60 / NUM_PHASE_ADAPTIVE_INPUT);
         let pa_input = &self.pa_inputs[pa_index];
         pa_input.forward_leaky_relu(&buffers.feature_indices, buffers.pa_out.as_mut_slice());
@@ -151,21 +143,13 @@ impl NetworkSmall {
     }
 
     #[inline(always)]
-    fn forward_l1(
-        &self,
-        ls: &LayerStack,
-        buffers: &mut NetworkBuffers,
-    ) {
+    fn forward_l1(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
         ls.l1_pa.forward(&buffers.pa_out, &mut buffers.l1_pa_out);
         clipped_relu::<L2_PADDED_INPUT_DIMS>(&buffers.l1_pa_out, &mut buffers.l1_out);
     }
 
     #[inline(always)]
-    fn forward_l2(
-        &self,
-        ls: &LayerStack,
-        buffers: &mut NetworkBuffers,
-    ) {
+    fn forward_l2(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
         ls.l2.forward(&buffers.l1_out, &mut buffers.l2_li_out);
         clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&buffers.l2_li_out, &mut buffers.l2_out);
     }
@@ -173,7 +157,7 @@ impl NetworkSmall {
     #[inline(always)]
     fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> Score {
         let input = &buffers.l2_out;
-        let mut output: Aligned<A64, [i32; 32]> = Aligned([0; 32]);
+        let mut output = Align64([0; 32]);
 
         ls.lo.forward(input, &mut output);
         output[0] >> OUTPUT_WEIGHT_SCALE_BITS

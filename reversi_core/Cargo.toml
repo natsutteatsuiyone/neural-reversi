@@ -4,7 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-aligned = "0.4.2"
 aligned-vec = "0.6.4"
 byteorder = "1.5.0"
 lock_api = "0.4.13"
