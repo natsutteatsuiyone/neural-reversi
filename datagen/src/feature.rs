@@ -5,25 +5,22 @@
 //! the training data and outputs compressed feature files.
 
 use std::{
-    collections::HashMap,
     fs::{self, File},
-    io::{self, BufWriter},
+    io::{self},
     path::Path,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
+use rustc_hash::FxHashMap;
+
 use byteorder::{LittleEndian, WriteBytesExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle, ProgressDrawTarget};
 use rand::seq::SliceRandom;
 use rayon::prelude::*;
-use zstd::stream::write::Encoder;
 
 use reversi_core::board::Board;
 use reversi_core::eval::pattern_feature;
-
-const COMPRESSION_LEVEL: i32 = 7;
-const BATCH_SIZE: usize = 1;
 
 /// Represents a single game position with evaluation and metadata.
 ///
@@ -71,12 +68,14 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
     }
 
     println!("Scanning input directory: {}", input_dir.display());
-    let mut entries = fs::read_dir(input_dir)?
+    let entries = fs::read_dir(input_dir)?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("bin") {
-                Some(path)
+                // Get file size for better work distribution
+                let size = entry.metadata().ok()?.len();
+                Some((path, size))
             } else {
                 None
             }
@@ -89,118 +88,191 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
         return Ok(());
     }
     println!("Found {} bin files to process", total_files);
-    entries.shuffle(&mut rand::rng());
 
-    let entry_groups: Vec<_> = entries.chunks(BATCH_SIZE).collect();
     let processed_files_count = AtomicUsize::new(0);
     let start_time = std::time::Instant::now();
 
     let mp = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
-    let pb = mp.add(ProgressBar::new(total_files as u64));
-    pb.set_style(
+
+    // Main progress bar showing overall completion
+    let main_pb = mp.add(ProgressBar::new(total_files as u64));
+    main_pb.set_style(
         ProgressStyle::with_template(
-            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%) ETA:{eta_precise}",
+            "{spinner:.green} Overall [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%) ETA:{eta_precise} | {msg}",
         )
         .unwrap()
-        .progress_chars("#>-"),
+        .progress_chars("█▉▊▋▌▍▎▏  "),
     );
-    pb.enable_steady_tick(Duration::from_millis(100));
+    main_pb.enable_steady_tick(Duration::from_millis(100));
+
+    // Individual progress bars for each thread
+    let thread_pbs: Vec<_> = (0..threads)
+        .map(|i| {
+            let pb = mp.add(ProgressBar::new_spinner());
+            pb.set_style(
+                ProgressStyle::with_template(
+                    "  Thread {prefix:>2} {spinner:.yellow} {msg}"
+                )
+                .unwrap(),
+            );
+            pb.set_prefix(format!("{}", i + 1));
+            pb.enable_steady_tick(Duration::from_millis(100));
+            pb
+        })
+        .collect();
+
+    let active_threads = AtomicUsize::new(0);
 
 
-    entry_groups
+    entries
         .par_iter()
         .enumerate()
-        .for_each(|(group_idx, entry_group)| {
-            if let Err(e) = process_file_group(group_idx, entry_group, output_dir, score_correction) {
-                eprintln!("Failed to process group {}: {}", group_idx, e);
+        .for_each(|(file_idx, (entry_path, file_size))| {
+            let thread_id = rayon::current_thread_index().unwrap_or(0);
+            let thread_pb = &thread_pbs[thread_id % threads];
+
+            // Get filename for display
+            let file_name = entry_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+
+            // Update thread progress with current file
+            let size_mb = *file_size as f64 / 1_048_576.0;
+            thread_pb.set_message(format!("Processing: {} ({:.1}MB)", file_name, size_mb));
+
+            // Update active thread count
+            let active = active_threads.fetch_add(1, Ordering::SeqCst) + 1;
+            main_pb.set_message(format!("Active threads: {}/{}", active, threads));
+
+            let start = std::time::Instant::now();
+
+            if let Err(e) = process_file(file_idx, entry_path, output_dir, score_correction) {
+                eprintln!("Failed to process file {}: {}", file_idx, e);
+                thread_pb.set_message(format!("Error: {}", file_name));
+            } else {
+                let duration = start.elapsed();
+                let throughput = size_mb / duration.as_secs_f64();
+                thread_pb.set_message(format!("Completed: {} ({:.1}MB/s)", file_name, throughput));
             }
 
             let completed_files =
-                processed_files_count.fetch_add(entry_group.len(), Ordering::SeqCst) + entry_group.len();
-            pb.set_position(completed_files as u64);
+                processed_files_count.fetch_add(1, Ordering::SeqCst) + 1;
+            main_pb.set_position(completed_files as u64);
+
+            // Decrease active thread count
+            active_threads.fetch_sub(1, Ordering::SeqCst);
+
+            // Brief delay before clearing progress message
+            std::thread::sleep(Duration::from_millis(500));
+            thread_pb.set_message("");
         });
 
-    pb.finish_with_message("Feature generation completed");
+    // Finish all progress bars
+    for pb in thread_pbs {
+        pb.finish_and_clear();
+    }
+    main_pb.finish_with_message("Feature generation completed");
     mp.clear()?;
 
     let total_time = start_time.elapsed();
+    let throughput = total_files as f64 / total_time.as_secs_f64();
     println!(
-        "Feature generation completed in {:.2?} - Processed {} files",
-        total_time, total_files
+        "Feature generation completed in {:.2?} - Processed {} files ({:.1} files/sec)",
+        total_time, total_files, throughput
     );
     Ok(())
 }
 
-/// Processes a group of game files and generates a single feature file.
+/// Processes a single game file and generates a feature file.
 ///
-/// This function reads multiple game files, extracts unique positions with
+/// This function reads a game file, extracts unique positions with
 /// all 8 symmetrical variations, and writes them to a compressed feature file.
 /// Duplicate positions are automatically deduplicated.
 ///
 /// # Arguments
 ///
-/// * `group_idx` - Index of this file group (used for output filename)
-/// * `entry_paths` - Paths to the game files to process
+/// * `file_idx` - Index of this file (used for output filename)
+/// * `entry_path` - Path to the game file to process
 /// * `output_dir` - Directory where the feature file will be written
 /// * `score_correction` - Whether to apply endgame score correction
-fn process_file_group(
-    group_idx: usize,
-    entry_paths: &[std::path::PathBuf],
+fn process_file(
+    file_idx: usize,
+    entry_path: &Path,
     output_dir: &Path,
     score_correction: bool,
 ) -> io::Result<()> {
-    let mut unique_positions = HashMap::new();
-    for path in entry_paths {
-        let input_path_str = path.to_str().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8")
-        })?;
+    let input_path_str = entry_path.to_str().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8")
+    })?;
 
-        let game_records = load_game_records(input_path_str, score_correction)
-            .map_err(|e| io::Error::new(e.kind(), format!("Failed to load game records from {}: {}", input_path_str, e)))?;
+    let game_records = load_game_records(input_path_str, score_correction)
+        .map_err(|e| io::Error::new(e.kind(), format!("Failed to load game records from {}: {}", input_path_str, e)))?;
 
-        for record in game_records {
-            let base_board = Board::from_bitboards(record.player, record.opponent);
-            let score = record.score;
-            let mobility = base_board.get_moves().count_ones() as u8;
-            let ply = record.ply;
+    // Pre-allocate HashMap with estimated capacity for better performance
+    let estimated_positions = game_records.len() * 8;
+    let mut unique_positions = FxHashMap::with_capacity_and_hasher(
+        estimated_positions,
+        Default::default()
+    );
 
-            let b90 = base_board.rotate_90_clockwise();
-            let b180 = b90.rotate_90_clockwise();
-            let b270 = b180.rotate_90_clockwise();
-            let boards = [
-                base_board,
-                b90,
-                b180,
-                b270,
-                base_board.flip_vertical(),
-                base_board.flip_horizontal(),
-                base_board.flip_diag_a1h8(),
-                base_board.flip_diag_a8h1(),
-            ];
+    for record in game_records {
+        let base_board = Board::from_bitboards(record.player, record.opponent);
+        let score = record.score;
+        let mobility = base_board.get_moves().count_ones() as u8;
+        let ply = record.ply;
 
-            for board in boards {
-                unique_positions
-                    .entry(board)
-                    .or_insert((score, mobility, ply));
-            }
+        // Check if base position already exists before computing symmetries
+        if unique_positions.contains_key(&base_board) {
+            continue;
+        }
+
+        // Insert base board first
+        unique_positions.insert(base_board, (score, mobility, ply));
+
+        // Compute rotations incrementally
+        let b90 = base_board.rotate_90_clockwise();
+        unique_positions.entry(b90).or_insert((score, mobility, ply));
+
+        let b180 = b90.rotate_90_clockwise();
+        unique_positions.entry(b180).or_insert((score, mobility, ply));
+
+        let b270 = b180.rotate_90_clockwise();
+        unique_positions.entry(b270).or_insert((score, mobility, ply));
+
+        // Compute flips only if not already present
+        let flips = [
+            base_board.flip_vertical(),
+            base_board.flip_horizontal(),
+            base_board.flip_diag_a1h8(),
+            base_board.flip_diag_a8h1(),
+        ];
+
+        for board in flips {
+            unique_positions.entry(board).or_insert((score, mobility, ply));
         }
     }
 
-    let mut all_positions: Vec<_> = unique_positions.into_iter().collect();
+    // Convert to vector without intermediate allocation
+    let positions_count = unique_positions.len();
+    let mut all_positions = Vec::with_capacity(positions_count);
+    all_positions.extend(unique_positions);
     all_positions.shuffle(&mut rand::rng());
 
-    let file_path = output_dir.join(format!("features_{}.zst", group_idx));
+    let file_path = output_dir.join(format!("features_{}.zst", file_idx));
     let file = File::create(file_path)?;
-    let buf_writer = BufWriter::new(file);
-    let mut encoder = Encoder::new(buf_writer, COMPRESSION_LEVEL)?;
+
+    // Collect all data into memory first
+    let mut data = Vec::new();
     for (board, (score, mobility, ply)) in all_positions {
         let mut features = [0; pattern_feature::NUM_PATTERN_FEATURES];
         pattern_feature::set_features(&board, &mut features);
 
-        write_feature_record(&mut encoder, score, &features, mobility, ply)?;
+        write_feature_record(&mut data, score, &features, mobility, ply)?;
     }
 
-    encoder.finish()?;
+    // Compress and write all data at once
+    let compressed = zstd::bulk::compress(&data, 3)?;
+    std::io::Write::write_all(&mut std::io::BufWriter::new(file), &compressed)?;
 
     Ok(())
 }
@@ -254,10 +326,10 @@ fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<
             score = ((ply as f32 * game_score as f32) + (59.0 - ply as f32) * score) / 59.0;
         }
 
-        assert!(player & opponent == 0, "Player and opponent bitboards overlap: {} {}", player, opponent);
-        assert!((-64.0..=64.0).contains(&score), "Score out of range: {}", score);
-        assert!((-64..=64).contains(&game_score), "Game score out of range: {}", game_score);
-        assert!(ply <= 59, "Ply value out of range: {}", ply);
+        debug_assert!(player & opponent == 0, "Player and opponent bitboards overlap: {} {}", player, opponent);
+        debug_assert!((-64.0..=64.0).contains(&score), "Score out of range: {}", score);
+        debug_assert!((-64..=64).contains(&game_score), "Game score out of range: {}", game_score);
+        debug_assert!(ply <= 59, "Ply value out of range: {}", ply);
 
         records.push(GameRecord {
             player,
@@ -280,23 +352,23 @@ fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<
 ///
 /// # Arguments
 ///
-/// * `encoder` - Zstandard encoder for compression
+/// * `data` - Vector to write binary data to
 /// * `score` - Evaluation score for this position
 /// * `features` - Array of pattern feature indices
 /// * `mobility` - Number of legal moves in this position
 /// * `ply` - Move number in the game
 fn write_feature_record(
-    encoder: &mut Encoder<BufWriter<File>>,
+    data: &mut Vec<u8>,
     score: f32,
     features: &[u16],
     mobility: u8,
     ply: u8,
 ) -> io::Result<()> {
-    encoder.write_f32::<LittleEndian>(score)?;
+    data.write_f32::<LittleEndian>(score)?;
     for &feature in features {
-        encoder.write_u16::<LittleEndian>(feature)?;
+        data.write_u16::<LittleEndian>(feature)?;
     }
-    encoder.write_u8(mobility)?;
-    encoder.write_u8(ply)?;
+    data.write_u8(mobility)?;
+    data.write_u8(ply)?;
     Ok(())
 }
