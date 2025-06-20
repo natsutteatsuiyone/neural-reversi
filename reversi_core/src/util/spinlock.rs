@@ -31,7 +31,7 @@ unsafe impl RawMutex for RawSpinLock {
         // Attempt the Compare-And-Swap (CAS) initially.
         while self
             .state
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
             // If the attempt fails, spin while the flag remains true.
@@ -56,7 +56,7 @@ unsafe impl RawMutex for RawSpinLock {
     #[inline]
     fn try_lock(&self) -> bool {
         self.state
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
     }
 
