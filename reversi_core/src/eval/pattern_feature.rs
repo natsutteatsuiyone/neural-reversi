@@ -340,105 +340,122 @@ impl PatternFeatures {
     /// * `mv` - The move that was made
     /// * `ply` - The current ply number
     /// * `side_to_move` - The side that made the move (Player or Opponent)
+    #[inline(always)]
     pub fn update(&mut self, mv: &Move, ply: usize, player: SideToMove) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx2") {
+                unsafe { self.update_avx2(mv, ply, player) }
+                return;
+            }
+        }
+
+        self.update_fallback(mv, ply, player);
+    }
+
+    /// Fallback implementation of pattern feature update for architectures without AVX2 support.
+    fn update_fallback(&mut self, mv: &Move, ply: usize, player: SideToMove) {
         let flip = mv.flipped;
 
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                use std::arch::x86_64::*;
-                let p_in = self.p_features[ply].v16;
-                let p_out = &mut self.p_features[ply + 1].v16;
-                let o_in = self.o_features[ply].v16;
-                let o_out = &mut self.o_features[ply + 1].v16;
+        self.p_features.copy_within(ply..ply + 1, ply + 1);
+        self.o_features.copy_within(ply..ply + 1, ply + 1);
+        let p_out = &mut self.p_features[ply + 1];
+        let o_out = &mut self.o_features[ply + 1];
+        let s = &EVAL_X2F[mv.sq.index()];
 
-                let sq_index = mv.sq.index();
-                let f = &EVAL_FEATURE[sq_index].v16;
-
-                let (p_scale, o_scale, p_sign, o_sign) = if player == SideToMove::Player {
-                    (
-                        _mm256_set1_epi16(2),
-                        _mm256_set1_epi16(1),
-                        _mm256_set1_epi16(-1), // p: subtract sum
-                        _mm256_set1_epi16(1),  // o: add sum
-                    )
-                } else {
-                    (
-                        _mm256_set1_epi16(1),
-                        _mm256_set1_epi16(2),
-                        _mm256_set1_epi16(1),  // p: add sum
-                        _mm256_set1_epi16(-1), // o: subtract sum
-                    )
-                };
-
-                p_out[0] = _mm256_sub_epi16(p_in[0], _mm256_mullo_epi16(f[0], p_scale));
-                p_out[1] = _mm256_sub_epi16(p_in[1], _mm256_mullo_epi16(f[1], p_scale));
-                o_out[0] = _mm256_sub_epi16(o_in[0], _mm256_mullo_epi16(f[0], o_scale));
-                o_out[1] = _mm256_sub_epi16(o_in[1], _mm256_mullo_epi16(f[1], o_scale));
-
-                let mut sum0 = _mm256_setzero_si256();
-                let mut sum1 = _mm256_setzero_si256();
-                for x in BitboardIterator::new(flip) {
-                    let f = &EVAL_FEATURE[x as usize].v16;
-                    sum0 = _mm256_add_epi16(sum0, f[0]);
-                    sum1 = _mm256_add_epi16(sum1, f[1]);
+        if player == SideToMove::Player {
+            for i in 0..s.n_features {
+                let j = s.features[i as usize][0] as usize;
+                let x = s.features[i as usize][1] as usize;
+                unsafe {
+                    p_out.v1[j] -= 2 * x as u16;
+                    o_out.v1[j] -= x as u16;
                 }
-
-                p_out[0] = _mm256_add_epi16(p_out[0], _mm256_mullo_epi16(sum0, p_sign));
-                p_out[1] = _mm256_add_epi16(p_out[1], _mm256_mullo_epi16(sum1, p_sign));
-                o_out[0] = _mm256_add_epi16(o_out[0], _mm256_mullo_epi16(sum0, o_sign));
-                o_out[1] = _mm256_add_epi16(o_out[1], _mm256_mullo_epi16(sum1, o_sign));
             }
-        } else {
-            self.p_features.copy_within(ply..ply + 1, ply + 1);
-            self.o_features.copy_within(ply..ply + 1, ply + 1);
-            let p_out = &mut self.p_features[ply + 1];
-            let o_out = &mut self.o_features[ply + 1];
-            let s = &EVAL_X2F[mv.sq.index()];
 
-            if player == SideToMove::Player {
-                for i in 0..s.n_features {
-                    let j = s.features[i as usize][0] as usize;
-                    let x = s.features[i as usize][1] as usize;
-                    unsafe {
-                        p_out.v1[j] -= 2 * x as u16;
-                        o_out.v1[j] -= x as u16;
-                    }
-                }
-
-                for x in BitboardIterator::new(flip) {
-                    let s_bit = &EVAL_X2F[x as usize];
-                    for i in 0..s_bit.n_features {
-                        let j = s_bit.features[i as usize][0] as usize;
-                        let x = s_bit.features[i as usize][1] as usize;
-                        unsafe {
-                            p_out.v1[j] -= x as u16;
-                            o_out.v1[j] += x as u16;
-                        }
-                    }
-                }
-            } else {
-                for i in 0..s.n_features {
-                    let j = s.features[i as usize][0] as usize;
-                    let x = s.features[i as usize][1] as usize;
+            for x in BitboardIterator::new(flip) {
+                let s_bit = &EVAL_X2F[x as usize];
+                for i in 0..s_bit.n_features {
+                    let j = s_bit.features[i as usize][0] as usize;
+                    let x = s_bit.features[i as usize][1] as usize;
                     unsafe {
                         p_out.v1[j] -= x as u16;
-                        o_out.v1[j] -= 2 * x as u16;
+                        o_out.v1[j] += x as u16;
                     }
                 }
+            }
+        } else {
+            for i in 0..s.n_features {
+                let j = s.features[i as usize][0] as usize;
+                let x = s.features[i as usize][1] as usize;
+                unsafe {
+                    p_out.v1[j] -= x as u16;
+                    o_out.v1[j] -= 2 * x as u16;
+                }
+            }
 
-                for x in BitboardIterator::new(flip) {
-                    let s_bit = &EVAL_X2F[x as usize];
-                    for i in 0..s_bit.n_features {
-                        let j = s_bit.features[i as usize][0] as usize;
-                        let x = s_bit.features[i as usize][1] as usize;
-                        unsafe {
-                            p_out.v1[j] += x as u16;
-                            o_out.v1[j] -= x as u16;
-                        }
+            for x in BitboardIterator::new(flip) {
+                let s_bit = &EVAL_X2F[x as usize];
+                for i in 0..s_bit.n_features {
+                    let j = s_bit.features[i as usize][0] as usize;
+                    let x = s_bit.features[i as usize][1] as usize;
+                    unsafe {
+                        p_out.v1[j] += x as u16;
+                        o_out.v1[j] -= x as u16;
                     }
                 }
             }
         }
+    }
+
+    /// AVX2-optimized implementation of pattern feature update.
+    #[target_feature(enable = "avx2")]
+    #[cfg(target_arch = "x86_64")]
+    fn update_avx2(&mut self, mv: &Move, ply: usize, player: SideToMove) {
+        use std::arch::x86_64::*;
+
+        let flip = mv.flipped;
+        let p_in = unsafe { self.p_features[ply].v16 };
+        let p_out = unsafe { &mut self.p_features[ply + 1].v16 };
+        let o_in = unsafe { self.o_features[ply].v16 };
+        let o_out = unsafe { &mut self.o_features[ply + 1].v16 };
+
+        let sq_index = mv.sq.index();
+        let f = unsafe { &EVAL_FEATURE[sq_index].v16 };
+
+        let (p_scale, o_scale, p_sign, o_sign) = if player == SideToMove::Player {
+            (
+                _mm256_set1_epi16(2),
+                _mm256_set1_epi16(1),
+                _mm256_set1_epi16(-1), // p: subtract sum
+                _mm256_set1_epi16(1),  // o: add sum
+            )
+        } else {
+            (
+                _mm256_set1_epi16(1),
+                _mm256_set1_epi16(2),
+                _mm256_set1_epi16(1),  // p: add sum
+                _mm256_set1_epi16(-1), // o: subtract sum
+            )
+        };
+
+        p_out[0] = _mm256_sub_epi16(p_in[0], _mm256_mullo_epi16(f[0], p_scale));
+        p_out[1] = _mm256_sub_epi16(p_in[1], _mm256_mullo_epi16(f[1], p_scale));
+        o_out[0] = _mm256_sub_epi16(o_in[0], _mm256_mullo_epi16(f[0], o_scale));
+        o_out[1] = _mm256_sub_epi16(o_in[1], _mm256_mullo_epi16(f[1], o_scale));
+
+        let mut sum0 = _mm256_setzero_si256();
+        let mut sum1 = _mm256_setzero_si256();
+        for x in BitboardIterator::new(flip) {
+            let f = unsafe { &EVAL_FEATURE[x as usize].v16 };
+            sum0 = _mm256_add_epi16(sum0, f[0]);
+            sum1 = _mm256_add_epi16(sum1, f[1]);
+        }
+
+        p_out[0] = _mm256_add_epi16(p_out[0], _mm256_mullo_epi16(sum0, p_sign));
+        p_out[1] = _mm256_add_epi16(p_out[1], _mm256_mullo_epi16(sum1, p_sign));
+        o_out[0] = _mm256_add_epi16(o_out[0], _mm256_mullo_epi16(sum0, o_sign));
+        o_out[1] = _mm256_add_epi16(o_out[1], _mm256_mullo_epi16(sum1, o_sign));
     }
 }
 
