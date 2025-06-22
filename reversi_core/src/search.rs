@@ -81,7 +81,11 @@ impl Search {
         self.generation = 0;
     }
 
-    pub fn run<F>(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool, callback: Option<F>) -> SearchResult
+    pub fn run(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool) -> SearchResult {
+        self.run_with_callback::<fn(SearchProgress)>(board, level, selectivity, multi_pv, None)
+    }
+
+    pub fn run_with_callback<F>(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool, callback: Option<F>) -> SearchResult
     where
         F: Fn(SearchProgress) + Send + Sync + 'static,
     {

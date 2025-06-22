@@ -90,7 +90,7 @@ async fn ai_move_command(
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
-        let result = search_guard.run(&board, lv, selectivity, false, Some(callback));
+        let result = search_guard.run_with_callback(&board, lv, selectivity, false, Some(callback));
 
         AIMoveResult {
             best_move: result.best_move.map(|square| square.index()),
@@ -135,7 +135,7 @@ async fn analyze_command(
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
-        search_guard.run(&board, lv, selectivity, true, Some(callback));
+        search_guard.run_with_callback(&board, lv, selectivity, true, Some(callback));
     })
     .await
     .map_err(|e| e.to_string())?;

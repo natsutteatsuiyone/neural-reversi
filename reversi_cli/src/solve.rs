@@ -108,7 +108,7 @@ fn solve_position(
     // search
     search.init();
     let start_time = Instant::now();
-    let result = search.run(&board, level, selectivity, false, None::<fn(_)>);
+    let result = search.run(&board, level, selectivity, false);
     let elapsed = start_time.elapsed();
 
     let depth = if result.get_probability() == 100 {

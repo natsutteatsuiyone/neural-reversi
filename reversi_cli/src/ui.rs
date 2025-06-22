@@ -8,7 +8,7 @@ use reversi_core::{
     self,
     level::{self},
     piece::Piece,
-    search::{self, SearchOptions, SearchProgress},
+    search::{self, SearchOptions},
     search::search_result::SearchResult,
     square::Square,
     types::Selectivity,
@@ -54,7 +54,7 @@ enum Command {
 
 impl Command {
     /// Parse a command string into a Command enum.
-    /// 
+    ///
     /// Supports both full command names and single-character shortcuts.
     /// If the input doesn't match a known command, attempts to parse it as a move.
     fn parse(input: &str) -> Result<Self, String> {
@@ -118,7 +118,7 @@ impl Command {
 }
 
 /// Wrapper for game mode configuration.
-/// 
+///
 /// Determines which players (human or AI) control each side.
 struct GameMode(usize);
 
@@ -148,10 +148,10 @@ impl fmt::Display for GameMode {
 }
 
 /// Main interactive UI loop.
-/// 
+///
 /// Runs the command-line interface, handling user input and game state.
 /// Automatically triggers AI moves based on the current game mode.
-/// 
+///
 /// # Arguments
 /// * `hash_size` - Size of transposition table in MB
 /// * `initial_level` - Initial AI search level
@@ -218,7 +218,7 @@ pub fn ui_loop(hash_size: usize, initial_level: usize, selectivity: Selectivity)
 }
 
 /// Handle execution of a parsed command.
-/// 
+///
 /// # Returns
 /// * `Ok(true)` - Continue the main loop
 /// * `Ok(false)` - Exit the program
@@ -293,7 +293,7 @@ fn handle_command(
 }
 
 /// Execute AI search on the given board position.
-/// 
+///
 /// # Arguments
 /// * `board` - Current board position
 /// * `search` - Search engine instance
@@ -310,12 +310,11 @@ fn execute_ai_search(
         level::get_level(level),
         selectivity,
         false,
-        None::<fn(SearchProgress)>,
     )
 }
 
 /// Display the results of an AI search in either verbose or compact format.
-/// 
+///
 /// # Arguments
 /// * `result` - Search result containing evaluation, depth, nodes searched
 /// * `mv` - The best move found
@@ -351,7 +350,7 @@ fn display_search_result(result: &SearchResult, mv: Square, verbose: bool) {
 }
 
 /// Execute an AI move and display the results.
-/// 
+///
 /// # Returns
 /// * `true` - AI successfully made a move
 /// * `false` - No legal moves available for AI
@@ -378,19 +377,19 @@ fn execute_ai_move(
 }
 
 /// Parse a board position string into Board and side-to-move.
-/// 
+///
 /// Format: 64 characters for board + optional spaces + 1 character for side to move
-/// 
+///
 /// Board characters:
 /// * 'b', 'B', 'x', 'X', '*' - Black pieces
-/// * 'o', 'O', 'w', 'W' - White pieces  
+/// * 'o', 'O', 'w', 'W' - White pieces
 /// * '-', '.' - Empty squares
 /// * Other characters are ignored
-/// 
+///
 /// Side to move characters:
 /// * 'b', 'B', 'x', 'X', '*' - Black to move
 /// * 'o', 'O', 'w', 'W' - White to move
-/// 
+///
 /// # Example
 /// ```
 /// // Standard starting position with Black to move
@@ -451,7 +450,7 @@ fn parse_setboard(board_str: &str) -> Result<(reversi_core::board::Board, Piece)
 }
 
 /// Execute a sequence of moves from a string.
-/// 
+///
 /// Moves should be in standard notation (e.g., "d3e4f5").
 /// Each move is 2 characters (column + row).
 fn execute_play_sequence(game: &mut GameState, moves: &str) -> Result<(), String> {

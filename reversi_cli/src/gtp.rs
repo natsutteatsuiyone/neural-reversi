@@ -11,7 +11,7 @@
 use reversi_core::{
     level,
     piece::Piece,
-    search::{self, SearchOptions, SearchProgress},
+    search::{self, SearchOptions},
     square::Square, types::Selectivity,
 };
 
@@ -506,7 +506,6 @@ impl GtpEngine {
             level::get_level(self.level),
             self.selectivity,
             false,
-            None::<fn(SearchProgress)>,
         );
 
         if let Some(computer_move) = result.pv_line.first() {
