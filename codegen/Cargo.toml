@@ -1,7 +1,0 @@
-[package]
-name = "codegen"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-reversi_core = { path = "../reversi_core" }

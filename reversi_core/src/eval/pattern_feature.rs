@@ -26,6 +26,21 @@ use crate::square::Square;
 /// Number of distinct pattern features used for evaluation.
 pub const NUM_PATTERN_FEATURES: usize = 22;
 
+/// Maximum number of features that any single square can participate in.
+const MAX_FEATURES_PER_SQUARE: usize = 4;
+
+/// Maximum number of features per square as u32 for loop comparisons.
+const MAX_FEATURES_PER_SQUARE_U32: u32 = MAX_FEATURES_PER_SQUARE as u32;
+
+/// Size of the pattern feature vector (padded to 32 for SIMD alignment).
+const FEATURE_VECTOR_SIZE: usize = 32;
+
+/// Number of squares on the reversi board.
+const BOARD_SQUARES: usize = 64;
+
+/// Base for pattern encoding (ternary: empty=2, opponent=1, player=0).
+const PATTERN_BASE: u32 = 3;
+
 /// Type alias for better readability.
 type Sq = Square;
 
@@ -60,7 +75,7 @@ macro_rules! ftc {
 #[repr(align(32))]
 pub union PatternFeature {
     /// Scalar view: array of 16-bit pattern indices.
-    pub v1: [u16; 32],
+    pub v1: [u16; FEATURE_VECTOR_SIZE],
     /// SIMD view: two 256-bit vectors for AVX2 operations.
     v16: [core::arch::x86_64::__m256i; 2],
 }
@@ -68,7 +83,7 @@ pub union PatternFeature {
 impl PatternFeature {
     /// Creates a new PatternFeature initialized to zero.
     fn new() -> Self {
-        Self { v1: [0; 32] }
+        Self { v1: [0; FEATURE_VECTOR_SIZE] }
     }
 }
 
@@ -82,18 +97,9 @@ struct CoordinateToFeature {
     n_features: u32,
     /// Array of [feature_index, power_of_3] pairs.
     /// power_of_3 indicates the square's position in the pattern.
-    features: [[u32; 2]; 4],
+    features: [[u32; 2]; MAX_FEATURES_PER_SQUARE],
 }
 
-/// Macro for creating CoordinateToFeature instances.
-macro_rules! ctf {
-    ($n_features:expr, [$([$f:expr, $i:expr],)*]) => {
-        CoordinateToFeature {
-            n_features: $n_features,
-            features: [$([$f, $i],)*],
-        }
-    };
-}
 
 /// Board squares that make up each pattern.
 #[rustfmt::skip]
@@ -127,164 +133,107 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
     ftc!(8, [Sq::H7, Sq::H6, Sq::H5, Sq::H4, Sq::G7, Sq::G6, Sq::G5, Sq::G4, Sq::None, Sq::None]),
 ];
 
-/// Pre-computed pattern feature deltas for each board square.
+/// Common logic for computing pattern feature indices.
 ///
-/// This lookup table contains the change in pattern features when a piece
-/// is placed on each square. Each entry represents the contribution of that
-/// square to all pattern features it participates in.
-///
-/// The values are powers of 3 corresponding to each square's position within
-/// its patterns. This allows efficient incremental updates during move generation
-/// and pattern feature computation.
-#[rustfmt::skip]
-const EVAL_FEATURE: [PatternFeature; 64] = [
-    PatternFeature { v1: [2187, 0, 0, 0, 0, 0, 0, 0, 2187, 0, 2187, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 243, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [81, 0, 0, 0, 0, 0, 0, 0, 0, 0, 81, 0, 0, 0, 243, 81, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 81, 0, 0, 0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 81, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 2187, 0, 0, 0, 0, 0, 0, 0, 2187, 1, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [1, 0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 27, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 1, 0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 243, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 81, 0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 81, 0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 81, 0, 0, 0, 0, 0, 243, 81, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 1, 0, 0, 0, 81, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 1, 0, 0, 0, 81, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 81, 0, 0, 0, 0, 0, 0, 243, 81, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 81, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 1, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 1, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 81, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 81, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 81, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 1, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 27, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 2187, 0, 0, 0, 0, 0, 0, 1, 0, 2187, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 0, 243, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 81, 0, 0, 0, 0, 0, 0, 0, 0, 81, 0, 0, 0, 0, 243, 81, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 81, 0, 0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 81, 243, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 243, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 729, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 2187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-    PatternFeature { v1: [0, 0, 0, 2187, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-];
+/// This function calculates the positional weight (power of 3) for a specific
+/// square within a pattern feature, based on the ternary encoding used.
+/// 
+/// Replaces duplicate logic previously found in both EVAL_FEATURE and EVAL_X2F
+/// generation, ensuring consistent computation across both lookup tables.
+const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate) -> u32 {
+    let mut multiplier = 0u32;
+    let mut feature_index = 0u32;
+    let mut i = feature.n_square;
+    
+    // Process squares in reverse order to match feature encoding
+    while i > 0 {
+        i -= 1;
+        let square = feature.squares[i];
+        
+        // Skip None squares
+        if matches!(square, Square::None) {
+            continue;
+        }
+        
+        // Update multiplier for base-3 encoding
+        multiplier = if multiplier == 0 { 1 } else { multiplier * PATTERN_BASE };
+        
+        // If this is the square we're checking, record its position
+        if board & (1u64 << (square as u8)) != 0 {
+            feature_index = multiplier;
+        }
+    }
+    feature_index
+}
 
-/// Reverse mapping from board squares to their pattern feature participation.
+/// Generates pattern feature lookup tables at compile time.
 ///
-/// This lookup table maps each of the 64 board squares to the pattern features
-/// it participates in, along with the power-of-3 weight for each participation.
-/// This enables efficient incremental updates when pieces are placed or flipped.
-///
-/// # Structure
-///
-/// Each entry contains:
-/// - `n_features`: Number of patterns this square affects (up to 4)
-/// - `features`: Array of [feature_index, power_of_3] pairs
-///
-/// The power_of_3 values represent the positional weight of that square within
-/// each pattern, allowing direct computation of pattern value changes.
-#[rustfmt::skip]
-static EVAL_X2F: [CoordinateToFeature; 64] = [
-    ctf!(4, [[0, 2187],[8, 2187],[10, 2187],[12, 2187],]),
-    ctf!(3, [[0, 729],[10, 729],[14, 2187],[0, 0],]),
-    ctf!(3, [[0, 243],[10, 243],[14, 729],[0, 0],]),
-    ctf!(4, [[0, 81],[10, 81],[14, 243],[15, 81],]),
-    ctf!(4, [[1, 81],[10, 27],[14, 81],[15, 243],]),
-    ctf!(3, [[1, 243],[10, 9],[15, 729],[0, 0],]),
-    ctf!(3, [[1, 729],[10, 3],[15, 2187],[0, 0],]),
-    ctf!(4, [[1, 2187],[9, 2187],[10, 1],[13, 2187],]),
-    ctf!(3, [[0, 27],[12, 729],[18, 2187],[0, 0],]),
-    ctf!(4, [[0, 1],[8, 729],[14, 27],[18, 27],]),
-    ctf!(2, [[4, 2187],[14, 9],[0, 0],[0, 0],]),
-    ctf!(3, [[4, 729],[14, 3],[15, 1],[0, 0],]),
-    ctf!(3, [[5, 729],[14, 1],[15, 3],[0, 0],]),
-    ctf!(2, [[5, 2187],[15, 9],[0, 0],[0, 0],]),
-    ctf!(4, [[1, 1],[9, 729],[15, 27],[20, 27],]),
-    ctf!(3, [[1, 27],[13, 729],[20, 2187],[0, 0],]),
-    ctf!(3, [[0, 9],[12, 243],[18, 729],[0, 0],]),
-    ctf!(2, [[4, 243],[18, 9],[0, 0],[0, 0],]),
-    ctf!(2, [[4, 81],[8, 243],[0, 0],[0, 0],]),
-    ctf!(1, [[4, 27],[0, 0],[0, 0],[0, 0],]),
-    ctf!(1, [[5, 27],[0, 0],[0, 0],[0, 0],]),
-    ctf!(2, [[5, 81],[9, 243],[0, 0],[0, 0],]),
-    ctf!(2, [[5, 243],[20, 9],[0, 0],[0, 0],]),
-    ctf!(3, [[1, 9],[13, 243],[20, 729],[0, 0],]),
-    ctf!(4, [[0, 3],[12, 81],[18, 243],[19, 81],]),
-    ctf!(3, [[4, 9],[18, 3],[19, 1],[0, 0],]),
-    ctf!(1, [[4, 3],[0, 0],[0, 0],[0, 0],]),
-    ctf!(2, [[4, 1],[8, 81],[0, 0],[0, 0],]),
-    ctf!(2, [[5, 1],[9, 81],[0, 0],[0, 0],]),
-    ctf!(1, [[5, 3],[0, 0],[0, 0],[0, 0],]),
-    ctf!(3, [[5, 9],[20, 3],[21, 1],[0, 0],]),
-    ctf!(4, [[1, 3],[13, 81],[20, 243],[21, 81],]),
-    ctf!(4, [[2, 3],[12, 27],[18, 81],[19, 243],]),
-    ctf!(3, [[6, 9],[18, 1],[19, 3],[0, 0],]),
-    ctf!(1, [[6, 3],[0, 0],[0, 0],[0, 0],]),
-    ctf!(2, [[6, 1],[9, 27],[0, 0],[0, 0],]),
-    ctf!(2, [[7, 1],[8, 27],[0, 0],[0, 0],]),
-    ctf!(1, [[7, 3],[0, 0],[0, 0],[0, 0],]),
-    ctf!(3, [[7, 9],[20, 1],[21, 3],[0, 0],]),
-    ctf!(4, [[3, 3],[13, 27],[20, 81],[21, 243],]),
-    ctf!(3, [[2, 9],[12, 9],[19, 729],[0, 0],]),
-    ctf!(2, [[6, 243],[19, 9],[0, 0],[0, 0],]),
-    ctf!(2, [[6, 81],[9, 9],[0, 0],[0, 0],]),
-    ctf!(1, [[6, 27],[0, 0],[0, 0],[0, 0],]),
-    ctf!(1, [[7, 27],[0, 0],[0, 0],[0, 0],]),
-    ctf!(2, [[7, 81],[8, 9],[0, 0],[0, 0],]),
-    ctf!(2, [[7, 243],[21, 9],[0, 0],[0, 0],]),
-    ctf!(3, [[3, 9],[13, 9],[21, 729],[0, 0],]),
-    ctf!(3, [[2, 27],[12, 3],[19, 2187],[0, 0],]),
-    ctf!(4, [[2, 1],[9, 3],[16, 27],[19, 27],]),
-    ctf!(2, [[6, 2187],[16, 9],[0, 0],[0, 0],]),
-    ctf!(3, [[6, 729],[16, 3],[17, 1],[0, 0],]),
-    ctf!(3, [[7, 729],[16, 1],[17, 3],[0, 0],]),
-    ctf!(2, [[7, 2187],[17, 9],[0, 0],[0, 0],]),
-    ctf!(4, [[3, 1],[8, 3],[17, 27],[21, 27],]),
-    ctf!(3, [[3, 27],[13, 3],[21, 2187],[0, 0],]),
-    ctf!(4, [[2, 2187],[9, 1],[11, 2187],[12, 1],]),
-    ctf!(3, [[2, 729],[11, 729],[16, 2187],[0, 0],]),
-    ctf!(3, [[2, 243],[11, 243],[16, 729],[0, 0],]),
-    ctf!(4, [[2, 81],[11, 81],[16, 243],[17, 81],]),
-    ctf!(4, [[3, 81],[11, 27],[16, 81],[17, 243],]),
-    ctf!(3, [[3, 243],[11, 9],[17, 729],[0, 0],]),
-    ctf!(3, [[3, 729],[11, 3],[17, 2187],[0, 0],]),
-    ctf!(4, [[3, 2187],[8, 1],[11, 1],[13, 1],]),
-];
+/// See README.md for detailed explanation of the generated tables.
+macro_rules! generate_pattern_tables {
+    () => {
+        /// Pattern feature weights for each board square.
+        #[rustfmt::skip]
+        const EVAL_FEATURE: [PatternFeature; BOARD_SQUARES] = {
+            let mut result = [PatternFeature { v1: [0; FEATURE_VECTOR_SIZE] }; BOARD_SQUARES];
+            let mut square_idx = 0;
+
+            while square_idx < BOARD_SQUARES {
+                let board = 1u64 << square_idx;
+                let mut feature_values = [0u16; FEATURE_VECTOR_SIZE];
+
+                // Compute feature index for each pattern
+                let mut pattern_idx = 0;
+                while pattern_idx < NUM_PATTERN_FEATURES {
+                    feature_values[pattern_idx] = compute_pattern_feature_index(board, &EVAL_F2X[pattern_idx]) as u16;
+                    pattern_idx += 1;
+                }
+
+                result[square_idx] = PatternFeature { v1: feature_values };
+                square_idx += 1;
+            }
+
+            result
+        };
+
+        /// Reverse mapping from board squares to pattern features.
+        #[rustfmt::skip]
+        static EVAL_X2F: [CoordinateToFeature; BOARD_SQUARES] = {
+            let mut result = [CoordinateToFeature {
+                n_features: 0,
+                features: [[0, 0]; MAX_FEATURES_PER_SQUARE]
+            }; BOARD_SQUARES];
+
+            let mut square_idx = 0;
+            while square_idx < BOARD_SQUARES {
+                let board = 1u64 << square_idx;
+                let mut n_features = 0u32;
+                let mut features = [[0u32, 0u32]; MAX_FEATURES_PER_SQUARE];
+
+                // Find all features that include this square
+                let mut feature_idx = 0;
+                while feature_idx < NUM_PATTERN_FEATURES && n_features < MAX_FEATURES_PER_SQUARE_U32 {
+                    let feature_value = compute_pattern_feature_index(board, &EVAL_F2X[feature_idx]);
+                    if feature_value > 0 {
+                        features[n_features as usize] = [feature_idx as u32, feature_value];
+                        n_features += 1;
+                    }
+                    feature_idx += 1;
+                }
+
+                result[square_idx] = CoordinateToFeature {
+                    n_features,
+                    features,
+                };
+                square_idx += 1;
+            }
+
+            result
+        };
+    };
+}
+
+// Generate the lookup tables
+generate_pattern_tables!();
 
 /// Container for pattern features for both players throughout a game.
 ///

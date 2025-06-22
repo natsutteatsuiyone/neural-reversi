@@ -1,5 +1,5 @@
 [workspace]
-members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "codegen", "datagen", "ffotest", "match_runner", "build_common"]
+members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "datagen", "ffotest", "match_runner", "build_common"]
 resolver = "2"
 
 [workspace.package]

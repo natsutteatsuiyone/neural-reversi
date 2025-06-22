@@ -651,13 +651,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codegen"
-version = "0.9.0"
-dependencies = [
- "reversi_core",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
