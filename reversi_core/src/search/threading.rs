@@ -277,7 +277,7 @@ impl Thread {
             sp, ctx, depth, best_score, best_move, alpha, beta, node_type, move_iter, board,
         );
 
-        idle_loop(self);
+        self.idle_loop();
 
         self.finalize_split_point(sp);
 
@@ -368,6 +368,137 @@ impl Thread {
 
         self.unlock();
     }
+
+    fn idle_loop(self: &Arc<Self>) {
+        // Pointer 'this_sp' is not null only if we are called from split(), and not
+        // at the thread creation. This means we are the split point's master.
+        let this_sp = self.state().active_split_point.clone();
+
+        while !self.state().exit {
+            if let Some(ref sp) = this_sp {
+                if sp.state().slaves_mask.none() {
+                    break;
+                }
+            }
+
+            // If this thread has been assigned work, launch a search
+            while self.state().searching {
+                self.lock();
+                debug_assert!(self.state().active_split_point.is_some());
+                let sp = self.state().active_split_point.as_ref().unwrap().clone();
+                self.unlock();
+
+                sp.lock();
+                let task = sp.state().task.as_ref().unwrap();
+                let task_board = task.board;
+                let sp_state = sp.state();
+                let depth = sp_state.depth;
+                let alpha = sp_state.alpha;
+                let beta = sp_state.beta;
+                let node_type = sp_state.node_type;
+
+                let mut ctx = SearchContext::from_split_point(&sp);
+
+                if ctx.empty_list.count == depth {
+                    if node_type == NonPV::TYPE_ID {
+                        search::endgame::search::<NonPV, true>(
+                            &mut ctx,
+                            &task_board,
+                            alpha,
+                            beta,
+                            self,
+                            Some(&sp),
+                        );
+                    } else if node_type == PV::TYPE_ID {
+                        search::endgame::search::<PV, true>(
+                            &mut ctx,
+                            &task_board,
+                            alpha,
+                            beta,
+                            self,
+                            Some(&sp),
+                        );
+                    } else if node_type == Root::TYPE_ID {
+                        search::endgame::search::<Root, true>(
+                            &mut ctx,
+                            &task_board,
+                            alpha,
+                            beta,
+                            self,
+                            Some(&sp),
+                        );
+                    } else {
+                        unreachable!();
+                    }
+                } else if node_type == NonPV::TYPE_ID {
+                    search::midgame::search::<NonPV, true>(
+                        &mut ctx,
+                        &task_board,
+                        depth,
+                        alpha,
+                        beta,
+                        self,
+                        Some(&sp),
+                    );
+                } else if node_type == PV::TYPE_ID {
+                    search::midgame::search::<PV, true>(
+                        &mut ctx,
+                        &task_board,
+                        depth,
+                        alpha,
+                        beta,
+                        self,
+                        Some(&sp),
+                    );
+                } else if node_type == Root::TYPE_ID {
+                    search::midgame::search::<Root, true>(
+                        &mut ctx,
+                        &task_board,
+                        depth,
+                        alpha,
+                        beta,
+                        self,
+                        Some(&sp),
+                    );
+                } else {
+                    unreachable!();
+                }
+
+                let th_state = self.state_mut();
+
+                self.lock();
+                th_state.searching = false;
+                self.unlock();
+
+                let sp_state = sp.state_mut();
+                sp_state.slaves_mask.reset(self.idx);
+                sp_state.all_slaves_searching = false;
+                sp_state.n_nodes += ctx.n_nodes;
+
+                // After releasing the lock we can't access any SplitPoint related data
+                // in a safe way because it could have been released under our feet by
+                // the sp master.
+                sp.unlock();
+                drop(sp);
+
+                ctx.pool.try_late_join(self);
+            }
+
+            // If search is finished then sleep, otherwise just yield
+            if !self.thinking.load(Ordering::SeqCst) {
+                debug_assert!(this_sp.is_none());
+
+                let mut lock = self.mutex_for_sleep_condition.lock().unwrap();
+                self.ready.store(true, Ordering::SeqCst);
+                while !self.state().exit && !self.thinking.load(Ordering::Relaxed) {
+                    lock = self.sleep_condition.wait(lock).unwrap();
+                }
+            } else {
+                // Wait for a new job or for our slaves to finish
+                std::thread::yield_now();
+            }
+        }
+    }
 }
 
 enum Message {
@@ -413,7 +544,7 @@ impl ThreadPool {
         for i in 1..self.size {
             let thread = Arc::new(Thread::new(i, self.thinking.clone()));
             let thread_clone = thread.clone();
-            let handle = std::thread::spawn(move || idle_loop(&thread_clone));
+            let handle = std::thread::spawn(move || thread_clone.idle_loop());
             self.threads.push(thread);
             self.thread_handles.push(handle);
         }
@@ -612,133 +743,3 @@ fn main_thread_loop(thread: Arc<Thread>, receiver: Arc<std::sync::Mutex<Receiver
     }
 }
 
-fn idle_loop(thread: &Arc<Thread>) {
-    // Pointer 'this_sp' is not null only if we are called from split(), and not
-    // at the thread creation. This means we are the split point's master.
-    let this_sp = thread.state().active_split_point.clone();
-
-    while !thread.state().exit {
-        if let Some(ref sp) = this_sp {
-            if sp.state().slaves_mask.none() {
-                break;
-            }
-        }
-
-        // If this thread has been assigned work, launch a search
-        while thread.state().searching {
-            thread.lock();
-            debug_assert!(thread.state().active_split_point.is_some());
-            let sp = thread.state().active_split_point.as_ref().unwrap().clone();
-            thread.unlock();
-
-            sp.lock();
-            let task = sp.state().task.as_ref().unwrap();
-            let task_board = task.board;
-            let sp_state = sp.state();
-            let depth = sp_state.depth;
-            let alpha = sp_state.alpha;
-            let beta = sp_state.beta;
-            let node_type = sp_state.node_type;
-
-            let mut ctx = SearchContext::from_split_point(&sp);
-
-            if ctx.empty_list.count == depth {
-                if node_type == NonPV::TYPE_ID {
-                    search::endgame::search::<NonPV, true>(
-                        &mut ctx,
-                        &task_board,
-                        alpha,
-                        beta,
-                        thread,
-                        Some(&sp),
-                    );
-                } else if node_type == PV::TYPE_ID {
-                    search::endgame::search::<PV, true>(
-                        &mut ctx,
-                        &task_board,
-                        alpha,
-                        beta,
-                        thread,
-                        Some(&sp),
-                    );
-                } else if node_type == Root::TYPE_ID {
-                    search::endgame::search::<Root, true>(
-                        &mut ctx,
-                        &task_board,
-                        alpha,
-                        beta,
-                        thread,
-                        Some(&sp),
-                    );
-                } else {
-                    unreachable!();
-                }
-            } else if node_type == NonPV::TYPE_ID {
-                search::midgame::search::<NonPV, true>(
-                    &mut ctx,
-                    &task_board,
-                    depth,
-                    alpha,
-                    beta,
-                    thread,
-                    Some(&sp),
-                );
-            } else if node_type == PV::TYPE_ID {
-                search::midgame::search::<PV, true>(
-                    &mut ctx,
-                    &task_board,
-                    depth,
-                    alpha,
-                    beta,
-                    thread,
-                    Some(&sp),
-                );
-            } else if node_type == Root::TYPE_ID {
-                search::midgame::search::<Root, true>(
-                    &mut ctx,
-                    &task_board,
-                    depth,
-                    alpha,
-                    beta,
-                    thread,
-                    Some(&sp),
-                );
-            } else {
-                unreachable!();
-            }
-
-            let th_state = thread.state_mut();
-
-            thread.lock();
-            th_state.searching = false;
-            thread.unlock();
-
-            let sp_state = sp.state_mut();
-            sp_state.slaves_mask.reset(thread.idx);
-            sp_state.all_slaves_searching = false;
-            sp_state.n_nodes += ctx.n_nodes;
-
-            // After releasing the lock we can't access any SplitPoint related data
-            // in a safe way because it could have been released under our feet by
-            // the sp master.
-            sp.unlock();
-            drop(sp);
-
-            ctx.pool.try_late_join(thread);
-        }
-
-        // If search is finished then sleep, otherwise just yield
-        if !thread.thinking.load(Ordering::SeqCst) {
-            debug_assert!(this_sp.is_none());
-
-            let mut lock = thread.mutex_for_sleep_condition.lock().unwrap();
-            thread.ready.store(true, Ordering::SeqCst);
-            while !thread.state().exit && !thread.thinking.load(Ordering::Relaxed) {
-                lock = thread.sleep_condition.wait(lock).unwrap();
-            }
-        } else {
-            // Wait for a new job or for our slaves to finish
-            std::thread::yield_now();
-        }
-    }
-}
