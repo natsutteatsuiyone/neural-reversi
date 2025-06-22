@@ -129,7 +129,7 @@ impl SearchContext {
     #[inline]
     pub fn update(&mut self, mv: &Move) {
         self.increment_nodes();
-        self.pattern_features.update(mv, self.ply(), self.side_to_move);
+        self.pattern_features.update(mv.sq, mv.flipped, self.ply(), self.side_to_move);
         self.switch_players();
         self.empty_list.remove(mv.sq);
     }

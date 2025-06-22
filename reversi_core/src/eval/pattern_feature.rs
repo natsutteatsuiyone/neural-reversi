@@ -19,7 +19,6 @@
 use crate::bitboard;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
-use crate::move_list::Move;
 use crate::search::search_context::SideToMove;
 use crate::square::Square;
 
@@ -137,27 +136,27 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
 ///
 /// This function calculates the positional weight (power of 3) for a specific
 /// square within a pattern feature, based on the ternary encoding used.
-/// 
+///
 /// Replaces duplicate logic previously found in both EVAL_FEATURE and EVAL_X2F
 /// generation, ensuring consistent computation across both lookup tables.
 const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate) -> u32 {
     let mut multiplier = 0u32;
     let mut feature_index = 0u32;
     let mut i = feature.n_square;
-    
+
     // Process squares in reverse order to match feature encoding
     while i > 0 {
         i -= 1;
         let square = feature.squares[i];
-        
+
         // Skip None squares
         if matches!(square, Square::None) {
             continue;
         }
-        
+
         // Update multiplier for base-3 encoding
         multiplier = if multiplier == 0 { 1 } else { multiplier * PATTERN_BASE };
-        
+
         // If this is the square we're checking, record its position
         if board & (1u64 << (square as u8)) != 0 {
             feature_index = multiplier;
@@ -286,33 +285,32 @@ impl PatternFeatures {
     ///
     /// # Arguments
     ///
-    /// * `mv` - The move that was made
+    /// * `sq` - The square where the move was made
+    /// * `flipped` - Bitboard of pieces flipped by the move
     /// * `ply` - The current ply number
     /// * `side_to_move` - The side that made the move (Player or Opponent)
     #[inline(always)]
-    pub fn update(&mut self, mv: &Move, ply: usize, player: SideToMove) {
+    pub fn update(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("avx2") {
-                unsafe { self.update_avx2(mv, ply, player) }
+                unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
                 return;
             }
         }
 
-        self.update_fallback(mv, ply, player);
+        self.update_fallback(sq, flipped, ply, side_to_move);
     }
 
     /// Fallback implementation of pattern feature update for architectures without AVX2 support.
-    fn update_fallback(&mut self, mv: &Move, ply: usize, player: SideToMove) {
-        let flip = mv.flipped;
-
+    fn update_fallback(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         self.p_features.copy_within(ply..ply + 1, ply + 1);
         self.o_features.copy_within(ply..ply + 1, ply + 1);
         let p_out = &mut self.p_features[ply + 1];
         let o_out = &mut self.o_features[ply + 1];
-        let s = &EVAL_X2F[mv.sq.index()];
+        let s = &EVAL_X2F[sq.index()];
 
-        if player == SideToMove::Player {
+        if side_to_move == SideToMove::Player {
             for i in 0..s.n_features {
                 let j = s.features[i as usize][0] as usize;
                 let x = s.features[i as usize][1] as usize;
@@ -322,7 +320,7 @@ impl PatternFeatures {
                 }
             }
 
-            for x in BitboardIterator::new(flip) {
+            for x in BitboardIterator::new(flipped) {
                 let s_bit = &EVAL_X2F[x as usize];
                 for i in 0..s_bit.n_features {
                     let j = s_bit.features[i as usize][0] as usize;
@@ -343,7 +341,7 @@ impl PatternFeatures {
                 }
             }
 
-            for x in BitboardIterator::new(flip) {
+            for x in BitboardIterator::new(flipped) {
                 let s_bit = &EVAL_X2F[x as usize];
                 for i in 0..s_bit.n_features {
                     let j = s_bit.features[i as usize][0] as usize;
@@ -360,19 +358,18 @@ impl PatternFeatures {
     /// AVX2-optimized implementation of pattern feature update.
     #[target_feature(enable = "avx2")]
     #[cfg(target_arch = "x86_64")]
-    fn update_avx2(&mut self, mv: &Move, ply: usize, player: SideToMove) {
+    fn update_avx2(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         use std::arch::x86_64::*;
 
-        let flip = mv.flipped;
         let p_in = unsafe { self.p_features[ply].v16 };
         let p_out = unsafe { &mut self.p_features[ply + 1].v16 };
         let o_in = unsafe { self.o_features[ply].v16 };
         let o_out = unsafe { &mut self.o_features[ply + 1].v16 };
 
-        let sq_index = mv.sq.index();
+        let sq_index = sq.index();
         let f = unsafe { &EVAL_FEATURE[sq_index].v16 };
 
-        let (p_scale, o_scale, p_sign, o_sign) = if player == SideToMove::Player {
+        let (p_scale, o_scale, p_sign, o_sign) = if side_to_move == SideToMove::Player {
             (
                 _mm256_set1_epi16(2),
                 _mm256_set1_epi16(1),
@@ -395,7 +392,7 @@ impl PatternFeatures {
 
         let mut sum0 = _mm256_setzero_si256();
         let mut sum1 = _mm256_setzero_si256();
-        for x in BitboardIterator::new(flip) {
+        for x in BitboardIterator::new(flipped) {
             let f = unsafe { &EVAL_FEATURE[x as usize].v16 };
             sum0 = _mm256_add_epi16(sum0, f[0]);
             sum1 = _mm256_add_epi16(sum1, f[1]);
