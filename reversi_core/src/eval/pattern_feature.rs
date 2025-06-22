@@ -362,33 +362,13 @@ impl PatternFeatures {
         use std::arch::x86_64::*;
 
         let p_in = unsafe { self.p_features[ply].v16 };
-        let p_out = unsafe { &mut self.p_features[ply + 1].v16 };
         let o_in = unsafe { self.o_features[ply].v16 };
+        let p_out = unsafe { &mut self.p_features[ply + 1].v16 };
         let o_out = unsafe { &mut self.o_features[ply + 1].v16 };
 
         let sq_index = sq.index();
-        let f = unsafe { &EVAL_FEATURE[sq_index].v16 };
-
-        let (p_scale, o_scale, p_sign, o_sign) = if side_to_move == SideToMove::Player {
-            (
-                _mm256_set1_epi16(2),
-                _mm256_set1_epi16(1),
-                _mm256_set1_epi16(-1), // p: subtract sum
-                _mm256_set1_epi16(1),  // o: add sum
-            )
-        } else {
-            (
-                _mm256_set1_epi16(1),
-                _mm256_set1_epi16(2),
-                _mm256_set1_epi16(1),  // p: add sum
-                _mm256_set1_epi16(-1), // o: subtract sum
-            )
-        };
-
-        p_out[0] = _mm256_sub_epi16(p_in[0], _mm256_mullo_epi16(f[0], p_scale));
-        p_out[1] = _mm256_sub_epi16(p_in[1], _mm256_mullo_epi16(f[1], p_scale));
-        o_out[0] = _mm256_sub_epi16(o_in[0], _mm256_mullo_epi16(f[0], o_scale));
-        o_out[1] = _mm256_sub_epi16(o_in[1], _mm256_mullo_epi16(f[1], o_scale));
+        let f0 = unsafe { EVAL_FEATURE[sq_index].v16 }[0];
+        let f1 = unsafe { EVAL_FEATURE[sq_index].v16 }[1];
 
         let mut sum0 = _mm256_setzero_si256();
         let mut sum1 = _mm256_setzero_si256();
@@ -398,10 +378,29 @@ impl PatternFeatures {
             sum1 = _mm256_add_epi16(sum1, f[1]);
         }
 
-        p_out[0] = _mm256_add_epi16(p_out[0], _mm256_mullo_epi16(sum0, p_sign));
-        p_out[1] = _mm256_add_epi16(p_out[1], _mm256_mullo_epi16(sum1, p_sign));
-        o_out[0] = _mm256_add_epi16(o_out[0], _mm256_mullo_epi16(sum0, o_sign));
-        o_out[1] = _mm256_add_epi16(o_out[1], _mm256_mullo_epi16(sum1, o_sign));
+        if side_to_move == SideToMove::Player {
+            // Player: p_out = p_in - (2*f + sum), o_out = o_in - (f - sum)
+            let p_delta0 = _mm256_add_epi16(_mm256_slli_epi16(f0, 1), sum0); // 2*f + sum
+            let p_delta1 = _mm256_add_epi16(_mm256_slli_epi16(f1, 1), sum1);
+            p_out[0] = _mm256_sub_epi16(p_in[0], p_delta0);
+            p_out[1] = _mm256_sub_epi16(p_in[1], p_delta1);
+
+            let o_delta0 = _mm256_sub_epi16(f0, sum0); // f - sum
+            let o_delta1 = _mm256_sub_epi16(f1, sum1);
+            o_out[0] = _mm256_sub_epi16(o_in[0], o_delta0);
+            o_out[1] = _mm256_sub_epi16(o_in[1], o_delta1);
+        } else {
+            // Opponent: p_out = p_in - (f - sum), o_out = o_in - (2*f + sum)
+            let p_delta0 = _mm256_sub_epi16(f0, sum0); // f - sum
+            let p_delta1 = _mm256_sub_epi16(f1, sum1);
+            p_out[0] = _mm256_sub_epi16(p_in[0], p_delta0);
+            p_out[1] = _mm256_sub_epi16(p_in[1], p_delta1);
+
+            let o_delta0 = _mm256_add_epi16(_mm256_slli_epi16(f0, 1), sum0); // 2*f + sum
+            let o_delta1 = _mm256_add_epi16(_mm256_slli_epi16(f1, 1), sum1);
+            o_out[0] = _mm256_sub_epi16(o_in[0], o_delta0);
+            o_out[1] = _mm256_sub_epi16(o_in[1], o_delta1);
+        }
     }
 }
 
