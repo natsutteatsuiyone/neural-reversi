@@ -138,7 +138,7 @@ impl NetworkSmall {
     fn forward_input_pa(&self, buffers: &mut NetworkBuffers, mobility: u8, ply: usize) {
         let pa_index = ply / (60 / NUM_PHASE_ADAPTIVE_INPUT);
         let pa_input = &self.pa_inputs[pa_index];
-        pa_input.forward_leaky_relu(&buffers.feature_indices, buffers.pa_out.as_mut_slice());
+        pa_input.forward(&buffers.feature_indices, buffers.pa_out.as_mut_slice());
         buffers.pa_out[L1_PA_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
     }
 

@@ -187,7 +187,7 @@ impl Network {
 
         let pa_index = ply / (60 / NUM_PHASE_ADAPTIVE_INPUT);
         let pa_input = &self.pa_inputs[pa_index];
-        pa_input.forward_leaky_relu(feature_indices, &mut output[0..PA_OUTPUT_DIMS]);
+        pa_input.forward(feature_indices, &mut output[0..PA_OUTPUT_DIMS]);
         output[L1_PA_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
     }
 
