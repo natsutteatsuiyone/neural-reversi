@@ -499,6 +499,32 @@ impl Thread {
             }
         }
     }
+
+    /// Main thread loop that processes messages and coordinates search tasks
+    fn main_thread_loop(self: Arc<Self>, receiver: Arc<std::sync::Mutex<Receiver<Message>>>) {
+        while !self.state().exit {
+            let receiver = receiver.lock().unwrap();
+            if let Ok(message) = receiver.recv() {
+                match message {
+                    Message::StartThinking(task, thread, result_sender) => {
+                        thread.state_mut().searching = true;
+
+                        task.pool.notify_all();
+
+                        let result = search::search_root(task, &thread);
+                        thread.state_mut().searching = false;
+
+                        thread.thinking.store(false, Ordering::SeqCst);
+                        result_sender.send(result).unwrap();
+                    }
+                    Message::Exit => {
+                        self.state_mut().exit = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 enum Message {
@@ -536,7 +562,7 @@ impl ThreadPool {
         let main_thread_clone = main_thread.clone();
         let receiver_clone = self.receiver.clone();
         let main_thread_handle =
-            std::thread::spawn(move || main_thread_loop(main_thread_clone, receiver_clone));
+            std::thread::spawn(move || main_thread_clone.main_thread_loop(receiver_clone));
 
         self.threads.push(main_thread);
         self.thread_handles.push(main_thread_handle);
@@ -718,28 +744,4 @@ impl Drop for ThreadPool {
     }
 }
 
-fn main_thread_loop(thread: Arc<Thread>, receiver: Arc<std::sync::Mutex<Receiver<Message>>>) {
-    while !thread.state().exit {
-        let receiver = receiver.lock().unwrap();
-        if let Ok(message) = receiver.recv() {
-            match message {
-                Message::StartThinking(task, thread, result_sender) => {
-                    thread.state_mut().searching = true;
-
-                    task.pool.notify_all();
-
-                    let result = search::search_root(task, &thread);
-                    thread.state_mut().searching = false;
-
-                    thread.thinking.store(false, Ordering::SeqCst);
-                    result_sender.send(result).unwrap();
-                }
-                Message::Exit => {
-                    thread.state_mut().exit = true;
-                    break;
-                }
-            }
-        }
-    }
-}
 
