@@ -1,5 +1,6 @@
 use crate::square::Square;
 use crate::types::{Depth, NodeType, Score, Selectivity};
+use aligned_vec::{AVec, ConstAlign};
 use std::{
     mem,
     sync::atomic::{AtomicU64, Ordering},
@@ -271,7 +272,7 @@ impl TTData {
 /// The main transposition table structure.
 pub struct TranspositionTable {
     /// Array of table entries organized in clusters
-    entries: Vec<TTEntry>,
+    entries: AVec<TTEntry, ConstAlign<32>>,
     /// Number of clusters in the table
     cluster_count: u64,
 }
@@ -292,7 +293,7 @@ impl TranspositionTable {
         let entries_size = cluster_count as usize * CLUSTER_SIZE + 1;
 
         TranspositionTable {
-            entries: (0..entries_size).map(|_| TTEntry::default()).collect(),
+            entries: AVec::from_iter(32, (0..entries_size).map(|_| TTEntry::default())),
             cluster_count,
         }
     }
@@ -389,7 +390,7 @@ impl TranspositionTable {
             let key16 = key as u16;
             let base = self.get_cluster_idx(key);
             let ptr = self.entries.as_ptr().add(base) as *const __m256i;
-            let v = _mm256_loadu_si256(ptr);
+            let v = _mm256_load_si256(ptr);
 
             // Create a vector with the key repeated in all 16-bit lanes
             let key_vec = _mm256_set1_epi16(key16 as i16);
@@ -398,12 +399,18 @@ impl TranspositionTable {
             let hit_mask = _mm256_movemask_epi8(cmp) as u32;
 
             // Mask to check only the key fields (first 16 bits of each 64-bit entry)
-            const LANE_MASK: u32 = 0x0303_0303;
+            // bits 0-1: first 16 bits of entry 0 (the key)
+            // bits 8-9: first 16 bits of entry 1 (the key)
+            // bits 16-17: first 16 bits of entry 2 (the key)
+            // bits 24-25: first 16 bits of entry 3 (the key)
+            const LANE_MASK: u32 = 0x03030303;
             let relevant_hits = hit_mask & LANE_MASK;
 
             if relevant_hits != 0 {
                 // Found a potential key match - extract and verify
-                let lane_idx = (relevant_hits.trailing_zeros() / 8) as usize;
+                // Count trailing zeros and map to entry index
+                let tz = relevant_hits.trailing_zeros();
+                let lane_idx = (tz / 8) as usize;
 
                 let entries_array: [u64; 4] = std::mem::transmute(v);
                 let raw = entries_array[lane_idx];
