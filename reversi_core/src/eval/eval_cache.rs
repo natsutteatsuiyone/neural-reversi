@@ -134,3 +134,82 @@ impl EvalCache {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new() {
+        let cache = EvalCache::new(4);
+        assert_eq!(cache.mask, 15);
+        assert_eq!(cache.table.len(), 16);
+    }
+
+    #[test]
+    fn test_store_and_probe() {
+        let cache = EvalCache::new(4);
+        let key = 0x123456789ABCDEF0;
+        let score = 42;
+
+        cache.store(key, score);
+        assert_eq!(cache.probe(key), Some(score));
+    }
+
+    #[test]
+    fn test_probe_nonexistent() {
+        let cache = EvalCache::new(4);
+        assert_eq!(cache.probe(0x123456789ABCDEF0), None);
+    }
+
+    #[test]
+    fn test_store_overwrite() {
+        let cache = EvalCache::new(4);
+        let key = 0x123456789ABCDEF0;
+
+        cache.store(key, 42);
+        cache.store(key, 84);
+        assert_eq!(cache.probe(key), Some(84));
+    }
+
+    #[test]
+    fn test_different_keys() {
+        let cache = EvalCache::new(10);
+        let key1 = 0x123456789ABCDEF0;
+        let key2 = 0xDEF0123456789ABC;
+
+        cache.store(key1, 42);
+        cache.store(key2, 84);
+
+        assert_eq!(cache.probe(key1), Some(42));
+        assert_eq!(cache.probe(key2), Some(84));
+    }
+
+    #[test]
+    fn test_extreme_scores() {
+        let cache = EvalCache::new(10);
+        let key1 = 0x123456789ABCDEF0;
+        let key2 = 0xDEF0123456789ABC;
+
+        cache.store(key1, i16::MAX as i32);
+        cache.store(key2, i16::MIN as i32);
+
+        assert_eq!(cache.probe(key1), Some(i16::MAX as i32));
+        assert_eq!(cache.probe(key2), Some(i16::MIN as i32));
+    }
+
+    #[test]
+    fn test_clear() {
+        let cache = EvalCache::new(4);
+        let key1 = 0x123456789ABCDEF0;
+        let key2 = 0xDEF0123456789ABC;
+
+        cache.store(key1, 42);
+        cache.store(key2, 84);
+
+        cache.clear();
+
+        assert_eq!(cache.probe(key1), None);
+        assert_eq!(cache.probe(key2), None);
+    }
+}
