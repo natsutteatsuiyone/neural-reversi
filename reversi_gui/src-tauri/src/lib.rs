@@ -54,7 +54,7 @@ async fn abort_ai_search_command(state: State<'_, AppState>) -> Result<(), Strin
 
     let thread_pool = state.thread_pool.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        thread_pool.wait_for_search_finished();
+        thread_pool.wait_for_think_finished();
     })
     .await
     .map_err(|e| e.to_string())?;

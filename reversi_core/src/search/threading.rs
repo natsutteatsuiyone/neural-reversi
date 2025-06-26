@@ -120,7 +120,6 @@ pub struct ThreadState {
     pub split_points_size: usize,
     split_points: [Arc<SplitPoint>; MAX_SPLITPOINTS_PER_THREAD],
     searching: bool,
-    exit: bool,
 }
 
 pub struct Thread {
@@ -131,6 +130,7 @@ pub struct Thread {
     thinking: Arc<AtomicBool>,
     state: UnsafeCell<ThreadState>,
     ready: AtomicBool,
+    exit: AtomicBool,
 }
 
 unsafe impl Sync for Thread {}
@@ -150,9 +150,9 @@ impl Thread {
                 split_points_size: 0,
                 split_points,
                 searching: false,
-                exit: false,
             }),
             ready: AtomicBool::new(false),
+            exit: AtomicBool::new(false),
         }
     }
 
@@ -374,7 +374,7 @@ impl Thread {
         // at the thread creation. This means we are the split point's master.
         let this_sp = self.state().active_split_point.clone();
 
-        while !self.state().exit {
+        while !self.exit.load(Ordering::Acquire) {
             if let Some(ref sp) = this_sp {
                 if sp.state().slaves_mask.none() {
                     break;
@@ -485,14 +485,14 @@ impl Thread {
             }
 
             // If search is finished then sleep, otherwise just yield
-            if !self.thinking.load(Ordering::SeqCst) {
+            if !self.thinking.load(Ordering::Acquire) {
                 debug_assert!(this_sp.is_none());
 
-                let mut lock = self.mutex_for_sleep_condition.lock().unwrap();
-                self.ready.store(true, Ordering::SeqCst);
-                while !self.state().exit && !self.thinking.load(Ordering::Relaxed) {
-                    lock = self.sleep_condition.wait(lock).unwrap();
-                }
+                let lock = self.mutex_for_sleep_condition.lock().unwrap();
+                self.ready.store(true, Ordering::Release);
+                let _guard = self.sleep_condition.wait_while(lock, |_| {
+                    !self.exit.load(Ordering::Acquire) && !self.thinking.load(Ordering::Acquire)
+                }).unwrap();
             } else {
                 // Wait for a new job or for our slaves to finish
                 std::thread::yield_now();
@@ -502,7 +502,7 @@ impl Thread {
 
     /// Main thread loop that processes messages and coordinates search tasks
     fn main_thread_loop(self: Arc<Self>, receiver: Arc<std::sync::Mutex<Receiver<Message>>>) {
-        while !self.state().exit {
+        while !self.exit.load(Ordering::Acquire) {
             let receiver = receiver.lock().unwrap();
             if let Ok(message) = receiver.recv() {
                 match message {
@@ -514,11 +514,11 @@ impl Thread {
                         let result = search::search_root(task, &thread);
                         thread.state_mut().searching = false;
 
-                        thread.thinking.store(false, Ordering::SeqCst);
+                        thread.thinking.store(false, Ordering::Release);
                         result_sender.send(result).unwrap();
                     }
                     Message::Exit => {
-                        self.state_mut().exit = true;
+                        self.exit.store(true, Ordering::Release);
                         break;
                     }
                 }
@@ -576,7 +576,7 @@ impl ThreadPool {
         }
 
         // Wait for all threads to be ready
-        self.main().ready.store(true, Ordering::SeqCst);
+        self.main().ready.store(true, Ordering::Release);
         loop {
             sleep(std::time::Duration::from_millis(10));
             let ready = self
@@ -592,7 +592,7 @@ impl ThreadPool {
     fn exit(&mut self) {
         for thread in &self.threads {
             let lock = thread.mutex_for_sleep_condition.lock();
-            thread.state_mut().exit = true;
+            thread.exit.store(true, Ordering::Release);
             drop(lock);
 
             thread.notify_one();
@@ -693,7 +693,7 @@ impl ThreadPool {
 
         self.reset_abort_flag();
 
-        self.thinking.store(true, Ordering::SeqCst);
+        self.thinking.store(true, Ordering::Release);
         self.sender
             .send(Message::StartThinking(
                 task,
@@ -715,22 +715,18 @@ impl ThreadPool {
         }
     }
 
-    pub fn wait_for_search_finished(&self) {
-        loop {
-            let searching = self.threads.iter().any(|thread| thread.state().searching);
-            if !searching {
-                break;
-            }
-            sleep(std::time::Duration::from_millis(1));
+    pub fn wait_for_think_finished(&self) {
+        while self.thinking.load(Ordering::Acquire) {
+            sleep(std::time::Duration::from_millis(5));
         }
     }
 
     pub fn abort_search(&self) {
-        self.abort_flag.store(true, Ordering::SeqCst);
+        self.abort_flag.store(true, Ordering::Release);
     }
 
     pub fn reset_abort_flag(&self) {
-        self.abort_flag.store(false, Ordering::SeqCst);
+        self.abort_flag.store(false, Ordering::Release);
     }
 
     pub fn is_aborted(&self) -> bool {
