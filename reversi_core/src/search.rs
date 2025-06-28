@@ -65,12 +65,10 @@ pub trait SearchCallback: Send {
 
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
-        let mut pool = ThreadPool::new(options.n_threads);
-        pool.init();
         Search {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
             generation: 0,
-            threads: Arc::new(pool),
+            threads: ThreadPool::new(options.n_threads),
             eval: Arc::new(Eval::new().unwrap()),
         }
     }

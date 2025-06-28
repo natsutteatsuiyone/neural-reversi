@@ -8,7 +8,7 @@ use crate::eval::Eval;
 use crate::move_list::{Move, MoveList};
 use crate::probcut::{self};
 use crate::search::root_move::RootMove;
-use crate::search::threading::{SplitPoint, ThreadPool};
+use crate::search::threading::SplitPoint;
 use crate::search::SearchProgressCallback;
 use crate::search::{SearchProgress, SCORE_INF};
 use crate::square::Square;
@@ -53,7 +53,6 @@ pub struct SearchContext {
     pub empty_list: EmptyList,
     pub tt: Arc<TranspositionTable>,
     pub root_moves: Arc<std::sync::Mutex<Vec<RootMove>>>,
-    pub pool: Arc<ThreadPool>,
     pub eval: Arc<Eval>,
     pub pattern_features: PatternFeatures,
     pub callback: Option<Arc<SearchProgressCallback>>,
@@ -67,7 +66,6 @@ impl SearchContext {
         generation: u8,
         selectivity: u8,
         tt: Arc<TranspositionTable>,
-        pool: Arc<ThreadPool>,
         eval: Arc<Eval>,
     ) -> SearchContext {
         let empty_list = EmptyList::new(board);
@@ -80,7 +78,6 @@ impl SearchContext {
             empty_list,
             tt,
             root_moves: Arc::new(std::sync::Mutex::new(Self::create_root_moves(board))),
-            pool,
             eval,
             pattern_features: PatternFeatures::new(board, ply),
             callback: None,
@@ -110,7 +107,6 @@ impl SearchContext {
             selectivity: task.selectivity,
             tt: task.tt.clone(),
             root_moves: task.root_moves.clone(),
-            pool: task.pool.clone(),
             eval: task.eval.clone(),
             pattern_features,
             callback: None,
@@ -311,10 +307,6 @@ impl SearchContext {
                 probability: probcut::get_probability(selectivity),
             });
         }
-    }
-
-    pub fn is_search_aborted(&self) -> bool {
-        self.pool.is_aborted()
     }
 
     pub fn root_moves_count(&self) -> usize {

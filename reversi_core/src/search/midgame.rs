@@ -57,7 +57,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         task.generation,
         task.selectivity,
         task.tt.clone(),
-        task.pool.clone(),
         task.eval.clone(),
     );
 
@@ -122,7 +121,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             loop {
                 best_score = search::<Root, false>(&mut ctx, &board, depth, alpha, beta, thread, None);
 
-                if ctx.is_search_aborted() {
+                if thread.is_search_aborted() {
                     break;
                 }
 
@@ -143,7 +142,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             ctx.mark_root_move_searched(best_move.sq);
             ctx.notify_progress(depth, to_scoref(best_score), best_move.sq, ctx.selectivity);
 
-            if ctx.is_search_aborted() {
+            if thread.is_search_aborted() {
                 break;
             }
         }
@@ -152,7 +151,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         alpha = (best_move.average_score - INITIAL_DELTA).max(-SCORE_INF);
         beta = (best_move.average_score + INITIAL_DELTA).min(SCORE_INF);
 
-        if ctx.is_search_aborted() {
+        if thread.is_search_aborted() {
             return SearchResult {
                 score: to_scoref(best_move.score),
                 best_move: Some(best_move.sq),
@@ -343,7 +342,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             alpha = sp_state.alpha;
         }
 
-        if ctx.is_search_aborted() || thread.cutoff_occurred() {
+        if thread.is_search_aborted() || thread.cutoff_occurred() {
             return 0;
         }
 
@@ -389,7 +388,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         if !SP_NODE
             && depth >= MIN_SPLIT_DEPTH
             && move_iter.count() > 1
-            && thread.can_split(ctx.pool.size)
+            && thread.can_split()
         {
             let (s, m, n) = thread.split(
                 ctx,
@@ -406,7 +405,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             best_move = m;
             ctx.n_nodes += n;
 
-            if ctx.is_search_aborted() || thread.cutoff_occurred() {
+            if thread.is_search_aborted() || thread.cutoff_occurred() {
                 return 0;
             }
 
