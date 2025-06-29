@@ -12,11 +12,8 @@ use std::{
     time::Duration,
 };
 
-use rustc_hash::FxHashMap;
-
 use byteorder::{LittleEndian, WriteBytesExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle, ProgressDrawTarget};
-use rand::seq::SliceRandom;
 use rayon::prelude::*;
 
 use reversi_core::board::Board;
@@ -182,17 +179,17 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
     Ok(())
 }
 
-/// Processes a single game file and generates a feature file.
+/// Processes a single game file and generates 8 separate feature files for each symmetry.
 ///
-/// This function reads a game file, extracts unique positions with
-/// all 8 symmetrical variations, and writes them to a compressed feature file.
-/// Duplicate positions are automatically deduplicated.
+/// This function reads a game file, extracts positions with their 8 symmetrical variations,
+/// and writes each symmetry pattern to a separate compressed feature file.
+/// Each symmetry pattern gets its own output file for better parallel processing.
 ///
 /// # Arguments
 ///
 /// * `file_idx` - Index of this file (used for output filename)
 /// * `entry_path` - Path to the game file to process
-/// * `output_dir` - Directory where the feature file will be written
+/// * `output_dir` - Directory where the feature files will be written
 /// * `score_correction` - Whether to apply endgame score correction
 fn process_file(
     file_idx: usize,
@@ -207,71 +204,52 @@ fn process_file(
     let game_records = load_game_records(input_path_str, score_correction)
         .map_err(|e| io::Error::new(e.kind(), format!("Failed to load game records from {input_path_str}: {e}")))?;
 
-    // Pre-allocate HashMap with estimated capacity for better performance
-    let estimated_positions = game_records.len() * 8;
-    let mut unique_positions = FxHashMap::with_capacity_and_hasher(
-        estimated_positions,
-        Default::default()
-    );
+    // Create 8 separate data vectors for each symmetry pattern
+    let mut symmetry_data = vec![Vec::new(); 8];
+    let symmetry_names = [
+        "base", "rot90", "rot180", "rot270",
+        "flip_v", "flip_h", "flip_diag_a1h8", "flip_diag_a8h1"
+    ];
 
+    // Process each game record and generate all 8 symmetries
     for record in game_records {
         let base_board = Board::from_bitboards(record.player, record.opponent);
         let score = record.score;
-        let mobility = base_board.get_moves().count_ones() as u8;
         let ply = record.ply;
 
-        // Check if base position already exists before computing symmetries
-        if unique_positions.contains_key(&base_board) {
-            continue;
-        }
-
-        // Insert base board first
-        unique_positions.insert(base_board, (score, mobility, ply));
-
-        // Compute rotations incrementally
-        let b90 = base_board.rotate_90_clockwise();
-        unique_positions.entry(b90).or_insert((score, mobility, ply));
-
-        let b180 = b90.rotate_90_clockwise();
-        unique_positions.entry(b180).or_insert((score, mobility, ply));
-
-        let b270 = b180.rotate_90_clockwise();
-        unique_positions.entry(b270).or_insert((score, mobility, ply));
-
-        // Compute flips only if not already present
-        let flips = [
-            base_board.flip_vertical(),
-            base_board.flip_horizontal(),
-            base_board.flip_diag_a1h8(),
-            base_board.flip_diag_a8h1(),
+        // Generate all 8 symmetrical boards
+        let symmetrical_boards = [
+            base_board,                          // 0: base
+            base_board.rotate_90_clockwise(),    // 1: 90° rotation
+            base_board.rotate_90_clockwise().rotate_90_clockwise(), // 2: 180° rotation
+            base_board.rotate_90_clockwise().rotate_90_clockwise().rotate_90_clockwise(), // 3: 270° rotation
+            base_board.flip_vertical(),          // 4: vertical flip
+            base_board.flip_horizontal(),        // 5: horizontal flip
+            base_board.flip_diag_a1h8(),        // 6: diagonal a1-h8 flip
+            base_board.flip_diag_a8h1(),        // 7: diagonal a8-h1 flip
         ];
 
-        for board in flips {
-            unique_positions.entry(board).or_insert((score, mobility, ply));
+        // Process each symmetry and add to corresponding data vector
+        for (i, board) in symmetrical_boards.iter().enumerate() {
+            let mobility = board.get_moves().count_ones() as u8;
+            let mut features = [0; pattern_feature::NUM_PATTERN_FEATURES];
+            pattern_feature::set_features(board, &mut features);
+
+            write_feature_record(&mut symmetry_data[i], score, &features, mobility, ply)?;
         }
     }
 
-    // Convert to vector without intermediate allocation
-    let positions_count = unique_positions.len();
-    let mut all_positions = Vec::with_capacity(positions_count);
-    all_positions.extend(unique_positions);
-    all_positions.shuffle(&mut rand::rng());
+    // Write each symmetry pattern to a separate file
+    for (i, data) in symmetry_data.into_iter().enumerate() {
+        if !data.is_empty() {
+            let file_path = output_dir.join(format!("features_{}_{}.zst", file_idx, symmetry_names[i]));
+            let file = File::create(file_path)?;
 
-    let file_path = output_dir.join(format!("features_{file_idx}.zst"));
-    let file = File::create(file_path)?;
-
-    // Collect all data into memory first
-    let mut data = Vec::new();
-    for (board, (score, mobility, ply)) in all_positions {
-        let mut features = [0; pattern_feature::NUM_PATTERN_FEATURES];
-        pattern_feature::set_features(&board, &mut features);
-
-        write_feature_record(&mut data, score, &features, mobility, ply)?;
+            // Compress and write data
+            let compressed = zstd::bulk::compress(&data, 3)?;
+            std::io::Write::write_all(&mut std::io::BufWriter::new(file), &compressed)?;
+        }
     }
-
-    // Compress and write all data at once
-    let compressed = zstd::bulk::compress(&data, 3)?;
-    std::io::Write::write_all(&mut std::io::BufWriter::new(file), &compressed)?;
 
     Ok(())
 }

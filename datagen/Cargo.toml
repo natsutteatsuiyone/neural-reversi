@@ -17,7 +17,6 @@ bytemuck = "1.23.1"
 glob = "0.3.2"
 reversi_core = { path = "../reversi_core" }
 zstd = "0.13"
-rustc-hash = "2.1.0"
 
 [build-dependencies]
 build_common = { workspace = true }

@@ -903,7 +903,6 @@ dependencies = [
  "rayon",
  "regex",
  "reversi_core",
- "rustc-hash",
  "zstd",
 ]
 
