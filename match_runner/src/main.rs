@@ -16,7 +16,7 @@ fn main() -> io::Result<()> {
     let config = Config::parse_args();
 
     if let Err(e) = config.validate() {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {e}");
         return Ok(());
     }
 
@@ -26,7 +26,7 @@ fn main() -> io::Result<()> {
         match e {
             MatchRunnerError::Io(io_err) => return Err(io_err),
             _ => {
-                eprintln!("Error: {}", e);
+                eprintln!("Error: {e}");
                 return Ok(());
             }
         }

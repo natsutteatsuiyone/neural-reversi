@@ -198,11 +198,11 @@ impl MatchRunner {
 
             if !('a'..='h').contains(&file) || !('1'..='8').contains(&rank) {
                 return Err(MatchRunnerError::Game(
-                    format!("Invalid move in opening sequence: {}{}", file, rank)
+                    format!("Invalid move in opening sequence: {file}{rank}")
                 ));
             }
 
-            let mv = format!("{}{}", file, rank);
+            let mv = format!("{file}{rank}");
             let square = self.parse_move(&mv)?;
 
             let color = if game_state.side_to_move() == Piece::Black {
@@ -263,7 +263,7 @@ impl MatchRunner {
 
     fn parse_move(&self, move_str: &str) -> Result<Square> {
         move_str.parse::<Square>().map_err(|_| {
-            MatchRunnerError::Game(format!("Invalid move: {}", move_str))
+            MatchRunnerError::Game(format!("Invalid move: {move_str}"))
         })
     }
 
@@ -344,7 +344,7 @@ impl MatchRunner {
                 }
                 Err(e) => {
                     return Err(MatchRunnerError::Game(
-                        format!("Fatal error in game {}: {}", game_number, e)
+                        format!("Fatal error in game {game_number}: {e}")
                     ));
                 }
             }

@@ -484,7 +484,7 @@ mod tests {
 
         while current != Square::None {
             let sq_idx = current.index();
-            assert!(!visited_squares[sq_idx], "Square visited twice: {:?}", current);
+            assert!(!visited_squares[sq_idx], "Square visited twice: {current:?}");
             visited_squares[sq_idx] = true;
             current = empty_list.next(current);
             count += 1;
@@ -555,7 +555,7 @@ mod tests {
         // Mark all squares in PRESORTED
         for &sq in PRESORTED.iter() {
             let sq_idx = sq.index();
-            assert!(!squares_seen[sq_idx], "Duplicate square in PRESORTED: {:?}", sq);
+            assert!(!squares_seen[sq_idx], "Duplicate square in PRESORTED: {sq:?}");
             squares_seen[sq_idx] = true;
         }
 
@@ -565,7 +565,7 @@ mod tests {
 
         // Every square from 0-63 should be present
         for (idx, &seen) in squares_seen.iter().enumerate() {
-            assert!(seen, "Square index {} missing from PRESORTED", idx);
+            assert!(seen, "Square index {idx} missing from PRESORTED");
         }
     }
 }

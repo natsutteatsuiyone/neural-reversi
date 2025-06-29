@@ -93,11 +93,11 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
     let mut search = Search::new(&options);
 
     let input_file = File::open(input)
-        .map_err(|e| io::Error::new(e.kind(), format!("Failed to open input file '{}': {}", input, e)))?;
+        .map_err(|e| io::Error::new(e.kind(), format!("Failed to open input file '{input}': {e}")))?;
     let reader = BufReader::new(input_file);
 
     let output_file = File::create(output)
-        .map_err(|e| io::Error::new(e.kind(), format!("Failed to create output file '{}': {}", output, e)))?;
+        .map_err(|e| io::Error::new(e.kind(), format!("Failed to create output file '{output}': {e}")))?;
     let mut writer = BufWriter::new(output_file);
     writer.write_all(b"ply,shallow_depth,deep_depth,diff\n")?;
 
@@ -115,9 +115,9 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
 
         for token in line.as_bytes().chunks_exact(2) {
             let move_str = std::str::from_utf8(token)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid UTF-8 in move token: {}", e)))?;
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid UTF-8 in move token: {e}")))?;
             let sq = move_str.parse::<Square>()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move '{}': {}", move_str, e)))?;
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move '{move_str}': {e}")))?;
 
             if !board.has_legal_moves() {
                 board = board.switch_players();

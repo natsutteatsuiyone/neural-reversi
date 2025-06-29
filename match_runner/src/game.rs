@@ -71,7 +71,7 @@ impl GameState {
         match sq {
             Some(square) => {
                 if self.board.get_moves() & square.bitboard() == 0 {
-                    return Err(format!("Illegal move: {:?}", square));
+                    return Err(format!("Illegal move: {square:?}"));
                 }
 
                 self.board = self.board.make_move(square);

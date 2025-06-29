@@ -75,7 +75,7 @@ impl GameState {
     /// Panics if the move is not legal on the current board
     pub fn make_move(&mut self, sq: Square) {
         if !self.board.is_legal_move(sq) {
-            panic!("Attempted to make illegal move: {:?}", sq);
+            panic!("Attempted to make illegal move: {sq:?}");
         }
 
         self.history.push((sq, self.board));
@@ -138,7 +138,7 @@ impl GameState {
                     Piece::White => "O",
                     Piece::Empty => if self.board.is_legal_move(sq) { "." } else { " " },
                 };
-                result.push_str(&format!("{}|", symbol));
+                result.push_str(&format!("{symbol}|"));
             }
 
             // Side information
@@ -204,7 +204,7 @@ impl GameState {
                     Piece::Empty if is_legal => " · ".bright_cyan(),
                     Piece::Empty => "   ".black(),
                 };
-                print!("{}│", symbol);
+                print!("{symbol}│");
             }
 
             // Side information
@@ -215,7 +215,7 @@ impl GameState {
                         Piece::White => "White's turn (O)".bright_yellow(),
                         _ => unreachable!(),
                     };
-                    println!("   {}", player_info);
+                    println!("   {player_info}");
                 }
                 3 => println!("   Black: {}", format!("{:2}", self.get_black_count()).bright_green()),
                 4 => println!("   White: {}", format!("{:2}", self.get_white_count()).bright_yellow()),

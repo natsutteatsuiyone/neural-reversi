@@ -23,9 +23,9 @@ impl From<env::VarError> for Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Io(e) => write!(f, "IO error: {}", e),
-            Error::Env(e) => write!(f, "Environment variable error: {}", e),
-            Error::Path(s) => write!(f, "Path error: {}", s),
+            Error::Io(e) => write!(f, "IO error: {e}"),
+            Error::Env(e) => write!(f, "Environment variable error: {e}"),
+            Error::Path(s) => write!(f, "Path error: {s}"),
         }
     }
 }
@@ -135,8 +135,8 @@ fn copy_files_to_target_profile_dir(
 /// * `Ok(())` if the files were copied successfully.
 /// * `Err(Error)` if there was an error during the process.
 pub fn copy_weight_files(weights_directory: &str) -> Result<(), Error> {
-    let eval_path = format!("{}/{}", weights_directory, EVAL_FILE_NAME);
-    let eval_sm_path = format!("{}/{}", weights_directory, EVAL_SM_FILE_NAME);
+    let eval_path = format!("{weights_directory}/{EVAL_FILE_NAME}");
+    let eval_sm_path = format!("{weights_directory}/{EVAL_SM_FILE_NAME}");
 
     let files_to_copy = [
         (eval_path.as_str(), EVAL_FILE_NAME),

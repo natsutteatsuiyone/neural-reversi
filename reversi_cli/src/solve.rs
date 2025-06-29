@@ -89,7 +89,7 @@ fn parse_position_line(line: &str) -> Result<(Board, Piece), String> {
     let side_to_move = match side_char {
         'X' => Piece::Black,
         'O' => Piece::White,
-        _ => return Err(format!("Invalid side to move: {}", side_char)),
+        _ => return Err(format!("Invalid side to move: {side_char}")),
     };
 
     let board = Board::from_string(board_str, side_to_move);

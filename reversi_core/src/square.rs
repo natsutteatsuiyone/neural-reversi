@@ -48,7 +48,7 @@ impl Square {
     /// For example, A1 returns 0x1, B1 returns 0x2, H8 returns 0x8000000000000000.
     #[inline]
     pub fn bitboard(self) -> u64 {
-        debug_assert!((self as usize) < 64, "Index out of bounds for Square enum. self: {:?}", self);
+        debug_assert!((self as usize) < 64, "Index out of bounds for Square enum. self: {self:?}");
         1 << self as u8
     }
 
@@ -72,7 +72,7 @@ impl Square {
     /// The corresponding `Square` variant.
     #[inline]
     pub fn from_u8_unchecked(index: u8) -> Square {
-        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {:?}", index);
+        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {index:?}");
         unsafe { std::mem::transmute(index) }
     }
 
@@ -101,7 +101,7 @@ impl Square {
     /// The corresponding `Square` variant.
     #[inline]
     pub fn from_u32_unchecked(index: u32) -> Square {
-        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {:?}", index);
+        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {index:?}");
         unsafe { std::mem::transmute(index as u8) }
     }
 
@@ -136,7 +136,7 @@ impl Square {
     /// Panics in debug mode if `index` > 64.
     #[inline]
     pub fn from_usize_unchecked(index: usize) -> Square {
-        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {:?}", index);
+        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {index:?}");
         unsafe { std::mem::transmute(index as u8) }
     }
 
@@ -201,8 +201,8 @@ impl Square {
     ///
     /// Panics if either `file` or `rank` is >= 8.
     pub fn from_file_rank(file: u8, rank: u8) -> Square {
-        assert!(file < BOARD_SIZE as u8, "Invalid file: {}", file);
-        assert!(rank < BOARD_SIZE as u8, "Invalid rank: {}", rank);
+        assert!(file < BOARD_SIZE as u8, "Invalid file: {file}");
+        assert!(rank < BOARD_SIZE as u8, "Invalid rank: {rank}");
         Self::from_usize_unchecked(rank as usize * BOARD_SIZE + file as usize)
     }
 
@@ -243,8 +243,8 @@ impl fmt::Display for SquareError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SquareError::InvalidFormat => write!(f, "Invalid square format: must be 2 characters (e.g., 'a1')"),
-            SquareError::InvalidFile(c) => write!(f, "Invalid file '{}': must be a-h or A-H", c),
-            SquareError::InvalidRank(c) => write!(f, "Invalid rank '{}': must be 1-8", c),
+            SquareError::InvalidFile(c) => write!(f, "Invalid file '{c}': must be a-h or A-H"),
+            SquareError::InvalidRank(c) => write!(f, "Invalid rank '{c}': must be 1-8"),
         }
     }
 }

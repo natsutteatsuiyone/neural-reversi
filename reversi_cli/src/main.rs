@@ -71,7 +71,7 @@ fn main() {
             }
             let path = Path::new(&file);
             if let Err(e) = solve::solve(path, hash_size, level, selectivity) {
-                eprintln!("Error solving game: {}", e);
+                eprintln!("Error solving game: {e}");
             }
         }
         None => {

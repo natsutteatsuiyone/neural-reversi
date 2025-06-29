@@ -26,10 +26,10 @@ pub enum MatchRunnerError {
 impl fmt::Display for MatchRunnerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MatchRunnerError::Io(err) => write!(f, "IO error: {}", err),
-            MatchRunnerError::Engine(msg) => write!(f, "Engine error: {}", msg),
-            MatchRunnerError::Game(msg) => write!(f, "Game error: {}", msg),
-            MatchRunnerError::Config(msg) => write!(f, "Configuration error: {}", msg),
+            MatchRunnerError::Io(err) => write!(f, "IO error: {err}"),
+            MatchRunnerError::Engine(msg) => write!(f, "Engine error: {msg}"),
+            MatchRunnerError::Game(msg) => write!(f, "Game error: {msg}"),
+            MatchRunnerError::Config(msg) => write!(f, "Configuration error: {msg}"),
         }
     }
 }

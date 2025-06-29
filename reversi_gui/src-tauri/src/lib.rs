@@ -44,7 +44,7 @@ fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
             search.init();
             Ok(())
         },
-        Err(e) => Err(format!("Failed to initialize search: {}", e))
+        Err(e) => Err(format!("Failed to initialize search: {e}"))
     }
 }
 

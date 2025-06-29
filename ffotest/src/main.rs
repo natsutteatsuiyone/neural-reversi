@@ -115,7 +115,7 @@ impl SearchStats {
     /// Classify the move accuracy based on the search result
     fn classify_move(result: &SearchResult, test_case: &TestCase) -> MoveAccuracy {
         if let Some(first_pv) = result.pv_line.first() {
-            let move_str = format!("{:?}", first_pv);
+            let move_str = format!("{first_pv:?}");
             if test_case.is_best_move(&move_str) {
                 MoveAccuracy::Best
             } else if test_case.is_second_best_move(&move_str) {
@@ -231,8 +231,8 @@ impl SearchStats {
                     self.total_count
                 ),
             ),
-            ("MAE", format!("{:.2}", mean_diff)),
-            ("Std Dev.", format!("{:.2}", std_dev)),
+            ("MAE", format!("{mean_diff:.2}")),
+            ("Std Dev.", format!("{std_dev:.2}")),
         ];
 
         let max_label_len = stats
@@ -249,7 +249,7 @@ impl SearchStats {
                 }
                 _ => value.normal(),
             };
-            println!("- {:<width$}: {}", label, formatted_value, width = max_label_len);
+            println!("- {label:<max_label_len$}: {formatted_value}");
         }
     }
 
@@ -296,14 +296,14 @@ fn format_pv_line(pv_line: &[Square], max_moves: usize) -> String {
     pv_line
         .iter()
         .take(max_moves)
-        .map(|sq| format!("{:?}", sq))
+        .map(|sq| format!("{sq:?}"))
         .collect::<Vec<_>>()
         .join(" ")
 }
 
 /// Apply color coding to score based on accuracy
 fn colorize_score(score: Scoref, difference: Scoref) -> colored::ColoredString {
-    let score_str = format!("{:.1}", score);
+    let score_str = format!("{score:.1}");
     if difference <= SCORE_TOLERANCE_PERFECT {
         score_str.bright_green()
     } else if difference <= SCORE_TOLERANCE_GOOD {

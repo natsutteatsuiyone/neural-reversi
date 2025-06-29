@@ -728,7 +728,7 @@ mod tests {
     #[test]
     fn test_display() {
         let board = Board::new();
-        let board_display = format!("{}", board);
+        let board_display = format!("{board}");
         let expected_display = "--------\n\
                                       --------\n\
                                       --------\n\

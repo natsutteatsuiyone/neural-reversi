@@ -30,7 +30,7 @@ pub struct Eval {
 
 impl Eval {
     pub fn new() -> io::Result<Self> {
-        let exe_path = env::current_exe().map_err(|e| io::Error::other(format!("Failed to get current executable path: {}", e)))?;
+        let exe_path = env::current_exe().map_err(|e| io::Error::other(format!("Failed to get current executable path: {e}")))?;
         let exe_dir = exe_path.parent().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Failed to get parent directory of executable"))?;
 
         let eval_file_path = exe_dir.join(EVAL_FILE_NAME);

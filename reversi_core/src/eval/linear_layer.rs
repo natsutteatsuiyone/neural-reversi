@@ -425,8 +425,7 @@ mod tests {
             for i in 0..O {
                 assert_eq!(
                     output_avx2[i], output_fallback[i],
-                    "Mismatch at output index {}",
-                    i
+                    "Mismatch at output index {i}"
                 );
             }
         }
@@ -447,10 +446,7 @@ mod tests {
                 let idx = layer.get_packed_weight_index(input_idx, output_idx);
                 assert!(
                     idx < PI * PO,
-                    "Index {} out of bounds for input={}, output={}",
-                    idx,
-                    input_idx,
-                    output_idx
+                    "Index {idx} out of bounds for input={input_idx}, output={output_idx}"
                 );
             }
         }

@@ -66,11 +66,11 @@ pub fn execute(
 
     let num_output_files = num_output_files.unwrap_or(input_files.len()).max(1);
 
-    println!("Input  folder : {:?}", input_dir);
-    println!("Output folder : {:?}", output_dir);
+    println!("Input  folder : {input_dir:?}");
+    println!("Output folder : {output_dir:?}");
     println!("Input files   : {}", input_files.len());
-    println!("Output files  : {}", num_output_files);
-    println!("Files/chunk   : {}", files_per_chunk);
+    println!("Output files  : {num_output_files}");
+    println!("Files/chunk   : {files_per_chunk}");
     println!("----------------------------------------");
 
     let mp = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
@@ -124,7 +124,7 @@ pub fn execute(
         HumanBytes(total_bytes)
     );
     for (i, record_count) in records_per_output_file.iter().enumerate() {
-        println!("shuffled_{i:0width$}.bin : {record_count} recs", width = OUTPUT_FILE_DIGITS);
+        println!("shuffled_{i:0OUTPUT_FILE_DIGITS$}.bin : {record_count} recs");
     }
     println!("-----------------------------------");
     Ok(())
@@ -223,7 +223,7 @@ fn distribute_records(
             continue;
         }
 
-        let output_path = output_dir.join(format!("shuffled_{output_file_index:0width$}.bin", width = OUTPUT_FILE_DIGITS));
+        let output_path = output_dir.join(format!("shuffled_{output_file_index:0OUTPUT_FILE_DIGITS$}.bin"));
         let output_file = OpenOptions::new().create(true).append(true).open(&output_path)?;
         let mut writer = BufWriter::new(output_file);
 

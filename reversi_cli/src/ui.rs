@@ -80,8 +80,7 @@ impl Command {
                     match mode_str.parse::<usize>() {
                         Ok(mode) if mode <= MAX_MODE => Ok(Command::Mode(Some(mode))),
                         Ok(_) => Err(format!(
-                            "Invalid mode. Please specify a value between 0-{}.",
-                            MAX_MODE
+                            "Invalid mode. Please specify a value between 0-{MAX_MODE}."
                         )),
                         Err(_) => Err("Invalid mode format. Please provide a number.".to_string()),
                     }
@@ -110,7 +109,7 @@ impl Command {
                 // Try to parse as a move
                 match cmd.parse::<Square>() {
                     Ok(sq) => Ok(Command::Move(sq)),
-                    Err(_) => Err(format!("Unknown command: {}", cmd)),
+                    Err(_) => Err(format!("Unknown command: {cmd}")),
                 }
             }
         }
@@ -143,7 +142,7 @@ impl fmt::Display for GameMode {
             MODE_BOTH_HUMAN => "Black-Human, White-Human",
             _ => "Unknown",
         };
-        write!(f, "{}", description)
+        write!(f, "{description}")
     }
 }
 
@@ -200,17 +199,17 @@ pub fn ui_loop(hash_size: usize, initial_level: usize, selectivity: Selectivity)
                                     break;
                                 }
                             }
-                            Err(err) => println!("Error: {}", err),
+                            Err(err) => println!("Error: {err}"),
                         }
                     }
-                    Err(err) => println!("Error: {}\n", err),
+                    Err(err) => println!("Error: {err}\n"),
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                println!("Error: {err:?}");
                 break;
             }
         }
@@ -245,12 +244,12 @@ fn handle_command(
         }
         Command::Level(new_level) => {
             *level = new_level;
-            println!("Level set to: {}", new_level);
+            println!("Level set to: {new_level}");
             Ok(true)
         }
         Command::Mode(Some(mode)) => {
             game_mode.0 = mode;
-            println!("Mode changed to: {}", game_mode);
+            println!("Mode changed to: {game_mode}");
             Ok(true)
         }
         Command::Mode(None) => {
@@ -273,14 +272,14 @@ fn handle_command(
                     println!("Board position set successfully.");
                     Ok(true)
                 }
-                Err(err) => Err(format!("Invalid board format: {}", err)),
+                Err(err) => Err(format!("Invalid board format: {err}")),
             }
         }
         Command::Move(sq) => {
             if game.board.is_legal_move(sq) {
                 game.make_move(sq);
             } else {
-                return Err(format!("Illegal move: {:?}", sq));
+                return Err(format!("Illegal move: {sq:?}"));
             }
             Ok(true)
         }
@@ -330,7 +329,7 @@ fn display_search_result(result: &SearchResult, mv: Square, verbose: bool) {
         println!("╔═══════════════════════════════════════════╗");
         println!("║           AI Search Results               ║");
         println!("╠═══════════════════════════════════════════╣");
-        println!("║ Depth      : {:>28} ║", depth);
+        println!("║ Depth      : {depth:>28} ║");
         println!(
             "║ Evaluation : {:>28} ║",
             format!("{:+.2}", result.score)
@@ -415,7 +414,7 @@ fn parse_setboard(board_str: &str) -> Result<(reversi_core::board::Board, Piece)
     let side_to_move = match side_to_move_char {
         'b' | 'B' | 'x' | 'X' | '*' => Piece::Black,
         'o' | 'O' | 'w' | 'W' => Piece::White,
-        _ => return Err(format!("Invalid side to move character: {}", side_to_move_char)),
+        _ => return Err(format!("Invalid side to move character: {side_to_move_char}")),
     };
 
     // Parse the board
@@ -458,12 +457,12 @@ fn execute_play_sequence(game: &mut GameState, moves: &str) -> Result<(), String
         let sq_str: String = sq_str.iter().collect();
         let sq = sq_str
             .parse::<Square>()
-            .map_err(|_| format!("Invalid move notation: {}", sq_str))?;
+            .map_err(|_| format!("Invalid move notation: {sq_str}"))?;
 
         if game.board.is_legal_move(sq) {
             game.make_move(sq);
         } else {
-            return Err(format!("Illegal move in sequence: {}", sq_str));
+            return Err(format!("Illegal move in sequence: {sq_str}"));
         }
     }
     Ok(())

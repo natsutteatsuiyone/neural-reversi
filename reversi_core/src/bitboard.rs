@@ -448,8 +448,7 @@ mod tests {
                 // AVX2 function call must be wrapped in unsafe block
                 let moves_avx = unsafe { get_moves_avx2(player, opponent) };
                 assert_eq!(moves_fallback, moves_avx,
-                    "Fallback and AVX implementations differ for player={:016x}, opponent={:016x}",
-                    player, opponent);
+                    "Fallback and AVX implementations differ for player={player:016x}, opponent={opponent:016x}");
             }
         }
     }

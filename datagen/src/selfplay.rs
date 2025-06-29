@@ -155,18 +155,18 @@ pub fn execute_with_openings(
     let mut start_game_id = 0;
     if resume {
         // Read the last game ID from resume.txt file
-        let resume_file_path = format!("{}/resume.txt", output_dir);
+        let resume_file_path = format!("{output_dir}/resume.txt");
         if Path::new(&resume_file_path).exists() {
             match fs::read_to_string(&resume_file_path) {
                 Ok(content) => {
                     let last_game_id = content.lines().next().and_then(|line| line.parse::<usize>().ok());
                     if let Some(id) = last_game_id {
                         start_game_id = id + 1; // Start from the next game
-                        println!("Resuming from game ID: {}", start_game_id);
+                        println!("Resuming from game ID: {start_game_id}");
                     }
                 },
                 Err(e) => {
-                    eprintln!("Failed to read resume.txt: {}", e);
+                    eprintln!("Failed to read resume.txt: {e}");
                 }
             }
         }
@@ -182,8 +182,8 @@ pub fn execute_with_openings(
 
         // Save the current game ID (progress) to resume.txt
         if resume {
-            let resume_file_path = format!("{}/resume.txt", output_dir);
-            fs::write(&resume_file_path, format!("{}", game_id))?;
+            let resume_file_path = format!("{output_dir}/resume.txt");
+            fs::write(&resume_file_path, format!("{game_id}"))?;
         }
     }
     Ok(())
@@ -263,7 +263,7 @@ fn play_game(
 
         // Skip invalid moves
         if !board.is_legal_move(sq) {
-            eprintln!("Warning: Invalid move in opening sequence: {}", sq);
+            eprintln!("Warning: Invalid move in opening sequence: {sq}");
             continue;
         }
 
@@ -393,7 +393,7 @@ fn save_game(
     output_dir: &str,
     records_per_file: u32,
 ) -> io::Result<()> {
-    let pattern = format!(r"^{}_\d{{{}}}\.bin$", prefix, FILE_ID_DIGITS);
+    let pattern = format!(r"^{prefix}_\d{{{FILE_ID_DIGITS}}}\.bin$");
     let re = Regex::new(&pattern).unwrap();
     let latest_file_entry = fs::read_dir(output_dir)?
         .filter_map(|entry| entry.ok())
@@ -431,7 +431,7 @@ fn save_game(
         }
     }
 
-    current_file_path_str = format!("{}/{}_{:0width$}.bin", output_dir, prefix, current_file_id, width = FILE_ID_DIGITS);
+    current_file_path_str = format!("{output_dir}/{prefix}_{current_file_id:0FILE_ID_DIGITS$}.bin");
 
     let mut records_processed = 0;
     while records_processed < game_records.len() {
@@ -439,7 +439,7 @@ fn save_game(
 
         if remaining_capacity == 0 {
             current_file_id += 1;
-            current_file_path_str = format!("{}/{}_{:0width$}.bin", output_dir, prefix, current_file_id, width = FILE_ID_DIGITS);
+            current_file_path_str = format!("{output_dir}/{prefix}_{current_file_id:0FILE_ID_DIGITS$}.bin");
             current_record_count = 0;
             continue;
         }

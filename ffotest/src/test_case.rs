@@ -50,7 +50,7 @@ impl TestCase {
         let stm = match side_to_move {
             "X" => Piece::Black,
             "O" => Piece::White,
-            _ => panic!("Invalid side to move: {}", side_to_move),
+            _ => panic!("Invalid side to move: {side_to_move}"),
         };
 
         Self {
@@ -219,7 +219,7 @@ pub fn get_test_cases() -> Vec<TestCase> {
     // Validate test cases in debug builds
     #[cfg(debug_assertions)]
     if let Err(e) = validate_test_cases(&cases) {
-        panic!("Test case validation failed: {}", e);
+        panic!("Test case validation failed: {e}");
     }
 
     cases

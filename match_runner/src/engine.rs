@@ -87,7 +87,7 @@ impl GtpEngine {
             .as_mut()
             .ok_or_else(|| MatchRunnerError::Engine("Failed to open stdin".to_string()))?;
 
-        writeln!(stdin, "{}", command)?;
+        writeln!(stdin, "{command}")?;
         stdin.flush()?;
 
         let stdout = self.process.stdout.as_mut()
@@ -135,14 +135,14 @@ impl GtpEngine {
             name_response.strip_prefix("= ").unwrap().trim()
         } else {
             return Err(MatchRunnerError::Engine(
-                format!("Invalid name response: {}", name_response)
+                format!("Invalid name response: {name_response}")
             ));
         };
 
         let version = if version_response.starts_with("= ") {
             let v = version_response.strip_prefix("= ").unwrap().trim();
             if !v.is_empty() && !v.starts_with('v') && !v.starts_with('V') {
-                format!("v{}", v)
+                format!("v{v}")
             } else {
                 v.to_string()
             }
@@ -150,12 +150,12 @@ impl GtpEngine {
             "".to_string()
         } else {
             return Err(MatchRunnerError::Engine(
-                format!("Invalid version response: {}", version_response)
+                format!("Invalid version response: {version_response}")
             ));
         };
 
         if !version.is_empty() {
-            Ok(format!("{} {}", name, version))
+            Ok(format!("{name} {version}"))
         } else {
             Ok(name.to_string())
         }
@@ -179,7 +179,7 @@ impl GtpEngine {
             Ok(())
         } else {
             Err(MatchRunnerError::Engine(
-                format!("Failed to clear board: {}", response)
+                format!("Failed to clear board: {response}")
             ))
         }
     }
@@ -202,12 +202,12 @@ impl GtpEngine {
     ///
     /// Returns an error if the engine rejects the move or if communication fails.
     pub fn play(&mut self, color: &str, mv: &str) -> Result<()> {
-        let response = self.send_command(&format!("play {} {}", color, mv))?;
+        let response = self.send_command(&format!("play {color} {mv}"))?;
         if response.starts_with("=") {
             Ok(())
         } else {
             Err(MatchRunnerError::Engine(
-                format!("Failed to play move: {}", response)
+                format!("Failed to play move: {response}")
             ))
         }
     }
@@ -230,12 +230,12 @@ impl GtpEngine {
     /// Returns an error if the engine fails to generate a move or if
     /// communication fails.
     pub fn genmove(&mut self, color: &str) -> Result<String> {
-        let response = self.send_command(&format!("genmove {}", color))?;
+        let response = self.send_command(&format!("genmove {color}"))?;
         if response.starts_with("=") {
             Ok(response.strip_prefix("=").unwrap().trim().to_string())
         } else {
             Err(MatchRunnerError::Engine(
-                format!("Failed to generate move: {}", response)
+                format!("Failed to generate move: {response}")
             ))
         }
     }

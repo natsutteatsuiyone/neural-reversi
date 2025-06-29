@@ -294,25 +294,25 @@ impl MatchStatistics {
         if elo_stats.elo_diff.abs() > 100.0 && !elo_stats.elo_diff.is_infinite() {
             println!("{:>20}: {}", "Performance".bright_white(),
                 if elo_stats.elo_diff > 0.0 {
-                    format!("{} is significantly stronger", engine1_name).bright_green()
+                    format!("{engine1_name} is significantly stronger").bright_green()
                 } else {
-                    format!("{} is significantly stronger", engine2_name).bright_red()
+                    format!("{engine2_name} is significantly stronger").bright_red()
                 }
             );
         } else if elo_stats.elo_diff.abs() > 50.0 {
             println!("{:>20}: {}", "Performance".bright_white(),
                 if elo_stats.elo_diff > 0.0 {
-                    format!("{} has a clear advantage", engine1_name).bright_green()
+                    format!("{engine1_name} has a clear advantage").bright_green()
                 } else {
-                    format!("{} has a clear advantage", engine2_name).bright_red()
+                    format!("{engine2_name} has a clear advantage").bright_red()
                 }
             );
         } else if elo_stats.elo_diff.abs() > 20.0 {
             println!("{:>20}: {}", "Performance".bright_white(),
                 if elo_stats.elo_diff > 0.0 {
-                    format!("{} has a slight edge", engine1_name).bright_yellow()
+                    format!("{engine1_name} has a slight edge").bright_yellow()
                 } else {
-                    format!("{} has a slight edge", engine2_name).bright_yellow()
+                    format!("{engine2_name} has a slight edge").bright_yellow()
                 }
             );
         } else {

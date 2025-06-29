@@ -157,8 +157,8 @@ impl std::fmt::Display for GtpResponse {
     /// Success responses are prefixed with "=", error responses with "?".
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Success(msg) => write!(f, "= {}", msg),
-            Self::Error(msg) => write!(f, "? {}", msg),
+            Self::Success(msg) => write!(f, "= {msg}"),
+            Self::Error(msg) => write!(f, "? {msg}"),
         }
     }
 }
@@ -241,7 +241,7 @@ impl GtpEngine {
                     let response = self.handle_command(command);
 
                     if let Err(e) = self.output_response(&mut stdout, id, &response) {
-                        eprintln!("Error writing output: {}", e);
+                        eprintln!("Error writing output: {e}");
                         break;
                     }
 
@@ -250,7 +250,7 @@ impl GtpEngine {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error reading input: {}", e);
+                    eprintln!("Error reading input: {e}");
                     break;
                 }
             }
@@ -331,7 +331,7 @@ impl GtpEngine {
                 }
             }
             None => {
-                writeln!(stdout, "{}\n", response_str)
+                writeln!(stdout, "{response_str}\n")
             }
         }?;
         stdout.flush()
@@ -362,7 +362,7 @@ impl GtpEngine {
             Command::Showboard => self.handle_showboard(),
             Command::Undo => self.handle_undo(),
             Command::SetLevel(level) => self.handle_set_level(level),
-            Command::Unknown(cmd) => GtpResponse::Error(format!("unknown command: {}", cmd)),
+            Command::Unknown(cmd) => GtpResponse::Error(format!("unknown command: {cmd}")),
         }
     }
 
@@ -510,7 +510,7 @@ impl GtpEngine {
 
         if let Some(computer_move) = result.pv_line.first() {
             self.game.make_move(*computer_move);
-            GtpResponse::Success(format!("{:?}", computer_move))
+            GtpResponse::Success(format!("{computer_move:?}"))
         } else {
             GtpResponse::Error("failed to generate move".to_string())
         }
@@ -521,7 +521,7 @@ impl GtpEngine {
     /// Returns a text representation of the current board state.
     fn handle_showboard(&self) -> GtpResponse {
         let board_display = self.game.get_board_string();
-        GtpResponse::Success(format!("\n{}", board_display))
+        GtpResponse::Success(format!("\n{board_display}"))
     }
 
     /// Handles the `undo` command.
@@ -581,7 +581,7 @@ impl GtpEngine {
                               (color == "w" || color == "white") && expected_color == "w";
 
         if !is_correct_color {
-            return Err(format!("wrong color, expected {}", expected_color));
+            return Err(format!("wrong color, expected {expected_color}"));
         }
 
         Ok(())
