@@ -21,6 +21,9 @@ struct Cli {
 
     #[arg(long, default_value = "1", value_parser = clap::value_parser!(Selectivity).range(1..=6))]
     selectivity: Selectivity,
+
+    #[arg(long)]
+    threads: Option<usize>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -34,6 +37,9 @@ enum SubCommands {
 
         #[arg(long, default_value = "1", value_parser = clap::value_parser!(Selectivity).range(1..=6))]
         selectivity: Selectivity,
+
+        #[arg(long)]
+        threads: Option<usize>,
     },
     Solve {
         #[arg()]
@@ -47,6 +53,9 @@ enum SubCommands {
 
         #[arg(long, default_value = "1", value_parser = clap::value_parser!(Selectivity).range(1..=6))]
         selectivity: Selectivity,
+
+        #[arg(long)]
+        threads: Option<usize>,
     },
 }
 
@@ -55,8 +64,8 @@ fn main() {
 
     let args = Cli::parse();
     match args.command {
-        Some(SubCommands::Gtp { hash_size, level, selectivity }) => {
-            let mut gtp_engine = gtp::GtpEngine::new(hash_size, level, selectivity);
+        Some(SubCommands::Gtp { hash_size, level, selectivity, threads }) => {
+            let mut gtp_engine = gtp::GtpEngine::new(hash_size, level, selectivity, threads);
             gtp_engine.run();
         }
         Some(SubCommands::Solve {
@@ -64,18 +73,19 @@ fn main() {
             hash_size,
             level,
             selectivity,
+            threads,
         }) => {
             if !file.exists() {
                 eprintln!("File does not exist: {}", file.display());
                 return;
             }
             let path = Path::new(&file);
-            if let Err(e) = solve::solve(path, hash_size, level, selectivity) {
+            if let Err(e) = solve::solve(path, hash_size, level, selectivity, threads) {
                 eprintln!("Error solving game: {e}");
             }
         }
         None => {
-            ui::ui_loop(args.hash_size, args.level, args.selectivity);
+            ui::ui_loop(args.hash_size, args.level, args.selectivity, args.threads);
         }
     }
 }

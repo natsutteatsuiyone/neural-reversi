@@ -65,10 +65,11 @@ pub trait SearchCallback: Send {
 
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
+        let n_threads = options.n_threads.min(num_cpus::get()).max(1);
         Search {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
             generation: 0,
-            threads: ThreadPool::new(options.n_threads),
+            threads: ThreadPool::new(n_threads),
             eval: Arc::new(Eval::new().unwrap()),
         }
     }

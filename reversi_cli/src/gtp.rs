@@ -189,16 +189,21 @@ impl GtpEngine {
     /// * `hash_size` - Size of the transposition table in MB
     /// * `level` - Initial playing strength level (1-20)
     /// * `selectivity` - Search selectivity setting
+    /// * `threads` - Number of threads to use for search (None uses default)
     ///
     /// # Returns
     /// A new `GtpEngine` instance ready to process commands
-    pub fn new(hash_size: usize, level: usize, selectivity: Selectivity) -> Self {
+    pub fn new(hash_size: usize, level: usize, selectivity: Selectivity, threads: Option<usize>) -> Self {
+        let mut search_options = SearchOptions {
+            tt_mb_size: hash_size,
+            ..Default::default()
+        };
+        if let Some(n_threads) = threads {
+            search_options.n_threads = n_threads;
+        }
         Self {
             game: GameState::new(),
-            search: search::Search::new(&SearchOptions {
-                tt_mb_size: hash_size,
-                ..Default::default()
-            }),
+            search: search::Search::new(&search_options),
             level,
             selectivity,
             name: "Neural Reversi".to_string(),

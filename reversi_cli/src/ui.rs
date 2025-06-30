@@ -155,13 +155,17 @@ impl fmt::Display for GameMode {
 /// * `hash_size` - Size of transposition table in MB
 /// * `initial_level` - Initial AI search level
 /// * `selectivity` - Search selectivity setting
-pub fn ui_loop(hash_size: usize, initial_level: usize, selectivity: Selectivity) {
+pub fn ui_loop(hash_size: usize, initial_level: usize, selectivity: Selectivity, threads: Option<usize>) {
     let mut rl = DefaultEditor::new().unwrap();
     let mut game = GameState::new();
-    let mut search = search::Search::new(&SearchOptions {
+    let mut search_options = SearchOptions {
         tt_mb_size: hash_size,
         ..Default::default()
-    });
+    };
+    if let Some(n_threads) = threads {
+        search_options.n_threads = n_threads;
+    }
+    let mut search = search::Search::new(&search_options);
     let mut game_mode = GameMode(MODE_BOTH_HUMAN);
     let mut level = initial_level;
 

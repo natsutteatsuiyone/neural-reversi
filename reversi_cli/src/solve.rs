@@ -16,14 +16,18 @@ pub fn solve(
     hash_size: usize,
     level: usize,
     selectivity: Selectivity,
+    threads: Option<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
-    let search_options = SearchOptions {
+    let mut search_options = SearchOptions {
         tt_mb_size: hash_size,
         ..Default::default()
     };
+    if let Some(n_threads) = threads {
+        search_options.n_threads = n_threads;
+    }
 
     let mut search = Search::new(&search_options);
     let level_config = get_level(level);
