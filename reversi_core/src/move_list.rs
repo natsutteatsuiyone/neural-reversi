@@ -309,7 +309,7 @@ impl ConcurrentMoveIterator {
     ///
     /// Returns None when all moves have been consumed.
     pub fn next(&self) -> Option<(&Move, usize)> {
-        let current = self.current.fetch_add(1, atomic::Ordering::SeqCst);
+        let current = self.current.fetch_add(1, atomic::Ordering::Relaxed);
         if current < self.move_list.count {
             Some((&self.move_list.move_buffer[current], current + 1))
         } else {
