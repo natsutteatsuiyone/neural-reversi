@@ -8,7 +8,7 @@ use crate::board::Board;
 use crate::constants::SCORE_INF;
 use crate::flip;
 use crate::search::midgame;
-use crate::search::search_context::SearchContext;
+use crate::search::search_context::{GamePhase, SearchContext};
 use crate::square::Square;
 use crate::types::{Depth, NodeType};
 use crate::{bitboard, constants};
@@ -229,16 +229,18 @@ impl MoveList {
                 };
             }
 
-            // Score-Based Reduction (SBR): reduce depth for poor moves
-            // This implements a form of late move reduction based on evaluation scores
-            const SBR_MARGIN: i32 = 12 << constants::EVAL_SCORE_SCALE_BITS;
-            let reduction_threshold = max_value - SBR_MARGIN;
+            if ctx.game_phase == GamePhase::MidGame {
+                // Score-Based Reduction: reduce depth for poor moves
+                // This implements a form of late move reduction based on evaluation scores
+                const SBR_MARGIN: i32 = 12 << constants::EVAL_SCORE_SCALE_BITS;
+                let reduction_threshold = max_value - SBR_MARGIN;
 
-            for mv in self.iter_mut() {
-                if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
-                    // Calculate reduction based on how much worse this move is
-                    let diff = (max_value - mv.value) as f64 * 0.5;
-                    mv.reduction_depth = (diff / SBR_MARGIN as f64).round() as Depth;
+                for mv in self.iter_mut() {
+                    if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
+                        // Calculate reduction based on how much worse this move is
+                        let diff = max_value - mv.value;
+                        mv.reduction_depth = (((diff / 2) + (SBR_MARGIN / 2)) / SBR_MARGIN) as Depth;
+                    }
                 }
             }
         }
