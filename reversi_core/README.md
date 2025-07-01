@@ -106,13 +106,25 @@ const EVAL_FEATURE: [PatternFeature; 64] = [
 ```rust
 static EVAL_X2F: [CoordinateToFeature; 64] = [
     // A1
-    ctf!(4, [[0, 2187],[8, 2187],[10, 2187],[12, 2187],]),
+    CoordinateToFeature {
+        n_features: 4,
+        features: [[0, 2187], [8, 2187], [10, 2187], [12, 2187]]
+    },
     // B1
-    ctf!(3, [[0, 729],[10, 729],[14, 2187],[0, 0],]),
+    CoordinateToFeature {
+        n_features: 3,
+        features: [[0, 729], [10, 729], [14, 2187], [0, 0]]
+    },
     // C1
-    ctf!(3, [[0, 243],[10, 243],[14, 729],[0, 0],]),
+    CoordinateToFeature {
+        n_features: 3,
+        features: [[0, 243], [10, 243], [14, 729], [0, 0]]
+    },
     // D1
-    ctf!(4, [[0, 81],[10, 81],[14, 243],[15, 81],]),
-    ... // Additional entries for each square    
+    CoordinateToFeature {
+        n_features: 4,
+        features: [[0, 81], [10, 81], [14, 243], [15, 81]]
+    },
+    ... // Additional entries for each square
 ];
 ```
