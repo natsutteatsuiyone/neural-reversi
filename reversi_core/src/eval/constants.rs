@@ -37,9 +37,11 @@ const fn sum_eval_f2x() -> usize {
 
 const fn calc_feature_offsets() -> [usize; pattern_feature::NUM_PATTERN_FEATURES] {
     let mut offsets = [0; pattern_feature::NUM_PATTERN_FEATURES];
+    let mut current_offset = 0;
     let mut i = 0;
     while i < pattern_feature::NUM_PATTERN_FEATURES {
-        offsets[i] = i * calc_pattern_size(i);
+        offsets[i] = current_offset;
+        current_offset += calc_pattern_size(i);
         i += 1;
     }
     offsets
