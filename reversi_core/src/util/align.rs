@@ -1,3 +1,4 @@
+use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 /// A wrapper type that ensures 64-byte alignment for optimal SIMD performance.
@@ -87,5 +88,12 @@ impl<T: Default> Default for Align64<T> {
     /// Creates an aligned wrapper with the default value of the inner type.
     fn default() -> Self {
         Self(T::default())
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for Align64<T> {
+    /// Formats the aligned wrapper by delegating to the inner value's Debug implementation.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
