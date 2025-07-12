@@ -97,3 +97,108 @@ impl<T: fmt::Debug> fmt::Debug for Align64<T> {
         self.0.fmt(f)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_alignment() {
+        let aligned = Align64([0u8; 32]);
+        let ptr = aligned.as_ptr() as usize;
+        assert_eq!(ptr % 64, 0, "Align64 should provide 64-byte alignment");
+    }
+
+    #[test]
+    fn test_deref() {
+        let aligned = Align64(42);
+        assert_eq!(*aligned, 42);
+    }
+
+    #[test]
+    fn test_deref_mut() {
+        let mut aligned = Align64(42);
+        *aligned = 100;
+        assert_eq!(*aligned, 100);
+    }
+
+    #[test]
+    fn test_clone() {
+        let original = Align64(vec![1, 2, 3]);
+        let cloned = original.clone();
+        assert_eq!(*original, *cloned);
+    }
+
+    #[test]
+    fn test_copy() {
+        let original = Align64(42);
+        let copied = original;
+        assert_eq!(*original, *copied);
+    }
+
+    #[test]
+    fn test_index() {
+        let aligned = Align64([1, 2, 3, 4, 5]);
+        assert_eq!(aligned[0], 1);
+        assert_eq!(aligned[2], 3);
+        assert_eq!(aligned[4], 5);
+    }
+
+    #[test]
+    fn test_index_mut() {
+        let mut aligned = Align64([1, 2, 3, 4, 5]);
+        aligned[2] = 10;
+        assert_eq!(aligned[2], 10);
+    }
+
+    #[test]
+    fn test_as_slice() {
+        let aligned = Align64([1, 2, 3, 4, 5]);
+        let slice = aligned.as_slice();
+        assert_eq!(slice, &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_as_mut_slice() {
+        let mut aligned = Align64([1, 2, 3, 4, 5]);
+        let slice = aligned.as_mut_slice();
+        slice[2] = 10;
+        assert_eq!(aligned[2], 10);
+    }
+
+    #[test]
+    fn test_default() {
+        let aligned: Align64<i32> = Align64::default();
+        assert_eq!(*aligned, 0);
+
+        let aligned_vec: Align64<Vec<i32>> = Align64::default();
+        assert!(aligned_vec.is_empty());
+    }
+
+    #[test]
+    fn test_debug() {
+        let aligned = Align64(42);
+        assert_eq!(format!("{:?}", aligned), "42");
+
+        let aligned_vec = Align64(vec![1, 2, 3]);
+        assert_eq!(format!("{:?}", aligned_vec), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_pointers() {
+        let mut aligned = Align64([1, 2, 3, 4]);
+        
+        // Test const pointer
+        let ptr = aligned.as_ptr();
+        unsafe {
+            assert_eq!((*ptr)[0], 1);
+        }
+        
+        // Test mut pointer
+        let mut_ptr = aligned.as_mut_ptr();
+        unsafe {
+            (*mut_ptr)[0] = 10;
+        }
+        assert_eq!(aligned[0], 10);
+    }
+}
