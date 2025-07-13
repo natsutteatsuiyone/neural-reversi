@@ -5,20 +5,33 @@ pub mod search_context;
 pub mod search_result;
 pub mod threading;
 
-use search_result::SearchResult;
-use threading::{Thread, ThreadPool};
 use std::sync::Arc;
 
+use search_result::SearchResult;
+use threading::{Thread, ThreadPool};
+
 use crate::board::Board;
-use crate::constants::SCORE_INF;
 use crate::eval::Eval;
 use crate::level::Level;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, Score, Scoref, Selectivity};
+use crate::types::{Depth, Scoref, Selectivity};
 
-pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
+/// Main search engine structure
+pub struct Search {
+    tt: Arc<TranspositionTable>,
+    generation: u8,
+    threads: Arc<ThreadPool>,
+    eval: Arc<Eval>,
+}
 
+/// Configuration options for the search engine
+pub struct SearchOptions {
+    pub tt_mb_size: usize,
+    pub n_threads: usize,
+}
+
+/// Task structure passed to search threads
 pub struct SearchTask {
     pub board: Board,
     pub generation: u8,
@@ -31,6 +44,7 @@ pub struct SearchTask {
     pub callback: Option<Arc<SearchProgressCallback>>,
 }
 
+/// Progress information during search
 pub struct SearchProgress {
     pub depth: Depth,
     pub score: Scoref,
@@ -38,17 +52,8 @@ pub struct SearchProgress {
     pub probability: i32,
 }
 
-pub struct Search {
-    tt: Arc<TranspositionTable>,
-    generation: u8,
-    threads: Arc<ThreadPool>,
-    eval: Arc<Eval>,
-}
-
-pub struct SearchOptions {
-    pub tt_mb_size: usize,
-    pub n_threads: usize,
-}
+/// Type alias for search progress callback
+pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
 impl Default for SearchOptions {
     fn default() -> Self {
@@ -59,9 +64,6 @@ impl Default for SearchOptions {
     }
 }
 
-pub trait SearchCallback: Send {
-    fn on_depth_completed(&self, depth: Depth, score: Score, best_move: Option<Square>);
-}
 
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
@@ -88,6 +90,11 @@ impl Search {
     where
         F: Fn(SearchProgress) + Send + Sync + 'static,
     {
+        let callback = callback.map(|f| Arc::new(f) as Arc<SearchProgressCallback>);
+        self.execute_search(board, level, selectivity, multi_pv, callback)
+    }
+
+    fn execute_search(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool, callback: Option<Arc<SearchProgressCallback>>) -> SearchResult {
         self.generation += 1;
 
         let task = SearchTask {
@@ -99,7 +106,7 @@ impl Search {
             eval: self.eval.clone(),
             level,
             multi_pv,
-            callback: callback.map(|f| Arc::new(f) as Arc<SearchProgressCallback>),
+            callback,
         };
 
         let result_receiver = self.threads.start_thinking(task);
@@ -119,25 +126,17 @@ impl Search {
     }
 
     pub fn test(&mut self, board: &Board, level: Level, selectivity: Selectivity) -> SearchResult {
-        self.generation += 1;
-
-        let task = SearchTask {
-            board: *board,
-            generation: self.generation,
-            selectivity,
-            tt: self.tt.clone(),
-            pool: self.threads.clone(),
-            eval: self.eval.clone(),
-            level,
-            multi_pv: false,
-            callback: None,
-        };
-
-        let result_receiver = self.threads.start_thinking(task);
-        result_receiver.recv().unwrap()
+        self.execute_search(board, level, selectivity, false, None)
     }
 }
 
+impl Drop for Search {
+    fn drop(&mut self) {
+        assert!(Arc::strong_count(&self.threads) == 1);
+    }
+}
+
+/// Main search entry point that delegates to midgame or endgame search
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let min_end_depth = task.level.get_end_depth(0);
     let n_empties = task.board.get_empty_count();
@@ -146,11 +145,5 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         midgame::search_root(task, thread)
     } else {
         endgame::search_root(task, thread)
-    }
-}
-
-impl Drop for Search {
-    fn drop(&mut self) {
-        assert!(Arc::strong_count(&self.threads) == 1);
     }
 }
