@@ -101,7 +101,7 @@ export function AIEvaluationChart() {
   const CustomTooltip = ({
     active,
     payload,
-  }: TooltipProps<number, string>) => {
+  }: TooltipProps<number, string> & { payload?: any[] }) => {
     if (active && payload && payload.length) {
       const dataPoint = payload[0].payload as ChartDataItem;
       return (
