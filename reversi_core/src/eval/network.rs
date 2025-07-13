@@ -1,3 +1,5 @@
+//! Neural network for midgame evaluation.
+
 use std::fs::File;
 use std::io::{self, BufReader};
 
@@ -64,7 +66,7 @@ struct LayerStack {
     >,
 }
 
-// Thread-local working buffers for network computation
+/// Thread-local working buffers for network computation
 struct NetworkBuffers {
     base_out: Align64<[u8; L1_BASE_PADDED_INPUT_DIMS]>,
     pa_out: Align64<[u8; L1_PA_PADDED_INPUT_DIMS]>,
@@ -103,6 +105,7 @@ thread_local! {
         std::cell::RefCell::new(NetworkBuffers::new());
 }
 
+/// Main neural network structure for position evaluation
 pub struct Network {
     base_input: BaseInput<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>,
     pa_inputs: Vec<PhaseAdaptiveInput<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>>,
@@ -110,6 +113,7 @@ pub struct Network {
 }
 
 impl Network {
+    /// Creates a new network by loading weights from a compressed file
     pub fn new(file_path: &str) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
@@ -144,6 +148,12 @@ impl Network {
         })
     }
 
+    /// Evaluates a board position using the neural network
+    /// 
+    /// # Arguments
+    /// * `board` - The current board state
+    /// * `pattern_feature` - Extracted pattern features from the board
+    /// * `ply` - Current game ply (move number)
     pub fn evaluate(&self, board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
         let mobility = board.get_moves().count_ones();
 

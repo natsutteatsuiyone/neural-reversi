@@ -1,3 +1,5 @@
+//! Small neural network for endgame evaluation.
+
 use std::fs::File;
 use std::io::{self, BufReader};
 
@@ -33,6 +35,7 @@ const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS;
 const NUM_PHASE_ADAPTIVE_INPUT: usize = 6;
 const NUM_LAYER_STACKS: usize = 60;
 
+/// Simplified layer stack with fewer layers than the main network
 struct LayerStack {
     pub l1_pa: LinearLayer<
         L1_PA_INPUT_DIMS,
@@ -49,6 +52,7 @@ struct LayerStack {
     >,
 }
 
+/// Thread-local buffers for small network computation
 struct NetworkBuffers {
     pa_out: Align64<[u8; L1_PA_PADDED_INPUT_DIMS]>,
     l1_pa_out: Align64<[i32; L1_PA_PADDED_OUTPUT_DIMS]>,
@@ -77,12 +81,14 @@ thread_local! {
         std::cell::RefCell::new(NetworkBuffers::new());
 }
 
+/// Small neural network optimized for endgame positions
 pub struct NetworkSmall {
     pa_inputs: Vec<PhaseAdaptiveInput<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>>,
     layer_stacks: Vec<LayerStack>,
 }
 
 impl NetworkSmall {
+    /// Creates a new small network from compressed weights file
     pub fn new(file_path: &str) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
@@ -108,6 +114,14 @@ impl NetworkSmall {
         })
     }
 
+    /// Evaluates a position using the small network
+    /// 
+    /// Faster but less accurate than the main network
+    /// 
+    /// # Arguments
+    /// * `board` - The current board state
+    /// * `pattern_feature` - Extracted pattern features from the board
+    /// * `ply` - Current game ply (move number)
     pub fn evaluate(&self, board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
         let mobility = board.get_moves().count_ones();
 
