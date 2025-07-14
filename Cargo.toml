@@ -3,7 +3,7 @@ members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "datagen", "f
 resolver = "2"
 
 [workspace.package]
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 
 [workspace.dependencies]
