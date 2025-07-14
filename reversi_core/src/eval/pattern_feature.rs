@@ -13,8 +13,6 @@
 //! - 0 = current player's piece
 //! - 1 = opponent's piece
 //! - 2 = empty square
-//!
-//! This encoding allows for 3^8 = 6561 possible configurations for 8-square patterns.
 
 use crate::bitboard;
 use crate::bitboard::BitboardIterator;
@@ -99,15 +97,9 @@ struct CoordinateToFeature {
     features: [[u32; 2]; MAX_FEATURES_PER_SQUARE],
 }
 
-
 /// Board squares that make up each pattern.
 #[rustfmt::skip]
 pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
-    ftc!(8, [Sq::A1, Sq::B1, Sq::C1, Sq::D1, Sq::A2, Sq::A3, Sq::A4, Sq::B2, Sq::None, Sq::None]),
-    ftc!(8, [Sq::H1, Sq::G1, Sq::F1, Sq::E1, Sq::H2, Sq::H3, Sq::H4, Sq::G2, Sq::None, Sq::None]),
-    ftc!(8, [Sq::A8, Sq::B8, Sq::C8, Sq::D8, Sq::A7, Sq::A6, Sq::A5, Sq::B7, Sq::None, Sq::None]),
-    ftc!(8, [Sq::H8, Sq::G8, Sq::F8, Sq::E8, Sq::H7, Sq::H6, Sq::H5, Sq::G7, Sq::None, Sq::None]),
-
     ftc!(8, [Sq::C2, Sq::D2, Sq::B3, Sq::C3, Sq::D3, Sq::B4, Sq::C4, Sq::D4, Sq::None, Sq::None]),
     ftc!(8, [Sq::F2, Sq::E2, Sq::G3, Sq::F3, Sq::E3, Sq::G4, Sq::F4, Sq::E4, Sq::None, Sq::None]),
     ftc!(8, [Sq::C7, Sq::D7, Sq::B6, Sq::C6, Sq::D6, Sq::B5, Sq::C5, Sq::D5, Sq::None, Sq::None]),
@@ -125,11 +117,15 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
     ftc!(8, [Sq::G1, Sq::F1, Sq::E1, Sq::D1, Sq::G2, Sq::F2, Sq::E2, Sq::D2, Sq::None, Sq::None]),
     ftc!(8, [Sq::B8, Sq::C8, Sq::D8, Sq::E8, Sq::B7, Sq::C7, Sq::D7, Sq::E7, Sq::None, Sq::None]),
     ftc!(8, [Sq::G8, Sq::F8, Sq::E8, Sq::D8, Sq::G7, Sq::F7, Sq::E7, Sq::D7, Sq::None, Sq::None]),
-
     ftc!(8, [Sq::A2, Sq::A3, Sq::A4, Sq::A5, Sq::B2, Sq::B3, Sq::B4, Sq::B5, Sq::None, Sq::None]),
     ftc!(8, [Sq::A7, Sq::A6, Sq::A5, Sq::A4, Sq::B7, Sq::B6, Sq::B5, Sq::B4, Sq::None, Sq::None]),
     ftc!(8, [Sq::H2, Sq::H3, Sq::H4, Sq::H5, Sq::G2, Sq::G3, Sq::G4, Sq::G5, Sq::None, Sq::None]),
     ftc!(8, [Sq::H7, Sq::H6, Sq::H5, Sq::H4, Sq::G7, Sq::G6, Sq::G5, Sq::G4, Sq::None, Sq::None]),
+
+    ftc!(9, [Sq::A1, Sq::B1, Sq::C1, Sq::A2, Sq::B2, Sq::C2, Sq::A3, Sq::B3, Sq::C3, Sq::None]),
+    ftc!(9, [Sq::H1, Sq::G1, Sq::F1, Sq::H2, Sq::G2, Sq::F2, Sq::H3, Sq::G3, Sq::F3, Sq::None]),
+    ftc!(9, [Sq::A8, Sq::B8, Sq::C8, Sq::A7, Sq::B7, Sq::C7, Sq::A6, Sq::B6, Sq::C6, Sq::None]),
+    ftc!(9, [Sq::H8, Sq::G8, Sq::F8, Sq::H7, Sq::G7, Sq::F7, Sq::H6, Sq::G6, Sq::F6, Sq::None]),
 ];
 
 /// Common logic for computing pattern feature indices.
@@ -167,7 +163,9 @@ const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate
 
 /// Generates pattern feature lookup tables at compile time.
 ///
-/// See README.md for detailed explanation of the generated tables.
+/// Creates two lookup tables:
+/// - EVAL_FEATURE: Maps each board square to its pattern feature weights
+/// - EVAL_X2F: Maps each square to the features it participates in
 macro_rules! generate_pattern_tables {
     () => {
         /// Pattern feature weights for each board square.

@@ -140,30 +140,19 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
             let output_ptr = output.as_mut_ptr() as *mut __m256i;
             let one = _mm256_set1_epi16(127 * 2);
             let zero = _mm256_setzero_si256();
-            let offset = _mm256_set1_epi16(127);   // Offset for hard sigmoid (63.5 * 2)
             let in0_ptr = acc_ptr;
             let in1_ptr = acc_ptr.add(num_regs / 2);
-
             for j in 0..(num_regs / 4) {
-                // Process first half with ReLU activation: max(0, min(x, 127*2))
                 let in00 = *in0_ptr.add(j * 2);
                 let in01 = *in0_ptr.add(j * 2 + 1);
-                let sum0 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in00, one), zero), 7);
-                let sum1 = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in01, one), zero), 7);
-
-                // Process second half with hard sigmoid activation: x * 0.25 + 0.5
                 let in10 = *in1_ptr.add(j * 2);
                 let in11 = *in1_ptr.add(j * 2 + 1);
-
-                let mut hs0 = _mm256_add_epi16(_mm256_srai_epi16(in10, 2), offset);
-                let mut hs1 = _mm256_add_epi16(_mm256_srai_epi16(in11, 2), offset);
-                hs0 = _mm256_min_epi16(hs0, one);
-                hs1 = _mm256_min_epi16(hs1, one);
-
-                // Element-wise multiplication and pack to u8
-                let pa = _mm256_mulhi_epi16(sum0, hs0);
-                let pb = _mm256_mulhi_epi16(sum1, hs1);
-
+                let sum0a = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in00, one), zero), 7);
+                let sum0b = _mm256_slli_epi16(_mm256_max_epi16(_mm256_min_epi16(in01, one), zero), 7);
+                let sum1a = _mm256_min_epi16(in10, one);
+                let sum1b = _mm256_min_epi16(in11, one);
+                let pa = _mm256_mulhi_epi16(sum0a, sum1a);
+                let pb = _mm256_mulhi_epi16(sum0b, sum1b);
                 *output_ptr.add(j) = _mm256_packus_epi16(pa, pb);
             }
         }

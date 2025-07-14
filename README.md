@@ -21,7 +21,7 @@ This is an experimental project to develop a high-accuracy neural network evalua
 ### Features
 
 - Mobility: Number of legal moves for the current player.
-- Patterns: 6561 x 22  
+- Patterns:  
   ![Pattern features](docs/img/pattern_features.svg)
 
 ### Training
