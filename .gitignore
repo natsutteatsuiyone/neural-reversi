@@ -1,3 +1,14 @@
 /target
 .vscode
 eval*.zst
+
+# Ignore AI/LLM instruction files
+/.claude/
+/.cursorrules
+/.cursor/
+/.goosehints
+/.windsurfrules
+/.github/copilot-instructions.md
+/AGENT.md
+/CLAUDE.md
+/llms.txt
