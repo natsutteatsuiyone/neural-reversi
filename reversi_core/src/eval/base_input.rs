@@ -170,21 +170,12 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
             }
         }
 
-        // Split accumulator and biases into two halves for dual activation
-        let half_len = acc.len() / 2;
-        let (acc0, acc1) = acc.split_at(half_len);
-        let (bias0, bias1) = self.biases.split_at(half_len);
-
-        for i in 0..half_len {
-            // First half: ReLU activation clamped to [0, 127*2]
-            let sum = (acc0[i] + bias0[i]).clamp(0, 127 * 2) as i32;
-
-            // Second half: Hard sigmoid activation (x * 0.25 + 0.5)
-            let hs = ((acc1[i] + bias1[i]) >> 2) + 127;
-            let hs = hs.clamp(0, 127 * 2) as i32;
-
-            // Element-wise multiplication and scale to u8 range
-            output[i] = ((sum * hs) / 512) as u8;
+        for i in 0..OUTPUT_DIMS {
+            let sum0 = acc[i] + self.biases[i];
+            let sum1 = acc[i + OUTPUT_DIMS] + self.biases[i + OUTPUT_DIMS];
+            let sum0 = sum0.clamp(0, 127 * 2) as u32;
+            let sum1 = sum1.clamp(0, 127 * 2) as u32;
+            output[i] = ((sum0 * sum1) / 512) as u8;
         }
     }
 }
