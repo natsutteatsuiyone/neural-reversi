@@ -161,76 +161,68 @@ const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate
     feature_index
 }
 
-/// Generates pattern feature lookup tables at compile time.
-///
-/// Creates two lookup tables:
-/// - EVAL_FEATURE: Maps each board square to its pattern feature weights
-/// - EVAL_X2F: Maps each square to the features it participates in
-macro_rules! generate_pattern_tables {
-    () => {
-        /// Pattern feature weights for each board square.
-        #[rustfmt::skip]
-        const EVAL_FEATURE: [PatternFeature; BOARD_SQUARES] = {
-            let mut result = [PatternFeature { v1: [0; FEATURE_VECTOR_SIZE] }; BOARD_SQUARES];
-            let mut square_idx = 0;
+/// Generates the EVAL_FEATURE lookup table at compile time.
+const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
+    let mut result = [PatternFeature { v1: [0; FEATURE_VECTOR_SIZE] }; BOARD_SQUARES];
+    let mut square_idx = 0;
 
-            while square_idx < BOARD_SQUARES {
-                let board = 1u64 << square_idx;
-                let mut feature_values = [0u16; FEATURE_VECTOR_SIZE];
+    while square_idx < BOARD_SQUARES {
+        let board = 1u64 << square_idx;
+        let mut feature_values = [0u16; FEATURE_VECTOR_SIZE];
 
-                // Compute feature index for each pattern
-                let mut pattern_idx = 0;
-                while pattern_idx < NUM_PATTERN_FEATURES {
-                    feature_values[pattern_idx] = compute_pattern_feature_index(board, &EVAL_F2X[pattern_idx]) as u16;
-                    pattern_idx += 1;
-                }
+        // Compute feature index for each pattern
+        let mut pattern_idx = 0;
+        while pattern_idx < NUM_PATTERN_FEATURES {
+            feature_values[pattern_idx] = compute_pattern_feature_index(board, &EVAL_F2X[pattern_idx]) as u16;
+            pattern_idx += 1;
+        }
 
-                result[square_idx] = PatternFeature { v1: feature_values };
-                square_idx += 1;
-            }
+        result[square_idx] = PatternFeature { v1: feature_values };
+        square_idx += 1;
+    }
 
-            result
-        };
-
-        /// Reverse mapping from board squares to pattern features.
-        #[rustfmt::skip]
-        static EVAL_X2F: [CoordinateToFeature; BOARD_SQUARES] = {
-            let mut result = [CoordinateToFeature {
-                n_features: 0,
-                features: [[0, 0]; MAX_FEATURES_PER_SQUARE]
-            }; BOARD_SQUARES];
-
-            let mut square_idx = 0;
-            while square_idx < BOARD_SQUARES {
-                let board = 1u64 << square_idx;
-                let mut n_features = 0u32;
-                let mut features = [[0u32, 0u32]; MAX_FEATURES_PER_SQUARE];
-
-                // Find all features that include this square
-                let mut feature_idx = 0;
-                while feature_idx < NUM_PATTERN_FEATURES && n_features < MAX_FEATURES_PER_SQUARE_U32 {
-                    let feature_value = compute_pattern_feature_index(board, &EVAL_F2X[feature_idx]);
-                    if feature_value > 0 {
-                        features[n_features as usize] = [feature_idx as u32, feature_value];
-                        n_features += 1;
-                    }
-                    feature_idx += 1;
-                }
-
-                result[square_idx] = CoordinateToFeature {
-                    n_features,
-                    features,
-                };
-                square_idx += 1;
-            }
-
-            result
-        };
-    };
+    result
 }
 
-// Generate the lookup tables
-generate_pattern_tables!();
+/// Generates the EVAL_X2F lookup table at compile time.
+const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
+    let mut result = [CoordinateToFeature {
+        n_features: 0,
+        features: [[0, 0]; MAX_FEATURES_PER_SQUARE]
+    }; BOARD_SQUARES];
+
+    let mut square_idx = 0;
+    while square_idx < BOARD_SQUARES {
+        let board = 1u64 << square_idx;
+        let mut n_features = 0u32;
+        let mut features = [[0u32, 0u32]; MAX_FEATURES_PER_SQUARE];
+
+        // Find all features that include this square
+        let mut feature_idx = 0;
+        while feature_idx < NUM_PATTERN_FEATURES && n_features < MAX_FEATURES_PER_SQUARE_U32 {
+            let feature_value = compute_pattern_feature_index(board, &EVAL_F2X[feature_idx]);
+            if feature_value > 0 {
+                features[n_features as usize] = [feature_idx as u32, feature_value];
+                n_features += 1;
+            }
+            feature_idx += 1;
+        }
+
+        result[square_idx] = CoordinateToFeature {
+            n_features,
+            features,
+        };
+        square_idx += 1;
+    }
+
+    result
+}
+
+/// Pattern feature weights for each board square.
+const EVAL_FEATURE: [PatternFeature; BOARD_SQUARES] = generate_eval_feature();
+
+/// Reverse mapping from board squares to pattern features.
+static EVAL_X2F: [CoordinateToFeature; BOARD_SQUARES] = generate_eval_x2f();
 
 /// Container for pattern features for both players throughout a game.
 ///
