@@ -1,6 +1,6 @@
 use super::pattern_feature;
 
-/// Size of a CPU cache line in bytes. 
+/// Size of a CPU cache line in bytes.
 pub const CACHE_LINE_SIZE: usize = 64;
 
 /// Width of AVX2 SIMD registers in bytes. AVX2 registers are 256 bits (32 bytes).
@@ -26,10 +26,10 @@ pub const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 pub const OUTPUT_WEIGHT_SCALE_BITS: i32 = 4;
 
 /// Filename for the main neural network weights (zstd compressed).
-pub const EVAL_FILE_NAME: &str = "eval-8a6b74bf.zst";
+pub const EVAL_FILE_NAME: &str = "eval-8ba91e88.zst";
 
 /// Filename for the small neural network weights (zstd compressed).
-pub const EVAL_SM_FILE_NAME: &str = "eval_sm-8a6b74bf.zst";
+pub const EVAL_SM_FILE_NAME: &str = "eval_sm-8ba91e88.zst";
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
 /// Each square can have 3 states: empty, black, or white.

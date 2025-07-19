@@ -65,7 +65,7 @@ impl Eval {
     /// The evaluation score of the current position.
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> Score {
         let key = board.hash();
-        if ctx.game_phase == GamePhase::MidGame {
+        if ctx.game_phase == GamePhase::MidGame || ctx.ply() < 30 {
             if let Some(score_cache) = self.cache.probe(key) {
                 return score_cache;
             }

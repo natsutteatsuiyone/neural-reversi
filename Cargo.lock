@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "build_common"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "reversi_core",
 ]
@@ -852,7 +852,7 @@ dependencies = [
 
 [[package]]
 name = "datagen"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "build_common",
@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "ffotest"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "build_common",
  "clap",
@@ -2252,7 +2252,7 @@ dependencies = [
 
 [[package]]
 name = "match_runner"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "clap",
  "colored",
@@ -2374,7 +2374,7 @@ dependencies = [
 
 [[package]]
 name = "neural-reversi"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "build_common",
  "reversi_core",
@@ -3400,7 +3400,7 @@ dependencies = [
 
 [[package]]
 name = "reversi_cli"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "build_common",
  "clap",
@@ -3411,7 +3411,7 @@ dependencies = [
 
 [[package]]
 name = "reversi_core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "aligned-vec",
  "byteorder",
