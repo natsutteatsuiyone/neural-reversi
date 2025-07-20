@@ -1,5 +1,6 @@
 use std::io;
 use colored::*;
+use reversi_core::piece::Piece;
 
 const ELO_K: f64 = 400.0;
 
@@ -10,7 +11,17 @@ pub struct MatchStatistics {
     pub draws: u32,
     pub total_score: i32,
     pub games_played: u32,
+    pub recent_results: Vec<GameHistory>,
 }
+
+#[derive(Debug, Clone)]
+pub struct GameHistory {
+    pub winner: MatchWinner,
+    pub score: i32,
+    pub opening: String,
+    pub engine1_color: Piece,
+}
+
 
 impl Default for MatchStatistics {
     fn default() -> Self {
@@ -26,10 +37,11 @@ impl MatchStatistics {
             draws: 0,
             total_score: 0,
             games_played: 0,
+            recent_results: Vec::new(),
         }
     }
 
-    pub fn add_result(&mut self, winner: MatchWinner, score: i32) {
+    pub fn add_result(&mut self, winner: MatchWinner, score: i32, opening: String, engine1_is_black: bool) {
         match winner {
             MatchWinner::Engine1 => self.engine1_wins += 1,
             MatchWinner::Engine2 => self.engine2_wins += 1,
@@ -37,6 +49,17 @@ impl MatchStatistics {
         }
         self.total_score += score;
         self.games_played += 1;
+        
+        let engine1_color = if engine1_is_black {
+            Piece::Black
+        } else {
+            Piece::White
+        };
+        
+        self.recent_results.push(GameHistory { winner, score, opening, engine1_color });
+        if self.recent_results.len() > 5 {
+            self.recent_results.remove(0);
+        }
     }
 
     pub fn total_games(&self) -> u32 {

@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use crate::error::{MatchRunnerError, Result};
+use crate::error::Result;
 
 /// Configuration for running automated matches between two GTP engines.
 ///
@@ -39,8 +39,8 @@ pub struct Config {
     pub engine2_working_dir: Option<PathBuf>,
 
     /// Opening file (required)
-    #[arg(short, long)]
-    pub opening_file: Option<PathBuf>,
+    #[arg(short, long, required = true)]
+    pub opening_file: PathBuf,
 }
 
 impl Config {
@@ -51,28 +51,6 @@ impl Config {
     /// A new `Config` instance with parsed command-line arguments.
     pub fn parse_args() -> Self {
         Self::parse()
-    }
-
-    /// Validate the configuration parameters.
-    ///
-    /// Ensures that all required parameters are present and valid.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the configuration is valid, otherwise returns an error
-    /// describing what is missing or invalid.
-    ///
-    /// # Errors
-    ///
-    /// Returns `MatchRunnerError::Config` if the opening file is not specified.
-    pub fn validate(&self) -> Result<()> {
-        if self.opening_file.is_none() {
-            return Err(MatchRunnerError::Config(
-                "Opening file not specified. Please specify a file with the -o or --opening-file option.".to_string()
-            ));
-        }
-
-        Ok(())
     }
 
     /// Load opening positions from the configured opening file.
@@ -89,10 +67,7 @@ impl Config {
     ///
     /// Returns an error if the file cannot be read or if there are I/O issues.
     pub fn load_openings(&self) -> Result<Vec<String>> {
-        match &self.opening_file {
-            Some(path) => read_opening_file(path),
-            None => Ok(Vec::new()),
-        }
+        read_opening_file(&self.opening_file)
     }
 
     /// Parse an engine command string into program and arguments.
@@ -259,7 +234,7 @@ mod tests {
             engine2: "engine2".to_string(),
             engine1_working_dir: None,
             engine2_working_dir: None,
-            opening_file: None,
+            opening_file: PathBuf::from("test_openings.txt"),
         };
 
         let (program, args) = config.parse_engine_command("./reversi_cli --level 10");
@@ -275,7 +250,7 @@ mod tests {
             engine2: "".to_string(),
             engine1_working_dir: None,
             engine2_working_dir: None,
-            opening_file: None,
+            opening_file: PathBuf::from("test_openings.txt"),
         };
 
         // Test with quotes (behavior varies by platform)
@@ -295,7 +270,7 @@ mod tests {
             engine2: "".to_string(),
             engine1_working_dir: None,
             engine2_working_dir: None,
-            opening_file: None,
+            opening_file: PathBuf::from("test_openings.txt"),
         };
 
         let (program, args) = config.parse_engine_command("");
@@ -311,7 +286,7 @@ mod tests {
             engine2: "".to_string(),
             engine1_working_dir: None,
             engine2_working_dir: None,
-            opening_file: None,
+            opening_file: PathBuf::from("test_openings.txt"),
         };
 
         // Test Windows path with spaces
@@ -333,7 +308,7 @@ mod tests {
             engine2: "".to_string(),
             engine1_working_dir: None,
             engine2_working_dir: None,
-            opening_file: None,
+            opening_file: PathBuf::from("test_openings.txt"),
         };
 
         // Test simple backslash path
@@ -355,7 +330,7 @@ mod tests {
             engine2: "".to_string(),
             engine1_working_dir: None,
             engine2_working_dir: None,
-            opening_file: None,
+            opening_file: PathBuf::from("test_openings.txt"),
         };
 
         // Test escaped spaces (shell-style) - shlex interprets the escape

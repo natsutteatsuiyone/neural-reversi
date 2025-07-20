@@ -99,6 +99,10 @@ impl MatchRunner {
         let mut statistics = MatchStatistics::new();
 
         self.display.show_match_header()?;
+        
+        // Show initial empty statistics
+        self.display.update_live_visualization(&statistics, &engine_names.0, &engine_names.1)?;
+        
         let progress_bar = self.create_progress_bar(total_games);
 
         for (opening_idx, opening_str) in openings.iter().enumerate() {
@@ -294,8 +298,8 @@ impl MatchRunner {
     }
 
     fn get_engine_names(&self, engines: &mut (GtpEngine, GtpEngine)) -> Result<(String, String)> {
-        let engine1_name = engines.0.name()?;
-        let engine2_name = engines.1.name()?;
+        let engine1_name = engines.0.name();
+        let engine2_name = engines.1.name();
         Ok((engine1_name, engine2_name))
     }
 
@@ -338,8 +342,12 @@ impl MatchRunner {
                         match_result.score
                     };
 
-                    statistics.add_result(winner, score);
-                    self.display.update_live_visualization(statistics, &engine_names.0, &engine_names.1)?;
+                    statistics.add_result(winner, score, opening_str.to_string(), !is_swapped);
+                    self.display.update_live_visualization(
+                        statistics,
+                        &engine_names.0,
+                        &engine_names.1
+                    )?;
                     progress_bar.inc(1);
                 }
                 Err(e) => {

@@ -15,11 +15,6 @@ use error::MatchRunnerError;
 fn main() -> io::Result<()> {
     let config = Config::parse_args();
 
-    if let Err(e) = config.validate() {
-        eprintln!("Error: {e}");
-        return Ok(());
-    }
-
     let mut match_runner = MatchRunner::new();
     
     if let Err(e) = match_runner.run_match(&config) {
