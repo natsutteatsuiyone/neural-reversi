@@ -71,6 +71,8 @@ datagen feature --input-dir ./data --output-dir ./features --threads 8 --score-c
 - `--output-dir`: Output directory for compressed feature data files
 - `--threads`: Number of threads to use for parallel processing (default: 1)
 - `--score-correction`: Apply endgame score correction by blending evaluation scores with game outcomes (default: false)
+- `--ply-min`: Minimum ply value to include in feature extraction (0-59, default: 0)
+- `--ply-max`: Maximum ply value to include in feature extraction (0-59, default: 59)
 
 #### Data format
 

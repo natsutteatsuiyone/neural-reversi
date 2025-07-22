@@ -47,11 +47,13 @@ struct GameRecord {
 /// * `output_dir` - Directory where compressed feature files will be written
 /// * `threads` - Number of parallel threads to use for processing
 /// * `score_correction` - Whether to apply endgame score correction
+/// * `ply_min` - Minimum ply value to include (0-59)
+/// * `ply_max` - Maximum ply value to include (0-59)
 ///
 /// # Returns
 ///
 /// Returns `Ok(())` on success, or an `io::Error` if file operations fail.
-pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correction: bool) -> io::Result<()> {
+pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correction: bool, ply_min: u8, ply_max: u8) -> io::Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build_global()
@@ -143,7 +145,7 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
 
             let start = std::time::Instant::now();
 
-            if let Err(e) = process_file(file_idx, entry_path, output_dir, score_correction) {
+            if let Err(e) = process_file(file_idx, entry_path, output_dir, score_correction, ply_min, ply_max) {
                 eprintln!("Failed to process file {file_idx}: {e}");
                 thread_pb.set_message(format!("Error: {file_name}"));
             } else {
@@ -191,17 +193,21 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
 /// * `entry_path` - Path to the game file to process
 /// * `output_dir` - Directory where the feature files will be written
 /// * `score_correction` - Whether to apply endgame score correction
+/// * `ply_min` - Minimum ply value to include (0-59)
+/// * `ply_max` - Maximum ply value to include (0-59)
 fn process_file(
     file_idx: usize,
     entry_path: &Path,
     output_dir: &Path,
     score_correction: bool,
+    ply_min: u8,
+    ply_max: u8,
 ) -> io::Result<()> {
     let input_path_str = entry_path.to_str().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8")
     })?;
 
-    let game_records = load_game_records(input_path_str, score_correction)
+    let game_records = load_game_records(input_path_str, score_correction, ply_min, ply_max)
         .map_err(|e| io::Error::new(e.kind(), format!("Failed to load game records from {input_path_str}: {e}")))?;
 
     // Create 8 separate data vectors for each symmetry pattern
@@ -269,11 +275,13 @@ fn process_file(
 ///
 /// * `file_path` - Path to the binary game file
 /// * `score_correction` - Whether to blend evaluation scores with game outcomes
+/// * `ply_min` - Minimum ply value to include (0-59)
+/// * `ply_max` - Maximum ply value to include (0-59)
 ///
 /// # Returns
 ///
 /// Returns a vector of `GameRecord` structs on success.
-fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<GameRecord>> {
+fn load_game_records(file_path: &str, score_correction: bool, ply_min: u8, ply_max: u8) -> io::Result<Vec<GameRecord>> {
     let metadata = fs::metadata(file_path)?;
     let file_size = metadata.len() as usize;
     let entry_size = 24;
@@ -308,12 +316,15 @@ fn load_game_records(file_path: &str, score_correction: bool) -> io::Result<Vec<
         debug_assert!((-64..=64).contains(&game_score), "Game score out of range: {game_score}");
         debug_assert!(ply <= 59, "Ply value out of range: {ply}");
 
-        records.push(GameRecord {
-            player,
-            opponent,
-            score,
-            ply,
-        });
+        // Filter records by ply range
+        if ply >= ply_min && ply <= ply_max {
+            records.push(GameRecord {
+                player,
+                opponent,
+                score,
+                ply,
+            });
+        }
     }
 
     Ok(records)
