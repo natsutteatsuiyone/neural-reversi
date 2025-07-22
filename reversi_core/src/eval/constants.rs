@@ -26,10 +26,10 @@ pub const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 pub const OUTPUT_WEIGHT_SCALE_BITS: i32 = 4;
 
 /// Filename for the main neural network weights (zstd compressed).
-pub const EVAL_FILE_NAME: &str = "eval-8ba91e88.zst";
+pub const EVAL_FILE_NAME: &str = "eval-89efa0d1.zst";
 
 /// Filename for the small neural network weights (zstd compressed).
-pub const EVAL_SM_FILE_NAME: &str = "eval_sm-8ba91e88.zst";
+pub const EVAL_SM_FILE_NAME: &str = "eval_sm-89efa0d1.zst";
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
 /// Each square can have 3 states: empty, black, or white.
