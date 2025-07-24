@@ -227,12 +227,12 @@ fn process_file(
         let symmetrical_boards = [
             base_board,                          // 0: base
             base_board.rotate_90_clockwise(),    // 1: 90° rotation
-            base_board.rotate_90_clockwise().rotate_90_clockwise(), // 2: 180° rotation
-            base_board.rotate_90_clockwise().rotate_90_clockwise().rotate_90_clockwise(), // 3: 270° rotation
+            base_board.rotate_180_clockwise(),   // 2: 180° rotation
+            base_board.rotate_270_clockwise(),   // 3: 270° rotation
             base_board.flip_vertical(),          // 4: vertical flip
             base_board.flip_horizontal(),        // 5: horizontal flip
-            base_board.flip_diag_a1h8(),        // 6: diagonal a1-h8 flip
-            base_board.flip_diag_a8h1(),        // 7: diagonal a8-h1 flip
+            base_board.flip_diag_a1h8(),         // 6: diagonal a1-h8 flip
+            base_board.flip_diag_a8h1(),         // 7: diagonal a8-h1 flip
         ];
 
         // Process each symmetry and add to corresponding data vector

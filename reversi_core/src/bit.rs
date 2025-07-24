@@ -161,31 +161,40 @@ pub fn flip_horizontal(mut b: u64) -> u64 {
 
 /// Rotates the bitboard 90 degrees clockwise.
 ///
-/// Performs a 90-degree clockwise rotation of the bitboard. After rotation:
-/// - The top rank becomes the rightmost file
-/// - The rightmost file becomes the bottom rank
-/// - The bottom rank becomes the leftmost file
-/// - The leftmost file becomes the top rank
-///
 /// # Arguments
-///
 /// * `b` - The bitboard to rotate.
 ///
 /// # Returns
-///
 /// A `u64` value representing the rotated bitboard.
 #[inline]
 pub fn rotate_90_clockwise(b: u64) -> u64 {
-    const MASK1: u64 = 0xAA00AA00AA00AA00;
-    const MASK2: u64 = 0xCCCC0000CCCC0000;
-    const MASK3: u64 = 0xF0F0F0F000000000;
-
-    let mut bits = b;
-    bits = delta_swap(bits, MASK3, 36);
-    bits = delta_swap(bits, MASK2, 18);
-    bits = delta_swap(bits, MASK1, 9);
-    flip_vertical(bits)
+    flip_vertical(flip_diag_a8h1(b))
 }
+
+/// Rotates the bitboard 180 degrees clockwise.
+///
+/// # Arguments
+/// * `b` - The bitboard to rotate.
+///
+/// # Returns
+/// A `u64` value representing the rotated bitboard.
+#[inline]
+pub fn rotate_180_clockwise(b: u64) -> u64 {
+    b.reverse_bits()
+}
+
+/// Rotates the bitboard 270 degrees clockwise (or 90 degrees counter-clockwise).
+///
+/// # Arguments
+/// * `b` - The bitboard to rotate.
+///
+/// # Returns
+/// A `u64` value representing the rotated bitboard.
+#[inline]
+pub fn rotate_270_clockwise(b: u64) -> u64 {
+    flip_vertical(flip_diag_a1h8(b))
+}
+
 
 /// Flips the bitboard along the A1-H8 diagonal.
 ///
@@ -391,6 +400,56 @@ mod tests {
             )
         );
         assert_eq!(rotated, original);
+    }
+
+    #[test]
+    fn test_rotate_180_clockwise() {
+        // Test corners
+        assert_eq!(rotate_180_clockwise(0x0000000000000001), 0x8000000000000000);
+        assert_eq!(rotate_180_clockwise(0x8000000000000000), 0x0000000000000001);
+        assert_eq!(rotate_180_clockwise(0x0000000000000080), 0x0100000000000000);
+        assert_eq!(rotate_180_clockwise(0x0100000000000000), 0x0000000000000080);
+
+        // Test a full row
+        assert_eq!(rotate_180_clockwise(0x00000000000000FF), 0xFF00000000000000);
+        assert_eq!(rotate_180_clockwise(0xFF00000000000000), 0x00000000000000FF);
+
+        // Test a pattern
+        let original = 0x0F0F0F0F00000000;
+        let rotated = 0x00000000F0F0F0F0;
+        assert_eq!(rotate_180_clockwise(original), rotated);
+
+        // Double rotation identity
+        let test_board = 0x123456789ABCDEF0u64;
+        assert_eq!(rotate_180_clockwise(rotate_180_clockwise(test_board)), test_board);
+
+        // Empty and full boards
+        assert_eq!(rotate_180_clockwise(0), 0);
+        assert_eq!(rotate_180_clockwise(u64::MAX), u64::MAX);
+    }
+
+    #[test]
+    fn test_rotate_270_clockwise() {
+        // Test corners
+        assert_eq!(rotate_270_clockwise(0x0000000000000001), 0x0100000000000000);
+        assert_eq!(rotate_270_clockwise(0x0100000000000000), 0x8000000000000000);
+        assert_eq!(rotate_270_clockwise(0x8000000000000000), 0x0000000000000080);
+        assert_eq!(rotate_270_clockwise(0x0000000000000080), 0x0000000000000001);
+
+        // 4x rotation identity
+        let original = 0x123456789ABCDEF0u64;
+        let rotated = rotate_270_clockwise(
+            rotate_270_clockwise(
+                rotate_270_clockwise(
+                    rotate_270_clockwise(original)
+                )
+            )
+        );
+        assert_eq!(rotated, original);
+
+        // Equivalence to 3x 90-degree rotation
+        let rotated_90_3x = rotate_90_clockwise(rotate_90_clockwise(rotate_90_clockwise(original)));
+        assert_eq!(rotate_270_clockwise(original), rotated_90_3x);
     }
 
     #[test]

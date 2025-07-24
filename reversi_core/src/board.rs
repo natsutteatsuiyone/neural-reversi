@@ -303,6 +303,30 @@ impl Board {
             bit::rotate_90_clockwise(self.opponent))
     }
 
+    /// Rotates the board 180 degrees.
+    ///
+    /// # Returns
+    /// A new `Board` instance with the board rotated 180 degrees.
+    #[inline]
+    pub fn rotate_180_clockwise(&self) -> Board {
+        Board::from_bitboards(
+            bit::rotate_180_clockwise(self.player),
+            bit::rotate_180_clockwise(self.opponent),
+        )
+    }
+
+    /// Rotates the board 270 degrees clockwise.
+    ///
+    /// # Returns
+    /// A new `Board` instance with the board rotated 270 degrees clockwise.
+    #[inline]
+    pub fn rotate_270_clockwise(&self) -> Board {
+        Board::from_bitboards(
+            bit::rotate_270_clockwise(self.player),
+            bit::rotate_270_clockwise(self.opponent),
+        )
+    }
+
     /// Flips the board vertically (top to bottom).
     ///
     /// # Returns
@@ -646,6 +670,38 @@ mod tests {
             .rotate_90_clockwise()
             .rotate_90_clockwise()
             .rotate_90_clockwise();
+        assert_eq!(board, rotated4);
+    }
+
+    #[test]
+    fn test_rotate_180_clockwise() {
+        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
+        let rotated = board.rotate_180_clockwise();
+
+        // A1 -> H8, H8 -> A1
+        assert!(bitboard::is_set(rotated.player, Square::H8));
+        assert!(bitboard::is_set(rotated.opponent, Square::A1));
+
+        // Two rotations should return to original
+        let rotated2 = board.rotate_180_clockwise().rotate_180_clockwise();
+        assert_eq!(board, rotated2);
+    }
+
+    #[test]
+    fn test_rotate_270_clockwise() {
+        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
+        let rotated = board.rotate_270_clockwise();
+
+        // A1 -> A8, H8 -> H1
+        assert!(bitboard::is_set(rotated.player, Square::A8));
+        assert!(bitboard::is_set(rotated.opponent, Square::H1));
+
+        // Four rotations should return to original
+        let rotated4 = board
+            .rotate_270_clockwise()
+            .rotate_270_clockwise()
+            .rotate_270_clockwise()
+            .rotate_270_clockwise();
         assert_eq!(board, rotated4);
     }
 
