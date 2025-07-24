@@ -160,10 +160,6 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
 
             // Decrease active thread count
             active_threads.fetch_sub(1, Ordering::SeqCst);
-
-            // Brief delay before clearing progress message
-            std::thread::sleep(Duration::from_millis(500));
-            thread_pb.set_message("");
         });
 
     // Finish all progress bars
