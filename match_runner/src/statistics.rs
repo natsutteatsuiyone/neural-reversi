@@ -49,13 +49,13 @@ impl MatchStatistics {
         }
         self.total_score += score;
         self.games_played += 1;
-        
+
         let engine1_color = if engine1_is_black {
             Piece::Black
         } else {
             Piece::White
         };
-        
+
         self.recent_results.push(GameHistory { winner, score, opening, engine1_color });
         if self.recent_results.len() > 5 {
             self.recent_results.remove(0);
@@ -102,10 +102,6 @@ impl MatchStatistics {
         self.print_match_summary(total_games);
         println!();
 
-        // Display results with visual bars
-        self.print_visual_results(engine1_name, engine2_name)?;
-        println!();
-
         // Display detailed statistics
         self.print_detailed_stats(engine1_name, engine2_name)?;
         println!();
@@ -128,72 +124,7 @@ impl MatchStatistics {
         );
     }
 
-    fn print_visual_results(&self, engine1_name: &str, engine2_name: &str) -> io::Result<()> {
-        let total = self.total_games() as f64;
-        let bar_width = 60;  // Match the width used in live display
-
-        // Calculate the maximum width needed for proper alignment
-        let max_name_len = std::cmp::max(
-            std::cmp::max(engine1_name.len(), engine2_name.len()),
-            "Draws".len()
-        );
-        let name_width = std::cmp::max(max_name_len, 12); // Minimum width of 12
-
-        println!("{}", "Win Rate".bright_white().underline());
-        println!();
-
-        // Engine 1 bar
-        let engine1_bar_len = ((self.engine1_wins as f64 / total) * bar_width as f64) as usize;
-        let engine1_bar = "█".repeat(engine1_bar_len).bright_green();
-        let engine1_empty = "░".repeat(bar_width - engine1_bar_len).bright_black();
-
-        // Engine 2 bar
-        let engine2_bar_len = ((self.engine2_wins as f64 / total) * bar_width as f64) as usize;
-        let engine2_bar = "█".repeat(engine2_bar_len).bright_red();
-        let engine2_empty = "░".repeat(bar_width - engine2_bar_len).bright_black();
-
-        // Draw rate visualization
-        let draw_percentage = (self.draws as f64 / total) * 100.0;
-
-        // Engine 1
-        println!("{:>width$} {} {} {:.1}%",
-            engine1_name.bright_cyan().bold(),
-            engine1_bar,
-            engine1_empty,
-            self.engine1_win_rate(),
-            width = name_width
-        );
-
-        // Draws
-        if self.draws > 0 {
-            let draw_bar_len = ((self.draws as f64 / total) * bar_width as f64) as usize;
-            let draw_bar = "█".repeat(draw_bar_len).bright_blue();
-            let draw_empty = "░".repeat(bar_width - draw_bar_len).bright_black();
-            println!("{:>width$} {} {} {:.1}%",
-                "Draws".bright_white(),
-                draw_bar,
-                draw_empty,
-                draw_percentage,
-                width = name_width
-            );
-        }
-
-        // Engine 2
-        println!("{:>width$} {} {} {:.1}%",
-            engine2_name.bright_cyan().bold(),
-            engine2_bar,
-            engine2_empty,
-            self.engine2_win_rate(),
-            width = name_width
-        );
-
-        Ok(())
-    }
-
     fn print_detailed_stats(&self, engine1_name: &str, engine2_name: &str) -> io::Result<()> {
-        println!("{}", "Detailed Statistics".bright_white().underline());
-        println!();
-
         let name_width = std::cmp::max(engine1_name.len(), engine2_name.len());
 
         // Header
@@ -297,12 +228,12 @@ impl MatchStatistics {
         };
 
         println!("{:>20}: {}", "ELO Difference".bright_white(), elo_display);
-        
+
         // Win rate from ELO difference
         if !elo_stats.elo_diff.is_infinite() {
             let win_rate = 1.0 / (1.0 + 10.0_f64.powf(-elo_stats.elo_diff / 400.0));
             let win_rate_display = format!("{:.1}%", win_rate * 100.0);
-            println!("{:>20}: {}", "Expected Win Rate".bright_white(), 
+            println!("{:>20}: {}", "Expected Win Rate".bright_white(),
                 if elo_stats.elo_diff > 0.0 {
                     win_rate_display.bright_green()
                 } else if elo_stats.elo_diff < 0.0 {
