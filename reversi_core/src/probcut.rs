@@ -2,11 +2,12 @@ use std::sync::OnceLock;
 
 use std::sync::Arc;
 
+use crate::search::node_type::NonPV;
 use crate::{
     board::Board,
     constants::{EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, MID_SCORE_MAX, MID_SCORE_MIN},
     search::{midgame, search_context::SearchContext, threading::Thread},
-    types::{Depth, NonPV, Score},
+    types::{Depth, Score},
 };
 
 /// Maximum selectivity level (disables ProbCut when `selectivity >= NO_SELECTIVITY`)

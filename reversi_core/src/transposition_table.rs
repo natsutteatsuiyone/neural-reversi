@@ -1,5 +1,6 @@
+use crate::search::node_type::NodeType;
 use crate::square::Square;
-use crate::types::{Depth, NodeType, Score, Selectivity};
+use crate::types::{Depth, Score, Selectivity};
 use aligned_vec::{AVec, ConstAlign};
 use std::{
     mem,
@@ -523,7 +524,7 @@ impl TranspositionTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{NonPV, PV};
+    use crate::search::node_type::{NonPV, PV};
 
     /// Tests that TTEntry correctly packs and unpacks all fields.
     #[test]

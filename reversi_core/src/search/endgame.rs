@@ -6,11 +6,12 @@ use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::NO_SELECTIVITY;
+use crate::search::node_type::{NodeType, NonPV, Root, PV};
 use crate::search::search_context::SearchContext;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, NodeType, NonPV, Root, Score, Scoref, PV};
+use crate::types::{Depth, Score, Scoref};
 use crate::{bitboard, probcut, stability};
 
 use super::search_context::GamePhase;

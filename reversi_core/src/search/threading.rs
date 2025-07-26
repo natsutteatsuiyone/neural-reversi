@@ -18,7 +18,8 @@ use crate::search::search_result::SearchResult;
 use crate::search::{self, SearchTask, endgame, midgame};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, NodeType, NonPV, PV, Root, Score};
+use crate::search::node_type::{NodeType, NonPV, PV, Root};
+use crate::types::{Depth, Score};
 use crate::util::bitset::BitSet;
 use crate::util::spinlock;
 

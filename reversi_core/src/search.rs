@@ -1,5 +1,6 @@
 mod endgame;
 pub mod midgame;
+pub mod node_type;
 mod root_move;
 pub mod search_context;
 pub mod search_result;

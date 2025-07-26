@@ -8,9 +8,10 @@ use crate::board::Board;
 use crate::constants::SCORE_INF;
 use crate::flip;
 use crate::search::midgame;
+use crate::search::node_type::{NodeType, PV};
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::square::Square;
-use crate::types::{Depth, NodeType};
+use crate::types::Depth;
 use crate::{bitboard, constants};
 
 /// Maximum number of moves possible in a Reversi position.
@@ -215,7 +216,7 @@ impl MoveList {
                         0 => -midgame::evaluate(ctx, &next),
                         1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
                         2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
-                        _ => -midgame::shallow_search::<crate::types::PV>(
+                        _ => -midgame::shallow_search::<PV>(
                             ctx,
                             &next,
                             sort_depth as Depth,
