@@ -1,3 +1,7 @@
+//! # References:
+//! - https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c
+//! - https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/search.cpp
+
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -19,7 +23,7 @@ use super::search_result::SearchResult;
 use super::threading::Thread;
 use super::{midgame, SearchTask};
 
-/// Quadrant masks used for prioritizing moves in shallow search.
+/// Quadrant masks for move ordering in shallow search.
 #[rustfmt::skip]
 const QUADRANT_MASK: [u64; 16] = [
     0x0000000000000000, 0x000000000F0F0F0F, 0x00000000F0F0F0F0, 0x00000000FFFFFFFF,
@@ -28,24 +32,25 @@ const QUADRANT_MASK: [u64; 16] = [
     0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
 ];
 
-/// Depth at which to switch to shallow search.
+/// Depth threshold for switching to specialized shallow search.
 const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
+
+/// Minimum depth required for parallel search splitting.
 const MIN_SPLIT_DEPTH: Depth = 7;
 
+/// Depth threshold for switching from midgame to endgame search.
 pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 12;
 
-/// Search the root position
+/// Performs root search for endgame positions using iterative selectivity.
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing game state and statistics
-/// * `board` - Current board position
-/// * `level` - Search level
-/// * `multi_pv` - Flag indicating if multiple principal variations should be searched
+/// * `task` - Search task containing board position, search parameters, and callbacks
+/// * `thread` - Thread handle for parallel search coordination
 ///
 /// # Returns
 ///
-/// The score of the current position, the search depth, and the selectivity
+/// SearchResult containing the best move, score, and search statistics
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let level = task.level;
@@ -155,18 +160,25 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 }
 
-/// Performs an alpha-beta search with principal variation (PV) or non-PV nodes
+/// Alpha-beta search function for endgame positions.
+///
+/// # Type Parameters
+///
+/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
+/// * `SP_NODE` - Whether this is a split point node in parallel search.
 ///
 /// # Arguments
-/// * `ctx` - Search context containing game state and statistics
-/// * `board` - Current board position
-/// * `depth` - Remaining search depth
-/// * `alpha` - Lower bound of the search window
-/// * `beta` - Upper bound of the search window
+///
+/// * `ctx` - Search context tracking game state and statistics.
+/// * `board` - Current board position to solve.
+/// * `alpha` - Lower bound of the search window.
+/// * `beta` - Upper bound of the search window.
+/// * `thread` - Thread handle for parallel search coordination.
+/// * `split_point` - Optional split point for parallel search nodes.
 ///
 /// # Returns
 ///
-/// The score of the current position
+/// The exact score in disc difference.
 pub fn search<NT: NodeType, const SP_NODE: bool>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -381,6 +393,17 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     best_score
 }
 
+/// Performs a null window search for fast endgame solving.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context for tracking statistics and TT access
+/// * `board` - Current board position to evaluate
+/// * `alpha` - Score threshold to beat
+///
+/// # Returns
+///
+/// Best score found
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let mut best_score = -SCORE_INF;
     let n_empties = ctx.empty_list.count;
@@ -463,6 +486,17 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     best_score
 }
 
+/// Optimized search for shallow endgame positions.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context for node counting and empty square tracking
+/// * `board` - Current board position
+/// * `alpha` - Score threshold for null window search
+///
+/// # Returns
+///
+/// Best score found
 pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
     let mut moves = board.get_moves();
@@ -532,6 +566,15 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     best_score
 }
 
+/// Sorts the four remaining empty squares based on quadrant parity.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context containing empty square list and parity
+///
+/// # Returns
+///
+/// Tuple of four squares in optimized search order
 #[inline(always)]
 fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
     let (sq1, quad_id1) = ctx.empty_list.first_with_quad_id();
@@ -563,6 +606,18 @@ fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square
     }
 }
 
+/// Specialized solver for positions with exactly 4 empty squares.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context for node counting
+/// * `board` - Current board position
+/// * `alpha` - Score threshold for pruning
+/// * `sq1..sq4` - The four empty squares in search order
+///
+/// # Returns
+///
+/// Best score achievable with perfect play
 fn solve4(
     ctx: &mut SearchContext,
     board: &Board,
@@ -614,6 +669,18 @@ fn solve4(
     best_score
 }
 
+/// Specialized solver for positions with exactly 3 empty squares.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context for node counting
+/// * `board` - Current board position
+/// * `alpha` - Score threshold for pruning
+/// * `sq1..sq3` - The three empty squares
+///
+/// # Returns
+///
+/// Best score achievable with perfect play
 fn solve3(
     ctx: &mut SearchContext,
     board: &Board,
@@ -682,6 +749,18 @@ fn solve3(
     solve(board, 3)
 }
 
+/// Specialized solver for positions with exactly 2 empty squares.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context for node counting
+/// * `board` - Current board position
+/// * `alpha` - Score threshold for pruning
+/// * `sq1, sq2` - The two remaining empty squares
+///
+/// # Returns
+///
+/// Exact score with perfect play
 #[inline(always)]
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
@@ -724,6 +803,18 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     solve(board, 2)
 }
 
+/// Specialized solver for positions with exactly 1 empty square.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context for node counting
+/// * `board` - Current board position
+/// * `alpha` - Score threshold (for pruning opponent check)
+/// * `sq` - The single remaining empty square
+///
+/// # Returns
+///
+/// Exact final score after optimal play
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
@@ -749,6 +840,22 @@ fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> S
     score
 }
 
+/// Calculates the final score when no moves remain for either player.
+///
+/// # Scoring Rules
+///
+/// - If scores are tied: Empty squares are split (returns 0)
+/// - If current player ahead: Gets all empty squares
+/// - If current player behind: Gets no empty squares
+///
+/// # Arguments
+///
+/// * `board` - Final board position
+/// * `n_empties` - Number of remaining empty squares
+///
+/// # Returns
+///
+/// Final score in disc difference
 #[inline(always)]
 pub fn solve(board: &Board, n_empties: u32) -> Score {
     let score = board.get_player_count() as Score * 2 - 64;
@@ -761,6 +868,15 @@ pub fn solve(board: &Board, n_empties: u32) -> Score {
     }
 }
 
+/// Calculates the final score of a completed game (0 empty squares).
+///
+/// # Arguments
+///
+/// * `board` - Board position with all 64 squares filled
+///
+/// # Returns
+///
+/// Score as disc difference (positive = current player won)
 #[inline(always)]
 pub fn calculate_final_score(board: &Board) -> Score {
     board.get_player_count() as Score * 2 - 64

@@ -1,3 +1,7 @@
+//! # References:
+//! - https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/midgame.c
+//! - https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/search.cpp
+
 use std::sync::Arc;
 
 use rand::seq::IteratorRandom;
@@ -29,20 +33,24 @@ use super::search_result::SearchResult;
 use super::threading::Thread;
 use super::SearchTask;
 
+/// Minimum depth required before considering parallel split.
 const MIN_SPLIT_DEPTH: Depth = 4;
 
-/// Search the root position
+/// Performs the root search using iterative deepening with aspiration windows.
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing game state and statistics
-/// * `board` - Current board position
-/// * `level` - Search level
-/// * `multi_pv` - Flag indicating if multiple principal variations should be searched
+/// * `task` - Search task containing board position, search parameters, and callbacks
+/// * `thread` - Thread handle for parallel search coordination
 ///
 /// # Returns
 ///
-/// The score of the current position, the search depth, and the selectivity
+/// SearchResult containing the best move, score, and search statistics
+///
+/// # Special Cases
+///
+/// - Returns a random move for the opening position (60 empty squares)
+/// - Returns evaluation only for depth 0 searches
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let level = task.level;
@@ -176,10 +184,31 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 }
 
+/// Converts an internal score to floating-point disc units.
+///
+/// Internal scores are scaled by `EVAL_SCORE_SCALE` for precision.
+/// This function converts them back to the standard disc count scale.
+///
+/// # Arguments
+///
+/// * `score` - Internal score representation
+///
+/// # Returns
+///
+/// Score in disc units as a floating-point number
 fn to_scoref(score: Score) -> Scoref {
     score as Scoref / EVAL_SCORE_SCALE as Scoref
 }
 
+/// Selects a random legal move from the current position.
+///
+/// # Arguments
+///
+/// * `board` - Current board position
+///
+/// # Returns
+///
+/// A randomly selected legal move square
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     BitboardIterator::new(board.get_moves())
@@ -187,19 +216,26 @@ fn random_move(board: &Board) -> Square {
         .unwrap()
 }
 
-/// Performs an alpha-beta search with principal variation (PV) or non-PV nodes
+/// Alpha-beta search function for midgame positions.
+///
+/// # Type Parameters
+///
+/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
+/// * `SP_NODE` - Whether this is a split point node in parallel search.
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing game state and statistics
-/// * `board` - Current board position
-/// * `depth` - Remaining search depth
+/// * `ctx` - Search context tracking game state and statistics.
+/// * `board` - Current board position to search.
+/// * `depth` - Remaining search depth.
 /// * `alpha` - Lower bound of the search window
 /// * `beta` - Upper bound of the search window
+/// * `thread` - Thread handle for parallel search coordination.
+/// * `split_point` - Optional split point for parallel search nodes.
 ///
 /// # Returns
 ///
-/// The score of the current position
+/// The best score found for the position.
 pub fn search<NT: NodeType, const SP_NODE: bool>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -429,18 +465,18 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     best_score
 }
 
-/// Evaluate the current position at depth 2
+/// Specialized evaluation function for positions at depth 2.
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing game state and statistics
-/// * `board` - Current board position
-/// * `alpha` - Lower bound of the search window
-/// * `beta` - Upper bound of the search window
+/// * `ctx` - Search context tracking game state
+/// * `board` - Current board position to search
+/// * `alpha` - Lower bound of search window
+/// * `beta` - Upper bound of search window
 ///
 /// # Returns
 ///
-/// The score of the current position
+/// Best score found for the position
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
@@ -484,18 +520,18 @@ pub fn evaluate_depth2(
     best_score
 }
 
-/// Evaluate the current position at depth 1
+/// Specialized evaluation function for positions at depth 1.
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing game state and statistics
-/// * `board` - Current board position
-/// * `alpha` - Lower bound of the search window
-/// * `beta` - Upper bound of the search window
+/// * `ctx` - Search context tracking game state
+/// * `board` - Current board position to search
+/// * `alpha` - Lower bound of search window
+/// * `beta` - Upper bound of search window
 ///
 /// # Returns
 ///
-/// The score of the current position
+/// Best score found for the position
 pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, beta: Score) -> Score {
     let moves = board.get_moves();
     if moves == 0 {
@@ -534,6 +570,16 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
     best_score
 }
 
+/// Evaluates a leaf node position using the neural network evaluator.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context tracking game state
+/// * `board` - Current board position
+///
+/// # Returns
+///
+/// Position score in internal units
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     if ctx.ply() == 60 {
@@ -543,6 +589,23 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     ctx.eval.evaluate(ctx, board)
 }
 
+/// Performs a simplified search for shallow depths.
+///
+/// # Type Parameters
+///
+/// * `NT` - Node type (PV or NonPV) for search behavior
+///
+/// # Arguments
+///
+/// * `ctx` - Search context tracking game state
+/// * `board` - Current board position to search
+/// * `depth` - Remaining search depth
+/// * `alpha` - Lower bound of search window
+/// * `beta` - Upper bound of search window
+///
+/// # Returns
+///
+/// Best score found for the position
 pub fn shallow_search<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -637,13 +700,34 @@ pub fn shallow_search<NT: NodeType>(
     best_score
 }
 
+/// Calls the endgame solver for terminal nodes where both players must pass.
+///
+/// # Arguments
+///
+/// * `board` - The terminal board position to be evaluated.
+/// * `n_empties` - The number of empty squares remaining on the board.
+///
+/// # Returns
+///
+/// The exact final score of the position, scaled to internal units.
 fn solve(board: &Board, n_empties: Depth) -> Score {
     endgame::solve(board, n_empties) << EVAL_SCORE_SCALE_BITS
 }
 
+/// Checks for stability-based cutoffs in the search.
+///
+/// # Arguments
+///
+/// * `board` - Current board position
+/// * `n_empties` - Number of empty squares
+/// * `alpha` - Current alpha bound for pruning decision
+///
+/// # Returns
+///
+/// * `Some(score)` - If position can be pruned with this score
+/// * `None` - If no stability cutoff is possible
 fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
-    if let Some(score) =
-        stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS)
+    if let Some(score) = stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS)
     {
         return Some(score << EVAL_SCORE_SCALE_BITS);
     }
