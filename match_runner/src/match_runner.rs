@@ -99,10 +99,10 @@ impl MatchRunner {
         let mut statistics = MatchStatistics::new();
 
         self.display.show_match_header()?;
-        
+
         // Show initial empty statistics
         self.display.update_live_visualization(&statistics, &engine_names.0, &engine_names.1)?;
-        
+
         let progress_bar = self.create_progress_bar(total_games);
 
         for (opening_idx, opening_str) in openings.iter().enumerate() {
@@ -323,6 +323,8 @@ impl MatchRunner {
         opening_idx: usize,
         progress_bar: &ProgressBar,
     ) -> Result<()> {
+        let mut paired_results = Vec::new();
+
         for game_round in 0..2 {
             let is_swapped = game_round == 1;
             let game_number = opening_idx * 2 + game_round + 1;
@@ -343,6 +345,8 @@ impl MatchRunner {
                     };
 
                     statistics.add_result(winner, score, opening_str.to_string(), !is_swapped);
+                    paired_results.push((winner, score));
+
                     self.display.update_live_visualization(
                         statistics,
                         &engine_names.0,
@@ -357,6 +361,15 @@ impl MatchRunner {
                 }
             }
         }
+
+        // Add paired result after both games are complete
+        if paired_results.len() == 2 {
+            statistics.add_paired_result(
+                paired_results[0],
+                paired_results[1],
+            );
+        }
+
         Ok(())
     }
 

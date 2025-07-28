@@ -122,7 +122,7 @@ impl DisplayManager {
     }
     
     fn calculate_name_width(&self) -> usize {
-        let required_width = ["Engine1", "Engine2", "Draws", "Total Score"]
+        let required_width = ["Engine1", "Engine2", "Draws", "Disc Diff"]
             .iter()
             .map(|s| s.len())
             .max()
@@ -225,7 +225,7 @@ impl DisplayManager {
         println!("{}{}{:>width$}: {}",
             CLEAR_LINE,
             layout.padding,
-            "Total Score".bright_white(),
+            "Disc Diff".bright_white(),
             format!("{:+}", statistics.total_score).bright_cyan(),
             width = layout.name_width
         );
