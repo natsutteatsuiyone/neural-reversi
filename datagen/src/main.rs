@@ -33,6 +33,9 @@ enum SubCommands {
 
         #[arg(long, default_value = "59")]
         ply_max: u8,
+
+        #[arg(long, default_value = "false")]
+        dedup: bool,
     },
     Selfplay {
         #[arg(long, default_value = "100000000")]
@@ -103,8 +106,9 @@ fn main() {
             score_correction,
             ply_min,
             ply_max,
+            dedup,
         } => {
-            feature::execute(&input_dir, &output_dir, threads, score_correction, ply_min, ply_max).unwrap();
+            feature::execute(&input_dir, &output_dir, threads, score_correction, ply_min, ply_max, dedup).unwrap();
         }
         SubCommands::Selfplay {
             games,

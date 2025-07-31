@@ -5,6 +5,7 @@
 //! the training data and outputs compressed feature files.
 
 use std::{
+    collections::HashSet,
     fs::{self, File},
     io::{self},
     path::Path,
@@ -49,11 +50,12 @@ struct GameRecord {
 /// * `score_correction` - Whether to apply endgame score correction
 /// * `ply_min` - Minimum ply value to include (0-59)
 /// * `ply_max` - Maximum ply value to include (0-59)
+/// * `dedup` - Whether to remove duplicate boards within each output file
 ///
 /// # Returns
 ///
 /// Returns `Ok(())` on success, or an `io::Error` if file operations fail.
-pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correction: bool, ply_min: u8, ply_max: u8) -> io::Result<()> {
+pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correction: bool, ply_min: u8, ply_max: u8, dedup: bool) -> io::Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build_global()
@@ -145,7 +147,7 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
 
             let start = std::time::Instant::now();
 
-            if let Err(e) = process_file(file_idx, entry_path, output_dir, score_correction, ply_min, ply_max) {
+            if let Err(e) = process_file(file_idx, entry_path, output_dir, score_correction, ply_min, ply_max, dedup) {
                 eprintln!("Failed to process file {file_idx}: {e}");
                 thread_pb.set_message(format!("Error: {file_name}"));
             } else {
@@ -191,6 +193,7 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
 /// * `score_correction` - Whether to apply endgame score correction
 /// * `ply_min` - Minimum ply value to include (0-59)
 /// * `ply_max` - Maximum ply value to include (0-59)
+/// * `dedup` - Whether to remove duplicate boards within each output file
 fn process_file(
     file_idx: usize,
     entry_path: &Path,
@@ -198,6 +201,7 @@ fn process_file(
     score_correction: bool,
     ply_min: u8,
     ply_max: u8,
+    dedup: bool,
 ) -> io::Result<()> {
     let input_path_str = entry_path.to_str().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8")
@@ -212,6 +216,13 @@ fn process_file(
         "base", "rot90", "rot180", "rot270",
         "flip_v", "flip_h", "flip_diag_a1h8", "flip_diag_a8h1"
     ];
+
+    // Create HashSets to track seen boards for each symmetry if dedup is enabled
+    let mut seen_boards: Vec<HashSet<(u64, u64)>> = if dedup {
+        vec![HashSet::new(); 8]
+    } else {
+        vec![]
+    };
 
     // Process each game record and generate all 8 symmetries
     for record in game_records {
@@ -233,6 +244,15 @@ fn process_file(
 
         // Process each symmetry and add to corresponding data vector
         for (i, board) in symmetrical_boards.iter().enumerate() {
+            // Check for duplicates if dedup is enabled
+            if dedup {
+                let board_key = (board.player, board.opponent);
+                if !seen_boards[i].insert(board_key) {
+                    // This board has already been seen, skip it
+                    continue;
+                }
+            }
+
             let mobility = board.get_moves().count_ones() as u8;
             let mut features = [0; pattern_feature::NUM_PATTERN_FEATURES];
             pattern_feature::set_features(board, &mut features);
