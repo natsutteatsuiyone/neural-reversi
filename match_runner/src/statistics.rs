@@ -166,8 +166,8 @@ impl MatchStatistics {
             "Wins".bright_white(),
             "Losses".bright_white(),
             "Draws".bright_white(),
-            "Win Rate".bright_white(),
-            "Score (discs)".bright_white(),
+            "Score %".bright_white(),
+            "Disc Diff".bright_white(),
             width = name_width
         );
 
