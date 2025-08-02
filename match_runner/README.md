@@ -59,6 +59,19 @@ The programs must support the following GTP commands:
 - `genmove <color>` - Generate a move for the specified color
 - `quit` - Exit the program
 
+## Match Output
+
+During the match, the tool displays:
+- Real-time progress visualization with win/loss/draw statistics
+- Live updating score bars for each engine
+- Progress bar showing game completion
+
+After the match completes, detailed statistics are displayed including:
+- Total games played with win/loss/draw breakdown
+- Score percentage and average disc difference for each engine
+- ELO rating estimation with confidence intervals
+- Pentanomial statistics for paired game analysis
+
 ## Building
 
 ```bash
