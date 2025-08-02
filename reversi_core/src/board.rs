@@ -286,7 +286,7 @@ impl Board {
     /// A 64-bit hash value representing the current board position.
     #[inline]
     pub fn hash(&self) -> u64 {
-        let mut hasher = rapidhash::RapidInlineHasher::default();
+        let mut hasher = rapidhash::fast::RapidHasher::default();
         hasher.write_u64(self.player);
         hasher.write_u64(self.opponent);
         hasher.finish()
