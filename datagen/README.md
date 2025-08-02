@@ -59,7 +59,7 @@ datagen opening --depth 9 > openings.txt
 
 ### feature
 
-Extracts neural network training features from self-play data. The feature extraction process generates all 8 symmetrical variations of each board position (rotations and reflections) to augment the training data, and automatically deduplicates identical positions.
+Extracts neural network training features from self-play data. The feature extraction process generates all 8 symmetrical variations of each board position (rotations and reflections) to augment the training data. When deduplication is enabled, identical positions are automatically removed to reduce dataset redundancy.
 
 ```bash
 datagen feature --input-dir ./data --output-dir ./features --threads 8 --score-correction
@@ -73,6 +73,7 @@ datagen feature --input-dir ./data --output-dir ./features --threads 8 --score-c
 - `--score-correction`: Apply endgame score correction by blending evaluation scores with game outcomes (default: false)
 - `--ply-min`: Minimum ply value to include in feature extraction (0-59, default: 0)
 - `--ply-max`: Maximum ply value to include in feature extraction (0-59, default: 59)
+- `--dedup`: Enable deduplication of identical positions across the dataset (default: false)
 
 #### Data format
 
