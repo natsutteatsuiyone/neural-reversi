@@ -7,7 +7,7 @@ A cross-platform desktop application for playing Reversi (Othello) against a str
 ### Prerequisites
 
 1. Rust toolchain (version specified in `rust-toolchain.toml`)
-2. Node.js and Bun (or npm)
+2. Bun
 3. Neural network weight files in the repository root
    - Download from the GitHub releases page
    - Required for AI functionality

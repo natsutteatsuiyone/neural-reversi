@@ -1,10 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
-import { GamePiece } from "./game-piece";
-import { AIThinkingIndicator } from "./ai-thinking-indicator";
-import { AIScoreDisplay } from "./ai-score-display";
+import { BoardCell } from "./board-cell";
+import type { AIMoveProgress } from "@/lib/ai";
 import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { useEffect, useMemo, useState } from "react";
@@ -15,6 +12,9 @@ interface MoveHistoryItem {
   timestamp: number;
 }
 
+const AI_MOVE_HIGHLIGHT_DURATION = 1200;
+const MAX_MOVE_HISTORY_SIZE = 3;
+
 export function GameBoard() {
   const board = useReversiStore((state) => state.board);
   const gameOver = useReversiStore((state) => state.gameOver);
@@ -22,8 +22,8 @@ export function GameBoard() {
   const isAITurn = useReversiStore((state) => state.isAITurn);
   const isValidMove = useReversiStore((state) => state.isValidMove);
   const makeMove = useReversiStore((state) => state.makeMove);
-  const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress);
-  const analyzeResults = useReversiStore((state) => state.analyzeResults);
+  const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress) as AIMoveProgress | null;
+  const analyzeResults = useReversiStore((state) => state.analyzeResults) as Map<string, AIMoveProgress> | null;
   const gameMode = useReversiStore((state) => state.gameMode);
   const aiLevel = useReversiStore((state) => state.aiLevel);
 
@@ -63,7 +63,7 @@ export function GameBoard() {
           return prev;
         }
 
-        return [newMove, ...prev].slice(0, 3);
+        return [newMove, ...prev].slice(0, MAX_MOVE_HISTORY_SIZE);
       });
     } else if (!isAITurn()) {
       setMoveHistory([]);
@@ -80,7 +80,7 @@ export function GameBoard() {
 
       const timer = setTimeout(() => {
         setLastAIMove(null);
-      }, 1200);
+      }, AI_MOVE_HIGHLIGHT_DURATION);
 
       return () => clearTimeout(timer);
     }
@@ -132,72 +132,25 @@ export function GameBoard() {
           <div className="grid grid-cols-8 gap-1">
             {board.map((row, rowIndex) =>
               row.map((cell, colIndex) => (
-                <motion.button
+                <BoardCell
                   key={`${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]}`}
-                  className={cn(
-                    "w-full pt-[100%] relative bg-[#0e7250] rounded-sm",
-                    "hover:bg-[#0f8259] transition-colors",
-                    "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#11936a]",
-                    lastMove &&
-                      lastMove.row === rowIndex &&
-                      lastMove.col === colIndex &&
-                      "ring-2 ring-[#c8b45c]/70",
-                    "shadow-[inset_1px_1px_1px_rgba(255,255,255,0.1),inset_-1px_-1px_1px_rgba(0,0,0,0.1)]",
-                    (aiMoveProgress?.row === rowIndex && aiMoveProgress?.col === colIndex) ||
-                    (lastAIMove?.row === rowIndex && lastAIMove?.col === colIndex)
-                      ? "bg-[#0e7d58]"
-                      : ""
-                  )}
-                  onClick={() => onCellClick(rowIndex, colIndex)}
-                  disabled={gameOver || !isValidMove(rowIndex, colIndex)}
-                  whileHover={
-                    !gameOver && isValidMove(rowIndex, colIndex)
-                      ? { scale: 0.95 }
-                      : {}
-                  }
-                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                  aria-label={`${COLUMN_LABELS[colIndex]}${
-                    ROW_LABELS[rowIndex]
-                  } - ${
-                    cell.color
-                      ? `${cell.color} piece`
-                      : isValidMove(rowIndex, colIndex) && !isAITurn()
-                      ? "valid move"
-                      : "empty"
-                  }`}
-                >
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {cell.color && (
-                        <GamePiece color={cell.color} isNew={cell.isNew} />
-                    )}
-
-                    {!cell.color &&
-                      isValidMove(rowIndex, colIndex) &&
-                      !isAITurn() &&
-                      !(gameMode === "analyze" && analyzeResults && analyzeResults.has(`${rowIndex},${colIndex}`)) && (
-                        <div className="w-[20%] h-[20%] rounded-full bg-emerald-100 opacity-20" />
-                      )}
-
-                    <AIThinkingIndicator
-                      rowIndex={rowIndex}
-                      colIndex={colIndex}
-                      aiMoveProgress={aiMoveProgress}
-                      moveHistory={moveHistory}
-                      lastAIMove={lastAIMove}
-                    />
-
-                    <AIScoreDisplay
-                      rowIndex={rowIndex}
-                      colIndex={colIndex}
-                      analyzeResults={analyzeResults}
-                      gameMode={gameMode}
-                      maxScore={maxScore}
-                      aiLevel={aiLevel}
-                      gameOver={gameOver}
-                      board={board}
-                    />
-                  </div>
-                </motion.button>
+                  rowIndex={rowIndex}
+                  colIndex={colIndex}
+                  cell={cell}
+                  lastMove={lastMove}
+                  aiMoveProgress={aiMoveProgress}
+                  lastAIMove={lastAIMove}
+                  moveHistory={moveHistory}
+                  gameOver={gameOver}
+                  isValidMove={isValidMove}
+                  isAITurn={isAITurn}
+                  onCellClick={onCellClick}
+                  analyzeResults={analyzeResults}
+                  gameMode={gameMode}
+                  maxScore={maxScore}
+                  aiLevel={aiLevel}
+                  board={board}
+                />
               ))
             )}
           </div>
