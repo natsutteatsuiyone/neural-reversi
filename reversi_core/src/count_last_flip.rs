@@ -1,4 +1,5 @@
-//! https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c
+//! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c
+
 use crate::bit::pext_u64;
 use crate::square::Square;
 
@@ -86,7 +87,6 @@ const COUNT_FLIP: [[u8; 256]; 8] = [
 	],
 ];
 
-/* bit masks for diagonal/vertical/all lines */
 #[rustfmt::skip]
 const MASK_X: [[u64; 4];64] = [
 	[ 0x0000000000000001, 0x8040201008040201, 0x0101010101010101, 0x81412111090503ff ],
@@ -170,6 +170,16 @@ fn last_flip(sq: usize, player: u64) -> i32 {
     n_flipped as i32
 }
 
+/// Counts the number of pieces that would be flipped by the last move.
+///
+/// # Arguments
+///
+/// * `b` - Bitboard representing the player's pieces
+/// * `sq` - The square where the move would be played
+///
+/// # Returns
+///
+/// Returns twice the actual number of flipped pieces for optimization purposes.
 #[inline]
 pub fn count_last_flip(b: u64, sq: Square) -> i32 {
     last_flip(sq.index(), b)
