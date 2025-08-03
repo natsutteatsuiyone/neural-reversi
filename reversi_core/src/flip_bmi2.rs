@@ -1,4 +1,4 @@
-//! https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_bmi2.c
+//! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_bmi2.c
 
 use crate::bit::{bextr_u32, pdep_u64, pext_u64};
 use crate::square::Square;

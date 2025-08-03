@@ -2,6 +2,18 @@ use crate::flip_avx;
 use crate::flip_bmi2;
 use crate::square::Square;
 
+/// Calculates which opponent pieces would be flipped by placing a piece at the given square.
+///
+/// # Arguments
+///
+/// * `sq` - The square where the piece is being placed
+/// * `p` - Bitboard representing the current player's pieces
+/// * `o` - Bitboard representing the opponent's pieces
+///
+/// # Returns
+///
+/// A bitboard representing all opponent pieces that would be flipped by this move.
+/// Returns 0 if no pieces would be flipped (invalid move).
 #[inline]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     #[cfg(target_arch = "x86_64")]
