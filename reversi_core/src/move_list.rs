@@ -152,7 +152,7 @@ impl MoveList {
     ///
     /// Iterator that yields moves in best-first order
     #[inline]
-    pub fn best_first_iter(&self) -> BestFirstMoveIterator {
+    pub fn best_first_iter(&self) -> BestFirstMoveIterator<'_> {
         BestFirstMoveIterator::new(self)
     }
 
@@ -356,7 +356,7 @@ impl BestFirstMoveIterator<'_> {
     /// # Returns
     ///
     /// A new iterator ready to yield moves in best-first order
-    pub fn new(move_list: &MoveList) -> BestFirstMoveIterator {
+    pub fn new(move_list: &MoveList) -> BestFirstMoveIterator<'_> {
         let indices = BestFirstMoveIterator::create_indices();
 
         BestFirstMoveIterator {
