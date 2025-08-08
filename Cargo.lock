@@ -3255,9 +3255,9 @@ dependencies = [
 
 [[package]]
 name = "rapidhash"
-version = "2.0.2"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2297bf4643b32dc85bf5f622c9a41a268db6c6a6a2a2e3b405958a5b014ad9e1"
+checksum = "2ef3d82b018f786967b1a5d34a08ebc3c7a9ab35b5bcbe3e2e057a0a453f26c8"
 
 [[package]]
 name = "raw-window-handle"
