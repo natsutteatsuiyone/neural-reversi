@@ -135,18 +135,18 @@ impl SearchStats {
         if self.total_count == 0 {
             return (0.0, 0.0);
         }
-        
+
         let mean = self.score_differences.iter()
             .map(|&d| d as f64)
             .sum::<f64>() / self.total_count as f64;
-        
+
         let variance = self.score_differences.iter()
             .map(|&d| {
                 let diff = d as f64 - mean;
                 diff * diff
             })
             .sum::<f64>() / self.total_count as f64;
-        
+
         (mean, variance.sqrt())
     }
 
@@ -255,15 +255,13 @@ impl SearchStats {
 
     /// Apply color coding to percentage values
     fn colorize_percentage(value: &str) -> colored::ColoredString {
-        if let Some(percentage_str) = value.split('%').next() {
-            if let Ok(percentage) = percentage_str.parse::<f64>() {
-                if percentage >= PERFORMANCE_EXCELLENT {
-                    return value.bright_green();
-                } else if percentage >= PERFORMANCE_GOOD {
-                    return value.bright_yellow();
-                } else {
-                    return value.bright_red();
-                }
+        if let Some(percentage_str) = value.split('%').next() && let Ok(percentage) = percentage_str.parse::<f64>() {
+            if percentage >= PERFORMANCE_EXCELLENT {
+                return value.bright_green();
+            } else if percentage >= PERFORMANCE_GOOD {
+                return value.bright_yellow();
+            } else {
+                return value.bright_red();
             }
         }
         value.normal()
@@ -469,7 +467,7 @@ struct Args {
 fn main() {
     reversi_core::init();
     let args = Args::parse();
-    
+
     // Validate argument combinations
     if args.case.is_some() && (args.from.is_some() || args.to.is_some()) {
         eprintln!("Error: --case cannot be used with --from or --to");

@@ -529,10 +529,8 @@ impl Thread {
         // Main loop - continues until thread exit is signaled
         while !self.exit.load(Ordering::Acquire) {
             // Check if we're the master of a split point and all slaves have finished
-            if let Some(ref sp) = this_sp {
-                if sp.state().slaves_mask.none() {
-                    break;
-                }
+            if let Some(ref sp) = this_sp && sp.state().slaves_mask.none() {
+                break;
             }
 
             // If this thread has been assigned work, launch a search

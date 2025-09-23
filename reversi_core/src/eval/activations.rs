@@ -47,7 +47,7 @@ fn clipped_relu_avx2<const SIZE: usize>(
     output: &mut Align64<[u8; SIZE]>,
 ) {
     unsafe {
-        if SIZE % AVX2_SIMD_WIDTH == 0 {
+        if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
             let num_chunks = SIZE / AVX2_SIMD_WIDTH;
             let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
             let input_ptr = input.as_ptr() as *const __m256i;
@@ -96,7 +96,7 @@ fn clipped_relu_avx2<const SIZE: usize>(
         }
     }
 
-    let start = if SIZE % AVX2_SIMD_WIDTH == 0 {
+    let start = if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
         SIZE / AVX2_SIMD_WIDTH * AVX2_SIMD_WIDTH
     } else {
         SIZE / (AVX2_SIMD_WIDTH / 2) * (AVX2_SIMD_WIDTH / 2)

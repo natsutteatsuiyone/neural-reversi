@@ -97,7 +97,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     #[cfg(target_arch = "x86_64")]
     unsafe fn forward_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
         const {
-            assert!(OUTPUT_DIMS % 32 == 0, "HIDDEN_DIMS must be a multiple of 32");
+            assert!(OUTPUT_DIMS.is_multiple_of(32), "HIDDEN_DIMS must be a multiple of 32");
         }
 
         unsafe {

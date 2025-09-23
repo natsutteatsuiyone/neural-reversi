@@ -252,10 +252,8 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return tt_data.score;
         }
 
-        if !NT::PV_NODE {
-            if let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread) {
-                return score;
-            }
+        if !NT::PV_NODE && let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread) {
+            return score;
         }
 
         if move_list.count() > 1 {

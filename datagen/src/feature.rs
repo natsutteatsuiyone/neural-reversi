@@ -302,7 +302,7 @@ fn load_game_records(file_path: &str, score_correction: bool, ply_min: u8, ply_m
     let file_size = metadata.len() as usize;
     let entry_size = 24;
 
-    if file_size % entry_size != 0 {
+    if !file_size.is_multiple_of(entry_size) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("Invalid data size. {file_path}"),

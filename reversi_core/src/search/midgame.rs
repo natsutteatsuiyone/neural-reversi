@@ -104,7 +104,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let pv_count = if multi_pv { num_root_moves } else { 1 };
 
     let org_selectivty = ctx.selectivity;
-    let start_depth = if max_depth % 2 == 0 { 2 } else { 1 };
+    let start_depth = if max_depth.is_multiple_of(2) { 2 } else { 1 };
     let mut depth = start_depth;
     while depth <= max_depth {
         ctx.selectivity = org_selectivty - ((max_depth - depth) as u8).min(org_selectivty);
@@ -313,10 +313,8 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return tt_data.score;
         }
 
-        if !NT::PV_NODE {
-            if let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread) {
-                return score;
-            }
+        if !NT::PV_NODE && let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread) {
+            return score;
         }
 
         if move_list.count() > 1 {
