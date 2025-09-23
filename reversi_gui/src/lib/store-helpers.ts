@@ -14,6 +14,10 @@ export interface Move {
   score?: number;
 }
 
+export function cloneBoard(board: Board): Board {
+  return board.map((row) => row.map((cell) => ({ ...cell })));
+}
+
 export function createMoveRecord(
   moveId: number,
   player: Player,
@@ -31,7 +35,7 @@ export function createMoveRecord(
 }
 
 export function applyMove(board: Board, move: Move, player: Player): Board {
-  const newBoard = board.map((row) => row.map((cell) => ({ ...cell })));
+  const newBoard = cloneBoard(board);
   const flipped = getFlippedDiscs(board, move.row, move.col, player);
 
   newBoard[move.row][move.col] = {

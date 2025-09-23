@@ -17,6 +17,13 @@ export type MoveRecord = {
   isAI?: boolean;
 };
 
+
+export type AIMoveHighlight = {
+  row: number;
+  col: number;
+  timestamp: number;
+};
+
 export type GameState = {
   board: Board;
   currentPlayer: Player;
@@ -33,4 +40,3 @@ export type GameState = {
 
 export type GameMode = "analyze" | "ai-black" | "ai-white";
 export type GameStatus = "waiting" | "playing" | "finished";
-

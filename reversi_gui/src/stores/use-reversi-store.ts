@@ -9,6 +9,7 @@ import {
   type Move,
   applyMove,
   checkGameOver,
+  cloneBoard,
   createMoveRecord,
   createPassMove,
   getUndoMoves,
@@ -57,6 +58,50 @@ interface ReversiState {
   analyzeBoard: () => Promise<void>;
 }
 
+function toLastMove(moves: MoveRecord[]): Move | null {
+  const last = moves.length > 0 ? moves[moves.length - 1] : undefined;
+  if (!last || last.row < 0 || last.col < 0) {
+    return null;
+  }
+
+  return {
+    row: last.row,
+    col: last.col,
+    isAI: Boolean(last.isAI),
+    score: last.score,
+  };
+}
+
+function deriveStateFromMoves(moves: MoveRecord[]): {
+  board: Board;
+  currentPlayer: "black" | "white";
+  validMoves: [number, number][];
+  lastMove: Move | null;
+} {
+  const { board, currentPlayer } = reconstructBoardFromMoves(moves);
+
+  return {
+    board,
+    currentPlayer,
+    validMoves: getValidMoves(board, currentPlayer),
+    lastMove: toLastMove(moves),
+  };
+}
+
+function triggerAutomation(state: ReversiState): void {
+  if (state.gameStatus !== "playing") {
+    return;
+  }
+
+  if (state.isAITurn()) {
+    void state.makeAIMove();
+    return;
+  }
+
+  if (state.gameMode === "analyze") {
+    void state.analyzeBoard();
+  }
+}
 export const useReversiStore = create<ReversiState>((set, get) => ({
   board: initializeBoard(),
   moves: [],
@@ -171,18 +216,20 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       };
     });
 
-    const state = get();
-    const { gameOver, shouldPass } = checkGameOver(state.board, state.currentPlayer);
+    const updatedState = get();
+    const { gameOver, shouldPass } = checkGameOver(updatedState.board, updatedState.currentPlayer);
 
     if (gameOver) {
       set({ gameOver: true, gameStatus: "finished" });
-    } else if (shouldPass) {
-      set({ showPassNotification: true });
-    } else if (state.isAITurn()) {
-      void state.makeAIMove();
-    } else if (state.gameMode === "analyze") {
-      void state.analyzeBoard();
+      return;
     }
+
+    if (shouldPass) {
+      set({ showPassNotification: true });
+      return;
+    }
+
+    triggerAutomation(updatedState);
   },
 
   makePass: () => {
@@ -190,14 +237,16 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       const currentPlayer = state.currentPlayer;
       const passMove = createPassMove(state.moves.length, currentPlayer);
       const nextPlayerTurn = nextPlayer(currentPlayer);
+      const boardClone = cloneBoard(state.board);
 
       return {
-        board: state.board.map((row) => row.map((cell) => ({ ...cell }))),
+        board: boardClone,
         moves: [...state.moves, passMove],
         allMoves: [...state.moves, passMove], // Update allMoves when passing
         currentPlayer: nextPlayerTurn,
-        validMoves: getValidMoves(state.board, nextPlayerTurn),
+        validMoves: getValidMoves(boardClone, nextPlayerTurn),
         isPass: true,
+        analyzeResults: null,
       };
     });
   },
@@ -221,28 +270,34 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       isAIThinking: false,
       isAnalyzing: false,
       analyzeResults: null,
+      validMoves: [],
+      aiMoveProgress: null,
     });
   },
 
   startGame: async () => {
     await initializeAI();
 
-    set((state) => {
-      const validMoves = getValidMoves(state.board, state.currentPlayer);
+    set(() => {
+      const board = initializeBoard();
+      const currentPlayer = "black";
       return {
-        board: initializeBoard(),
+        board,
         moves: [],
         allMoves: [],
+        currentPlayer,
         gameStatus: "playing",
-        validMoves,
+        gameOver: false,
+        isPass: false,
+        lastMove: null,
+        lastAIMove: null,
+        validMoves: getValidMoves(board, currentPlayer),
+        showPassNotification: false,
+        analyzeResults: null,
       };
     });
 
-    if (get().gameMode === "analyze") {
-      void get().analyzeBoard();
-    } else if (get().gameMode === "ai-black") {
-      void get().makeAIMove();
-    }
+    triggerAutomation(get());
   },
 
   setAILevelChange: (level) => set({ aiLevel: level }),
@@ -264,12 +319,9 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
 
   hidePassNotification: () => {
     set({ showPassNotification: false });
-    get().makePass();
-    if (get().isAITurn()) {
-      void get().makeAIMove();
-    } else if (get().gameMode === "analyze") {
-      void get().analyzeBoard();
-    }
+    const { makePass } = get();
+    makePass();
+    triggerAutomation(get());
   },
 
   undoMove: () => {
@@ -279,32 +331,20 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       }
 
       const newMoves = getUndoMoves(state.moves, state.gameMode);
-      const { board, currentPlayer } = reconstructBoardFromMoves(newMoves);
-      const validMoves = getValidMoves(board, currentPlayer);
-
-      const lastMove = newMoves.length > 0
-        ? {
-            row: newMoves[newMoves.length - 1].row,
-            col: newMoves[newMoves.length - 1].col,
-            isAI: !!newMoves[newMoves.length - 1].isAI,
-            score: newMoves[newMoves.length - 1].score,
-          }
-        : null;
+      const derived = deriveStateFromMoves(newMoves);
 
       return {
-        board,
+        ...derived,
         moves: newMoves,
-        currentPlayer,
-        lastMove,
-        validMoves,
         isPass: false,
         analyzeResults: null,
-        gameOver: false, // Reset game over state when undoing
+        gameOver: false,
       };
     });
 
-    if (get().gameMode === "analyze" && get().gameStatus === "playing") {
-      void get().analyzeBoard();
+    const state = get();
+    if (state.gameMode === "analyze" && state.gameStatus === "playing") {
+      void state.analyzeBoard();
     }
   },
 
@@ -315,35 +355,21 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
       }
 
       const newMoves = getRedoMoves(state.moves, state.allMoves, state.gameMode);
-      const { board, currentPlayer } = reconstructBoardFromMoves(newMoves);
-      const validMoves = getValidMoves(board, currentPlayer);
-
-      const lastMove = newMoves.length > 0
-        ? {
-            row: newMoves[newMoves.length - 1].row,
-            col: newMoves[newMoves.length - 1].col,
-            isAI: !!newMoves[newMoves.length - 1].isAI,
-            score: newMoves[newMoves.length - 1].score,
-          }
-        : null;
-
-      // Check if we're at the end and need to restore game over state
-      const { gameOver } = checkGameOver(board, currentPlayer);
+      const derived = deriveStateFromMoves(newMoves);
+      const { gameOver } = checkGameOver(derived.board, derived.currentPlayer);
 
       return {
-        board,
+        ...derived,
         moves: newMoves,
-        currentPlayer,
-        lastMove,
-        validMoves,
         isPass: false,
         analyzeResults: null,
         gameOver,
       };
     });
 
-    if (get().gameMode === "analyze" && get().gameStatus === "playing") {
-      void get().analyzeBoard();
+    const state = get();
+    if (state.gameMode === "analyze" && state.gameStatus === "playing") {
+      void state.analyzeBoard();
     }
   },
 }));
