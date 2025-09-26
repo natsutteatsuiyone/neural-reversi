@@ -5,16 +5,17 @@
 //! sequences, with configurable search parameters.
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use rand::seq::IteratorRandom;
 use rand::Rng;
+use rand::seq::IteratorRandom;
 use regex::Regex;
 use reversi_core::bitboard::BitboardIterator;
 use reversi_core::board::Board;
-use reversi_core::level::{get_level, Level};
+use reversi_core::level::{Level, get_level};
 use reversi_core::piece::Piece;
 use reversi_core::search::{self, SearchOptions};
 use reversi_core::square::Square;
 use reversi_core::types::{Scoref, Selectivity};
+use std::cmp::Ordering;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{self, BufWriter, Write};
@@ -96,7 +97,13 @@ pub fn execute(
         let opening_sequence = generate_random_opening(num_random);
 
         // Play the game using the common function
-        let game_records = play_game(&opening_sequence, &mut search, lv, selectivity, game_id as usize);
+        let game_records = play_game(
+            &opening_sequence,
+            &mut search,
+            lv,
+            selectivity,
+            game_id as usize,
+        );
 
         // Save the game records
         save_game(game_records, prefix, output_dir, records_per_file)?;
@@ -147,7 +154,7 @@ pub fn execute_with_openings(
     if opening_sequences.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "No valid opening sequences found in the file"
+            "No valid opening sequences found in the file",
         ));
     }
 
@@ -159,12 +166,15 @@ pub fn execute_with_openings(
         if Path::new(&resume_file_path).exists() {
             match fs::read_to_string(&resume_file_path) {
                 Ok(content) => {
-                    let last_game_id = content.lines().next().and_then(|line| line.parse::<usize>().ok());
+                    let last_game_id = content
+                        .lines()
+                        .next()
+                        .and_then(|line| line.parse::<usize>().ok());
                     if let Some(id) = last_game_id {
                         start_game_id = id + 1; // Start from the next game
                         println!("Resuming from game ID: {start_game_id}");
                     }
-                },
+                }
                 Err(e) => {
                     eprintln!("Failed to read resume.txt: {e}");
                 }
@@ -268,12 +278,7 @@ fn play_game(
         }
 
         // Evaluate position before making the move
-        let result = search.run(
-            &board,
-            lv,
-            selectivity,
-            false,
-        );
+        let result = search.run(&board, lv, selectivity, false);
         let ply = 60 - board.get_empty_count() as u8;
 
         let record = GameRecord {
@@ -301,12 +306,7 @@ fn play_game(
             continue; // Skip evaluation for pass moves
         }
 
-        let result = search.run(
-            &board,
-            lv,
-            selectivity,
-            false,
-        );
+        let result = search.run(&board, lv, selectivity, false);
 
         let ply = 60 - board.get_empty_count() as u8;
         let best_move = result.best_move.unwrap();
@@ -329,16 +329,20 @@ fn play_game(
 
     // Calculate final game scores
     if !game_records.is_empty() {
-        let last_record = game_records.last().unwrap();
-        let last_side = last_record.side_to_move;
-        let game_score = last_record.score;
+        let final_score = calculate_final_score(&board);
 
         for record in game_records.iter_mut() {
-            record.game_score = if record.side_to_move == last_side {
-                game_score as i8
-            } else {
-                -game_score as i8
+            let score = match record.side_to_move {
+                Piece::Black | Piece::White => {
+                    if record.side_to_move == side_to_move {
+                        final_score
+                    } else {
+                        -final_score
+                    }
+                }
+                Piece::Empty => unreachable!("record side_to_move should never be empty"),
             };
+            record.game_score = score;
         }
     }
 
@@ -350,6 +354,25 @@ fn play_game(
     );
 
     game_records
+}
+
+/// Calculates the final score of the game from the board state.
+///
+/// Arguments
+/// * `board` - The final board state of the game
+///
+/// Returns
+/// The final score from the perspective of the player to move.
+fn calculate_final_score(board: &Board) -> i8 {
+    let n_empties = board.get_empty_count();
+    let score = board.get_player_count() as i8 * 2 - 64;
+    let diff = score + n_empties as i8;
+
+    match diff.cmp(&0) {
+        Ordering::Equal => diff,
+        Ordering::Greater => diff + n_empties as i8,
+        Ordering::Less => score,
+    }
 }
 
 /// Selects a random legal move from the current board position.
@@ -439,7 +462,8 @@ fn save_game(
 
         if remaining_capacity == 0 {
             current_file_id += 1;
-            current_file_path_str = format!("{output_dir}/{prefix}_{current_file_id:0FILE_ID_DIGITS$}.bin");
+            current_file_path_str =
+                format!("{output_dir}/{prefix}_{current_file_id:0FILE_ID_DIGITS$}.bin");
             current_record_count = 0;
             continue;
         }
@@ -486,7 +510,12 @@ fn count_records_in_file(path: &Path) -> io::Result<u32> {
     }
     // Check for potential file corruption or incorrect RECORD_SIZE
     if file_size % RECORD_SIZE != 0 {
-        eprintln!("Warning: File size {} is not a multiple of RECORD_SIZE {} for file {}. File might be corrupted or RECORD_SIZE is incorrect.", file_size, RECORD_SIZE, path.display());
+        eprintln!(
+            "Warning: File size {} is not a multiple of RECORD_SIZE {} for file {}. File might be corrupted or RECORD_SIZE is incorrect.",
+            file_size,
+            RECORD_SIZE,
+            path.display()
+        );
         // Decide handling: error out or proceed with floor division?
         // Proceeding with floor division, assuming partial records at the end are invalid/ignored.
     }
