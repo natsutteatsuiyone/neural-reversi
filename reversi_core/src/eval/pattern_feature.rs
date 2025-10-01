@@ -13,6 +13,7 @@
 //! - 0 = current player's piece
 //! - 1 = opponent's piece
 //! - 2 = empty square
+use std::ops::{Index, IndexMut};
 
 use crate::bitboard;
 use crate::bitboard::BitboardIterator;
@@ -64,23 +65,40 @@ macro_rules! ftc {
     };
 }
 
-/// Storage for pattern features with SIMD-friendly alignment.
-///
-/// Uses a union to allow both scalar and SIMD access to the same data.
-/// The 32-byte alignment ensures optimal performance for AVX2 operations.
+/// Storage for pattern features.
 #[derive(Clone, Copy)]
-#[repr(align(32))]
-pub union PatternFeature {
-    /// Scalar view: array of 16-bit pattern indices.
-    pub v1: [u16; FEATURE_VECTOR_SIZE],
-    /// SIMD view: two 256-bit vectors for AVX2 operations.
-    v16: [core::arch::x86_64::__m256i; 2],
+#[repr(align(64))]
+pub struct PatternFeature {
+    data: [u16; FEATURE_VECTOR_SIZE],
 }
 
 impl PatternFeature {
     /// Creates a new PatternFeature initialized to zero.
-    fn new() -> Self {
-        Self { v1: [0; FEATURE_VECTOR_SIZE] }
+    pub const fn new() -> Self {
+        Self {
+            data: [0; FEATURE_VECTOR_SIZE],
+        }
+    }
+
+    /// Builds a PatternFeature from an explicit array.
+    pub const fn from_array(data: [u16; FEATURE_VECTOR_SIZE]) -> Self {
+        Self { data }
+    }
+}
+
+impl Index<usize> for PatternFeature {
+    type Output = u16;
+
+    #[inline(always)]
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.data[idx]
+    }
+}
+
+impl IndexMut<usize> for PatternFeature {
+    #[inline(always)]
+    fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
+        &mut self.data[idx]
     }
 }
 
@@ -151,7 +169,11 @@ const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate
         }
 
         // Update multiplier for base-3 encoding
-        multiplier = if multiplier == 0 { 1 } else { multiplier * PATTERN_BASE };
+        multiplier = if multiplier == 0 {
+            1
+        } else {
+            multiplier * PATTERN_BASE
+        };
 
         // If this is the square we're checking, record its position
         if board & (1u64 << (square as u8)) != 0 {
@@ -163,7 +185,7 @@ const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate
 
 /// Generates the EVAL_FEATURE lookup table at compile time.
 const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
-    let mut result = [PatternFeature { v1: [0; FEATURE_VECTOR_SIZE] }; BOARD_SQUARES];
+    let mut result = [PatternFeature::new(); BOARD_SQUARES];
     let mut square_idx = 0;
 
     while square_idx < BOARD_SQUARES {
@@ -173,11 +195,12 @@ const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
         // Compute feature index for each pattern
         let mut pattern_idx = 0;
         while pattern_idx < NUM_PATTERN_FEATURES {
-            feature_values[pattern_idx] = compute_pattern_feature_index(board, &EVAL_F2X[pattern_idx]) as u16;
+            feature_values[pattern_idx] =
+                compute_pattern_feature_index(board, &EVAL_F2X[pattern_idx]) as u16;
             pattern_idx += 1;
         }
 
-        result[square_idx] = PatternFeature { v1: feature_values };
+        result[square_idx] = PatternFeature::from_array(feature_values);
         square_idx += 1;
     }
 
@@ -188,7 +211,7 @@ const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
 const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
     let mut result = [CoordinateToFeature {
         n_features: 0,
-        features: [[0, 0]; MAX_FEATURES_PER_SQUARE]
+        features: [[0, 0]; MAX_FEATURES_PER_SQUARE],
     }; BOARD_SQUARES];
 
     let mut square_idx = 0;
@@ -258,10 +281,8 @@ impl PatternFeatures {
         for (i, f2x) in EVAL_F2X.iter().enumerate() {
             for j in 0..f2x.n_square {
                 let sq = f2x.squares[j];
-                unsafe {
-                    p_feature.v1[i] = p_feature.v1[i] * 3 + get_square_color(board, sq);
-                    o_feature.v1[i] = o_feature.v1[i] * 3 + get_square_color(&o_board, sq);
-                }
+                p_feature[i] = p_feature[i] * 3 + get_square_color(board, sq);
+                o_feature[i] = o_feature[i] * 3 + get_square_color(&o_board, sq);
             }
         }
         pattern_features
@@ -283,13 +304,125 @@ impl PatternFeatures {
     pub fn update(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("avx2") {
+            if is_x86_feature_detected!("avx512bw") {
+                unsafe { self.update_avx512(sq, flipped, ply, side_to_move) }
+                return;
+            } else if is_x86_feature_detected!("avx2") {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
                 return;
             }
         }
 
         self.update_fallback(sq, flipped, ply, side_to_move);
+    }
+
+    /// AVX-512-optimized implementation of pattern feature update.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx512bw")]
+    fn update_avx512(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
+        use std::arch::x86_64::*;
+
+        unsafe {
+            let p_in_ptr = self.p_features[ply].data.as_ptr() as *const __m512i;
+            let o_in_ptr = self.o_features[ply].data.as_ptr() as *const __m512i;
+            let p_out_ptr = self.p_features[ply + 1].data.as_mut_ptr() as *mut __m512i;
+            let o_out_ptr = self.o_features[ply + 1].data.as_mut_ptr() as *mut __m512i;
+
+            let mut sum = _mm512_setzero_si512();
+            for x in BitboardIterator::new(flipped) {
+                let feat_ptr = EVAL_FEATURE[x as usize].data.as_ptr() as *const __m512i;
+                let v = _mm512_load_si512(feat_ptr);
+                sum = _mm512_add_epi16(sum, v);
+            }
+
+            let f_ptr = EVAL_FEATURE[sq.index()].data.as_ptr() as *const __m512i;
+            let f = _mm512_load_si512(f_ptr);
+
+            let p_in = _mm512_load_si512(p_in_ptr);
+            let o_in = _mm512_load_si512(o_in_ptr);
+
+            let f2 = _mm512_slli_epi16(f, 1);
+            let delta_2f_plus_sum = _mm512_add_epi16(f2, sum);
+            let delta_f_minus_sum = _mm512_sub_epi16(f, sum);
+
+            if side_to_move == SideToMove::Player {
+                // Player: p_out = p_in - (2*f + sum), o_out = o_in - (f - sum)
+                let p_out = _mm512_sub_epi16(p_in, delta_2f_plus_sum);
+                let o_out = _mm512_sub_epi16(o_in, delta_f_minus_sum);
+                _mm512_store_si512(p_out_ptr, p_out);
+                _mm512_store_si512(o_out_ptr, o_out);
+            } else {
+                // Opponent: p_out = p_in - (f - sum), o_out = o_in - (2*f + sum)
+                let p_out = _mm512_sub_epi16(p_in, delta_f_minus_sum);
+                let o_out = _mm512_sub_epi16(o_in, delta_2f_plus_sum);
+                _mm512_store_si512(p_out_ptr, p_out);
+                _mm512_store_si512(o_out_ptr, o_out);
+            }
+        }
+    }
+
+    /// AVX2-optimized implementation of pattern feature update.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    fn update_avx2(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
+        use std::arch::x86_64::*;
+
+        unsafe {
+            let p_in_ptr = self.p_features[ply].data.as_ptr() as *const __m256i;
+            let o_in_ptr = self.o_features[ply].data.as_ptr() as *const __m256i;
+            let p_out_ptr = self.p_features[ply + 1].data.as_mut_ptr() as *mut __m256i;
+            let o_out_ptr = self.o_features[ply + 1].data.as_mut_ptr() as *mut __m256i;
+
+            let p_in0 = _mm256_load_si256(p_in_ptr.add(0));
+            let p_in1 = _mm256_load_si256(p_in_ptr.add(1));
+            let o_in0 = _mm256_load_si256(o_in_ptr.add(0));
+            let o_in1 = _mm256_load_si256(o_in_ptr.add(1));
+
+            let f_ptr = EVAL_FEATURE[sq.index()].data.as_ptr() as *const __m256i;
+            let f0 = _mm256_load_si256(f_ptr.add(0));
+            let f1 = _mm256_load_si256(f_ptr.add(1));
+
+            let mut sum0 = _mm256_setzero_si256();
+            let mut sum1 = _mm256_setzero_si256();
+            for x in BitboardIterator::new(flipped) {
+                let fp = EVAL_FEATURE[x as usize].data.as_ptr() as *const __m256i;
+                let fx0 = _mm256_load_si256(fp.add(0));
+                let fx1 = _mm256_load_si256(fp.add(1));
+                sum0 = _mm256_add_epi16(sum0, fx0);
+                sum1 = _mm256_add_epi16(sum1, fx1);
+            }
+
+            let f2_0 = _mm256_slli_epi16(f0, 1); // 2*f
+            let f2_1 = _mm256_slli_epi16(f1, 1);
+            let twof_plus_sum_0 = _mm256_add_epi16(f2_0, sum0); // 2*f + sum
+            let twof_plus_sum_1 = _mm256_add_epi16(f2_1, sum1);
+            let f_minus_sum_0 = _mm256_sub_epi16(f0, sum0); // f - sum
+            let f_minus_sum_1 = _mm256_sub_epi16(f1, sum1);
+
+            if side_to_move == SideToMove::Player {
+                // Player: p_out = p_in - (2*f + sum), o_out = o_in - (f - sum)
+                let p_out0 = _mm256_sub_epi16(p_in0, twof_plus_sum_0);
+                let p_out1 = _mm256_sub_epi16(p_in1, twof_plus_sum_1);
+                let o_out0 = _mm256_sub_epi16(o_in0, f_minus_sum_0);
+                let o_out1 = _mm256_sub_epi16(o_in1, f_minus_sum_1);
+
+                _mm256_store_si256(p_out_ptr.add(0), p_out0);
+                _mm256_store_si256(p_out_ptr.add(1), p_out1);
+                _mm256_store_si256(o_out_ptr.add(0), o_out0);
+                _mm256_store_si256(o_out_ptr.add(1), o_out1);
+            } else {
+                // Opponent: p_out = p_in - (f - sum), o_out = o_in - (2*f + sum)
+                let p_out0 = _mm256_sub_epi16(p_in0, f_minus_sum_0);
+                let p_out1 = _mm256_sub_epi16(p_in1, f_minus_sum_1);
+                let o_out0 = _mm256_sub_epi16(o_in0, twof_plus_sum_0);
+                let o_out1 = _mm256_sub_epi16(o_in1, twof_plus_sum_1);
+
+                _mm256_store_si256(p_out_ptr.add(0), p_out0);
+                _mm256_store_si256(p_out_ptr.add(1), p_out1);
+                _mm256_store_si256(o_out_ptr.add(0), o_out0);
+                _mm256_store_si256(o_out_ptr.add(1), o_out1);
+            }
+        }
     }
 
     /// Fallback implementation of pattern feature update for architectures without AVX2 support.
@@ -304,10 +437,8 @@ impl PatternFeatures {
             for i in 0..s.n_features {
                 let j = s.features[i as usize][0] as usize;
                 let x = s.features[i as usize][1] as usize;
-                unsafe {
-                    p_out.v1[j] -= 2 * x as u16;
-                    o_out.v1[j] -= x as u16;
-                }
+                p_out[j] -= 2 * x as u16;
+                o_out[j] -= x as u16;
             }
 
             for x in BitboardIterator::new(flipped) {
@@ -315,20 +446,16 @@ impl PatternFeatures {
                 for i in 0..s_bit.n_features {
                     let j = s_bit.features[i as usize][0] as usize;
                     let x = s_bit.features[i as usize][1] as usize;
-                    unsafe {
-                        p_out.v1[j] -= x as u16;
-                        o_out.v1[j] += x as u16;
-                    }
+                    p_out[j] -= x as u16;
+                    o_out[j] += x as u16;
                 }
             }
         } else {
             for i in 0..s.n_features {
                 let j = s.features[i as usize][0] as usize;
                 let x = s.features[i as usize][1] as usize;
-                unsafe {
-                    p_out.v1[j] -= x as u16;
-                    o_out.v1[j] -= 2 * x as u16;
-                }
+                p_out[j] -= x as u16;
+                o_out[j] -= 2 * x as u16;
             }
 
             for x in BitboardIterator::new(flipped) {
@@ -336,60 +463,10 @@ impl PatternFeatures {
                 for i in 0..s_bit.n_features {
                     let j = s_bit.features[i as usize][0] as usize;
                     let x = s_bit.features[i as usize][1] as usize;
-                    unsafe {
-                        p_out.v1[j] += x as u16;
-                        o_out.v1[j] -= x as u16;
-                    }
+                    p_out[j] += x as u16;
+                    o_out[j] -= x as u16;
                 }
             }
-        }
-    }
-
-    /// AVX2-optimized implementation of pattern feature update.
-    #[target_feature(enable = "avx2")]
-    #[cfg(target_arch = "x86_64")]
-    fn update_avx2(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
-        use std::arch::x86_64::*;
-
-        let p_in = unsafe { self.p_features[ply].v16 };
-        let o_in = unsafe { self.o_features[ply].v16 };
-        let p_out = unsafe { &mut self.p_features[ply + 1].v16 };
-        let o_out = unsafe { &mut self.o_features[ply + 1].v16 };
-
-        let sq_index = sq.index();
-        let f0 = unsafe { EVAL_FEATURE[sq_index].v16 }[0];
-        let f1 = unsafe { EVAL_FEATURE[sq_index].v16 }[1];
-
-        let mut sum0 = _mm256_setzero_si256();
-        let mut sum1 = _mm256_setzero_si256();
-        for x in BitboardIterator::new(flipped) {
-            let f = unsafe { &EVAL_FEATURE[x as usize].v16 };
-            sum0 = _mm256_add_epi16(sum0, f[0]);
-            sum1 = _mm256_add_epi16(sum1, f[1]);
-        }
-
-        if side_to_move == SideToMove::Player {
-            // Player: p_out = p_in - (2*f + sum), o_out = o_in - (f - sum)
-            let p_delta0 = _mm256_add_epi16(_mm256_slli_epi16(f0, 1), sum0); // 2*f + sum
-            let p_delta1 = _mm256_add_epi16(_mm256_slli_epi16(f1, 1), sum1);
-            p_out[0] = _mm256_sub_epi16(p_in[0], p_delta0);
-            p_out[1] = _mm256_sub_epi16(p_in[1], p_delta1);
-
-            let o_delta0 = _mm256_sub_epi16(f0, sum0); // f - sum
-            let o_delta1 = _mm256_sub_epi16(f1, sum1);
-            o_out[0] = _mm256_sub_epi16(o_in[0], o_delta0);
-            o_out[1] = _mm256_sub_epi16(o_in[1], o_delta1);
-        } else {
-            // Opponent: p_out = p_in - (f - sum), o_out = o_in - (2*f + sum)
-            let p_delta0 = _mm256_sub_epi16(f0, sum0); // f - sum
-            let p_delta1 = _mm256_sub_epi16(f1, sum1);
-            p_out[0] = _mm256_sub_epi16(p_in[0], p_delta0);
-            p_out[1] = _mm256_sub_epi16(p_in[1], p_delta1);
-
-            let o_delta0 = _mm256_add_epi16(_mm256_slli_epi16(f0, 1), sum0); // 2*f + sum
-            let o_delta1 = _mm256_add_epi16(_mm256_slli_epi16(f1, 1), sum1);
-            o_out[0] = _mm256_sub_epi16(o_in[0], o_delta0);
-            o_out[1] = _mm256_sub_epi16(o_in[1], o_delta1);
         }
     }
 }

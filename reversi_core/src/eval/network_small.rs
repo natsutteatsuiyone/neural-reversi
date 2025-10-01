@@ -115,9 +115,9 @@ impl NetworkSmall {
     }
 
     /// Evaluates a position using the small network
-    /// 
+    ///
     /// Faster but less accurate than the main network
-    /// 
+    ///
     /// # Arguments
     /// * `board` - The current board state
     /// * `pattern_feature` - Extracted pattern features from the board
@@ -127,9 +127,8 @@ impl NetworkSmall {
 
         NETWORK_BUFFERS.with(|buffers_cell| {
             let mut buffers = buffers_cell.borrow_mut();
-
             for (i, &offset) in (0..NUM_PATTERN_FEATURES).zip(PATTERN_FEATURE_OFFSETS.iter()) {
-                buffers.feature_indices[i] = unsafe { pattern_feature.v1 }[i] as usize + offset;
+                buffers.feature_indices[i] = pattern_feature[i] as usize + offset;
             }
 
             let score = self.forward(&mut buffers, mobility as u8, ply);
