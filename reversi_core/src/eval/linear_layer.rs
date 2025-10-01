@@ -3,9 +3,11 @@ use std::{
     arch::x86_64::*,
     io::{self, Read},
     is_x86_feature_detected,
+    mem::{size_of, zeroed},
+    ptr::copy_nonoverlapping,
 };
 
-use aligned_vec::{AVec, ConstAlign, avec};
+use aligned_vec::{avec, AVec, ConstAlign};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::CACHE_LINE_SIZE;
@@ -32,11 +34,11 @@ pub struct LinearLayer<
 }
 
 impl<
-    const INPUT_DIMS: usize,
-    const OUTPUT_DIMS: usize,
-    const PADDED_INPUT_DIMS: usize,
-    const PADDED_OUTPUT_DIMS: usize,
-> LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
+        const INPUT_DIMS: usize,
+        const OUTPUT_DIMS: usize,
+        const PADDED_INPUT_DIMS: usize,
+        const PADDED_OUTPUT_DIMS: usize,
+    > LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
 {
     /// Loads weights and biases from binary format.
     ///
@@ -93,13 +95,78 @@ impl<
     ) {
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("avx2") {
+            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vnni") {
+                unsafe { self.forward_avx512(input, output) };
+                return;
+            } else if is_x86_feature_detected!("avx2") {
                 unsafe { self.forward_avx2(input, output) };
                 return;
             }
         }
 
         self.forward_fallback(input, output);
+    }
+
+    /// AVX-512-accelerated forward pass.
+    #[target_feature(enable = "avx512f,avx512vnni")]
+    #[cfg(target_arch = "x86_64")]
+    fn forward_avx512(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        const INPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<u8>();
+        const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
+
+        if OUTPUT_DIMS == 1 && (INPUT_DIMS < INPUT_SIMD_WIDTH || INPUT_DIMS % INPUT_SIMD_WIDTH != 0)
+        {
+            self.forward_avx2(input, output);
+            return;
+        }
+
+        if OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH {
+            self.forward_avx2(input, output);
+            return;
+        }
+
+        unsafe {
+            if OUTPUT_DIMS > 1 {
+                let mut acc: Align64<[i32; OUTPUT_DIMS]> = zeroed();
+                let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
+
+                let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+                let num_regs = std::cmp::max(OUTPUT_DIMS / OUTPUT_SIMD_WIDTH, 1);
+
+                copy_nonoverlapping(self.biases.as_ptr() as *const __m512i, acc_ptr, num_regs);
+
+                let input32 = input.as_ptr() as *const i32;
+                for i in 0..num_chunks {
+                    let in0 = _mm512_set1_epi32(*input32.add(i));
+                    let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m512i;
+
+                    for j in 0..num_regs {
+                        let a = acc_ptr.add(j);
+                        *a = _mm512_dpbusd_epi32(*a, in0, *col0.add(j));
+                    }
+                }
+
+                copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m512i, num_regs);
+            } else {
+                debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
+
+                let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
+                let mut sum0 = _mm512_setzero_si512();
+                let row0 = self.weights.as_ptr() as *const __m512i;
+                let input_vector = input.as_ptr() as *const __m512i;
+
+                for j in 0..num_chunks {
+                    let in_vec = *input_vector.add(j);
+                    sum0 = _mm512_dpbusd_epi32(sum0, in_vec, *row0.add(j));
+                }
+
+                output[0] = _mm512_reduce_add_epi32(sum0) + self.biases[0];
+            }
+        }
     }
 
     /// AVX2-accelerated forward pass.
@@ -110,19 +177,18 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
+        const INPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<u8>();
+        const OUTPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<i32>();
+
         unsafe {
             if OUTPUT_DIMS > 1 {
-                let mut acc: Align64<[i32; OUTPUT_DIMS]> = std::mem::zeroed();
+                let mut acc: Align64<[i32; OUTPUT_DIMS]> = zeroed();
                 let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
 
                 let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
-                let num_regs = OUTPUT_DIMS / 8;
+                let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
 
-                std::ptr::copy_nonoverlapping(
-                    self.biases.as_ptr() as *const __m256i,
-                    acc_ptr,
-                    num_regs,
-                );
+                copy_nonoverlapping(self.biases.as_ptr() as *const __m256i, acc_ptr, num_regs);
 
                 let input32 = input.as_ptr() as *const i32;
                 for i in 0..num_chunks {
@@ -135,11 +201,8 @@ impl<
                     }
                 }
 
-                std::ptr::copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
+                copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
             } else {
-                const INPUT_SIMD_WIDTH: usize =
-                    std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
-
                 debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
 
                 let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
@@ -232,8 +295,8 @@ mod tests {
     use std::io::Cursor;
 
     /// Helper to create a test LinearLayer with known weights and biases
-    fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>()
-    -> LinearLayer<I, O, PI, PO> {
+    fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>(
+    ) -> LinearLayer<I, O, PI, PO> {
         let mut layer = LinearLayer::<I, O, PI, PO> {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],

@@ -8,7 +8,7 @@ use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::activations::clipped_relu;
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
-use crate::eval::phase_adaptive_input::PhaseAdaptiveInput;
+use crate::eval::input_layer::PhaseAdaptiveInput;
 use crate::types::Score;
 use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
@@ -181,3 +181,4 @@ impl NetworkSmall {
         output[0] >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }
+
