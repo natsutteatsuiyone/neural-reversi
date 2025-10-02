@@ -1,6 +1,5 @@
 //! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c
 
-use crate::bit::pext_u64;
 use crate::square::Square;
 
 #[rustfmt::skip]
@@ -155,17 +154,38 @@ const MASK_X: [[u64; 4];64] = [
 	[ 0x800000000000017e, 0x8040201008040201, 0x8080808080808080, 0xffc0a09088848281 ]
 ];
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
 #[inline]
-fn last_flip(sq: usize, player: u64) -> i32 {
+fn last_flip_bmi2(sq: usize, player: u64) -> i32 {
+    use crate::bit::pext_u64_bmi2;
+
     let mut n_flipped: u8;
     let x = sq & 7;
     let y = sq >> 3;
 
     let masked_p = player & MASK_X[sq][3];
     n_flipped = COUNT_FLIP[x][((masked_p >> (sq & 0x38)) & 0xFF) as usize];
-    n_flipped += COUNT_FLIP[y][pext_u64(masked_p, MASK_X[sq][0]) as usize];
-    n_flipped += COUNT_FLIP[y][pext_u64(masked_p, MASK_X[sq][1]) as usize];
-    n_flipped += COUNT_FLIP[y][pext_u64(masked_p, MASK_X[sq][2]) as usize];
+    n_flipped += COUNT_FLIP[y][pext_u64_bmi2(masked_p, MASK_X[sq][0]) as usize];
+    n_flipped += COUNT_FLIP[y][pext_u64_bmi2(masked_p, MASK_X[sq][1]) as usize];
+    n_flipped += COUNT_FLIP[y][pext_u64_bmi2(masked_p, MASK_X[sq][2]) as usize];
+
+    n_flipped as i32
+}
+
+#[inline]
+fn last_flip_fallback(sq: usize, player: u64) -> i32 {
+    use crate::bit::pext_u64_portable;
+
+    let mut n_flipped: u8;
+    let x = sq & 7;
+    let y = sq >> 3;
+
+    let masked_p = player & MASK_X[sq][3];
+    n_flipped = COUNT_FLIP[x][((masked_p >> (sq & 0x38)) & 0xFF) as usize];
+    n_flipped += COUNT_FLIP[y][pext_u64_portable(masked_p, MASK_X[sq][0]) as usize];
+    n_flipped += COUNT_FLIP[y][pext_u64_portable(masked_p, MASK_X[sq][1]) as usize];
+    n_flipped += COUNT_FLIP[y][pext_u64_portable(masked_p, MASK_X[sq][2]) as usize];
 
     n_flipped as i32
 }
@@ -182,5 +202,12 @@ fn last_flip(sq: usize, player: u64) -> i32 {
 /// Returns twice the actual number of flipped pieces for optimization purposes.
 #[inline]
 pub fn count_last_flip(b: u64, sq: Square) -> i32 {
-    last_flip(sq.index(), b)
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("bmi2") {
+            return unsafe { last_flip_bmi2(sq.index(), b) };
+        }
+    }
+
+    last_flip_fallback(sq.index(), b)
 }

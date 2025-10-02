@@ -12,28 +12,40 @@
 /// # Returns
 ///
 /// A `u64` value containing the extracted bits packed right-justified.
-#[inline]
 pub fn pext_u64(a: u64, mask: u64) -> u64 {
-    if is_x86_feature_detected!("bmi2") {
-        unsafe {
-            use std::arch::x86_64::_pext_u64;
-            _pext_u64(a, mask)
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("bmi2") {
+            return unsafe { pext_u64_bmi2(a, mask) };
         }
-    } else {
-        let mut result = 0;
-        let mut bit_idx = 0;
-        let mut curr_mask = mask;
-
-        while curr_mask != 0 {
-            let lsb = curr_mask & curr_mask.wrapping_neg(); // 最下位の1を取得
-            if (a & lsb) != 0 {
-                result |= 1u64 << bit_idx;
-            }
-            bit_idx += 1;
-            curr_mask &= curr_mask - 1; // 最下位の1をクリア
-        }
-        result
     }
+
+    pext_u64_portable(a, mask)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
+#[inline]
+pub fn pext_u64_bmi2(a: u64, mask: u64) -> u64 {
+    use std::arch::x86_64::_pext_u64;
+    _pext_u64(a, mask)
+}
+
+#[inline]
+pub fn pext_u64_portable(a: u64, mask: u64) -> u64 {
+    let mut result = 0;
+    let mut bit_idx = 0;
+    let mut curr_mask = mask;
+
+    while curr_mask != 0 {
+        let lsb = curr_mask & curr_mask.wrapping_neg();
+        if (a & lsb) != 0 {
+            result |= 1u64 << bit_idx;
+        }
+        bit_idx += 1;
+        curr_mask &= curr_mask - 1;
+    }
+    result
 }
 
 /// Parallel bits deposit (PDEP).
@@ -195,7 +207,6 @@ pub fn rotate_270_clockwise(b: u64) -> u64 {
     flip_vertical(flip_diag_a1h8(b))
 }
 
-
 /// Flips the bitboard along the A1-H8 diagonal.
 ///
 /// Reflects the bitboard across the main diagonal (from square A1 to H8).
@@ -276,18 +287,18 @@ mod tests {
     #[test]
     fn test_pext_u64() {
         // Extract bits at mask positions: 0b11010110 & 0b10101100 -> 0b1001
-        assert_eq!(pext_u64(0b11010110, 0b10101100), 0b1001);
+        assert_eq!(pext_u64_portable(0b11010110, 0b10101100), 0b1001);
 
         // All bits
-        assert_eq!(pext_u64(0xFF, 0xFF), 0xFF);
+        assert_eq!(pext_u64_portable(0xFF, 0xFF), 0xFF);
 
         // No bits
-        assert_eq!(pext_u64(0xFF, 0x00), 0x00);
+        assert_eq!(pext_u64_portable(0xFF, 0x00), 0x00);
 
         // Sparse mask: extract upper nibble
-        assert_eq!(pext_u64(0b10101010, 0b11110000), 0b1010);
+        assert_eq!(pext_u64_portable(0b10101010, 0b11110000), 0b1010);
 
-        assert_eq!(pext_u64(0x1234, 0x0F0F), 0x24);
+        assert_eq!(pext_u64_portable(0x1234, 0x0F0F), 0x24);
     }
 
     #[test]
@@ -307,7 +318,7 @@ mod tests {
         // pext/pdep inverse
         let mask = 0b10101100;
         let value = 0b11010110;
-        let extracted = pext_u64(value, mask);
+        let extracted = pext_u64_portable(value, mask);
         assert_eq!(pdep_u64(extracted, mask) & mask, value & mask);
     }
 
@@ -392,13 +403,9 @@ mod tests {
 
         // 4x rotation identity
         let original = 0x123456789ABCDEF0u64;
-        let rotated = rotate_90_clockwise(
-            rotate_90_clockwise(
-                rotate_90_clockwise(
-                    rotate_90_clockwise(original)
-                )
-            )
-        );
+        let rotated = rotate_90_clockwise(rotate_90_clockwise(rotate_90_clockwise(
+            rotate_90_clockwise(original),
+        )));
         assert_eq!(rotated, original);
     }
 
@@ -421,7 +428,10 @@ mod tests {
 
         // Double rotation identity
         let test_board = 0x123456789ABCDEF0u64;
-        assert_eq!(rotate_180_clockwise(rotate_180_clockwise(test_board)), test_board);
+        assert_eq!(
+            rotate_180_clockwise(rotate_180_clockwise(test_board)),
+            test_board
+        );
 
         // Empty and full boards
         assert_eq!(rotate_180_clockwise(0), 0);
@@ -438,13 +448,9 @@ mod tests {
 
         // 4x rotation identity
         let original = 0x123456789ABCDEF0u64;
-        let rotated = rotate_270_clockwise(
-            rotate_270_clockwise(
-                rotate_270_clockwise(
-                    rotate_270_clockwise(original)
-                )
-            )
-        );
+        let rotated = rotate_270_clockwise(rotate_270_clockwise(rotate_270_clockwise(
+            rotate_270_clockwise(original),
+        )));
         assert_eq!(rotated, original);
 
         // Equivalence to 3x 90-degree rotation
@@ -527,4 +533,3 @@ mod tests {
         assert_eq!(rotate_180_v1, rotate_180_v2);
     }
 }
-
