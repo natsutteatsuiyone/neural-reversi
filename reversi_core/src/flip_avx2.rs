@@ -1,3 +1,5 @@
+//! AVX2 variant of flip function.
+//! Based on flip_avx_ppseq.c from edax-reversi.
 //! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_avx_ppseq.c
 
 use crate::square::Square;

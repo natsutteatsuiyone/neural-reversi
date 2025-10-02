@@ -1,4 +1,5 @@
-use crate::flip_avx;
+use crate::flip_avx2;
+use crate::flip_avx512;
 use crate::flip_bmi2;
 use crate::square::Square;
 
@@ -14,12 +15,14 @@ use crate::square::Square;
 ///
 /// A bitboard representing all opponent pieces that would be flipped by this move.
 /// Returns 0 if no pieces would be flipped (invalid move).
-#[inline]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     #[cfg(target_arch = "x86_64")]
     {
+        if is_x86_feature_detected!("avx512vl") && is_x86_feature_detected!("avx512cd") {
+            return unsafe { flip_avx512::flip(sq, p, o) };
+        }
         if is_x86_feature_detected!("avx2") {
-            return unsafe { flip_avx::flip(sq, p, o) };
+            return unsafe { flip_avx2::flip(sq, p, o) };
         }
     }
 
