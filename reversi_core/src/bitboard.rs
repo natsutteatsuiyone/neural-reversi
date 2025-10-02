@@ -122,8 +122,10 @@ pub fn empty_board(player: u64, opponent: u64) -> u64 {
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("avx2") {
-            return unsafe { get_moves_avx2(player, opponent) }
+        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl") {
+            return unsafe { get_moves_avx512(player, opponent) };
+        } else if is_x86_feature_detected!("avx2") {
+            return unsafe { get_moves_avx2(player, opponent) };
         }
     }
 
@@ -172,6 +174,73 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
     (flip << dir) | (flip >> dir)
 }
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512vl")]
+#[inline]
+pub fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
+    use std::arch::x86_64::*;
+    let pp = _mm512_set1_epi64(player as i64);
+    let oo = _mm512_set1_epi64(opponent as i64);
+
+    const SHIFT1897: [i64; 8] = [1, 8, 9, 7, 1, 8, 9, 7];
+    const MASK: [i64; 8] = [
+        0x7E7E7E7E7E7E7E7Ei64,
+        0x00FFFFFFFFFFFF00u64 as i64,
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x7E7E7E7E7E7E7E7Ei64,
+        0x00FFFFFFFFFFFF00u64 as i64,
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x007E7E7E7E7E7E00u64 as i64,
+    ];
+
+    let shift1897 = unsafe { _mm512_loadu_si512(SHIFT1897.as_ptr() as *const __m512i) };
+    let mask = unsafe { _mm512_loadu_si512(MASK.as_ptr() as *const __m512i) };
+    let shift2 = _mm512_add_epi64(shift1897, shift1897);
+
+    let masked_oo = _mm512_and_si512(oo, mask);
+
+    let mut flip_l = _mm512_and_si512(masked_oo, _mm512_sllv_epi64(pp, shift1897));
+    let mut flip_r = _mm512_and_si512(masked_oo, _mm512_srlv_epi64(pp, shift1897));
+
+    flip_l = _mm512_or_si512(
+        flip_l,
+        _mm512_and_si512(masked_oo, _mm512_sllv_epi64(flip_l, shift1897)),
+    );
+    flip_r = _mm512_or_si512(
+        flip_r,
+        _mm512_and_si512(masked_oo, _mm512_srlv_epi64(flip_r, shift1897)),
+    );
+
+    let pre_l = _mm512_and_si512(masked_oo, _mm512_sllv_epi64(masked_oo, shift1897));
+    let pre_r = _mm512_srlv_epi64(pre_l, shift1897);
+
+    flip_l = _mm512_or_si512(
+        flip_l,
+        _mm512_and_si512(pre_l, _mm512_sllv_epi64(flip_l, shift2)),
+    );
+    flip_r = _mm512_or_si512(
+        flip_r,
+        _mm512_and_si512(pre_r, _mm512_srlv_epi64(flip_r, shift2)),
+    );
+    flip_l = _mm512_or_si512(
+        flip_l,
+        _mm512_and_si512(pre_l, _mm512_sllv_epi64(flip_l, shift2)),
+    );
+    flip_r = _mm512_or_si512(
+        flip_r,
+        _mm512_and_si512(pre_r, _mm512_srlv_epi64(flip_r, shift2)),
+    );
+
+    let mm = _mm512_or_si512(
+        _mm512_sllv_epi64(flip_l, shift1897),
+        _mm512_srlv_epi64(flip_r, shift1897),
+    );
+
+    let result = _mm512_reduce_or_epi64(mm) as u64;
+    result & !(player | opponent)
+}
+
 /// AVX2-optimized implementation of `get_moves`.
 ///
 /// # Arguments
@@ -182,8 +251,8 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 /// # Returns
 ///
 /// A `u64` value representing the possible moves for the player.
-#[target_feature(enable = "avx2")]
 #[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 #[inline]
 fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     let pp = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(player as i64));
@@ -265,12 +334,14 @@ pub fn corner_weighted_mobility(b: u64) -> u32 {
 ///
 /// The number of stable corners.
 #[inline]
-pub fn get_corner_stability(p: u64) -> u32
-{
-	let stable : u64 = (((0x0100000000000001 & p) << 1) | ((0x8000000000000080 & p) >> 1)
-	                      | ((0x0000000000000081 & p) << 8) | ((0x8100000000000000 & p) >> 8)
-	                      | 0x8100000000000081) & p;
-	stable.count_ones()
+pub fn get_corner_stability(p: u64) -> u32 {
+    let stable: u64 = (((0x0100000000000001 & p) << 1)
+        | ((0x8000000000000080 & p) >> 1)
+        | ((0x0000000000000081 & p) << 8)
+        | ((0x8100000000000000 & p) >> 8)
+        | 0x8100000000000081)
+        & p;
+    stable.count_ones()
 }
 
 /// Checks if there is an adjacent bit set in the bitboard.
@@ -337,7 +408,8 @@ mod tests {
 
     #[test]
     fn test_opponent_flip() {
-        let opponent_board: u64 = Square::A1.bitboard() | Square::B1.bitboard() | Square::C1.bitboard();
+        let opponent_board: u64 =
+            Square::A1.bitboard() | Square::B1.bitboard() | Square::C1.bitboard();
         let flipped: u64 = Square::B1.bitboard() | Square::C1.bitboard();
         let result = opponent_flip(opponent_board, flipped);
 
@@ -413,13 +485,39 @@ mod tests {
     fn test_get_moves_capture_all_directions() {
         // Position where a move captures in all 8 directions
         // Center piece surrounded by opponent pieces
-        let player: u64 = Square::A1.bitboard() | Square::H1.bitboard() | Square::A8.bitboard() | Square::H8.bitboard()
-            | Square::A4.bitboard() | Square::H4.bitboard() | Square::D1.bitboard() | Square::D8.bitboard();
-        let opponent: u64 = Square::B2.bitboard() | Square::C3.bitboard() | Square::E5.bitboard() | Square::F6.bitboard() | Square::G7.bitboard()
-            | Square::D2.bitboard() | Square::D3.bitboard() | Square::D5.bitboard() | Square::D6.bitboard() | Square::D7.bitboard()
-            | Square::B4.bitboard() | Square::C4.bitboard() | Square::E4.bitboard() | Square::F4.bitboard() | Square::G4.bitboard()
-            | Square::C2.bitboard() | Square::E2.bitboard() | Square::F3.bitboard() | Square::C5.bitboard() | Square::B5.bitboard()
-            | Square::B3.bitboard() | Square::F5.bitboard() | Square::E6.bitboard() | Square::C6.bitboard() | Square::B6.bitboard();
+        let player: u64 = Square::A1.bitboard()
+            | Square::H1.bitboard()
+            | Square::A8.bitboard()
+            | Square::H8.bitboard()
+            | Square::A4.bitboard()
+            | Square::H4.bitboard()
+            | Square::D1.bitboard()
+            | Square::D8.bitboard();
+        let opponent: u64 = Square::B2.bitboard()
+            | Square::C3.bitboard()
+            | Square::E5.bitboard()
+            | Square::F6.bitboard()
+            | Square::G7.bitboard()
+            | Square::D2.bitboard()
+            | Square::D3.bitboard()
+            | Square::D5.bitboard()
+            | Square::D6.bitboard()
+            | Square::D7.bitboard()
+            | Square::B4.bitboard()
+            | Square::C4.bitboard()
+            | Square::E4.bitboard()
+            | Square::F4.bitboard()
+            | Square::G4.bitboard()
+            | Square::C2.bitboard()
+            | Square::E2.bitboard()
+            | Square::F3.bitboard()
+            | Square::C5.bitboard()
+            | Square::B5.bitboard()
+            | Square::B3.bitboard()
+            | Square::F5.bitboard()
+            | Square::E6.bitboard()
+            | Square::C6.bitboard()
+            | Square::B6.bitboard();
 
         let moves = get_moves(player, opponent);
 
@@ -430,25 +528,52 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_get_moves_consistency() {
-        // Only run the test if AVX2 is available
-        if is_x86_feature_detected!("avx2") {
-            // Test that both implementations return the same result
-            let test_positions = vec![
-                // Initial position
-                (Square::D5.bitboard() | Square::E4.bitboard(),
-                 Square::D4.bitboard() | Square::E5.bitboard()),
-                // Random position
-                (0x00003C3C3C000000, 0x0000C3C3C3000000),
-                // Edge position
-                (0xFF00000000000000, 0x00FF000000000000),
-            ];
+        let has_avx2 = is_x86_feature_detected!("avx2");
+        let has_avx512 =
+            is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl");
 
-            for (player, opponent) in test_positions {
-                let moves_fallback = get_moves_fallback(player, opponent);
-                // AVX2 function call must be wrapped in unsafe block
-                let moves_avx = unsafe { get_moves_avx2(player, opponent) };
-                assert_eq!(moves_fallback, moves_avx,
-                    "Fallback and AVX implementations differ for player={player:016x}, opponent={opponent:016x}");
+        if !(has_avx2 || has_avx512) {
+            // Host CPU does not expose either SIMD path; nothing to validate.
+            return;
+        }
+
+        let test_positions = [
+            (
+                Square::D5.bitboard() | Square::E4.bitboard(),
+                Square::D4.bitboard() | Square::E5.bitboard(),
+            ),
+            (0x00003C3C3C000000, 0x0000C3C3C3000000),
+            (0xFF00000000000000, 0x00FF000000000000),
+        ];
+
+        for (player, opponent) in test_positions {
+            let moves_fallback = get_moves_fallback(player, opponent);
+
+            let moves_avx2 = if has_avx2 {
+                Some(unsafe { get_moves_avx2(player, opponent) })
+            } else {
+                None
+            };
+
+            let moves_avx512 = if has_avx512 {
+                Some(unsafe { get_moves_avx512(player, opponent) })
+            } else {
+                None
+            };
+
+            if let Some(moves) = moves_avx2 {
+                assert_eq!(moves_fallback, moves,
+                    "Fallback and AVX2 implementations differ for player={player:016x}, opponent={opponent:016x}");
+            }
+
+            if let Some(moves) = moves_avx512 {
+                assert_eq!(moves_fallback, moves,
+                    "Fallback and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}");
+            }
+
+            if let (Some(avx2), Some(avx512)) = (moves_avx2, moves_avx512) {
+                assert_eq!(avx2, avx512,
+                    "AVX2 and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}");
             }
         }
     }
@@ -470,7 +595,10 @@ mod tests {
 
         // Corner with adjacent pieces - A1 with A2 and B1
         // The function counts corners that form stable groups
-        let board: u64 = Square::A1.bitboard() | Square::A2.bitboard() | Square::B1.bitboard() | Square::B2.bitboard();
+        let board: u64 = Square::A1.bitboard()
+            | Square::A2.bitboard()
+            | Square::B1.bitboard()
+            | Square::B2.bitboard();
         assert_eq!(get_corner_stability(board), 3); // A1, A2, B1 form a stable group
     }
 
@@ -534,14 +662,20 @@ mod tests {
     #[test]
     fn test_corner_weighted_count_mixed() {
         // Two corners and two regular squares
-        let bitboard: u64 = Square::A1.bitboard() | Square::H8.bitboard() | Square::D4.bitboard() | Square::E5.bitboard();
+        let bitboard: u64 = Square::A1.bitboard()
+            | Square::H8.bitboard()
+            | Square::D4.bitboard()
+            | Square::E5.bitboard();
         assert_eq!(corner_weighted_mobility(bitboard), 6); // 4 regular + 2 corner bonus
     }
 
     #[test]
     fn test_corner_weighted_count_no_corners() {
         // No corners
-        let bitboard: u64 = Square::D4.bitboard() | Square::E4.bitboard() | Square::D5.bitboard() | Square::E5.bitboard();
+        let bitboard: u64 = Square::D4.bitboard()
+            | Square::E4.bitboard()
+            | Square::D5.bitboard()
+            | Square::E5.bitboard();
         assert_eq!(corner_weighted_mobility(bitboard), 4);
     }
 
