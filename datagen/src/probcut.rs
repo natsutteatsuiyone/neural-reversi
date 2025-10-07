@@ -92,18 +92,30 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
     };
     let mut search = Search::new(&options);
 
-    let input_file = File::open(input)
-        .map_err(|e| io::Error::new(e.kind(), format!("Failed to open input file '{input}': {e}")))?;
+    let input_file = File::open(input).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to open input file '{input}': {e}"),
+        )
+    })?;
     let reader = BufReader::new(input_file);
 
-    let output_file = File::create(output)
-        .map_err(|e| io::Error::new(e.kind(), format!("Failed to create output file '{output}': {e}")))?;
+    let output_file = File::create(output).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to create output file '{output}': {e}"),
+        )
+    })?;
     let mut writer = BufWriter::new(output_file);
     writer.write_all(b"ply,shallow_depth,deep_depth,diff\n")?;
 
     for (line_no, line_result) in reader.lines().enumerate() {
-        let line = line_result
-            .map_err(|e| io::Error::new(e.kind(), format!("Failed to read line {}: {}", line_no + 1, e)))?;
+        let line = line_result.map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("Failed to read line {}: {}", line_no + 1, e),
+            )
+        })?;
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -114,10 +126,18 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         let mut side_to_move = Piece::Black;
 
         for token in line.as_bytes().chunks_exact(2) {
-            let move_str = std::str::from_utf8(token)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid UTF-8 in move token: {e}")))?;
-            let sq = move_str.parse::<Square>()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move '{move_str}': {e}")))?;
+            let move_str = std::str::from_utf8(token).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid UTF-8 in move token: {e}"),
+                )
+            })?;
+            let sq = move_str.parse::<Square>().map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid move '{move_str}': {e}"),
+                )
+            })?;
 
             if !board.has_legal_moves() {
                 board = board.switch_players();
@@ -143,15 +163,18 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
 
             for (shallow_depth, shallow_score) in depth_scores.iter().take(max_shallow_depth + 1) {
                 samples.extend(
-                    depth_scores.iter()
-                        .filter(|(deep_depth, _)| *deep_depth > *shallow_depth + MIN_DEPTH_DIFFERENCE)
+                    depth_scores
+                        .iter()
+                        .filter(|(deep_depth, _)| {
+                            *deep_depth > *shallow_depth + MIN_DEPTH_DIFFERENCE
+                        })
                         .map(|(deep_depth, deep_score)| ProbCutSample {
                             ply,
                             shallow_depth: *shallow_depth,
                             shallow_score: *shallow_score,
                             deep_depth: *deep_depth,
                             deep_score: *deep_score,
-                        })
+                        }),
                 );
             }
 

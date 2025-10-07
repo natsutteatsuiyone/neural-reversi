@@ -136,15 +136,27 @@ impl GameState {
                 let symbol = match piece {
                     Piece::Black => "X",
                     Piece::White => "O",
-                    Piece::Empty => if self.board.is_legal_move(sq) { "." } else { " " },
+                    Piece::Empty => {
+                        if self.board.is_legal_move(sq) {
+                            "."
+                        } else {
+                            " "
+                        }
+                    }
                 };
                 result.push_str(&format!("{symbol}|"));
             }
 
             // Side information
             match y {
-                0 => result.push_str(&format!(" {}'s turn",
-                    if self.side_to_move == Piece::Black { "Black(X)" } else { "White(O)" })),
+                0 => result.push_str(&format!(
+                    " {}'s turn",
+                    if self.side_to_move == Piece::Black {
+                        "Black(X)"
+                    } else {
+                        "White(O)"
+                    }
+                )),
                 1 => result.push_str(&format!(" Black: {}", self.get_black_count())),
                 2 => result.push_str(&format!(" White: {}", self.get_white_count())),
                 _ => {}
@@ -217,8 +229,14 @@ impl GameState {
                     };
                     println!("   {player_info}");
                 }
-                3 => println!("   Black: {}", format!("{:2}", self.get_black_count()).bright_green()),
-                4 => println!("   White: {}", format!("{:2}", self.get_white_count()).bright_yellow()),
+                3 => println!(
+                    "   Black: {}",
+                    format!("{:2}", self.get_black_count()).bright_green()
+                ),
+                4 => println!(
+                    "   White: {}",
+                    format!("{:2}", self.get_white_count()).bright_yellow()
+                ),
                 6 => {
                     if self.board.is_game_over() {
                         let black_count = self.get_black_count();

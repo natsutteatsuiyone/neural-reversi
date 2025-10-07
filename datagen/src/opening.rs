@@ -113,7 +113,7 @@ pub fn load_openings(path: &str) -> io::Result<Vec<Vec<Square>>> {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!("Invalid square notation: {square_str}"),
-                    ))
+                    ));
                 }
             }
             i += 2;

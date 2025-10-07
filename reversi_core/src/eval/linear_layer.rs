@@ -2,19 +2,18 @@
 use std::{
     arch::x86_64::*,
     io::{self, Read},
-    is_x86_feature_detected,
     mem::{size_of, zeroed},
     ptr::copy_nonoverlapping,
 };
 
-use aligned_vec::{avec, AVec, ConstAlign};
+use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::CACHE_LINE_SIZE;
 use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
 
-/// Linear transformation layer with AVX2-optimized weight layout.
+/// Linear transformation layer.
 ///
 /// # Type Parameters
 ///
@@ -34,11 +33,11 @@ pub struct LinearLayer<
 }
 
 impl<
-        const INPUT_DIMS: usize,
-        const OUTPUT_DIMS: usize,
-        const PADDED_INPUT_DIMS: usize,
-        const PADDED_OUTPUT_DIMS: usize,
-    > LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
+    const INPUT_DIMS: usize,
+    const OUTPUT_DIMS: usize,
+    const PADDED_INPUT_DIMS: usize,
+    const PADDED_OUTPUT_DIMS: usize,
+> LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>
 {
     /// Loads weights and biases from binary format.
     ///
@@ -68,7 +67,6 @@ impl<
     }
 
     /// Converts matrix index to packed format for SIMD efficiency.
-    #[inline(always)]
     fn get_weight_index(i: usize, input_size: usize, output_size: usize) -> usize {
         const STRIDE_MULTIPLIER: usize = 4;
         let output_stride = output_size * STRIDE_MULTIPLIER;
@@ -88,6 +86,7 @@ impl<
     ///
     /// * `input` - Aligned input activations (u8 values)
     /// * `output` - Aligned output buffer for results (i32 accumulators)
+    #[inline(always)]
     pub fn forward(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
@@ -95,10 +94,13 @@ impl<
     ) {
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vnni") {
-                unsafe { self.forward_avx512(input, output) };
+            if cfg!(target_feature = "avx512vnni") {
+                unsafe { self.forward_avx512_vnni(input, output) };
                 return;
-            } else if is_x86_feature_detected!("avx2") {
+            } else if cfg!(target_feature = "avx512bw") {
+                unsafe { self.forward_avx512_bw(input, output) };
+                return;
+            } else if cfg!(target_feature = "avx2") {
                 unsafe { self.forward_avx2(input, output) };
                 return;
             }
@@ -107,10 +109,10 @@ impl<
         self.forward_fallback(input, output);
     }
 
-    /// AVX-512-accelerated forward pass.
-    #[target_feature(enable = "avx512f,avx512vnni")]
+    /// AVX-512-accelerated forward pass using VNNI instructions when supported.
     #[cfg(target_arch = "x86_64")]
-    fn forward_avx512(
+    #[target_feature(enable = "avx512vnni")]
+    fn forward_avx512_vnni(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
@@ -169,9 +171,71 @@ impl<
         }
     }
 
-    /// AVX2-accelerated forward pass.
-    #[target_feature(enable = "avx2")]
+    /// AVX-512 forward pass emulating VNNI via AVX-512BW instructions.
     #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx512bw")]
+    fn forward_avx512_bw(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        const INPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<u8>();
+        const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
+
+        if OUTPUT_DIMS == 1 && (INPUT_DIMS < INPUT_SIMD_WIDTH || INPUT_DIMS % INPUT_SIMD_WIDTH != 0)
+        {
+            self.forward_avx2(input, output);
+            return;
+        }
+
+        if OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH {
+            self.forward_avx2(input, output);
+            return;
+        }
+
+        unsafe {
+            if OUTPUT_DIMS > 1 {
+                let mut acc: Align64<[i32; OUTPUT_DIMS]> = zeroed();
+                let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
+
+                let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+                let num_regs = std::cmp::max(OUTPUT_DIMS / OUTPUT_SIMD_WIDTH, 1);
+
+                copy_nonoverlapping(self.biases.as_ptr() as *const __m512i, acc_ptr, num_regs);
+
+                let input32 = input.as_ptr() as *const i32;
+                for i in 0..num_chunks {
+                    let in0 = _mm512_set1_epi32(*input32.add(i));
+                    let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m512i;
+
+                    for j in 0..num_regs {
+                        let a = acc_ptr.add(j);
+                        *a = mm512_dpbusd_epi32_emulated(*a, in0, *col0.add(j));
+                    }
+                }
+
+                copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m512i, num_regs);
+            } else {
+                debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
+
+                let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
+                let mut sum0 = _mm512_setzero_si512();
+                let row0 = self.weights.as_ptr() as *const __m512i;
+                let input_vector = input.as_ptr() as *const __m512i;
+
+                for j in 0..num_chunks {
+                    let in_vec = *input_vector.add(j);
+                    sum0 = mm512_dpbusd_epi32_emulated(sum0, in_vec, *row0.add(j));
+                }
+
+                output[0] = _mm512_reduce_add_epi32(sum0) + self.biases[0];
+            }
+        }
+    }
+
+    /// AVX2-accelerated forward pass.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
     fn forward_avx2(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
@@ -258,12 +322,25 @@ impl<
     }
 }
 
+/// Emulates the VPDPBUSD instruction for 64-byte blocks using AVX-512BW.
+///
+/// Computes: `acc += sum(a[i] * b[i])` for i in 0..64 where `a` holds unsigned
+/// bytes and `b` holds signed bytes.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw")]
+#[inline]
+fn mm512_dpbusd_epi32_emulated(acc: __m512i, a: __m512i, b: __m512i) -> __m512i {
+    let product0 = _mm512_maddubs_epi16(a, b);
+    let product1 = _mm512_madd_epi16(product0, _mm512_set1_epi16(1));
+    _mm512_add_epi32(acc, product1)
+}
+
 /// Emulates the VPDPBUSD instruction for dot product of unsigned and signed bytes.
 ///
 /// Computes: `acc += sum(a[i] * b[i])` for i in 0..32
 /// where `a` contains unsigned bytes and `b` contains signed bytes.
-#[target_feature(enable = "avx2")]
 #[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 #[inline]
 fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
     let product0 = _mm256_maddubs_epi16(a, b);
@@ -274,8 +351,8 @@ fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
 /// Horizontal sum of all 32-bit integers in a 256-bit vector plus bias.
 ///
 /// Efficiently reduces 8×32-bit values to a single sum using shuffle operations.
-#[target_feature(enable = "avx2")]
 #[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 #[inline]
 fn m256_hadd(sum_vec: __m256i, bias: i32) -> i32 {
     // Add upper and lower 128-bit lanes
@@ -293,10 +370,11 @@ fn m256_hadd(sum_vec: __m256i, bias: i32) -> i32 {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use std::is_x86_feature_detected;
 
     /// Helper to create a test LinearLayer with known weights and biases
-    fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>(
-    ) -> LinearLayer<I, O, PI, PO> {
+    fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>()
+    -> LinearLayer<I, O, PI, PO> {
         let mut layer = LinearLayer::<I, O, PI, PO> {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],

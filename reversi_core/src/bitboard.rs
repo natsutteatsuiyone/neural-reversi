@@ -122,9 +122,9 @@ pub fn empty_board(player: u64, opponent: u64) -> u64 {
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl") {
+        if cfg!(target_feature = "avx512vl") {
             return unsafe { get_moves_avx512(player, opponent) };
-        } else if is_x86_feature_detected!("avx2") {
+        } else if cfg!(target_feature = "avx2") {
             return unsafe { get_moves_avx2(player, opponent) };
         }
     }
@@ -175,7 +175,7 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512vl")]
+#[target_feature(enable = "avx512vl")]
 #[inline]
 pub fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
@@ -562,18 +562,24 @@ mod tests {
             };
 
             if let Some(moves) = moves_avx2 {
-                assert_eq!(moves_fallback, moves,
-                    "Fallback and AVX2 implementations differ for player={player:016x}, opponent={opponent:016x}");
+                assert_eq!(
+                    moves_fallback, moves,
+                    "Fallback and AVX2 implementations differ for player={player:016x}, opponent={opponent:016x}"
+                );
             }
 
             if let Some(moves) = moves_avx512 {
-                assert_eq!(moves_fallback, moves,
-                    "Fallback and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}");
+                assert_eq!(
+                    moves_fallback, moves,
+                    "Fallback and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}"
+                );
             }
 
             if let (Some(avx2), Some(avx512)) = (moves_avx2, moves_avx512) {
-                assert_eq!(avx2, avx512,
-                    "AVX2 and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}");
+                assert_eq!(
+                    avx2, avx512,
+                    "AVX2 and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}"
+                );
             }
         }
     }

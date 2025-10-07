@@ -17,7 +17,7 @@ use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     self,
     level::Level,
-    search::{self, search_result::SearchResult, SearchOptions},
+    search::{self, SearchOptions, search_result::SearchResult},
     square::Square,
     types::{Depth, Scoref, Selectivity},
 };
@@ -136,16 +136,22 @@ impl SearchStats {
             return (0.0, 0.0);
         }
 
-        let mean = self.score_differences.iter()
+        let mean = self
+            .score_differences
+            .iter()
             .map(|&d| d as f64)
-            .sum::<f64>() / self.total_count as f64;
+            .sum::<f64>()
+            / self.total_count as f64;
 
-        let variance = self.score_differences.iter()
+        let variance = self
+            .score_differences
+            .iter()
             .map(|&d| {
                 let diff = d as f64 - mean;
                 diff * diff
             })
-            .sum::<f64>() / self.total_count as f64;
+            .sum::<f64>()
+            / self.total_count as f64;
 
         (mean, variance.sqrt())
     }
@@ -173,10 +179,7 @@ impl SearchStats {
                 "Total nodes",
                 self.total_nodes.to_formatted_string(&Locale::en),
             ),
-            (
-                "NPS",
-                nps.to_formatted_string(&Locale::en),
-            ),
+            ("NPS", nps.to_formatted_string(&Locale::en)),
             (
                 "Best move",
                 format!(
@@ -244,9 +247,8 @@ impl SearchStats {
         println!("\n### Statistics:");
         for (label, value) in stats {
             let formatted_value = match label {
-                "Best move" | "Top 2 move" | "Top 3 move" | "Score ±3" | "Score ±6" | "Score ±9" => {
-                    Self::colorize_percentage(&value)
-                }
+                "Best move" | "Top 2 move" | "Top 3 move" | "Score ±3" | "Score ±6"
+                | "Score ±9" => Self::colorize_percentage(&value),
                 _ => value.normal(),
             };
             println!("- {label:<max_label_len$}: {formatted_value}");
@@ -255,7 +257,9 @@ impl SearchStats {
 
     /// Apply color coding to percentage values
     fn colorize_percentage(value: &str) -> colored::ColoredString {
-        if let Some(percentage_str) = value.split('%').next() && let Ok(percentage) = percentage_str.parse::<f64>() {
+        if let Some(percentage_str) = value.split('%').next()
+            && let Ok(percentage) = percentage_str.parse::<f64>()
+        {
             if percentage >= PERFORMANCE_EXCELLENT {
                 return value.bright_green();
             } else if percentage >= PERFORMANCE_GOOD {

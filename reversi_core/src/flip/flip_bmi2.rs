@@ -1,3 +1,5 @@
+//! BMI2 variant of flip function.
+//! Based on flip_bmi2.c from edax-reversi.
 //! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_bmi2.c
 
 use crate::bit::{bextr_u32, pdep_u64, pext_u64};
@@ -219,7 +221,6 @@ const FLIPPED: [[u8; 144]; 8] = [
 	],
 ];
 
-#[inline]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     let mut index: usize;
     let mut flipped: u64;

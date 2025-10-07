@@ -7,5 +7,5 @@ pub struct RootMove {
     pub score: Score,
     pub average_score: Score,
     pub pv: Vec<Square>,
-    pub searched : bool,
+    pub searched: bool,
 }

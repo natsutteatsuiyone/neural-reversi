@@ -179,8 +179,8 @@ fn parse_windows_command(cmd: &str) -> (String, Vec<String>) {
 
     use std::ffi::{OsStr, OsString};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
-    use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
     use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
 
     unsafe {
         let cmd_wide: Vec<u16> = OsStr::new(cmd)
@@ -207,7 +207,9 @@ fn parse_windows_command(cmd: &str) -> (String, Vec<String>) {
             let arg_ptr = *argv_ptr.add(i as usize);
             let len = (0..).take_while(|&j| *arg_ptr.add(j) != 0).count();
             let arg_slice = std::slice::from_raw_parts(arg_ptr, len);
-            let arg = OsString::from_wide(arg_slice).to_string_lossy().into_owned();
+            let arg = OsString::from_wide(arg_slice)
+                .to_string_lossy()
+                .into_owned();
             args.push(arg);
         }
 
@@ -254,7 +256,8 @@ mod tests {
         };
 
         // Test with quotes (behavior varies by platform)
-        let (program, args) = config.parse_engine_command(r#""./my engine" --arg "value with spaces""#);
+        let (program, args) =
+            config.parse_engine_command(r#""./my engine" --arg "value with spaces""#);
 
         #[cfg(not(target_os = "windows"))]
         {
@@ -290,12 +293,15 @@ mod tests {
         };
 
         // Test Windows path with spaces
-        let (program, args) = config.parse_engine_command(r#""C:\Program Files\My Engine\engine.exe" --level 10"#);
+        let (program, args) =
+            config.parse_engine_command(r#""C:\Program Files\My Engine\engine.exe" --level 10"#);
         assert_eq!(program, r"C:\Program Files\My Engine\engine.exe");
         assert_eq!(args, vec!["--level", "10"]);
 
         // Test with multiple quoted arguments
-        let (program, args) = config.parse_engine_command(r#""C:\Program Files\engine.exe" --config "C:\My Documents\config.txt""#);
+        let (program, args) = config.parse_engine_command(
+            r#""C:\Program Files\engine.exe" --config "C:\My Documents\config.txt""#,
+        );
         assert_eq!(program, r"C:\Program Files\engine.exe");
         assert_eq!(args, vec!["--config", r"C:\My Documents\config.txt"]);
     }
@@ -335,7 +341,7 @@ mod tests {
 
         // Test escaped spaces (shell-style) - shlex interprets the escape
         let (program, args) = config.parse_engine_command(r"./my\ engine --level 10");
-        assert_eq!(program, "./my engine");  // shlex interprets the escape
+        assert_eq!(program, "./my engine"); // shlex interprets the escape
         assert_eq!(args, vec!["--level", "10"]);
 
         // Test single quotes

@@ -18,13 +18,14 @@ use crate::util::align::Align64;
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers representing pre-activation values
 /// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
+#[inline(always)]
 pub fn clipped_relu<const SIZE: usize>(
     input: &Align64<[i32; SIZE]>,
     output: &mut Align64<[u8; SIZE]>,
 ) {
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("avx2") {
+        if cfg!(target_feature = "avx2") {
             unsafe { clipped_relu_avx2::<SIZE>(input, output) };
             return;
         }
@@ -39,9 +40,8 @@ pub fn clipped_relu<const SIZE: usize>(
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers
 /// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
-#[target_feature(enable = "avx2")]
 #[cfg(target_arch = "x86_64")]
-#[inline]
+#[target_feature(enable = "avx2")]
 fn clipped_relu_avx2<const SIZE: usize>(
     input: &Align64<[i32; SIZE]>,
     output: &mut Align64<[u8; SIZE]>,
@@ -136,13 +136,14 @@ fn clipped_relu_fallback<const SIZE: usize>(
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers representing pre-activation values
 /// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
+#[inline(always)]
 pub fn sqr_clipped_relu<const SIZE: usize>(
     input: &Align64<[i32; SIZE]>,
     output: &mut Align64<[u8; SIZE]>,
 ) {
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("avx2") {
+        if cfg!(target_feature = "avx2") {
             unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) };
             return;
         }
@@ -157,9 +158,8 @@ pub fn sqr_clipped_relu<const SIZE: usize>(
 ///
 /// * `input` - An aligned slice of `SIZE` 32-bit integers
 /// * `output` - An aligned mutable slice for `SIZE` 8-bit integer results
-#[target_feature(enable = "avx2")]
 #[cfg(target_arch = "x86_64")]
-#[inline]
+#[target_feature(enable = "avx2")]
 fn sqr_clipped_relu_avx2<const SIZE: usize>(
     input: &Align64<[i32; SIZE]>,
     output: &mut Align64<[u8; SIZE]>,

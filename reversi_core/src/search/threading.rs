@@ -12,13 +12,13 @@ use crate::board::Board;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::move_list::ConcurrentMoveIterator;
+use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::root_move::RootMove;
 use crate::search::search_context::{GamePhase, SearchContext, SideToMove};
 use crate::search::search_result::SearchResult;
 use crate::search::{self, SearchTask, endgame, midgame};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::types::{Depth, Score};
 use crate::util::bitset::BitSet;
 use crate::util::spinlock;
@@ -529,7 +529,9 @@ impl Thread {
         // Main loop - continues until thread exit is signaled
         while !self.exit.load(Ordering::Acquire) {
             // Check if we're the master of a split point and all slaves have finished
-            if let Some(ref sp) = this_sp && sp.state().slaves_mask.none() {
+            if let Some(ref sp) = this_sp
+                && sp.state().slaves_mask.none()
+            {
                 break;
             }
 

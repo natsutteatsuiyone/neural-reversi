@@ -83,7 +83,7 @@ impl GameState {
                 if !self.board.has_legal_moves() {
                     self.handle_pass();
                 }
-            },
+            }
             None => {
                 // Pass move
                 if self.board.has_legal_moves() {

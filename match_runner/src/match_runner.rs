@@ -88,7 +88,7 @@ impl MatchRunner {
 
         if openings.is_empty() {
             return Err(MatchRunnerError::Config(
-                "The opening file doesn't contain any valid positions.".to_string()
+                "The opening file doesn't contain any valid positions.".to_string(),
             ));
         }
 
@@ -101,7 +101,8 @@ impl MatchRunner {
         self.display.show_match_header()?;
 
         // Show initial empty statistics
-        self.display.update_live_visualization(&statistics, &engine_names.0, &engine_names.1)?;
+        self.display
+            .update_live_visualization(&statistics, &engine_names.0, &engine_names.1)?;
 
         let progress_bar = self.create_progress_bar(total_games);
 
@@ -175,17 +176,20 @@ impl MatchRunner {
                 white_engine.genmove("white")?
             };
 
-            self.execute_move(&mut game_state, black_engine, white_engine, &mv, current_color)?;
+            self.execute_move(
+                &mut game_state,
+                black_engine,
+                white_engine,
+                &mv,
+                current_color,
+            )?;
         }
 
         let (black_count, white_count) = game_state.get_score();
         let result = self.determine_game_result(black_count, white_count);
         let score = self.calculate_score(black_count, white_count);
 
-        Ok(MatchResult {
-            result,
-            score,
-        })
+        Ok(MatchResult { result, score })
     }
 
     fn apply_opening_moves(
@@ -201,9 +205,9 @@ impl MatchRunner {
             let rank = opening.chars().nth(i + 1).unwrap();
 
             if !('a'..='h').contains(&file) || !('1'..='8').contains(&rank) {
-                return Err(MatchRunnerError::Game(
-                    format!("Invalid move in opening sequence: {file}{rank}")
-                ));
+                return Err(MatchRunnerError::Game(format!(
+                    "Invalid move in opening sequence: {file}{rank}"
+                )));
             }
 
             let mv = format!("{file}{rank}");
@@ -237,9 +241,7 @@ impl MatchRunner {
         current_color: &str,
     ) -> Result<()> {
         if mv.to_lowercase() == "pass" {
-            game_state
-                .make_move(None)
-                .map_err(MatchRunnerError::Game)?;
+            game_state.make_move(None).map_err(MatchRunnerError::Game)?;
 
             let opponent_engine = if current_color == "black" {
                 white_engine
@@ -266,9 +268,9 @@ impl MatchRunner {
     }
 
     fn parse_move(&self, move_str: &str) -> Result<Square> {
-        move_str.parse::<Square>().map_err(|_| {
-            MatchRunnerError::Game(format!("Invalid move: {move_str}"))
-        })
+        move_str
+            .parse::<Square>()
+            .map_err(|_| MatchRunnerError::Game(format!("Invalid move: {move_str}")))
     }
 
     fn determine_game_result(&self, black_count: u32, white_count: u32) -> GameResult {
@@ -291,8 +293,16 @@ impl MatchRunner {
         let (engine1_program, engine1_args) = config.get_engine1_command();
         let (engine2_program, engine2_args) = config.get_engine2_command();
 
-        let engine1 = GtpEngine::new(&engine1_program, &engine1_args, config.engine1_working_dir.clone())?;
-        let engine2 = GtpEngine::new(&engine2_program, &engine2_args, config.engine2_working_dir.clone())?;
+        let engine1 = GtpEngine::new(
+            &engine1_program,
+            &engine1_args,
+            config.engine1_working_dir.clone(),
+        )?;
+        let engine2 = GtpEngine::new(
+            &engine2_program,
+            &engine2_args,
+            config.engine2_working_dir.clone(),
+        )?;
 
         Ok((engine1, engine2))
     }
@@ -309,7 +319,7 @@ impl MatchRunner {
             ProgressStyle::default_bar()
                 .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%)")
                 .unwrap()
-                .progress_chars("█▉▊▋▌▍▎▏ ")
+                .progress_chars("█▉▊▋▌▍▎▏ "),
         );
         progress_bar
     }
@@ -350,24 +360,21 @@ impl MatchRunner {
                     self.display.update_live_visualization(
                         statistics,
                         &engine_names.0,
-                        &engine_names.1
+                        &engine_names.1,
                     )?;
                     progress_bar.inc(1);
                 }
                 Err(e) => {
-                    return Err(MatchRunnerError::Game(
-                        format!("Fatal error in game {game_number}: {e}")
-                    ));
+                    return Err(MatchRunnerError::Game(format!(
+                        "Fatal error in game {game_number}: {e}"
+                    )));
                 }
             }
         }
 
         // Add paired result after both games are complete
         if paired_results.len() == 2 {
-            statistics.add_paired_result(
-                paired_results[0],
-                paired_results[1],
-            );
+            statistics.add_paired_result(paired_results[0], paired_results[1]);
         }
 
         Ok(())

@@ -52,7 +52,11 @@ impl Level {
 /// Panics if `lv` is outside the valid range of 0-21.
 pub fn get_level(lv: usize) -> Level {
     if lv >= LEVELS.len() {
-        panic!("Invalid level: {}. Valid range is 0 to {}", lv, LEVELS.len() - 1);
+        panic!(
+            "Invalid level: {}. Valid range is 0 to {}",
+            lv,
+            LEVELS.len() - 1
+        );
     }
     LEVELS[lv]
 }

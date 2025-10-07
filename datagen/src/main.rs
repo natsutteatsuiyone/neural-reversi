@@ -108,7 +108,16 @@ fn main() {
             ply_max,
             dedup,
         } => {
-            feature::execute(&input_dir, &output_dir, threads, score_correction, ply_min, ply_max, dedup).unwrap();
+            feature::execute(
+                &input_dir,
+                &output_dir,
+                threads,
+                score_correction,
+                ply_min,
+                ply_max,
+                dedup,
+            )
+            .unwrap();
         }
         SubCommands::Selfplay {
             games,
@@ -131,7 +140,8 @@ fn main() {
                     selectivity,
                     &prefix,
                     &output_dir,
-                ).expect("Failed to execute selfplay with openings");
+                )
+                .expect("Failed to execute selfplay with openings");
             } else {
                 selfplay::execute(
                     games,
@@ -141,18 +151,16 @@ fn main() {
                     selectivity,
                     &prefix,
                     &output_dir,
-                ).expect("Failed to execute selfplay");
+                )
+                .expect("Failed to execute selfplay");
             }
         }
         SubCommands::Opening { depth } => {
             opening::generate(depth);
         }
-        SubCommands::Probcut {
-            input,
-            output,
-        } => {
+        SubCommands::Probcut { input, output } => {
             probcut::execute(&input, &output).expect("Failed to execute probcut");
-        },
+        }
         SubCommands::Shuffle {
             input_dir,
             output_dir,

@@ -300,7 +300,8 @@ impl Board {
     pub fn rotate_90_clockwise(&self) -> Board {
         Board::from_bitboards(
             bit::rotate_90_clockwise(self.player),
-            bit::rotate_90_clockwise(self.opponent))
+            bit::rotate_90_clockwise(self.opponent),
+        )
     }
 
     /// Rotates the board 180 degrees.
@@ -334,7 +335,8 @@ impl Board {
     pub fn flip_vertical(&self) -> Board {
         Board::from_bitboards(
             bit::flip_vertical(self.player),
-            bit::flip_vertical(self.opponent))
+            bit::flip_vertical(self.opponent),
+        )
     }
 
     /// Flips the board horizontally (left to right).
@@ -344,7 +346,8 @@ impl Board {
     pub fn flip_horizontal(&self) -> Board {
         Board::from_bitboards(
             bit::flip_horizontal(self.player),
-            bit::flip_horizontal(self.opponent))
+            bit::flip_horizontal(self.opponent),
+        )
     }
 
     /// Flips the board along the main diagonal (A1-H8).
@@ -354,7 +357,8 @@ impl Board {
     pub fn flip_diag_a1h8(&self) -> Board {
         Board::from_bitboards(
             bit::flip_diag_a1h8(self.player),
-            bit::flip_diag_a1h8(self.opponent))
+            bit::flip_diag_a1h8(self.opponent),
+        )
     }
 
     /// Flips the board along the anti-diagonal (A8-H1).
@@ -364,7 +368,8 @@ impl Board {
     pub fn flip_diag_a8h1(&self) -> Board {
         Board::from_bitboards(
             bit::flip_diag_a8h1(self.player),
-            bit::flip_diag_a8h1(self.opponent))
+            bit::flip_diag_a8h1(self.opponent),
+        )
     }
 
     /// Converts the board to a string representation.
@@ -480,10 +485,22 @@ mod tests {
 
         // Switch to White's perspective
         let white_board = board.switch_players();
-        assert_eq!(white_board.get_piece_at(Square::D5, Piece::White), Piece::Black);
-        assert_eq!(white_board.get_piece_at(Square::E4, Piece::White), Piece::Black);
-        assert_eq!(white_board.get_piece_at(Square::D4, Piece::White), Piece::White);
-        assert_eq!(white_board.get_piece_at(Square::E5, Piece::White), Piece::White);
+        assert_eq!(
+            white_board.get_piece_at(Square::D5, Piece::White),
+            Piece::Black
+        );
+        assert_eq!(
+            white_board.get_piece_at(Square::E4, Piece::White),
+            Piece::Black
+        );
+        assert_eq!(
+            white_board.get_piece_at(Square::D4, Piece::White),
+            Piece::White
+        );
+        assert_eq!(
+            white_board.get_piece_at(Square::E5, Piece::White),
+            Piece::White
+        );
     }
 
     #[test]
@@ -523,7 +540,7 @@ mod tests {
         // Custom board
         let custom = Board::from_bitboards(
             Square::A1.bitboard() | Square::A2.bitboard() | Square::A3.bitboard(),
-            Square::H8.bitboard()
+            Square::H8.bitboard(),
         );
         assert_eq!(custom.get_player_count(), 3);
         assert_eq!(custom.get_opponent_count(), 1);
@@ -574,7 +591,7 @@ mod tests {
         assert!(bitboard::is_set(new_board.opponent, Square::D3));
         assert!(bitboard::is_set(new_board.opponent, Square::D4));
         assert_eq!(new_board.get_opponent_count(), 4); // 2 original + 1 new + 1 flipped
-        assert_eq!(new_board.get_player_count(), 1);   // 2 original - 1 flipped
+        assert_eq!(new_board.get_player_count(), 1); // 2 original - 1 flipped
     }
 
     #[test]

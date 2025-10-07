@@ -61,7 +61,10 @@ fn main() {
             );
             gtp_engine.run();
         }
-        Some(SubCommands::Solve { file, engine_params }) => {
+        Some(SubCommands::Solve {
+            file,
+            engine_params,
+        }) => {
             if !file.exists() {
                 eprintln!("File does not exist: {}", file.display());
                 return;

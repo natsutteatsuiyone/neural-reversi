@@ -14,7 +14,7 @@ use std::{
 };
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle, ProgressDrawTarget};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rayon::prelude::*;
 
 use reversi_core::board::Board;
@@ -55,7 +55,15 @@ struct GameRecord {
 /// # Returns
 ///
 /// Returns `Ok(())` on success, or an `io::Error` if file operations fail.
-pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correction: bool, ply_min: u8, ply_max: u8, dedup: bool) -> io::Result<()> {
+pub fn execute(
+    input_dir: &str,
+    output_dir: &str,
+    threads: usize,
+    score_correction: bool,
+    ply_min: u8,
+    ply_max: u8,
+    dedup: bool,
+) -> io::Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .build_global()
@@ -111,10 +119,8 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
         .map(|i| {
             let pb = mp.add(ProgressBar::new_spinner());
             pb.set_style(
-                ProgressStyle::with_template(
-                    "  Thread {prefix:>2} {spinner:.yellow} {msg}"
-                )
-                .unwrap(),
+                ProgressStyle::with_template("  Thread {prefix:>2} {spinner:.yellow} {msg}")
+                    .unwrap(),
             );
             pb.set_prefix(format!("{}", i + 1));
             pb.enable_steady_tick(Duration::from_millis(100));
@@ -124,7 +130,6 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
 
     let active_threads = AtomicUsize::new(0);
 
-
     entries
         .par_iter()
         .enumerate()
@@ -133,7 +138,8 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
             let thread_pb = &thread_pbs[thread_id % threads];
 
             // Get filename for display
-            let file_name = entry_path.file_name()
+            let file_name = entry_path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown");
 
@@ -147,7 +153,15 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
 
             let start = std::time::Instant::now();
 
-            if let Err(e) = process_file(file_idx, entry_path, output_dir, score_correction, ply_min, ply_max, dedup) {
+            if let Err(e) = process_file(
+                file_idx,
+                entry_path,
+                output_dir,
+                score_correction,
+                ply_min,
+                ply_max,
+                dedup,
+            ) {
                 eprintln!("Failed to process file {file_idx}: {e}");
                 thread_pb.set_message(format!("Error: {file_name}"));
             } else {
@@ -156,8 +170,7 @@ pub fn execute(input_dir: &str, output_dir: &str, threads: usize, score_correcti
                 thread_pb.set_message(format!("Completed: {file_name} ({throughput:.1}MB/s)"));
             }
 
-            let completed_files =
-                processed_files_count.fetch_add(1, Ordering::SeqCst) + 1;
+            let completed_files = processed_files_count.fetch_add(1, Ordering::SeqCst) + 1;
             main_pb.set_position(completed_files as u64);
 
             // Decrease active thread count
@@ -203,18 +216,29 @@ fn process_file(
     ply_max: u8,
     dedup: bool,
 ) -> io::Result<()> {
-    let input_path_str = entry_path.to_str().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8")
-    })?;
+    let input_path_str = entry_path
+        .to_str()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8"))?;
 
     let game_records = load_game_records(input_path_str, score_correction, ply_min, ply_max)
-        .map_err(|e| io::Error::new(e.kind(), format!("Failed to load game records from {input_path_str}: {e}")))?;
+        .map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("Failed to load game records from {input_path_str}: {e}"),
+            )
+        })?;
 
     // Create 8 separate data vectors for each symmetry pattern
     let mut symmetry_data = vec![Vec::new(); 8];
     let symmetry_names = [
-        "base", "rot90", "rot180", "rot270",
-        "flip_v", "flip_h", "flip_diag_a1h8", "flip_diag_a8h1"
+        "base",
+        "rot90",
+        "rot180",
+        "rot270",
+        "flip_v",
+        "flip_h",
+        "flip_diag_a1h8",
+        "flip_diag_a8h1",
     ];
 
     // Create HashSets to track seen boards for each symmetry if dedup is enabled
@@ -232,14 +256,14 @@ fn process_file(
 
         // Generate all 8 symmetrical boards
         let symmetrical_boards = [
-            base_board,                          // 0: base
-            base_board.rotate_90_clockwise(),    // 1: 90° rotation
-            base_board.rotate_180_clockwise(),   // 2: 180° rotation
-            base_board.rotate_270_clockwise(),   // 3: 270° rotation
-            base_board.flip_vertical(),          // 4: vertical flip
-            base_board.flip_horizontal(),        // 5: horizontal flip
-            base_board.flip_diag_a1h8(),         // 6: diagonal a1-h8 flip
-            base_board.flip_diag_a8h1(),         // 7: diagonal a8-h1 flip
+            base_board,                        // 0: base
+            base_board.rotate_90_clockwise(),  // 1: 90° rotation
+            base_board.rotate_180_clockwise(), // 2: 180° rotation
+            base_board.rotate_270_clockwise(), // 3: 270° rotation
+            base_board.flip_vertical(),        // 4: vertical flip
+            base_board.flip_horizontal(),      // 5: horizontal flip
+            base_board.flip_diag_a1h8(),       // 6: diagonal a1-h8 flip
+            base_board.flip_diag_a8h1(),       // 7: diagonal a8-h1 flip
         ];
 
         // Process each symmetry and add to corresponding data vector
@@ -264,7 +288,8 @@ fn process_file(
     // Write each symmetry pattern to a separate file
     for (i, data) in symmetry_data.into_iter().enumerate() {
         if !data.is_empty() {
-            let file_path = output_dir.join(format!("features_{}_{}.zst", file_idx, symmetry_names[i]));
+            let file_path =
+                output_dir.join(format!("features_{}_{}.zst", file_idx, symmetry_names[i]));
             let file = File::create(file_path)?;
 
             // Compress and write data
@@ -297,7 +322,12 @@ fn process_file(
 /// # Returns
 ///
 /// Returns a vector of `GameRecord` structs on success.
-fn load_game_records(file_path: &str, score_correction: bool, ply_min: u8, ply_max: u8) -> io::Result<Vec<GameRecord>> {
+fn load_game_records(
+    file_path: &str,
+    score_correction: bool,
+    ply_min: u8,
+    ply_max: u8,
+) -> io::Result<Vec<GameRecord>> {
     let metadata = fs::metadata(file_path)?;
     let file_size = metadata.len() as usize;
     let entry_size = 24;
@@ -327,9 +357,18 @@ fn load_game_records(file_path: &str, score_correction: bool, ply_min: u8, ply_m
             score = ((ply as f32 * game_score as f32) + (59.0 - ply as f32) * score) / 59.0;
         }
 
-        debug_assert!(player & opponent == 0, "Player and opponent bitboards overlap: {player} {opponent}");
-        debug_assert!((-64.0..=64.0).contains(&score), "Score out of range: {score}");
-        debug_assert!((-64..=64).contains(&game_score), "Game score out of range: {game_score}");
+        debug_assert!(
+            player & opponent == 0,
+            "Player and opponent bitboards overlap: {player} {opponent}"
+        );
+        debug_assert!(
+            (-64.0..=64.0).contains(&score),
+            "Score out of range: {score}"
+        );
+        debug_assert!(
+            (-64..=64).contains(&game_score),
+            "Game score out of range: {game_score}"
+        );
         debug_assert!(ply <= 59, "Ply value out of range: {ply}");
 
         // Filter records by ply range

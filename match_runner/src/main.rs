@@ -9,14 +9,14 @@ mod match_runner;
 mod statistics;
 
 use config::Config;
-use match_runner::MatchRunner;
 use error::MatchRunnerError;
+use match_runner::MatchRunner;
 
 fn main() -> io::Result<()> {
     let config = Config::parse_args();
 
     let mut match_runner = MatchRunner::new();
-    
+
     if let Err(e) = match_runner.run_match(&config) {
         match e {
             MatchRunnerError::Io(io_err) => return Err(io_err),
@@ -29,4 +29,3 @@ fn main() -> io::Result<()> {
 
     Ok(())
 }
-

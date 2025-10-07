@@ -117,7 +117,11 @@ impl GtpEngine {
     // =============================================================================
 
     /// Core GTP communication logic.
-    fn communicate_with_process(stdin: &mut dyn Write, stdout: &mut dyn BufRead, command: &str) -> Result<String> {
+    fn communicate_with_process(
+        stdin: &mut dyn Write,
+        stdout: &mut dyn BufRead,
+        command: &str,
+    ) -> Result<String> {
         writeln!(stdin, "{command}")?;
         stdin.flush()?;
 
@@ -148,7 +152,9 @@ impl GtpEngine {
             .as_mut()
             .ok_or_else(|| MatchRunnerError::Engine(ERR_STDIN_FAILED.to_string()))?;
 
-        let stdout = process.stdout.as_mut()
+        let stdout = process
+            .stdout
+            .as_mut()
             .ok_or_else(|| MatchRunnerError::Engine(ERR_STDOUT_FAILED.to_string()))?;
 
         let mut reader = BufReader::new(stdout);
@@ -288,30 +294,38 @@ impl GtpEngine {
     /// Parse a GTP success response and extract the content.
     fn parse_success_response(response: &str) -> Result<String> {
         if response.starts_with(GTP_SUCCESS_PREFIX) {
-            Ok(response.strip_prefix(GTP_SUCCESS_PREFIX).unwrap().trim().to_string())
+            Ok(response
+                .strip_prefix(GTP_SUCCESS_PREFIX)
+                .unwrap()
+                .trim()
+                .to_string())
         } else if response.trim() == "=" {
             // Handle empty success response (just "=")
             Ok(String::new())
         } else {
-            Err(MatchRunnerError::Engine(
-                format!("Expected success response, got: {response}")
-            ))
+            Err(MatchRunnerError::Engine(format!(
+                "Expected success response, got: {response}"
+            )))
         }
     }
 
     /// Parse a GTP response that might be unsupported (returns empty string for "?" responses).
     fn parse_optional_response(response: &str) -> Result<String> {
         if response.starts_with(GTP_SUCCESS_PREFIX) {
-            Ok(response.strip_prefix(GTP_SUCCESS_PREFIX).unwrap().trim().to_string())
+            Ok(response
+                .strip_prefix(GTP_SUCCESS_PREFIX)
+                .unwrap()
+                .trim()
+                .to_string())
         } else if response.trim() == "=" {
             // Handle empty success response (just "=")
             Ok(String::new())
         } else if response.starts_with(GTP_FAILURE_PREFIX) {
             Ok(String::new())
         } else {
-            Err(MatchRunnerError::Engine(
-                format!("Invalid response: {response}")
-            ))
+            Err(MatchRunnerError::Engine(format!(
+                "Invalid response: {response}"
+            )))
         }
     }
 

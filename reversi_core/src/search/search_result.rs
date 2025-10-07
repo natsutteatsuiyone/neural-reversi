@@ -1,4 +1,8 @@
-use crate::{probcut, square::Square, types::{Depth, Scoref}};
+use crate::{
+    probcut,
+    square::Square,
+    types::{Depth, Scoref},
+};
 
 pub struct SearchResult {
     pub score: Scoref,

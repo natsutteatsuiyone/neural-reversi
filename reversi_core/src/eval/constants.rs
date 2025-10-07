@@ -14,7 +14,8 @@ pub const INPUT_FEATURE_DIMS: usize = sum_eval_f2x();
 pub const NUM_FEATURES: usize = pattern_feature::NUM_PATTERN_FEATURES;
 
 /// Precomputed offsets for each pattern feature in the feature vector.
-pub const PATTERN_FEATURE_OFFSETS: [usize; pattern_feature::NUM_PATTERN_FEATURES] = calc_feature_offsets();
+pub const PATTERN_FEATURE_OFFSETS: [usize; pattern_feature::NUM_PATTERN_FEATURES] =
+    calc_feature_offsets();
 
 /// Scale factor for mobility features in the neural network.
 pub const MOBILITY_SCALE: u8 = 3;

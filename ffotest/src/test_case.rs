@@ -21,7 +21,11 @@ impl fmt::Display for TestCase {
             f,
             "FFO#{:02} ({} to move, score: {})",
             self.no,
-            if self.side_to_move == Piece::Black { "Black" } else { "White" },
+            if self.side_to_move == Piece::Black {
+                "Black"
+            } else {
+                "White"
+            },
             self.expected_score
         )
     }
@@ -97,7 +101,6 @@ impl TestCase {
     pub fn get_best_moves_str(&self) -> String {
         self.best_moves.join(",")
     }
-
 }
 
 /// Validate all test cases for data integrity

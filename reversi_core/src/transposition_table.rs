@@ -117,34 +117,34 @@ impl TTEntry {
         self.data.store(data, Ordering::Relaxed);
     }
 
-   /// Unpacks a 64-bit value into TTData fields.
-   #[inline]
-   fn unpack_from_u64(data_u64: u64) -> TTData {
-       let key = ((data_u64 >> Self::KEY_SHIFT) & Self::KEY_MASK) as u16;
-       let score = ((data_u64 >> Self::SCORE_SHIFT) & Self::SCORE_MASK) as i16;
-       let best_move = ((data_u64 >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8;
-       let bound = ((data_u64 >> Self::BOUND_SHIFT) & Self::BOUND_MASK) as u8;
-       let depth = ((data_u64 >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u8;
-       let selectivity = ((data_u64 >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
-       let generation = ((data_u64 >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
+    /// Unpacks a 64-bit value into TTData fields.
+    #[inline]
+    fn unpack_from_u64(data_u64: u64) -> TTData {
+        let key = ((data_u64 >> Self::KEY_SHIFT) & Self::KEY_MASK) as u16;
+        let score = ((data_u64 >> Self::SCORE_SHIFT) & Self::SCORE_MASK) as i16;
+        let best_move = ((data_u64 >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8;
+        let bound = ((data_u64 >> Self::BOUND_SHIFT) & Self::BOUND_MASK) as u8;
+        let depth = ((data_u64 >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u8;
+        let selectivity = ((data_u64 >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
+        let generation = ((data_u64 >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
 
-       TTData {
-           key,
-           score: score as Score,
-           best_move: Square::from_u8_unchecked(best_move),
-           bound,
-           depth: depth as Depth,
-           selectivity,
-           generation,
-       }
-   }
+        TTData {
+            key,
+            score: score as Score,
+            best_move: Square::from_u8_unchecked(best_move),
+            bound,
+            depth: depth as Depth,
+            selectivity,
+            generation,
+        }
+    }
 
-   /// Loads and unpacks the entry data atomically.
-   #[inline]
-   fn unpack(&self) -> TTData {
-       let data = self.data.load(Ordering::Relaxed);
-       Self::unpack_from_u64(data)
-   }
+    /// Loads and unpacks the entry data atomically.
+    #[inline]
+    fn unpack(&self) -> TTData {
+        let data = self.data.load(Ordering::Relaxed);
+        Self::unpack_from_u64(data)
+    }
 
     /// Saves data into the transposition table entry.
     ///
@@ -335,55 +335,21 @@ impl TranspositionTable {
     /// - `bool`: Whether a matching entry was found
     /// - `TTData`: The entry data (default if not found)
     /// - `usize`: The index for storing new data (either the found entry or replacement candidate)
+    #[inline(always)]
     pub fn probe(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("avx2") {
+            if cfg!(target_feature = "avx2") {
                 return unsafe { self.probe_avx2(key, generation) };
             }
         }
 
-        let key16 = key as u16;
-        let cluster_idx = self.get_cluster_idx(key);
-
-        // look for exact key match
-        for i in 0..CLUSTER_SIZE {
-            let idx = cluster_idx + i;
-            let entry = unsafe { self.entries.get_unchecked(idx) };
-            let tt_data = entry.unpack();
-
-            if tt_data.key == key16 && tt_data.is_occupied() {
-                return (true, tt_data, idx);
-            }
-        }
-
-        // find best replacement candidate
-        // Score formula: depth - (age * 8)
-        // Lower score = better replacement candidate
-        let mut replace_idx = cluster_idx;
-        let replace_data = unsafe { self.entries.get_unchecked(cluster_idx).unpack() };
-        let mut replace_score =
-            replace_data.depth as i32 - replace_data.relative_age(generation) * 8;
-
-        for i in 1..CLUSTER_SIZE {
-            let idx = cluster_idx + i;
-            let entry = unsafe { self.entries.get_unchecked(idx) };
-            let tt_data = entry.unpack();
-            let score = tt_data.depth as i32 - tt_data.relative_age(generation) * 8;
-
-            if score < replace_score {
-                replace_score = score;
-                replace_idx = idx;
-            }
-        }
-
-        (false, TTData::default(), replace_idx)
+        self.probe_fallback(key, generation)
     }
 
     /// AVX2-optimized probe implementation for faster cluster scanning.
     #[target_feature(enable = "avx2")]
     #[cfg(target_arch = "x86_64")]
-    #[inline]
     fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
         unsafe {
             use std::arch::x86_64::*;
@@ -426,10 +392,8 @@ impl TranspositionTable {
             let depth_mask_vec = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
             let gen_mask_vec = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
 
-            let depth_vec = _mm256_and_si256(
-                _mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT),
-                depth_mask_vec,
-            );
+            let depth_vec =
+                _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT), depth_mask_vec);
             let gen_vec = _mm256_and_si256(
                 _mm256_srli_epi64(v, TTEntry::GENERATION_SHIFT),
                 gen_mask_vec,
@@ -459,6 +423,45 @@ impl TranspositionTable {
 
             (false, TTData::default(), base + replace_idx)
         }
+    }
+
+    /// Fallback probe implementation.
+    fn probe_fallback(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
+        let key16 = key as u16;
+        let cluster_idx = self.get_cluster_idx(key);
+
+        // look for exact key match
+        for i in 0..CLUSTER_SIZE {
+            let idx = cluster_idx + i;
+            let entry = unsafe { self.entries.get_unchecked(idx) };
+            let tt_data = entry.unpack();
+
+            if tt_data.key == key16 && tt_data.is_occupied() {
+                return (true, tt_data, idx);
+            }
+        }
+
+        // find best replacement candidate
+        // Score formula: depth - (age * 8)
+        // Lower score = better replacement candidate
+        let mut replace_idx = cluster_idx;
+        let replace_data = unsafe { self.entries.get_unchecked(cluster_idx).unpack() };
+        let mut replace_score =
+            replace_data.depth as i32 - replace_data.relative_age(generation) * 8;
+
+        for i in 1..CLUSTER_SIZE {
+            let idx = cluster_idx + i;
+            let entry = unsafe { self.entries.get_unchecked(idx) };
+            let tt_data = entry.unpack();
+            let score = tt_data.depth as i32 - tt_data.relative_age(generation) * 8;
+
+            if score < replace_score {
+                replace_score = score;
+                replace_idx = idx;
+            }
+        }
+
+        (false, TTData::default(), replace_idx)
     }
 
     /// Stores data in the transposition table at the specified entry index.
@@ -593,15 +596,7 @@ mod tests {
         assert_eq!(data.generation, max_generation);
 
         // Test with minimum negative score
-        entry.save(
-            0,
-            min_score,
-            Bound::Upper,
-            0,
-            Square::None,
-            0,
-            0,
-        );
+        entry.save(0, min_score, Bound::Upper, 0, Square::None, 0, 0);
 
         let data = entry.unpack();
         assert_eq!(data.key, 0);
@@ -619,38 +614,86 @@ mod tests {
         let entry = TTEntry::default();
 
         // Initial save
-        entry.save(100, 50, Bound::Lower, 10, Square::from_usize_unchecked(5), 2, 1);
+        entry.save(
+            100,
+            50,
+            Bound::Lower,
+            10,
+            Square::from_usize_unchecked(5),
+            2,
+            1,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 10);
         assert_eq!(data.generation, 1);
 
         // Try to replace with shallower depth - should not replace
-        entry.save(100, 60, Bound::Lower, 8, Square::from_usize_unchecked(6), 2, 1);
+        entry.save(
+            100,
+            60,
+            Bound::Lower,
+            8,
+            Square::from_usize_unchecked(6),
+            2,
+            1,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 10); // Should remain 10
         assert_eq!(data.score, 50); // Should remain 50
 
         // Replace with deeper depth - should replace
-        entry.save(100, 70, Bound::Lower, 12, Square::from_usize_unchecked(7), 2, 1);
+        entry.save(
+            100,
+            70,
+            Bound::Lower,
+            12,
+            Square::from_usize_unchecked(7),
+            2,
+            1,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 12);
         assert_eq!(data.score, 70);
 
         // Replace with exact bound - should always replace
-        entry.save(100, 80, Bound::Exact, 5, Square::from_usize_unchecked(8), 2, 1);
+        entry.save(
+            100,
+            80,
+            Bound::Exact,
+            5,
+            Square::from_usize_unchecked(8),
+            2,
+            1,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 5);
         assert_eq!(data.score, 80);
         assert_eq!(data.bound, Bound::Exact as u8);
 
         // Different key - should replace
-        entry.save(200, 90, Bound::Upper, 3, Square::from_usize_unchecked(9), 2, 1);
+        entry.save(
+            200,
+            90,
+            Bound::Upper,
+            3,
+            Square::from_usize_unchecked(9),
+            2,
+            1,
+        );
         let data = entry.unpack();
         assert_eq!(data.key, 200);
         assert_eq!(data.score, 90);
 
         // Newer generation - should replace
-        entry.save(200, 100, Bound::Lower, 2, Square::from_usize_unchecked(10), 2, 5);
+        entry.save(
+            200,
+            100,
+            Bound::Lower,
+            2,
+            Square::from_usize_unchecked(10),
+            2,
+            5,
+        );
         let data = entry.unpack();
         assert_eq!(data.generation, 5);
         assert_eq!(data.score, 100);
@@ -919,7 +962,7 @@ mod tests {
             };
 
             assert_eq!(test_data.relative_age(10), 9); // Current gen 10 - entry gen 1 = 9
-            assert_eq!(test_data.relative_age(1), 0);  // Same generation
+            assert_eq!(test_data.relative_age(1), 0); // Same generation
             assert_eq!(test_data.relative_age(0), -1); // Entry is newer
         }
     }

@@ -187,13 +187,13 @@ mod tests {
     #[test]
     fn test_pointers() {
         let mut aligned = Align64([1, 2, 3, 4]);
-        
+
         // Test const pointer
         let ptr = aligned.as_ptr();
         unsafe {
             assert_eq!((*ptr)[0], 1);
         }
-        
+
         // Test mut pointer
         let mut_ptr = aligned.as_mut_ptr();
         unsafe {

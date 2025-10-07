@@ -246,5 +246,3 @@ mod tests {
         bitset.test(64); // Should panic on shift overflow
     }
 }
-
-

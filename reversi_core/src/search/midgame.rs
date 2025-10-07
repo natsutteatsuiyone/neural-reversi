@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 use rand::seq::IteratorRandom;
 
+use super::SearchTask;
+use super::search_result::SearchResult;
+use super::threading::Thread;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
 use crate::constants::EVAL_SCORE_SCALE;
@@ -19,7 +22,7 @@ use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::NO_SELECTIVITY;
 use crate::search::endgame;
-use crate::search::node_type::{NodeType, NonPV, Root, PV};
+use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
 use crate::search::threading::SplitPoint;
@@ -29,9 +32,6 @@ use crate::transposition_table::Bound;
 use crate::types::Depth;
 use crate::types::Score;
 use crate::types::Scoref;
-use super::search_result::SearchResult;
-use super::threading::Thread;
-use super::SearchTask;
 
 /// Minimum depth required before considering parallel split.
 const MIN_SPLIT_DEPTH: Depth = 4;
@@ -123,7 +123,8 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             loop {
-                best_score = search::<Root, false>(&mut ctx, &board, depth, alpha, beta, thread, None);
+                best_score =
+                    search::<Root, false>(&mut ctx, &board, depth, alpha, beta, thread, None);
 
                 if thread.is_search_aborted() {
                     break;
@@ -313,7 +314,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return tt_data.score;
         }
 
-        if !NT::PV_NODE && let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread) {
+        if !NT::PV_NODE
+            && let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread)
+        {
             return score;
         }
 
@@ -347,14 +350,23 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             let d = depth - 1 - mv.reduction_depth.min(depth - 1);
             score = -search::<NonPV, false>(ctx, &next, d, -(alpha + 1), -alpha, thread, None);
             if score > alpha {
-                score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread, None);
+                score = -search::<NonPV, false>(
+                    ctx,
+                    &next,
+                    depth - 1,
+                    -(alpha + 1),
+                    -alpha,
+                    thread,
+                    None,
+                );
             }
         } else if !NT::PV_NODE || move_count > 1 {
             if SP_NODE {
                 let sp_state = split_point.as_ref().unwrap().state();
                 alpha = sp_state.alpha;
             }
-            score = -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread, None);
+            score =
+                -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread, None);
         }
 
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
@@ -415,11 +427,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             }
         }
 
-        if !SP_NODE
-            && depth >= MIN_SPLIT_DEPTH
-            && move_iter.count() > 1
-            && thread.can_split()
-        {
+        if !SP_NODE && depth >= MIN_SPLIT_DEPTH && move_iter.count() > 1 && thread.can_split() {
             let (s, m, n) = thread.split(
                 ctx,
                 board,
@@ -725,7 +733,8 @@ fn solve(board: &Board, n_empties: Depth) -> Score {
 /// * `Some(score)` - If position can be pruned with this score
 /// * `None` - If no stability cutoff is possible
 fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
-    if let Some(score) = stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS)
+    if let Some(score) =
+        stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS)
     {
         return Some(score << EVAL_SCORE_SCALE_BITS);
     }

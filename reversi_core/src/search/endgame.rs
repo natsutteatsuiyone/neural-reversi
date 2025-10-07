@@ -10,7 +10,7 @@ use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::NO_SELECTIVITY;
-use crate::search::node_type::{NodeType, NonPV, Root, PV};
+use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::search_context::SearchContext;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
@@ -21,7 +21,7 @@ use crate::{bitboard, probcut, stability};
 use super::search_context::GamePhase;
 use super::search_result::SearchResult;
 use super::threading::Thread;
-use super::{midgame, SearchTask};
+use super::{SearchTask, midgame};
 
 /// Quadrant masks for move ordering in shallow search.
 #[rustfmt::skip]
@@ -252,7 +252,10 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return tt_data.score;
         }
 
-        if !NT::PV_NODE && let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread) {
+        if !NT::PV_NODE
+            && let Some(score) =
+                probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread)
+        {
             return score;
         }
 
@@ -343,11 +346,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             }
         }
 
-        if !SP_NODE
-            && n_empties >= MIN_SPLIT_DEPTH
-            && move_iter.count() > 1
-            && thread.can_split()
-        {
+        if !SP_NODE && n_empties >= MIN_SPLIT_DEPTH && move_iter.count() > 1 && thread.can_split() {
             let (s, m, n) = thread.split(
                 ctx,
                 board,

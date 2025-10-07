@@ -6,7 +6,7 @@
 //! redistributing them across a different number of files.
 
 use std::{
-    fs::{metadata, File, OpenOptions},
+    fs::{File, OpenOptions, metadata},
     io::{self, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     time::Duration,
@@ -14,7 +14,7 @@ use std::{
 
 use glob::glob;
 use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
+use rand::{SeedableRng, rngs::SmallRng, seq::SliceRandom};
 
 /// Size of each game record in bytes
 const RECORD_SIZE: usize = 24;
@@ -223,8 +223,13 @@ fn distribute_records(
             continue;
         }
 
-        let output_path = output_dir.join(format!("shuffled_{output_file_index:0OUTPUT_FILE_DIGITS$}.bin"));
-        let output_file = OpenOptions::new().create(true).append(true).open(&output_path)?;
+        let output_path = output_dir.join(format!(
+            "shuffled_{output_file_index:0OUTPUT_FILE_DIGITS$}.bin"
+        ));
+        let output_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&output_path)?;
         let mut writer = BufWriter::new(output_file);
 
         for record in &records[record_index..record_index + records_to_write] {

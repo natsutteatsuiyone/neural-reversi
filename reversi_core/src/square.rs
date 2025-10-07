@@ -1,5 +1,5 @@
-use std::str::FromStr;
 use std::fmt;
+use std::str::FromStr;
 
 /// Represents a square on a reversi board, ranging from A1 to H8.
 ///
@@ -48,7 +48,10 @@ impl Square {
     /// For example, A1 returns 0x1, B1 returns 0x2, H8 returns 0x8000000000000000.
     #[inline]
     pub fn bitboard(self) -> u64 {
-        debug_assert!((self as usize) < 64, "Index out of bounds for Square enum. self: {self:?}");
+        debug_assert!(
+            (self as usize) < 64,
+            "Index out of bounds for Square enum. self: {self:?}"
+        );
         1 << self as u8
     }
 
@@ -72,7 +75,10 @@ impl Square {
     /// The corresponding `Square` variant.
     #[inline]
     pub fn from_u8_unchecked(index: u8) -> Square {
-        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {index:?}");
+        debug_assert!(
+            index <= 64,
+            "Index out of bounds for Square enum. index: {index:?}"
+        );
         unsafe { std::mem::transmute(index) }
     }
 
@@ -101,7 +107,10 @@ impl Square {
     /// The corresponding `Square` variant.
     #[inline]
     pub fn from_u32_unchecked(index: u32) -> Square {
-        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {index:?}");
+        debug_assert!(
+            index <= 64,
+            "Index out of bounds for Square enum. index: {index:?}"
+        );
         unsafe { std::mem::transmute(index as u8) }
     }
 
@@ -136,7 +145,10 @@ impl Square {
     /// Panics in debug mode if `index` > 64.
     #[inline]
     pub fn from_usize_unchecked(index: usize) -> Square {
-        debug_assert!(index <= 64, "Index out of bounds for Square enum. index: {index:?}");
+        debug_assert!(
+            index <= 64,
+            "Index out of bounds for Square enum. index: {index:?}"
+        );
         unsafe { std::mem::transmute(index as u8) }
     }
 
@@ -214,7 +226,7 @@ impl Square {
     /// # Returns
     /// An iterator that yields all 64 board squares.
     #[inline]
-    pub fn iter() -> impl Iterator<Item = Square>  {
+    pub fn iter() -> impl Iterator<Item = Square> {
         (0..TOTAL_SQUARES as u8).map(Square::from_u8_unchecked)
     }
 }
@@ -242,7 +254,10 @@ pub enum SquareError {
 impl fmt::Display for SquareError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SquareError::InvalidFormat => write!(f, "Invalid square format: must be 2 characters (e.g., 'a1')"),
+            SquareError::InvalidFormat => write!(
+                f,
+                "Invalid square format: must be 2 characters (e.g., 'a1')"
+            ),
             SquareError::InvalidFile(c) => write!(f, "Invalid file '{c}': must be a-h or A-H"),
             SquareError::InvalidRank(c) => write!(f, "Invalid rank '{c}': must be 1-8"),
         }
@@ -290,7 +305,9 @@ impl FromStr for Square {
 
         let file = file_char as u8 - b'a';
         let rank = rank_char as u8 - b'1';
-        Ok(Square::from_usize_unchecked(rank as usize * BOARD_SIZE + file as usize))
+        Ok(Square::from_usize_unchecked(
+            rank as usize * BOARD_SIZE + file as usize,
+        ))
     }
 }
 

@@ -81,8 +81,7 @@ const LEFT_RIGHT_MASK: [V8DI; 66] = [
 ];
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512vl,avx512cd")]
-#[inline]
+#[target_feature(enable = "avx512cd,avx512vl")]
 fn mm_flip(op: __m128i, x: usize) -> __m128i {
     let pp = _mm256_broadcastq_epi64(op);
     let oo = _mm256_broadcastq_epi64(_mm_unpackhi_epi64(op, op));
@@ -117,7 +116,7 @@ fn mm_flip(op: __m128i, x: usize) -> __m128i {
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512vl,avx512cd")]
+#[target_feature(enable = "avx512cd,avx512vl")]
 #[inline]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     let op = _mm_set_epi64x(o as i64, p as i64);

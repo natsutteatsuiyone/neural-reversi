@@ -304,10 +304,12 @@ impl PatternFeatures {
     pub fn update(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("avx512bw") {
+            if cfg!(target_feature = "avx512bw") {
                 unsafe { self.update_avx512(sq, flipped, ply, side_to_move) }
                 return;
-            } else if is_x86_feature_detected!("avx2") {
+            }
+
+            if cfg!(target_feature = "avx2") {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
                 return;
             }

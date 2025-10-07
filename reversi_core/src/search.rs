@@ -65,7 +65,6 @@ impl Default for SearchOptions {
     }
 }
 
-
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
         let n_threads = options.n_threads.min(num_cpus::get()).max(1);
@@ -83,11 +82,24 @@ impl Search {
         self.generation = 0;
     }
 
-    pub fn run(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool) -> SearchResult {
+    pub fn run(
+        &mut self,
+        board: &Board,
+        level: Level,
+        selectivity: Selectivity,
+        multi_pv: bool,
+    ) -> SearchResult {
         self.run_with_callback::<fn(SearchProgress)>(board, level, selectivity, multi_pv, None)
     }
 
-    pub fn run_with_callback<F>(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool, callback: Option<F>) -> SearchResult
+    pub fn run_with_callback<F>(
+        &mut self,
+        board: &Board,
+        level: Level,
+        selectivity: Selectivity,
+        multi_pv: bool,
+        callback: Option<F>,
+    ) -> SearchResult
     where
         F: Fn(SearchProgress) + Send + Sync + 'static,
     {
@@ -95,7 +107,14 @@ impl Search {
         self.execute_search(board, level, selectivity, multi_pv, callback)
     }
 
-    fn execute_search(&mut self, board: &Board, level: Level, selectivity: Selectivity, multi_pv: bool, callback: Option<Arc<SearchProgressCallback>>) -> SearchResult {
+    fn execute_search(
+        &mut self,
+        board: &Board,
+        level: Level,
+        selectivity: Selectivity,
+        multi_pv: bool,
+        callback: Option<Arc<SearchProgressCallback>>,
+    ) -> SearchResult {
         self.generation += 1;
 
         let task = SearchTask {

@@ -3,12 +3,12 @@
 //! This module defines the error hierarchy used throughout the match runner
 //! application, providing structured error handling for different failure modes.
 
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 use std::io;
 
 /// Comprehensive error type for match runner operations.
-/// 
+///
 /// This enum covers all possible error conditions that can occur during
 /// automated match execution, from I/O failures to engine communication errors.
 #[derive(Debug)]
@@ -56,12 +56,12 @@ impl From<String> for MatchRunnerError {
 }
 
 /// Convenience type alias for Results with MatchRunnerError.
-/// 
+///
 /// This type alias simplifies function signatures throughout the crate
 /// by providing a default Result type with MatchRunnerError as the error type.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
 /// # use match_runner::error::Result;
 /// fn might_fail() -> Result<String> {

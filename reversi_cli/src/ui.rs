@@ -8,12 +8,12 @@ use reversi_core::{
     self,
     level::{self},
     piece::Piece,
-    search::{self, SearchOptions},
     search::search_result::SearchResult,
+    search::{self, SearchOptions},
     square::Square,
     types::Selectivity,
 };
-use rustyline::{error::ReadlineError, DefaultEditor};
+use rustyline::{DefaultEditor, error::ReadlineError};
 use std::fmt;
 
 use crate::game::GameState;
@@ -155,7 +155,12 @@ impl fmt::Display for GameMode {
 /// * `hash_size` - Size of transposition table in MB
 /// * `initial_level` - Initial AI search level
 /// * `selectivity` - Search selectivity setting
-pub fn ui_loop(hash_size: usize, initial_level: usize, selectivity: Selectivity, threads: Option<usize>) {
+pub fn ui_loop(
+    hash_size: usize,
+    initial_level: usize,
+    selectivity: Selectivity,
+    threads: Option<usize>,
+) {
     let mut rl = DefaultEditor::new().unwrap();
     let mut game = GameState::new();
     let mut search_options = SearchOptions {
@@ -268,17 +273,15 @@ fn handle_command(
             execute_play_sequence(game, &moves)?;
             Ok(true)
         }
-        Command::SetBoard(board_str) => {
-            match parse_setboard(&board_str) {
-                Ok((board, side_to_move)) => {
-                    *game = GameState::from_board(board, side_to_move);
-                    search.init();
-                    println!("Board position set successfully.");
-                    Ok(true)
-                }
-                Err(err) => Err(format!("Invalid board format: {err}")),
+        Command::SetBoard(board_str) => match parse_setboard(&board_str) {
+            Ok((board, side_to_move)) => {
+                *game = GameState::from_board(board, side_to_move);
+                search.init();
+                println!("Board position set successfully.");
+                Ok(true)
             }
-        }
+            Err(err) => Err(format!("Invalid board format: {err}")),
+        },
         Command::Move(sq) => {
             if game.board.is_legal_move(sq) {
                 game.make_move(sq);
@@ -308,12 +311,7 @@ fn execute_ai_search(
     level: usize,
     selectivity: Selectivity,
 ) -> SearchResult {
-    search.run(
-        board,
-        level::get_level(level),
-        selectivity,
-        false,
-    )
+    search.run(board, level::get_level(level), selectivity, false)
 }
 
 /// Display the results of an AI search in either verbose or compact format.
@@ -334,20 +332,14 @@ fn display_search_result(result: &SearchResult, mv: Square, verbose: bool) {
         println!("║           AI Search Results               ║");
         println!("╠═══════════════════════════════════════════╣");
         println!("║ Depth      : {depth:>28} ║");
-        println!(
-            "║ Evaluation : {:>28} ║",
-            format!("{:+.2}", result.score)
-        );
+        println!("║ Evaluation : {:>28} ║", format!("{:+.2}", result.score));
         println!("║ Nodes      : {:>28} ║", format!("{}", result.n_nodes));
         println!("║ Best Move  : {:>28} ║", format!("{:?}", mv));
         println!("╚═══════════════════════════════════════════╝");
     } else {
         println!(
             "AI plays {:?} (eval: {:+.2}, depth: {}, nodes: {})",
-            mv,
-            result.score,
-            depth,
-            result.n_nodes
+            mv, result.score, depth, result.n_nodes
         );
     }
 }
@@ -400,7 +392,10 @@ fn execute_ai_move(
 /// ```
 fn parse_setboard(board_str: &str) -> Result<(reversi_core::board::Board, Piece), String> {
     if board_str.len() < 65 {
-        return Err("Board string must be at least 65 characters (64 for board + 1 for side_to_move)".to_string());
+        return Err(
+            "Board string must be at least 65 characters (64 for board + 1 for side_to_move)"
+                .to_string(),
+        );
     }
 
     let board_part = &board_str[..64];
@@ -418,7 +413,11 @@ fn parse_setboard(board_str: &str) -> Result<(reversi_core::board::Board, Piece)
     let side_to_move = match side_to_move_char {
         'b' | 'B' | 'x' | 'X' | '*' => Piece::Black,
         'o' | 'O' | 'w' | 'W' => Piece::White,
-        _ => return Err(format!("Invalid side to move character: {side_to_move_char}")),
+        _ => {
+            return Err(format!(
+                "Invalid side to move character: {side_to_move_char}"
+            ));
+        }
     };
 
     // Parse the board
@@ -492,7 +491,9 @@ fn print_help() {
     println!("  mode, m [n]     - Show/set game mode");
     println!("  go              - Let AI make a move with analysis");
     println!("  play <moves>    - Play a sequence of moves");
-    println!("  setboard <pos>  - Set board position (64 board chars + optional spaces + 1 side to move char)");
+    println!(
+        "  setboard <pos>  - Set board position (64 board chars + optional spaces + 1 side to move char)"
+    );
     println!("  help, h         - Show this help");
     println!("  quit, q         - Exit the program");
 }

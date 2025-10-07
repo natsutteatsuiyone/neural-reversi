@@ -376,7 +376,10 @@ mod tests {
         }
 
         // Verify count decreased
-        assert_eq!(empty_list.count, initial_count - squares_to_test.len() as u32);
+        assert_eq!(
+            empty_list.count,
+            initial_count - squares_to_test.len() as u32
+        );
 
         // Restore all squares in reverse order
         for &sq in squares_to_test.iter().rev() {
@@ -484,7 +487,10 @@ mod tests {
 
         while current != Square::None {
             let sq_idx = current.index();
-            assert!(!visited_squares[sq_idx], "Square visited twice: {current:?}");
+            assert!(
+                !visited_squares[sq_idx],
+                "Square visited twice: {current:?}"
+            );
             visited_squares[sq_idx] = true;
             current = empty_list.next(current);
             count += 1;
@@ -513,8 +519,12 @@ mod tests {
         let mut found_f3 = false;
 
         while current != Square::None {
-            if current == Square::C3 { found_c3 = true; }
-            if current == Square::F3 { found_f3 = true; }
+            if current == Square::C3 {
+                found_c3 = true;
+            }
+            if current == Square::F3 {
+                found_f3 = true;
+            }
             current = empty_list.next(current);
             count += 1;
         }
@@ -555,7 +565,10 @@ mod tests {
         // Mark all squares in PRESORTED
         for &sq in PRESORTED.iter() {
             let sq_idx = sq.index();
-            assert!(!squares_seen[sq_idx], "Duplicate square in PRESORTED: {sq:?}");
+            assert!(
+                !squares_seen[sq_idx],
+                "Duplicate square in PRESORTED: {sq:?}"
+            );
             squares_seen[sq_idx] = true;
         }
 

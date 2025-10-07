@@ -43,8 +43,8 @@ fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
         Ok(mut search) => {
             search.init();
             Ok(())
-        },
-        Err(e) => Err(format!("Failed to initialize search: {e}"))
+        }
+        Err(e) => Err(format!("Failed to initialize search: {e}")),
     }
 }
 
@@ -94,8 +94,14 @@ async fn ai_move_command(
 
         AIMoveResult {
             best_move: result.best_move.map(|square| square.index()),
-            row: result.best_move.map(|square| square as i32 / 8).unwrap_or(-1),
-            col: result.best_move.map(|square| square as i32 % 8).unwrap_or(-1),
+            row: result
+                .best_move
+                .map(|square| square as i32 / 8)
+                .unwrap_or(-1),
+            col: result
+                .best_move
+                .map(|square| square as i32 % 8)
+                .unwrap_or(-1),
             score: (result.score * 10.0).round() / 10.0,
             depth: result.depth,
             acc: result.get_probability(),
@@ -164,7 +170,12 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![ai_move_command, init_ai_command, abort_ai_search_command, analyze_command])
+        .invoke_handler(tauri::generate_handler![
+            ai_move_command,
+            init_ai_command,
+            abort_ai_search_command,
+            analyze_command
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

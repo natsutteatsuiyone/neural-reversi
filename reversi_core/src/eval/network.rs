@@ -6,8 +6,8 @@ use std::io::{self, BufReader};
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::activations::{clipped_relu, sqr_clipped_relu};
-use crate::eval::input_layer::{BaseInput, PhaseAdaptiveInput};
 use crate::eval::constants::*;
+use crate::eval::input_layer::{BaseInput, PhaseAdaptiveInput};
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
 use crate::types::Score;
@@ -51,12 +51,7 @@ struct LayerStack {
         L1_PA_PADDED_INPUT_DIMS,
         L1_PA_PADDED_OUTPUT_DIMS,
     >,
-    pub l2: LinearLayer<
-        L2_INPUT_DIMS,
-        L2_OUTPUT_DIMS,
-        L2_PADDED_INPUT_DIMS,
-        L2_PADDED_OUTPUT_DIMS,
-    >,
+    pub l2: LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>,
     pub lo: LinearLayer<
         LO_INPUT_DIMS,
         1,
@@ -118,11 +113,15 @@ impl Network {
         let reader = BufReader::new(file);
         let mut decoder = zstd::stream::read::Decoder::new(reader)?;
 
-        let base_input = BaseInput::<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>::load(&mut decoder)?;
+        let base_input =
+            BaseInput::<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>::load(
+                &mut decoder,
+            )?;
 
         let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
         for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
-            let pa_input = PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
+            let pa_input =
+                PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
             pa_inputs.push(pa_input);
         }
 
@@ -184,7 +183,8 @@ impl Network {
         let feature_indices = &buffers.feature_indices;
         let output = &mut buffers.base_out;
 
-        self.base_input.forward(feature_indices, &mut output[0..BASE_OUTPUT_DIMS]);
+        self.base_input
+            .forward(feature_indices, &mut output[0..BASE_OUTPUT_DIMS]);
         output[L1_BASE_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
     }
 
@@ -201,7 +201,8 @@ impl Network {
 
     #[inline(always)]
     fn forward_l1(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
-        ls.l1_base .forward(&buffers.base_out, &mut buffers.l1_base_out);
+        ls.l1_base
+            .forward(&buffers.base_out, &mut buffers.l1_base_out);
         ls.l1_pa.forward(&buffers.pa_out, &mut buffers.l1_pa_out);
 
         buffers.l1_li_out[..L1_BASE_OUTPUT_DIMS]
@@ -214,7 +215,8 @@ impl Network {
 
         const L2_INPUT_DIMS_HALF: usize = L2_INPUT_DIMS / 2;
         buffers.l1_out[..L2_INPUT_DIMS_HALF].copy_from_slice(buffers.l1_sqr_relu.as_slice());
-        buffers.l1_out[L2_INPUT_DIMS_HALF..L2_INPUT_DIMS].copy_from_slice(buffers.l1_relu.as_slice());
+        buffers.l1_out[L2_INPUT_DIMS_HALF..L2_INPUT_DIMS]
+            .copy_from_slice(buffers.l1_relu.as_slice());
     }
 
     #[inline(always)]
@@ -236,5 +238,3 @@ impl Network {
         output[0] >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }
-
-

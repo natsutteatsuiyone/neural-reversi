@@ -240,7 +240,8 @@ impl MoveList {
                     if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
                         // Calculate reduction based on how much worse this move is
                         let diff = max_value - mv.value;
-                        mv.reduction_depth = (((diff / 2) + (SBR_MARGIN / 2)) / SBR_MARGIN) as Depth;
+                        mv.reduction_depth =
+                            (((diff / 2) + (SBR_MARGIN / 2)) / SBR_MARGIN) as Depth;
                     }
                 }
             }
@@ -263,8 +264,10 @@ impl MoveList {
                 TT_MOVE_VALUE
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                let mut value = bitboard::get_corner_stability(next.opponent) as i32 * CORNER_STABILITY_WEIGHT;
-                value += (36 - (bitboard::corner_weighted_mobility(next.get_moves()) as i32)) * MOBILITY_WEIGHT;
+                let mut value =
+                    bitboard::get_corner_stability(next.opponent) as i32 * CORNER_STABILITY_WEIGHT;
+                value += (36 - (bitboard::corner_weighted_mobility(next.get_moves()) as i32))
+                    * MOBILITY_WEIGHT;
                 value
             }
         }
@@ -448,7 +451,7 @@ mod tests {
              --------\
              --------\
              --------",
-            Piece::Black
+            Piece::Black,
         );
 
         let move_list = MoveList::new(&board);
@@ -593,7 +596,7 @@ mod tests {
              XXXXXXXX\
              XXXXXXXO\
              XXXXXXO-",
-            Piece::Black
+            Piece::Black,
         );
 
         let move_list = MoveList::new(&board);
@@ -687,7 +690,7 @@ mod tests {
              ........\
              ........\
              ........",
-            Piece::Black
+            Piece::Black,
         );
 
         let mut move_list = MoveList::new(&board);

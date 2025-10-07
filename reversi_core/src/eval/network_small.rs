@@ -6,9 +6,9 @@ use std::io::{self, BufReader};
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::activations::clipped_relu;
+use crate::eval::input_layer::PhaseAdaptiveInput;
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
-use crate::eval::input_layer::PhaseAdaptiveInput;
 use crate::types::Score;
 use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
@@ -96,7 +96,8 @@ impl NetworkSmall {
 
         let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
         for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
-            let pa_input = PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
+            let pa_input =
+                PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
             pa_inputs.push(pa_input);
         }
 
@@ -149,11 +150,7 @@ impl NetworkSmall {
 
     #[inline(always)]
     fn forward_input_pa(&self, buffers: &mut NetworkBuffers, mobility: u8, ply: usize) {
-        let pa_index = if ply < 30 {
-            0
-        } else {
-            (ply - 30) / 6 + 1
-        };
+        let pa_index = if ply < 30 { 0 } else { (ply - 30) / 6 + 1 };
         let pa_input = &self.pa_inputs[pa_index];
         pa_input.forward(&buffers.feature_indices, buffers.pa_out.as_mut_slice());
         buffers.pa_out[L1_PA_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
@@ -180,4 +177,3 @@ impl NetworkSmall {
         output[0] >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }
-

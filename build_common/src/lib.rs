@@ -14,10 +14,14 @@ pub enum Error {
 }
 
 impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self { Error::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e)
+    }
 }
 impl From<env::VarError> for Error {
-    fn from(e: env::VarError) -> Self { Error::Env(e) }
+    fn from(e: env::VarError) -> Self {
+        Error::Env(e)
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -64,9 +68,7 @@ fn get_target_profile_dir(out_dir: &Path, profile: &str) -> Result<PathBuf, Erro
 ///
 /// * `Ok(())` if the files were copied successfully.
 /// * `Err(Error)` if there was an error during the process.
-fn copy_files_to_target_profile_dir(
-    files_to_copy: &[(&str, &str)],
-) -> Result<(), Error> {
+fn copy_files_to_target_profile_dir(files_to_copy: &[(&str, &str)]) -> Result<(), Error> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let profile = env::var("PROFILE")?;
     let target_dir = get_target_profile_dir(&out_dir, &profile)?;
@@ -105,7 +107,7 @@ fn copy_files_to_target_profile_dir(
                     println!("cargo:rerun-if-changed={}", canonical_src_path.display());
                 }
                 Err(e) => {
-                     eprintln!(
+                    eprintln!(
                         "cargo:warning=Failed to canonicalize source path {} for rerun-if-changed: {}",
                         src_path.display(),
                         e

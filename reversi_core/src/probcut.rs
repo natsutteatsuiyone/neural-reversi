@@ -19,12 +19,12 @@ pub const NO_SELECTIVITY: u8 = 6;
 /// - `t_multiplier`: Statistical confidence multiplier (higher = more conservative)
 /// - `probability_percent`: Expected success probability percentage
 const SELECTIVITY: [(u8, f64, i32); NO_SELECTIVITY as usize + 1] = [
-    (0, 1.0, 68),   // Most aggressive: 68% confidence
+    (0, 1.0, 68), // Most aggressive: 68% confidence
     (1, 1.1, 73),
     (2, 1.5, 87),
     (3, 2.0, 95),
     (4, 2.6, 98),
-    (5, 3.3, 99),   // Most conservative: 99% confidence
+    (5, 3.3, 99),    // Most conservative: 99% confidence
     (6, 999.0, 100), // Effectively disabled
 ];
 
@@ -50,7 +50,6 @@ impl ProbcutParams {
     }
 }
 
-
 const MAX_PLY: usize = 60;
 const MAX_DEPTH: usize = 60;
 
@@ -65,17 +64,13 @@ static SIGMA_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock:
 /// Safely allocate a 3D table on the heap to avoid stack overflow
 fn alloc_3d_table() -> Box<MeanTable> {
     let tbl = vec![[0.0f64; MAX_DEPTH]; MAX_PLY * MAX_DEPTH].into_boxed_slice();
-    unsafe {
-        Box::from_raw(Box::into_raw(tbl) as *mut MeanTable)
-    }
+    unsafe { Box::from_raw(Box::into_raw(tbl) as *mut MeanTable) }
 }
 
 /// Safely allocate a 2D table on the heap to avoid stack overflow
 fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     let tbl = vec![0.0f64; MAX_DEPTH * MAX_DEPTH].into_boxed_slice();
-    unsafe {
-        Box::from_raw(Box::into_raw(tbl) as *mut [[f64; MAX_DEPTH]; MAX_DEPTH])
-    }
+    unsafe { Box::from_raw(Box::into_raw(tbl) as *mut [[f64; MAX_DEPTH]; MAX_DEPTH]) }
 }
 
 /// Build the pre-computed mean table for midgame positions
@@ -97,9 +92,7 @@ fn build_mean_table() -> Box<MeanTable> {
 
 /// Build the pre-computed sigma table for midgame positions
 fn build_sigma_table() -> Box<SigmaTable> {
-    let mut tbl = unsafe {
-        Box::from_raw(Box::into_raw(alloc_3d_table()) as *mut SigmaTable)
-    };
+    let mut tbl = unsafe { Box::from_raw(Box::into_raw(alloc_3d_table()) as *mut SigmaTable) };
 
     for ply in 0..MAX_PLY {
         let params = &PROBCUT_PARAMS[ply];
@@ -120,7 +113,8 @@ fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
-            let v = PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+            let v =
+                PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
             tbl[shallow][deep] = v;
             tbl[deep][shallow] = v;
         }
@@ -134,7 +128,8 @@ fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
-            let v = PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+            let v =
+                PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
             tbl[shallow][deep] = v;
             tbl[deep][shallow] = v;
         }
@@ -261,7 +256,15 @@ pub fn probcut_midgame(
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
             ctx.update_probcut();
-            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread, None);
+            let score = midgame::search::<NonPV, false>(
+                ctx,
+                board,
+                pc_depth,
+                pc_beta - 1,
+                pc_beta,
+                thread,
+                None,
+            );
             ctx.undo_probcut(current_selectivity);
             if score >= pc_beta {
                 return Some(beta);
@@ -272,7 +275,15 @@ pub fn probcut_midgame(
         let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
         if eval_score < eval_alpha && pc_alpha > MID_SCORE_MIN {
             ctx.update_probcut();
-            let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, thread, None);
+            let score = midgame::search::<NonPV, false>(
+                ctx,
+                board,
+                pc_depth,
+                pc_alpha,
+                pc_alpha + 1,
+                thread,
+                None,
+            );
             ctx.undo_probcut(current_selectivity);
             if score <= pc_alpha {
                 return Some(alpha);
@@ -307,7 +318,9 @@ pub fn probcut_endgame(
     if depth >= 10 && ctx.selectivity < NO_SELECTIVITY {
         let scaled_alpha = alpha << EVAL_SCORE_SCALE_BITS;
         let scaled_beta = beta << EVAL_SCORE_SCALE_BITS;
-        if let Some(score) = probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta, thread) {
+        if let Some(score) =
+            probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta, thread)
+        {
             return Some(score >> EVAL_SCORE_SCALE_BITS);
         }
     }
@@ -334,7 +347,15 @@ fn probcut_endgame_internal(
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
     if eval_score > alpha && pc_beta < MID_SCORE_MAX {
         ctx.update_probcut();
-        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread, None);
+        let score = midgame::search::<NonPV, false>(
+            ctx,
+            board,
+            pc_depth,
+            pc_beta - 1,
+            pc_beta,
+            thread,
+            None,
+        );
         ctx.undo_probcut(current_selectivity);
         if score >= pc_beta {
             return Some(beta);
@@ -342,9 +363,17 @@ fn probcut_endgame_internal(
     }
 
     let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
-    if eval_score < beta &&  pc_alpha > MID_SCORE_MIN {
+    if eval_score < beta && pc_alpha > MID_SCORE_MIN {
         ctx.update_probcut();
-        let score = midgame::search::<NonPV, false>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1, thread, None);
+        let score = midgame::search::<NonPV, false>(
+            ctx,
+            board,
+            pc_depth,
+            pc_alpha,
+            pc_alpha + 1,
+            thread,
+            None,
+        );
         ctx.undo_probcut(current_selectivity);
         if score <= pc_alpha {
             return Some(alpha);

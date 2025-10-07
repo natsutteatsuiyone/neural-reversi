@@ -2,16 +2,16 @@ use std::sync::Arc;
 
 use crate::board::Board;
 use crate::constants::MAX_PLY;
+use crate::constants::SCORE_INF;
 use crate::empty_list::EmptyList;
-use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::eval::Eval;
+use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::move_list::{Move, MoveList};
 use crate::probcut::{self};
+use crate::search::SearchProgress;
+use crate::search::SearchProgressCallback;
 use crate::search::root_move::RootMove;
 use crate::search::threading::SplitPoint;
-use crate::search::SearchProgressCallback;
-use crate::constants::SCORE_INF;
-use crate::search::SearchProgress;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, Score, Scoref};
@@ -173,7 +173,8 @@ impl SearchContext {
     #[inline]
     pub fn update(&mut self, mv: &Move) {
         self.increment_nodes();
-        self.pattern_features.update(mv.sq, mv.flipped, self.ply(), self.side_to_move);
+        self.pattern_features
+            .update(mv.sq, mv.flipped, self.ply(), self.side_to_move);
         self.switch_players();
         self.empty_list.remove(mv.sq);
     }
@@ -331,10 +332,7 @@ impl SearchContext {
     /// # Arguments
     /// * `sq` - The square of the root move to mark as searched
     pub fn mark_root_move_searched(&mut self, sq: Square) {
-        let mut root_moves = self
-            .root_moves
-            .lock()
-            .unwrap();
+        let mut root_moves = self.root_moves.lock().unwrap();
         if let Some(rm) = root_moves.iter_mut().find(|rm| rm.sq == sq) {
             rm.searched = true;
         }
@@ -342,10 +340,7 @@ impl SearchContext {
 
     /// Resets the searched flag for all root moves.
     pub fn reset_root_move_searched(&mut self) {
-        let mut root_moves = self
-            .root_moves
-            .lock()
-            .unwrap();
+        let mut root_moves = self.root_moves.lock().unwrap();
         for rm in root_moves.iter_mut() {
             rm.searched = false;
         }
@@ -381,10 +376,7 @@ impl SearchContext {
     /// # Returns
     /// True if the move has been searched, false otherwise
     pub fn is_move_searched(&self, sq: Square) -> bool {
-        let root_moves = self
-            .root_moves
-            .lock()
-            .unwrap();
+        let root_moves = self.root_moves.lock().unwrap();
         root_moves.iter().any(|rm| rm.sq == sq && rm.searched)
     }
 

@@ -1,7 +1,7 @@
 mod activations;
-mod input_layer;
 pub mod constants;
 mod eval_cache;
+mod input_layer;
 mod linear_layer;
 mod network;
 mod network_small;
@@ -116,4 +116,3 @@ impl Eval {
         }
     }
 }
-

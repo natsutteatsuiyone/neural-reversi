@@ -12,12 +12,13 @@ use reversi_core::{
     level,
     piece::Piece,
     search::{self, SearchOptions},
-    square::Square, types::Selectivity,
+    square::Square,
+    types::Selectivity,
 };
 
 use crate::game::GameState;
-use std::io::{self, BufRead, Write};
 use std::env;
+use std::io::{self, BufRead, Write};
 
 /// Represents a parsed GTP command with its arguments.
 ///
@@ -134,9 +135,19 @@ impl Command {
 /// List of all supported GTP command names.
 /// Used for the `list_commands` response and command validation.
 const COMMAND_NAMES: &[&str] = &[
-    "protocol_version", "name", "version", "known_command", "list_commands",
-    "quit", "boardsize", "clear_board", "play", "genmove", "showboard",
-    "undo", "set_level",
+    "protocol_version",
+    "name",
+    "version",
+    "known_command",
+    "list_commands",
+    "quit",
+    "boardsize",
+    "clear_board",
+    "play",
+    "genmove",
+    "showboard",
+    "undo",
+    "set_level",
 ];
 
 /// Represents a GTP response that can be either successful or an error.
@@ -193,7 +204,12 @@ impl GtpEngine {
     ///
     /// # Returns
     /// A new `GtpEngine` instance ready to process commands
-    pub fn new(hash_size: usize, level: usize, selectivity: Selectivity, threads: Option<usize>) -> Self {
+    pub fn new(
+        hash_size: usize,
+        level: usize,
+        selectivity: Selectivity,
+        threads: Option<usize>,
+    ) -> Self {
         let mut search_options = SearchOptions {
             tt_mb_size: hash_size,
             ..Default::default()
@@ -302,7 +318,11 @@ impl GtpEngine {
     ///
     /// # Returns
     /// Tuple of (id, command_name, arguments)
-    fn split_command_and_args<'a>(&self, id: Option<usize>, command: &'a str) -> (Option<usize>, &'a str, Vec<&'a str>) {
+    fn split_command_and_args<'a>(
+        &self,
+        id: Option<usize>,
+        command: &'a str,
+    ) -> (Option<usize>, &'a str, Vec<&'a str>) {
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.is_empty() {
             return (id, "", Vec::new());
@@ -325,7 +345,12 @@ impl GtpEngine {
     /// * `stdout` - Output stream to write to
     /// * `id` - Optional command ID to include in response
     /// * `response` - The response to output
-    fn output_response(&self, stdout: &mut impl Write, id: Option<usize>, response: &GtpResponse) -> io::Result<()> {
+    fn output_response(
+        &self,
+        stdout: &mut impl Write,
+        id: Option<usize>,
+        response: &GtpResponse,
+    ) -> io::Result<()> {
         let response_str = response.to_string();
         match id {
             Some(id) => {
@@ -582,8 +607,8 @@ impl GtpEngine {
             return Err("invalid color (must be 'b', 'w', 'black', or 'white')".to_string());
         }
 
-        let is_correct_color = (color == "b" || color == "black") && expected_color == "b" ||
-                              (color == "w" || color == "white") && expected_color == "w";
+        let is_correct_color = (color == "b" || color == "black") && expected_color == "b"
+            || (color == "w" || color == "white") && expected_color == "w";
 
         if !is_correct_color {
             return Err(format!("wrong color, expected {expected_color}"));
