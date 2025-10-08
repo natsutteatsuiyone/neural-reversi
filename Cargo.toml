@@ -10,5 +10,6 @@ edition = "2024"
 build_common = { path = "build_common" }
 
 [profile.release]
-lto = true
+lto = "fat"
 codegen-units = 1
+panic = "abort"
