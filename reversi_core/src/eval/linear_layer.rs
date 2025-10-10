@@ -94,11 +94,12 @@ impl<
     ) {
         #[cfg(target_arch = "x86_64")]
         {
-            if cfg!(target_feature = "avx512vnni") {
-                unsafe { self.forward_avx512_vnni(input, output) };
-                return;
-            } else if cfg!(target_feature = "avx512bw") {
-                unsafe { self.forward_avx512_bw(input, output) };
+            if cfg!(target_feature = "avx512bw") {
+                if is_x86_feature_detected!("avx512vnni") {
+                    unsafe { self.forward_avx512_vnni(input, output) };
+                } else {
+                    unsafe { self.forward_avx512_bw(input, output) };
+                }
                 return;
             } else if cfg!(target_feature = "avx2") {
                 unsafe { self.forward_avx2(input, output) };
