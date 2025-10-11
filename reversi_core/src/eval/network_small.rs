@@ -2,6 +2,7 @@
 
 use std::fs::File;
 use std::io::{self, BufReader};
+use std::path::Path;
 
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
@@ -89,7 +90,7 @@ pub struct NetworkSmall {
 
 impl NetworkSmall {
     /// Creates a new small network from compressed weights file
-    pub fn new(file_path: &str) -> io::Result<Self> {
+    pub fn new(file_path: &Path) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
         let mut decoder = zstd::stream::read::Decoder::new(reader)?;

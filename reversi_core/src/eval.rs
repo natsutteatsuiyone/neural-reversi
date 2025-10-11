@@ -9,6 +9,7 @@ pub mod pattern_feature;
 
 use std::env;
 use std::io;
+use std::path::Path;
 
 use constants::*;
 use eval_cache::EvalCache;
@@ -26,53 +27,34 @@ pub struct Eval {
     pub cache_sm: EvalCache,
 }
 
+fn missing_weights_error(name: &str, path: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::NotFound,
+        format!(
+            "Missing weights \"{name}\".\nExpected to find the file at: {path}.",
+            name = name,
+            path = path.display(),
+        ),
+    )
+}
+
 impl Eval {
     pub fn new() -> io::Result<Self> {
-        let exe_path = env::current_exe()
-            .map_err(|e| io::Error::other(format!("Failed to get current executable path: {e}")))?;
-        let exe_dir = exe_path.parent().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "Failed to get parent directory of executable",
-            )
-        })?;
+        let exe_path = env::current_exe()?;
+        let exe_dir = exe_path.parent().unwrap();
 
         let eval_file_path = exe_dir.join(EVAL_FILE_NAME);
         let eval_sm_file_path = exe_dir.join(EVAL_SM_FILE_NAME);
 
         if !eval_file_path.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!(
-                    "\"{}\" not found: {}",
-                    EVAL_FILE_NAME,
-                    eval_file_path.display()
-                ),
-            ));
+            return Err(missing_weights_error(EVAL_FILE_NAME, &eval_file_path));
         }
         if !eval_sm_file_path.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!(
-                    "\"{}\" not found: {}",
-                    EVAL_SM_FILE_NAME,
-                    eval_sm_file_path.display()
-                ),
-            ));
+            return Err(missing_weights_error(EVAL_SM_FILE_NAME, &eval_sm_file_path));
         }
 
-        let network = Network::new(eval_file_path.to_str().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Failed to convert eval_file_path to str",
-            )
-        })?)?;
-        let network_sm = NetworkSmall::new(eval_sm_file_path.to_str().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Failed to convert eval_sm_file_path to str",
-            )
-        })?)?;
+        let network = Network::new(&eval_file_path)?;
+        let network_sm = NetworkSmall::new(&eval_sm_file_path)?;
         Ok(Eval {
             network,
             network_sm,
