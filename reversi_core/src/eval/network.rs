@@ -1,7 +1,7 @@
 //! Neural network for midgame evaluation.
 
 use std::fs::File;
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 use crate::board::Board;
@@ -112,6 +112,16 @@ impl Network {
     pub fn new(file_path: &Path) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
+        Self::from_reader(reader)
+    }
+
+    /// Creates a new network by loading weights from an in-memory blob
+    pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
+        let cursor = io::Cursor::new(bytes);
+        Self::from_reader(cursor)
+    }
+
+    fn from_reader<R: Read>(reader: R) -> io::Result<Self> {
         let mut decoder = zstd::stream::read::Decoder::new(reader)?;
 
         let base_input =

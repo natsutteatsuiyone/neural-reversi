@@ -1,6 +1,7 @@
 mod endgame;
 pub mod midgame;
 pub mod node_type;
+pub mod options;
 mod root_move;
 pub mod search_context;
 pub mod search_result;
@@ -24,12 +25,6 @@ pub struct Search {
     generation: u8,
     threads: Arc<ThreadPool>,
     eval: Arc<Eval>,
-}
-
-/// Configuration options for the search engine
-pub struct SearchOptions {
-    pub tt_mb_size: usize,
-    pub n_threads: usize,
 }
 
 /// Task structure passed to search threads
@@ -56,23 +51,21 @@ pub struct SearchProgress {
 /// Type alias for search progress callback
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
-impl Default for SearchOptions {
-    fn default() -> Self {
-        SearchOptions {
-            tt_mb_size: 64,
-            n_threads: num_cpus::get(),
-        }
-    }
-}
+pub use options::SearchOptions;
 
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
         let n_threads = options.n_threads.min(num_cpus::get()).max(1);
+        let eval = Eval::with_weight_files(
+            options.eval_path.as_deref(),
+            options.eval_sm_path.as_deref(),
+        )
+        .unwrap_or_else(|err| panic!("failed to load evaluation weights: {err}"));
         Search {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
             generation: 0,
             threads: ThreadPool::new(n_threads),
-            eval: Arc::new(Eval::new().unwrap()),
+            eval: Arc::new(eval),
         }
     }
 

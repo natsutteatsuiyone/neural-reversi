@@ -1,5 +1,20 @@
 use super::pattern_feature;
 
+macro_rules! eval_main_weights_literal {
+    () => {
+        "eval-89efa0d1.zst"
+    };
+}
+
+macro_rules! eval_small_weights_literal {
+    () => {
+        "eval_sm-89efa0d1.zst"
+    };
+}
+
+pub(crate) use eval_main_weights_literal;
+pub(crate) use eval_small_weights_literal;
+
 /// Size of a CPU cache line in bytes.
 pub const CACHE_LINE_SIZE: usize = 64;
 
@@ -27,10 +42,10 @@ pub const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 pub const OUTPUT_WEIGHT_SCALE_BITS: i32 = 4;
 
 /// Filename for the main neural network weights (zstd compressed).
-pub const EVAL_FILE_NAME: &str = "eval-89efa0d1.zst";
+pub const EVAL_FILE_NAME: &str = eval_main_weights_literal!();
 
 /// Filename for the small neural network weights (zstd compressed).
-pub const EVAL_SM_FILE_NAME: &str = "eval_sm-89efa0d1.zst";
+pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
 /// Each square can have 3 states: empty, black, or white.

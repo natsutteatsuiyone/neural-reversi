@@ -27,12 +27,15 @@ pub struct Eval {
     pub cache_sm: EvalCache,
 }
 
-fn missing_weights_error(name: &str, path: &Path) -> io::Error {
+fn missing_weights_error(path: &Path) -> io::Error {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("weights file");
     io::Error::new(
         io::ErrorKind::NotFound,
         format!(
             "Missing weights \"{name}\".\nExpected to find the file at: {path}.",
-            name = name,
             path = path.display(),
         ),
     )
@@ -46,15 +49,44 @@ impl Eval {
         let eval_file_path = exe_dir.join(EVAL_FILE_NAME);
         let eval_sm_file_path = exe_dir.join(EVAL_SM_FILE_NAME);
 
-        if !eval_file_path.exists() {
-            return Err(missing_weights_error(EVAL_FILE_NAME, &eval_file_path));
-        }
-        if !eval_sm_file_path.exists() {
-            return Err(missing_weights_error(EVAL_SM_FILE_NAME, &eval_sm_file_path));
-        }
+        let eval_override = eval_file_path.is_file().then_some(eval_file_path);
+        let eval_sm_override = eval_sm_file_path.is_file().then_some(eval_sm_file_path);
 
-        let network = Network::new(&eval_file_path)?;
-        let network_sm = NetworkSmall::new(&eval_sm_file_path)?;
+        Self::with_weight_files(eval_override.as_deref(), eval_sm_override.as_deref())
+    }
+
+    pub fn with_weight_files(
+        eval_path: Option<&Path>,
+        eval_sm_path: Option<&Path>,
+    ) -> io::Result<Self> {
+        let network = match eval_path {
+            Some(path) => match Network::new(path) {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                    Err(missing_weights_error(path))
+                }
+                other => other,
+            },
+            None => Network::from_bytes(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../",
+                constants::eval_main_weights_literal!()
+            ))),
+        }?;
+
+        let network_sm = match eval_sm_path {
+            Some(path) => match NetworkSmall::new(path) {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                    Err(missing_weights_error(path))
+                }
+                other => other,
+            },
+            None => NetworkSmall::from_bytes(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../",
+                constants::eval_small_weights_literal!()
+            ))),
+        }?;
+
         Ok(Eval {
             network,
             network_sm,

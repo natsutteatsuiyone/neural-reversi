@@ -1,13 +1,10 @@
 [workspace]
-members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "datagen", "ffotest", "match_runner", "build_common"]
+members = ["reversi_cli", "reversi_gui/src-tauri", "reversi_core", "datagen", "ffotest", "match_runner"]
 resolver = "2"
 
 [workspace.package]
 version = "0.12.0"
 edition = "2024"
-
-[workspace.dependencies]
-build_common = { path = "build_common" }
 
 [profile.release]
 lto = "fat"

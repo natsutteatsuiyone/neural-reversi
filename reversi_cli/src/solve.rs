@@ -17,17 +17,15 @@ pub fn solve(
     level: usize,
     selectivity: Selectivity,
     threads: Option<usize>,
+    eval_path: Option<&Path>,
+    eval_sm_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
-    let mut search_options = SearchOptions {
-        tt_mb_size: hash_size,
-        ..Default::default()
-    };
-    if let Some(n_threads) = threads {
-        search_options.n_threads = n_threads;
-    }
+    let search_options = SearchOptions::new(hash_size)
+        .with_threads(threads)
+        .with_eval_paths(eval_path, eval_sm_path);
 
     let mut search = Search::new(&search_options);
     let level_config = get_level(level);

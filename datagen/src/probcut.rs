@@ -86,10 +86,7 @@ struct ProbCutSample {
 ///
 /// Returns `Ok(())` on success, or an error if file operations fail.
 pub fn execute(input: &str, output: &str) -> io::Result<()> {
-    let options = SearchOptions {
-        tt_mb_size: TT_SIZE_MB,
-        ..Default::default()
-    };
+    let options = SearchOptions::new(TT_SIZE_MB);
     let mut search = Search::new(&options);
 
     let input_file = File::open(input).map_err(|e| {

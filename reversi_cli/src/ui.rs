@@ -15,6 +15,7 @@ use reversi_core::{
 };
 use rustyline::{DefaultEditor, error::ReadlineError};
 use std::fmt;
+use std::path::Path;
 
 use crate::game::GameState;
 
@@ -160,16 +161,14 @@ pub fn ui_loop(
     initial_level: usize,
     selectivity: Selectivity,
     threads: Option<usize>,
-) {
+    eval_path: Option<&Path>,
+    eval_sm_path: Option<&Path>,
+) -> std::io::Result<()> {
     let mut rl = DefaultEditor::new().unwrap();
     let mut game = GameState::new();
-    let mut search_options = SearchOptions {
-        tt_mb_size: hash_size,
-        ..Default::default()
-    };
-    if let Some(n_threads) = threads {
-        search_options.n_threads = n_threads;
-    }
+    let search_options = SearchOptions::new(hash_size)
+        .with_threads(threads)
+        .with_eval_paths(eval_path, eval_sm_path);
     let mut search = search::Search::new(&search_options);
     let mut game_mode = GameMode(MODE_BOTH_HUMAN);
     let mut level = initial_level;
@@ -223,6 +222,7 @@ pub fn ui_loop(
             }
         }
     }
+    Ok(())
 }
 
 /// Handle execution of a parsed command.

@@ -391,13 +391,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "build_common"
-version = "0.12.0"
-dependencies = [
- "reversi_core",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -847,7 +840,6 @@ name = "datagen"
 version = "0.12.0"
 dependencies = [
  "anyhow",
- "build_common",
  "bytemuck",
  "byteorder",
  "chrono",
@@ -1170,7 +1162,6 @@ dependencies = [
 name = "ffotest"
 version = "0.12.0"
 dependencies = [
- "build_common",
  "clap",
  "colored",
  "num-format",
@@ -2378,7 +2369,6 @@ dependencies = [
 name = "neural-reversi"
 version = "0.12.0"
 dependencies = [
- "build_common",
  "reversi_core",
  "serde",
  "serde_json",
@@ -3424,7 +3414,6 @@ dependencies = [
 name = "reversi_cli"
 version = "0.12.0"
 dependencies = [
- "build_common",
  "clap",
  "colored",
  "reversi_core",

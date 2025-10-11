@@ -494,13 +494,8 @@ fn main() {
         std::process::exit(1);
     }
 
-    let mut search_options = search::SearchOptions {
-        tt_mb_size: args.hash_size as usize,
-        ..Default::default()
-    };
-    if let Some(threads) = args.threads {
-        search_options.n_threads = threads;
-    }
+    let search_options =
+        search::SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
 
     execute(&filtered, &search_options, args.depth, args.selectivity);
 }

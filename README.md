@@ -8,7 +8,6 @@ This is an experimental project to develop a high-accuracy neural network evalua
 - **reversi_cli**: Command-line interface for playing Reversi.
 - **reversi_gui**: Graphical user interface built with Tauri for playing Reversi.
 - **match_runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
-- **build_common**: Common build script utilities shared across different crates.
 - **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.
 - **ffotest**: [FFO endgame test suite](http://radagast.se/othello/ffotest.html). [Edax problems](https://github.com/abulmo/edax-reversi/tree/master/problem).
 

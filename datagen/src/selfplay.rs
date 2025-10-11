@@ -83,10 +83,7 @@ pub fn execute(
 ) -> io::Result<()> {
     fs::create_dir_all(output_dir)?;
 
-    let options = SearchOptions {
-        tt_mb_size: hash_size,
-        ..Default::default()
-    };
+    let options = SearchOptions::new(hash_size);
 
     let lv = get_level(level);
     let mut search = search::Search::new(&options);
@@ -140,10 +137,7 @@ pub fn execute_with_openings(
 ) -> io::Result<()> {
     fs::create_dir_all(output_dir)?;
 
-    let options = SearchOptions {
-        tt_mb_size: hash_size,
-        ..Default::default()
-    };
+    let options = SearchOptions::new(hash_size);
 
     let lv = get_level(level);
     let mut search = search::Search::new(&options);

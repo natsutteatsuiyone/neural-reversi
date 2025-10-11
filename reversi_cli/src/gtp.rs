@@ -19,6 +19,7 @@ use reversi_core::{
 use crate::game::GameState;
 use std::env;
 use std::io::{self, BufRead, Write};
+use std::path::Path;
 
 /// Represents a parsed GTP command with its arguments.
 ///
@@ -209,22 +210,20 @@ impl GtpEngine {
         level: usize,
         selectivity: Selectivity,
         threads: Option<usize>,
-    ) -> Self {
-        let mut search_options = SearchOptions {
-            tt_mb_size: hash_size,
-            ..Default::default()
-        };
-        if let Some(n_threads) = threads {
-            search_options.n_threads = n_threads;
-        }
-        Self {
+        eval_path: Option<&Path>,
+        eval_sm_path: Option<&Path>,
+    ) -> io::Result<Self> {
+        let search_options = SearchOptions::new(hash_size)
+            .with_threads(threads)
+            .with_eval_paths(eval_path, eval_sm_path);
+        Ok(Self {
             game: GameState::new(),
             search: search::Search::new(&search_options),
             level,
             selectivity,
             name: "Neural Reversi".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-        }
+        })
     }
 
     /// Runs the main GTP command loop.

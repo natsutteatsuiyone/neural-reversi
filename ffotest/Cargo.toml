@@ -2,7 +2,6 @@
 name = "ffotest"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
 
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
@@ -10,6 +9,3 @@ colored = "3.0.0"
 num-format = "0.4.4"
 
 reversi_core = { path = "../reversi_core" }
-
-[build-dependencies]
-build_common = { workspace = true }
