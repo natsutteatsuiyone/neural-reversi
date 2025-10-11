@@ -10,3 +10,4 @@ edition = "2024"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+strip = true
