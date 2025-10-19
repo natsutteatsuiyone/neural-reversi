@@ -195,29 +195,55 @@ pub fn execute_with_openings(
 
 /// Generates a random opening sequence for a game.
 ///
-/// Returns a vector of moves to play at the beginning of the game.
+/// This function creates a sequence of random moves for the start of a game.
+/// The generated sequence ensures that the position after the opening
+/// is always Black's turn to move, by making the total number of moves even.
+///
+/// # Arguments
+///
+/// * `num_moves` - The minimum number of random moves to generate. If this is
+///   an odd number, one extra move will be added to make the total even.
+///
+/// # Returns
+///
+/// A `Vec<Square>` containing the sequence of moves.
 fn generate_random_opening(num_moves: u8) -> Vec<Square> {
     let mut opening = Vec::new();
     let mut board = Board::new();
     let mut side_to_move = Piece::Black;
 
-    for _ in 0..num_moves {
-        if board.is_game_over() {
-            break;
+    // A helper closure to handle a single move generation.
+    // Returns `false` if the game ends.
+    let mut play_random_move = |b: &mut Board, stm: &mut Piece| -> bool {
+        if b.is_game_over() {
+            return false;
         }
 
-        if !board.has_legal_moves() {
-            board = board.switch_players();
-            side_to_move = side_to_move.opposite();
-            if !board.has_legal_moves() {
-                break;
+        if !b.has_legal_moves() {
+            *b = b.switch_players();
+            *stm = stm.opposite();
+            if !b.has_legal_moves() {
+                return false; // Both players passed, game over.
             }
         }
 
-        let sq = random_move(&board);
+        let sq = random_move(b);
         opening.push(sq);
-        board = board.make_move(sq);
-        side_to_move = side_to_move.opposite();
+        *b = b.make_move(sq);
+        *stm = stm.opposite();
+        true
+    };
+
+    // 1. Generate the initial sequence of `num_moves`.
+    for _ in 0..num_moves {
+        if !play_random_move(&mut board, &mut side_to_move) {
+            return opening;
+        }
+    }
+
+    // 2. If it's White's turn, play one more move to ensure Black is next.
+    if side_to_move == Piece::White {
+        play_random_move(&mut board, &mut side_to_move);
     }
 
     opening
