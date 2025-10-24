@@ -15,9 +15,10 @@ use threading::{Thread, ThreadPool};
 use crate::board::Board;
 use crate::eval::Eval;
 use crate::level::Level;
+use crate::move_list;
 use crate::square::Square;
-use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, Scoref, Selectivity};
+use crate::transposition_table::{Bound, TranspositionTable};
+use crate::types::{Depth, Score, Scoref, Selectivity};
 
 /// Main search engine structure
 pub struct Search {
@@ -159,4 +160,46 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     } else {
         endgame::search_root(task, thread)
     }
+}
+
+/// Enhanced Transposition Cutoff
+fn enhanced_transposition_cutoff(
+    ctx: &mut search_context::SearchContext,
+    board: &Board,
+    move_list: &move_list::MoveList,
+    depth: u32,
+    alpha: Score,
+    tt_key: u64,
+    tt_entry_index: usize,
+) -> Option<Score> {
+    let etc_depth = depth - 1;
+    for mv in move_list.iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+        ctx.increment_nodes();
+
+        let etc_tt_key = next.hash();
+        let (etc_tt_hit, etc_tt_data, _tt_entry_index) = ctx.tt.probe(etc_tt_key, ctx.generation);
+        if etc_tt_hit
+            && etc_tt_data.depth >= etc_depth
+            && etc_tt_data.selectivity >= ctx.selectivity
+        {
+            let score = -etc_tt_data.score;
+            if (etc_tt_data.bound == Bound::Exact as u8 || etc_tt_data.bound == Bound::Upper as u8)
+                && score > alpha
+            {
+                ctx.tt.store(
+                    tt_entry_index,
+                    tt_key,
+                    score,
+                    Bound::Lower,
+                    depth,
+                    mv.sq,
+                    ctx.selectivity,
+                    ctx.generation,
+                );
+                return Some(score);
+            }
+        }
+    }
+    None
 }

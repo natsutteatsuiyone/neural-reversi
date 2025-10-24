@@ -10,6 +10,7 @@ use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::NO_SELECTIVITY;
+use crate::search::enhanced_transposition_cutoff;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::search_context::SearchContext;
 use crate::search::threading::SplitPoint;
@@ -37,6 +38,9 @@ const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
 
 /// Minimum depth required for parallel search splitting.
 const MIN_SPLIT_DEPTH: Depth = 7;
+
+/// Minimum depth for enhanced transposition table cutoff.
+const MIN_ETC_DEPTH: Depth = 5;
 
 /// Depth threshold for switching from midgame to endgame search.
 pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 12;
@@ -262,6 +266,20 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         if move_list.count() > 1 {
             move_list.evaluate_moves::<NT>(ctx, board, n_empties, tt_move);
             move_list.sort();
+        }
+
+        if !NT::PV_NODE && n_empties > MIN_ETC_DEPTH {
+            if let Some(score) = enhanced_transposition_cutoff(
+                ctx,
+                board,
+                &move_list,
+                n_empties,
+                alpha,
+                tt_key,
+                tt_entry_index,
+            ) {
+                return score;
+            }
         }
 
         move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
