@@ -74,6 +74,8 @@ pub struct MoveList {
     move_buffer: [Move; MAX_MOVES],
     /// Number of legal moves in this position.
     count: usize,
+    /// The square of the wipeout move, if found.
+    pub wipeout_move: Option<Square>,
 }
 
 impl MoveList {
@@ -89,14 +91,24 @@ impl MoveList {
     pub fn new(board: &Board) -> MoveList {
         let mut move_buffer = [Move::default(); MAX_MOVES];
         let mut count = 0;
+        let mut wipeout_move = None;
         for sq in BitboardIterator::new(board.get_moves()) {
+            let flipped = flip::flip(sq, board.player, board.opponent);
             move_buffer[count].sq = sq;
-            move_buffer[count].flipped = flip::flip(sq, board.player, board.opponent);
+            move_buffer[count].flipped = flipped;
             move_buffer[count].value = i32::MIN;
             count += 1;
+
+            if flipped == board.opponent {
+                wipeout_move = Some(sq);
+            }
         }
 
-        MoveList { move_buffer, count }
+        MoveList {
+            move_buffer,
+            count,
+            wipeout_move,
+        }
     }
 
     /// Returns the number of legal moves in this position.

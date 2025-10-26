@@ -298,6 +298,13 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             } else {
                 return solve(board, n_empties);
             }
+        } else if let Some(sq) = move_list.wipeout_move {
+            if NT::ROOT_NODE {
+                ctx.update_root_move(sq, MID_SCORE_MAX, 1, alpha);
+            } else if NT::PV_NODE {
+                ctx.update_pv(sq);
+            }
+            return MID_SCORE_MAX;
         }
 
         // Look up position in transposition table
@@ -655,6 +662,8 @@ pub fn shallow_search<NT: NodeType>(
         } else {
             return solve(board, ctx.empty_list.count);
         }
+    } else if move_list.wipeout_move.is_some() {
+        return MID_SCORE_MAX;
     }
 
     let (tt_hit, tt_data, _tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);

@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::board::Board;
-use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
+use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF, SCORE_MAX};
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::NO_SELECTIVITY;
@@ -236,6 +236,13 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             } else {
                 return solve(board, n_empties);
             }
+        } else if let Some(sq) = move_list.wipeout_move {
+            if NT::ROOT_NODE {
+                ctx.update_root_move(sq, SCORE_MAX, 1, alpha);
+            } else if NT::PV_NODE {
+                ctx.update_pv(sq);
+            }
+            return SCORE_MAX;
         }
 
         // Look up position in transposition table
@@ -422,6 +429,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let mut best_score = -SCORE_INF;
     let n_empties = ctx.empty_list.count;
+    let beta = alpha + 1;
 
     let tt_key = board.hash();
     ctx.tt.prefetch(tt_key);
@@ -431,7 +439,9 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 
     let mut move_list = MoveList::new(board);
-    if move_list.count() >= 2 {
+    if move_list.wipeout_move.is_some() {
+        return SCORE_MAX;
+    } else if move_list.count() >= 2 {
         // transposition table lookup
         let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
         let tt_move = if tt_hit {
@@ -442,7 +452,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         if tt_hit
             && tt_data.depth >= n_empties
             && tt_data.selectivity >= ctx.selectivity
-            && tt_data.should_cutoff(alpha + 1)
+            && tt_data.should_cutoff(beta)
         {
             return tt_data.score;
         }
@@ -473,7 +483,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             tt_entry_index,
             tt_key,
             best_score,
-            Bound::determine_bound::<NonPV>(best_score, alpha + 1),
+            Bound::determine_bound::<NonPV>(best_score, beta),
             n_empties,
             best_move,
             NO_SELECTIVITY,
@@ -514,6 +524,8 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 /// Best score found
 pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
+    let beta = alpha + 1;
+
     let mut moves = board.get_moves();
     if moves == 0 {
         let next = board.switch_players();
@@ -547,14 +559,14 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 
             ctx.update_endgame(sq);
             let score = if ctx.empty_list.count == 4 {
-                if let Some(score) = stability::stability_cutoff(&next, 4, -(alpha + 1)) {
+                if let Some(score) = stability::stability_cutoff(&next, 4, -beta) {
                     -score
                 } else {
                     let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
-                    -solve4(ctx, &next, -(alpha + 1), sq1, sq2, sq3, sq4)
+                    -solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4)
                 }
             } else {
-                -shallow_search(ctx, &next, -(alpha + 1))
+                -shallow_search(ctx, &next, -beta)
             };
             ctx.undo_endgame(sq);
 
