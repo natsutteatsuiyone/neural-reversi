@@ -95,8 +95,6 @@ enum SubCommands {
 }
 
 fn main() {
-    reversi_core::init();
-
     let args = Cli::parse();
     match args.command {
         SubCommands::Feature {

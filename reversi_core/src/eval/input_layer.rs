@@ -1,19 +1,18 @@
 //! Input layers for the neural evaluation network.
-//!
-//! Combines base input, phase-adaptive input, and SIMD layout helpers.
 
+use core::mem::size_of;
 use std::io::{self, Read};
-use std::mem::zeroed;
-use std::ptr::copy_nonoverlapping;
+
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::*;
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::eval::CACHE_LINE_SIZE;
+use crate::eval::constants::{CACHE_LINE_SIZE, NUM_FEATURES};
+use crate::eval::pattern_feature::PatternFeature;
+use crate::eval::util::{clone_biases, feature_offset};
 use crate::util::align::Align64;
-
-const PREFETCH_DISTANCE: usize = 8;
-const AVX512_ACTIVATION_TILE: usize = 128;
 
 #[cfg(target_arch = "x86_64")]
 mod simd_layout {
@@ -83,6 +82,103 @@ mod simd_layout {
 
 use self::simd_layout::{permute_rows_avx2, permute_rows_avx512};
 
+macro_rules! impl_base_input_apply_activation {
+    (
+        $fn_name:ident,
+        $target_feature:literal,
+        $lane_ty:ty,
+        set1 = $set1:path,
+        setzero = $setzero:path,
+        max = $max:path,
+        min = $min:path,
+        slli = $slli:path,
+        mulhi = $mulhi:path,
+        packus = $packus:path
+    ) => {
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = $target_feature)]
+        fn $fn_name(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
+            unsafe {
+                let acc_ptr = acc.as_ptr() as *mut $lane_ty;
+                let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
+                const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
+                let num_regs = HIDDEN_DIMS / LANES_PER_REG;
+                let one = $set1(255 * 2);
+                let zero = $setzero();
+                let mut in0_ptr = acc_ptr;
+                let mut in1_ptr = acc_ptr.add(num_regs / 2);
+                let iterations = num_regs / 4;
+
+                for _ in 0..iterations {
+                    let in00 = *in0_ptr;
+                    let in01 = *in0_ptr.add(1);
+                    in0_ptr = in0_ptr.add(2);
+                    let in10 = *in1_ptr;
+                    let in11 = *in1_ptr.add(1);
+                    in1_ptr = in1_ptr.add(2);
+                    let clamp0a = $max($min(in00, one), zero);
+                    let clamp0b = $max($min(in01, one), zero);
+                    let sum0a = $slli(clamp0a, 6);
+                    let sum0b = $slli(clamp0b, 6);
+                    let sum1a = $min(in10, one);
+                    let sum1b = $min(in11, one);
+                    let pa = $mulhi(sum0a, sum1a);
+                    let pb = $mulhi(sum0b, sum1b);
+                    *output_ptr = $packus(pa, pb);
+                    output_ptr = output_ptr.add(1);
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_phase_input_apply_activation {
+    (
+        $fn_name:ident,
+        $target_feature:literal,
+        $lane_ty:ty,
+        load = $load:path,
+        store = $store:path,
+        set1_epi16 = $set1:path,
+        setzero = $setzero:path,
+        min_epi16 = $min:path,
+        max_epi16 = $max:path,
+        slli_epi16 = $slli:path,
+        mulhi_epu16 = $mulhi:path,
+        packus_epi16 = $packus:path
+    ) => {
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = $target_feature)]
+        fn $fn_name(&self, acc: &[i16; OUTPUT_DIMS], output: &mut [u8]) {
+            unsafe {
+                let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
+                let mut acc_ptr = acc.as_ptr() as *mut $lane_ty;
+                const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
+                let num_regs = OUTPUT_DIMS / LANES_PER_REG;
+                let one = $set1(255 * 2);
+                let zero = $setzero();
+                let iterations = num_regs / 2;
+
+                for _ in 0..iterations {
+                    let a1 = $load(acc_ptr);
+                    let a2 = $load(acc_ptr.add(1));
+
+                    let b1 = $max($min(a1, one), zero);
+                    let b2 = $max($min(a2, one), zero);
+
+                    let c1 = $mulhi($slli(b1, 6), b1);
+                    let c2 = $mulhi($slli(b2, 6), b2);
+
+                    $store(output_ptr, $packus(c1, c2));
+
+                    acc_ptr = acc_ptr.add(2);
+                    output_ptr = output_ptr.add(1);
+                }
+            }
+        }
+    };
+}
+
 /// Neural network base input layer
 ///
 /// Reference: https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h
@@ -115,20 +211,10 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         reader.read_i16_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
 
-        for i in 0..HIDDEN_DIMS {
-            biases[i] *= 2;
-        }
-
-        for i in 0..INPUT_DIMS * HIDDEN_DIMS {
-            weights[i] *= 2;
-        }
-
         #[cfg(target_arch = "x86_64")]
         {
             // Permute weights and biases for optimal SIMD access patterns.
-            if cfg!(target_feature = "avx512bw")
-                && HIDDEN_DIMS.is_multiple_of(AVX512_ACTIVATION_TILE)
-            {
+            if cfg!(target_feature = "avx512bw") {
                 permute_rows_avx512(biases.as_mut_slice(), HIDDEN_DIMS);
                 permute_rows_avx512(weights.as_mut_slice(), HIDDEN_DIMS);
             } else if cfg!(target_feature = "avx2") {
@@ -143,146 +229,90 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     /// Performs forward pass through the base input layer.
     ///
     /// # Arguments
-    /// * `feature_indices` - Sparse indices of active features to accumulate
+    /// * `pattern_feature` - Sparse feature values encoded by pattern index
     /// * `output` - Output buffer to write results (length must be OUTPUT_DIMS)
     #[inline(always)]
-    pub fn forward(&self, feature_indices: &[usize], output: &mut [u8]) {
+    pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         #[cfg(target_arch = "x86_64")]
         {
             if cfg!(target_feature = "avx512bw") {
-                unsafe { self.forward_avx512(feature_indices, output) };
+                unsafe { self.forward_avx512(pattern_feature, output) };
                 return;
             } else if cfg!(target_feature = "avx2") {
-                unsafe { self.forward_avx2(feature_indices, output) };
+                unsafe { self.forward_avx2(pattern_feature, output) };
                 return;
             }
         }
 
-        self.forward_fallback(feature_indices, output)
+        self.forward_fallback(pattern_feature, output)
     }
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx512bw")]
-    fn forward_avx512(&self, feature_indices: &[usize], output: &mut [u8]) {
+    fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
-            assert!(
-                HIDDEN_DIMS.is_multiple_of(64),
-                "HIDDEN_DIMS must be a multiple of 64"
-            );
-            assert!(
-                OUTPUT_DIMS * 2 == HIDDEN_DIMS,
-                "OUTPUT_DIMS must be half of HIDDEN_DIMS"
-            );
+            assert!(HIDDEN_DIMS.is_multiple_of(128));
+            assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
         }
 
-        unsafe {
-            use std::arch::x86_64::*;
-
-            let mut acc: Align64<[i16; HIDDEN_DIMS]> = zeroed();
-            let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
-            let num_regs = HIDDEN_DIMS / (512 / 16);
-
-            copy_nonoverlapping(self.biases.as_ptr() as *const __m512i, acc_ptr, num_regs);
-            accumulate_sparse_avx512::<HIDDEN_DIMS>(feature_indices, &self.weights, &mut acc);
-
-            if HIDDEN_DIMS.is_multiple_of(AVX512_ACTIVATION_TILE) {
-                let output_ptr = output.as_mut_ptr() as *mut __m512i;
-                let one = _mm512_set1_epi16(127 * 2);
-                let zero = _mm512_setzero_si512();
-                let in0_ptr = acc_ptr;
-                let in1_ptr = acc_ptr.add(num_regs / 2);
-                for j in 0..(num_regs / 4) {
-                    let in00 = *in0_ptr.add(j * 2);
-                    let in01 = *in0_ptr.add(j * 2 + 1);
-                    let in10 = *in1_ptr.add(j * 2);
-                    let in11 = *in1_ptr.add(j * 2 + 1);
-                    let clamp0a = _mm512_max_epi16(_mm512_min_epi16(in00, one), zero);
-                    let clamp0b = _mm512_max_epi16(_mm512_min_epi16(in01, one), zero);
-                    let sum0a = _mm512_slli_epi16(clamp0a, 7);
-                    let sum0b = _mm512_slli_epi16(clamp0b, 7);
-                    let sum1a = _mm512_min_epi16(in10, one);
-                    let sum1b = _mm512_min_epi16(in11, one);
-                    let pa = _mm512_mulhi_epi16(sum0a, sum1a);
-                    let pb = _mm512_mulhi_epi16(sum0b, sum1b);
-                    *output_ptr.add(j) = _mm512_packus_epi16(pa, pb);
-                }
-            } else {
-                self.apply_activation_avx2(&acc, output);
-            }
-        }
+        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
+        accumulate_avx512::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
+        self.apply_activation_avx512(&acc, output);
     }
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
-    fn forward_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
+    fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
-            assert!(
-                HIDDEN_DIMS.is_multiple_of(64),
-                "HIDDEN_DIMS must be a multiple of 64"
-            );
-            assert!(
-                OUTPUT_DIMS * 2 == HIDDEN_DIMS,
-                "OUTPUT_DIMS must be half of HIDDEN_DIMS"
-            );
+            assert!(HIDDEN_DIMS.is_multiple_of(64));
+            assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
         }
 
-        unsafe {
-            use std::arch::x86_64::*;
-
-            let mut acc: Align64<[i16; HIDDEN_DIMS]> = zeroed();
-            let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
-            let num_regs = HIDDEN_DIMS / (256 / 16);
-
-            copy_nonoverlapping(self.biases.as_ptr() as *const __m256i, acc_ptr, num_regs);
-            accumulate_sparse_avx2::<HIDDEN_DIMS>(feature_indices, &self.weights, &mut acc);
-            self.apply_activation_avx2(&acc, output);
-        }
+        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
+        accumulate_avx2::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
+        self.apply_activation_avx2(&acc, output);
     }
 
-    /// AVX2-optimized activation function.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    fn apply_activation_avx2(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
-        unsafe {
-            use std::arch::x86_64::*;
+    // AVX-512-optimized activation function.
+    impl_base_input_apply_activation!(
+        apply_activation_avx512,
+        "avx512bw",
+        __m512i,
+        set1 = _mm512_set1_epi16,
+        setzero = _mm512_setzero_si512,
+        max = _mm512_max_epi16,
+        min = _mm512_min_epi16,
+        slli = _mm512_slli_epi16,
+        mulhi = _mm512_mulhi_epi16,
+        packus = _mm512_packus_epi16
+    );
 
-            let acc_ptr = acc.as_ptr() as *mut __m256i;
-            let output_ptr = output.as_mut_ptr() as *mut __m256i;
-            let num_regs = HIDDEN_DIMS / (256 / 16);
-            let one = _mm256_set1_epi16(127 * 2);
-            let zero = _mm256_setzero_si256();
-            let in0_ptr = acc_ptr;
-            let in1_ptr = acc_ptr.add(num_regs / 2);
-            for j in 0..(num_regs / 4) {
-                let in00 = *in0_ptr.add(j * 2);
-                let in01 = *in0_ptr.add(j * 2 + 1);
-                let in10 = *in1_ptr.add(j * 2);
-                let in11 = *in1_ptr.add(j * 2 + 1);
-                let clamp0a = _mm256_max_epi16(_mm256_min_epi16(in00, one), zero);
-                let clamp0b = _mm256_max_epi16(_mm256_min_epi16(in01, one), zero);
-                let sum0a = _mm256_slli_epi16(clamp0a, 7);
-                let sum0b = _mm256_slli_epi16(clamp0b, 7);
-                let sum1a = _mm256_min_epi16(in10, one);
-                let sum1b = _mm256_min_epi16(in11, one);
-                let pa = _mm256_mulhi_epi16(sum0a, sum1a);
-                let pb = _mm256_mulhi_epi16(sum0b, sum1b);
-                *output_ptr.add(j) = _mm256_packus_epi16(pa, pb);
-            }
-        }
-    }
+    // AVX2-optimized activation function.
+    impl_base_input_apply_activation!(
+        apply_activation_avx2,
+        "avx2",
+        __m256i,
+        set1 = _mm256_set1_epi16,
+        setzero = _mm256_setzero_si256,
+        max = _mm256_max_epi16,
+        min = _mm256_min_epi16,
+        slli = _mm256_slli_epi16,
+        mulhi = _mm256_mulhi_epi16,
+        packus = _mm256_packus_epi16
+    );
 
     /// Fallback scalar implementation.
-    fn forward_fallback(&self, feature_indices: &[usize], output: &mut [u8]) {
+    fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         let mut acc = [0; HIDDEN_DIMS];
 
-        accumulate_sparse_scalar::<HIDDEN_DIMS>(feature_indices, &self.weights, &mut acc);
+        accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
 
         for i in 0..OUTPUT_DIMS {
             let sum0 = acc[i] + self.biases[i];
             let sum1 = acc[i + OUTPUT_DIMS] + self.biases[i + OUTPUT_DIMS];
-            let sum0 = sum0.clamp(0, 127 * 2) as u32;
-            let sum1 = sum1.clamp(0, 127 * 2) as u32;
-            output[i] = ((sum0 * sum1) / 512) as u8;
+            let sum0 = sum0.clamp(0, 255 * 2) as u32;
+            let sum1 = sum1.clamp(0, 255 * 2) as u32;
+            output[i] = ((sum0 * sum1) / 1024) as u8;
         }
     }
 }
@@ -322,9 +352,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         #[cfg(target_arch = "x86_64")]
         {
             // Permute weights and biases for optimal SIMD access patterns.
-            if cfg!(target_feature = "avx512bw")
-                && OUTPUT_DIMS.is_multiple_of(AVX512_ACTIVATION_TILE)
-            {
+            if cfg!(target_feature = "avx512bw") {
                 permute_rows_avx512(biases.as_mut_slice(), OUTPUT_DIMS);
                 permute_rows_avx512(weights.as_mut_slice(), OUTPUT_DIMS);
             } else if cfg!(target_feature = "avx2") {
@@ -339,352 +367,244 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     /// Performs forward pass through the phase-adaptive input layer.
     ///
     /// # Arguments
-    /// * `feature_indices` - Sparse indices of active features to accumulate
+    /// * `pattern_feature` - Sparse feature values encoded by pattern index
     /// * `output` - Output buffer to write results (length must be OUTPUT_DIMS)
     #[inline(always)]
-    pub fn forward(&self, feature_indices: &[usize], output: &mut [u8]) {
+    pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         #[cfg(target_arch = "x86_64")]
         {
             if cfg!(target_feature = "avx512bw") {
-                unsafe { self.forward_avx512(feature_indices, output) };
+                unsafe { self.forward_avx512(pattern_feature, output) };
                 return;
             } else if cfg!(target_feature = "avx2") {
-                unsafe { self.forward_avx2(feature_indices, output) };
+                unsafe { self.forward_avx2(pattern_feature, output) };
                 return;
             }
         }
 
-        self.forward_fallback(feature_indices, output);
+        self.forward_fallback(pattern_feature, output);
     }
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx512bw")]
-    fn forward_avx512(&self, feature_indices: &[usize], output: &mut [u8]) {
+    fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
-            assert!(
-                OUTPUT_DIMS.is_multiple_of(32),
-                "HIDDEN_DIMS must be a multiple of 32"
-            );
+            assert!(OUTPUT_DIMS.is_multiple_of(128));
         }
 
-        unsafe {
-            use std::arch::x86_64::*;
-
-            let mut acc: Align64<[i16; OUTPUT_DIMS]> = zeroed();
-            let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
-            let num_regs = OUTPUT_DIMS / (512 / 16);
-
-            copy_nonoverlapping(self.biases.as_ptr() as *const __m512i, acc_ptr, num_regs);
-            accumulate_sparse_avx512::<OUTPUT_DIMS>(feature_indices, &self.weights, &mut acc);
-
-            if OUTPUT_DIMS.is_multiple_of(AVX512_ACTIVATION_TILE) {
-                let mut output_ptr = output.as_mut_ptr() as *mut __m512i;
-                let bias8 = _mm512_set1_epi8(16);
-                let zero8 = _mm512_set1_epi8(0);
-
-                let mut acc_ptr_base = acc_ptr;
-                let iterations = num_regs / 2;
-                for _ in 0..iterations {
-                    let a = _mm512_load_si512(acc_ptr_base);
-                    let b = _mm512_load_si512(acc_ptr_base.add(1));
-                    acc_ptr_base = acc_ptr_base.add(2);
-
-                    let sa = _mm512_max_epi16(a, _mm512_srai_epi16(a, 3));
-                    let sb = _mm512_max_epi16(b, _mm512_srai_epi16(b, 3));
-                    let packed = _mm512_packs_epi16(sa, sb);
-                    let added = _mm512_adds_epi8(packed, bias8);
-                    let result = _mm512_max_epi8(added, zero8);
-                    _mm512_store_si512(output_ptr, result);
-                    output_ptr = output_ptr.add(1);
-                }
-            } else {
-                self.apply_activation_avx2(&acc, output);
-            }
-        }
+        let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
+        accumulate_avx512::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
+        self.apply_activation_avx512(&*acc, output);
     }
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
-    fn forward_avx2(&self, feature_indices: &[usize], output: &mut [u8]) {
+    fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
-            assert!(
-                OUTPUT_DIMS.is_multiple_of(32),
-                "HIDDEN_DIMS must be a multiple of 32"
-            );
+            assert!(OUTPUT_DIMS.is_multiple_of(64));
         }
 
-        unsafe {
-            use std::arch::x86_64::*;
-
-            let mut acc: Align64<[i16; OUTPUT_DIMS]> = zeroed();
-            let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
-            let num_regs = OUTPUT_DIMS / (256 / 16);
-
-            copy_nonoverlapping(self.biases.as_ptr() as *const __m256i, acc_ptr, num_regs);
-            accumulate_sparse_avx2::<OUTPUT_DIMS>(feature_indices, &self.weights, &mut acc);
-            self.apply_activation_avx2(&acc, output);
-        }
+        let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
+        accumulate_avx2::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
+        self.apply_activation_avx2(&*acc, output);
     }
 
-    /// AVX2 activation application helper.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    fn apply_activation_avx2(&self, acc: &[i16; OUTPUT_DIMS], output: &mut [u8]) {
-        unsafe {
-            use std::arch::x86_64::*;
+    // AVX-512-optimized activation function.
+    impl_phase_input_apply_activation!(
+        apply_activation_avx512,
+        "avx512bw",
+        __m512i,
+        load = _mm512_load_si512,
+        store = _mm512_store_si512,
+        set1_epi16 = _mm512_set1_epi16,
+        setzero = _mm512_setzero_si512,
+        min_epi16 = _mm512_min_epi16,
+        max_epi16 = _mm512_max_epi16,
+        slli_epi16 = _mm512_slli_epi16,
+        mulhi_epu16 = _mm512_mulhi_epu16,
+        packus_epi16 = _mm512_packus_epi16
+    );
 
-            let mut output_ptr = output.as_mut_ptr() as *mut __m256i;
-            let bias8 = _mm256_set1_epi8(16);
-            let zero8 = _mm256_set1_epi8(0);
-            let mut acc_ptr = acc.as_ptr() as *mut __m256i;
-            let num_regs = OUTPUT_DIMS / (256 / 16);
-            let iterations = num_regs / 2;
-            for _ in 0..iterations {
-                let a = _mm256_load_si256(acc_ptr);
-                let b = _mm256_load_si256(acc_ptr.add(1));
-                acc_ptr = acc_ptr.add(2);
-
-                // Apply LeakyReLU activation: result = max(x, x >> 3)
-                // This preserves positive values while attenuating negative values by 1/8
-                let sa = _mm256_max_epi16(a, _mm256_srai_epi16(a, 3));
-                let sb = _mm256_max_epi16(b, _mm256_srai_epi16(b, 3));
-
-                // Pack 16-bit values to 8-bit with saturation.
-                // Values > 127 are clamped to 127, values < -128 are clamped to -128.
-                let packed = _mm256_packs_epi16(sa, sb);
-
-                // Add bias to shift the range for unsigned output.
-                // Input range (packed): [-128, 127]
-                // Intermediate range: [-128+16, 127+16] -> [-112, 143]
-                // Output range (added): [-112, 127] (saturated addition)
-                let added = _mm256_adds_epi8(packed, bias8);
-
-                // Clamp to non-negative range for final output.
-                // Input range (added): [-112, 127]
-                // Output range (result): [0, 127]
-                let result = _mm256_max_epi8(added, zero8);
-
-                _mm256_store_si256(output_ptr, result);
-                output_ptr = output_ptr.add(1);
-            }
-        }
-    }
+    // AVX2-optimized activation function.
+    impl_phase_input_apply_activation!(
+        apply_activation_avx2,
+        "avx2",
+        __m256i,
+        load = _mm256_load_si256,
+        store = _mm256_store_si256,
+        set1_epi16 = _mm256_set1_epi16,
+        setzero = _mm256_setzero_si256,
+        min_epi16 = _mm256_min_epi16,
+        max_epi16 = _mm256_max_epi16,
+        slli_epi16 = _mm256_slli_epi16,
+        mulhi_epu16 = _mm256_mulhi_epu16,
+        packus_epi16 = _mm256_packus_epi16
+    );
 
     /// Fallback scalar implementation.
-    fn forward_fallback(&self, feature_indices: &[usize], output: &mut [u8]) {
+    fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         let mut acc = [0; OUTPUT_DIMS];
 
-        accumulate_sparse_scalar::<OUTPUT_DIMS>(feature_indices, &self.weights, &mut acc);
+        accumulate_scalar::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
 
         for i in 0..OUTPUT_DIMS {
-            let v = acc[i] + self.biases[i];
-            let v = if v >= 0 {
-                v.min(111)
-            } else {
-                (v >> 3).max(-16)
-            };
-
-            output[i] = (v + 16) as u8;
+            let v = (acc[i] + self.biases[i]) as i32;
+            let v = v.clamp(0, 255 * 2).pow(2) / 1024;
+            output[i] = v as u8;
         }
     }
 }
 
-/// Accumulates sparse features into a dense accumulator using AVX-512 instructions.
-///
-/// # Parameters
-/// * `feature_indices` - Sparse list of active features to incorporate.
-/// * `weights` - Flat weight matrix stored in feature-major order.
-/// * `acc` - Dense accumulator buffer updated in-place via packed `__m512i` lanes.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512bw")]
-fn accumulate_sparse_avx512<const DIMS: usize>(
-    feature_indices: &[usize],
-    weights: &[i16],
-    acc: &mut [i16; DIMS],
-) {
-    use std::arch::x86_64::*;
+macro_rules! impl_accumulate {
+    (
+        $fn_name:ident,
+        $target_feature:literal,
+        $lane_ty:ty,
+        load_u = $loadu:path,
+        load = $load:path,
+        store = $store:path,
+        add = $add:path
+    ) => {
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = $target_feature)]
+        fn $fn_name<const DIMS: usize>(
+            pattern_feature: &PatternFeature,
+            weights: &[i16],
+            acc: &mut [i16; DIMS],
+        ) {
+            use std::arch::x86_64::*;
 
-    unsafe {
-        let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
-        let num_regs = DIMS / (512 / 16);
-        let weights_ptr = weights.as_ptr();
+            unsafe {
+                let acc_ptr = acc.as_mut_ptr() as *mut $lane_ty;
+                let lanes_per_reg = size_of::<$lane_ty>() / size_of::<i16>();
+                let num_regs = DIMS / lanes_per_reg;
+                let weights_ptr = weights.as_ptr();
 
-        let len = feature_indices.len();
+                let mut base = 0;
+                while base + 8 <= NUM_FEATURES {
+                    let idx0 = feature_offset(pattern_feature, base);
+                    let idx1 = feature_offset(pattern_feature, base + 1);
+                    let idx2 = feature_offset(pattern_feature, base + 2);
+                    let idx3 = feature_offset(pattern_feature, base + 3);
+                    let idx4 = feature_offset(pattern_feature, base + 4);
+                    let idx5 = feature_offset(pattern_feature, base + 5);
+                    let idx6 = feature_offset(pattern_feature, base + 6);
+                    let idx7 = feature_offset(pattern_feature, base + 7);
 
-        // Prefetch initial features
-        for i in 0..PREFETCH_DISTANCE.min(len) {
-            let idx = *feature_indices.get_unchecked(i);
-            let prefetch_ptr = weights_ptr.add(idx * DIMS) as *const i8;
-            _mm_prefetch(prefetch_ptr, _MM_HINT_T0);
-            _mm_prefetch(prefetch_ptr.add(64), _MM_HINT_T0);
+                    let fw0 = weights_ptr.add(idx0 * DIMS) as *const $lane_ty;
+                    let fw1 = weights_ptr.add(idx1 * DIMS) as *const $lane_ty;
+                    let fw2 = weights_ptr.add(idx2 * DIMS) as *const $lane_ty;
+                    let fw3 = weights_ptr.add(idx3 * DIMS) as *const $lane_ty;
+                    let fw4 = weights_ptr.add(idx4 * DIMS) as *const $lane_ty;
+                    let fw5 = weights_ptr.add(idx5 * DIMS) as *const $lane_ty;
+                    let fw6 = weights_ptr.add(idx6 * DIMS) as *const $lane_ty;
+                    let fw7 = weights_ptr.add(idx7 * DIMS) as *const $lane_ty;
+
+                    for j in 0..num_regs {
+                        let w0 = $loadu(fw0.add(j));
+                        let w1 = $loadu(fw1.add(j));
+                        let w2 = $loadu(fw2.add(j));
+                        let w3 = $loadu(fw3.add(j));
+                        let w4 = $loadu(fw4.add(j));
+                        let w5 = $loadu(fw5.add(j));
+                        let w6 = $loadu(fw6.add(j));
+                        let w7 = $loadu(fw7.add(j));
+
+                        let sum01 = $add(w0, w1);
+                        let sum23 = $add(w2, w3);
+                        let sum45 = $add(w4, w5);
+                        let sum67 = $add(w6, w7);
+
+                        let sum0123 = $add(sum01, sum23);
+                        let sum4567 = $add(sum45, sum67);
+
+                        let sum_all = $add(sum0123, sum4567);
+
+                        let acc_val = $load(acc_ptr.add(j));
+                        $store(acc_ptr.add(j), $add(acc_val, sum_all));
+                    }
+
+                    base += 8;
+                }
+
+                while base + 4 <= NUM_FEATURES {
+                    let idx0 = feature_offset(pattern_feature, base);
+                    let idx1 = feature_offset(pattern_feature, base + 1);
+                    let idx2 = feature_offset(pattern_feature, base + 2);
+                    let idx3 = feature_offset(pattern_feature, base + 3);
+
+                    let fw0 = weights_ptr.add(idx0 * DIMS) as *const $lane_ty;
+                    let fw1 = weights_ptr.add(idx1 * DIMS) as *const $lane_ty;
+                    let fw2 = weights_ptr.add(idx2 * DIMS) as *const $lane_ty;
+                    let fw3 = weights_ptr.add(idx3 * DIMS) as *const $lane_ty;
+
+                    for j in 0..num_regs {
+                        let w0 = $loadu(fw0.add(j));
+                        let w1 = $loadu(fw1.add(j));
+                        let w2 = $loadu(fw2.add(j));
+                        let w3 = $loadu(fw3.add(j));
+
+                        let sum = $add($add(w0, w1), $add(w2, w3));
+
+                        let acc_val = $load(acc_ptr.add(j));
+                        $store(acc_ptr.add(j), $add(acc_val, sum));
+                    }
+
+                    base += 4;
+                }
+
+                while base < NUM_FEATURES {
+                    let idx = feature_offset(pattern_feature, base);
+                    let feature_weights = weights_ptr.add(idx * DIMS) as *const $lane_ty;
+                    for j in 0..num_regs {
+                        let weight = $loadu(feature_weights.add(j));
+                        let acc_val = $load(acc_ptr.add(j));
+                        $store(acc_ptr.add(j), $add(acc_val, weight));
+                    }
+                    base += 1;
+                }
+            }
         }
-
-        // Process in chunks of 4 with prefetching
-        let mut chunks = feature_indices.chunks_exact(4);
-        let mut chunk_idx = 0;
-
-        for chunk in &mut chunks {
-            // Prefetch future features
-            let prefetch_idx = chunk_idx + PREFETCH_DISTANCE;
-            if prefetch_idx < len {
-                let idx = *feature_indices.get_unchecked(prefetch_idx);
-                let prefetch_ptr = weights_ptr.add(idx * DIMS) as *const i8;
-                _mm_prefetch(prefetch_ptr, _MM_HINT_T0);
-                _mm_prefetch(prefetch_ptr.add(64), _MM_HINT_T0);
-            }
-
-            let idx0 = *chunk.get_unchecked(0);
-            let idx1 = *chunk.get_unchecked(1);
-            let idx2 = *chunk.get_unchecked(2);
-            let idx3 = *chunk.get_unchecked(3);
-
-            let fw0 = weights_ptr.add(idx0 * DIMS) as *const __m512i;
-            let fw1 = weights_ptr.add(idx1 * DIMS) as *const __m512i;
-            let fw2 = weights_ptr.add(idx2 * DIMS) as *const __m512i;
-            let fw3 = weights_ptr.add(idx3 * DIMS) as *const __m512i;
-
-            for j in 0..num_regs {
-                let w0 = _mm512_loadu_si512(fw0.add(j));
-                let w1 = _mm512_loadu_si512(fw1.add(j));
-                let w2 = _mm512_loadu_si512(fw2.add(j));
-                let w3 = _mm512_loadu_si512(fw3.add(j));
-
-                let sum01 = _mm512_add_epi16(w0, w1);
-                let sum23 = _mm512_add_epi16(w2, w3);
-                let sum = _mm512_add_epi16(sum01, sum23);
-
-                let acc_val = _mm512_load_si512(acc_ptr.add(j));
-                _mm512_store_si512(acc_ptr.add(j), _mm512_add_epi16(acc_val, sum));
-            }
-
-            chunk_idx += 4;
-        }
-
-        // Handle remainder with prefetching
-        for (i, &idx) in chunks.remainder().iter().enumerate() {
-            let prefetch_idx = chunk_idx + i + PREFETCH_DISTANCE;
-            if prefetch_idx < len {
-                let pidx = *feature_indices.get_unchecked(prefetch_idx);
-                let prefetch_ptr = weights_ptr.add(pidx * DIMS) as *const i8;
-                _mm_prefetch(prefetch_ptr, _MM_HINT_T0);
-            }
-
-            let feature_weights = weights_ptr.add(idx * DIMS) as *const __m512i;
-            for j in 0..num_regs {
-                let weight = _mm512_loadu_si512(feature_weights.add(j));
-                let acc_val = _mm512_load_si512(acc_ptr.add(j));
-                _mm512_store_si512(acc_ptr.add(j), _mm512_add_epi16(acc_val, weight));
-            }
-        }
-    }
+    };
 }
 
-/// Accumulates sparse features into a dense accumulator using AVX2 instructions.
-///
-/// # Parameters
-/// * `feature_indices` - Sparse list of active features to incorporate.
-/// * `weights` - Flat weight matrix stored in feature-major order.
-/// * `acc` - Dense accumulator buffer updated in-place via packed `__m256i` lanes.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-fn accumulate_sparse_avx2<const DIMS: usize>(
-    feature_indices: &[usize],
-    weights: &[i16],
-    acc: &mut [i16; DIMS],
-) {
-    use std::arch::x86_64::*;
+impl_accumulate!(
+    accumulate_avx512,
+    "avx512bw",
+    __m512i,
+    load_u = _mm512_loadu_si512,
+    load = _mm512_load_si512,
+    store = _mm512_store_si512,
+    add = _mm512_add_epi16
+);
 
-    unsafe {
-        let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
-        let num_regs = DIMS / (256 / 16);
-        let weights_ptr = weights.as_ptr();
-
-        let len = feature_indices.len();
-
-        // Prefetch initial features
-        for i in 0..PREFETCH_DISTANCE.min(len) {
-            let idx = *feature_indices.get_unchecked(i);
-            let prefetch_ptr = weights_ptr.add(idx * DIMS) as *const i8;
-            _mm_prefetch(prefetch_ptr, _MM_HINT_T0);
-            _mm_prefetch(prefetch_ptr.add(64), _MM_HINT_T0);
-        }
-
-        // Process in chunks of 4 with prefetching
-        let mut chunks = feature_indices.chunks_exact(4);
-        let mut chunk_idx = 0;
-
-        for chunk in &mut chunks {
-            // Prefetch future features
-            let prefetch_idx = chunk_idx + PREFETCH_DISTANCE;
-            if prefetch_idx < len {
-                let idx = *feature_indices.get_unchecked(prefetch_idx);
-                let prefetch_ptr = weights_ptr.add(idx * DIMS) as *const i8;
-                _mm_prefetch(prefetch_ptr, _MM_HINT_T0);
-                _mm_prefetch(prefetch_ptr.add(64), _MM_HINT_T0);
-            }
-
-            let idx0 = *chunk.get_unchecked(0);
-            let idx1 = *chunk.get_unchecked(1);
-            let idx2 = *chunk.get_unchecked(2);
-            let idx3 = *chunk.get_unchecked(3);
-
-            let fw0 = weights_ptr.add(idx0 * DIMS) as *const __m256i;
-            let fw1 = weights_ptr.add(idx1 * DIMS) as *const __m256i;
-            let fw2 = weights_ptr.add(idx2 * DIMS) as *const __m256i;
-            let fw3 = weights_ptr.add(idx3 * DIMS) as *const __m256i;
-
-            for j in 0..num_regs {
-                let w0 = _mm256_loadu_si256(fw0.add(j));
-                let w1 = _mm256_loadu_si256(fw1.add(j));
-                let w2 = _mm256_loadu_si256(fw2.add(j));
-                let w3 = _mm256_loadu_si256(fw3.add(j));
-
-                let sum01 = _mm256_add_epi16(w0, w1);
-                let sum23 = _mm256_add_epi16(w2, w3);
-                let sum = _mm256_add_epi16(sum01, sum23);
-
-                let acc_val = _mm256_load_si256(acc_ptr.add(j));
-                _mm256_store_si256(acc_ptr.add(j), _mm256_add_epi16(acc_val, sum));
-            }
-
-            chunk_idx += 4;
-        }
-
-        // Handle remainder with prefetching
-        for (i, &idx) in chunks.remainder().iter().enumerate() {
-            let prefetch_idx = chunk_idx + i + PREFETCH_DISTANCE;
-            if prefetch_idx < len {
-                let pidx = *feature_indices.get_unchecked(prefetch_idx);
-                let prefetch_ptr = weights_ptr.add(pidx * DIMS) as *const i8;
-                _mm_prefetch(prefetch_ptr, _MM_HINT_T0);
-            }
-
-            let feature_weights = weights_ptr.add(idx * DIMS) as *const __m256i;
-            for j in 0..num_regs {
-                let weight = _mm256_loadu_si256(feature_weights.add(j));
-                let acc_val = _mm256_load_si256(acc_ptr.add(j));
-                _mm256_store_si256(acc_ptr.add(j), _mm256_add_epi16(acc_val, weight));
-            }
-        }
-    }
-}
+impl_accumulate!(
+    accumulate_avx2,
+    "avx2",
+    __m256i,
+    load_u = _mm256_loadu_si256,
+    load = _mm256_load_si256,
+    store = _mm256_store_si256,
+    add = _mm256_add_epi16
+);
 
 /// Accumulates the weights of all active sparse features into a dense accumulator.
 ///
 /// This scalar variant is used by the fallback code paths where SIMD is unavailable.
 ///
 /// # Parameters
-/// * `feature_indices` - Sparse list of active feature indices to accumulate.
+/// * `pattern_feature` - Sparse feature values indexed by pattern identifier.
 /// * `weights` - Flat weight matrix laid out in feature-major order.
 /// * `acc` - Dense accumulation buffer that will be incremented in-place.
-fn accumulate_sparse_scalar<const DIMS: usize>(
-    feature_indices: &[usize],
+fn accumulate_scalar<const DIMS: usize>(
+    pattern_feature: &PatternFeature,
     weights: &[i16],
     acc: &mut [i16; DIMS],
 ) {
-    for &fi in feature_indices {
-        let weights = &weights[fi * DIMS..][..DIMS];
-        for (a, w) in acc.iter_mut().zip(weights.iter()) {
+    for idx in 0..NUM_FEATURES {
+        let offset = feature_offset(pattern_feature, idx);
+        let weights_row = &weights[offset * DIMS..][..DIMS];
+        for (a, w) in acc.iter_mut().zip(weights_row.iter()) {
             *a += *w;
         }
     }

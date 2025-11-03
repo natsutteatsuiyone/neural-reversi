@@ -114,7 +114,7 @@ export const useReversiStore = create<ReversiState>((set, get) => ({
   lastAIMove: null,
   lastMove: null,
   validMoves: [],
-  aiLevel: 10,
+  aiLevel: 21,
   aiAccuracy: 1,
   aiMoveProgress: null,
   showPassNotification: false,

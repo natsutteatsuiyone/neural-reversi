@@ -28,10 +28,10 @@ use reversi_core::{
 const TT_SIZE_MB: usize = 256;
 
 /// Total number of search depths to test
-const NUM_SEARCH_DEPTHS: usize = 12;
+const NUM_SEARCH_DEPTHS: usize = 15;
 
 /// Maximum shallow depth for ProbCut analysis
-const MAX_SHALLOW_DEPTH: usize = 8;
+const MAX_SHALLOW_DEPTH: usize = 7;
 
 /// Minimum depth difference between shallow and deep search
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
@@ -104,7 +104,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         )
     })?;
     let mut writer = BufWriter::new(output_file);
-    writer.write_all(b"ply,shallow_depth,deep_depth,diff\n")?;
+    writer.write_all(b"ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n")?;
 
     for (line_no, line_result) in reader.lines().enumerate() {
         let line = line_result.map_err(|e| {
@@ -122,6 +122,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         let mut board = Board::new();
         let mut side_to_move = Piece::Black;
 
+        search.init();
         for token in line.as_bytes().chunks_exact(2) {
             let move_str = std::str::from_utf8(token).map_err(|e| {
                 io::Error::new(
@@ -146,10 +147,10 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
 
             let num_depth = NUM_SEARCH_DEPTHS;
             let max_shallow_depth = MAX_SHALLOW_DEPTH;
+
             let ply = 60 - board.get_empty_count();
 
-            search.init();
-            let depth_scores: Vec<(Depth, Scoref)> = (0..num_depth)
+            let depth_scores: Vec<(Depth, Scoref)> = (0..=num_depth)
                 .map(|depth| {
                     let mut level = get_level(depth);
                     level.end_depth = [depth as Depth; 7];
@@ -175,24 +176,31 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                 );
             }
 
+            println!(
+                "Line {}, Ply {}: Analyzed move {}",
+                line_no + 1,
+                ply,
+                sq.to_string()
+            );
+
             board = board.make_move(sq);
         }
 
         for sample in samples.iter() {
             let line = format!(
-                "{},{},{},{}\n",
+                "{},{},{},{},{},{}\n",
                 sample.ply,
                 sample.shallow_depth,
+                sample.shallow_score,
                 sample.deep_depth,
+                sample.deep_score,
                 sample.deep_score - sample.shallow_score
             );
             writer.write_all(line.as_bytes())?;
         }
         writer.flush()?;
 
-        if line_no % 100 == 0 {
-            println!("Processed {} lines", line_no + 1);
-        }
+        println!("Processed {} lines", line_no + 1);
     }
 
     println!("ProbCut training data generation completed successfully");

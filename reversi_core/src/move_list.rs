@@ -3,16 +3,15 @@
 use std::slice;
 use std::sync::atomic;
 
-use crate::bitboard::BitboardIterator;
+use crate::bitboard::{BitboardIterator, corner_weighted_count, get_corner_stability};
 use crate::board::Board;
-use crate::constants::SCORE_INF;
+use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
 use crate::flip;
 use crate::search::midgame;
 use crate::search::node_type::{NodeType, PV};
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::square::Square;
 use crate::types::Depth;
-use crate::{bitboard, constants};
 
 /// Maximum number of moves possible in a Reversi position.
 const MAX_MOVES: usize = 34;
@@ -22,6 +21,9 @@ const WIPEOUT_VALUE: i32 = 1 << 30;
 
 /// Value assigned to moves suggested by the transposition table.
 const TT_MOVE_VALUE: i32 = 1 << 20;
+
+/// Weight factor for potential mobility evaluation.
+const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 5;
 
 /// Weight factor for mobility evaluation.
 const MOBILITY_WEIGHT: i32 = 1 << 14;
@@ -194,67 +196,69 @@ impl MoveList {
             19, 18, 18, 18, 17, 17, 17, 16,  // 0-7 empty squares
             16, 16, 15, 15, 15, 14, 14, 14,  // 8-15 empty squares
             13, 13, 13, 12, 12, 12, 11, 11,  // 16-23 empty squares
-            11, 10, 10, 10,  9,  9,  9,  9,  // 24-31 empty squares
+            11, 10, 10, 10, 9,  9,  9,  9,   // 24-31 empty squares
             9,  9,  9,  9,  9,  9,  9,  9,   // 32-39 empty squares
             9,  9,  9,  9,  9,  9,  9,  9,   // 40-47 empty squares
             9,  9,  9,  9,  9,  9,  9,  9,   // 48-55 empty squares
             9,  9,  9,  9,  9,  9,  9,  9    // 56-63 empty squares
         ];
 
-        if depth < MIN_DEPTH[ctx.empty_list.count as usize] {
+        if depth <= MIN_DEPTH[ctx.empty_list.count as usize] {
             self.evaluate_moves_fast(board, tt_move);
-        } else {
-            let mut sort_depth = (depth as i32 - 15) / 3;
-            sort_depth = sort_depth.clamp(0, 4);
+            return;
+        }
 
-            let mut max_value = -SCORE_INF;
+        const MAX_SORT_DEPTH: i32 = 3;
+        let mut sort_depth = (depth as i32 - 15) / 3;
+        sort_depth = sort_depth.clamp(1, MAX_SORT_DEPTH);
+
+        let mut max_evaluated_value = -SCORE_INF;
+
+        for mv in self.iter_mut() {
+            if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
+                // Already searched in previous iteration
+                mv.value = SEARCHED_MOVE_VALUE;
+            } else if mv.flipped == board.opponent {
+                // Wipeout move
+                mv.value = WIPEOUT_VALUE;
+            } else if mv.sq == tt_move {
+                // Transposition table move
+                mv.value = TT_MOVE_VALUE;
+            } else {
+                // Evaluate using shallow search
+                let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+                ctx.update(mv);
+
+                mv.value = match sort_depth {
+                    0 => -midgame::evaluate(ctx, &next),
+                    1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
+                    2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
+                    _ => -midgame::shallow_search::<PV>(
+                        ctx,
+                        &next,
+                        sort_depth as Depth,
+                        -SCORE_INF,
+                        SCORE_INF,
+                    ),
+                };
+
+                ctx.undo(mv);
+                max_evaluated_value = max_evaluated_value.max(mv.value);
+            };
+        }
+
+        if ctx.game_phase == GamePhase::MidGame {
+            // Score-Based Reduction: reduce depth for poor moves
+            // This implements a form of late move reduction based on evaluation scores
+            let sbr_margin: i32 = (9 + (MAX_SORT_DEPTH - sort_depth) * 2) << EVAL_SCORE_SCALE_BITS;
+            let reduction_threshold = max_evaluated_value - sbr_margin;
 
             for mv in self.iter_mut() {
-                if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-                    // Already searched in previous iteration
-                    mv.value = SEARCHED_MOVE_VALUE;
-                } else if mv.flipped == board.opponent {
-                    // Wipeout move (capture all opponent pieces)
-                    mv.value = WIPEOUT_VALUE;
-                } else if mv.sq == tt_move {
-                    // Transposition table move
-                    mv.value = TT_MOVE_VALUE;
-                } else {
-                    // Evaluate using shallow search
-                    let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                    ctx.update(mv);
-
-                    mv.value = match sort_depth {
-                        0 => -midgame::evaluate(ctx, &next),
-                        1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
-                        2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
-                        _ => -midgame::shallow_search::<PV>(
-                            ctx,
-                            &next,
-                            sort_depth as Depth,
-                            -SCORE_INF,
-                            SCORE_INF,
-                        ),
-                    };
-
-                    ctx.undo(mv);
-                    max_value = max_value.max(mv.value);
-                };
-            }
-
-            if ctx.game_phase == GamePhase::MidGame {
-                // Score-Based Reduction: reduce depth for poor moves
-                // This implements a form of late move reduction based on evaluation scores
-                const SBR_MARGIN: i32 = 12 << constants::EVAL_SCORE_SCALE_BITS;
-                let reduction_threshold = max_value - SBR_MARGIN;
-
-                for mv in self.iter_mut() {
-                    if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
-                        // Calculate reduction based on how much worse this move is
-                        let diff = max_value - mv.value;
-                        mv.reduction_depth =
-                            (((diff / 2) + (SBR_MARGIN / 2)) / SBR_MARGIN) as Depth;
-                    }
+                if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
+                    // Calculate reduction based on how much worse this move is
+                    let diff = max_evaluated_value - mv.value;
+                    let step = sbr_margin * 2;
+                    mv.reduction_depth = ((diff + sbr_margin) / step) as Depth;
                 }
             }
         }
@@ -276,10 +280,12 @@ impl MoveList {
                 TT_MOVE_VALUE
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                let mut value =
-                    bitboard::get_corner_stability(next.opponent) as i32 * CORNER_STABILITY_WEIGHT;
-                value += (36 - (bitboard::corner_weighted_mobility(next.get_moves()) as i32))
-                    * MOBILITY_WEIGHT;
+                let potential_mobility = corner_weighted_count(next.get_potential_moves()) as i32;
+                let corner_stability = get_corner_stability(next.opponent) as i32;
+                let weighted_mobility = corner_weighted_count(next.get_moves()) as i32;
+                let mut value = corner_stability * CORNER_STABILITY_WEIGHT;
+                value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
+                value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
                 value
             }
         }

@@ -17,8 +17,3 @@ mod stability;
 mod transposition_table;
 pub mod types;
 mod util;
-
-pub fn init() {
-    probcut::init();
-    stability::init();
-}

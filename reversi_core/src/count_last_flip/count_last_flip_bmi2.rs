@@ -157,16 +157,22 @@ const MASK_X: [[u64; 4];64] = [
 ];
 
 pub fn count_last_flip(player: u64, sq: Square) -> i32 {
-    let mut n_flipped: u8;
-    let sq_idx = sq.index();
+    let sq_idx = sq.index() as usize;
     let x = sq_idx & 7;
     let y = sq_idx >> 3;
 
-    let masked_p = player & MASK_X[sq_idx][3];
-    n_flipped = COUNT_FLIP[x][((masked_p >> (sq_idx & 0x38)) & 0xFF) as usize];
-    n_flipped += COUNT_FLIP[y][pext_u64(masked_p, MASK_X[sq_idx][0]) as usize];
-    n_flipped += COUNT_FLIP[y][pext_u64(masked_p, MASK_X[sq_idx][1]) as usize];
-    n_flipped += COUNT_FLIP[y][pext_u64(masked_p, MASK_X[sq_idx][2]) as usize];
+    unsafe {
+        let mask = MASK_X.get_unchecked(sq_idx);
+        let masked_p = player & *mask.get_unchecked(3);
+        let count_x = COUNT_FLIP.get_unchecked(x);
+        let count_y = COUNT_FLIP.get_unchecked(y);
 
-    n_flipped as i32
+        let idx = ((masked_p >> (sq_idx & 0x38)) & 0xFF) as usize;
+        let mut n_flipped = *count_x.get_unchecked(idx);
+        n_flipped += *count_y.get_unchecked(pext_u64(masked_p, *mask.get_unchecked(0)) as usize);
+        n_flipped += *count_y.get_unchecked(pext_u64(masked_p, *mask.get_unchecked(1)) as usize);
+        n_flipped += *count_y.get_unchecked(pext_u64(masked_p, *mask.get_unchecked(2)) as usize);
+
+        n_flipped as i32
+    }
 }

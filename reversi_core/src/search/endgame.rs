@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::board::Board;
-use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF, SCORE_MAX};
+use crate::constants::{SCORE_INF, SCORE_MAX, to_endgame_score, to_midgame_score};
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::NO_SELECTIVITY;
@@ -72,12 +72,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 
     let n_empties = ctx.empty_list.count;
-    let mut best_score = 0;
-    ctx.game_phase = GamePhase::EndGame;
+    let score = estimate_aspiration_base_score(&mut ctx, &board, n_empties, thread);
 
     ctx.selectivity = NO_SELECTIVITY;
-    let score = midgame::evaluate(&ctx, &board) >> EVAL_SCORE_SCALE_BITS;
+    ctx.game_phase = GamePhase::EndGame;
 
+    let mut best_score = 0;
     let mut alpha = score - 6;
     let mut beta = score + 6;
 
@@ -162,6 +162,51 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         depth: n_empties,
         selectivity: ctx.selectivity,
     }
+}
+
+/// Estimates a stable base score to center the aspiration window for the endgame search.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context
+/// * `board` - Current board position
+/// * `n_empties` - Number of empty squares on the board
+/// * `thread` - Thread handle for parallel search coordination
+///
+/// # Returns
+///
+/// An estimated score used to center the aspiration window at the start of endgame search.
+fn estimate_aspiration_base_score(
+    ctx: &mut SearchContext,
+    board: &Board,
+    n_empties: u32,
+    thread: &Arc<Thread>,
+) -> i32 {
+    ctx.game_phase = GamePhase::MidGame;
+    let midgame_depth = n_empties / 2;
+
+    let hash_key = board.hash();
+    let (tt_hit, tt_data, _) = ctx.tt.probe(hash_key, ctx.generation);
+    let score = if tt_hit && tt_data.bound == Bound::Exact as u8 && tt_data.depth >= midgame_depth {
+        tt_data.score
+    } else if n_empties >= 22 {
+        ctx.selectivity = 0;
+        midgame::search::<PV, false>(
+            ctx,
+            board,
+            midgame_depth,
+            -SCORE_INF,
+            SCORE_INF,
+            thread,
+            None,
+        )
+    } else if n_empties >= 12 {
+        midgame::evaluate_depth2(ctx, board, -SCORE_INF, SCORE_INF)
+    } else {
+        midgame::evaluate(ctx, board)
+    };
+
+    to_endgame_score(score)
 }
 
 /// Alpha-beta search function for endgame positions.
@@ -258,9 +303,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             && tt_hit
             && tt_data.depth >= n_empties
             && tt_data.selectivity >= ctx.selectivity
-            && tt_data.should_cutoff(beta)
+            && tt_data.should_cutoff(to_midgame_score(beta))
         {
-            return tt_data.score;
+            return to_endgame_score(tt_data.score);
         }
 
         if !NT::PV_NODE
@@ -281,11 +326,11 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 board,
                 &move_list,
                 n_empties,
-                alpha,
+                to_midgame_score(alpha),
                 tt_key,
                 tt_entry_index,
             ) {
-                return score;
+                return to_endgame_score(score);
             }
         }
 
@@ -404,7 +449,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     ctx.tt.store(
         tt_entry_index,
         tt_key,
-        best_score,
+        to_midgame_score(best_score),
         Bound::determine_bound::<NT>(best_score, beta),
         n_empties,
         best_move,
@@ -452,9 +497,9 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         if tt_hit
             && tt_data.depth >= n_empties
             && tt_data.selectivity >= ctx.selectivity
-            && tt_data.should_cutoff(beta)
+            && tt_data.should_cutoff(to_midgame_score(beta))
         {
-            return tt_data.score;
+            return to_endgame_score(tt_data.score);
         }
 
         move_list.evaluate_moves_fast(board, tt_move);
@@ -482,7 +527,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         ctx.tt.store(
             tt_entry_index,
             tt_key,
-            best_score,
+            to_midgame_score(best_score),
             Bound::determine_bound::<NonPV>(best_score, beta),
             n_empties,
             best_move,

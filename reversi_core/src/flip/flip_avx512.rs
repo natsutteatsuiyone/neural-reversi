@@ -86,7 +86,7 @@ fn mm_flip(op: __m128i, x: usize) -> __m128i {
     let pp = _mm256_broadcastq_epi64(op);
     let oo = _mm256_broadcastq_epi64(_mm_unpackhi_epi64(op, op));
 
-    let entry = &LEFT_RIGHT_MASK[x];
+    let entry = unsafe { &LEFT_RIGHT_MASK.get_unchecked(x) };
     let right_mask = unsafe { _mm256_load_si256(entry.v.as_ptr().add(4) as *const __m256i) };
 
     let mut t0 = _mm256_lzcnt_epi64(_mm256_andnot_si256(oo, right_mask));

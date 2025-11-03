@@ -275,11 +275,11 @@ impl SearchStats {
 /// Print the table header for test results
 fn print_header() {
     println!(
-        "| {:^3} | {:^6} | {:^8} | {:^14} | {:^12} | {:^8} | {:^6} | {:<32} |",
+        "| {:^3} | {:^6} | {:^8} | {:^14} | {:^13} | {:^8} | {:^6} | {:<32} |",
         "#", "Depth", "Time(s)", "Nodes", "NPS", "Line", "Score", "Expected"
     );
     println!(
-        "|----:|-------:|---------:|---------------:|-------------:|:---------|-------:|:---------------------------------|"
+        "|----:|-------:|---------:|---------------:|--------------:|:---------|-------:|:---------------------------------|"
     );
 }
 
@@ -335,6 +335,8 @@ fn execute_test_case(
     selectivity: Selectivity,
 ) -> TestResult {
     let board = test_case.get_board();
+    search.init();
+
     let start = Instant::now();
     let result = search.test(&board, level, selectivity);
     let elapsed = start.elapsed();
@@ -379,7 +381,7 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
     let depth_str = format_depth(&temp_result);
 
     println!(
-        "| {:>3} | {:^6} | {:>8.3} | {:>14} | {:>12} | {:<8} | {:>6} | {:<32} |",
+        "| {:>3} | {:^6} | {:>8.3} | {:>14} | {:>13} | {:<8} | {:>6} | {:<32} |",
         test_case.no,
         depth_str,
         result.elapsed.as_secs_f64(),
@@ -469,7 +471,6 @@ struct Args {
 }
 
 fn main() {
-    reversi_core::init();
     let args = Args::parse();
 
     // Validate argument combinations

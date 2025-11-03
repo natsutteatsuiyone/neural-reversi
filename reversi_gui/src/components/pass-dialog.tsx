@@ -15,12 +15,10 @@ interface PassDialogProps {
 export function PassDialog({ isOpen, onClose, player }: PassDialogProps) {
   const [open, setOpen] = useState(false)
 
-  // isOpenプロップが変更されたときにダイアログの状態を更新
   useEffect(() => {
     setOpen(isOpen)
   }, [isOpen])
 
-  // 3秒後に自動で閉じる
   useEffect(() => {
     if (open) {
       const timer = setTimeout(() => {

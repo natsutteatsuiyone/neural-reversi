@@ -2,13 +2,13 @@ use super::pattern_feature;
 
 macro_rules! eval_main_weights_literal {
     () => {
-        "eval-89efa0d1.zst"
+        "eval-882dcae6.zst"
     };
 }
 
 macro_rules! eval_small_weights_literal {
     () => {
-        "eval_sm-89efa0d1.zst"
+        "eval_sm-882dcae6.zst"
     };
 }
 
@@ -31,9 +31,6 @@ pub const NUM_FEATURES: usize = pattern_feature::NUM_PATTERN_FEATURES;
 /// Precomputed offsets for each pattern feature in the feature vector.
 pub const PATTERN_FEATURE_OFFSETS: [usize; pattern_feature::NUM_PATTERN_FEATURES] =
     calc_feature_offsets();
-
-/// Scale factor for mobility features in the neural network.
-pub const MOBILITY_SCALE: u8 = 3;
 
 /// Number of bits used for quantization scale in hidden layer weights.
 pub const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;

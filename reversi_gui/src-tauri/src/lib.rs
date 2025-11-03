@@ -151,8 +151,6 @@ async fn analyze_command(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    reversi_core::init();
-
     let search_options = SearchOptions::default();
     let search = Arc::new(Mutex::new(search::Search::new(&search_options)));
 

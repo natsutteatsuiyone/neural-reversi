@@ -5,7 +5,9 @@ mod input_layer;
 mod linear_layer;
 mod network;
 mod network_small;
+mod output_layer;
 pub mod pattern_feature;
+mod util;
 
 use std::env;
 use std::io;
@@ -13,8 +15,8 @@ use std::path::Path;
 
 use constants::*;
 use eval_cache::EvalCache;
-use network::Network;
-use network_small::NetworkSmall;
+pub use network::Network;
+pub use network_small::NetworkSmall;
 
 use crate::board::Board;
 use crate::search::search_context::{GamePhase, SearchContext};
@@ -24,7 +26,6 @@ pub struct Eval {
     network: Network,
     network_sm: NetworkSmall,
     pub cache: EvalCache,
-    pub cache_sm: EvalCache,
 }
 
 fn missing_weights_error(path: &Path) -> io::Error {
@@ -91,7 +92,6 @@ impl Eval {
             network,
             network_sm,
             cache: EvalCache::new(17),
-            cache_sm: EvalCache::new(17),
         })
     }
 
@@ -106,8 +106,8 @@ impl Eval {
     ///
     /// The evaluation score of the current position.
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> Score {
-        let key = board.hash();
         if ctx.game_phase == GamePhase::MidGame || ctx.ply() < 30 {
+            let key = board.hash();
             if let Some(score_cache) = self.cache.probe(key) {
                 return score_cache;
             }
@@ -118,14 +118,9 @@ impl Eval {
             self.cache.store(key, score);
             score
         } else {
-            if let Some(score_cache) = self.cache_sm.probe(key) {
-                return score_cache;
-            }
-
             let score = self
                 .network_sm
                 .evaluate(board, ctx.get_pattern_feature(), ctx.ply());
-            self.cache_sm.store(key, score);
             score
         }
     }

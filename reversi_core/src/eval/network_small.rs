@@ -4,88 +4,79 @@ use std::fs::File;
 use std::io::{self, BufReader, Read};
 use std::path::Path;
 
+use aligned_vec::{AVec, ConstAlign, avec};
+use byteorder::{LittleEndian, ReadBytesExt};
+
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
-use crate::eval::activations::clipped_relu;
-use crate::eval::input_layer::PhaseAdaptiveInput;
-use crate::eval::linear_layer::LinearLayer;
-use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
+use crate::eval::constants::{CACHE_LINE_SIZE, INPUT_FEATURE_DIMS, NUM_FEATURES};
+use crate::eval::pattern_feature::PatternFeature;
+use crate::eval::util::feature_offset;
 use crate::types::Score;
 use crate::util::align::Align64;
-use crate::util::ceil_to_multiple;
 
-use super::constants::{
-    INPUT_FEATURE_DIMS, MOBILITY_SCALE, NUM_FEATURES, OUTPUT_WEIGHT_SCALE_BITS,
-    PATTERN_FEATURE_OFFSETS,
+#[cfg(target_arch = "x86_64")]
+use {
+    crate::eval::util::mm256_dpwssd_epi32,
+    crate::eval::util::mm512_dpwssd_epi32,
+    std::arch::{is_x86_feature_detected, x86_64::*},
 };
 
-const PA_OUTPUT_DIMS: usize = 64;
+const PA_OUTPUT_DIMS: usize = 128;
 
-const L1_PA_INPUT_DIMS: usize = PA_OUTPUT_DIMS + 1;
-const L1_PA_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_PA_INPUT_DIMS, 32);
-const L1_PA_OUTPUT_DIMS: usize = 8;
-const L1_PA_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
+const MOBILITY_SCALE: u32 = 30;
+const OUTPUT_WEIGHT_SCALE_BITS: u32 = 8;
+const NUM_INPUT_LAYERS: usize = 3;
+const NUM_OUTPUT_LAYERS: usize = 30;
+const ENDGAME_START_PLY: usize = 30;
+const INPUT_LAYER_SEGMENT_SIZE: usize = NUM_OUTPUT_LAYERS / NUM_INPUT_LAYERS;
 
-const L2_INPUT_DIMS: usize = L1_PA_OUTPUT_DIMS;
-const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
-const L2_OUTPUT_DIMS: usize = 32;
-const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
-
-const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS;
-
-const NUM_PHASE_ADAPTIVE_INPUT: usize = 6;
-const NUM_LAYER_STACKS: usize = 60;
-
-/// Simplified layer stack with fewer layers than the main network
-struct LayerStack {
-    pub l1_pa: LinearLayer<
-        L1_PA_INPUT_DIMS,
-        L1_PA_OUTPUT_DIMS,
-        L1_PA_PADDED_INPUT_DIMS,
-        L1_PA_PADDED_OUTPUT_DIMS,
-    >,
-    pub l2: LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>,
-    pub lo: LinearLayer<
-        LO_INPUT_DIMS,
-        1,
-        { ceil_to_multiple(LO_INPUT_DIMS, 32) },
-        { ceil_to_multiple(1, 32) },
-    >,
+#[derive(Debug)]
+struct InputLayer {
+    biases: Align64<[i16; PA_OUTPUT_DIMS]>,
+    weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-/// Thread-local buffers for small network computation
-struct NetworkBuffers {
-    pa_out: Align64<[u8; L1_PA_PADDED_INPUT_DIMS]>,
-    l1_pa_out: Align64<[i32; L1_PA_PADDED_OUTPUT_DIMS]>,
-    l1_out: Align64<[u8; L2_PADDED_INPUT_DIMS]>,
-    l2_li_out: Align64<[i32; L2_PADDED_OUTPUT_DIMS]>,
-    l2_out: Align64<[u8; L2_PADDED_OUTPUT_DIMS]>,
-    feature_indices: [usize; NUM_FEATURES],
-}
+impl InputLayer {
+    fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let mut biases = Align64([0i16; PA_OUTPUT_DIMS]);
+        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS];
 
-impl NetworkBuffers {
-    #[inline]
-    fn new() -> Self {
-        Self {
-            pa_out: Align64([0; L1_PA_PADDED_INPUT_DIMS]),
-            l1_pa_out: Align64([0; L1_PA_PADDED_OUTPUT_DIMS]),
-            l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
-            l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
-            l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
-            feature_indices: [0; NUM_FEATURES],
-        }
+        reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
+        reader.read_i16_into::<LittleEndian>(&mut weights)?;
+
+        Ok(Self { biases, weights })
     }
 }
 
-thread_local! {
-    static NETWORK_BUFFERS: std::cell::RefCell<NetworkBuffers> =
-        std::cell::RefCell::new(NetworkBuffers::new());
+#[derive(Debug)]
+struct OutputLayer {
+    bias: i32,
+    weights: Align64<[i16; PA_OUTPUT_DIMS]>,
+    mobility_weight: i32,
+}
+
+impl OutputLayer {
+    fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let bias = reader.read_i32::<LittleEndian>()?;
+
+        let mut weights = Align64([0i16; PA_OUTPUT_DIMS]);
+        reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
+
+        let mobility_weight = reader.read_i16::<LittleEndian>()? as i32;
+
+        Ok(Self {
+            bias,
+            weights,
+            mobility_weight,
+        })
+    }
 }
 
 /// Small neural network optimized for endgame positions
 pub struct NetworkSmall {
-    pa_inputs: Vec<PhaseAdaptiveInput<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>>,
-    layer_stacks: Vec<LayerStack>,
+    input_layers: Vec<InputLayer>,
+    output_layers: Vec<OutputLayer>,
 }
 
 impl NetworkSmall {
@@ -105,24 +96,21 @@ impl NetworkSmall {
     fn from_reader<R: Read>(reader: R) -> io::Result<Self> {
         let mut decoder = zstd::stream::read::Decoder::new(reader)?;
 
-        let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
-        for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
-            let pa_input =
-                PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
-            pa_inputs.push(pa_input);
+        let mut input_layers = Vec::with_capacity(NUM_INPUT_LAYERS);
+        for _ in 0..NUM_INPUT_LAYERS {
+            let input_layer = InputLayer::load(&mut decoder)?;
+            input_layers.push(input_layer);
         }
 
-        let mut layer_stacks = Vec::with_capacity(NUM_LAYER_STACKS);
-        for _ in 0..NUM_LAYER_STACKS {
-            let l1_pa = LinearLayer::load(&mut decoder)?;
-            let l2 = LinearLayer::load(&mut decoder)?;
-            let lo = LinearLayer::load(&mut decoder)?;
-            layer_stacks.push(LayerStack { l1_pa, l2, lo });
+        let mut output_layers = Vec::with_capacity(NUM_OUTPUT_LAYERS);
+        for _ in 0..NUM_OUTPUT_LAYERS {
+            let output_layer = OutputLayer::load(&mut decoder)?;
+            output_layers.push(output_layer);
         }
 
         Ok(NetworkSmall {
-            pa_inputs,
-            layer_stacks,
+            input_layers,
+            output_layers,
         })
     }
 
@@ -135,56 +123,343 @@ impl NetworkSmall {
     /// * `pattern_feature` - Extracted pattern features from the board
     /// * `ply` - Current game ply (move number)
     pub fn evaluate(&self, board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
-        let mobility = board.get_moves().count_ones();
+        let mobility = board.get_moves().count_ones() * MOBILITY_SCALE;
 
-        NETWORK_BUFFERS.with(|buffers_cell| {
-            let mut buffers = buffers_cell.borrow_mut();
-            for (i, &offset) in (0..NUM_PATTERN_FEATURES).zip(PATTERN_FEATURE_OFFSETS.iter()) {
-                buffers.feature_indices[i] = pattern_feature[i] as usize + offset;
+        debug_assert!(ply >= ENDGAME_START_PLY);
+        debug_assert_eq!(NUM_OUTPUT_LAYERS % NUM_INPUT_LAYERS, 0);
+
+        let ply_offset = ply - ENDGAME_START_PLY;
+        let input_layer_index = ply_offset / INPUT_LAYER_SEGMENT_SIZE;
+        let input_layer = &self.input_layers[input_layer_index];
+
+        let output_layer = &self.output_layers[ply_offset];
+
+        let sum = self.forward(pattern_feature, input_layer, output_layer);
+        let mobility_adjustment = (mobility as i32) * output_layer.mobility_weight;
+        let total = sum + output_layer.bias + mobility_adjustment;
+        let score = total >> OUTPUT_WEIGHT_SCALE_BITS;
+
+        score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
+    }
+
+    #[inline(always)]
+    fn forward(
+        &self,
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        #[cfg(target_arch = "x86_64")]
+        {
+            unsafe {
+                if cfg!(target_feature = "avx512bw") {
+                    if is_x86_feature_detected!("avx512vnni") {
+                        return Self::forward_avx512::<true>(
+                            pattern_feature,
+                            input_layer,
+                            output_layer,
+                        );
+                    } else {
+                        return Self::forward_avx512::<false>(
+                            pattern_feature,
+                            input_layer,
+                            output_layer,
+                        );
+                    }
+                } else if cfg!(target_feature = "avx2") {
+                    if is_x86_feature_detected!("avxvnni") {
+                        return Self::forward_avx2::<true>(
+                            pattern_feature,
+                            input_layer,
+                            output_layer,
+                        );
+                    } else {
+                        return Self::forward_avx2::<false>(
+                            pattern_feature,
+                            input_layer,
+                            output_layer,
+                        );
+                    }
+                }
+            }
+        }
+
+        Self::forward_scalar(pattern_feature, input_layer, output_layer)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx512bw")]
+    fn forward_avx512<const USE_VNNI: bool>(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        const NUM_REGS: usize = PA_OUTPUT_DIMS / 32;
+        debug_assert_eq!(NUM_REGS, 4);
+
+        let weights_ptr = input_layer.weights.as_ptr() as *const __m512i;
+        let bias_ptr = input_layer.biases.as_ptr() as *const __m512i;
+
+        unsafe {
+            let mut acc0 = _mm512_load_si512(bias_ptr);
+            let mut acc1 = _mm512_load_si512(bias_ptr.add(1));
+            let mut acc2 = _mm512_load_si512(bias_ptr.add(2));
+            let mut acc3 = _mm512_load_si512(bias_ptr.add(3));
+
+            macro_rules! accumulate_4 {
+                ($base:expr) => {{
+                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
+                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
+                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
+                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+
+                    let w0 = _mm512_load_si512(weights_ptr.add(idx0));
+                    let w1 = _mm512_load_si512(weights_ptr.add(idx1));
+                    let w2 = _mm512_load_si512(weights_ptr.add(idx2));
+                    let w3 = _mm512_load_si512(weights_ptr.add(idx3));
+                    let sum01 = _mm512_add_epi16(w0, w1);
+                    let sum23 = _mm512_add_epi16(w2, w3);
+                    let sum = _mm512_add_epi16(sum01, sum23);
+                    acc0 = _mm512_add_epi16(acc0, sum);
+
+                    let w0 = _mm512_load_si512(weights_ptr.add(idx0 + 1));
+                    let w1 = _mm512_load_si512(weights_ptr.add(idx1 + 1));
+                    let w2 = _mm512_load_si512(weights_ptr.add(idx2 + 1));
+                    let w3 = _mm512_load_si512(weights_ptr.add(idx3 + 1));
+                    let sum01 = _mm512_add_epi16(w0, w1);
+                    let sum23 = _mm512_add_epi16(w2, w3);
+                    let sum = _mm512_add_epi16(sum01, sum23);
+                    acc1 = _mm512_add_epi16(acc1, sum);
+
+                    let w0 = _mm512_load_si512(weights_ptr.add(idx0 + 2));
+                    let w1 = _mm512_load_si512(weights_ptr.add(idx1 + 2));
+                    let w2 = _mm512_load_si512(weights_ptr.add(idx2 + 2));
+                    let w3 = _mm512_load_si512(weights_ptr.add(idx3 + 2));
+                    let sum01 = _mm512_add_epi16(w0, w1);
+                    let sum23 = _mm512_add_epi16(w2, w3);
+                    let sum = _mm512_add_epi16(sum01, sum23);
+                    acc2 = _mm512_add_epi16(acc2, sum);
+
+                    let w0 = _mm512_load_si512(weights_ptr.add(idx0 + 3));
+                    let w1 = _mm512_load_si512(weights_ptr.add(idx1 + 3));
+                    let w2 = _mm512_load_si512(weights_ptr.add(idx2 + 3));
+                    let w3 = _mm512_load_si512(weights_ptr.add(idx3 + 3));
+                    let sum01 = _mm512_add_epi16(w0, w1);
+                    let sum23 = _mm512_add_epi16(w2, w3);
+                    let sum = _mm512_add_epi16(sum01, sum23);
+                    acc3 = _mm512_add_epi16(acc3, sum);
+                }};
             }
 
-            let score = self.forward(&mut buffers, mobility as u8, ply);
-            score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
-        })
+            accumulate_4!(0);
+            accumulate_4!(4);
+            accumulate_4!(8);
+            accumulate_4!(12);
+            accumulate_4!(16);
+            accumulate_4!(20);
+
+            let zero = _mm512_setzero_si512();
+            let one = _mm512_set1_epi16(1023);
+
+            let v0 = _mm512_min_epi16(_mm512_max_epi16(acc0, zero), one);
+            let v1 = _mm512_min_epi16(_mm512_max_epi16(acc1, zero), one);
+            let v2 = _mm512_min_epi16(_mm512_max_epi16(acc2, zero), one);
+            let v3 = _mm512_min_epi16(_mm512_max_epi16(acc3, zero), one);
+
+            const SHIFT: u32 = 6;
+            let act0 = _mm512_mulhi_epu16(_mm512_slli_epi16(v0, SHIFT), v0);
+            let act1 = _mm512_mulhi_epu16(_mm512_slli_epi16(v1, SHIFT), v1);
+            let act2 = _mm512_mulhi_epu16(_mm512_slli_epi16(v2, SHIFT), v2);
+            let act3 = _mm512_mulhi_epu16(_mm512_slli_epi16(v3, SHIFT), v3);
+
+            let out_w_ptr = output_layer.weights.as_ptr() as *const __m512i;
+            let ow0 = _mm512_load_si512(out_w_ptr);
+            let ow1 = _mm512_load_si512(out_w_ptr.add(1));
+            let ow2 = _mm512_load_si512(out_w_ptr.add(2));
+            let ow3 = _mm512_load_si512(out_w_ptr.add(3));
+
+            let out0 = mm512_dpwssd_epi32::<USE_VNNI>(_mm512_setzero_si512(), act0, ow0);
+            let out1 = mm512_dpwssd_epi32::<USE_VNNI>(_mm512_setzero_si512(), act1, ow1);
+            let out2 = mm512_dpwssd_epi32::<USE_VNNI>(_mm512_setzero_si512(), act2, ow2);
+            let out3 = mm512_dpwssd_epi32::<USE_VNNI>(_mm512_setzero_si512(), act3, ow3);
+
+            let combined =
+                _mm512_add_epi32(_mm512_add_epi32(out0, out1), _mm512_add_epi32(out2, out3));
+            _mm512_reduce_add_epi32(combined)
+        }
     }
 
-    #[inline(always)]
-    fn forward(&self, buffers: &mut NetworkBuffers, mobility: u8, ply: usize) -> Score {
-        self.forward_input_pa(buffers, mobility, ply);
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    fn forward_avx2<const USE_VNNI: bool>(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        const NUM_REGS: usize = PA_OUTPUT_DIMS / 16;
+        debug_assert_eq!(NUM_REGS, 8);
 
-        let ls_index = ply / (60 / NUM_LAYER_STACKS);
-        let ls = &self.layer_stacks[ls_index];
-        self.forward_l1(ls, buffers);
-        self.forward_l2(ls, buffers);
-        self.forward_output(ls, buffers)
+        let weights_ptr = input_layer.weights.as_ptr() as *const __m256i;
+        let bias_ptr = input_layer.biases.as_ptr() as *const __m256i;
+
+        unsafe {
+            use crate::eval::util::m256_hadd;
+
+            let mut acc0 = _mm256_load_si256(bias_ptr);
+            let mut acc1 = _mm256_load_si256(bias_ptr.add(1));
+            let mut acc2 = _mm256_load_si256(bias_ptr.add(2));
+            let mut acc3 = _mm256_load_si256(bias_ptr.add(3));
+            let mut acc4 = _mm256_load_si256(bias_ptr.add(4));
+            let mut acc5 = _mm256_load_si256(bias_ptr.add(5));
+            let mut acc6 = _mm256_load_si256(bias_ptr.add(6));
+            let mut acc7 = _mm256_load_si256(bias_ptr.add(7));
+
+            macro_rules! accumulate_4 {
+                ($base:expr) => {{
+                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
+                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
+                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
+                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+
+                    for j in 0..NUM_REGS {
+                        let w0 = _mm256_load_si256(weights_ptr.add(idx0 + j));
+                        let w1 = _mm256_load_si256(weights_ptr.add(idx1 + j));
+                        let w2 = _mm256_load_si256(weights_ptr.add(idx2 + j));
+                        let w3 = _mm256_load_si256(weights_ptr.add(idx3 + j));
+
+                        let sum01 = _mm256_add_epi16(w0, w1);
+                        let sum23 = _mm256_add_epi16(w2, w3);
+                        let sum = _mm256_add_epi16(sum01, sum23);
+
+                        match j {
+                            0 => acc0 = _mm256_add_epi16(acc0, sum),
+                            1 => acc1 = _mm256_add_epi16(acc1, sum),
+                            2 => acc2 = _mm256_add_epi16(acc2, sum),
+                            3 => acc3 = _mm256_add_epi16(acc3, sum),
+                            4 => acc4 = _mm256_add_epi16(acc4, sum),
+                            5 => acc5 = _mm256_add_epi16(acc5, sum),
+                            6 => acc6 = _mm256_add_epi16(acc6, sum),
+                            7 => acc7 = _mm256_add_epi16(acc7, sum),
+                            _ => unreachable!(),
+                        }
+                    }
+                }};
+            }
+
+            accumulate_4!(0);
+            accumulate_4!(4);
+            accumulate_4!(8);
+            accumulate_4!(12);
+            accumulate_4!(16);
+            accumulate_4!(20);
+
+            let zero = _mm256_setzero_si256();
+            let one = _mm256_set1_epi16(1023);
+
+            let v0 = _mm256_min_epi16(_mm256_max_epi16(acc0, zero), one);
+            let v1 = _mm256_min_epi16(_mm256_max_epi16(acc1, zero), one);
+            let v2 = _mm256_min_epi16(_mm256_max_epi16(acc2, zero), one);
+            let v3 = _mm256_min_epi16(_mm256_max_epi16(acc3, zero), one);
+            let v4 = _mm256_min_epi16(_mm256_max_epi16(acc4, zero), one);
+            let v5 = _mm256_min_epi16(_mm256_max_epi16(acc5, zero), one);
+            let v6 = _mm256_min_epi16(_mm256_max_epi16(acc6, zero), one);
+            let v7 = _mm256_min_epi16(_mm256_max_epi16(acc7, zero), one);
+
+            const SHIFT: i32 = 6;
+            let act0 = _mm256_mulhi_epu16(_mm256_slli_epi16(v0, SHIFT), v0);
+            let act1 = _mm256_mulhi_epu16(_mm256_slli_epi16(v1, SHIFT), v1);
+            let act2 = _mm256_mulhi_epu16(_mm256_slli_epi16(v2, SHIFT), v2);
+            let act3 = _mm256_mulhi_epu16(_mm256_slli_epi16(v3, SHIFT), v3);
+            let act4 = _mm256_mulhi_epu16(_mm256_slli_epi16(v4, SHIFT), v4);
+            let act5 = _mm256_mulhi_epu16(_mm256_slli_epi16(v5, SHIFT), v5);
+            let act6 = _mm256_mulhi_epu16(_mm256_slli_epi16(v6, SHIFT), v6);
+            let act7 = _mm256_mulhi_epu16(_mm256_slli_epi16(v7, SHIFT), v7);
+
+            let out_w_ptr = output_layer.weights.as_ptr() as *const __m256i;
+
+            let out0 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act0,
+                _mm256_load_si256(out_w_ptr),
+            );
+            let out1 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act1,
+                _mm256_load_si256(out_w_ptr.add(1)),
+            );
+            let out2 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act2,
+                _mm256_load_si256(out_w_ptr.add(2)),
+            );
+            let out3 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act3,
+                _mm256_load_si256(out_w_ptr.add(3)),
+            );
+            let out4 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act4,
+                _mm256_load_si256(out_w_ptr.add(4)),
+            );
+            let out5 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act5,
+                _mm256_load_si256(out_w_ptr.add(5)),
+            );
+            let out6 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act6,
+                _mm256_load_si256(out_w_ptr.add(6)),
+            );
+            let out7 = mm256_dpwssd_epi32::<USE_VNNI>(
+                _mm256_setzero_si256(),
+                act7,
+                _mm256_load_si256(out_w_ptr.add(7)),
+            );
+
+            let sum01 = _mm256_add_epi32(out0, out1);
+            let sum23 = _mm256_add_epi32(out2, out3);
+            let sum45 = _mm256_add_epi32(out4, out5);
+            let sum67 = _mm256_add_epi32(out6, out7);
+            let combined = _mm256_add_epi32(
+                _mm256_add_epi32(sum01, sum23),
+                _mm256_add_epi32(sum45, sum67),
+            );
+
+            m256_hadd(combined)
+        }
     }
 
-    #[inline(always)]
-    fn forward_input_pa(&self, buffers: &mut NetworkBuffers, mobility: u8, ply: usize) {
-        let pa_index = if ply < 30 { 0 } else { (ply - 30) / 6 + 1 };
-        let pa_input = &self.pa_inputs[pa_index];
-        pa_input.forward(&buffers.feature_indices, buffers.pa_out.as_mut_slice());
-        buffers.pa_out[L1_PA_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
-    }
+    fn forward_scalar(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        let mut acc = [0i32; PA_OUTPUT_DIMS];
 
-    #[inline(always)]
-    fn forward_l1(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
-        ls.l1_pa.forward(&buffers.pa_out, &mut buffers.l1_pa_out);
-        clipped_relu::<L2_PADDED_INPUT_DIMS>(&buffers.l1_pa_out, &mut buffers.l1_out);
-    }
+        for (dst, &bias) in acc.iter_mut().zip(input_layer.biases.iter()) {
+            *dst = bias as i32;
+        }
 
-    #[inline(always)]
-    fn forward_l2(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
-        ls.l2.forward(&buffers.l1_out, &mut buffers.l2_li_out);
-        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(&buffers.l2_li_out, &mut buffers.l2_out);
-    }
+        let weights = input_layer.weights.as_slice();
+        for feature_idx in 0..NUM_FEATURES {
+            let offset = feature_offset(pattern_feature, feature_idx);
+            let row = &weights[offset * PA_OUTPUT_DIMS..(offset + 1) * PA_OUTPUT_DIMS];
+            for (dst, &w) in acc.iter_mut().zip(row.iter()) {
+                *dst += w as i32;
+            }
+        }
 
-    #[inline(always)]
-    fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> Score {
-        let input = &buffers.l2_out;
-        let mut output = Align64([0; 32]);
+        let mut output = 0i32;
+        for (value, &weight) in acc.iter().zip(output_layer.weights.iter()) {
+            if *value > 0 {
+                let clamped = (*value).min(1023);
+                let activation = (clamped * clamped) >> 10;
+                output += activation * (weight as i32);
+            }
+        }
 
-        ls.lo.forward(input, &mut output);
-        output[0] >> OUTPUT_WEIGHT_SCALE_BITS
+        output
     }
 }

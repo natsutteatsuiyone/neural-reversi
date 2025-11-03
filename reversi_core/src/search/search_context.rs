@@ -221,21 +221,6 @@ impl SearchContext {
         self.switch_players();
     }
 
-    /// Temporarily disables selectivity for ProbCut search.
-    #[inline]
-    pub fn update_probcut(&mut self) {
-        self.selectivity = probcut::NO_SELECTIVITY;
-    }
-
-    /// Restores the original selectivity level after ProbCut search.
-    ///
-    /// # Arguments
-    /// * `selectivity` - The original selectivity level to restore
-    #[inline]
-    pub fn undo_probcut(&mut self, selectivity: u8) {
-        self.selectivity = selectivity;
-    }
-
     /// Returns the current ply in the search tree.
     ///
     /// The ply is calculated from the number of empty squares remaining,

@@ -15,10 +15,10 @@ use threading::{Thread, ThreadPool};
 use crate::board::Board;
 use crate::eval::Eval;
 use crate::level::Level;
-use crate::move_list;
 use crate::square::Square;
 use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, Score, Scoref, Selectivity};
+use crate::{move_list, probcut, stability};
 
 /// Main search engine structure
 pub struct Search {
@@ -62,6 +62,11 @@ impl Search {
             options.eval_sm_path.as_deref(),
         )
         .unwrap_or_else(|err| panic!("failed to load evaluation weights: {err}"));
+
+        // Ensure that dependent modules are initialized
+        probcut::init();
+        stability::init();
+
         Search {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
             generation: 0,

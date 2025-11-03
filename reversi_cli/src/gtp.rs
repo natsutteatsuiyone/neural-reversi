@@ -238,8 +238,6 @@ impl GtpEngine {
     /// - Responses are formatted with '=' for success or '?' for errors
     /// - Each response is followed by a blank line
     pub fn run(&mut self) {
-        reversi_core::init();
-
         let stdin = io::stdin();
         let mut stdout = io::stdout();
 

@@ -2,14 +2,18 @@
 use std::{
     arch::x86_64::*,
     io::{self, Read},
-    mem::{size_of, zeroed},
+    mem::size_of,
     ptr::copy_nonoverlapping,
 };
+
+#[cfg(target_arch = "x86_64")]
+use std::arch::is_x86_feature_detected;
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::eval::CACHE_LINE_SIZE;
+use crate::eval::constants::CACHE_LINE_SIZE;
+use crate::eval::util::clone_biases;
 use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
 
@@ -41,7 +45,10 @@ impl<
 {
     /// Loads weights and biases from binary format.
     ///
-    /// Format: biases (i32 LE) followed by weights (i8) in packed layout.
+    /// Format: `OUTPUT_DIMS` biases (little-endian `i32`) followed by row-major
+    /// signed weights (`i8`) for each output neuron. The raw weights are
+    /// repacked into the SIMD-friendly layout while loading, and any padded
+    /// slots stay zero-initialised.
     ///
     /// # Arguments
     /// * `reader` - Input stream to read from
@@ -84,8 +91,10 @@ impl<
     ///
     /// # Arguments
     ///
-    /// * `input` - Aligned input activations (u8 values)
-    /// * `output` - Aligned output buffer for results (i32 accumulators)
+    /// * `input` - Aligned activations (`u8`) of length `PADDED_INPUT_DIMS` (only the
+    ///   first `INPUT_DIMS` entries are consumed)
+    /// * `output` - Aligned accumulator buffer (`i32`) where the first `OUTPUT_DIMS`
+    ///   elements are overwritten; padded tail is left untouched
     #[inline(always)]
     pub fn forward(
         &self,
@@ -94,194 +103,99 @@ impl<
     ) {
         #[cfg(target_arch = "x86_64")]
         {
-            if cfg!(target_feature = "avx512bw") {
-                if is_x86_feature_detected!("avx512vnni") {
-                    unsafe { self.forward_avx512_vnni(input, output) };
-                } else {
-                    unsafe { self.forward_avx512_bw(input, output) };
+            unsafe {
+                if cfg!(target_feature = "avx512bw") {
+                    if is_x86_feature_detected!("avx512vnni") {
+                        self.forward_avx512::<true>(input, output);
+                    } else {
+                        self.forward_avx512::<false>(input, output);
+                    }
+                    return;
+                } else if cfg!(target_feature = "avx2") {
+                    if is_x86_feature_detected!("avxvnni") {
+                        self.forward_avx2::<true>(input, output);
+                    } else {
+                        self.forward_avx2::<false>(input, output);
+                    }
+                    return;
                 }
-                return;
-            } else if cfg!(target_feature = "avx2") {
-                unsafe { self.forward_avx2(input, output) };
-                return;
             }
         }
 
         self.forward_fallback(input, output);
     }
 
-    /// AVX-512-accelerated forward pass using VNNI instructions when supported.
+    /// AVX-512 accelerated forward pass optionally using VNNI.
+    /// Falls back to the AVX2 path when the layer is narrower than a full 512-bit vector.
     #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512vnni")]
-    fn forward_avx512_vnni(
+    #[target_feature(enable = "avx512bw,avx512vl")]
+    fn forward_avx512<const USE_VNNI: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        const INPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<u8>();
+        use crate::eval::util::mm512_dpbusd_epi32;
+
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
 
-        if OUTPUT_DIMS == 1 && (INPUT_DIMS < INPUT_SIMD_WIDTH || INPUT_DIMS % INPUT_SIMD_WIDTH != 0)
-        {
-            self.forward_avx2(input, output);
-            return;
-        }
-
         if OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH {
-            self.forward_avx2(input, output);
+            self.forward_avx2::<USE_VNNI>(input, output);
             return;
         }
 
         unsafe {
-            if OUTPUT_DIMS > 1 {
-                let mut acc: Align64<[i32; OUTPUT_DIMS]> = zeroed();
-                let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
+            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
+            let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
 
-                let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
-                let num_regs = std::cmp::max(OUTPUT_DIMS / OUTPUT_SIMD_WIDTH, 1);
+            let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+            let num_regs = std::cmp::max(OUTPUT_DIMS / OUTPUT_SIMD_WIDTH, 1);
 
-                copy_nonoverlapping(self.biases.as_ptr() as *const __m512i, acc_ptr, num_regs);
+            let input32 = input.as_ptr() as *const i32;
+            for i in 0..num_chunks {
+                let in0 = _mm512_set1_epi32(*input32.add(i));
+                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m512i;
 
-                let input32 = input.as_ptr() as *const i32;
-                for i in 0..num_chunks {
-                    let in0 = _mm512_set1_epi32(*input32.add(i));
-                    let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m512i;
-
-                    for j in 0..num_regs {
-                        let a = acc_ptr.add(j);
-                        *a = _mm512_dpbusd_epi32(*a, in0, *col0.add(j));
-                    }
+                for j in 0..num_regs {
+                    let a = acc_ptr.add(j);
+                    *a = mm512_dpbusd_epi32::<USE_VNNI>(*a, in0, *col0.add(j));
                 }
-
-                copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m512i, num_regs);
-            } else {
-                debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
-
-                let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
-                let mut sum0 = _mm512_setzero_si512();
-                let row0 = self.weights.as_ptr() as *const __m512i;
-                let input_vector = input.as_ptr() as *const __m512i;
-
-                for j in 0..num_chunks {
-                    let in_vec = *input_vector.add(j);
-                    sum0 = _mm512_dpbusd_epi32(sum0, in_vec, *row0.add(j));
-                }
-
-                output[0] = _mm512_reduce_add_epi32(sum0) + self.biases[0];
             }
+
+            copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m512i, num_regs);
         }
     }
 
-    /// AVX-512 forward pass emulating VNNI via AVX-512BW instructions.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512bw")]
-    fn forward_avx512_bw(
-        &self,
-        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
-        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
-    ) {
-        const INPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<u8>();
-        const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
-
-        if OUTPUT_DIMS == 1 && (INPUT_DIMS < INPUT_SIMD_WIDTH || INPUT_DIMS % INPUT_SIMD_WIDTH != 0)
-        {
-            self.forward_avx2(input, output);
-            return;
-        }
-
-        if OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH {
-            self.forward_avx2(input, output);
-            return;
-        }
-
-        unsafe {
-            if OUTPUT_DIMS > 1 {
-                let mut acc: Align64<[i32; OUTPUT_DIMS]> = zeroed();
-                let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
-
-                let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
-                let num_regs = std::cmp::max(OUTPUT_DIMS / OUTPUT_SIMD_WIDTH, 1);
-
-                copy_nonoverlapping(self.biases.as_ptr() as *const __m512i, acc_ptr, num_regs);
-
-                let input32 = input.as_ptr() as *const i32;
-                for i in 0..num_chunks {
-                    let in0 = _mm512_set1_epi32(*input32.add(i));
-                    let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m512i;
-
-                    for j in 0..num_regs {
-                        let a = acc_ptr.add(j);
-                        *a = mm512_dpbusd_epi32_emulated(*a, in0, *col0.add(j));
-                    }
-                }
-
-                copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m512i, num_regs);
-            } else {
-                debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
-
-                let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
-                let mut sum0 = _mm512_setzero_si512();
-                let row0 = self.weights.as_ptr() as *const __m512i;
-                let input_vector = input.as_ptr() as *const __m512i;
-
-                for j in 0..num_chunks {
-                    let in_vec = *input_vector.add(j);
-                    sum0 = mm512_dpbusd_epi32_emulated(sum0, in_vec, *row0.add(j));
-                }
-
-                output[0] = _mm512_reduce_add_epi32(sum0) + self.biases[0];
-            }
-        }
-    }
-
-    /// AVX2-accelerated forward pass.
+    /// AVX2 accelerated forward pass optionally using VNNI.
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
-    fn forward_avx2(
+    fn forward_avx2<const USE_VNNI: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        const INPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<u8>();
+        use crate::eval::util::mm256_dpbusd_epi32;
+
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<i32>();
 
         unsafe {
-            if OUTPUT_DIMS > 1 {
-                let mut acc: Align64<[i32; OUTPUT_DIMS]> = zeroed();
-                let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
+            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
+            let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
 
-                let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
-                let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
+            let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+            let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
 
-                copy_nonoverlapping(self.biases.as_ptr() as *const __m256i, acc_ptr, num_regs);
+            let input32 = input.as_ptr() as *const i32;
+            for i in 0..num_chunks {
+                let in0 = _mm256_set1_epi32(*input32.add(i));
+                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m256i;
 
-                let input32 = input.as_ptr() as *const i32;
-                for i in 0..num_chunks {
-                    let in0 = _mm256_set1_epi32(*input32.add(i));
-                    let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m256i;
-
-                    for j in 0..num_regs {
-                        let a = acc_ptr.add(j);
-                        *a = mm256_dpbusd_epi32(*a, in0, *col0.add(j));
-                    }
+                for j in 0..num_regs {
+                    let a = acc_ptr.add(j);
+                    *a = mm256_dpbusd_epi32::<USE_VNNI>(*a, in0, *col0.add(j));
                 }
-
-                copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
-            } else {
-                debug_assert_eq!(INPUT_DIMS % INPUT_SIMD_WIDTH, 0);
-
-                let num_chunks: usize = PADDED_INPUT_DIMS / INPUT_SIMD_WIDTH;
-                let mut sum0 = _mm256_setzero_si256();
-                let row0 = self.weights.as_ptr() as *const __m256i;
-                let input_vector = input.as_ptr() as *const __m256i;
-
-                for j in 0..num_chunks {
-                    let in_vec = *input_vector.add(j);
-                    sum0 = mm256_dpbusd_epi32(sum0, in_vec, *row0.add(j));
-                }
-
-                output[0] = m256_hadd(sum0, self.biases[0]);
             }
+
+            copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
         }
     }
 
@@ -291,80 +205,21 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        if OUTPUT_DIMS > 1 {
-            output[..OUTPUT_DIMS].copy_from_slice(&self.biases[..OUTPUT_DIMS]);
+        output[..OUTPUT_DIMS].copy_from_slice(&self.biases[..OUTPUT_DIMS]);
 
-            for (i, &input_byte) in input.iter().take(INPUT_DIMS).enumerate() {
-                let input_val = input_byte as i32;
-                if input_val == 0 {
-                    continue;
-                }
-
-                for (k, out) in output.iter_mut().take(OUTPUT_DIMS).enumerate() {
-                    let weight_idx = self.get_packed_weight_index(i, k);
-                    let weight_val = self.weights[weight_idx] as i32;
-                    *out += input_val * weight_val;
-                }
+        for (i, &input_byte) in input.iter().take(INPUT_DIMS).enumerate() {
+            let input_val = input_byte as i32;
+            if input_val == 0 {
+                continue;
             }
-        } else {
-            let mut acc: i32 = self.biases[0];
-            for (i, &input_byte) in input.iter().take(INPUT_DIMS).enumerate() {
-                let input_val = input_byte as i32;
-                if input_val == 0 {
-                    continue;
-                }
 
-                let weight_idx = self.get_packed_weight_index(i, 0); // output_idx is 0
+            for (k, out) in output.iter_mut().take(OUTPUT_DIMS).enumerate() {
+                let weight_idx = self.get_packed_weight_index(i, k);
                 let weight_val = self.weights[weight_idx] as i32;
-                acc += input_val * weight_val;
+                *out += input_val * weight_val;
             }
-            output[0] = acc;
         }
     }
-}
-
-/// Emulates the VPDPBUSD instruction for 64-byte blocks using AVX-512BW.
-///
-/// Computes: `acc += sum(a[i] * b[i])` for i in 0..64 where `a` holds unsigned
-/// bytes and `b` holds signed bytes.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512bw")]
-#[inline]
-fn mm512_dpbusd_epi32_emulated(acc: __m512i, a: __m512i, b: __m512i) -> __m512i {
-    let product0 = _mm512_maddubs_epi16(a, b);
-    let product1 = _mm512_madd_epi16(product0, _mm512_set1_epi16(1));
-    _mm512_add_epi32(acc, product1)
-}
-
-/// Emulates the VPDPBUSD instruction for dot product of unsigned and signed bytes.
-///
-/// Computes: `acc += sum(a[i] * b[i])` for i in 0..32
-/// where `a` contains unsigned bytes and `b` contains signed bytes.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-fn mm256_dpbusd_epi32(acc: __m256i, a: __m256i, b: __m256i) -> __m256i {
-    let product0 = _mm256_maddubs_epi16(a, b);
-    let product1 = _mm256_madd_epi16(product0, _mm256_set1_epi16(1));
-    _mm256_add_epi32(acc, product1)
-}
-
-/// Horizontal sum of all 32-bit integers in a 256-bit vector plus bias.
-///
-/// Efficiently reduces 8×32-bit values to a single sum using shuffle operations.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-fn m256_hadd(sum_vec: __m256i, bias: i32) -> i32 {
-    // Add upper and lower 128-bit lanes
-    let mut sum128 = _mm_add_epi32(
-        _mm256_castsi256_si128(sum_vec),
-        _mm256_extracti128_si256(sum_vec, 1),
-    );
-    // Horizontal add within 128-bit lane
-    sum128 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b01_00_11_10));
-    sum128 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b10_11_00_01));
-    _mm_cvtsi128_si32(sum128) + bias
 }
 
 #[cfg(test)]
@@ -445,43 +300,6 @@ mod tests {
     }
 
     #[test]
-    fn test_forward_single_output() {
-        const I: usize = 32; // Must be multiple of 32 for AVX2 single output path
-        const O: usize = 1;
-        const PI: usize = 32;
-        const PO: usize = 32;
-
-        let mut layer = LinearLayer::<I, O, PI, PO> {
-            biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
-            weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
-        };
-
-        // Set bias
-        layer.biases[0] = 100;
-
-        // Set some weights directly (avoiding packing complexity for test)
-        for i in 0..I {
-            let idx = layer.get_packed_weight_index(i, 0);
-            layer.weights[idx] = 1; // Simple weight of 1
-        }
-
-        // Create aligned input and output
-        let mut input = Align64([0; PI]);
-        let mut output = Align64([0; PO]);
-
-        // Set some input values
-        input[0] = 10;
-        input[1] = 20;
-        input[2] = 30;
-        input[3] = 40;
-
-        layer.forward(&input, &mut output);
-
-        // The output should be the bias (100) plus weighted sum (10+20+30+40 = 100)
-        assert_eq!(output[0], 200);
-    }
-
-    #[test]
     fn test_forward_multiple_outputs() {
         const I: usize = 4;
         const O: usize = 8;
@@ -557,7 +375,7 @@ mod tests {
         // Run both implementations
         if is_x86_feature_detected!("avx2") {
             unsafe {
-                layer.forward_avx2(&input, &mut output_avx2);
+                layer.forward_avx2::<false>(&input, &mut output_avx2);
             }
         }
         layer.forward_fallback(&input, &mut output_fallback);

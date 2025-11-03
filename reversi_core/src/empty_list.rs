@@ -77,6 +77,7 @@ const PRESORTED: [Square; 64] = [
 /// Each square maintains links to its neighbors in the list
 /// and its quadrant ID for parity calculations.
 #[derive(Clone, Copy, Default)]
+#[repr(align(8))]
 struct EmptyNode {
     /// Next square in the linked list (Square::None if last)
     next: Square,
@@ -196,12 +197,20 @@ impl EmptyList {
     /// * `sq` - The `Square` to remove. Must currently be in the list.
     #[inline(always)]
     pub fn remove(&mut self, sq: Square) {
-        let node = self.nodes[sq.index()];
-        let prev = node.prev;
-        let next = node.next;
-        unsafe { self.nodes.get_unchecked_mut(prev.index()).next = next };
-        unsafe { self.nodes.get_unchecked_mut(next.index()).prev = prev };
-        self.parity ^= node.quad_id;
+        let sq_idx = sq.index();
+        unsafe {
+            let prev_idx = self.nodes.get_unchecked(sq_idx).prev.index();
+            let next_idx = self.nodes.get_unchecked(sq_idx).next.index();
+            let quad_id = self.nodes.get_unchecked(sq_idx).quad_id;
+
+            let next = self.nodes.get_unchecked(sq_idx).next;
+            let prev = self.nodes.get_unchecked(sq_idx).prev;
+
+            self.nodes.get_unchecked_mut(prev_idx).next = next;
+            self.nodes.get_unchecked_mut(next_idx).prev = prev;
+
+            self.parity ^= quad_id;
+        }
         self.count -= 1;
     }
 
@@ -212,10 +221,17 @@ impl EmptyList {
     /// * `sq` - The `Square` to restore. Must have been previously removed.
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
-        let node = self.nodes[sq.index()];
-        unsafe { self.nodes.get_unchecked_mut(node.prev.index()).next = sq };
-        unsafe { self.nodes.get_unchecked_mut(node.next.index()).prev = sq };
-        self.parity ^= node.quad_id;
+        let sq_idx = sq.index();
+        unsafe {
+            let prev_idx = self.nodes.get_unchecked(sq_idx).prev.index();
+            let next_idx = self.nodes.get_unchecked(sq_idx).next.index();
+            let quad_id = self.nodes.get_unchecked(sq_idx).quad_id;
+
+            self.nodes.get_unchecked_mut(prev_idx).next = sq;
+            self.nodes.get_unchecked_mut(next_idx).prev = sq;
+
+            self.parity ^= quad_id;
+        }
         self.count += 1;
     }
 

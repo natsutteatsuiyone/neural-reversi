@@ -268,6 +268,15 @@ impl Board {
         crate::stability::get_stable_discs(self.player, self.opponent).count_ones() as i32
     }
 
+    /// Gets the potential moves for the current player.
+    ///
+    /// # Returns
+    /// A `u64` value representing the potential moves for the current player.
+    #[inline]
+    pub fn get_potential_moves(&self) -> u64 {
+        crate::bitboard::get_potential_moves(self.player, self.opponent)
+    }
+
     /// Checks if a given square is empty.
     ///
     /// # Arguments

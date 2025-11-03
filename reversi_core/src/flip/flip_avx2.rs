@@ -94,7 +94,7 @@ fn mm_flip(op: __m128i, pos: usize) -> __m128i {
     let oo: __m256i = _mm256_broadcastq_epi64(_mm_unpackhi_epi64(op, op));
 
     // Right side computations
-    mask = unsafe { LRMASK[pos].v4[1] };
+    mask = unsafe { *LRMASK.get_unchecked(pos).v4.get_unchecked(1) };
     // Right: shadow mask lower than leftmost P
     let rp: __m256i = _mm256_and_si256(pp, mask);
     rs = _mm256_or_si256(rp, _mm256_srlv_epi64(rp, _mm256_set_epi64x(7, 9, 8, 1)));
@@ -105,7 +105,7 @@ fn mm_flip(op: __m128i, pos: usize) -> __m128i {
     flip = _mm256_and_si256(_mm256_andnot_si256(rs, mask), _mm256_cmpgt_epi64(rp, re));
 
     // Left side computations
-    mask = unsafe { LRMASK[pos].v4[0] };
+    mask = unsafe { *LRMASK.get_unchecked(pos).v4.get_unchecked(0) };
     // Left: non-opponent BLSMSK
     lo = _mm256_andnot_si256(oo, mask);
     lo = _mm256_and_si256(

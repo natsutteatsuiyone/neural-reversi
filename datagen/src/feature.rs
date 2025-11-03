@@ -293,7 +293,7 @@ fn process_file(
             let file = File::create(file_path)?;
 
             // Compress and write data
-            let compressed = zstd::bulk::compress(&data, 3)?;
+            let compressed = zstd::bulk::compress(&data, 1)?;
             std::io::Write::write_all(&mut std::io::BufWriter::new(file), &compressed)?;
         }
     }

@@ -22,7 +22,7 @@ use crate::search::search_context::SideToMove;
 use crate::square::Square;
 
 /// Number of distinct pattern features used for evaluation.
-pub const NUM_PATTERN_FEATURES: usize = 22;
+pub const NUM_PATTERN_FEATURES: usize = 24;
 
 /// Maximum number of features that any single square can participate in.
 const MAX_FEATURES_PER_SQUARE: usize = 4;
@@ -84,6 +84,34 @@ impl PatternFeature {
     pub const fn from_array(data: [u16; FEATURE_VECTOR_SIZE]) -> Self {
         Self { data }
     }
+
+    /// Unsafe getter for internal data without bounds checking.
+    pub unsafe fn get_unchecked(&self, idx: usize) -> u16 {
+        *unsafe { self.data.get_unchecked(idx) }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl PatternFeature {
+    #[inline(always)]
+    unsafe fn as_m512_ptr(&self) -> *const std::arch::x86_64::__m512i {
+        self.data.as_ptr() as *const std::arch::x86_64::__m512i
+    }
+
+    #[inline(always)]
+    unsafe fn as_mut_m512_ptr(&mut self) -> *mut std::arch::x86_64::__m512i {
+        self.data.as_mut_ptr() as *mut std::arch::x86_64::__m512i
+    }
+
+    #[inline(always)]
+    unsafe fn as_m256_ptr(&self) -> *const std::arch::x86_64::__m256i {
+        self.data.as_ptr() as *const std::arch::x86_64::__m256i
+    }
+
+    #[inline(always)]
+    unsafe fn as_mut_m256_ptr(&mut self) -> *mut std::arch::x86_64::__m256i {
+        self.data.as_mut_ptr() as *mut std::arch::x86_64::__m256i
+    }
 }
 
 impl Index<usize> for PatternFeature {
@@ -115,6 +143,13 @@ struct CoordinateToFeature {
     features: [[u32; 2]; MAX_FEATURES_PER_SQUARE],
 }
 
+impl CoordinateToFeature {
+    #[inline(always)]
+    unsafe fn features_slice(&self) -> &[[u32; 2]] {
+        unsafe { std::slice::from_raw_parts(self.features.as_ptr(), self.n_features as usize) }
+    }
+}
+
 /// Board squares that make up each pattern.
 #[rustfmt::skip]
 pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
@@ -123,6 +158,8 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
     ftc!(8, [Sq::C7, Sq::D7, Sq::B6, Sq::C6, Sq::D6, Sq::B5, Sq::C5, Sq::D5, Sq::None, Sq::None]),
     ftc!(8, [Sq::F7, Sq::E7, Sq::G6, Sq::F6, Sq::E6, Sq::G5, Sq::F5, Sq::E5, Sq::None, Sq::None]),
 
+    ftc!(8, [Sq::A1, Sq::B2, Sq::C3, Sq::D4, Sq::E5, Sq::F6, Sq::G7, Sq::H8, Sq::None, Sq::None]),
+    ftc!(8, [Sq::H1, Sq::G2, Sq::F3, Sq::E4, Sq::D5, Sq::C6, Sq::B7, Sq::A8, Sq::None, Sq::None]),
     ftc!(8, [Sq::D3, Sq::E4, Sq::F5, Sq::D4, Sq::E5, Sq::C4, Sq::D5, Sq::E6, Sq::None, Sq::None]),
     ftc!(8, [Sq::E3, Sq::D4, Sq::C5, Sq::E4, Sq::D5, Sq::F4, Sq::E5, Sq::D6, Sq::None, Sq::None]),
 
@@ -325,41 +362,74 @@ impl PatternFeatures {
         use std::arch::x86_64::*;
 
         unsafe {
-            let p_in_ptr = self.p_features[ply].data.as_ptr() as *const __m512i;
-            let o_in_ptr = self.o_features[ply].data.as_ptr() as *const __m512i;
-            let p_out_ptr = self.p_features[ply + 1].data.as_mut_ptr() as *mut __m512i;
-            let o_out_ptr = self.o_features[ply + 1].data.as_mut_ptr() as *mut __m512i;
+            let p_in_ptr = self.p_features.get_unchecked(ply).as_m512_ptr();
+            let o_in_ptr = self.o_features.get_unchecked(ply).as_m512_ptr();
+            let p_out_ptr = self.p_features.get_unchecked_mut(ply + 1).as_mut_m512_ptr();
+            let o_out_ptr = self.o_features.get_unchecked_mut(ply + 1).as_mut_m512_ptr();
 
             let mut sum = _mm512_setzero_si512();
-            for x in BitboardIterator::new(flipped) {
-                let feat_ptr = EVAL_FEATURE[x as usize].data.as_ptr() as *const __m512i;
-                let v = _mm512_load_si512(feat_ptr);
-                sum = _mm512_add_epi16(sum, v);
+            let mut bits = flipped;
+
+            while bits != 0 {
+                let x0 = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let v0 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x0).as_m512_ptr());
+
+                if bits == 0 {
+                    sum = _mm512_add_epi16(sum, v0);
+                    break;
+                }
+
+                let x1 = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let v1 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x1).as_m512_ptr());
+
+                if bits == 0 {
+                    sum = _mm512_add_epi16(sum, _mm512_add_epi16(v0, v1));
+                    break;
+                }
+
+                let x2 = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let v2 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x2).as_m512_ptr());
+
+                if bits == 0 {
+                    sum = _mm512_add_epi16(sum, _mm512_add_epi16(_mm512_add_epi16(v0, v1), v2));
+                    break;
+                }
+
+                let x3 = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let v3 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x3).as_m512_ptr());
+
+                sum = _mm512_add_epi16(
+                    sum,
+                    _mm512_add_epi16(_mm512_add_epi16(v0, v1), _mm512_add_epi16(v2, v3)),
+                );
             }
 
-            let f_ptr = EVAL_FEATURE[sq.index()].data.as_ptr() as *const __m512i;
-            let f = _mm512_load_si512(f_ptr);
+            let f = _mm512_load_si512(EVAL_FEATURE.get_unchecked(sq.index()).as_m512_ptr());
 
             let p_in = _mm512_load_si512(p_in_ptr);
             let o_in = _mm512_load_si512(o_in_ptr);
 
-            let f2 = _mm512_slli_epi16(f, 1);
+            let f2 = _mm512_add_epi16(f, f);
             let delta_2f_plus_sum = _mm512_add_epi16(f2, sum);
             let delta_f_minus_sum = _mm512_sub_epi16(f, sum);
 
-            if side_to_move == SideToMove::Player {
-                // Player: p_out = p_in - (2*f + sum), o_out = o_in - (f - sum)
-                let p_out = _mm512_sub_epi16(p_in, delta_2f_plus_sum);
-                let o_out = _mm512_sub_epi16(o_in, delta_f_minus_sum);
-                _mm512_store_si512(p_out_ptr, p_out);
-                _mm512_store_si512(o_out_ptr, o_out);
-            } else {
-                // Opponent: p_out = p_in - (f - sum), o_out = o_in - (2*f + sum)
-                let p_out = _mm512_sub_epi16(p_in, delta_f_minus_sum);
-                let o_out = _mm512_sub_epi16(o_in, delta_2f_plus_sum);
-                _mm512_store_si512(p_out_ptr, p_out);
-                _mm512_store_si512(o_out_ptr, o_out);
-            }
+            let is_player = (side_to_move == SideToMove::Player) as i32;
+            let mask = (is_player.wrapping_neg() as u32) as __mmask32;
+
+            let p_out_player = _mm512_sub_epi16(p_in, delta_2f_plus_sum);
+            let o_out_player = _mm512_sub_epi16(o_in, delta_f_minus_sum);
+            let p_out_opponent = _mm512_sub_epi16(p_in, delta_f_minus_sum);
+            let o_out_opponent = _mm512_sub_epi16(o_in, delta_2f_plus_sum);
+
+            let p_out = _mm512_mask_blend_epi16(mask, p_out_opponent, p_out_player);
+            let o_out = _mm512_mask_blend_epi16(mask, o_out_opponent, o_out_player);
+
+            _mm512_store_si512(p_out_ptr, p_out);
+            _mm512_store_si512(o_out_ptr, o_out);
         }
     }
 
@@ -370,24 +440,24 @@ impl PatternFeatures {
         use std::arch::x86_64::*;
 
         unsafe {
-            let p_in_ptr = self.p_features[ply].data.as_ptr() as *const __m256i;
-            let o_in_ptr = self.o_features[ply].data.as_ptr() as *const __m256i;
-            let p_out_ptr = self.p_features[ply + 1].data.as_mut_ptr() as *mut __m256i;
-            let o_out_ptr = self.o_features[ply + 1].data.as_mut_ptr() as *mut __m256i;
+            let p_in_ptr = self.p_features.get_unchecked(ply).as_m256_ptr();
+            let o_in_ptr = self.o_features.get_unchecked(ply).as_m256_ptr();
+            let p_out_ptr = self.p_features.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
+            let o_out_ptr = self.o_features.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
 
             let p_in0 = _mm256_load_si256(p_in_ptr.add(0));
             let p_in1 = _mm256_load_si256(p_in_ptr.add(1));
             let o_in0 = _mm256_load_si256(o_in_ptr.add(0));
             let o_in1 = _mm256_load_si256(o_in_ptr.add(1));
 
-            let f_ptr = EVAL_FEATURE[sq.index()].data.as_ptr() as *const __m256i;
+            let f_ptr = EVAL_FEATURE.get_unchecked(sq.index()).as_m256_ptr();
             let f0 = _mm256_load_si256(f_ptr.add(0));
             let f1 = _mm256_load_si256(f_ptr.add(1));
 
             let mut sum0 = _mm256_setzero_si256();
             let mut sum1 = _mm256_setzero_si256();
             for x in BitboardIterator::new(flipped) {
-                let fp = EVAL_FEATURE[x as usize].data.as_ptr() as *const __m256i;
+                let fp = EVAL_FEATURE.get_unchecked(x as usize).as_m256_ptr();
                 let fx0 = _mm256_load_si256(fp.add(0));
                 let fx1 = _mm256_load_si256(fp.add(1));
                 sum0 = _mm256_add_epi16(sum0, fx0);
@@ -433,40 +503,46 @@ impl PatternFeatures {
         self.o_features.copy_within(ply..ply + 1, ply + 1);
         let p_out = &mut self.p_features[ply + 1];
         let o_out = &mut self.o_features[ply + 1];
-        let s = &EVAL_X2F[sq.index()];
 
-        if side_to_move == SideToMove::Player {
-            for i in 0..s.n_features {
-                let j = s.features[i as usize][0] as usize;
-                let x = s.features[i as usize][1] as usize;
-                p_out[j] -= 2 * x as u16;
-                o_out[j] -= x as u16;
-            }
+        unsafe {
+            let s = EVAL_X2F.get_unchecked(sq.index());
+            let placed_features = s.features_slice();
+            let p_data = &mut p_out.data;
+            let o_data = &mut o_out.data;
 
-            for x in BitboardIterator::new(flipped) {
-                let s_bit = &EVAL_X2F[x as usize];
-                for i in 0..s_bit.n_features {
-                    let j = s_bit.features[i as usize][0] as usize;
-                    let x = s_bit.features[i as usize][1] as usize;
-                    p_out[j] -= x as u16;
-                    o_out[j] += x as u16;
+            if side_to_move == SideToMove::Player {
+                for &[feature_idx, power] in placed_features {
+                    let idx = feature_idx as usize;
+                    let delta = power as u16;
+                    *p_data.get_unchecked_mut(idx) -= delta << 1;
+                    *o_data.get_unchecked_mut(idx) -= delta;
                 }
-            }
-        } else {
-            for i in 0..s.n_features {
-                let j = s.features[i as usize][0] as usize;
-                let x = s.features[i as usize][1] as usize;
-                p_out[j] -= x as u16;
-                o_out[j] -= 2 * x as u16;
-            }
 
-            for x in BitboardIterator::new(flipped) {
-                let s_bit = &EVAL_X2F[x as usize];
-                for i in 0..s_bit.n_features {
-                    let j = s_bit.features[i as usize][0] as usize;
-                    let x = s_bit.features[i as usize][1] as usize;
-                    p_out[j] += x as u16;
-                    o_out[j] -= x as u16;
+                for x in BitboardIterator::new(flipped) {
+                    let s_bit = EVAL_X2F.get_unchecked(x as usize);
+                    for &[feature_idx, power] in s_bit.features_slice() {
+                        let idx = feature_idx as usize;
+                        let delta = power as u16;
+                        *p_data.get_unchecked_mut(idx) -= delta;
+                        *o_data.get_unchecked_mut(idx) += delta;
+                    }
+                }
+            } else {
+                for &[feature_idx, power] in placed_features {
+                    let idx = feature_idx as usize;
+                    let delta = power as u16;
+                    *p_data.get_unchecked_mut(idx) -= delta;
+                    *o_data.get_unchecked_mut(idx) -= delta << 1;
+                }
+
+                for x in BitboardIterator::new(flipped) {
+                    let s_bit = EVAL_X2F.get_unchecked(x as usize);
+                    for &[feature_idx, power] in s_bit.features_slice() {
+                        let idx = feature_idx as usize;
+                        let delta = power as u16;
+                        *p_data.get_unchecked_mut(idx) += delta;
+                        *o_data.get_unchecked_mut(idx) -= delta;
+                    }
                 }
             }
         }

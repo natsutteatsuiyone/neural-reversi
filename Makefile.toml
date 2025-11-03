@@ -43,16 +43,28 @@ description = "Build CLI binary for specified CPU tier"
 script_runner = "@duckscript"
 script = [
   "tier = get_env CPU_TIER",
-  "assert ${tier} \"CPU_TIER must be set\"",
   "rust_tier = get_env RUST_CPU_TIER",
-  "assert ${rust_tier} \"RUST_CPU_TIER must be set\"",
   "target_triple = get_env TARGET_TRIPLE",
-  "assert ${target_triple} \"TARGET_TRIPLE must be set\"",
   "binary_basename = get_env BINARY_BASENAME",
-  "assert ${binary_basename} \"BINARY_BASENAME must be set\"",
   "source_file = get_env SOURCE_FILE",
-  "assert ${source_file} \"SOURCE_FILE must be set\"",
   "dest_ext = get_env DEST_EXT",
+  "filename_suffix = get_env FILENAME_SUFFIX",
+  "suffix_missing = is_empty ${filename_suffix}",
+  "if ${suffix_missing}",
+  "    prefix = get_env FILENAME_PREFIX",
+  "    prefix_missing = is_empty ${prefix}",
+  "    sanitized_tier = concat ${tier} \"\"",
+  "    if not ${prefix_missing}",
+  "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
+  "        tier_delimiter_missing = is_empty ${tier_delimiter}",
+  "        if not ${tier_delimiter_missing}",
+  "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
+  "        end",
+  "        filename_suffix = concat ${prefix} ${sanitized_tier}",
+  "    else",
+  "        filename_suffix = concat ${sanitized_tier} \"\"",
+  "    end",
+  "end",
   "",
   "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
   "set_env RUSTFLAGS ${rustflags}",
@@ -60,14 +72,10 @@ script = [
   "unset_env RUSTFLAGS",
   "",
   "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
-  "source = join_path ${workspace_root} reversi_gui src-tauri target ${target_triple} release ${source_file}",
-  "exists = is_path_exists ${source}",
-  "assert ${exists} \"CLI binary not found after build\"",
-  "",
-  "dest_name = concat ${binary_basename} \"-\" ${tier} ${dest_ext}",
+  "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+  "dest_name = concat ${binary_basename} \"-\" ${filename_suffix} ${dest_ext}",
   "dest = join_path ${workspace_root} dist ${dest_name}",
-  "copied = cp ${source} ${dest}",
-  "assert ${copied} \"Failed to copy CLI binary\"",
+  "cp ${source} ${dest}",
   "echo ✓ Built: ${dest_name}",
 ]
 
@@ -84,17 +92,17 @@ run_task = { name = ["build-cli-tier"] }
 [tasks.build-cli-win-v2]
 extend = "build-cli-base"
 description = "Build Windows x86_64-v2 CLI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe" }
+env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-cli-win-v3]
 extend = "build-cli-base"
 description = "Build Windows x86_64-v3 CLI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe" }
+env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-cli-win-v4]
 extend = "build-cli-base"
 description = "Build Windows x86_64-v4 CLI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe" }
+env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-cli-windows]
 workspace = false
@@ -108,17 +116,17 @@ run_task = { name = ["build-cli-win-v2", "build-cli-win-v3", "build-cli-win-v4"]
 [tasks.build-cli-linux-v2]
 extend = "build-cli-base"
 description = "Build Linux x86_64-v2 CLI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "" }
+env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-cli-linux-v3]
 extend = "build-cli-base"
 description = "Build Linux x86_64-v3 CLI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "" }
+env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-cli-linux-v4]
 extend = "build-cli-base"
 description = "Build Linux x86_64-v4 CLI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "" }
+env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-cli-linux]
 workspace = false
@@ -136,16 +144,28 @@ cwd = "reversi_gui"
 script_runner = "@duckscript"
 script = [
   "tier = get_env CPU_TIER",
-  "assert ${tier} \"CPU_TIER must be set\"",
   "rust_tier = get_env RUST_CPU_TIER",
-  "assert ${rust_tier} \"RUST_CPU_TIER must be set\"",
   "target_triple = get_env TARGET_TRIPLE",
-  "assert ${target_triple} \"TARGET_TRIPLE must be set\"",
   "binary_basename = get_env BINARY_BASENAME",
-  "assert ${binary_basename} \"BINARY_BASENAME must be set\"",
   "source_file = get_env SOURCE_FILE",
-  "assert ${source_file} \"SOURCE_FILE must be set\"",
   "dest_ext = get_env DEST_EXT",
+  "filename_suffix = get_env FILENAME_SUFFIX",
+  "suffix_missing = is_empty ${filename_suffix}",
+  "if ${suffix_missing}",
+  "    prefix = get_env FILENAME_PREFIX",
+  "    prefix_missing = is_empty ${prefix}",
+  "    sanitized_tier = concat ${tier} \"\"",
+  "    if not ${prefix_missing}",
+  "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
+  "        tier_delimiter_missing = is_empty ${tier_delimiter}",
+  "        if not ${tier_delimiter_missing}",
+  "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
+  "        end",
+  "        filename_suffix = concat ${prefix} ${sanitized_tier}",
+  "    else",
+  "        filename_suffix = concat ${sanitized_tier} \"\"",
+  "    end",
+  "end",
   "",
   "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
   "set_env RUSTFLAGS ${rustflags}",
@@ -154,13 +174,9 @@ script = [
   "",
   "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
   "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-  "exists = is_path_exists ${source}",
-  "assert ${exists} \"GUI binary not found after build\"",
-  "",
-  "dest_name = concat ${binary_basename} \"-\" ${tier} ${dest_ext}",
+  "dest_name = concat ${binary_basename} \"-\" ${filename_suffix} ${dest_ext}",
   "dest = join_path ${workspace_root} dist ${dest_name}",
-  "copied = cp ${source} ${dest}",
-  "assert ${copied} \"Failed to copy GUI binary\"",
+  "cp ${source} ${dest}",
   "echo ✓ Built: ${dest_name}",
 ]
 
@@ -177,17 +193,17 @@ run_task = { name = ["build-gui-tier"] }
 [tasks.build-gui-win-v2]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v2 GUI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe" }
+env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-win-v3]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v3 GUI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe" }
+env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-win-v4]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v4 GUI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe" }
+env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-windows]
 workspace = false
@@ -201,17 +217,17 @@ run_task = { name = ["build-gui-win-v2", "build-gui-win-v3", "build-gui-win-v4"]
 [tasks.build-gui-linux-v2]
 extend = "build-gui-base"
 description = "Build Linux x86_64-v2 GUI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "" }
+env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux-v3]
 extend = "build-gui-base"
 description = "Build Linux x86_64-v3 GUI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "" }
+env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux-v4]
 extend = "build-gui-base"
 description = "Build Linux x86_64-v4 GUI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "" }
+env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux]
 workspace = false

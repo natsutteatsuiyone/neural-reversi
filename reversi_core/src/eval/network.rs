@@ -6,17 +6,18 @@ use std::path::Path;
 
 use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
-use crate::eval::activations::{clipped_relu, sqr_clipped_relu};
+use crate::eval::activations::{clipped_relu, screlu, sqr_clipped_relu};
 use crate::eval::constants::*;
 use crate::eval::input_layer::{BaseInput, PhaseAdaptiveInput};
 use crate::eval::linear_layer::LinearLayer;
-use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
+use crate::eval::output_layer::OutputLayer;
+use crate::eval::pattern_feature::PatternFeature;
 use crate::types::Score;
 use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
 
-const BASE_OUTPUT_DIMS: usize = 96;
-const PA_OUTPUT_DIMS: usize = 96;
+const BASE_OUTPUT_DIMS: usize = 128;
+const PA_OUTPUT_DIMS: usize = 128;
 
 const L1_BASE_INPUT_DIMS: usize = BASE_OUTPUT_DIMS + 1;
 const L1_BASE_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_BASE_INPUT_DIMS, 32);
@@ -34,10 +35,14 @@ const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
 const L2_OUTPUT_DIMS: usize = 64;
 const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
 
-const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS;
+const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS + BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS;
+const LO_PADDED_INPUT_DIMS: usize = ceil_to_multiple(LO_INPUT_DIMS, 32);
 
+const MOBILITY_SCALE: u8 = 7;
+const OUTPUT_WEIGHT_SCALE_BITS: u32 = 6;
 const NUM_LAYER_STACKS: usize = 60;
-const NUM_PHASE_ADAPTIVE_INPUT: usize = 6;
+const NUM_PA_INPUTS: usize = 6;
+const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
 
 struct LayerStack {
     pub l1_base: LinearLayer<
@@ -53,12 +58,7 @@ struct LayerStack {
         L1_PA_PADDED_OUTPUT_DIMS,
     >,
     pub l2: LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>,
-    pub lo: LinearLayer<
-        LO_INPUT_DIMS,
-        1,
-        { ceil_to_multiple(LO_INPUT_DIMS, 32) },
-        { ceil_to_multiple(1, 32) },
-    >,
+    pub lo: OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>,
 }
 
 /// Thread-local working buffers for network computation
@@ -68,12 +68,9 @@ struct NetworkBuffers {
     l1_base_out: Align64<[i32; L1_BASE_PADDED_OUTPUT_DIMS]>,
     l1_pa_out: Align64<[i32; L1_PA_PADDED_OUTPUT_DIMS]>,
     l1_li_out: Align64<[i32; L1_OUTPUT_DIMS]>,
-    l1_sqr_relu: Align64<[u8; L1_OUTPUT_DIMS]>,
-    l1_relu: Align64<[u8; L1_OUTPUT_DIMS]>,
     l1_out: Align64<[u8; L2_PADDED_INPUT_DIMS]>,
     l2_li_out: Align64<[i32; L2_PADDED_OUTPUT_DIMS]>,
     l2_out: Align64<[u8; L2_PADDED_OUTPUT_DIMS]>,
-    feature_indices: [usize; NUM_FEATURES],
 }
 
 impl NetworkBuffers {
@@ -85,12 +82,9 @@ impl NetworkBuffers {
             l1_base_out: Align64([0; L1_BASE_PADDED_OUTPUT_DIMS]),
             l1_pa_out: Align64([0; L1_PA_PADDED_OUTPUT_DIMS]),
             l1_li_out: Align64([0; L1_OUTPUT_DIMS]),
-            l1_sqr_relu: Align64([0; L1_OUTPUT_DIMS]),
-            l1_relu: Align64([0; L1_OUTPUT_DIMS]),
             l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
             l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
             l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
-            feature_indices: [0; NUM_FEATURES],
         }
     }
 }
@@ -129,8 +123,8 @@ impl Network {
                 &mut decoder,
             )?;
 
-        let mut pa_inputs = Vec::with_capacity(NUM_PHASE_ADAPTIVE_INPUT);
-        for _ in 0..NUM_PHASE_ADAPTIVE_INPUT {
+        let mut pa_inputs = Vec::with_capacity(NUM_PA_INPUTS);
+        for _ in 0..NUM_PA_INPUTS {
             let pa_input =
                 PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
             pa_inputs.push(pa_input);
@@ -141,7 +135,7 @@ impl Network {
             let l1_base = LinearLayer::load(&mut decoder)?;
             let l1_pa = LinearLayer::load(&mut decoder)?;
             let l2 = LinearLayer::load(&mut decoder)?;
-            let lo = LinearLayer::load(&mut decoder)?;
+            let lo = OutputLayer::load(&mut decoder)?;
             layer_stacks.push(LayerStack {
                 l1_base,
                 l1_pa,
@@ -168,46 +162,49 @@ impl Network {
 
         NETWORK_BUFFERS.with(|buffers| {
             let mut buffers = buffers.borrow_mut();
-            for (i, &offset) in (0..NUM_PATTERN_FEATURES).zip(PATTERN_FEATURE_OFFSETS.iter()) {
-                buffers.feature_indices[i] = pattern_feature[i] as usize + offset;
-            }
-
-            let score = self.forward(&mut buffers, mobility as u8, ply);
+            let score = self.forward(&mut buffers, pattern_feature, mobility as u8, ply);
             score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
         })
     }
 
     #[inline(always)]
-    fn forward(&self, buffers: &mut NetworkBuffers, mobility: u8, ply: usize) -> Score {
-        self.forward_input_base(buffers, mobility);
-        self.forward_input_pa(buffers, mobility, ply);
+    fn forward(
+        &self,
+        buffers: &mut NetworkBuffers,
+        pattern_feature: &PatternFeature,
+        mobility: u8,
+        ply: usize,
+    ) -> Score {
+        self.forward_input_base(buffers, pattern_feature);
+        self.forward_input_pa(buffers, pattern_feature, ply);
+        let mobility_scaled = mobility.saturating_mul(MOBILITY_SCALE);
+        buffers.base_out[L1_BASE_INPUT_DIMS - 1] = mobility_scaled;
+        buffers.pa_out[L1_PA_INPUT_DIMS - 1] = mobility_scaled;
 
-        let ls_index = ply / (60 / NUM_LAYER_STACKS);
-        let ls = &self.layer_stacks[ls_index];
+        let ls = &self.layer_stacks[ply];
         self.forward_l1(ls, buffers);
         self.forward_l2(ls, buffers);
         self.forward_output(ls, buffers)
     }
 
     #[inline(always)]
-    fn forward_input_base(&self, buffers: &mut NetworkBuffers, mobility: u8) {
-        let feature_indices = &buffers.feature_indices;
-        let output = &mut buffers.base_out;
-
-        self.base_input
-            .forward(feature_indices, &mut output[0..BASE_OUTPUT_DIMS]);
-        output[L1_BASE_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
+    fn forward_input_base(&self, buffers: &mut NetworkBuffers, pattern_feature: &PatternFeature) {
+        let output = &mut buffers.base_out[0..BASE_OUTPUT_DIMS];
+        self.base_input.forward(pattern_feature, output);
     }
 
     #[inline(always)]
-    fn forward_input_pa(&self, buffers: &mut NetworkBuffers, mobility: u8, ply: usize) {
-        let feature_indices = &buffers.feature_indices;
-        let output = &mut buffers.pa_out;
+    fn forward_input_pa(
+        &self,
+        buffers: &mut NetworkBuffers,
+        pattern_feature: &PatternFeature,
+        ply: usize,
+    ) {
+        let output = &mut buffers.pa_out[0..PA_OUTPUT_DIMS];
 
-        let pa_index = ply / (60 / NUM_PHASE_ADAPTIVE_INPUT);
+        let pa_index = ply / PA_INPUT_BUCKET_SIZE;
         let pa_input = &self.pa_inputs[pa_index];
-        pa_input.forward(feature_indices, &mut output[0..PA_OUTPUT_DIMS]);
-        output[L1_PA_INPUT_DIMS - 1] = mobility * MOBILITY_SCALE;
+        pa_input.forward(pattern_feature, output);
     }
 
     #[inline(always)]
@@ -221,13 +218,15 @@ impl Network {
         buffers.l1_li_out[L1_BASE_OUTPUT_DIMS..L1_OUTPUT_DIMS]
             .copy_from_slice(&buffers.l1_pa_out[..L1_PA_OUTPUT_DIMS]);
 
-        sqr_clipped_relu::<L1_OUTPUT_DIMS>(&buffers.l1_li_out, &mut buffers.l1_sqr_relu);
-        clipped_relu::<L1_OUTPUT_DIMS>(&buffers.l1_li_out, &mut buffers.l1_relu);
-
         const L2_INPUT_DIMS_HALF: usize = L2_INPUT_DIMS / 2;
-        buffers.l1_out[..L2_INPUT_DIMS_HALF].copy_from_slice(buffers.l1_sqr_relu.as_slice());
-        buffers.l1_out[L2_INPUT_DIMS_HALF..L2_INPUT_DIMS]
-            .copy_from_slice(buffers.l1_relu.as_slice());
+        sqr_clipped_relu::<L1_OUTPUT_DIMS>(
+            &buffers.l1_li_out.as_slice(),
+            &mut buffers.l1_out[..L2_INPUT_DIMS_HALF],
+        );
+        clipped_relu::<L1_OUTPUT_DIMS>(
+            buffers.l1_li_out.as_slice(),
+            &mut buffers.l1_out[L2_INPUT_DIMS_HALF..L2_INPUT_DIMS],
+        );
     }
 
     #[inline(always)]
@@ -237,15 +236,17 @@ impl Network {
         let output = &mut buffers.l2_out;
 
         ls.l2.forward(input, li_output);
-        clipped_relu::<L2_PADDED_OUTPUT_DIMS>(li_output, output);
+        screlu::<L2_PADDED_OUTPUT_DIMS>(li_output.as_slice(), output.as_mut_slice());
     }
 
     #[inline(always)]
     fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> Score {
-        let input = &buffers.l2_out;
-        let mut output = Align64([0; 32]);
+        let segments = [
+            &buffers.l2_out[..L2_OUTPUT_DIMS],
+            &buffers.base_out[..BASE_OUTPUT_DIMS],
+            &buffers.pa_out[..PA_OUTPUT_DIMS],
+        ];
 
-        ls.lo.forward(input, &mut output);
-        output[0] >> OUTPUT_WEIGHT_SCALE_BITS
+        ls.lo.forward(segments) >> OUTPUT_WEIGHT_SCALE_BITS
     }
 }
