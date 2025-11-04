@@ -31,7 +31,7 @@ const RECORD_SIZE: u64 = 24;
 const MIN_RANDOM_MOVES: u8 = 10;
 
 /// Maximum number of random moves at the start of each game
-const MAX_RANDOM_MOVES: u8 = 30;
+const MAX_RANDOM_MOVES: u8 = 50;
 
 /// Number of digits used in output file naming
 const FILE_ID_DIGITS: usize = 5;
