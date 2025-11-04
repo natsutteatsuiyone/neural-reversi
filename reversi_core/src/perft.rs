@@ -1,7 +1,7 @@
 use crate::board::Board;
 use crate::eval::pattern_feature::PatternFeatures;
 use crate::move_list::MoveList;
-use crate::search::search_context::SideToMove;
+use crate::search::side_to_move::SideToMove;
 
 /// Executes a perft run starting from the standard initial position.
 ///

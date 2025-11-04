@@ -4,7 +4,10 @@ mod flip_avx2;
 #[cfg(target_arch = "x86_64")]
 mod flip_avx512;
 
+#[cfg(target_arch = "x86_64")]
 mod flip_bmi2;
+
+mod flip_kindergarten;
 
 use crate::square::Square;
 
@@ -31,9 +34,13 @@ pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
         if cfg!(target_feature = "avx2") {
             return unsafe { flip_avx2::flip(sq, p, o) };
         }
+
+        if cfg!(target_feature = "bmi2") {
+            return flip_bmi2::flip(sq, p, o);
+        }
     }
 
-    flip_bmi2::flip(sq, p, o)
+    flip_kindergarten::flip(sq, p, o)
 }
 
 #[cfg(test)]

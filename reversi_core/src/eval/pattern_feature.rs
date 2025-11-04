@@ -18,7 +18,7 @@ use std::ops::{Index, IndexMut};
 use crate::bitboard;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
-use crate::search::search_context::SideToMove;
+use crate::search::side_to_move::SideToMove;
 use crate::square::Square;
 
 /// Number of distinct pattern features used for evaluation.
@@ -101,6 +101,19 @@ impl PatternFeature {
     #[inline(always)]
     unsafe fn as_mut_m256_ptr(&mut self) -> *mut std::arch::x86_64::__m256i {
         self.data.as_mut_ptr() as *mut std::arch::x86_64::__m256i
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl PatternFeature {
+    #[inline(always)]
+    unsafe fn as_v128_ptr(&self) -> *const core::arch::wasm32::v128 {
+        self.data.as_ptr() as *const core::arch::wasm32::v128
+    }
+
+    #[inline(always)]
+    unsafe fn as_mut_v128_ptr(&mut self) -> *mut core::arch::wasm32::v128 {
+        self.data.as_mut_ptr() as *mut core::arch::wasm32::v128
     }
 }
 
@@ -337,6 +350,14 @@ impl PatternFeatures {
             }
         }
 
+        #[cfg(target_arch = "wasm32")]
+        {
+            if cfg!(target_feature = "simd128") {
+                unsafe { self.update_wasm_simd(sq, flipped, ply, side_to_move) }
+                return;
+            }
+        }
+
         self.update_fallback(sq, flipped, ply, side_to_move);
     }
 
@@ -425,6 +446,150 @@ impl PatternFeatures {
                     _mm256_store_si256(p_out_ptr.add(1), p_out1);
                     _mm256_store_si256(o_out_ptr, o_out0);
                     _mm256_store_si256(o_out_ptr.add(1), o_out1);
+                }
+            }
+        }
+    }
+
+    /// WebAssembly SIMD-optimized implementation of pattern feature update.
+    #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+    #[target_feature(enable = "simd128")]
+    unsafe fn update_wasm_simd(
+        &mut self,
+        sq: Square,
+        flipped: u64,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
+        use core::arch::wasm32::*;
+
+        unsafe {
+            let ef = &EVAL_FEATURE;
+            let f_ptr = ef.get_unchecked(sq.index()).as_v128_ptr();
+            let f0 = v128_load(f_ptr);
+            let f1 = v128_load(f_ptr.add(1));
+            let f2 = v128_load(f_ptr.add(2));
+            let f3 = v128_load(f_ptr.add(3));
+
+            let mut sum0 = i16x8_splat(0);
+            let mut sum1 = i16x8_splat(0);
+            let mut sum2 = i16x8_splat(0);
+            let mut sum3 = i16x8_splat(0);
+
+            let first_idx = flipped.trailing_zeros() as usize;
+            let mut bits = flipped & (flipped - 1);
+
+            if bits != 0 || flipped != 0 {
+                let first_fp = ef.get_unchecked(first_idx).as_v128_ptr();
+                sum0 = v128_load(first_fp);
+                sum1 = v128_load(first_fp.add(1));
+                sum2 = v128_load(first_fp.add(2));
+                sum3 = v128_load(first_fp.add(3));
+
+                if bits != 0 {
+                    loop {
+                        let idx1 = bits.trailing_zeros() as usize;
+                        bits = bits & (bits - 1);
+                        let fp1 = ef.get_unchecked(idx1).as_v128_ptr();
+                        sum0 = i16x8_add(sum0, v128_load(fp1));
+                        sum1 = i16x8_add(sum1, v128_load(fp1.add(1)));
+                        sum2 = i16x8_add(sum2, v128_load(fp1.add(2)));
+                        sum3 = i16x8_add(sum3, v128_load(fp1.add(3)));
+
+                        if bits == 0 {
+                            break;
+                        }
+
+                        let idx2 = bits.trailing_zeros() as usize;
+                        bits = bits & (bits - 1);
+                        let fp2 = ef.get_unchecked(idx2).as_v128_ptr();
+                        sum0 = i16x8_add(sum0, v128_load(fp2));
+                        sum1 = i16x8_add(sum1, v128_load(fp2.add(1)));
+                        sum2 = i16x8_add(sum2, v128_load(fp2.add(2)));
+                        sum3 = i16x8_add(sum3, v128_load(fp2.add(3)));
+
+                        if bits == 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let f2_0 = i16x8_shl(f0, 1);
+            let f2_1 = i16x8_shl(f1, 1);
+            let f2_2 = i16x8_shl(f2, 1);
+            let f2_3 = i16x8_shl(f3, 1);
+
+            let f_minus_sum_0 = i16x8_sub(f0, sum0);
+            let f_minus_sum_1 = i16x8_sub(f1, sum1);
+            let f_minus_sum_2 = i16x8_sub(f2, sum2);
+            let f_minus_sum_3 = i16x8_sub(f3, sum3);
+
+            let twof_plus_sum_0 = i16x8_add(f2_0, sum0);
+            let twof_plus_sum_1 = i16x8_add(f2_1, sum1);
+            let twof_plus_sum_2 = i16x8_add(f2_2, sum2);
+            let twof_plus_sum_3 = i16x8_add(f2_3, sum3);
+
+            let p_feats = &mut self.p_features;
+            let o_feats = &mut self.o_features;
+            let p_in_ptr = p_feats.get_unchecked(ply).as_v128_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).as_v128_ptr();
+
+            let p_in0 = v128_load(p_in_ptr);
+            let p_in1 = v128_load(p_in_ptr.add(1));
+            let p_in2 = v128_load(p_in_ptr.add(2));
+            let p_in3 = v128_load(p_in_ptr.add(3));
+
+            let o_in0 = v128_load(o_in_ptr);
+            let o_in1 = v128_load(o_in_ptr.add(1));
+            let o_in2 = v128_load(o_in_ptr.add(2));
+            let o_in3 = v128_load(o_in_ptr.add(3));
+
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_v128_ptr();
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_v128_ptr();
+
+            match side_to_move {
+                SideToMove::Player => {
+                    let p_out0 = i16x8_sub(p_in0, twof_plus_sum_0);
+                    let p_out1 = i16x8_sub(p_in1, twof_plus_sum_1);
+                    let p_out2 = i16x8_sub(p_in2, twof_plus_sum_2);
+                    let p_out3 = i16x8_sub(p_in3, twof_plus_sum_3);
+
+                    let o_out0 = i16x8_sub(o_in0, f_minus_sum_0);
+                    let o_out1 = i16x8_sub(o_in1, f_minus_sum_1);
+                    let o_out2 = i16x8_sub(o_in2, f_minus_sum_2);
+                    let o_out3 = i16x8_sub(o_in3, f_minus_sum_3);
+
+                    v128_store(p_out_ptr, p_out0);
+                    v128_store(p_out_ptr.add(1), p_out1);
+                    v128_store(p_out_ptr.add(2), p_out2);
+                    v128_store(p_out_ptr.add(3), p_out3);
+
+                    v128_store(o_out_ptr, o_out0);
+                    v128_store(o_out_ptr.add(1), o_out1);
+                    v128_store(o_out_ptr.add(2), o_out2);
+                    v128_store(o_out_ptr.add(3), o_out3);
+                }
+                SideToMove::Opponent => {
+                    let p_out0 = i16x8_sub(p_in0, f_minus_sum_0);
+                    let p_out1 = i16x8_sub(p_in1, f_minus_sum_1);
+                    let p_out2 = i16x8_sub(p_in2, f_minus_sum_2);
+                    let p_out3 = i16x8_sub(p_in3, f_minus_sum_3);
+
+                    let o_out0 = i16x8_sub(o_in0, twof_plus_sum_0);
+                    let o_out1 = i16x8_sub(o_in1, twof_plus_sum_1);
+                    let o_out2 = i16x8_sub(o_in2, twof_plus_sum_2);
+                    let o_out3 = i16x8_sub(o_in3, twof_plus_sum_3);
+
+                    v128_store(p_out_ptr, p_out0);
+                    v128_store(p_out_ptr.add(1), p_out1);
+                    v128_store(p_out_ptr.add(2), p_out2);
+                    v128_store(p_out_ptr.add(3), p_out3);
+
+                    v128_store(o_out_ptr, o_out0);
+                    v128_store(o_out_ptr.add(1), o_out1);
+                    v128_store(o_out_ptr.add(2), o_out2);
+                    v128_store(o_out_ptr.add(3), o_out3);
                 }
             }
         }

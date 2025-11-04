@@ -1,10 +1,17 @@
 //! - [Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h)
 //! - [Squared Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h)
 
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use crate::eval::AVX2_SIMD_WIDTH;
-use crate::eval::constants::HIDDEN_WEIGHT_SCALE_BITS;
+
+#[cfg(target_arch = "x86_64")]
+const AVX2_SIMD_WIDTH: usize = std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
+
+#[cfg(target_arch = "x86_64")]
+const SSE2_SIMD_WIDTH: usize = std::mem::size_of::<__m128i>() / std::mem::size_of::<u8>();
+
+const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 
 /// Applies a clipped ReLU activation function to `input`.
 ///
@@ -60,7 +67,7 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             }
             return;
         } else {
-            let num_chunks = input.len() / (AVX2_SIMD_WIDTH / 2);
+            let num_chunks = input.len() / SSE2_SIMD_WIDTH;
             let input_ptr = input.as_ptr() as *const __m128i;
             let output_ptr = output.as_mut_ptr() as *mut __m128i;
             for i in 0..num_chunks {
@@ -88,7 +95,7 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     let start = if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
         SIZE / AVX2_SIMD_WIDTH * AVX2_SIMD_WIDTH
     } else {
-        SIZE / (AVX2_SIMD_WIDTH / 2) * (AVX2_SIMD_WIDTH / 2)
+        SIZE / AVX2_SIMD_WIDTH * SSE2_SIMD_WIDTH
     };
 
     clipped_relu_fallback::<SIZE>(input, output, start);
@@ -138,8 +145,12 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 #[cfg(target_arch = "x86_64")]
 #[inline]
 fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+    const {
+        assert!(SIZE.is_multiple_of(SSE2_SIMD_WIDTH));
+    }
+
     unsafe {
-        let num_chunks = SIZE / 16;
+        let num_chunks = SIZE / SSE2_SIMD_WIDTH;
         let input_ptr = input.as_ptr() as *const __m128i;
         let output_ptr = output.as_mut_ptr() as *mut __m128i;
 
@@ -159,14 +170,6 @@ fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
         }
     }
-
-    let start_idx = if SIZE % AVX2_SIMD_WIDTH == 0 {
-        SIZE / AVX2_SIMD_WIDTH * AVX2_SIMD_WIDTH
-    } else {
-        SIZE / (AVX2_SIMD_WIDTH / 2) * (AVX2_SIMD_WIDTH / 2)
-    };
-
-    sqr_clipped_relu_fallback::<SIZE>(input, output, start_idx);
 }
 
 /// Square-clipped activation scalar fallback implementation.
@@ -247,7 +250,7 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             }
             return;
         } else {
-            let num_chunks = SIZE / 16;
+            let num_chunks = SIZE / SSE2_SIMD_WIDTH;
             let input_ptr = input.as_ptr() as *const __m128i;
             let output_ptr = output.as_mut_ptr() as *mut __m128i;
             let max_val = _mm_set1_epi16(255 << HIDDEN_WEIGHT_SCALE_BITS);

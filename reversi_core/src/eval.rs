@@ -13,7 +13,6 @@ use std::env;
 use std::io;
 use std::path::Path;
 
-use constants::*;
 use eval_cache::EvalCache;
 pub use network::Network;
 pub use network_small::NetworkSmall;
@@ -21,6 +20,25 @@ pub use network_small::NetworkSmall;
 use crate::board::Board;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::types::Score;
+
+
+macro_rules! eval_main_weights_literal {
+    () => {
+        "eval-882dcae6.zst"
+    };
+}
+
+macro_rules! eval_small_weights_literal {
+    () => {
+        "eval_sm-882dcae6.zst"
+    };
+}
+
+/// Filename for the main neural network weights (zstd compressed).
+pub const EVAL_FILE_NAME: &str = eval_main_weights_literal!();
+
+/// Filename for the small neural network weights (zstd compressed).
+pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
 
 pub struct Eval {
     network: Network,
@@ -70,7 +88,7 @@ impl Eval {
             None => Network::from_bytes(include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../",
-                constants::eval_main_weights_literal!()
+                eval_main_weights_literal!()
             ))),
         }?;
 
@@ -84,7 +102,7 @@ impl Eval {
             None => NetworkSmall::from_bytes(include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../",
-                constants::eval_small_weights_literal!()
+                eval_small_weights_literal!()
             ))),
         }?;
 

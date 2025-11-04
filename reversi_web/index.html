@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Neural Reversi はニューラルネットワーク搭載のオセロAIです。"
+    />
+    <meta
+      name="keywords"
+      content="Neural Reversi,リバーシ,オセロ,AI,ニューラルネットワーク,Rust,WebAssembly"
+    />
+    <meta name="application-name" content="Neural Reversi" />
+    <meta name="theme-color" content="#030712" />
+    <meta name="robots" content="index,follow" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:site_name" content="Neural Reversi" />
+    <meta property="og:title" content="Neural Reversi" />
+    <meta
+      property="og:description"
+      content="Neural Reversi はニューラルネットワーク搭載のオセロAIです。"
+    />
+    <title>Neural Reversi</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="/favicon.ico" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <h1 class="site-header__title">Neural Reversi</h1>
+        <nav class="project-links" aria-label="Project links">
+          <a
+            class="project-link"
+            href="https://github.com/natsutteatsuiyone/neural-reversi"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub リポジトリ"
+          >
+            <img
+              src="./img/github-mark/github-mark-white.svg"
+              alt=""
+              width="20"
+              height="20"
+              aria-hidden="true"
+            />
+            <span class="project-link__text">GitHub</span>
+          </a>
+          <a
+            class="project-link project-link--accent"
+            href="https://github.com/natsutteatsuiyone/neural-reversi/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="デスクトップ版 (Releases)"
+            data-locale-aria="desktop-link"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              aria-hidden="true"
+            >
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 5v10m0 0 4-4m-4 4-4-4M5 19h14"
+              />
+            </svg>
+            <span
+              class="project-link__text"
+              data-locale-text="desktop-link"
+            >デスクトップ版</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+    <div
+      class="app"
+      v-scope
+      v-cloak
+      :aria-busy="state.initialLoading ? 'true' : 'false'"
+    >
+      <div
+        id="loading-overlay"
+        role="status"
+        aria-live="polite"
+        class="loading-overlay"
+        :class="{ hidden: !state.initialLoading }"
+      >
+        <div class="loading-content">
+          <span class="loading-dot"></span>
+          <span>{{ localeTexts.loading }}</span>
+        </div>
+      </div>
+      <div class="toast-region" aria-live="assertive" aria-atomic="true">
+        <div
+          class="toast"
+          role="status"
+          v-if="state.toastMessage"
+          :class="{ 'toast--visible': state.toastVisible }"
+        >
+          <span class="toast__icon" aria-hidden="true">!</span>
+          <span class="toast__text">{{ state.toastMessage }}</span>
+        </div>
+      </div>
+      <div
+        v-if="state.showSettingsModal && !state.initialLoading"
+        class="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title"
+        @click.self="handleCloseSettingsModal"
+      >
+        <div class="settings-modal__panel">
+          <button
+            type="button"
+            class="settings-modal__close"
+            @click="handleCloseSettingsModal"
+            aria-label="Close"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+          <div class="settings-modal__heading">
+            <h2 id="settings-modal-title" class="visually-hidden">
+              {{ localeTexts.modal.title }}
+            </h2>
+            <span class="settings-modal__label">Neural Reversi</span>
+            <span class="settings-modal__badge">Lite</span>
+          </div>
+          <div class="settings-modal__fields">
+            <div class="settings-field">
+              <label class="settings-field__label">{{ localeTexts.colorLabel }}</label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="color"
+                    value="black"
+                    :checked="state.pendingColor === 'black'"
+                    @change="handleModalColorChange"
+                    :disabled="state.initialLoading"
+                  />
+                  <span class="radio-option__disc black" aria-hidden="true"></span>
+                  <span class="radio-option__label">{{ localeTexts.colorOptions.black }}</span>
+                </label>
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="color"
+                    value="white"
+                    :checked="state.pendingColor === 'white'"
+                    @change="handleModalColorChange"
+                    :disabled="state.initialLoading"
+                  />
+                  <span class="radio-option__disc white" aria-hidden="true"></span>
+                  <span class="radio-option__label">{{ localeTexts.colorOptions.white }}</span>
+                </label>
+              </div>
+            </div>
+            <div class="settings-field">
+              <label class="settings-field__label">
+                <span>{{ localeTexts.levelLabel }}</span>
+                <span class="settings-field__value">{{ state.pendingLevel }}</span>
+              </label>
+              <input
+                type="range"
+                class="level-slider"
+                min="1"
+                max="15"
+                :value="state.pendingLevel"
+                :style="{ '--level-value': Number(state.pendingLevel) }"
+                @input="handleModalLevelChange"
+                :disabled="state.initialLoading"
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            class="settings-modal__start"
+            @click="handleStartGame"
+            :disabled="state.initialLoading"
+          >{{ localeTexts.buttons.startGame }}</button>
+        </div>
+      </div>
+      <div
+        v-if="state.isGameOver && !state.showSettingsModal && !state.gameOverModalDismissed"
+        class="game-over-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="game-over-title"
+        @click.self="handleCloseGameOverModal"
+      >
+        <div
+          class="game-over-modal__panel"
+          :class="{
+            'game-over-modal__panel--win': state.gameResult === 'human',
+            'game-over-modal__panel--lose': state.gameResult === 'ai',
+            'game-over-modal__panel--draw': state.gameResult === 'draw'
+          }"
+        >
+          <button
+            type="button"
+            class="game-over-modal__close"
+            @click="handleCloseGameOverModal"
+            aria-label="Close"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+          <h2 id="game-over-title" class="game-over-modal__title">
+            <span v-if="state.gameResult === 'human'">{{ localeTexts.gameOver.winTitle || '\u3042\u306a\u305f\u306e\u52dd\u3061\uff01' }}</span>
+            <span v-else-if="state.gameResult === 'ai'">{{ localeTexts.gameOver.loseTitle || 'AI\u306e\u52dd\u3061' }}</span>
+            <span v-else>{{ localeTexts.gameOver.drawTitle || '\u5f15\u304d\u5206\u3051' }}</span>
+          </h2>
+          <div class="game-over-modal__scores">
+            <div class="game-over-modal__score">
+              <span class="disc black" aria-hidden="true"></span>
+              <span class="game-over-modal__score-label">{{ localeTexts.scoreboard.black }}</span>
+              <strong class="game-over-modal__score-value">{{ state.scoreBlack }}</strong>
+            </div>
+            <div class="game-over-modal__score-separator">-</div>
+            <div class="game-over-modal__score">
+              <span class="disc white" aria-hidden="true"></span>
+              <span class="game-over-modal__score-label">{{ localeTexts.scoreboard.white }}</span>
+              <strong class="game-over-modal__score-value">{{ state.scoreWhite }}</strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="game-over-modal__button"
+            @click="handleNewGame"
+          >{{ localeTexts.buttons.newGame }}</button>
+        </div>
+      </div>
+      <div class="content-layout">
+        <div class="board-column">
+          <div class="board-wrapper">
+            <div class="board-grid">
+              <span class="board-corner" aria-hidden="true"></span>
+              <div class="board-coords-row board-coords-top" aria-hidden="true">
+                <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+              </div>
+              <span class="board-corner" aria-hidden="true"></span>
+              <div class="board-coords-col board-coords-left" aria-hidden="true">
+                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span>
+              </div>
+              <div
+                id="board"
+                class="board"
+                role="grid"
+                :aria-label="localeTexts.boardAria"
+              >
+                <button
+                  v-for="idx in boardIndices"
+                  :key="idx"
+                  type="button"
+                  class="cell"
+                  :class="cellClasses(idx)"
+                  :data-index="idx"
+                  :title="toNotation(idx)"
+                  :aria-label="localeTexts.cellAria(toNotation(idx))"
+                  :disabled="state.showSettingsModal || isCellDisabled(idx)"
+                  @click="handleCellClick(idx)"
+                ></button>
+              </div>
+              <div
+                class="board-coords-col board-coords-right board-coords-spacer"
+                aria-hidden="true"
+              ></div>
+              <span class="board-corner" aria-hidden="true"></span>
+              <div
+                class="board-coords-row board-coords-bottom board-coords-spacer"
+                aria-hidden="true"
+              ></div>
+              <span class="board-corner" aria-hidden="true"></span>
+            </div>
+          </div>
+        </div>
+        <aside class="info-panel">
+          <div class="control-buttons">
+            <button
+              id="new-game"
+              type="button"
+              @click="handleNewGame"
+              :disabled="state.aiThinking || state.showSettingsModal"
+            >{{ localeTexts.buttons.newGame }}</button>
+            <button
+              id="undo-button"
+              type="button"
+              @click="handleUndo"
+              :disabled="state.aiThinking || state.showSettingsModal || state.moveHistory.length === 0"
+            >{{ localeTexts.buttons.undo }}</button>
+          </div>
+          <div class="settings-info">
+            <div class="settings-info__item">
+              <span class="settings-info__label">{{ localeTexts.colorLabel }}</span>
+              <strong>{{ state.humanIsBlack ? localeTexts.colors.black : localeTexts.colors.white }}</strong>
+            </div>
+            <div class="settings-info__item">
+              <span class="settings-info__label">{{ localeTexts.levelLabel }}</span>
+              <strong>{{ state.level }}</strong>
+            </div>
+          </div>
+          <section class="scoreboard">
+            <div class="score">
+              <span class="disc black" aria-hidden="true"></span>
+              <span>{{ localeTexts.scoreboard.black }}: <strong id="score-black">{{ state.scoreBlack }}</strong></span>
+            </div>
+            <div class="score">
+              <span class="disc white" aria-hidden="true"></span>
+              <span>{{ localeTexts.scoreboard.white }}: <strong id="score-white">{{ state.scoreWhite }}</strong></span>
+            </div>
+            <div class="info">{{ localeTexts.scoreboard.empty }}: <strong id="empty-count">{{ state.emptyCount }}</strong></div>
+          </section>
+          <section class="move-log" aria-live="polite">
+            <div class="move-log__body" id="move-log-scroll">
+              <ol class="move-log__list">
+                <li v-for="entry in moveLog" :key="entry.id">
+                  <span class="move-log__turn">{{ entry.turn }}.</span>
+                  <span class="move-log__icon" :class="entry.color === 1 ? 'move-log__icon--black' : 'move-log__icon--white'" aria-hidden="true"></span>
+                  <span class="move-log__text">{{ entry.notation }}</span>
+                  <span
+                    v-if="entry.isAiMove"
+                    class="move-log__eval"
+                    :aria-label="localeTexts.moveLog.aiEvalLabel"
+                  >
+                    <span class="move-log__eval-icon" aria-hidden="true">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 8V4H8" />
+                        <rect width="16" height="12" x="4" y="8" rx="2" />
+                        <path d="M2 14h2" />
+                        <path d="M20 14h2" />
+                        <path d="M15 13v2" />
+                        <path d="M9 13v2" />
+                      </svg>
+                    </span>
+                    <span class="move-log__eval-value">{{ formatEvaluation(entry.evaluation) }}</span>
+                  </span>
+                </li>
+              </ol>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
