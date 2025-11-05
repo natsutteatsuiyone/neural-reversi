@@ -27,5 +27,21 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
 
+    - name: Download weights
+      run: |
+        API_URL="https://api.github.com/repos/natsutteatsuiyone/neural-reversi-weights/releases/latest"
+        ASSETS=$(curl -s $API_URL | jq -r '.assets[].browser_download_url')
+
+        # Filter matching eval*.zst
+        for url in $ASSETS; do
+          fname=$(basename "$url")
+          if [[ "$fname" == eval-*.zst || "$fname" == eval_sm-*.zst ]]; then
+            echo "Downloading $fname"
+            curl -L -o "$fname" "$url"
+          fi
+        done
+
+        ls -l eval*.zst
+
     - name: Run tests
       run: cargo test --all
