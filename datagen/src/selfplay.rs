@@ -16,6 +16,7 @@ use reversi_core::search::{self, SearchOptions};
 use reversi_core::square::Square;
 use reversi_core::types::{Scoref, Selectivity};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{self, BufWriter, Write};
@@ -36,10 +37,14 @@ const MAX_RANDOM_MOVES: u8 = 50;
 /// Number of digits used in output file naming
 const FILE_ID_DIGITS: usize = 5;
 
+/// Maximum size of the record cache
+const MAX_CACHE_SIZE: usize = 1_000_000;
+
 /// Represents a single position record from a self-play game.
 ///
 /// Each record captures the board state, evaluation, and move information
 /// at a specific point in the game.
+#[derive(Clone)]
 struct GameRecord {
     /// Move number in the game (0-59)
     ply: u8,
@@ -87,6 +92,7 @@ pub fn execute(
 
     let lv = get_level(level);
     let mut search = search::Search::new(&options);
+    let mut record_cache: HashMap<u64, GameRecord> = HashMap::new();
 
     for game_id in 0..num_games {
         // Generate random opening for this game
@@ -100,6 +106,7 @@ pub fn execute(
             lv,
             selectivity,
             game_id as usize,
+            &mut record_cache,
         );
 
         // Save the game records
@@ -141,6 +148,7 @@ pub fn execute_with_openings(
 
     let lv = get_level(level);
     let mut search = search::Search::new(&options);
+    let mut record_cache: HashMap<u64, GameRecord> = HashMap::new();
 
     let opening_sequences = opening::load_openings(openings_path)?;
 
@@ -178,8 +186,14 @@ pub fn execute_with_openings(
 
     // Start iteration from the specified game ID
     for (game_id, opening_sequence) in opening_sequences.iter().enumerate().skip(start_game_id) {
-        // Play the game using the common function
-        let game_records = play_game(opening_sequence, &mut search, lv, selectivity, game_id);
+        let game_records = play_game(
+            opening_sequence,
+            &mut search,
+            lv,
+            selectivity,
+            game_id,
+            &mut record_cache,
+        );
 
         // Save the game records
         save_game(game_records, prefix, output_dir, records_per_file)?;
@@ -258,6 +272,7 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
 /// * `lv` - Search level
 /// * `selectivity` - Search selectivity
 /// * `game_id` - Game identifier for logging
+/// * `record_cache` - Cache for game records to avoid redundant searches
 ///
 /// # Returns
 ///
@@ -268,6 +283,7 @@ fn play_game(
     lv: Level,
     selectivity: Selectivity,
     game_id: usize,
+    record_cache: &mut HashMap<u64, GameRecord>,
 ) -> Vec<GameRecord> {
     let game_start = Instant::now();
     search.init();
@@ -291,31 +307,36 @@ fn play_game(
             }
         }
 
-        // Skip invalid moves
-        if !board.is_legal_move(sq) {
-            eprintln!("Warning: Invalid move in opening sequence: {sq}");
-            continue;
-        }
+        let key = board.hash();
+        let record = if let Some(cached_record) = record_cache.get(&key)
+            && cached_record.board == board
+        {
+            cached_record.clone()
+        } else {
+            let result = search.run(&board, lv, selectivity, false);
+            let ply = 60 - board.get_empty_count() as u8;
 
-        // Evaluate position before making the move
-        let result = search.run(&board, lv, selectivity, false);
-        let ply = 60 - board.get_empty_count() as u8;
-
-        let record = GameRecord {
-            ply,
-            board,
-            score: result.score,
-            game_score: 0,
-            side_to_move,
-            is_random: true, // Opening moves are considered "random"
-            sq,
+            let record = GameRecord {
+                ply,
+                board,
+                score: result.score,
+                game_score: 0,
+                side_to_move,
+                is_random: true, // Opening moves are considered "random"
+                sq,
+            };
+            record_cache.insert(board.hash(), record.clone());
+            record
         };
 
         game_records.push(record);
 
-        // Make the move
         board = board.make_move(sq);
         side_to_move = side_to_move.opposite();
+    }
+
+    if record_cache.len() > MAX_CACHE_SIZE {
+        record_cache.clear();
     }
 
     // Continue playing with search
@@ -323,7 +344,7 @@ fn play_game(
         if !board.has_legal_moves() {
             board = board.switch_players();
             side_to_move = side_to_move.opposite();
-            continue; // Skip evaluation for pass moves
+            continue;
         }
 
         let result = search.run(&board, lv, selectivity, false);
@@ -331,7 +352,6 @@ fn play_game(
         let ply = 60 - board.get_empty_count() as u8;
         let best_move = result.best_move.unwrap();
 
-        // Record the position before the move
         let record = GameRecord {
             ply,
             board,
