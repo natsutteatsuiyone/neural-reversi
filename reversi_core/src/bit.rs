@@ -117,7 +117,12 @@ pub fn bextr_u32(a: u32, start: u32, length: u32) -> u32 {
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi1")))]
 #[inline]
 pub fn bextr_u32(a: u32, start: u32, length: u32) -> u32 {
-    (a >> start) & ((1 << length) - 1)
+    let mask = if length >= 32 {
+        u32::MAX
+    } else {
+        (1u32 << length) - 1
+    };
+    (a >> start) & mask
 }
 
 /// Clear least significant bit (BLSR).
