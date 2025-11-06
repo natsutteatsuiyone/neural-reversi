@@ -94,16 +94,6 @@ impl PatternFeature {
 #[cfg(target_arch = "x86_64")]
 impl PatternFeature {
     #[inline(always)]
-    unsafe fn as_m512_ptr(&self) -> *const std::arch::x86_64::__m512i {
-        self.data.as_ptr() as *const std::arch::x86_64::__m512i
-    }
-
-    #[inline(always)]
-    unsafe fn as_mut_m512_ptr(&mut self) -> *mut std::arch::x86_64::__m512i {
-        self.data.as_mut_ptr() as *mut std::arch::x86_64::__m512i
-    }
-
-    #[inline(always)]
     unsafe fn as_m256_ptr(&self) -> *const std::arch::x86_64::__m256i {
         self.data.as_ptr() as *const std::arch::x86_64::__m256i
     }
@@ -341,11 +331,6 @@ impl PatternFeatures {
     pub fn update(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         #[cfg(target_arch = "x86_64")]
         {
-            if cfg!(target_feature = "avx512bw") {
-                unsafe { self.update_avx512(sq, flipped, ply, side_to_move) }
-                return;
-            }
-
             if cfg!(target_feature = "avx2") {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
                 return;
@@ -353,84 +338,6 @@ impl PatternFeatures {
         }
 
         self.update_fallback(sq, flipped, ply, side_to_move);
-    }
-
-    /// AVX-512-optimized implementation of pattern feature update.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512bw")]
-    fn update_avx512(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
-        use std::arch::x86_64::*;
-
-        unsafe {
-            let p_in_ptr = self.p_features.get_unchecked(ply).as_m512_ptr();
-            let o_in_ptr = self.o_features.get_unchecked(ply).as_m512_ptr();
-            let p_out_ptr = self.p_features.get_unchecked_mut(ply + 1).as_mut_m512_ptr();
-            let o_out_ptr = self.o_features.get_unchecked_mut(ply + 1).as_mut_m512_ptr();
-
-            let mut sum = _mm512_setzero_si512();
-            let mut bits = flipped;
-
-            while bits != 0 {
-                let x0 = bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let v0 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x0).as_m512_ptr());
-
-                if bits == 0 {
-                    sum = _mm512_add_epi16(sum, v0);
-                    break;
-                }
-
-                let x1 = bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let v1 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x1).as_m512_ptr());
-
-                if bits == 0 {
-                    sum = _mm512_add_epi16(sum, _mm512_add_epi16(v0, v1));
-                    break;
-                }
-
-                let x2 = bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let v2 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x2).as_m512_ptr());
-
-                if bits == 0 {
-                    sum = _mm512_add_epi16(sum, _mm512_add_epi16(_mm512_add_epi16(v0, v1), v2));
-                    break;
-                }
-
-                let x3 = bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let v3 = _mm512_load_si512(EVAL_FEATURE.get_unchecked(x3).as_m512_ptr());
-
-                sum = _mm512_add_epi16(
-                    sum,
-                    _mm512_add_epi16(_mm512_add_epi16(v0, v1), _mm512_add_epi16(v2, v3)),
-                );
-            }
-
-            let f = _mm512_load_si512(EVAL_FEATURE.get_unchecked(sq.index()).as_m512_ptr());
-
-            let p_in = _mm512_load_si512(p_in_ptr);
-            let o_in = _mm512_load_si512(o_in_ptr);
-
-            let f2 = _mm512_add_epi16(f, f);
-            let delta_2f_plus_sum = _mm512_add_epi16(f2, sum);
-            let delta_f_minus_sum = _mm512_sub_epi16(f, sum);
-
-            let is_player = (side_to_move == SideToMove::Player) as i32;
-            let mask = (is_player.wrapping_neg() as u32) as __mmask32;
-
-            let p_out_player = _mm512_sub_epi16(p_in, delta_2f_plus_sum);
-            let o_out_player = _mm512_sub_epi16(o_in, delta_f_minus_sum);
-            let p_out_opponent = _mm512_sub_epi16(p_in, delta_f_minus_sum);
-            let o_out_opponent = _mm512_sub_epi16(o_in, delta_2f_plus_sum);
-
-            let p_out = _mm512_mask_blend_epi16(mask, p_out_opponent, p_out_player);
-            let o_out = _mm512_mask_blend_epi16(mask, o_out_opponent, o_out_player);
-
-            _mm512_store_si512(p_out_ptr, p_out);
-            _mm512_store_si512(o_out_ptr, o_out);
-        }
     }
 
     /// AVX2-optimized implementation of pattern feature update.
