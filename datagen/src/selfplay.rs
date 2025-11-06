@@ -248,16 +248,10 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
         true
     };
 
-    // 1. Generate the initial sequence of `num_moves`.
     for _ in 0..num_moves {
         if !play_random_move(&mut board, &mut side_to_move) {
             return opening;
         }
-    }
-
-    // 2. If it's White's turn, play one more move to ensure Black is next.
-    if side_to_move == Piece::White {
-        play_random_move(&mut board, &mut side_to_move);
     }
 
     opening
