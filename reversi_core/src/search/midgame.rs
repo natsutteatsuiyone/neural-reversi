@@ -38,7 +38,7 @@ use crate::types::Scoref;
 const MIN_SPLIT_DEPTH: Depth = 4;
 
 /// Minimum depth for enhanced transposition table cutoff.
-const MIN_ETC_DEPTH: Depth = 5;
+const MIN_ETC_DEPTH: Depth = 6;
 
 /// Performs the root search using iterative deepening with aspiration windows.
 ///
@@ -271,12 +271,11 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 return evaluate(ctx, board);
             }
         } else {
-            if depth == 2 {
-                return evaluate_depth2(ctx, board, alpha, beta);
-            } else if depth == 1 {
-                return evaluate_depth1(ctx, board, alpha, beta);
-            } else if depth == 0 {
-                return evaluate(ctx, board);
+            match depth {
+                0 => return evaluate(ctx, board),
+                1 => return evaluate_depth1(ctx, board, alpha, beta),
+                2 => return evaluate_depth2(ctx, board, alpha, beta),
+                _ => {}
             }
 
             if let Some(score) = stability_cutoff(board, n_empties, alpha) {
@@ -325,18 +324,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return tt_data.score;
         }
 
-        if !NT::PV_NODE
-            && let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread)
-        {
-            return score;
-        }
-
-        if move_list.count() > 1 {
-            move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
-            move_list.sort();
-        }
-
-        if !NT::PV_NODE && depth > MIN_ETC_DEPTH {
+        if !NT::PV_NODE && depth >= MIN_ETC_DEPTH {
             if let Some(score) = enhanced_transposition_cutoff(
                 ctx,
                 board,
@@ -348,6 +336,17 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             ) {
                 return score;
             }
+        }
+
+        if !NT::PV_NODE
+            && let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread)
+        {
+            return score;
+        }
+
+        if move_list.count() > 1 {
+            move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
+            move_list.sort();
         }
 
         move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
@@ -674,8 +673,7 @@ pub fn shallow_search<NT: NodeType>(
         Square::None
     };
 
-    if !NT::PV_NODE
-        && tt_hit
+    if tt_hit
         && tt_data.depth >= depth
         && tt_data.selectivity >= ctx.selectivity
         && tt_data.should_cutoff(beta)

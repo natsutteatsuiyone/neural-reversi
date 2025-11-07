@@ -40,7 +40,7 @@ const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
 const MIN_SPLIT_DEPTH: Depth = 7;
 
 /// Minimum depth for enhanced transposition table cutoff.
-const MIN_ETC_DEPTH: Depth = 5;
+const MIN_ETC_DEPTH: Depth = 6;
 
 /// Depth threshold for switching from midgame to endgame search.
 pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 12;
@@ -308,19 +308,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return to_endgame_score(tt_data.score);
         }
 
-        if !NT::PV_NODE
-            && let Some(score) =
-                probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread)
-        {
-            return score;
-        }
-
-        if move_list.count() > 1 {
-            move_list.evaluate_moves::<NT>(ctx, board, n_empties, tt_move);
-            move_list.sort();
-        }
-
-        if !NT::PV_NODE && n_empties > MIN_ETC_DEPTH {
+        if !NT::PV_NODE && n_empties >= MIN_ETC_DEPTH {
             if let Some(score) = enhanced_transposition_cutoff(
                 ctx,
                 board,
@@ -332,6 +320,18 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             ) {
                 return to_endgame_score(score);
             }
+        }
+
+        if !NT::PV_NODE
+            && let Some(score) =
+                probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread)
+        {
+            return score;
+        }
+
+        if move_list.count() > 1 {
+            move_list.evaluate_moves::<NT>(ctx, board, n_empties, tt_move);
+            move_list.sort();
         }
 
         move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
