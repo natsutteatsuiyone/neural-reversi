@@ -347,59 +347,85 @@ impl PatternFeatures {
         use std::arch::x86_64::*;
 
         unsafe {
-            let p_in_ptr = self.p_features.get_unchecked(ply).as_m256_ptr();
-            let o_in_ptr = self.o_features.get_unchecked(ply).as_m256_ptr();
-            let p_out_ptr = self.p_features.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
-            let o_out_ptr = self.o_features.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
+            let ef = &EVAL_FEATURE;
 
-            let p_in0 = _mm256_load_si256(p_in_ptr.add(0));
-            let p_in1 = _mm256_load_si256(p_in_ptr.add(1));
-            let o_in0 = _mm256_load_si256(o_in_ptr.add(0));
-            let o_in1 = _mm256_load_si256(o_in_ptr.add(1));
-
-            let f_ptr = EVAL_FEATURE.get_unchecked(sq.index()).as_m256_ptr();
-            let f0 = _mm256_load_si256(f_ptr.add(0));
+            let f_ptr = ef.get_unchecked(sq.index()).as_m256_ptr();
+            let f0 = _mm256_load_si256(f_ptr);
             let f1 = _mm256_load_si256(f_ptr.add(1));
 
-            let mut sum0 = _mm256_setzero_si256();
-            let mut sum1 = _mm256_setzero_si256();
-            for x in BitboardIterator::new(flipped) {
-                let fp = EVAL_FEATURE.get_unchecked(x as usize).as_m256_ptr();
-                let fx0 = _mm256_load_si256(fp.add(0));
-                let fx1 = _mm256_load_si256(fp.add(1));
-                sum0 = _mm256_add_epi16(sum0, fx0);
-                sum1 = _mm256_add_epi16(sum1, fx1);
+            let first_idx = flipped.trailing_zeros() as usize;
+            let mut bits = _blsr_u64(flipped);
+
+            let first_fp = ef.get_unchecked(first_idx).as_m256_ptr();
+            let mut sum0 = _mm256_load_si256(first_fp);
+            let mut sum1 = _mm256_load_si256(first_fp.add(1));
+
+            if bits != 0 {
+                loop {
+                    let idx1 = bits.trailing_zeros() as usize;
+                    bits = _blsr_u64(bits);
+                    let fp1 = ef.get_unchecked(idx1).as_m256_ptr();
+                    sum0 = _mm256_add_epi16(sum0, _mm256_load_si256(fp1));
+                    sum1 = _mm256_add_epi16(sum1, _mm256_load_si256(fp1.add(1)));
+
+                    if bits == 0 {
+                        break;
+                    }
+
+                    let idx2 = bits.trailing_zeros() as usize;
+                    bits = _blsr_u64(bits);
+                    let fp2 = ef.get_unchecked(idx2).as_m256_ptr();
+                    sum0 = _mm256_add_epi16(sum0, _mm256_load_si256(fp2));
+                    sum1 = _mm256_add_epi16(sum1, _mm256_load_si256(fp2.add(1)));
+
+                    if bits == 0 {
+                        break;
+                    }
+                }
             }
 
-            let f2_0 = _mm256_slli_epi16(f0, 1); // 2*f
+            let f2_0 = _mm256_slli_epi16(f0, 1);
             let f2_1 = _mm256_slli_epi16(f1, 1);
-            let twof_plus_sum_0 = _mm256_add_epi16(f2_0, sum0); // 2*f + sum
-            let twof_plus_sum_1 = _mm256_add_epi16(f2_1, sum1);
-            let f_minus_sum_0 = _mm256_sub_epi16(f0, sum0); // f - sum
+            let f_minus_sum_0 = _mm256_sub_epi16(f0, sum0);
             let f_minus_sum_1 = _mm256_sub_epi16(f1, sum1);
+            let twof_plus_sum_0 = _mm256_add_epi16(f2_0, sum0);
+            let twof_plus_sum_1 = _mm256_add_epi16(f2_1, sum1);
 
-            if side_to_move == SideToMove::Player {
-                // Player: p_out = p_in - (2*f + sum), o_out = o_in - (f - sum)
-                let p_out0 = _mm256_sub_epi16(p_in0, twof_plus_sum_0);
-                let p_out1 = _mm256_sub_epi16(p_in1, twof_plus_sum_1);
-                let o_out0 = _mm256_sub_epi16(o_in0, f_minus_sum_0);
-                let o_out1 = _mm256_sub_epi16(o_in1, f_minus_sum_1);
+            let p_feats = &mut self.p_features;
+            let o_feats = &mut self.o_features;
+            let p_in_ptr = p_feats.get_unchecked(ply).as_m256_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).as_m256_ptr();
+            let p_in0 = _mm256_load_si256(p_in_ptr);
+            let p_in1 = _mm256_load_si256(p_in_ptr.add(1));
+            let o_in0 = _mm256_load_si256(o_in_ptr);
+            let o_in1 = _mm256_load_si256(o_in_ptr.add(1));
 
-                _mm256_store_si256(p_out_ptr.add(0), p_out0);
-                _mm256_store_si256(p_out_ptr.add(1), p_out1);
-                _mm256_store_si256(o_out_ptr.add(0), o_out0);
-                _mm256_store_si256(o_out_ptr.add(1), o_out1);
-            } else {
-                // Opponent: p_out = p_in - (f - sum), o_out = o_in - (2*f + sum)
-                let p_out0 = _mm256_sub_epi16(p_in0, f_minus_sum_0);
-                let p_out1 = _mm256_sub_epi16(p_in1, f_minus_sum_1);
-                let o_out0 = _mm256_sub_epi16(o_in0, twof_plus_sum_0);
-                let o_out1 = _mm256_sub_epi16(o_in1, twof_plus_sum_1);
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
 
-                _mm256_store_si256(p_out_ptr.add(0), p_out0);
-                _mm256_store_si256(p_out_ptr.add(1), p_out1);
-                _mm256_store_si256(o_out_ptr.add(0), o_out0);
-                _mm256_store_si256(o_out_ptr.add(1), o_out1);
+            match side_to_move {
+                SideToMove::Player => {
+                    let p_out0 = _mm256_sub_epi16(p_in0, twof_plus_sum_0);
+                    let p_out1 = _mm256_sub_epi16(p_in1, twof_plus_sum_1);
+                    let o_out0 = _mm256_sub_epi16(o_in0, f_minus_sum_0);
+                    let o_out1 = _mm256_sub_epi16(o_in1, f_minus_sum_1);
+
+                    _mm256_store_si256(p_out_ptr, p_out0);
+                    _mm256_store_si256(p_out_ptr.add(1), p_out1);
+                    _mm256_store_si256(o_out_ptr, o_out0);
+                    _mm256_store_si256(o_out_ptr.add(1), o_out1);
+                }
+                SideToMove::Opponent => {
+                    let p_out0 = _mm256_sub_epi16(p_in0, f_minus_sum_0);
+                    let p_out1 = _mm256_sub_epi16(p_in1, f_minus_sum_1);
+                    let o_out0 = _mm256_sub_epi16(o_in0, twof_plus_sum_0);
+                    let o_out1 = _mm256_sub_epi16(o_in1, twof_plus_sum_1);
+
+                    _mm256_store_si256(p_out_ptr, p_out0);
+                    _mm256_store_si256(p_out_ptr.add(1), p_out1);
+                    _mm256_store_si256(o_out_ptr, o_out0);
+                    _mm256_store_si256(o_out_ptr.add(1), o_out1);
+                }
             }
         }
     }
