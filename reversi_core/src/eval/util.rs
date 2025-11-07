@@ -3,6 +3,9 @@ use crate::{
     util::align::Align64,
 };
 
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::*;
+
 /// Clone an evaluation bias vector into a 64-byte aligned array.
 ///
 /// # Type Parameters
@@ -46,12 +49,7 @@ pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512bw,avx512vl")]
 #[inline]
-pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(
-    src: std::arch::x86_64::__m512i,
-    a: std::arch::x86_64::__m512i,
-    b: std::arch::x86_64::__m512i,
-) -> std::arch::x86_64::__m512i {
-    use std::arch::x86_64::*;
+pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m512i) -> __m512i {
     if USE_VNNI {
         unsafe { _mm512_dpwssd_epi32(src, a, b) }
     } else {
@@ -65,12 +63,7 @@ pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
-pub fn mm256_dpwssd_epi32<const USE_VNNI: bool>(
-    src: std::arch::x86_64::__m256i,
-    a: std::arch::x86_64::__m256i,
-    b: std::arch::x86_64::__m256i,
-) -> std::arch::x86_64::__m256i {
-    use std::arch::x86_64::*;
+pub fn mm256_dpwssd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m256i) -> __m256i {
     if USE_VNNI {
         unsafe { _mm256_dpwssd_epi32(src, a, b) }
     } else {
@@ -84,12 +77,7 @@ pub fn mm256_dpwssd_epi32<const USE_VNNI: bool>(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512bw,avx512vl")]
 #[inline]
-pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(
-    src: std::arch::x86_64::__m512i,
-    a: std::arch::x86_64::__m512i,
-    b: std::arch::x86_64::__m512i,
-) -> std::arch::x86_64::__m512i {
-    use std::arch::x86_64::*;
+pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m512i) -> __m512i {
     if USE_VNNI {
         unsafe { _mm512_dpbusd_epi32(src, a, b) }
     } else {
@@ -110,12 +98,7 @@ pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
-pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(
-    src: std::arch::x86_64::__m256i,
-    a: std::arch::x86_64::__m256i,
-    b: std::arch::x86_64::__m256i,
-) -> std::arch::x86_64::__m256i {
-    use std::arch::x86_64::*;
+pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m256i) -> __m256i {
     if USE_VNNI {
         unsafe { _mm256_dpbusd_epi32(src, a, b) }
     } else {
@@ -134,9 +117,7 @@ pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
-pub fn m256_hadd(sum_vec: std::arch::x86_64::__m256i) -> i32 {
-    use std::arch::x86_64::*;
-
+pub fn m256_hadd(sum_vec: __m256i) -> i32 {
     let mut sum128 = _mm_add_epi32(
         _mm256_castsi256_si128(sum_vec),
         _mm256_extracti128_si256(sum_vec, 1),
