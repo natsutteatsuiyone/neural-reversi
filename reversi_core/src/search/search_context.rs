@@ -285,7 +285,7 @@ impl SearchContext {
                 rm.pv.push(*sq);
             }
         } else {
-            rm.score = -(SCORE_INF << 6);
+            rm.score = -SCORE_INF;
         }
     }
 
