@@ -78,8 +78,8 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     ctx.game_phase = GamePhase::EndGame;
 
     let mut best_score = 0;
-    let mut alpha = score - 6;
-    let mut beta = score + 6;
+    let mut alpha = score - 3;
+    let mut beta = score + 3;
 
     let num_root_moves = ctx.root_moves_count();
     let pv_count = if multi_pv { num_root_moves } else { 1 };
@@ -107,16 +107,16 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 }
 
                 if best_score <= alpha {
-                    beta = (alpha + beta) / 2;
+                    beta = alpha;
                     alpha = (best_score - delta).max(-SCORE_INF);
                 } else if best_score >= beta {
-                    alpha = (alpha + beta) / 2;
+                    alpha = (beta - delta).max(alpha);
                     beta = (best_score + delta).min(SCORE_INF);
                 } else {
                     break;
                 }
 
-                delta += delta / 2;
+                delta += delta;
             }
 
             let best_move = ctx.get_best_root_move(true).unwrap();

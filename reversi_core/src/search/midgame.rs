@@ -135,10 +135,10 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 }
 
                 if best_score <= alpha {
-                    beta = (alpha + beta) / 2;
+                    beta = alpha;
                     alpha = (best_score - delta).max(-SCORE_INF);
                 } else if best_score >= beta {
-                    alpha = (alpha + beta) / 2;
+                    alpha = (beta - delta).max(alpha);
                     beta = (best_score + delta).min(SCORE_INF);
                 } else {
                     break;
