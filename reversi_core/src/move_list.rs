@@ -8,7 +8,7 @@ use crate::board::Board;
 use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
 use crate::flip;
 use crate::search::midgame;
-use crate::search::node_type::{NodeType, PV};
+use crate::search::node_type::NodeType;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::square::Square;
 use crate::types::Depth;
@@ -208,7 +208,7 @@ impl MoveList {
             return;
         }
 
-        const MAX_SORT_DEPTH: i32 = 3;
+        const MAX_SORT_DEPTH: i32 = 2;
         let mut sort_depth = (depth as i32 - 15) / 3;
         sort_depth = sort_depth.clamp(1, MAX_SORT_DEPTH);
 
@@ -233,13 +233,7 @@ impl MoveList {
                     0 => -midgame::evaluate(ctx, &next),
                     1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
                     2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
-                    _ => -midgame::shallow_search::<PV>(
-                        ctx,
-                        &next,
-                        sort_depth as Depth,
-                        -SCORE_INF,
-                        SCORE_INF,
-                    ),
+                    _ => unreachable!(),
                 };
 
                 ctx.undo(mv);
