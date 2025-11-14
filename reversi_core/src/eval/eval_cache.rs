@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::types::Score;
 
 const KEY_MASK: u64 = 0xFFFFFFFFFFFF;
-const SCORE_MASK: u64 = 0xFFFF;
 const SCORE_BITS: u32 = 16;
 
 /// Hash table for caching neural network evaluation results
@@ -20,13 +19,13 @@ impl EvalCache {
     ///
     /// # Arguments
     ///
-    /// * `size` - Size of the cache (log2 of the number of entries)
+    /// * `size_log2` - Size of the cache (log2 of the number of entries)
     ///
     /// # Returns
     ///
     /// A new EvalCache instance
-    pub fn new(size: u32) -> Self {
-        let size = 1 << size;
+    pub fn new(size_log2: u32) -> Self {
+        let size = 1usize << size_log2;
         let mask = size as u64 - 1;
 
         let mut table = Vec::with_capacity(size);
@@ -46,10 +45,16 @@ impl EvalCache {
     ///
     /// * `key` - The hash key
     /// * `score` - The evaluation score
+    #[inline(always)]
     pub fn store(&self, key: u64, score: i32) {
         let index = self.index(key);
         let value = Self::pack(key, score);
-        self.table[index].store(value, Ordering::Relaxed);
+
+        unsafe {
+            self.table
+                .get_unchecked(index)
+                .store(value, Ordering::Relaxed);
+        }
     }
 
     /// Retrieve an entry from the cache
@@ -62,23 +67,30 @@ impl EvalCache {
     /// # Returns
     ///
     /// The evaluation score if the key matches, None otherwise
-    pub fn probe(&self, key: u64) -> Option<i32> {
+    #[inline(always)]
+    pub fn probe(&self, key: u64) -> Option<Score> {
         let index = self.index(key);
-        let entry = unsafe { self.table.get_unchecked(index).load(Ordering::Relaxed) };
+        let entry = unsafe {
+            self.table
+                .get_unchecked(index)
+                .load(Ordering::Relaxed)
+        };
 
         if entry == 0 {
             return None;
         }
 
-        let (entry_key, score) = Self::unpack(entry);
-        if (entry_key) == (key & KEY_MASK) {
-            Some(score)
-        } else {
-            None
+        let key_masked = key & KEY_MASK;
+        let entry_key = entry >> SCORE_BITS;
+        if entry_key != key_masked {
+            return None;
         }
+
+        let score = entry as i16 as Score;
+        Some(score)
     }
 
-    /// Calculate index from key using multiplicative hashing
+    /// Calculate index by rotating the key so high bits influence the bucket
     ///
     /// # Arguments
     ///
@@ -87,7 +99,7 @@ impl EvalCache {
     /// # Returns
     ///
     /// The index in the cache table
-    #[inline]
+    #[inline(always)]
     fn index(&self, key: u64) -> usize {
         (key.rotate_left(SCORE_BITS) & self.mask) as usize
     }
@@ -102,29 +114,9 @@ impl EvalCache {
     /// # Returns
     ///
     /// The packed u64 value
-    #[inline]
+    #[inline(always)]
     fn pack(key: u64, score: i32) -> u64 {
-        let key_bits = (key & KEY_MASK) << SCORE_BITS;
-        let score_bits = score as u64 & SCORE_MASK;
-
-        key_bits | score_bits
-    }
-
-    /// Unpack key and score from a u64
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - The packed u64 value
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing the key and score
-    #[inline]
-    fn unpack(entry: u64) -> (u64, Score) {
-        let key = (entry >> SCORE_BITS) & KEY_MASK;
-        let score = ((entry & SCORE_MASK) as i16) as Score;
-
-        (key, score)
+        ((key & KEY_MASK) << SCORE_BITS) | (score as u16 as u64)
     }
 
     /// Clear all entries in the cache
