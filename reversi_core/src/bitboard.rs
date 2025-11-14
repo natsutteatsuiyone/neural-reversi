@@ -384,7 +384,7 @@ pub fn get_corner_stability(p: u64) -> u32 {
 /// `true` if there is an adjacent bit set, otherwise `false`.
 #[inline]
 pub fn has_adjacent_bit(b: u64, sq: Square) -> bool {
-    (b & NEIGHBOUR_MASK[sq.index()]) != 0
+    (b & unsafe { NEIGHBOUR_MASK.get_unchecked(sq.index()) }) != 0
 }
 
 /// An iterator that yields each set bit position in a bitboard as a `Square`.
