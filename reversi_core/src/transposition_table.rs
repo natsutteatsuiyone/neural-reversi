@@ -238,7 +238,7 @@ impl TTData {
     ///
     /// `true` if a cutoff should occur, otherwise `false`.
     #[inline]
-    pub fn should_cutoff(&self, beta: Score) -> bool {
+    pub fn should_cut(&self, beta: Score) -> bool {
         let bound = if self.score >= beta {
             Bound::Lower as u8
         } else {
@@ -730,17 +730,17 @@ mod tests {
         // Test should_cutoff
         data.score = 100;
         data.bound = Bound::Lower as u8;
-        assert!(data.should_cutoff(50)); // score >= beta, lower bound
-        assert!(!data.should_cutoff(150)); // score < beta, lower bound
+        assert!(data.should_cut(50)); // score >= beta, lower bound
+        assert!(!data.should_cut(150)); // score < beta, lower bound
 
         data.score = 30;
         data.bound = Bound::Upper as u8;
-        assert!(data.should_cutoff(50)); // score < beta, upper bound
-        assert!(!data.should_cutoff(20)); // score >= beta, upper bound
+        assert!(data.should_cut(50)); // score < beta, upper bound
+        assert!(!data.should_cut(20)); // score >= beta, upper bound
 
         data.bound = Bound::Exact as u8;
-        assert!(data.should_cutoff(50)); // exact bound matches both
-        assert!(data.should_cutoff(20));
+        assert!(data.should_cut(50)); // exact bound matches both
+        assert!(data.should_cut(20));
 
         // Test relative_age
         data.generation = 5;

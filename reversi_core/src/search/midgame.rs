@@ -319,7 +319,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             && tt_hit
             && tt_data.depth >= depth
             && tt_data.selectivity >= ctx.selectivity
-            && tt_data.should_cutoff(beta)
+            && tt_data.should_cut(beta)
         {
             return tt_data.score;
         }

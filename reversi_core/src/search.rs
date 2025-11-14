@@ -1,4 +1,5 @@
 mod endgame;
+mod endgame_cache;
 pub mod midgame;
 pub mod node_type;
 pub mod options;
