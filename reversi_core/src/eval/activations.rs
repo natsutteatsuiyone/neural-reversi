@@ -145,10 +145,6 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 #[cfg(target_arch = "x86_64")]
 #[inline]
 fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    const {
-        assert!(SIZE.is_multiple_of(SSE2_SIMD_WIDTH));
-    }
-
     unsafe {
         let num_chunks = SIZE / SSE2_SIMD_WIDTH;
         let input_ptr = input.as_ptr() as *const __m128i;
