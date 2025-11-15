@@ -124,7 +124,7 @@ export function GameModeSelector({ disabled }: GameModeSelectorProps) {
         <Slider
           value={[aiLevel]}
           min={1}
-          max={21}
+          max={24}
           step={1}
           onValueChange={([value]) => setAILevelChange(value)}
           disabled={disabled}

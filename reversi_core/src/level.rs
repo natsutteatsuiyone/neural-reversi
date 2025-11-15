@@ -41,7 +41,7 @@ impl Level {
 ///
 /// # Arguments
 ///
-/// * `lv` - The level index (0-21), where 0 is the weakest and 21 is the strongest.
+/// * `lv` - The level index (0-24), where 0 is the weakest and 24 is the strongest.
 ///
 /// # Returns
 ///
@@ -49,7 +49,7 @@ impl Level {
 ///
 /// # Panics
 ///
-/// Panics if `lv` is outside the valid range of 0-21.
+/// Panics if `lv` is outside the valid range of 0-24.
 pub fn get_level(lv: usize) -> Level {
     if lv >= LEVELS.len() {
         panic!(
@@ -63,7 +63,7 @@ pub fn get_level(lv: usize) -> Level {
 
 /// Pre-configured difficulty levels ranging from 0 (easiest) to 21 (hardest).
 #[rustfmt::skip]
-const LEVELS: [Level; 22] = [
+const LEVELS: [Level; 25] = [
     Level { mid_depth:  1, end_depth: [ 1, 1, 1, 1, 1, 1, 1] },
     Level { mid_depth:  1, end_depth: [ 2, 2, 2, 2, 2, 2, 2] },
     Level { mid_depth:  2, end_depth: [ 4, 4, 4, 4, 4, 4, 4] },
@@ -86,6 +86,9 @@ const LEVELS: [Level; 22] = [
     Level { mid_depth: 19, end_depth: [26,26,26,26,26,25,24] },
     Level { mid_depth: 20, end_depth: [27,27,27,27,27,26,25] },
     Level { mid_depth: 21, end_depth: [30,30,30,30,28,27,25] },
+    Level { mid_depth: 22, end_depth: [30,30,30,30,30,28,26] },
+    Level { mid_depth: 23, end_depth: [30,30,30,30,30,30,28] },
+    Level { mid_depth: 24, end_depth: [30,30,30,30,30,30,30] },
 ];
 
 #[cfg(test)]
