@@ -35,7 +35,7 @@ jobs:
         # Filter matching eval*.zst
         for url in $ASSETS; do
           fname=$(basename "$url")
-          if [[ "$fname" == eval-*.zst || "$fname" == eval_sm-*.zst ]]; then
+          if [[ "$fname" == eval-*.zst || "$fname" == eval_sm-*.zst || "$fname" == eval_wasm-*.zst ]]; then
             echo "Downloading $fname"
             curl -L -o "$fname" "$url"
           fi

@@ -36,7 +36,7 @@ pub const SCORE_INF: Score = 30000;
 ///
 /// The corresponding midgame score
 #[inline(always)]
-pub fn to_midgame_score(endgame_score: Score) -> Score {
+pub const fn to_midgame_score(endgame_score: Score) -> Score {
     endgame_score << EVAL_SCORE_SCALE_BITS
 }
 
@@ -50,6 +50,6 @@ pub fn to_midgame_score(endgame_score: Score) -> Score {
 ///
 /// The corresponding endgame score
 #[inline(always)]
-pub fn to_endgame_score(midgame_score: Score) -> Score {
+pub const fn to_endgame_score(midgame_score: Score) -> Score {
     midgame_score >> EVAL_SCORE_SCALE_BITS
 }

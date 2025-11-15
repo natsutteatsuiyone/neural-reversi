@@ -1,13 +1,12 @@
 //! Reference: https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h
 use std::{
-    arch::x86_64::*,
     io::{self, Read},
     mem::size_of,
     ptr::copy_nonoverlapping,
 };
 
 #[cfg(target_arch = "x86_64")]
-use std::arch::is_x86_feature_detected;
+use {std::arch::is_x86_feature_detected, std::arch::x86_64::*};
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};

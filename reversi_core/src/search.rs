@@ -1,11 +1,12 @@
 mod endgame;
-mod endgame_cache;
+pub mod endgame_cache;
 pub mod midgame;
 pub mod node_type;
 pub mod options;
-mod root_move;
+pub mod root_move;
 pub mod search_context;
 pub mod search_result;
+pub mod side_to_move;
 pub mod threading;
 
 use std::sync::Arc;

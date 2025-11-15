@@ -156,7 +156,7 @@ impl MoveList {
     ///
     /// Mutable iterator over moves in the list
     #[inline]
-    fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
+    pub fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
         self.move_buffer[..self.count].iter_mut()
     }
 

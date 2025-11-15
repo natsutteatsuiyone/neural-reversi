@@ -320,6 +320,11 @@ impl TranspositionTable {
             let addr = self.entries.as_ptr().add(index) as *const i8;
             std::arch::x86_64::_mm_prefetch(addr, std::arch::x86_64::_MM_HINT_T0);
         }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            let _ = key;
+        }
     }
 
     /// Probes the transposition table for an entry matching the given key.

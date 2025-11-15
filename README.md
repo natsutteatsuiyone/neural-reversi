@@ -2,14 +2,17 @@
 
 This is an experimental project to develop a high-accuracy neural network evaluation function for Reversi (Othello).
 
+Play it online (Lite version): https://neural-reversi.net/ 
+
 ## Crates
 
-- **reversi_core**: Core library implementing AI search algorithms.
+- **reversi_core**: Core library implementing the AI search algorithms.
 - **reversi_cli**: Command-line interface for playing Reversi.
-- **reversi_gui**: Graphical user interface built with Tauri for playing Reversi.
+- **reversi_gui**: Tauri-based graphical user interface for playing Reversi.
+- **reversi_web**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [https://neural-reversi.net](https://neural-reversi.net).
 - **match_runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
-- **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.
-- **ffotest**: [FFO endgame test suite](http://radagast.se/othello/ffotest.html). [Edax problems](https://github.com/abulmo/edax-reversi/tree/master/problem).
+- **datagen**: Tool for generating neural-network training data, including self-play games and feature extraction.
+- **ffotest**: FFO endgame test suite, including Edax problem sets.
 
 ## Neural Network
 

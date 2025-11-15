@@ -1,0 +1,20 @@
+{
+  "name": "reversi-web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "wasm-pack build --target web --out-dir dist/pkg --release",
+    "build:wasm:dev": "wasm-pack build --target web --out-dir dist/pkg --dev",
+    "dev": "npm run build:wasm:dev && vite",
+    "build": "npm run build:wasm && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^7.2.2",
+    "vite-plugin-wasm": "^3.3.0",
+    "vite-plugin-top-level-await": "^1.4.4"
+  },
+  "dependencies": {
+    "petite-vue": "^0.4.1"
+  }
+}
