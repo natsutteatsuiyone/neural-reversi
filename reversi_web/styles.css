@@ -1312,7 +1312,7 @@ select:disabled {
   position: relative;
   background: #24804a;
   border: 1px solid rgba(10, 35, 15, 0.6);
-  border-radius: 4px;
+  border-radius: 0;
   cursor: pointer;
   transition: background 0.2s ease, box-shadow 0.2s ease;
   padding: 0;

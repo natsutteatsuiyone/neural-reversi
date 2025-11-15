@@ -2,7 +2,7 @@ mod network;
 
 use std::{env, io};
 
-use reversi_core::board::Board;
+use reversi_core::{board::Board, eval::eval_cache::EvalCache, types::Score};
 
 use crate::{eval::network::Network, search::search_context::SearchContext};
 
@@ -15,6 +15,7 @@ macro_rules! eval_weights_literal {
 
 pub struct Eval {
     network: Network,
+    cache: EvalCache,
 }
 
 impl Eval {
@@ -29,11 +30,23 @@ impl Eval {
             eval_weights_literal!()
         )))?;
 
-        Ok(Eval { network })
+        Ok(Eval {
+            network,
+            cache: EvalCache::new(17),
+        })
     }
 
-    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> i32 {
-        self.network
-            .evaluate(board, ctx.get_pattern_feature(), ctx.ply())
+    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> Score {
+        let key = board.hash();
+        if let Some(score_cache) = self.cache.probe(key) {
+            return score_cache;
+        }
+
+        let score = self
+            .network
+            .evaluate(board, ctx.get_pattern_feature(), ctx.ply());
+
+        self.cache.store(key, score);
+        score
     }
 }

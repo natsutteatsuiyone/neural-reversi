@@ -312,11 +312,7 @@ impl SearchContext {
         } else {
             JsValue::from(best_move.to_string())
         };
-        let _ = Reflect::set(
-            &payload,
-            &JsValue::from_str("bestMove"),
-            &best_move_value,
-        );
+        let _ = Reflect::set(&payload, &JsValue::from_str("bestMove"), &best_move_value);
 
         let _ = callback.call1(&JsValue::NULL, &payload);
     }

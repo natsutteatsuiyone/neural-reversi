@@ -6,10 +6,13 @@
     "build:wasm": "wasm-pack build --target web --out-dir dist/pkg --release",
     "build:wasm:dev": "wasm-pack build --target web --out-dir dist/pkg --dev",
     "dev": "npm run build:wasm:dev && vite",
+    "bench": "npm run build:wasm && cross-env BENCHMARK=true vite --open /benchmark.html",
     "build": "npm run build:wasm && vite build",
+    "build:bench": "npm run build:wasm && cross-env BENCHMARK=true vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "vite": "^7.2.2",
     "vite-plugin-wasm": "^3.3.0",
     "vite-plugin-top-level-await": "^1.4.4"

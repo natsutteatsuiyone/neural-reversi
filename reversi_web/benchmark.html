@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Neural Reversi - WASM SIMD Benchmark" />
+    <title>Neural Reversi - Benchmark</title>
+    <link rel="icon" href="/favicon.ico" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 2rem;
+        color: #333;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 3rem;
+      }
+
+      h1 {
+        color: white;
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      .subtitle {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 1.1rem;
+      }
+
+      .card {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+      }
+
+      .info-box {
+        background: #f0f4ff;
+        border-left: 4px solid #667eea;
+        padding: 1rem;
+        margin-bottom: 2rem;
+        border-radius: 4px;
+      }
+
+      .info-box h3 {
+        color: #667eea;
+        margin-bottom: 0.5rem;
+      }
+
+      .info-box ul {
+        margin-left: 1.5rem;
+        color: #555;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      label {
+        font-weight: 600;
+        color: #555;
+      }
+
+      input[type="number"],
+      select {
+        padding: 0.75rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 1rem;
+        transition: border-color 0.3s;
+      }
+
+      input[type="number"]:focus,
+      select:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      button {
+        flex: 1;
+        min-width: 150px;
+        padding: 1rem 2rem;
+        font-size: 1rem;
+        font-weight: 600;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+
+      .btn-secondary {
+        background: #6c757d;
+        color: white;
+      }
+
+      .btn-secondary:hover:not(:disabled) {
+        background: #5a6268;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 2rem;
+        color: #667eea;
+      }
+
+      .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #667eea;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1rem;
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      .status {
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-radius: 6px;
+        font-weight: 600;
+      }
+
+      .status.running {
+        background: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeaa7;
+      }
+
+      .status.success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+
+      .status.error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+
+      .results-grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .result-item {
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 8px;
+        border-left: 4px solid #667eea;
+      }
+
+      .result-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+
+      .result-name {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #333;
+      }
+
+      .result-badge {
+        background: #667eea;
+        color: white;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.875rem;
+      }
+
+      .result-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+      }
+
+      .stat {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .stat-label {
+        font-size: 0.875rem;
+        color: #666;
+      }
+
+      .stat-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #333;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-bottom: 2rem;
+        padding: 0.5rem 1rem;
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        transition: background 0.3s;
+      }
+
+      .back-link:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <a href="/" class="back-link">← Back to Game</a>
+
+      <header>
+        <h1>Neural Reversi</h1>
+        <p class="subtitle">WebAssembly Benchmark</p>
+      </header>
+
+      <div class="card">
+        <div class="info-box">
+          <h3>About Benchmarks</h3>
+          <ul>
+            <li>Performance testing of optimized Reversi engine using WASM SIMD instructions</li>
+            <li>Measures speed of neural network evaluation, move generation, search, and bitboard operations</li>
+            <li>Requires browser support for SIMD128</li>
+          </ul>
+        </div>
+
+        <div id="loading" class="loading">
+          <div class="spinner"></div>
+          <p>Loading WASM module...</p>
+        </div>
+
+        <div id="benchmark-controls" class="hidden">
+          <div class="controls">
+            <div class="control-group">
+              <label for="iterations">Iterations</label>
+              <input type="number" id="iterations" value="1000" min="1" max="100000" />
+            </div>
+            <div class="control-group">
+              <label for="search-depth">Search Depth</label>
+              <input type="number" id="search-depth" value="5" min="1" max="10" />
+            </div>
+            <div class="control-group">
+              <label for="search-iterations">Search Iterations</label>
+              <input type="number" id="search-iterations" value="5" min="1" max="100" />
+            </div>
+            <div class="control-group">
+              <label for="endgame-iterations">Endgame Iterations</label>
+              <input type="number" id="endgame-iterations" value="1" min="1" max="50" />
+            </div>
+            <div class="control-group">
+              <label for="perft-depth">Perft Depth</label>
+              <input type="number" id="perft-depth" value="9" min="1" max="12" />
+            </div>
+          </div>
+
+          <div class="button-group">
+            <button id="run-all" class="btn-primary">Run All Benchmarks</button>
+            <button id="run-move-gen" class="btn-secondary">Move Generation</button>
+            <button id="run-eval" class="btn-secondary">Evaluation</button>
+            <button id="run-search" class="btn-secondary">Search</button>
+            <button id="run-endgame" class="btn-secondary">Endgame</button>
+            <button id="run-perft" class="btn-secondary">Perft</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="status" class="hidden"></div>
+
+      <div id="results" class="hidden">
+        <div class="card">
+          <h2 style="margin-bottom: 1.5rem;">Benchmark Results</h2>
+          <div id="results-container" class="results-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/benchmark.js"></script>
+  </body>
+</html>

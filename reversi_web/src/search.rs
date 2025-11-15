@@ -1,6 +1,6 @@
 mod endgame;
 pub mod search_context;
-mod search_result;
+pub mod search_result;
 mod search_task;
 
 use js_sys::Function;
@@ -114,7 +114,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             best_move: Some(mv),
             n_nodes: 0,
             depth: 0,
-            selectivity: 6,
+            selectivity: NO_SELECTIVITY,
         };
     }
 
@@ -140,7 +140,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
             best_move: None,
             n_nodes: ctx.n_nodes,
             depth: 0,
-            selectivity: 6,
+            selectivity: NO_SELECTIVITY,
         };
     }
 
@@ -151,7 +151,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
         ctx.selectivity = org_selectivty - ((max_depth - depth) as u8).min(org_selectivty);
 
         let mut delta = INITIAL_DELTA;
-        if depth <= 10 {
+        if depth <= 8 {
             alpha = -SCORE_INF;
             beta = SCORE_INF;
         }
@@ -184,7 +184,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
     }
 
     let rm = ctx.get_best_root_move(false).unwrap();
-    ctx.notify_progress(depth, to_scoref(best_score), rm.sq, ctx.selectivity);
+    ctx.notify_progress(max_depth, to_scoref(best_score), rm.sq, ctx.selectivity);
     SearchResult {
         score: to_scoref(best_score),
         best_move: Some(rm.sq),
@@ -198,12 +198,17 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
     let n_empties = ctx.empty_list.count;
     let score = estimate_aspiration_base_score(ctx, &board, n_empties);
+    let final_selectivity = if n_empties > level.perfect_depth {
+        NO_SELECTIVITY - 2
+    } else {
+        NO_SELECTIVITY
+    };
 
     let mut best_score = 0;
-    let mut alpha = score - to_midgame_score(6);
-    let mut beta = score + to_midgame_score(6);
+    let mut alpha = score - to_midgame_score(5);
+    let mut beta = score + to_midgame_score(5);
 
-    for selectivity in 1..=NO_SELECTIVITY {
+    for selectivity in 1..=final_selectivity {
         ctx.selectivity = selectivity;
         let mut delta = to_midgame_score(3);
 
@@ -411,7 +416,7 @@ pub fn search<NT: NodeType>(
     }
 
     if move_list.count() > 1 {
-        crate::move_list::evaluate_moves::<NT, true>(&mut move_list, ctx, board, depth, tt_move);
+        crate::move_list::evaluate_moves(&mut move_list, ctx, board, tt_move);
         move_list.sort();
     }
 

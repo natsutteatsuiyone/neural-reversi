@@ -8,4 +8,7 @@ pub struct Level {
 
     /// Search depth for end game phase
     pub end_depth: Depth,
+
+    /// Search depth for perfect play phase
+    pub perfect_depth: Depth,
 }

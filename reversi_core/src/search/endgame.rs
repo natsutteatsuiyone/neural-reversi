@@ -677,9 +677,9 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update_endgame(mv.sq);
         best_score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
-            -shallow_search(ctx, &next, -(alpha + 1))
+            -shallow_search(ctx, &next, -beta)
         } else {
-            -null_window_search_with_ec(ctx, &next, -(alpha + 1))
+            -null_window_search_with_ec(ctx, &next, -beta)
         };
         ctx.undo_endgame(mv.sq);
         best_move = mv.sq;
@@ -873,17 +873,18 @@ fn solve4(
     sq3: Square,
     sq4: Square,
 ) -> Score {
+    let beta = alpha + 1;
     let mut best_score = -SCORE_INF;
 
     if let Some(next) = board.try_make_move(sq1) {
-        best_score = -solve3(ctx, &next, -(alpha + 1), sq2, sq3, sq4);
+        best_score = -solve3(ctx, &next, -beta, sq2, sq3, sq4);
         if best_score > alpha {
             return best_score;
         }
     }
 
     if let Some(next) = board.try_make_move(sq2) {
-        let score = -solve3(ctx, &next, -(alpha + 1), sq1, sq3, sq4);
+        let score = -solve3(ctx, &next, -beta, sq1, sq3, sq4);
         if score > alpha {
             return score;
         }
@@ -891,7 +892,7 @@ fn solve4(
     }
 
     if let Some(next) = board.try_make_move(sq3) {
-        let score = -solve3(ctx, &next, -(alpha + 1), sq1, sq2, sq4);
+        let score = -solve3(ctx, &next, -beta, sq1, sq2, sq4);
         if score > alpha {
             return score;
         }
@@ -899,14 +900,14 @@ fn solve4(
     }
 
     if let Some(next) = board.try_make_move(sq4) {
-        let score = -solve3(ctx, &next, -(alpha + 1), sq1, sq2, sq3);
+        let score = -solve3(ctx, &next, -beta, sq1, sq2, sq3);
         return score.max(best_score);
     }
 
     if best_score == -SCORE_INF {
         let pass = board.switch_players();
         if pass.has_legal_moves() {
-            best_score = -solve4(ctx, &pass, -(alpha + 1), sq1, sq2, sq3, sq4);
+            best_score = -solve4(ctx, &pass, -beta, sq1, sq2, sq3, sq4);
         } else {
             best_score = solve(board, 4);
         }
@@ -936,18 +937,19 @@ fn solve3(
     sq3: Square,
 ) -> Score {
     ctx.increment_nodes();
+    let beta = alpha + 1;
     let mut best_score = -SCORE_INF;
 
     // player moves
     if let Some(next) = board.try_make_move(sq1) {
-        best_score = -solve2(ctx, &next, -(alpha + 1), sq2, sq3);
+        best_score = -solve2(ctx, &next, -beta, sq2, sq3);
         if best_score > alpha {
             return best_score;
         }
     }
 
     if let Some(next) = board.try_make_move(sq2) {
-        let score = -solve2(ctx, &next, -(alpha + 1), sq1, sq3);
+        let score = -solve2(ctx, &next, -beta, sq1, sq3);
         if score > alpha {
             return score;
         }
@@ -955,7 +957,7 @@ fn solve3(
     }
 
     if let Some(next) = board.try_make_move(sq3) {
-        let score = -solve2(ctx, &next, -(alpha + 1), sq1, sq2);
+        let score = -solve2(ctx, &next, -beta, sq1, sq2);
         return score.max(best_score);
     }
 
@@ -1010,21 +1012,22 @@ fn solve3(
 #[inline(always)]
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
+    let beta = alpha + 1;
 
     // player moves
     if let Some(next) = board.try_make_move(sq1) {
-        let best_score = -solve1(ctx, &next, -(alpha + 1), sq2);
+        let best_score = -solve1(ctx, &next, -beta, sq2);
         if best_score > alpha {
             return best_score;
         }
         if let Some(next) = board.try_make_move(sq2) {
-            let score = -solve1(ctx, &next, -(alpha + 1), sq1);
+            let score = -solve1(ctx, &next, -beta, sq1);
             return score.max(best_score);
         } else {
             return best_score;
         }
     } else if let Some(next) = board.try_make_move(sq2) {
-        return -solve1(ctx, &next, -(alpha + 1), sq1);
+        return -solve1(ctx, &next, -beta, sq1);
     }
 
     // opponent moves

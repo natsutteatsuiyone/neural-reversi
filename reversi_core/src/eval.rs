@@ -1,6 +1,6 @@
 mod activations;
 pub mod constants;
-mod eval_cache;
+pub mod eval_cache;
 mod input_layer;
 mod linear_layer;
 mod network;

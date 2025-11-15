@@ -47,12 +47,10 @@ thread_local! {
 ///
 /// Best score found
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
-    let mut best_score = -SCORE_INF;
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
 
     let tt_key = board.hash();
-    ctx.tt.prefetch(tt_key);
 
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
         return score;
@@ -61,24 +59,35 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     let mut move_list = MoveList::new(board);
     if move_list.wipeout_move.is_some() {
         return SCORE_MAX;
-    } else if move_list.count() >= 2 {
-        // transposition table lookup
-        let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
-        let tt_move = if tt_hit {
-            tt_data.best_move
+    } else if move_list.count() == 0 {
+        let next = board.switch_players();
+        if next.has_legal_moves() {
+            return -null_window_search(ctx, &next, -beta);
         } else {
-            Square::None
-        };
-        if tt_hit
-            && tt_data.depth >= n_empties
-            && tt_data.selectivity >= ctx.selectivity
-            && tt_data.should_cut(to_midgame_score(beta))
-        {
-            return to_endgame_score(tt_data.score);
+            return solve(board, n_empties);
         }
+    }
 
+    // transposition table lookup
+    let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_move = if tt_hit {
+        tt_data.best_move
+    } else {
+        Square::None
+    };
+
+    if tt_hit
+        && tt_data.depth >= n_empties
+        && tt_data.selectivity >= ctx.selectivity
+        && tt_data.should_cut(to_midgame_score(beta))
+    {
+        return to_endgame_score(tt_data.score);
+    }
+
+    let mut best_score = -SCORE_INF;
+    let mut best_move = Square::None;
+    if move_list.count() >= 2 {
         move_list.evaluate_moves_fast(board, tt_move);
-        let mut best_move = Square::None;
         for mv in move_list.best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -93,23 +102,13 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             if score > best_score {
                 best_move = mv.sq;
                 best_score = score;
-                if score > alpha {
+                if score >= beta {
                     break;
                 }
             }
         }
-
-        ctx.tt.store(
-            tt_entry_index,
-            tt_key,
-            to_midgame_score(best_score),
-            Bound::determine_bound::<NonPV>(best_score, beta),
-            n_empties,
-            best_move,
-            NO_SELECTIVITY,
-            ctx.generation,
-        );
-    } else if move_list.count() == 1 {
+    } else {
+        // only one move available
         let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update_endgame(mv.sq);
@@ -119,16 +118,58 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             -null_window_search(ctx, &next, -beta)
         };
         ctx.undo_endgame(mv.sq);
-    } else {
-        let next = board.switch_players();
-        if next.has_legal_moves() {
-            best_score = -null_window_search(ctx, &next, -(alpha + 1));
-        } else {
-            best_score = solve(board, n_empties);
-        }
+        best_move = mv.sq;
     }
 
+    ctx.tt.store(
+        tt_entry_index,
+        tt_key,
+        to_midgame_score(best_score),
+        Bound::determine_bound::<NonPV>(best_score, beta),
+        n_empties,
+        best_move,
+        NO_SELECTIVITY,
+        ctx.generation,
+    );
+
     best_score
+}
+
+/// Probe the endgame cache for a given position
+///
+/// # Arguments
+///
+/// * `key` - The hash key of the board position
+///
+/// * `n_empties` - The number of empty squares on the board
+///
+/// # Returns
+///
+/// * `Option<EndGameCacheEntry>` - The cached entry if found
+#[inline(always)]
+fn probe_endgame_cache(key: u64, n_empties: Depth) -> Option<EndGameCacheEntry> {
+    ENDGAME_CACHE.with(|cell| {
+        let cache = cell.borrow();
+        cache.probe(key, n_empties)
+    })
+}
+
+/// Store an entry in the endgame cache
+///
+/// # Arguments
+///
+/// * `key` - The hash key of the board position
+/// * `n_empties` - The number of empty squares on the board
+/// * `beta` - The beta value for determining the bound
+/// * `score` - The score to store
+/// * `best_move` - The best move found in this position
+#[inline(always)]
+fn store_endgame_cache(key: u64, n_empties: Depth, beta: Score, score: Score, best_move: Square) {
+    let bound = Bound::determine_bound::<NonPV>(score, beta);
+    ENDGAME_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        cache.store(key, n_empties, score, bound, best_move);
+    });
 }
 
 /// Null window search with endgame cache probing.
@@ -200,9 +241,9 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update_endgame(mv.sq);
         best_score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
-            -shallow_search(ctx, &next, -(alpha + 1))
+            -shallow_search(ctx, &next, -beta)
         } else {
-            -null_window_search_with_ec(ctx, &next, -(alpha + 1))
+            -null_window_search_with_ec(ctx, &next, -beta)
         };
         ctx.undo_endgame(mv.sq);
         best_move = mv.sq;
@@ -395,17 +436,18 @@ fn solve4(
     sq3: Square,
     sq4: Square,
 ) -> Score {
+    let beta = alpha + 1;
     let mut best_score = -SCORE_INF;
 
     if let Some(next) = board.try_make_move(sq1) {
-        best_score = -solve3(ctx, &next, -(alpha + 1), sq2, sq3, sq4);
+        best_score = -solve3(ctx, &next, -beta, sq2, sq3, sq4);
         if best_score > alpha {
             return best_score;
         }
     }
 
     if let Some(next) = board.try_make_move(sq2) {
-        let score = -solve3(ctx, &next, -(alpha + 1), sq1, sq3, sq4);
+        let score = -solve3(ctx, &next, -beta, sq1, sq3, sq4);
         if score > alpha {
             return score;
         }
@@ -413,7 +455,7 @@ fn solve4(
     }
 
     if let Some(next) = board.try_make_move(sq3) {
-        let score = -solve3(ctx, &next, -(alpha + 1), sq1, sq2, sq4);
+        let score = -solve3(ctx, &next, -beta, sq1, sq2, sq4);
         if score > alpha {
             return score;
         }
@@ -421,14 +463,14 @@ fn solve4(
     }
 
     if let Some(next) = board.try_make_move(sq4) {
-        let score = -solve3(ctx, &next, -(alpha + 1), sq1, sq2, sq3);
+        let score = -solve3(ctx, &next, -beta, sq1, sq2, sq3);
         return score.max(best_score);
     }
 
     if best_score == -SCORE_INF {
         let pass = board.switch_players();
         if pass.has_legal_moves() {
-            best_score = -solve4(ctx, &pass, -(alpha + 1), sq1, sq2, sq3, sq4);
+            best_score = -solve4(ctx, &pass, -beta, sq1, sq2, sq3, sq4);
         } else {
             best_score = solve(board, 4);
         }
@@ -458,18 +500,19 @@ fn solve3(
     sq3: Square,
 ) -> Score {
     ctx.increment_nodes();
+    let beta = alpha + 1;
     let mut best_score = -SCORE_INF;
 
     // player moves
     if let Some(next) = board.try_make_move(sq1) {
-        best_score = -solve2(ctx, &next, -(alpha + 1), sq2, sq3);
+        best_score = -solve2(ctx, &next, -beta, sq2, sq3);
         if best_score > alpha {
             return best_score;
         }
     }
 
     if let Some(next) = board.try_make_move(sq2) {
-        let score = -solve2(ctx, &next, -(alpha + 1), sq1, sq3);
+        let score = -solve2(ctx, &next, -beta, sq1, sq3);
         if score > alpha {
             return score;
         }
@@ -477,7 +520,7 @@ fn solve3(
     }
 
     if let Some(next) = board.try_make_move(sq3) {
-        let score = -solve2(ctx, &next, -(alpha + 1), sq1, sq2);
+        let score = -solve2(ctx, &next, -beta, sq1, sq2);
         return score.max(best_score);
     }
 
@@ -532,21 +575,22 @@ fn solve3(
 #[inline(always)]
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
+    let beta = alpha + 1;
 
     // player moves
     if let Some(next) = board.try_make_move(sq1) {
-        let best_score = -solve1(ctx, &next, -(alpha + 1), sq2);
+        let best_score = -solve1(ctx, &next, -beta, sq2);
         if best_score > alpha {
             return best_score;
         }
         if let Some(next) = board.try_make_move(sq2) {
-            let score = -solve1(ctx, &next, -(alpha + 1), sq1);
+            let score = -solve1(ctx, &next, -beta, sq1);
             return score.max(best_score);
         } else {
             return best_score;
         }
     } else if let Some(next) = board.try_make_move(sq2) {
-        return -solve1(ctx, &next, -(alpha + 1), sq1);
+        return -solve1(ctx, &next, -beta, sq1);
     }
 
     // opponent moves
@@ -606,43 +650,6 @@ fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> S
     }
 
     score
-}
-
-/// Probe the endgame cache for a given position
-///
-/// # Arguments
-///
-/// * `key` - The hash key of the board position
-///
-/// * `n_empties` - The number of empty squares on the board
-///
-/// # Returns
-///
-/// * `Option<EndGameCacheEntry>` - The cached entry if found
-#[inline(always)]
-fn probe_endgame_cache(key: u64, n_empties: Depth) -> Option<EndGameCacheEntry> {
-    ENDGAME_CACHE.with(|cell| {
-        let cache = cell.borrow();
-        cache.probe(key, n_empties)
-    })
-}
-
-/// Store an entry in the endgame cache
-///
-/// # Arguments
-///
-/// * `key` - The hash key of the board position
-/// * `n_empties` - The number of empty squares on the board
-/// * `beta` - The beta value for determining the bound
-/// * `score` - The score to store
-/// * `best_move` - The best move found in this position
-#[inline(always)]
-fn store_endgame_cache(key: u64, n_empties: Depth, beta: Score, score: Score, best_move: Square) {
-    let bound = Bound::determine_bound::<NonPV>(score, beta);
-    ENDGAME_CACHE.with(|cell| {
-        let mut cache = cell.borrow_mut();
-        cache.store(key, n_empties, score, bound, best_move);
-    });
 }
 
 /// Calculates the final score when no moves remain for either player.
