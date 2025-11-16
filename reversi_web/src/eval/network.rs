@@ -132,15 +132,15 @@ impl Network {
         let output_layer = &self.output_layers[ply];
         let score: i32;
 
-        // #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-        // {
-        //     score = self.forward_simd(pattern_feature, &self.input_layer, output_layer);
-        // }
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        {
+            score = self.forward_simd(pattern_feature, &self.input_layer, output_layer);
+        }
 
-        // #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
-        // {
+        #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+        {
             score = self.forward_scalar(pattern_feature, &self.input_layer, output_layer);
-        // }
+        }
 
         (score >> OUTPUT_WEIGHT_SCALE_BITS).clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
     }
@@ -237,7 +237,7 @@ impl Network {
         }
     }
 
-    // #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
     fn forward_scalar(
         &self,
         pattern_feature: &PatternFeature,
