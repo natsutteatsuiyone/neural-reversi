@@ -301,7 +301,6 @@ impl<
 mod tests {
     use super::*;
     use std::io::Cursor;
-    use std::is_x86_feature_detected;
 
     /// Helper to create a test LinearLayer with known weights and biases
     fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>()
