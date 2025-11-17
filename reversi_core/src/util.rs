@@ -15,3 +15,19 @@ pub mod spinlock;
 pub const fn ceil_to_multiple(n: usize, base: usize) -> usize {
     n.div_ceil(base) * base
 }
+
+/// Unsafe array access macro that skips bounds checking.
+#[macro_export]
+macro_rules! uget {
+    ($arr:expr; $i:expr $(,)?) => {{
+        #[allow(unused_unsafe)]
+        unsafe {{ ($arr).get_unchecked($i) }}
+    }};
+    ($arr:expr; $i:expr, $($rest:expr),+ $(,)?) => {{
+        let __p = {{
+            #[allow(unused_unsafe)]
+            unsafe {{ ($arr).get_unchecked($i) }}
+        }};
+        $crate::uget!(&*__p; $($rest),+)
+    }};
+}

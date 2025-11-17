@@ -24,7 +24,6 @@ use crate::util::ceil_to_multiple;
 /// * `OUTPUT_DIMS` - Actual number of output neurons
 /// * `PADDED_INPUT_DIMS` - Input dimensions padded to SIMD width (must be ≥ INPUT_DIMS)
 /// * `PADDED_OUTPUT_DIMS` - Output dimensions padded to SIMD width (must be ≥ OUTPUT_DIMS)
-#[derive(Debug)]
 pub struct LinearLayer<
     const INPUT_DIMS: usize,
     const OUTPUT_DIMS: usize,
@@ -33,6 +32,11 @@ pub struct LinearLayer<
 > {
     biases: AVec<i32, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i8, ConstAlign<CACHE_LINE_SIZE>>,
+    forward_fn: unsafe fn(
+        &Self,
+        &Align64<[u8; PADDED_INPUT_DIMS]>,
+        &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ),
 }
 
 impl<
@@ -69,7 +73,50 @@ impl<
             weights[idx] = reader.read_i8()?;
         }
 
-        Ok(LinearLayer { biases, weights })
+        // Select the optimal forward implementation at load time
+        let forward_fn = Self::select_forward_fn();
+
+        Ok(LinearLayer {
+            biases,
+            weights,
+            forward_fn,
+        })
+    }
+
+    /// Selects the optimal forward implementation based on CPU features.
+    fn select_forward_fn()
+    -> unsafe fn(&Self, &Align64<[u8; PADDED_INPUT_DIMS]>, &mut Align64<[i32; PADDED_OUTPUT_DIMS]>)
+    {
+        #[cfg(target_arch = "x86_64")]
+        {
+            const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
+            let should_use_avx2 = OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH;
+
+            if cfg!(target_feature = "avx512bw") && !should_use_avx2 {
+                if is_x86_feature_detected!("avx512vnni") {
+                    return Self::forward_avx512::<true>;
+                } else {
+                    return Self::forward_avx512::<false>;
+                }
+            } else if cfg!(target_feature = "avx2") {
+                if is_x86_feature_detected!("avxvnni") {
+                    return Self::forward_avx2::<true>;
+                } else {
+                    return Self::forward_avx2::<false>;
+                }
+            }
+        }
+
+        Self::forward_fallback_wrapper
+    }
+
+    /// Wrapper for forward_fallback to match the unsafe fn signature.
+    unsafe fn forward_fallback_wrapper(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_fallback(input, output)
     }
 
     /// Converts matrix index to packed format for SIMD efficiency.
@@ -100,34 +147,13 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            unsafe {
-                if cfg!(target_feature = "avx512bw") {
-                    if is_x86_feature_detected!("avx512vnni") {
-                        self.forward_avx512::<true>(input, output);
-                    } else {
-                        self.forward_avx512::<false>(input, output);
-                    }
-                    return;
-                } else if cfg!(target_feature = "avx2") {
-                    if is_x86_feature_detected!("avxvnni") {
-                        self.forward_avx2::<true>(input, output);
-                    } else {
-                        self.forward_avx2::<false>(input, output);
-                    }
-                    return;
-                }
-            }
-        }
-
-        self.forward_fallback(input, output);
+        unsafe { (self.forward_fn)(self, input, output) }
     }
 
     /// AVX-512 accelerated forward pass optionally using VNNI.
     /// Falls back to the AVX2 path when the layer is narrower than a full 512-bit vector.
     #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512bw,avx512vl")]
+    #[target_feature(enable = "avx512bw,avx512vl,avx512vnni")]
     fn forward_avx512<const USE_VNNI: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
@@ -136,11 +162,6 @@ impl<
         use crate::eval::util::mm512_dpbusd_epi32;
 
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
-
-        if OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH {
-            self.forward_avx2::<USE_VNNI>(input, output);
-            return;
-        }
 
         unsafe {
             let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
@@ -166,7 +187,7 @@ impl<
 
     /// AVX2 accelerated forward pass optionally using VNNI.
     #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "avx2,avxvnni")]
     fn forward_avx2<const USE_VNNI: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
@@ -230,9 +251,11 @@ mod tests {
     /// Helper to create a test LinearLayer with known weights and biases
     fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>()
     -> LinearLayer<I, O, PI, PO> {
+        let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
         let mut layer = LinearLayer::<I, O, PI, PO> {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
+            forward_fn,
         };
 
         // Set some test biases
@@ -331,9 +354,11 @@ mod tests {
         const PI: usize = 32;
         const PO: usize = 32;
 
+        let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
         let mut layer = LinearLayer::<I, O, PI, PO> {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
+            forward_fn,
         };
 
         // Set biases
@@ -419,9 +444,11 @@ mod tests {
         const PI: usize = 32;
         const PO: usize = 32;
 
+        let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
         let mut layer = LinearLayer::<I, O, PI, PO> {
             biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
             weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
+            forward_fn,
         };
 
         // Set positive biases

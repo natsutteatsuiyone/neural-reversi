@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use reversi_core::board::Board;
-use reversi_core::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME};
 use reversi_core::eval::pattern_feature::{PatternFeature, PatternFeatures};
+use reversi_core::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME};
 use reversi_core::eval::{Network, NetworkSmall};
 use reversi_core::piece::Piece;
 use std::hint::black_box;

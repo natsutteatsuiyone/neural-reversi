@@ -1,15 +1,15 @@
 //! - [Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h)
 //! - [Squared Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h)
 
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
+use cfg_if::cfg_if;
 
-
-#[cfg(target_arch = "x86_64")]
-const AVX2_SIMD_WIDTH: usize = std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
-
-#[cfg(target_arch = "x86_64")]
-const SSE2_SIMD_WIDTH: usize = std::mem::size_of::<__m128i>() / std::mem::size_of::<u8>();
+cfg_if! {
+    if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+        use std::arch::x86_64::*;
+        const AVX2_SIMD_WIDTH: usize = std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
+        const SSE2_SIMD_WIDTH: usize = std::mem::size_of::<__m128i>() / std::mem::size_of::<u8>();
+    }
+}
 
 const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 
@@ -20,15 +20,13 @@ const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 /// * `input` - A slice of 32-bit integers representing pre-activation values (length should be at least `SIZE`)
 /// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
 pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if cfg!(target_feature = "avx2") {
+    cfg_if! {
+        if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
             unsafe { clipped_relu_avx2::<SIZE>(input, output) };
-            return;
+        } else {
+            clipped_relu_fallback::<SIZE>(input, output, 0);
         }
     }
-
-    clipped_relu_fallback::<SIZE>(input, output, 0);
 }
 
 /// Clipped ReLU with AVX2 SIMD optimization.
@@ -37,9 +35,10 @@ pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// * `input` - A slice of 32-bit integers (length should be at least `SIZE`)
 /// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
-#[cfg(target_arch = "x86_64")]
 #[inline]
+#[allow(dead_code)]
 fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     unsafe {
         if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
@@ -123,16 +122,15 @@ fn clipped_relu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], st
 ///
 /// * `input` - A slice of 32-bit integers representing pre-activation values (length should be at least `SIZE`)
 /// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
+#[inline(always)]
 pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if cfg!(target_feature = "avx2") {
+    cfg_if! {
+        if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
             unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) };
-            return;
+        } else {
+            sqr_clipped_relu_fallback::<SIZE>(input, output, 0);
         }
     }
-
-    sqr_clipped_relu_fallback::<SIZE>(input, output, 0);
 }
 
 /// Square-clipped activation with AVX2 SIMD optimization.
@@ -141,12 +139,13 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// * `input` - A slice of 32-bit integers (length should be at least `SIZE`)
 /// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
-#[cfg(target_arch = "x86_64")]
 #[inline]
 fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+    let num_chunks = SIZE / SSE2_SIMD_WIDTH;
+
     unsafe {
-        let num_chunks = SIZE / SSE2_SIMD_WIDTH;
         let input_ptr = input.as_ptr() as *const __m128i;
         let output_ptr = output.as_mut_ptr() as *mut __m128i;
 
@@ -166,6 +165,9 @@ fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
         }
     }
+
+    let start_idx = num_chunks * SSE2_SIMD_WIDTH;
+    sqr_clipped_relu_fallback::<SIZE>(input, output, start_idx);
 }
 
 /// Square-clipped activation scalar fallback implementation.
@@ -195,15 +197,13 @@ fn sqr_clipped_relu_fallback<const SIZE: usize>(
 /// * `output` - A mutable slice for 8-bit unsigned integer results
 #[inline(always)]
 pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if cfg!(target_feature = "avx2") {
+    cfg_if! {
+        if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
             unsafe { screlu_avx2::<SIZE>(input, output) };
-            return;
+        } else {
+            screlu_fallback::<SIZE>(input, output, 0);
         }
     }
-
-    screlu_fallback::<SIZE>(input, output, 0);
 }
 
 /// Squared Clipped ReLU with AVX2 SIMD optimization.
@@ -211,7 +211,7 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 /// # Arguments
 ///
 /// * `input` - A slice of 32-bit integers representing pre-activation values
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     unsafe {

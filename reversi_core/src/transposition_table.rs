@@ -2,6 +2,7 @@ use crate::search::node_type::NodeType;
 use crate::square::Square;
 use crate::types::{Depth, Score, Selectivity};
 use aligned_vec::{AVec, ConstAlign};
+use cfg_if::cfg_if;
 use std::{
     mem,
     sync::atomic::{AtomicU64, Ordering},
@@ -342,19 +343,18 @@ impl TranspositionTable {
     /// - `usize`: The index for storing new data (either the found entry or replacement candidate)
     #[inline(always)]
     pub fn probe(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if cfg!(target_feature = "avx2") {
-                return unsafe { self.probe_avx2(key, generation) };
+        cfg_if! {
+            if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+                unsafe { self.probe_avx2(key, generation) }
+            } else {
+                self.probe_fallback(key, generation)
             }
         }
-
-        self.probe_fallback(key, generation)
     }
 
     /// AVX2-optimized probe implementation for faster cluster scanning.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
-    #[cfg(target_arch = "x86_64")]
     fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
         unsafe {
             use std::arch::x86_64::*;
@@ -431,6 +431,7 @@ impl TranspositionTable {
     }
 
     /// Fallback probe implementation.
+    #[allow(dead_code)]
     fn probe_fallback(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
         let key16 = key as u16;
         let cluster_idx = self.get_cluster_idx(key);

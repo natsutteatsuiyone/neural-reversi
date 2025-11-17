@@ -21,7 +21,6 @@ use crate::board::Board;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::types::Score;
 
-
 macro_rules! eval_main_weights_literal {
     () => {
         "eval-882dcae6.zst"

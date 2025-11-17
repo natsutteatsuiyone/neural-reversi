@@ -1,4 +1,11 @@
 # ───────────────────────────────────────────────────────────────
+#  Global Configuration
+# ───────────────────────────────────────────────────────────────
+
+[env]
+VERSION = "0.13.0"
+
+# ───────────────────────────────────────────────────────────────
 #  Development Tasks
 # ───────────────────────────────────────────────────────────────
 
@@ -71,9 +78,10 @@ script = [
   "exec --fail-on-error cargo build --release -p reversi_cli --target ${target_triple}",
   "unset_env RUSTFLAGS",
   "",
+  "version = get_env VERSION",
   "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
   "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-  "dest_name = concat ${binary_basename} \"-\" ${filename_suffix} ${dest_ext}",
+  "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
   "dest = join_path ${workspace_root} dist ${dest_name}",
   "cp ${source} ${dest}",
   "echo ✓ Built: ${dest_name}",
@@ -182,9 +190,10 @@ script = [
   "exec --fail-on-error bun run tauri build --target ${target_triple}",
   "unset_env RUSTFLAGS",
   "",
+  "version = get_env VERSION",
   "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
   "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-  "dest_name = concat ${binary_basename} \"-\" ${filename_suffix} ${dest_ext}",
+  "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
   "dest = join_path ${workspace_root} dist ${dest_name}",
   "cp ${source} ${dest}",
   "echo ✓ Built: ${dest_name}",

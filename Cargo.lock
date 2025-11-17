@@ -3541,6 +3541,7 @@ version = "0.13.0"
 dependencies = [
  "aligned-vec",
  "byteorder",
+ "cfg-if",
  "criterion",
  "lock_api",
  "num_cpus",

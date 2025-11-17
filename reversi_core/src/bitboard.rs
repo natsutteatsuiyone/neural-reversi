@@ -1,6 +1,8 @@
 #[cfg(target_arch = "wasm32")]
 use std::arch::wasm32::*;
 
+use cfg_if::cfg_if;
+
 use crate::bit;
 use crate::square::Square;
 
@@ -122,21 +124,17 @@ pub fn empty_board(player: u64, opponent: u64) -> u64 {
 /// A `u64` value representing the possible moves for the player.
 #[inline]
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if cfg!(target_feature = "avx512vl") {
-            return unsafe { get_moves_avx512(player, opponent) };
-        } else if cfg!(target_feature = "avx2") {
-            return unsafe { get_moves_avx2(player, opponent) };
+    cfg_if! {
+        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
+            unsafe { get_moves_avx512(player, opponent) }
+        } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+            unsafe { get_moves_avx2(player, opponent) }
+        } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
+            get_moves_wasm(player, opponent)
+        } else {
+            get_moves_fallback(player, opponent)
         }
     }
-
-    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-    {
-        return get_moves_wasm(player, opponent);
-    }
-
-    get_moves_fallback(player, opponent)
 }
 
 /// Fallback implementation of `get_moves` for architectures without AVX2 support.
@@ -150,6 +148,7 @@ pub fn get_moves(player: u64, opponent: u64) -> u64 {
 ///
 /// A `u64` value representing the possible moves for the player.
 #[inline]
+#[allow(dead_code)]
 fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
     let empty = empty_board(player, opponent);
     (get_some_moves(player, opponent & 0x007E7E7E7E7E7E00, 7) & empty)
@@ -170,6 +169,7 @@ fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
 ///
 /// A `u64` value representing the possible moves in the specified direction.
 #[inline]
+#[allow(dead_code)]
 fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
     let mut flip = ((b << dir) | (b >> dir)) & mask;
     flip |= ((flip << dir) | (flip >> dir)) & mask;
@@ -252,6 +252,7 @@ pub fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
 

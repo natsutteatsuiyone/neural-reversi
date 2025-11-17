@@ -70,11 +70,7 @@ impl EvalCache {
     #[inline(always)]
     pub fn probe(&self, key: u64) -> Option<Score> {
         let index = self.index(key);
-        let entry = unsafe {
-            self.table
-                .get_unchecked(index)
-                .load(Ordering::Relaxed)
-        };
+        let entry = unsafe { self.table.get_unchecked(index).load(Ordering::Relaxed) };
 
         if entry == 0 {
             return None;

@@ -2,6 +2,7 @@
 //! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/count_last_flip_kindergarten.c
 
 use crate::square::Square;
+use crate::uget;
 
 /// precomputed count flip array
 #[rustfmt::skip]
@@ -87,21 +88,6 @@ pub static COUNT_FLIP: [[i8; 256]; 8] = [
          0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
     ],
 ];
-
-#[macro_export]
-macro_rules! uget {
-    ($arr:expr; $i:expr $(,)?) => {{
-        #[allow(unused_unsafe)]
-        unsafe {{ ($arr).get_unchecked($i) }}
-    }};
-    ($arr:expr; $i:expr, $($rest:expr),+ $(,)?) => {{
-        let __p = {{
-            #[allow(unused_unsafe)]
-            unsafe {{ ($arr).get_unchecked($i) }}
-        }};
-        $crate::uget!(&*__p; $($rest),+)
-    }};
-}
 
 #[inline(always)]
 fn lookup(table: usize, idx: usize) -> i32 {
@@ -1446,6 +1432,6 @@ pub static LAST_FLIP: [CountLastFlipFn; 64] = [
 ///
 /// Flipped disc count.
 #[inline(always)]
-pub fn count_last_flip(sq: Square, p: u64) -> i32 {
+pub fn count_last_flip(p: u64, sq: Square) -> i32 {
     (unsafe { LAST_FLIP.get_unchecked(sq.index()) })(p)
 }

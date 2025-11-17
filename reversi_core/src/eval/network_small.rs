@@ -77,6 +77,7 @@ impl OutputLayer {
 pub struct NetworkSmall {
     input_layers: Vec<InputLayer>,
     output_layers: Vec<OutputLayer>,
+    forward_fn: unsafe fn(&PatternFeature, &InputLayer, &OutputLayer) -> i32,
 }
 
 impl NetworkSmall {
@@ -108,10 +109,45 @@ impl NetworkSmall {
             output_layers.push(output_layer);
         }
 
+        // Select the optimal forward implementation at load time
+        let forward_fn = Self::select_forward_fn();
+
         Ok(NetworkSmall {
             input_layers,
             output_layers,
+            forward_fn,
         })
+    }
+
+    /// Selects the optimal forward implementation based on CPU features.
+    fn select_forward_fn() -> unsafe fn(&PatternFeature, &InputLayer, &OutputLayer) -> i32 {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if cfg!(target_feature = "avx512bw") {
+                if is_x86_feature_detected!("avx512vnni") {
+                    return Self::forward_avx512::<true>;
+                } else {
+                    return Self::forward_avx512::<false>;
+                }
+            } else if cfg!(target_feature = "avx2") {
+                if is_x86_feature_detected!("avxvnni") {
+                    return Self::forward_avx2::<true>;
+                } else {
+                    return Self::forward_avx2::<false>;
+                }
+            }
+        }
+
+        Self::forward_scalar_wrapper
+    }
+
+    /// Wrapper for forward_scalar to match the unsafe fn signature.
+    unsafe fn forward_scalar_wrapper(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        Self::forward_scalar(pattern_feature, input_layer, output_layer)
     }
 
     /// Evaluates a position using the small network
@@ -134,7 +170,7 @@ impl NetworkSmall {
 
         let output_layer = &self.output_layers[ply_offset];
 
-        let sum = self.forward(pattern_feature, input_layer, output_layer);
+        let sum = unsafe { (self.forward_fn)(pattern_feature, input_layer, output_layer) };
         let mobility_adjustment = (mobility as i32) * output_layer.mobility_weight;
         let total = sum + output_layer.bias + mobility_adjustment;
         let score = total >> OUTPUT_WEIGHT_SCALE_BITS;
@@ -142,53 +178,8 @@ impl NetworkSmall {
         score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
     }
 
-    #[inline(always)]
-    fn forward(
-        &self,
-        pattern_feature: &PatternFeature,
-        input_layer: &InputLayer,
-        output_layer: &OutputLayer,
-    ) -> i32 {
-        #[cfg(target_arch = "x86_64")]
-        {
-            unsafe {
-                if cfg!(target_feature = "avx512bw") {
-                    if is_x86_feature_detected!("avx512vnni") {
-                        return Self::forward_avx512::<true>(
-                            pattern_feature,
-                            input_layer,
-                            output_layer,
-                        );
-                    } else {
-                        return Self::forward_avx512::<false>(
-                            pattern_feature,
-                            input_layer,
-                            output_layer,
-                        );
-                    }
-                } else if cfg!(target_feature = "avx2") {
-                    if is_x86_feature_detected!("avxvnni") {
-                        return Self::forward_avx2::<true>(
-                            pattern_feature,
-                            input_layer,
-                            output_layer,
-                        );
-                    } else {
-                        return Self::forward_avx2::<false>(
-                            pattern_feature,
-                            input_layer,
-                            output_layer,
-                        );
-                    }
-                }
-            }
-        }
-
-        Self::forward_scalar(pattern_feature, input_layer, output_layer)
-    }
-
     #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512bw")]
+    #[target_feature(enable = "avx512bw,avx512vnni")]
     fn forward_avx512<const USE_VNNI: bool>(
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,
@@ -290,7 +281,7 @@ impl NetworkSmall {
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "avx2,avxvnni")]
     fn forward_avx2<const USE_VNNI: bool>(
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,

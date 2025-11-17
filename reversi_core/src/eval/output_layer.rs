@@ -7,14 +7,11 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::constants::CACHE_LINE_SIZE;
 
-#[cfg(target_arch = "x86_64")]
-use std::arch::is_x86_feature_detected;
-
 /// Output layer backed by 16-bit weights with a single accumulator.
-#[derive(Debug)]
 pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> {
     bias: i32,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
+    forward_fn: unsafe fn(&Self, [&[u8]; 3]) -> i32,
 }
 
 impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
@@ -29,7 +26,43 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
             *weight = reader.read_i16::<LittleEndian>()?;
         }
 
-        Ok(Self { bias, weights })
+        // Select the optimal forward implementation at load time
+        let forward_fn = Self::select_forward_fn();
+
+        Ok(Self {
+            bias,
+            weights,
+            forward_fn,
+        })
+    }
+
+    /// Selects the optimal forward implementation based on CPU features.
+    fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 3]) -> i32 {
+        #[cfg(target_arch = "x86_64")]
+        {
+            use std::arch::is_x86_feature_detected;
+
+            if cfg!(target_feature = "avx512bw") {
+                if is_x86_feature_detected!("avx512vnni") {
+                    return Self::forward_avx512::<true>;
+                } else {
+                    return Self::forward_avx512::<false>;
+                }
+            } else if cfg!(target_feature = "avx2") {
+                if is_x86_feature_detected!("avxvnni") {
+                    return Self::forward_avx2::<true>;
+                } else {
+                    return Self::forward_avx2::<false>;
+                }
+            }
+        }
+
+        Self::forward_scalar_wrapper
+    }
+
+    /// Wrapper for forward_scalar to match the unsafe fn signature.
+    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 3]) -> i32 {
+        self.forward_scalar(segments)
     }
 
     /// Computes the dot product between 8-bit inputs and 16-bit weights without
@@ -41,31 +74,13 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
             INPUT_DIMS
         );
 
-        #[cfg(target_arch = "x86_64")]
-        {
-            unsafe {
-                if cfg!(target_feature = "avx512bw") {
-                    if is_x86_feature_detected!("avx512vnni") {
-                        return self.forward_avx512::<true>(&segments);
-                    } else {
-                        return self.forward_avx512::<false>(&segments);
-                    }
-                } else if cfg!(target_feature = "avx2") {
-                    if is_x86_feature_detected!("avxvnni") {
-                        return self.forward_avx2::<true>(&segments);
-                    } else {
-                        return self.forward_avx2::<false>(&segments);
-                    }
-                }
-            }
-        }
-
-        self.forward_scalar(&segments)
+        unsafe { (self.forward_fn)(self, segments) }
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512bw,avx512vl")]
-    fn forward_avx512<const USE_VNNI: bool>(&self, segments: &[&[u8]]) -> i32 {
+    #[target_feature(enable = "avx512bw,avx512vl,avx512vnni")]
+    #[inline]
+    fn forward_avx512<const USE_VNNI: bool>(&self, segments: [&[u8]; 3]) -> i32 {
         use crate::eval::util::mm512_dpwssd_epi32;
         use std::arch::x86_64::*;
 
@@ -133,8 +148,9 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    fn forward_avx2<const USE_VNNI: bool>(&self, segments: &[&[u8]]) -> i32 {
+    #[target_feature(enable = "avx2,avxvnni")]
+    #[inline]
+    fn forward_avx2<const USE_VNNI: bool>(&self, segments: [&[u8]; 3]) -> i32 {
         use crate::eval::util::{m256_hadd, mm256_dpwssd_epi32};
         use std::arch::x86_64::*;
 
@@ -201,7 +217,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         m256_hadd(acc0) + self.bias
     }
 
-    fn forward_scalar(&self, segments: &[&[u8]]) -> i32 {
+    fn forward_scalar(&self, segments: [&[u8]; 3]) -> i32 {
         let mut acc = self.bias;
 
         let mut weight_offset = 0usize;

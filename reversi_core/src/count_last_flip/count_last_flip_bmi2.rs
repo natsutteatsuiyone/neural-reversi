@@ -2,7 +2,9 @@
 //! Based on count_last_flip_bmi2.c from edax-reversi.
 //! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c
 
-use crate::{bit::pext_u64, square::Square};
+use std::arch::x86_64::_pext_u64;
+
+use crate::square::Square;
 
 #[rustfmt::skip]
 const COUNT_FLIP: [[u8; 256]; 8] = [
@@ -156,6 +158,7 @@ const MASK_X: [[u64; 4];64] = [
 	[ 0x800000000000017e, 0x8040201008040201, 0x8080808080808080, 0xffc0a09088848281 ]
 ];
 
+#[inline(always)]
 pub fn count_last_flip(player: u64, sq: Square) -> i32 {
     let sq_idx = sq.index() as usize;
     let x = sq_idx & 7;
@@ -169,9 +172,9 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
 
         let idx = ((masked_p >> (sq_idx & 0x38)) & 0xFF) as usize;
         let mut n_flipped = *count_x.get_unchecked(idx);
-        n_flipped += *count_y.get_unchecked(pext_u64(masked_p, *mask.get_unchecked(0)) as usize);
-        n_flipped += *count_y.get_unchecked(pext_u64(masked_p, *mask.get_unchecked(1)) as usize);
-        n_flipped += *count_y.get_unchecked(pext_u64(masked_p, *mask.get_unchecked(2)) as usize);
+        n_flipped += *count_y.get_unchecked(_pext_u64(masked_p, *mask.get_unchecked(0)) as usize);
+        n_flipped += *count_y.get_unchecked(_pext_u64(masked_p, *mask.get_unchecked(1)) as usize);
+        n_flipped += *count_y.get_unchecked(_pext_u64(masked_p, *mask.get_unchecked(2)) as usize);
 
         n_flipped as i32
     }

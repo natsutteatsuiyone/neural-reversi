@@ -15,6 +15,8 @@
 //! - 2 = empty square
 use std::ops::{Index, IndexMut};
 
+use cfg_if::cfg_if;
+
 use crate::bitboard;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
@@ -91,7 +93,7 @@ impl PatternFeature {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 impl PatternFeature {
     #[inline(always)]
     unsafe fn as_m256_ptr(&self) -> *const std::arch::x86_64::__m256i {
@@ -282,6 +284,7 @@ const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
 }
 
 /// Pattern feature weights for each board square.
+#[allow(dead_code)]
 const EVAL_FEATURE: [PatternFeature; BOARD_SQUARES] = generate_eval_feature();
 
 /// Reverse mapping from board squares to pattern features.
@@ -342,27 +345,19 @@ impl PatternFeatures {
     /// * `side_to_move` - The side that made the move (Player or Opponent)
     #[inline(always)]
     pub fn update(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if cfg!(target_feature = "avx2") {
+        cfg_if! {
+            if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
-                return;
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            if cfg!(target_feature = "simd128") {
+            } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
                 unsafe { self.update_wasm_simd(sq, flipped, ply, side_to_move) }
-                return;
+            } else {
+                self.update_fallback(sq, flipped, ply, side_to_move);
             }
         }
-
-        self.update_fallback(sq, flipped, ply, side_to_move);
     }
 
     /// AVX2-optimized implementation of pattern feature update.
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     fn update_avx2(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         use std::arch::x86_64::*;
@@ -596,6 +591,7 @@ impl PatternFeatures {
     }
 
     /// Fallback implementation of pattern feature update for architectures without AVX2 support.
+    #[allow(dead_code)]
     fn update_fallback(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         self.p_features.copy_within(ply..ply + 1, ply + 1);
         self.o_features.copy_within(ply..ply + 1, ply + 1);

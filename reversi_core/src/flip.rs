@@ -1,15 +1,17 @@
-#[cfg(target_arch = "x86_64")]
-mod flip_avx2;
-
-#[cfg(target_arch = "x86_64")]
-mod flip_avx512;
-
-#[cfg(target_arch = "x86_64")]
-mod flip_bmi2;
-
-mod flip_kindergarten;
+cfg_if! {
+    if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
+        mod flip_avx512;
+    } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+        mod flip_avx2;
+    } else if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
+        mod flip_bmi2;
+    } else {
+        mod flip_kindergarten;
+    }
+}
 
 use crate::square::Square;
+use cfg_if::cfg_if;
 
 /// Calculates which opponent pieces would be flipped by placing a piece at the given square.
 ///
@@ -25,22 +27,17 @@ use crate::square::Square;
 /// Returns 0 if no pieces would be flipped (invalid move).
 #[inline(always)]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
-    #[cfg(all(target_arch = "x86_64"))]
-    {
-        if cfg!(target_feature = "avx512cd") && cfg!(target_feature = "avx512vl") {
+    cfg_if! {
+        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
             return unsafe { flip_avx512::flip(sq, p, o) };
-        }
-
-        if cfg!(target_feature = "avx2") {
+        } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
             return unsafe { flip_avx2::flip(sq, p, o) };
-        }
-
-        if cfg!(target_feature = "bmi2") {
+        } else if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
             return flip_bmi2::flip(sq, p, o);
+        } else {
+            return flip_kindergarten::flip(sq, p, o);
         }
     }
-
-    flip_kindergarten::flip(sq, p, o)
 }
 
 #[cfg(test)]

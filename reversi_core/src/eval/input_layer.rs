@@ -1,26 +1,23 @@
 //! Input layers for the neural evaluation network.
 
-use core::mem::size_of;
 use std::io::{self, Read};
-
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
+use cfg_if::cfg_if;
 
 use crate::eval::constants::{CACHE_LINE_SIZE, NUM_FEATURES};
 use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::{clone_biases, feature_offset};
 use crate::util::align::Align64;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod simd_layout {
     use std::mem::size_of;
 
+    use cfg_if::cfg_if;
+
     const PERMUTE_WIDTH: usize = 8;
-    const AVX512_ORDER: [usize; PERMUTE_WIDTH] = [0, 2, 4, 6, 1, 3, 5, 7];
-    const AVX2_ORDER: [usize; PERMUTE_WIDTH] = [0, 1, 4, 5, 2, 3, 6, 7];
 
     unsafe fn permute_tile<T, const ORDER_LEN: usize>(tile: &mut [T], order: &[usize; ORDER_LEN])
     where
@@ -64,24 +61,22 @@ mod simd_layout {
         }
     }
 
-    pub fn permute_rows_avx512(data: &mut [i16], row_len: usize) {
-        unsafe { permute_rows_impl::<u128, PERMUTE_WIDTH>(data, row_len, &AVX512_ORDER) };
-    }
-
-    pub fn permute_rows_avx2(data: &mut [i16], row_len: usize) {
-        unsafe { permute_rows_impl::<u64, PERMUTE_WIDTH>(data, row_len, &AVX2_ORDER) };
+    cfg_if! {
+        if #[cfg(target_feature = "avx512bw")] {
+            const AVX512_ORDER: [usize; PERMUTE_WIDTH] = [0, 2, 4, 6, 1, 3, 5, 7];
+            pub fn permute_rows(data: &mut [i16], row_len: usize) {
+                unsafe { permute_rows_impl::<u128, PERMUTE_WIDTH>(data, row_len, &AVX512_ORDER) };
+            }
+        } else if #[cfg(target_feature = "avx2")]  {
+            const AVX2_ORDER: [usize; PERMUTE_WIDTH] = [0, 1, 4, 5, 2, 3, 6, 7];
+            pub fn permute_rows(data: &mut [i16], row_len: usize) {
+                unsafe { permute_rows_impl::<u64, PERMUTE_WIDTH>(data, row_len, &AVX2_ORDER) };
+            }
+        }
     }
 }
 
-#[cfg(not(target_arch = "x86_64"))]
-mod simd_layout {
-    pub fn permute_rows_avx512(_data: &mut [i16], _row_len: usize) {}
-
-    pub fn permute_rows_avx2(_data: &mut [i16], _row_len: usize) {}
-}
-
-use self::simd_layout::{permute_rows_avx2, permute_rows_avx512};
-
+#[allow(unused_macros)]
 macro_rules! impl_base_input_apply_activation {
     (
         $fn_name:ident,
@@ -98,6 +93,8 @@ macro_rules! impl_base_input_apply_activation {
         #[cfg(target_arch = "x86_64")]
         #[target_feature(enable = $target_feature)]
         fn $fn_name(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
+            use std::arch::x86_64::*;
+            use std::mem::size_of;
             unsafe {
                 let acc_ptr = acc.as_ptr() as *mut $lane_ty;
                 let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
@@ -132,6 +129,7 @@ macro_rules! impl_base_input_apply_activation {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! impl_phase_input_apply_activation {
     (
         $fn_name:ident,
@@ -150,6 +148,8 @@ macro_rules! impl_phase_input_apply_activation {
         #[cfg(target_arch = "x86_64")]
         #[target_feature(enable = $target_feature)]
         fn $fn_name(&self, acc: &[i16; OUTPUT_DIMS], output: &mut [u8]) {
+            use std::arch::x86_64::*;
+            use std::mem::size_of;
             unsafe {
                 let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
                 let mut acc_ptr = acc.as_ptr() as *mut $lane_ty;
@@ -187,7 +187,6 @@ macro_rules! impl_phase_input_apply_activation {
 /// - `INPUT_DIMS`: Number of input features (sparse)
 /// - `OUTPUT_DIMS`: Number of output dimensions (dense)
 /// - `HIDDEN_DIMS`: Number of hidden units (must be 2 * OUTPUT_DIMS)
-#[derive(Debug)]
 pub struct BaseInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
@@ -211,16 +210,13 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         reader.read_i16_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
 
-        #[cfg(target_arch = "x86_64")]
+        // Permute weights and biases for optimal SIMD access patterns.
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
         {
             // Permute weights and biases for optimal SIMD access patterns.
-            if cfg!(target_feature = "avx512bw") {
-                permute_rows_avx512(biases.as_mut_slice(), HIDDEN_DIMS);
-                permute_rows_avx512(weights.as_mut_slice(), HIDDEN_DIMS);
-            } else if cfg!(target_feature = "avx2") {
-                permute_rows_avx2(biases.as_mut_slice(), HIDDEN_DIMS);
-                permute_rows_avx2(weights.as_mut_slice(), HIDDEN_DIMS);
-            }
+            use crate::eval::input_layer::simd_layout::permute_rows;
+            permute_rows(biases.as_mut_slice(), HIDDEN_DIMS);
+            permute_rows(weights.as_mut_slice(), HIDDEN_DIMS);
         }
 
         Ok(BaseInput { biases, weights })
@@ -233,21 +229,18 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     /// * `output` - Output buffer to write results (length must be OUTPUT_DIMS)
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if cfg!(target_feature = "avx512bw") {
-                unsafe { self.forward_avx512(pattern_feature, output) };
-                return;
-            } else if cfg!(target_feature = "avx2") {
-                unsafe { self.forward_avx2(pattern_feature, output) };
-                return;
+        cfg_if! {
+            if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
+                unsafe { self.forward_avx512(pattern_feature, output) }
+            } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]  {
+                unsafe { self.forward_avx2(pattern_feature, output) }
+            } else {
+                self.forward_fallback(pattern_feature, output)
             }
         }
-
-        self.forward_fallback(pattern_feature, output)
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
@@ -260,8 +253,9 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         self.apply_activation_avx512(&acc, output);
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
+    #[allow(dead_code)]
     fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
             assert!(HIDDEN_DIMS.is_multiple_of(64));
@@ -274,6 +268,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     }
 
     // AVX-512-optimized activation function.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     impl_base_input_apply_activation!(
         apply_activation_avx512,
         "avx512bw",
@@ -288,6 +283,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     );
 
     // AVX2-optimized activation function.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     impl_base_input_apply_activation!(
         apply_activation_avx2,
         "avx2",
@@ -302,6 +298,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     );
 
     /// Fallback scalar implementation.
+    #[allow(dead_code)]
     fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         let mut acc = [0; HIDDEN_DIMS];
 
@@ -349,16 +346,12 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         reader.read_i16_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
 
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
         {
             // Permute weights and biases for optimal SIMD access patterns.
-            if cfg!(target_feature = "avx512bw") {
-                permute_rows_avx512(biases.as_mut_slice(), OUTPUT_DIMS);
-                permute_rows_avx512(weights.as_mut_slice(), OUTPUT_DIMS);
-            } else if cfg!(target_feature = "avx2") {
-                permute_rows_avx2(biases.as_mut_slice(), OUTPUT_DIMS);
-                permute_rows_avx2(weights.as_mut_slice(), OUTPUT_DIMS);
-            }
+            use crate::eval::input_layer::simd_layout::permute_rows;
+            permute_rows(biases.as_mut_slice(), OUTPUT_DIMS);
+            permute_rows(weights.as_mut_slice(), OUTPUT_DIMS);
         }
 
         Ok(PhaseAdaptiveInput { biases, weights })
@@ -371,22 +364,20 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     /// * `output` - Output buffer to write results (length must be OUTPUT_DIMS)
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if cfg!(target_feature = "avx512bw") {
+        cfg_if! {
+            if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
                 unsafe { self.forward_avx512(pattern_feature, output) };
-                return;
-            } else if cfg!(target_feature = "avx2") {
+            } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]  {
                 unsafe { self.forward_avx2(pattern_feature, output) };
-                return;
+            } else {
+                self.forward_fallback(pattern_feature, output);
             }
         }
-
-        self.forward_fallback(pattern_feature, output);
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
+    #[allow(dead_code)]
     fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
             assert!(OUTPUT_DIMS.is_multiple_of(128));
@@ -397,8 +388,9 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         self.apply_activation_avx512(&*acc, output);
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
+    #[allow(dead_code)]
     fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
             assert!(OUTPUT_DIMS.is_multiple_of(64));
@@ -410,6 +402,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     }
 
     // AVX-512-optimized activation function.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     impl_phase_input_apply_activation!(
         apply_activation_avx512,
         "avx512bw",
@@ -426,6 +419,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     );
 
     // AVX2-optimized activation function.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     impl_phase_input_apply_activation!(
         apply_activation_avx2,
         "avx2",
@@ -442,19 +436,19 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     );
 
     /// Fallback scalar implementation.
+    #[allow(dead_code)]
     fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        let mut acc = [0; OUTPUT_DIMS];
-
+        let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_scalar::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
-
         for i in 0..OUTPUT_DIMS {
-            let v = (acc[i] + self.biases[i]) as i32;
+            let v = acc[i] as i32;
             let v = v.clamp(0, 255 * 2).pow(2) / 1024;
             output[i] = v as u8;
         }
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! impl_accumulate {
     (
         $fn_name:ident,
@@ -568,6 +562,7 @@ macro_rules! impl_accumulate {
     };
 }
 
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 impl_accumulate!(
     accumulate_avx512,
     "avx512bw",
@@ -578,6 +573,7 @@ impl_accumulate!(
     add = _mm512_add_epi16
 );
 
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 impl_accumulate!(
     accumulate_avx2,
     "avx2",
