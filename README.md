@@ -2,7 +2,7 @@
 
 This is an experimental project to develop a high-accuracy neural network evaluation function for Reversi (Othello).
 
-Play it online (Lite version): https://neural-reversi.net/ 
+Play it online (Lite version): [https://neural-reversi.net/](https://neural-reversi.net/)
 
 ## Crates
 
@@ -11,7 +11,7 @@ Play it online (Lite version): https://neural-reversi.net/
 - **reversi_gui**: Tauri-based graphical user interface for playing Reversi.
 - **reversi_web**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [https://neural-reversi.net](https://neural-reversi.net).
 - **match_runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
-- **datagen**: Tool for generating neural-network training data, including self-play games and feature extraction.
+- **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.
 - **ffotest**: FFO endgame test suite, including Edax problem sets.
 
 ## Neural Network
@@ -23,18 +23,53 @@ Play it online (Lite version): https://neural-reversi.net/
 ### Features
 
 - Mobility: Number of legal moves for the current player.
-- Patterns:  
+- Patterns:
   ![Pattern features](docs/img/pattern_features.svg)
 
 ### Training
 
 [neural-reversi-training](https://github.com/natsutteatsuiyone/neural-reversi-training)
 
-### Weight Files
+## Weight Files
 
-The neural network weight files (`eval.zst` and `eval_sm.zst`) can be downloaded from the [Releases page](https://github.com/natsutteatsuiyone/neural-reversi/releases).
+Neural network weight files (`eval*.zst`, `eval_sm*.zst`, and `eval_wasm*.zst`) can be downloaded from [here](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases/latest).
 
-When developing and running the application locally from the source code (e.g., using `cargo run`), make sure to place `eval.zst` and `eval_sm.zst` in the root directory.
+When developing or running the application locally (for example, using `cargo run`), place the weight files in the project root directory.
+
+## Build
+
+For best performance, build with native CPU optimizations. This enables CPU-specific instructions (BMI2, LZCNT, AVX2, AVX-512), which significantly improve evaluation and search speed.
+
+### Using cargo-make
+
+Build native-optimized binaries for both CLI and GUI using [cargo-make](https://github.com/sagiegurari/cargo-make):
+
+```bash
+# All platforms (Windows + Linux)
+cargo make build-native
+
+# Windows only
+cargo make build-cli-windows-native
+cargo make build-gui-windows-native
+
+# Linux only
+cargo make build-cli-linux-native
+cargo make build-gui-linux-native
+```
+
+For portable release builds targeting multiple CPU tiers (x86-64-v2/v3/v4):
+
+```bash
+# CLI binaries
+cargo make build-cli-windows
+cargo make build-cli-linux
+
+# GUI binaries
+cargo make build-gui-windows
+cargo make build-gui-linux
+```
+
+All cargo-make builds are placed under the `dist/` directory.
 
 ## License
 
