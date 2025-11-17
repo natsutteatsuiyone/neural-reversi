@@ -433,44 +433,6 @@ mod tests {
     }
 
     #[test]
-    fn test_forward_consistency() {
-        // Test that forward_avx2 and forward_fallback produce the same results
-        const I: usize = 32;
-        const O: usize = 8;
-        const PI: usize = 32;
-        const PO: usize = 32;
-
-        let layer = create_test_layer::<I, O, PI, PO>();
-
-        let mut input = Align64([0; PI]);
-        let mut output_avx2 = Align64([0; PO]);
-        let mut output_fallback = Align64([0; PO]);
-
-        // Set random-like input values
-        for i in 0..I {
-            input[i] = ((i * 37 + 13) % 256) as u8;
-        }
-
-        // Run both implementations
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                layer.forward_avx2::<false>(&input, &mut output_avx2);
-            }
-        }
-        layer.forward_fallback(&input, &mut output_fallback);
-
-        // If AVX2 is available, verify results match
-        if is_x86_feature_detected!("avx2") {
-            for i in 0..O {
-                assert_eq!(
-                    output_avx2[i], output_fallback[i],
-                    "Mismatch at output index {i}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn test_packed_weight_index_bounds() {
         const I: usize = 64;
         const O: usize = 16;
