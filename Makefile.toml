@@ -89,25 +89,30 @@ run_task = { name = ["build-cli-tier"] }
 #  Windows CLI Builds
 # ───────────────────────────────────────────────────────────────
 
-[tasks.build-cli-win-v2]
+[tasks.build-cli-windows-v2]
 extend = "build-cli-base"
 description = "Build Windows x86_64-v2 CLI"
 env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
-[tasks.build-cli-win-v3]
+[tasks.build-cli-windows-v3]
 extend = "build-cli-base"
 description = "Build Windows x86_64-v3 CLI"
 env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
-[tasks.build-cli-win-v4]
+[tasks.build-cli-windows-v4]
 extend = "build-cli-base"
 description = "Build Windows x86_64-v4 CLI"
 env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
+[tasks.build-cli-windows-native]
+extend = "build-cli-base"
+description = "Build Windows native CLI"
+env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
+
 [tasks.build-cli-windows]
 workspace = false
 description = "Build all Windows CLI binaries"
-run_task = { name = ["build-cli-win-v2", "build-cli-win-v3", "build-cli-win-v4"] }
+run_task = { name = ["build-cli-windows-v2", "build-cli-windows-v3", "build-cli-windows-v4"] }
 
 # ───────────────────────────────────────────────────────────────
 #  Linux CLI Builds
@@ -127,6 +132,11 @@ env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x8
 extend = "build-cli-base"
 description = "Build Linux x86_64-v4 CLI"
 env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
+
+[tasks.build-cli-linux-native]
+extend = "build-cli-base"
+description = "Build Linux native CLI"
+env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "neural-reversi-cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-cli-linux]
 workspace = false
@@ -190,25 +200,30 @@ run_task = { name = ["build-gui-tier"] }
 #  Windows GUI Builds
 # ───────────────────────────────────────────────────────────────
 
-[tasks.build-gui-win-v2]
+[tasks.build-gui-windows-v2]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v2 GUI"
 env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
-[tasks.build-gui-win-v3]
+[tasks.build-gui-windows-v3]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v3 GUI"
 env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
-[tasks.build-gui-win-v4]
+[tasks.build-gui-windows-v4]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v4 GUI"
 env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
+[tasks.build-gui-windows-native]
+extend = "build-gui-base"
+description = "Build Windows native GUI"
+env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
+
 [tasks.build-gui-windows]
 workspace = false
 description = "Build all Windows GUI binaries"
-run_task = { name = ["build-gui-win-v2", "build-gui-win-v3", "build-gui-win-v4"] }
+run_task = { name = ["build-gui-windows-v2", "build-gui-windows-v3", "build-gui-windows-v4"] }
 
 # ───────────────────────────────────────────────────────────────
 #  Linux GUI Builds
@@ -229,7 +244,21 @@ extend = "build-gui-base"
 description = "Build Linux x86_64-v4 GUI"
 env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
+[tasks.build-gui-linux-native]
+extend = "build-gui-base"
+description = "Build Linux native GUI"
+env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "neural-reversi", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
+
 [tasks.build-gui-linux]
 workspace = false
 description = "Build all Linux GUI binaries"
 run_task = { name = ["build-gui-linux-v2", "build-gui-linux-v3", "build-gui-linux-v4"] }
+
+# ═══════════════════════════════════════════════════════════════
+#  Native Builds (All Platforms)
+# ═══════════════════════════════════════════════════════════════
+
+[tasks.build-native]
+workspace = false
+description = "Build native CLI and GUI for all platforms"
+run_task = { name = ["build-cli-windows-native", "build-cli-linux-native", "build-gui-windows-native", "build-gui-linux-native"] }
