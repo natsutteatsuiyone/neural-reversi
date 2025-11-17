@@ -40,29 +40,27 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 3]) -> i32 {
         #[cfg(target_arch = "x86_64")]
         {
+            use cfg_if::cfg_if;
             use std::arch::is_x86_feature_detected;
 
-            if cfg!(target_feature = "avx512bw") {
-                if is_x86_feature_detected!("avx512vnni") {
-                    return Self::forward_avx512::<true>;
+            cfg_if! {
+                if #[cfg(target_feature = "avx512bw")] {
+                    if is_x86_feature_detected!("avx512vnni") {
+                        Self::forward_avx512_vnni
+                    } else {
+                        Self::forward_avx512_no_vnni
+                    }
+                } else if #[cfg(target_feature = "avx2")] {
+                    if is_x86_feature_detected!("avxvnni") {
+                        Self::forward_avx2_vnni
+                    } else {
+                        Self::forward_avx2_no_vnni
+                    }
                 } else {
-                    return Self::forward_avx512::<false>;
-                }
-            } else if cfg!(target_feature = "avx2") {
-                if is_x86_feature_detected!("avxvnni") {
-                    return Self::forward_avx2::<true>;
-                } else {
-                    return Self::forward_avx2::<false>;
+                    Self::forward_scalar_wrapper
                 }
             }
         }
-
-        Self::forward_scalar_wrapper
-    }
-
-    /// Wrapper for forward_scalar to match the unsafe fn signature.
-    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 3]) -> i32 {
-        self.forward_scalar(segments)
     }
 
     /// Computes the dot product between 8-bit inputs and 16-bit weights without
@@ -77,8 +75,40 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         unsafe { (self.forward_fn)(self, segments) }
     }
 
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512bw,avx512vl,avx512vnni")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw,avx512vnni")]
+    fn forward_avx512_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+        self.forward_avx512::<true>(segments)
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
+    fn forward_avx512_no_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+        self.forward_avx512::<false>(segments)
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2,avxvnni")]
+    #[allow(dead_code)]
+    fn forward_avx2_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+        self.forward_avx2::<true>(segments)
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2")]
+    #[allow(dead_code)]
+    fn forward_avx2_no_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+        self.forward_avx2::<false>(segments)
+    }
+
+    /// Wrapper for forward_scalar to match the unsafe fn signature.
+    #[allow(dead_code)]
+    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 3]) -> i32 {
+        self.forward_scalar(segments)
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
     #[inline]
     fn forward_avx512<const USE_VNNI: bool>(&self, segments: [&[u8]; 3]) -> i32 {
         use crate::eval::util::mm512_dpwssd_epi32;
@@ -147,8 +177,8 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         _mm512_reduce_add_epi32(acc0) + self.bias
     }
 
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2,avxvnni")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2")]
     #[inline]
     fn forward_avx2<const USE_VNNI: bool>(&self, segments: [&[u8]; 3]) -> i32 {
         use crate::eval::util::{m256_hadd, mm256_dpwssd_epi32};

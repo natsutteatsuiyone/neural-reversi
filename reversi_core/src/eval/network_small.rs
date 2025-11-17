@@ -15,13 +15,6 @@ use crate::eval::util::feature_offset;
 use crate::types::Score;
 use crate::util::align::Align64;
 
-#[cfg(target_arch = "x86_64")]
-use {
-    crate::eval::util::mm256_dpwssd_epi32,
-    crate::eval::util::mm512_dpwssd_epi32,
-    std::arch::{is_x86_feature_detected, x86_64::*},
-};
-
 const PA_OUTPUT_DIMS: usize = 128;
 
 const MOBILITY_SCALE: u32 = 30;
@@ -121,33 +114,24 @@ impl NetworkSmall {
 
     /// Selects the optimal forward implementation based on CPU features.
     fn select_forward_fn() -> unsafe fn(&PatternFeature, &InputLayer, &OutputLayer) -> i32 {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if cfg!(target_feature = "avx512bw") {
+        use cfg_if::cfg_if;
+        cfg_if! {
+            if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
                 if is_x86_feature_detected!("avx512vnni") {
-                    return Self::forward_avx512::<true>;
+                    Self::forward_avx512_vnni
                 } else {
-                    return Self::forward_avx512::<false>;
+                    Self::forward_avx512_no_vnni
                 }
-            } else if cfg!(target_feature = "avx2") {
+            } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
                 if is_x86_feature_detected!("avxvnni") {
-                    return Self::forward_avx2::<true>;
+                    Self::forward_avx2_vnni
                 } else {
-                    return Self::forward_avx2::<false>;
+                    Self::forward_avx2_no_vnni
                 }
+            } else {
+                Self::forward_scalar_wrapper
             }
         }
-
-        Self::forward_scalar_wrapper
-    }
-
-    /// Wrapper for forward_scalar to match the unsafe fn signature.
-    unsafe fn forward_scalar_wrapper(
-        pattern_feature: &PatternFeature,
-        input_layer: &InputLayer,
-        output_layer: &OutputLayer,
-    ) -> i32 {
-        Self::forward_scalar(pattern_feature, input_layer, output_layer)
     }
 
     /// Evaluates a position using the small network
@@ -178,13 +162,73 @@ impl NetworkSmall {
         score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
     }
 
-    #[cfg(target_arch = "x86_64")]
+    /// AVX-512 accelerated forward pass optionally using VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
+    fn forward_avx512_vnni(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        Self::forward_avx512::<true>(pattern_feature, input_layer, output_layer)
+    }
+
+    // AVX-512 accelerated forward pass without VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
+    fn forward_avx512_no_vnni(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        Self::forward_avx512::<false>(pattern_feature, input_layer, output_layer)
+    }
+
+    // AVX2 accelerated forward pass optionally using VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2,avxvnni")]
+    #[allow(dead_code)]
+    fn forward_avx2_vnni(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        Self::forward_avx2::<true>(pattern_feature, input_layer, output_layer)
+    }
+
+    // AVX2 accelerated forward pass without VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2")]
+    #[allow(dead_code)]
+    fn forward_avx2_no_vnni(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        Self::forward_avx2::<false>(pattern_feature, input_layer, output_layer)
+    }
+
+    /// Wrapper for forward_scalar to match the unsafe fn signature.
+    #[allow(dead_code)]
+    unsafe fn forward_scalar_wrapper(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        Self::forward_scalar(pattern_feature, input_layer, output_layer)
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
+    #[inline]
     fn forward_avx512<const USE_VNNI: bool>(
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,
         output_layer: &OutputLayer,
     ) -> i32 {
+        use std::arch::x86_64::*;
+        use crate::eval::util::mm512_dpwssd_epi32;
+
         const NUM_REGS: usize = PA_OUTPUT_DIMS / 32;
         debug_assert_eq!(NUM_REGS, 4);
 
@@ -280,13 +324,17 @@ impl NetworkSmall {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2,avxvnni")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2")]
+    #[inline]
     fn forward_avx2<const USE_VNNI: bool>(
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,
         output_layer: &OutputLayer,
     ) -> i32 {
+        use std::arch::x86_64::*;
+        use crate::eval::util::mm256_dpwssd_epi32;
+
         const NUM_REGS: usize = PA_OUTPUT_DIMS / 16;
         debug_assert_eq!(NUM_REGS, 8);
 

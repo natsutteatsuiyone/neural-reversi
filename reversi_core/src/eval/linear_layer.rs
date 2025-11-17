@@ -10,6 +10,7 @@ use {std::arch::is_x86_feature_detected, std::arch::x86_64::*};
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
+use cfg_if::cfg_if;
 
 use crate::eval::constants::CACHE_LINE_SIZE;
 use crate::eval::util::clone_biases;
@@ -87,36 +88,34 @@ impl<
     fn select_forward_fn()
     -> unsafe fn(&Self, &Align64<[u8; PADDED_INPUT_DIMS]>, &mut Align64<[i32; PADDED_OUTPUT_DIMS]>)
     {
-        #[cfg(target_arch = "x86_64")]
-        {
-            const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
-            let should_use_avx2 = OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH;
+        cfg_if! {
+            if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
+                const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
+                let should_use_avx2 = OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH;
 
-            if cfg!(target_feature = "avx512bw") && !should_use_avx2 {
-                if is_x86_feature_detected!("avx512vnni") {
-                    return Self::forward_avx512::<true>;
+                if should_use_avx2 {
+                    if is_x86_feature_detected!("avxvnni") {
+                        return Self::forward_avx2_vnni;
+                    } else {
+                        return Self::forward_avx2_no_vnni;
+                    }
                 } else {
-                    return Self::forward_avx512::<false>;
+                    if is_x86_feature_detected!("avx512vnni") {
+                        return Self::forward_avx512_vnni;
+                    } else {
+                        return Self::forward_avx512_no_vnni;
+                    }
                 }
-            } else if cfg!(target_feature = "avx2") {
+            }  else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
                 if is_x86_feature_detected!("avxvnni") {
-                    return Self::forward_avx2::<true>;
+                    return Self::forward_avx2_vnni;
                 } else {
-                    return Self::forward_avx2::<false>;
+                    return Self::forward_avx2_no_vnni;
                 }
+            } else {
+                Self::forward_fallback_wrapper
             }
         }
-
-        Self::forward_fallback_wrapper
-    }
-
-    /// Wrapper for forward_fallback to match the unsafe fn signature.
-    unsafe fn forward_fallback_wrapper(
-        &self,
-        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
-        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
-    ) {
-        self.forward_fallback(input, output)
     }
 
     /// Converts matrix index to packed format for SIMD efficiency.
@@ -150,10 +149,65 @@ impl<
         unsafe { (self.forward_fn)(self, input, output) }
     }
 
+    /// AVX-512 accelerated forward pass with VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw,avx512vnni")]
+    fn forward_avx512_vnni(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_avx512::<true>(input, output)
+    }
+
+    /// AVX-512 accelerated forward pass without VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
+    fn forward_avx512_no_vnni(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_avx512::<false>(input, output)
+    }
+
+    /// AVX2 accelerated forward pass with VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2,avxvnni")]
+    fn forward_avx2_vnni(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_avx2::<true>(input, output)
+    }
+
+    /// AVX2 accelerated forward pass without VNNI.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2")]
+    fn forward_avx2_no_vnni(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_avx2::<false>(input, output)
+    }
+
+    /// Wrapper for forward_fallback to match the unsafe fn signature.
+    #[allow(dead_code)]
+    unsafe fn forward_fallback_wrapper(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_fallback(input, output)
+    }
+
     /// AVX-512 accelerated forward pass optionally using VNNI.
     /// Falls back to the AVX2 path when the layer is narrower than a full 512-bit vector.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx512bw,avx512vl,avx512vnni")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
+    #[inline]
     fn forward_avx512<const USE_VNNI: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
@@ -186,8 +240,9 @@ impl<
     }
 
     /// AVX2 accelerated forward pass optionally using VNNI.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2,avxvnni")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2")]
+    #[inline]
     fn forward_avx2<const USE_VNNI: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,

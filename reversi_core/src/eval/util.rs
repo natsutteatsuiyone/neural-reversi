@@ -46,12 +46,13 @@ pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
 
 /// Multiply signed 16-bit lanes by signed 16-bit lanes and accumulate into 32-bit results.
 /// Matches the semantics of `VPMDPWSSD`, using a portable fallback when VNNI is unavailable.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512bw,avx512vl,avx512vnni")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[target_feature(enable = "avx512bw")]
 #[inline]
+#[allow(dead_code)]
 pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m512i) -> __m512i {
     if USE_VNNI {
-        _mm512_dpwssd_epi32(src, a, b)
+        unsafe { _mm512_dpwssd_epi32(src, a, b) }
     } else {
         let products = _mm512_madd_epi16(a, b);
         _mm512_add_epi32(src, products)
@@ -60,12 +61,13 @@ pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
 
 /// Multiply signed 16-bit lanes by signed 16-bit lanes and accumulate into 32-bit results.
 /// Matches the semantics of `VPMDPWSSD`, using a portable fallback when VNNI is unavailable.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2,avxvnni")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 pub fn mm256_dpwssd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m256i) -> __m256i {
     if USE_VNNI {
-        _mm256_dpwssd_avx_epi32(src, a, b)
+        unsafe { _mm256_dpwssd_avx_epi32(src, a, b) }
     } else {
         let products = _mm256_madd_epi16(a, b);
         _mm256_add_epi32(src, products)
@@ -74,12 +76,13 @@ pub fn mm256_dpwssd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
 
 /// Multiply unsigned 8-bit lanes by signed 8-bit lanes and accumulate into 32-bit results.
 /// Emulates `VPDPBUSD`, expanding to a VNNI-free sequence when the instruction is missing.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512bw,avx512vl,avx512vnni")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[target_feature(enable = "avx512bw")]
 #[inline]
+#[allow(dead_code)]
 pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m512i) -> __m512i {
     if USE_VNNI {
-        _mm512_dpbusd_epi32(src, a, b)
+        unsafe { _mm512_dpbusd_epi32(src, a, b) }
     } else {
         let highest_bit = _mm512_set1_epi8(0x80u8 as i8);
         let ones16 = _mm512_set1_epi16(1);
@@ -95,12 +98,13 @@ pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
 
 /// Multiply unsigned 8-bit lanes by signed 8-bit lanes and accumulate into 32-bit results.
 /// Emulates `VPDPBUSD`, expanding to a VNNI-free sequence when the instruction is missing.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2,avxvnni")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m256i) -> __m256i {
     if USE_VNNI {
-        _mm256_dpbusd_avx_epi32(src, a, b)
+        unsafe { _mm256_dpbusd_avx_epi32(src, a, b) }
     } else {
         let highest_bit = _mm256_set1_epi8(0x80u8 as i8);
         let ones16 = _mm256_set1_epi16(1);
@@ -114,9 +118,10 @@ pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
     }
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 pub fn m256_hadd(sum_vec: __m256i) -> i32 {
     let mut sum128 = _mm_add_epi32(
         _mm256_castsi256_si128(sum_vec),
