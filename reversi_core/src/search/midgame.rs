@@ -339,7 +339,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         if !NT::PV_NODE
-            && let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta, thread)
+            && let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta, thread)
         {
             return score;
         }

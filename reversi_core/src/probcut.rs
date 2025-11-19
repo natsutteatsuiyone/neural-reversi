@@ -2,10 +2,11 @@ use std::sync::OnceLock;
 
 use std::sync::Arc;
 
+use crate::constants::to_midgame_score;
 use crate::search::node_type::NonPV;
 use crate::{
     board::Board,
-    constants::{EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, MID_SCORE_MAX, MID_SCORE_MIN},
+    constants::{EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, MID_SCORE_MAX},
     search::{midgame, search_context::SearchContext, threading::Thread},
     types::{Depth, Score},
 };
@@ -228,7 +229,6 @@ fn get_t(selectivity: u8) -> f64 {
 /// * `ctx` - Search context containing selectivity settings and search state
 /// * `board` - Current board position to evaluate
 /// * `depth` - Depth of the deep search that would be performed
-/// * `alpha` - Alpha bound for the search window
 /// * `beta` - Beta bound for the search window
 /// * `thread` - Search thread used to run the shallow verification search
 ///
@@ -240,7 +240,6 @@ pub fn probcut_midgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    alpha: Score,
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
@@ -271,23 +270,6 @@ pub fn probcut_midgame(
                 return Some(beta);
             }
         }
-
-        let eval_alpha = (alpha as f64 + eval_sigma - eval_mean).ceil() as Score;
-        let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
-        if eval_score < eval_alpha && pc_alpha > MID_SCORE_MIN {
-            let score = midgame::search::<NonPV, false>(
-                ctx,
-                board,
-                pc_depth,
-                pc_alpha,
-                pc_alpha + 1,
-                thread,
-                None,
-            );
-            if score <= pc_alpha {
-                return Some(alpha);
-            }
-        }
     }
     None
 }
@@ -316,8 +298,8 @@ pub fn probcut_endgame(
     thread: &Arc<Thread>,
 ) -> Option<Score> {
     if depth >= 10 && ctx.selectivity < NO_SELECTIVITY {
-        let scaled_alpha = alpha << EVAL_SCORE_SCALE_BITS;
-        let scaled_beta = beta << EVAL_SCORE_SCALE_BITS;
+        let scaled_alpha = to_midgame_score(alpha);
+        let scaled_beta = to_midgame_score(beta);
         if let Some(score) =
             probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta, thread)
         {
@@ -358,23 +340,6 @@ fn probcut_endgame_internal(
             return Some(beta);
         }
     }
-
-    let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
-    if eval_score < beta && pc_alpha > MID_SCORE_MIN {
-        let score = midgame::search::<NonPV, false>(
-            ctx,
-            board,
-            pc_depth,
-            pc_alpha,
-            pc_alpha + 1,
-            thread,
-            None,
-        );
-        if score <= pc_alpha {
-            return Some(alpha);
-        }
-    }
-
     None
 }
 
