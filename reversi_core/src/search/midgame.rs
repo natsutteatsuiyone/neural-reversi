@@ -35,7 +35,7 @@ use crate::types::Score;
 use crate::types::Scoref;
 
 /// Minimum depth required before considering parallel split.
-const MIN_SPLIT_DEPTH: Depth = 4;
+const MIN_SPLIT_DEPTH: Depth = 5;
 
 /// Minimum depth for enhanced transposition table cutoff.
 const MIN_ETC_DEPTH: Depth = 6;
