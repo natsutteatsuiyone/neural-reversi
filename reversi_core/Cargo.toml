@@ -23,3 +23,7 @@ harness = false
 [[bench]]
 name = "perft"
 harness = false
+
+[[bench]]
+name = "bitboard"
+harness = false

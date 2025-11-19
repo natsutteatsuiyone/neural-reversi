@@ -122,10 +122,10 @@ pub fn empty_board(player: u64, opponent: u64) -> u64 {
 /// # Returns
 ///
 /// A `u64` value representing the possible moves for the player.
-#[inline]
+#[inline(always)]
 pub fn get_moves(player: u64, opponent: u64) -> u64 {
     cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
+        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512vl"))] {
             unsafe { get_moves_avx512(player, opponent) }
         } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
             unsafe { get_moves_avx2(player, opponent) }
@@ -177,64 +177,59 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
     flip |= ((flip << dir) | (flip >> dir)) & mask;
     flip |= ((flip << dir) | (flip >> dir)) & mask;
     flip |= ((flip << dir) | (flip >> dir)) & mask;
-
     (flip << dir) | (flip >> dir)
 }
 
 /// AVX-512-optimized implementation of `get_moves`.
+///
+/// # Arguments
+///
+/// * `player` - The player's bitboard.
+/// * `opponent` - The opponent's bitboard.
+///
+/// # Returns
+///
+/// A `u64` value representing the possible moves for the player.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
-#[inline]
-pub fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
+fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
 
-    let empty: u64 = !(player | opponent);
+    let sh = _mm256_set_epi64x(7, 9, 8, 1);
+    let masks = _mm256_set_epi64x(
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x00FFFFFFFFFFFF00u64 as i64,
+        0x7E7E7E7E7E7E7E7Eu64 as i64,
+    );
+
+    let empty = !(player | opponent);
 
     let pp = _mm256_set1_epi64x(player as i64);
     let oo = _mm256_set1_epi64x(opponent as i64);
 
-    let sh = _mm256_set_epi64x(7, 9, 8, 1);
-    let masked_oo = _mm256_and_si256(
-        oo,
-        _mm256_set_epi64x(
-            0x007E7E7E7E7E7E00u64 as i64,
-            0x007E7E7E7E7E7E00u64 as i64,
-            0x00FFFFFFFFFFFF00u64 as i64,
-            0x7E7E7E7E7E7E7E7Eu64 as i64,
-        ),
-    );
+    let masked_oo = _mm256_and_si256(oo, masks);
 
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
     let mut fr = _mm256_and_si256(masked_oo, _mm256_srlv_epi64(pp, sh));
 
-    let sh2 = _mm256_add_epi64(sh, sh);
-
     fl = _mm256_ternarylogic_epi64(fl, masked_oo, _mm256_sllv_epi64(fl, sh), 0xF8);
     fr = _mm256_ternarylogic_epi64(fr, masked_oo, _mm256_srlv_epi64(fr, sh), 0xF8);
 
-    let pre = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(masked_oo, sh));
+    let pre_l = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(masked_oo, sh));
+    let pre_r = _mm256_srlv_epi64(pre_l, sh);
 
-    fl = _mm256_ternarylogic_epi64(fl, pre, _mm256_sllv_epi64(fl, sh2), 0xF8);
-    fr = _mm256_ternarylogic_epi64(
-        fr,
-        _mm256_srlv_epi64(pre, sh),
-        _mm256_srlv_epi64(fr, sh2),
-        0xF8,
-    );
+    let sh2 = _mm256_add_epi64(sh, sh);
 
-    fl = _mm256_ternarylogic_epi64(fl, pre, _mm256_sllv_epi64(fl, sh2), 0xF8);
-    fr = _mm256_ternarylogic_epi64(
-        fr,
-        _mm256_srlv_epi64(pre, sh),
-        _mm256_srlv_epi64(fr, sh2),
-        0xF8,
-    );
+    fl = _mm256_ternarylogic_epi64(fl, pre_l, _mm256_sllv_epi64(fl, sh2), 0xF8);
+    fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
+
+    fl = _mm256_ternarylogic_epi64(fl, pre_l, _mm256_sllv_epi64(fl, sh2), 0xF8);
+    fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
 
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-
     let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
-    let moves64 = _mm_or_si128(m128, _mm_unpackhi_epi64(m128, m128));
-    let moves = _mm_cvtsi128_si64(moves64) as u64;
+    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
 
     moves & empty
 }
@@ -251,60 +246,46 @@ pub fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
 /// A `u64` value representing the possible moves for the player.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-#[inline]
 #[allow(dead_code)]
 fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
 
-    let pp = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(player as i64));
-    let oo = _mm256_broadcastq_epi64(_mm_cvtsi64_si128(opponent as i64));
-    let shift1897 = _mm256_set_epi64x(7, 9, 8, 1);
-    let mask = _mm256_set_epi64x(
+    let sh = _mm256_set_epi64x(7, 9, 8, 1);
+    let masks = _mm256_set_epi64x(
         0x007E7E7E7E7E7E00,
         0x007E7E7E7E7E7E00,
         0x00FFFFFFFFFFFF00,
         0x7E7E7E7E7E7E7E7E,
     );
-    let masked_oo = _mm256_and_si256(oo, mask);
-    let occupied = _mm_or_si128(_mm256_castsi256_si128(pp), _mm256_castsi256_si128(oo));
 
-    let flip_l = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, shift1897));
-    let flip_r = _mm256_and_si256(masked_oo, _mm256_srlv_epi64(pp, shift1897));
-    let flip_l = _mm256_or_si256(
-        flip_l,
-        _mm256_and_si256(masked_oo, _mm256_sllv_epi64(flip_l, shift1897)),
-    );
-    let flip_r = _mm256_or_si256(
-        flip_r,
-        _mm256_and_si256(masked_oo, _mm256_srlv_epi64(flip_r, shift1897)),
-    );
-    let pre_l = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(masked_oo, shift1897));
-    let pre_r = _mm256_srlv_epi64(pre_l, shift1897);
-    let shift2 = _mm256_add_epi64(shift1897, shift1897);
-    let flip_l = _mm256_or_si256(
-        flip_l,
-        _mm256_and_si256(pre_l, _mm256_sllv_epi64(flip_l, shift2)),
-    );
-    let flip_r = _mm256_or_si256(
-        flip_r,
-        _mm256_and_si256(pre_r, _mm256_srlv_epi64(flip_r, shift2)),
-    );
-    let flip_l = _mm256_or_si256(
-        flip_l,
-        _mm256_and_si256(pre_l, _mm256_sllv_epi64(flip_l, shift2)),
-    );
-    let flip_r = _mm256_or_si256(
-        flip_r,
-        _mm256_and_si256(pre_r, _mm256_srlv_epi64(flip_r, shift2)),
-    );
-    let mm = _mm256_or_si256(
-        _mm256_sllv_epi64(flip_l, shift1897),
-        _mm256_srlv_epi64(flip_r, shift1897),
-    );
+    let empty = !(player | opponent);
 
-    let m = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
-    let masked = _mm_andnot_si128(occupied, _mm_or_si128(m, _mm_unpackhi_epi64(m, m)));
-    _mm_cvtsi128_si64(masked) as u64
+    let pp = _mm256_set1_epi64x(player as i64);
+    let oo = _mm256_set1_epi64x(opponent as i64);
+    let masked_oo = _mm256_and_si256(oo, masks);
+
+    let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
+    let mut fr = _mm256_and_si256(masked_oo, _mm256_srlv_epi64(pp, sh));
+
+    fl = _mm256_or_si256(fl, _mm256_and_si256(masked_oo, _mm256_sllv_epi64(fl, sh)));
+    fr = _mm256_or_si256(fr, _mm256_and_si256(masked_oo, _mm256_srlv_epi64(fr, sh)));
+
+    let pre_l = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(masked_oo, sh));
+    let pre_r = _mm256_srlv_epi64(pre_l, sh);
+
+    let shift2 = _mm256_add_epi64(sh, sh);
+
+    fl = _mm256_or_si256(fl, _mm256_and_si256(pre_l, _mm256_sllv_epi64(fl, shift2)));
+    fr = _mm256_or_si256(fr, _mm256_and_si256(pre_r, _mm256_srlv_epi64(fr, shift2)));
+
+    fl = _mm256_or_si256(fl, _mm256_and_si256(pre_l, _mm256_sllv_epi64(fl, shift2)));
+    fr = _mm256_or_si256(fr, _mm256_and_si256(pre_r, _mm256_srlv_epi64(fr, shift2)));
+
+    let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
+    let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
+    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
+
+    moves & empty
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -383,22 +364,6 @@ fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
     }
 }
 
-/// Counts the number of set bits in the bitboard, giving double weight to corner squares.
-///
-/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L918C5-L918C26
-///
-/// # Arguments
-///
-/// * `b` - A 64-bit bitboard where each bit represents a square on the board.
-///
-/// # Returns
-///
-/// The total weighted count of set bits, with corner bits counted twice.
-#[inline(always)]
-pub fn corner_weighted_count(b: u64) -> u32 {
-    b.count_ones() + (b & CORNER_MASK).count_ones()
-}
-
 /// Gets some potential moves in a specific direction.
 ///
 /// # Arguments
@@ -410,6 +375,7 @@ pub fn corner_weighted_count(b: u64) -> u32 {
 ///
 /// A `u64` value representing some potential moves in the specified direction.
 #[inline(always)]
+#[allow(dead_code)]
 fn get_some_potential_moves(o: u64, dir: u32) -> u64 {
     (o << dir) | (o >> dir)
 }
@@ -434,6 +400,157 @@ pub fn get_potential_moves(p: u64, o: u64) -> u64 {
     let d2 = get_some_potential_moves(o & 0x007E_7E7E_7E7E_7E00_u64, 9);
 
     (h | v | d1 | d2) & !(p | o)
+}
+
+/// Gets the possible moves and potential moves for the player simultaneously.
+///
+/// # Arguments
+///
+/// * `player` - The player's bitboard.
+/// * `opponent` - The opponent's bitboard.
+///
+/// # Returns
+///
+/// A tuple `(moves, potential_moves)`.
+#[inline(always)]
+pub fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
+    cfg_if! {
+        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512vl"))] {
+            unsafe { get_moves_and_potential_avx512(player, opponent) }
+        } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+            unsafe { get_moves_and_potential_avx2(player, opponent) }
+        } else {
+            (get_moves(player, opponent), get_potential_moves(player, opponent))
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512vl")]
+fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
+    use std::arch::x86_64::*;
+
+    let sh = _mm256_set_epi64x(7, 9, 8, 1);
+    let masks = _mm256_set_epi64x(
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x00FFFFFFFFFFFF00u64 as i64,
+        0x7E7E7E7E7E7E7E7Eu64 as i64,
+    );
+
+    let empty = !(player | opponent);
+
+    let pp = _mm256_set1_epi64x(player as i64);
+    let oo = _mm256_set1_epi64x(opponent as i64);
+
+    let masked_oo = _mm256_and_si256(oo, masks);
+
+    // Potential moves calculation
+    let pot_l = _mm256_sllv_epi64(masked_oo, sh);
+    let pot_r = _mm256_srlv_epi64(masked_oo, sh);
+    let pot_mm = _mm256_or_si256(pot_l, pot_r);
+
+    let pot_m128 = _mm_or_si128(
+        _mm256_castsi256_si128(pot_mm),
+        _mm256_extracti128_si256(pot_mm, 1),
+    );
+    let potential = _mm_cvtsi128_si64(_mm_or_si128(pot_m128, _mm_srli_si128(pot_m128, 8))) as u64;
+
+    // Moves calculation
+    let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
+    let mut fr = _mm256_and_si256(masked_oo, _mm256_srlv_epi64(pp, sh));
+
+    fl = _mm256_ternarylogic_epi64(fl, masked_oo, _mm256_sllv_epi64(fl, sh), 0xF8);
+    fr = _mm256_ternarylogic_epi64(fr, masked_oo, _mm256_srlv_epi64(fr, sh), 0xF8);
+
+    let pre_l = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(masked_oo, sh));
+    let pre_r = _mm256_srlv_epi64(pre_l, sh);
+
+    let sh2 = _mm256_add_epi64(sh, sh);
+
+    fl = _mm256_ternarylogic_epi64(fl, pre_l, _mm256_sllv_epi64(fl, sh2), 0xF8);
+    fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
+
+    fl = _mm256_ternarylogic_epi64(fl, pre_l, _mm256_sllv_epi64(fl, sh2), 0xF8);
+    fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
+
+    let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
+    let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
+    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
+
+    (moves & empty, potential & empty)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(dead_code)]
+fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
+    use std::arch::x86_64::*;
+
+    let sh = _mm256_set_epi64x(7, 9, 8, 1);
+    let masks = _mm256_set_epi64x(
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x007E7E7E7E7E7E00u64 as i64,
+        0x00FFFFFFFFFFFF00u64 as i64,
+        0x7E7E7E7E7E7E7E7Eu64 as i64,
+    );
+
+    let empty = !(player | opponent);
+
+    let pp = _mm256_set1_epi64x(player as i64);
+    let oo = _mm256_set1_epi64x(opponent as i64);
+    let masked_oo = _mm256_and_si256(oo, masks);
+
+    // Potential moves calculation
+    let pot_l = _mm256_sllv_epi64(masked_oo, sh);
+    let pot_r = _mm256_srlv_epi64(masked_oo, sh);
+    let pot_mm = _mm256_or_si256(pot_l, pot_r);
+
+    let pot_m128 = _mm_or_si128(
+        _mm256_castsi256_si128(pot_mm),
+        _mm256_extracti128_si256(pot_mm, 1),
+    );
+    let potential = _mm_cvtsi128_si64(_mm_or_si128(pot_m128, _mm_srli_si128(pot_m128, 8))) as u64;
+
+    // Moves calculation
+    let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
+    let mut fr = _mm256_and_si256(masked_oo, _mm256_srlv_epi64(pp, sh));
+
+    fl = _mm256_or_si256(fl, _mm256_and_si256(masked_oo, _mm256_sllv_epi64(fl, sh)));
+    fr = _mm256_or_si256(fr, _mm256_and_si256(masked_oo, _mm256_srlv_epi64(fr, sh)));
+
+    let pre_l = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(masked_oo, sh));
+    let pre_r = _mm256_srlv_epi64(pre_l, sh);
+
+    let shift2 = _mm256_add_epi64(sh, sh);
+
+    fl = _mm256_or_si256(fl, _mm256_and_si256(pre_l, _mm256_sllv_epi64(fl, shift2)));
+    fr = _mm256_or_si256(fr, _mm256_and_si256(pre_r, _mm256_srlv_epi64(fr, shift2)));
+
+    fl = _mm256_or_si256(fl, _mm256_and_si256(pre_l, _mm256_sllv_epi64(fl, shift2)));
+    fr = _mm256_or_si256(fr, _mm256_and_si256(pre_r, _mm256_srlv_epi64(fr, shift2)));
+
+    let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
+    let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
+    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
+
+    (moves & empty, potential & empty)
+}
+
+/// Counts the number of set bits in the bitboard, giving double weight to corner squares.
+///
+/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L918C5-L918C26
+///
+/// # Arguments
+///
+/// * `b` - A 64-bit bitboard where each bit represents a square on the board.
+///
+/// # Returns
+///
+/// The total weighted count of set bits, with corner bits counted twice.
+#[inline(always)]
+pub fn corner_weighted_count(b: u64) -> u32 {
+    b.count_ones() + (b & CORNER_MASK).count_ones()
 }
 
 /// Counts the number of stable corners in the bitboard.
@@ -693,6 +810,103 @@ mod tests {
                 assert_eq!(
                     avx2, avx512,
                     "AVX2 and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_potential_moves_initial_position() {
+        // Standard Reversi initial position
+        let player: u64 = Square::D5.bitboard() | Square::E4.bitboard();
+        let opponent: u64 = Square::D4.bitboard() | Square::E5.bitboard();
+        let potential = get_potential_moves(player, opponent);
+
+        // Potential moves are empty squares adjacent to opponent pieces
+        // Around D4: C3, C4, C5, D3, D5(occupied), E3, E4(occupied), E5(occupied)
+        // Around E5: D4(occupied), D5(occupied), D6, E4(occupied), E6, F4, F5, F6
+        // Union minus occupied: C3, C4, C5, D3, E3, D6, E6, F4, F5, F6
+
+        assert!(is_set(potential, Square::C3));
+        assert!(is_set(potential, Square::C4));
+        assert!(is_set(potential, Square::C5));
+        assert!(is_set(potential, Square::D3));
+        assert!(is_set(potential, Square::E3));
+        assert!(is_set(potential, Square::D6));
+        assert!(is_set(potential, Square::E6));
+        assert!(is_set(potential, Square::F4));
+        assert!(is_set(potential, Square::F5));
+        assert!(is_set(potential, Square::F6));
+
+        // Should not have bits on occupied squares
+        assert!(!is_set(potential, Square::D4));
+        assert!(!is_set(potential, Square::D5));
+        assert!(!is_set(potential, Square::E4));
+        assert!(!is_set(potential, Square::E5));
+    }
+
+    #[test]
+    fn test_get_moves_and_potential_initial_position() {
+        // Standard Reversi initial position
+        let player: u64 = Square::D5.bitboard() | Square::E4.bitboard();
+        let opponent: u64 = Square::D4.bitboard() | Square::E5.bitboard();
+
+        let (moves, potential) = get_moves_and_potential(player, opponent);
+        let expected_moves = get_moves(player, opponent);
+        let expected_potential = get_potential_moves(player, opponent);
+
+        assert_eq!(moves, expected_moves);
+        assert_eq!(potential, expected_potential);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_get_moves_and_potential_consistency() {
+        let has_avx2 = is_x86_feature_detected!("avx2");
+        let has_avx512 =
+            is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl");
+
+        if !(has_avx2 || has_avx512) {
+            return;
+        }
+
+        let test_positions = [
+            (
+                Square::D5.bitboard() | Square::E4.bitboard(),
+                Square::D4.bitboard() | Square::E5.bitboard(),
+            ),
+            (0x00003C3C3C000000, 0x0000C3C3C3000000),
+            (0xFF00000000000000, 0x00FF000000000000),
+            (0x0000001824428100, 0x0000002442810000),
+        ];
+
+        for (player, opponent) in test_positions {
+            let moves_fallback = get_moves_fallback(player, opponent);
+            let potential_scalar = get_potential_moves(player, opponent);
+
+            if has_avx2 {
+                let (moves_avx2, pot_avx2) =
+                    unsafe { get_moves_and_potential_avx2(player, opponent) };
+                assert_eq!(
+                    moves_fallback, moves_avx2,
+                    "Moves mismatch AVX2 for player={player:016x}, opponent={opponent:016x}"
+                );
+                assert_eq!(
+                    potential_scalar, pot_avx2,
+                    "Potential mismatch AVX2 for player={player:016x}, opponent={opponent:016x}"
+                );
+            }
+
+            if has_avx512 {
+                let (moves_avx512, pot_avx512) =
+                    unsafe { get_moves_and_potential_avx512(player, opponent) };
+                assert_eq!(
+                    moves_fallback, moves_avx512,
+                    "Moves mismatch AVX512 for player={player:016x}, opponent={opponent:016x}"
+                );
+                assert_eq!(
+                    potential_scalar, pot_avx512,
+                    "Potential mismatch AVX512 for player={player:016x}, opponent={opponent:016x}"
                 );
             }
         }

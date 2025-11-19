@@ -3,7 +3,9 @@
 use std::slice;
 use std::sync::atomic;
 
-use crate::bitboard::{BitboardIterator, corner_weighted_count, get_corner_stability};
+use crate::bitboard::{
+    BitboardIterator, corner_weighted_count, get_corner_stability, get_moves_and_potential,
+};
 use crate::board::Board;
 use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
 use crate::flip;
@@ -274,9 +276,10 @@ impl MoveList {
                 TT_MOVE_VALUE
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                let potential_mobility = corner_weighted_count(next.get_potential_moves()) as i32;
+                let (moves, potential) = get_moves_and_potential(next.player, next.opponent);
+                let potential_mobility = corner_weighted_count(potential) as i32;
                 let corner_stability = get_corner_stability(next.opponent) as i32;
-                let weighted_mobility = corner_weighted_count(next.get_moves()) as i32;
+                let weighted_mobility = corner_weighted_count(moves) as i32;
                 let mut value = corner_stability * CORNER_STABILITY_WEIGHT;
                 value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
                 value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
