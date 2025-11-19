@@ -43,6 +43,8 @@ pub struct SearchContext {
     pub generation: u8,
     /// Selectivity level
     pub selectivity: u8,
+    /// Current probcut level (number of probcuts applied so far)
+    pub probcut_level: u8,
     /// List of empty squares on the board, optimized for quick access
     pub empty_list: EmptyList,
     /// Shared transposition table for storing search results
@@ -87,6 +89,7 @@ impl SearchContext {
             side_to_move: SideToMove::Player,
             generation,
             selectivity,
+            probcut_level: 0,
             empty_list,
             tt,
             root_moves: Arc::new(std::sync::Mutex::new(Self::create_root_moves(board))),
@@ -124,6 +127,7 @@ impl SearchContext {
             empty_list,
             generation: task.generation,
             selectivity: task.selectivity,
+            probcut_level: task.probcut_level,
             tt: task.tt.clone(),
             root_moves: task.root_moves.clone(),
             eval: task.eval.clone(),

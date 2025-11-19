@@ -243,7 +243,7 @@ pub fn probcut_midgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth >= 3 && ctx.selectivity < NO_SELECTIVITY {
+    if depth >= 3 && ctx.selectivity < NO_SELECTIVITY && ctx.probcut_level < 2 {
         let ply = ctx.ply();
         let pc_depth = determine_probcut_depth(depth);
         let mean = calc_mean(ply, pc_depth, depth);
@@ -257,6 +257,7 @@ pub fn probcut_midgame(
         let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
+            ctx.probcut_level += 1;
             let score = midgame::search::<NonPV, false>(
                 ctx,
                 board,
@@ -266,6 +267,8 @@ pub fn probcut_midgame(
                 thread,
                 None,
             );
+            ctx.probcut_level -= 1;
+
             if score >= pc_beta {
                 return Some(beta);
             }
@@ -297,7 +300,7 @@ pub fn probcut_endgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth >= 10 && ctx.selectivity < NO_SELECTIVITY {
+    if depth >= 10 && ctx.selectivity < NO_SELECTIVITY && ctx.probcut_level < 2 {
         let scaled_alpha = to_midgame_score(alpha);
         let scaled_beta = to_midgame_score(beta);
         if let Some(score) =
@@ -327,6 +330,7 @@ fn probcut_endgame_internal(
 
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
     if eval_score > alpha && pc_beta < MID_SCORE_MAX {
+        ctx.probcut_level += 1;
         let score = midgame::search::<NonPV, false>(
             ctx,
             board,
@@ -336,6 +340,8 @@ fn probcut_endgame_internal(
             thread,
             None,
         );
+        ctx.probcut_level -= 1;
+
         if score >= pc_beta {
             return Some(beta);
         }
