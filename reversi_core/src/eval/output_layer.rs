@@ -61,6 +61,11 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
                 }
             }
         }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Self::forward_scalar_wrapper
+        }
     }
 
     /// Computes the dot product between 8-bit inputs and 16-bit weights without
