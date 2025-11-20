@@ -226,8 +226,8 @@ impl NetworkSmall {
         input_layer: &InputLayer,
         output_layer: &OutputLayer,
     ) -> i32 {
-        use std::arch::x86_64::*;
         use crate::eval::util::mm512_dpwssd_epi32;
+        use std::arch::x86_64::*;
 
         const NUM_REGS: usize = PA_OUTPUT_DIMS / 32;
         debug_assert_eq!(NUM_REGS, 4);
@@ -332,8 +332,8 @@ impl NetworkSmall {
         input_layer: &InputLayer,
         output_layer: &OutputLayer,
     ) -> i32 {
-        use std::arch::x86_64::*;
         use crate::eval::util::mm256_dpwssd_epi32;
+        use std::arch::x86_64::*;
 
         const NUM_REGS: usize = PA_OUTPUT_DIMS / 16;
         debug_assert_eq!(NUM_REGS, 8);
