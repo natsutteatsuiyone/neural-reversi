@@ -419,37 +419,38 @@ impl PatternFeatures {
             let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
             let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
 
-            match side_to_move {
-                SideToMove::Player => {
-                    let p_out0 = _mm256_sub_epi16(p_in0, twof_plus_sum_0);
-                    let p_out1 = _mm256_sub_epi16(p_in1, twof_plus_sum_1);
-                    let o_out0 = _mm256_sub_epi16(o_in0, f_minus_sum_0);
-                    let o_out1 = _mm256_sub_epi16(o_in1, f_minus_sum_1);
+            let (delta_p0, delta_p1, delta_o0, delta_o1) = if side_to_move == SideToMove::Player {
+                (
+                    twof_plus_sum_0,
+                    twof_plus_sum_1,
+                    f_minus_sum_0,
+                    f_minus_sum_1,
+                )
+            } else {
+                (
+                    f_minus_sum_0,
+                    f_minus_sum_1,
+                    twof_plus_sum_0,
+                    twof_plus_sum_1,
+                )
+            };
 
-                    _mm256_store_si256(p_out_ptr, p_out0);
-                    _mm256_store_si256(p_out_ptr.add(1), p_out1);
-                    _mm256_store_si256(o_out_ptr, o_out0);
-                    _mm256_store_si256(o_out_ptr.add(1), o_out1);
-                }
-                SideToMove::Opponent => {
-                    let p_out0 = _mm256_sub_epi16(p_in0, f_minus_sum_0);
-                    let p_out1 = _mm256_sub_epi16(p_in1, f_minus_sum_1);
-                    let o_out0 = _mm256_sub_epi16(o_in0, twof_plus_sum_0);
-                    let o_out1 = _mm256_sub_epi16(o_in1, twof_plus_sum_1);
+            let p_out0 = _mm256_sub_epi16(p_in0, delta_p0);
+            let p_out1 = _mm256_sub_epi16(p_in1, delta_p1);
+            let o_out0 = _mm256_sub_epi16(o_in0, delta_o0);
+            let o_out1 = _mm256_sub_epi16(o_in1, delta_o1);
 
-                    _mm256_store_si256(p_out_ptr, p_out0);
-                    _mm256_store_si256(p_out_ptr.add(1), p_out1);
-                    _mm256_store_si256(o_out_ptr, o_out0);
-                    _mm256_store_si256(o_out_ptr.add(1), o_out1);
-                }
-            }
+            _mm256_store_si256(p_out_ptr, p_out0);
+            _mm256_store_si256(p_out_ptr.add(1), p_out1);
+            _mm256_store_si256(o_out_ptr, o_out0);
+            _mm256_store_si256(o_out_ptr.add(1), o_out1);
         }
     }
 
     /// WebAssembly SIMD-optimized implementation of pattern feature update.
-    #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
     #[target_feature(enable = "simd128")]
-    unsafe fn update_wasm_simd(
+    fn update_wasm_simd(
         &mut self,
         sq: Square,
         flipped: u64,
