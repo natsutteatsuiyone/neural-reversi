@@ -4,9 +4,8 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use reversi_core::{
     board::Board,
     constants::{MID_SCORE_MAX, MID_SCORE_MIN},
-    eval::{
-        constants::{INPUT_FEATURE_DIMS, NUM_FEATURES, PATTERN_FEATURE_OFFSETS},
-        pattern_feature::PatternFeature,
+    eval::pattern_feature::{
+        INPUT_FEATURE_DIMS, NUM_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature,
     },
     types::Score,
 };

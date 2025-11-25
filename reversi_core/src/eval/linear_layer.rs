@@ -12,7 +12,7 @@ use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 use cfg_if::cfg_if;
 
-use crate::eval::constants::CACHE_LINE_SIZE;
+use crate::constants::CACHE_LINE_SIZE;
 use crate::eval::util::clone_biases;
 use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;

@@ -26,6 +26,9 @@ use crate::square::Square;
 /// Number of distinct pattern features used for evaluation.
 pub const NUM_PATTERN_FEATURES: usize = 24;
 
+/// Alias for NUM_PATTERN_FEATURES for compatibility.
+pub const NUM_FEATURES: usize = NUM_PATTERN_FEATURES;
+
 /// Maximum number of features that any single square can participate in.
 const MAX_FEATURES_PER_SQUARE: usize = 4;
 
@@ -187,6 +190,49 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
     ftc!(9, [Sq::A8, Sq::B8, Sq::C8, Sq::A7, Sq::B7, Sq::C7, Sq::A6, Sq::B6, Sq::C6, Sq::None]),
     ftc!(9, [Sq::H8, Sq::G8, Sq::F8, Sq::H7, Sq::G7, Sq::F7, Sq::H6, Sq::G6, Sq::F6, Sq::None]),
 ];
+
+/// Calculates the size of a pattern feature (3^n where n is the number of squares).
+/// Each square can have 3 states: empty, black, or white.
+pub const fn calc_pattern_size(pattern_index: usize) -> usize {
+    let mut value = 1;
+    let mut j = 0;
+    while j < EVAL_F2X[pattern_index].n_square {
+        value *= 3;
+        j += 1;
+    }
+    value
+}
+
+/// Computes the total number of input features across all patterns.
+pub const fn sum_eval_f2x() -> usize {
+    let mut total = 0;
+    let mut i = 0;
+    while i < NUM_PATTERN_FEATURES {
+        total += calc_pattern_size(i);
+        i += 1;
+    }
+    total
+}
+
+/// Total number of input feature dimensions for the neural network.
+/// This is the sum of all pattern feature sizes (3^n for n-square patterns).
+pub const INPUT_FEATURE_DIMS: usize = sum_eval_f2x();
+
+/// Precomputes the starting offset for each pattern feature in the feature vector.
+pub const fn calc_feature_offsets() -> [usize; NUM_PATTERN_FEATURES] {
+    let mut offsets = [0; NUM_PATTERN_FEATURES];
+    let mut current_offset = 0;
+    let mut i = 0;
+    while i < NUM_PATTERN_FEATURES {
+        offsets[i] = current_offset;
+        current_offset += calc_pattern_size(i);
+        i += 1;
+    }
+    offsets
+}
+
+/// Precomputed offsets for each pattern feature in the feature vector.
+pub const PATTERN_FEATURE_OFFSETS: [usize; NUM_PATTERN_FEATURES] = calc_feature_offsets();
 
 /// Common logic for computing pattern feature indices.
 ///
@@ -450,13 +496,7 @@ impl PatternFeatures {
     /// WebAssembly SIMD-optimized implementation of pattern feature update.
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
     #[target_feature(enable = "simd128")]
-    fn update_wasm_simd(
-        &mut self,
-        sq: Square,
-        flipped: u64,
-        ply: usize,
-        side_to_move: SideToMove,
-    ) {
+    fn update_wasm_simd(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
         use core::arch::wasm32::*;
 
         unsafe {

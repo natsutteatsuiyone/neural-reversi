@@ -5,7 +5,7 @@ use std::io::{self, Read};
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::eval::constants::CACHE_LINE_SIZE;
+use crate::constants::CACHE_LINE_SIZE;
 
 /// Output layer backed by 16-bit weights with a single accumulator.
 pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> {

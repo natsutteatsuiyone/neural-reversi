@@ -1,5 +1,5 @@
 use crate::{
-    eval::{constants::PATTERN_FEATURE_OFFSETS, pattern_feature::PatternFeature},
+    eval::pattern_feature::{PATTERN_FEATURE_OFFSETS, PatternFeature},
     util::align::Align64,
 };
 

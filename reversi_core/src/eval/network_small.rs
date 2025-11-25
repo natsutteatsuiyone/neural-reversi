@@ -8,9 +8,8 @@ use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::board::Board;
-use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
-use crate::eval::constants::{CACHE_LINE_SIZE, INPUT_FEATURE_DIMS, NUM_FEATURES};
-use crate::eval::pattern_feature::PatternFeature;
+use crate::constants::{CACHE_LINE_SIZE, MID_SCORE_MAX, MID_SCORE_MIN};
+use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
 use crate::types::Score;
 use crate::util::align::Align64;
