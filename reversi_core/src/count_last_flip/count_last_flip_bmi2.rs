@@ -158,7 +158,9 @@ const MASK_X: [[u64; 4];64] = [
 	[ 0x800000000000017e, 0x8040201008040201, 0x8080808080808080, 0xffc0a09088848281 ]
 ];
 
-#[inline(always)]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+#[target_feature(enable = "bmi2")]
+#[inline]
 pub fn count_last_flip(player: u64, sq: Square) -> i32 {
     let sq_idx = sq.index() as usize;
     let x = sq_idx & 7;

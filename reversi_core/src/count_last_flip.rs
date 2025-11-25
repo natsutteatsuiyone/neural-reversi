@@ -23,9 +23,9 @@ use cfg_if::cfg_if;
 pub fn count_last_flip(player: u64, sq: Square) -> i32 {
     cfg_if! {
         if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
-            return count_last_flip_bmi2::count_last_flip(player, sq);
+            unsafe { count_last_flip_bmi2::count_last_flip(player, sq) }
         } else {
-            return count_last_flip_kindergarten::count_last_flip(player, sq);
+            count_last_flip_kindergarten::count_last_flip(player, sq)
         }
     }
 }
