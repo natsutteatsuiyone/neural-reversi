@@ -381,11 +381,9 @@ impl TranspositionTable {
             // bits 16-17: first 16 bits of entry 2 (the key)
             // bits 24-25: first 16 bits of entry 3 (the key)
             const LANE_MASK: u32 = 0x03030303;
-            let relevant_hits = hit_mask & LANE_MASK;
+            let mut relevant_hits = hit_mask & LANE_MASK;
 
-            if relevant_hits != 0 {
-                // Found a potential key match - extract and verify
-                // Count trailing zeros and map to entry index
+            while relevant_hits != 0 {
                 let tz = relevant_hits.trailing_zeros();
                 let lane_idx = (tz / 8) as usize;
 
@@ -396,6 +394,8 @@ impl TranspositionTable {
                 if data.is_occupied() {
                     return (true, data, base + lane_idx);
                 }
+
+                relevant_hits &= !(0xFF << (lane_idx * 8));
             }
 
             // Extract depth and generation fields from all entries using SIMD
