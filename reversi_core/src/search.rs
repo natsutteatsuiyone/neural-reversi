@@ -191,7 +191,7 @@ fn enhanced_transposition_cutoff(
             && etc_tt_data.selectivity >= ctx.selectivity
         {
             let score = -etc_tt_data.score;
-            if (etc_tt_data.bound == Bound::Exact as u8 || etc_tt_data.bound == Bound::Upper as u8)
+            if (etc_tt_data.bound == Bound::Exact || etc_tt_data.bound == Bound::Upper)
                 && score > alpha
             {
                 ctx.tt.store(

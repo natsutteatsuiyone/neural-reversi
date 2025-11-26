@@ -197,7 +197,7 @@ fn estimate_aspiration_base_score(
 
     let hash_key = board.hash();
     let (tt_hit, tt_data, _) = ctx.tt.probe(hash_key, ctx.generation);
-    let score = if tt_hit && tt_data.bound == Bound::Exact as u8 && tt_data.depth >= midgame_depth {
+    let score = if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
         tt_data.score
     } else if n_empties >= 22 {
         ctx.selectivity = 0;

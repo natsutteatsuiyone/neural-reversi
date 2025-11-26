@@ -53,6 +53,18 @@ impl Bound {
 
         Bound::Upper
     }
+
+    #[inline]
+    pub fn from_u8(value: u8) -> Bound {
+        debug_assert!(value < 4);
+        match value {
+            0 => Bound::None,
+            1 => Bound::Lower,
+            2 => Bound::Upper,
+            3 => Bound::Exact,
+            _ => Bound::None,
+        }
+    }
 }
 
 /// A single entry in the transposition table.
@@ -138,7 +150,7 @@ impl TTEntry {
             key,
             score: score as Score,
             best_move: Square::from_u8_unchecked(best_move),
-            bound,
+            bound: Bound::from_u8(bound),
             depth: depth as Depth,
             selectivity,
             generation,
@@ -215,7 +227,7 @@ pub struct TTData {
     /// Best move found during search
     pub best_move: Square,
     /// Bound type
-    pub bound: u8,
+    pub bound: Bound,
     /// Search depth at which this position was evaluated
     pub depth: Depth,
     /// Selectivity level used during search
@@ -231,7 +243,7 @@ impl Default for TTData {
             key: 0,
             score: 0,
             best_move: Square::None,
-            bound: Bound::None as u8,
+            bound: Bound::None,
             depth: 0,
             selectivity: 0,
             generation: 0,
@@ -252,11 +264,11 @@ impl TTData {
     #[inline]
     pub fn should_cut(&self, beta: Score) -> bool {
         let bound = if self.score >= beta {
-            Bound::Lower as u8
+            Bound::Lower
         } else {
-            Bound::Upper as u8
+            Bound::Upper
         };
-        (self.bound & bound) != 0
+        (self.bound as u8 & bound as u8) != 0
     }
 
     /// Checks if the transposition table entry contains valid data.
@@ -265,7 +277,7 @@ impl TTData {
     ///
     /// `true` if the entry has a valid bound type (not None), `false` otherwise
     pub fn is_occupied(&self) -> bool {
-        self.bound != Bound::None as u8
+        self.bound != Bound::None
     }
 
     /// Calculates the relative age of the entry based on the current generation.
@@ -613,7 +625,7 @@ mod tests {
         let data = entry.unpack();
         assert_eq!(data.key, test_key as u16);
         assert_eq!(data.score, test_score);
-        assert_eq!(data.bound, test_bound as u8);
+        assert_eq!(data.bound, test_bound);
         assert_eq!(data.depth, test_depth);
         assert_eq!(data.best_move, test_best_move);
         assert_eq!(data.selectivity, test_selectivity);
@@ -648,7 +660,7 @@ mod tests {
         let data = entry.unpack();
         assert_eq!(data.key, max_key as u16);
         assert_eq!(data.score, max_score);
-        assert_eq!(data.bound, Bound::Lower as u8);
+        assert_eq!(data.bound, Bound::Lower);
         assert_eq!(data.depth, max_depth);
         assert_eq!(data.best_move, max_best_move);
         assert_eq!(data.selectivity, max_selectivity);
@@ -660,7 +672,7 @@ mod tests {
         let data = entry.unpack();
         assert_eq!(data.key, 0);
         assert_eq!(data.score, min_score);
-        assert_eq!(data.bound, Bound::Upper as u8);
+        assert_eq!(data.bound, Bound::Upper);
         assert_eq!(data.depth, 0);
         assert_eq!(data.best_move, Square::None);
         assert_eq!(data.selectivity, 0);
@@ -695,7 +707,7 @@ mod tests {
         let data = entry.unpack();
         assert_eq!(data.depth, 5);
         assert_eq!(data.score, 80);
-        assert_eq!(data.bound, Bound::Exact as u8);
+        assert_eq!(data.bound, Bound::Exact);
 
         // Different key - should replace
         entry.save(200, 90, Bound::Upper, 3, sq(9), 2, 1);
@@ -731,27 +743,27 @@ mod tests {
 
         // Test is_occupied
         assert!(!data.is_occupied());
-        data.bound = Bound::Lower as u8;
+        data.bound = Bound::Lower;
         assert!(data.is_occupied());
-        data.bound = Bound::Upper as u8;
+        data.bound = Bound::Upper;
         assert!(data.is_occupied());
-        data.bound = Bound::Exact as u8;
+        data.bound = Bound::Exact;
         assert!(data.is_occupied());
-        data.bound = Bound::None as u8;
+        data.bound = Bound::None;
         assert!(!data.is_occupied());
 
         // Test should_cutoff
         data.score = 100;
-        data.bound = Bound::Lower as u8;
+        data.bound = Bound::Lower;
         assert!(data.should_cut(50)); // score >= beta, lower bound
         assert!(!data.should_cut(150)); // score < beta, lower bound
 
         data.score = 30;
-        data.bound = Bound::Upper as u8;
+        data.bound = Bound::Upper;
         assert!(data.should_cut(50)); // score < beta, upper bound
         assert!(!data.should_cut(20)); // score >= beta, upper bound
 
-        data.bound = Bound::Exact as u8;
+        data.bound = Bound::Exact;
         assert!(data.should_cut(50)); // exact bound matches both
         assert!(data.should_cut(20));
 
@@ -796,7 +808,7 @@ mod tests {
         assert!(found);
         assert_eq!(data.key, key as u16);
         assert_eq!(data.score, 100);
-        assert_eq!(data.bound, Bound::Exact as u8);
+        assert_eq!(data.bound, Bound::Exact);
         assert_eq!(data.depth, 20);
         assert_eq!(data.best_move, sq(10));
         assert_eq!(data.selectivity, 3);

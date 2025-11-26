@@ -260,7 +260,7 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empt
 
     let hash_key = board.hash();
     let (tt_hit, tt_data, _) = ctx.tt.probe(hash_key, ctx.generation);
-    let score = if tt_hit && tt_data.bound == Bound::Exact as u8 && tt_data.depth >= midgame_depth {
+    let score = if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
         tt_data.score
     } else if n_empties >= 16 {
         ctx.selectivity = 0;
@@ -664,7 +664,7 @@ fn enhanced_transposition_cutoff(
             && etc_tt_data.selectivity >= ctx.selectivity
         {
             let score = -etc_tt_data.score;
-            if (etc_tt_data.bound == Bound::Exact as u8 || etc_tt_data.bound == Bound::Upper as u8)
+            if (etc_tt_data.bound == Bound::Exact || etc_tt_data.bound == Bound::Upper)
                 && score > alpha
             {
                 ctx.tt.store(
