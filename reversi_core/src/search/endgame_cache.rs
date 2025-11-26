@@ -23,7 +23,12 @@ const EMPTIES_SHIFTED_MASK: u64 = EMPTIES_MASK << EMPTIES_SHIFT;
 const BOUND_SHIFTED_MASK: u64 = BOUND_MASK << BOUND_SHIFT;
 const BEST_SHIFTED_MASK: u64 = BEST_MASK << BEST_SHIFT;
 const EMPTIES_OFFSET: Depth = 5;
-const MAX_EMPTIES: Depth = EMPTIES_OFFSET + EMPTIES_MASK as Depth;
+pub const ENDGAME_CACHE_MIN_EMPTIES: Depth = EMPTIES_OFFSET;
+pub const ENDGAME_CACHE_MAX_EMPTIES: Depth = EMPTIES_OFFSET + EMPTIES_MASK as Depth;
+const _: () = {
+    // Ensure the empties span fits in the allocated bits.
+    assert!(ENDGAME_CACHE_MAX_EMPTIES - ENDGAME_CACHE_MIN_EMPTIES <= EMPTIES_MASK as Depth);
+};
 
 /// Entry structure for endgame cache
 pub struct EndGameCacheEntry {
@@ -59,6 +64,11 @@ pub struct EndGameCache {
 }
 
 impl EndGameCache {
+    #[inline(always)]
+    fn empties_supported(n_empties: Depth) -> bool {
+        (ENDGAME_CACHE_MIN_EMPTIES..=ENDGAME_CACHE_MAX_EMPTIES).contains(&n_empties)
+    }
+
     /// Create a new endgame cache with the specified size
     ///
     /// # Arguments
@@ -104,10 +114,12 @@ impl EndGameCache {
     /// * `u64` - The packed cache entry
     #[inline(always)]
     fn pack(key: u64, value: Score, n_empties: Depth, bound: Bound, best_move: Square) -> u64 {
-        debug_assert!(n_empties >= EMPTIES_OFFSET && n_empties <= MAX_EMPTIES);
+        debug_assert!(
+            n_empties >= ENDGAME_CACHE_MIN_EMPTIES && n_empties <= ENDGAME_CACHE_MAX_EMPTIES
+        );
 
         let v = (value as i8 as u8) as u64;
-        let e = ((n_empties - EMPTIES_OFFSET) as u64) << EMPTIES_SHIFT;
+        let e = ((n_empties - ENDGAME_CACHE_MIN_EMPTIES) as u64) << EMPTIES_SHIFT;
         let b = (bound as u8 as u64) << BOUND_SHIFT;
         let bm = (best_move as u64) << BEST_SHIFT;
 
@@ -167,6 +179,10 @@ impl EndGameCache {
     /// * `Option<EndGameCacheEntry>` - The cached entry if found
     #[inline(always)]
     pub fn probe(&self, key: u64, n_empties: Depth) -> Option<EndGameCacheEntry> {
+        if !Self::empties_supported(n_empties) {
+            return None;
+        }
+
         let idx = self.index(key);
         let entry = unsafe { *self.table.get_unchecked(idx) };
 
@@ -207,6 +223,10 @@ impl EndGameCache {
         bound: Bound,
         best_move: Square,
     ) {
+        if !Self::empties_supported(n_empties) {
+            return;
+        }
+
         let idx = self.index(key);
         let entry = Self::pack(key, value, n_empties, bound, best_move);
         unsafe {

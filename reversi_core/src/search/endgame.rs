@@ -11,7 +11,7 @@ use crate::constants::{SCORE_INF, SCORE_MAX, to_endgame_score, to_midgame_score}
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::NO_SELECTIVITY;
-use crate::search::endgame_cache::{EndGameCache, EndGameCacheEntry};
+use crate::search::endgame_cache::{ENDGAME_CACHE_MAX_EMPTIES, EndGameCache, EndGameCacheEntry};
 use crate::search::enhanced_transposition_cutoff;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::search_context::SearchContext;
@@ -48,7 +48,7 @@ const MIN_ETC_DEPTH: Depth = 6;
 pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 13;
 
 /// Depth threshold for endgame cache null window search.
-const EC_NWS_DEPTH: Depth = 12;
+const EC_NWS_DEPTH: Depth = ENDGAME_CACHE_MAX_EMPTIES;
 
 thread_local! {
     static ENDGAME_CACHE: RefCell<EndGameCache> =
