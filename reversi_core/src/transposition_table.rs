@@ -33,20 +33,25 @@ impl Bound {
     /// # Arguments
     ///
     /// * `best_score` - The best score found during search
+    /// * `alpha` - The alpha cutoff value
     /// * `beta` - The beta cutoff value
     ///
     /// # Type Parameters
     ///
     /// * `NT` - Node type (PV or non-PV) that affects bound determination
     #[inline]
-    pub fn determine_bound<NT: NodeType>(best_score: Score, beta: Score) -> Bound {
+    pub fn determine_bound<NT: NodeType>(best_score: Score, alpha: Score, beta: Score) -> Bound {
         if best_score >= beta {
-            Bound::Lower
-        } else if NT::PV_NODE {
-            Bound::Exact
-        } else {
-            Bound::Upper
+            return Bound::Lower;
         }
+
+        if NT::PV_NODE {
+            if best_score > alpha {
+                return Bound::Exact;
+            }
+        }
+
+        Bound::Upper
     }
 }
 
@@ -709,12 +714,14 @@ mod tests {
     #[test]
     fn test_bound_determine() {
         // Test PV node
-        assert_eq!(Bound::determine_bound::<PV>(100, 50), Bound::Lower); // score >= beta
-        assert_eq!(Bound::determine_bound::<PV>(40, 50), Bound::Exact); // score < beta in PV
+        assert_eq!(Bound::determine_bound::<PV>(100, 30, 50), Bound::Lower); // score >= beta
+        assert_eq!(Bound::determine_bound::<PV>(40, 30, 50), Bound::Exact); // alpha < score < beta in PV
+        assert_eq!(Bound::determine_bound::<PV>(20, 30, 50), Bound::Upper); // score <= alpha in PV
 
         // Test non-PV node
-        assert_eq!(Bound::determine_bound::<NonPV>(100, 50), Bound::Lower); // score >= beta
-        assert_eq!(Bound::determine_bound::<NonPV>(40, 50), Bound::Upper); // score < beta in non-PV
+        assert_eq!(Bound::determine_bound::<NonPV>(100, 30, 50), Bound::Lower); // score >= beta
+        assert_eq!(Bound::determine_bound::<NonPV>(40, 30, 50), Bound::Upper); // score < beta in non-PV
+        assert_eq!(Bound::determine_bound::<NonPV>(20, 30, 50), Bound::Upper); // score <= alpha in non-PV
     }
 
     /// Tests TTData methods.

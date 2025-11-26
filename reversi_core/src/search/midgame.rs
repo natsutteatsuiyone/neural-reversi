@@ -250,6 +250,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     thread: &Arc<Thread>,
     split_point: Option<&Arc<SplitPoint>>,
 ) -> Score {
+    let org_alpha = alpha;
     let mut best_move = Square::None;
     let mut best_score = -SCORE_INF;
     let move_iter: Arc<ConcurrentMoveIterator>;
@@ -485,7 +486,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         tt_entry_index,
         tt_key,
         best_score,
-        Bound::determine_bound::<NT>(best_score, beta),
+        Bound::determine_bound::<NT>(best_score, org_alpha, beta),
         depth,
         best_move,
         ctx.selectivity,

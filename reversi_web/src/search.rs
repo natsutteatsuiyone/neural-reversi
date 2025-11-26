@@ -330,6 +330,7 @@ pub fn search<NT: NodeType>(
     mut alpha: Score,
     beta: Score,
 ) -> Score {
+    let org_alpha = alpha;
     let mut best_move = Square::None;
     let mut best_score = -SCORE_INF;
     let n_empties = ctx.empty_list.count;
@@ -472,7 +473,7 @@ pub fn search<NT: NodeType>(
         tt_entry_index,
         tt_key,
         best_score,
-        Bound::determine_bound::<NT>(best_score, beta),
+        Bound::determine_bound::<NT>(best_score, org_alpha, beta),
         depth,
         best_move,
         ctx.selectivity,
