@@ -303,7 +303,7 @@ impl TranspositionTable {
             let cluster_byte_size = mem::size_of::<TTEntry>() * CLUSTER_SIZE;
             (mb_size as u64 * 1024 * 1024) / cluster_byte_size as u64
         };
-        let entries_size = cluster_count as usize * CLUSTER_SIZE + 1;
+        let entries_size = cluster_count as usize * CLUSTER_SIZE;
 
         TranspositionTable {
             entries: AVec::from_iter(32, (0..entries_size).map(|_| TTEntry::default())),
@@ -768,13 +768,13 @@ mod tests {
         // Test with 0 MB (minimum size)
         let tt = TranspositionTable::new(0);
         assert_eq!(tt.cluster_count, 16);
-        assert_eq!(tt.entries.len(), 16 * CLUSTER_SIZE + 1);
+        assert_eq!(tt.entries.len(), 16 * CLUSTER_SIZE);
 
         // Test with 1 MB
         let tt = TranspositionTable::new(1);
         let expected_clusters = (1024 * 1024) / (std::mem::size_of::<TTEntry>() * CLUSTER_SIZE);
         assert_eq!(tt.cluster_count, expected_clusters as u64);
-        assert_eq!(tt.entries.len(), expected_clusters * CLUSTER_SIZE + 1);
+        assert_eq!(tt.entries.len(), expected_clusters * CLUSTER_SIZE);
     }
 
     /// Tests basic probe and store operations.
