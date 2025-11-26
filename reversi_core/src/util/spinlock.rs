@@ -1,68 +1,88 @@
-use lock_api::GuardSend;
-use lock_api::RawMutex;
-use std::hint::spin_loop;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::{
+    hint::spin_loop,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
-/// RawSpinLock is a simple spin lock based on an atomic flag.
-///
-/// This structure implements the `lock_api::RawMutex` trait
-/// and can serve as a basis for higher-level lock wrappers (for example, `lock_api::Mutex`).
+use lock_api::{GuardSend, RawMutex};
+
+/// RawSpinLock
+#[repr(align(64))]
 pub struct RawSpinLock {
     state: AtomicBool,
 }
 
 unsafe impl RawMutex for RawSpinLock {
-    // The initial state is false (i.e., the lock is not acquired)
     #[allow(clippy::declare_interior_mutable_const)]
     const INIT: Self = RawSpinLock {
         state: AtomicBool::new(false),
     };
 
-    // Indicates that the lock guard is Send.
     type GuardMarker = GuardSend;
 
-    /// Acquires the lock.
-    ///
-    /// First, attempts to change the flag from false to true using compare_exchange.
-    /// If it fails, busy-waits (spins) until the flag becomes false.
     #[inline]
     fn lock(&self) {
-        // Attempt the Compare-And-Swap (CAS) initially.
-        while self
-            .state
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            // If the attempt fails, spin while the flag remains true.
-            while self.state.load(Ordering::Relaxed) {
-                spin_loop();
-            }
+        if self.try_lock() {
+            return;
         }
+
+        self.lock_slow();
     }
 
-    /// Releases the lock.
-    ///
-    /// Although defined as unsafe, the caller must ensure correct lifetime management
-    /// through proper lock guard usage.
+    #[inline]
+    fn try_lock(&self) -> bool {
+        self.state
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+    }
+
     #[inline]
     unsafe fn unlock(&self) {
         self.state.store(false, Ordering::Release);
     }
 
-    /// Attempts to acquire the lock without blocking.
-    ///
-    /// Returns true if the lock was successfully acquired, or false if it was already held.
     #[inline]
-    fn try_lock(&self) -> bool {
+    fn is_locked(&self) -> bool {
+        self.state.load(Ordering::Relaxed)
+    }
+}
+
+impl RawSpinLock {
+    #[inline]
+    fn try_acquire_weak(&self) -> bool {
         self.state
             .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
     }
 
-    /// Checks whether the lock is currently held.
-    #[inline]
-    fn is_locked(&self) -> bool {
-        self.state.load(Ordering::Relaxed)
+    #[cold]
+    fn lock_slow(&self) {
+        let mut yield_counter: u32 = 0;
+        let mut backoff_exp: u32 = 0;
+
+        loop {
+            while self.state.load(Ordering::Relaxed) {
+                spin_loop();
+
+                yield_counter = yield_counter.wrapping_add(1);
+                if yield_counter >= 1_000 {
+                    std::thread::yield_now();
+                    yield_counter = 0;
+                    backoff_exp = 0;
+                }
+            }
+
+            if self.try_acquire_weak() {
+                return;
+            }
+
+            let limit = 1u32 << backoff_exp.min(6);
+            for _ in 0..limit {
+                spin_loop();
+            }
+
+            if backoff_exp < 10 {
+                backoff_exp += 1;
+            }
+        }
     }
 }
