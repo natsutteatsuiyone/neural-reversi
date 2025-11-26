@@ -180,14 +180,20 @@ impl TTEntry {
 
         if bound == Bound::Exact
             || is_key_different
-            || depth >= tt_data.depth
+            || depth >= tt_data.depth.saturating_sub(2)
             || selectivity > tt_data.selectivity
             || tt_data.relative_age(generation) > 0
         {
+            let bm = if best_move != Square::None || is_key_different {
+                best_move
+            } else {
+                tt_data.best_move
+            };
+
             self.pack(
                 key16,
                 score,
-                best_move as u8,
+                bm as u8,
                 bound as u8,
                 depth as u8,
                 selectivity,
@@ -638,7 +644,7 @@ mod tests {
         assert_eq!(data.depth, 10);
         assert_eq!(data.generation, 1);
 
-        // Try to replace with shallower depth - should not replace
+        // Try to replace with slightly shallower depth (within 2 plies) - should replace
         entry.save(
             100,
             60,
@@ -649,8 +655,8 @@ mod tests {
             1,
         );
         let data = entry.unpack();
-        assert_eq!(data.depth, 10); // Should remain 10
-        assert_eq!(data.score, 50); // Should remain 50
+        assert_eq!(data.depth, 8); // Replacement allowed within 2 plies
+        assert_eq!(data.score, 60); // New value should be stored
 
         // Replace with deeper depth - should replace
         entry.save(
