@@ -1,236 +1,115 @@
-use crate::{
-    square::Square,
-    transposition_table::Bound,
-    types::{Depth, Score},
-};
+use crate::{square::Square, types::Score};
 
-const VALUE_BITS: u32 = 8;
-const EMPTIES_BITS: u32 = 3;
-const BOUND_BITS: u32 = 2;
-const BEST_MOVE_BITS: u32 = 6;
+const SCORE_BITS: u32 = 8;
+const BOUND_BITS: u32 = 1;
+const BEST_MOVE_BITS: u32 = 7;
 
-const EMPTIES_MASK: u64 = 0x7;
-const BOUND_MASK: u64 = 0x3;
-const BEST_MASK: u64 = 0x3F;
+const BOUND_MASK: u64 = 0x1;
+const BEST_MOVE_MASK: u64 = 0x7F;
 
-const EMPTIES_SHIFT: u32 = VALUE_BITS;
-const BOUND_SHIFT: u32 = VALUE_BITS + EMPTIES_BITS;
-const BEST_SHIFT: u32 = VALUE_BITS + EMPTIES_BITS + BOUND_BITS;
-const META_BITS: u32 = VALUE_BITS + EMPTIES_BITS + BOUND_BITS + BEST_MOVE_BITS;
+const BOUND_SHIFT: u32 = SCORE_BITS;
+const BEST_MOVE_SHIFT: u32 = SCORE_BITS + BOUND_BITS;
+const META_BITS: u32 = BEST_MOVE_SHIFT + BEST_MOVE_BITS;
 const KEY_MASK: u64 = !((1u64 << META_BITS) - 1);
 
-const EMPTIES_SHIFTED_MASK: u64 = EMPTIES_MASK << EMPTIES_SHIFT;
-const BOUND_SHIFTED_MASK: u64 = BOUND_MASK << BOUND_SHIFT;
-const BEST_SHIFTED_MASK: u64 = BEST_MASK << BEST_SHIFT;
-const EMPTIES_OFFSET: Depth = 5;
-pub const ENDGAME_CACHE_MIN_EMPTIES: Depth = EMPTIES_OFFSET;
-pub const ENDGAME_CACHE_MAX_EMPTIES: Depth = EMPTIES_OFFSET + EMPTIES_MASK as Depth;
-const _: () = {
-    // Ensure the empties span fits in the allocated bits.
-    assert!(ENDGAME_CACHE_MAX_EMPTIES - ENDGAME_CACHE_MIN_EMPTIES <= EMPTIES_MASK as Depth);
-};
+#[derive(Clone, Copy)]
+pub enum EndGameCacheBound {
+    Lower = 0,
+    Upper = 1,
+}
+
+impl EndGameCacheBound {
+    #[inline(always)]
+    pub fn determine_bound(score: Score, beta: Score) -> Self {
+        if score < beta {
+            EndGameCacheBound::Upper
+        } else {
+            EndGameCacheBound::Lower
+        }
+    }
+}
 
 /// Entry structure for endgame cache
+#[derive(Clone, Copy)]
 pub struct EndGameCacheEntry {
     pub score: Score,
     pub best_move: Square,
-    pub bound: Bound,
+    pub bound: EndGameCacheBound,
 }
 
 impl EndGameCacheEntry {
-    /// Determine if the entry should cause a cut
-    ///
-    /// # Arguments
-    ///
-    /// * `beta` - The beta value for comparison
-    ///
-    /// # Returns
-    ///
-    /// * `bool` - True if the entry causes a cut, false otherwise
-    pub fn should_cut(&self, beta: Score) -> bool {
-        let bound = if self.score >= beta {
-            Bound::Lower as u8
-        } else {
-            Bound::Upper as u8
-        };
-        (self.bound as u8 & bound) != 0
+    #[inline(always)]
+    pub fn can_cut(&self, beta: Score) -> bool {
+        match self.bound {
+            EndGameCacheBound::Lower => self.score >= beta,
+            EndGameCacheBound::Upper => self.score < beta,
+        }
     }
 }
 
 /// Endgame cache structure
 pub struct EndGameCache {
     table: Box<[u64]>,
-    mask: u64,
+    mask: usize,
 }
 
 impl EndGameCache {
-    #[inline(always)]
-    fn empties_supported(n_empties: Depth) -> bool {
-        (ENDGAME_CACHE_MIN_EMPTIES..=ENDGAME_CACHE_MAX_EMPTIES).contains(&n_empties)
-    }
-
     /// Create a new endgame cache with the specified size
     ///
     /// # Arguments
     ///
     /// * `size` - The size of the cache in bits (e.g., 20 for 1M entries)
-    ///
-    /// # Returns
-    ///
-    /// * `EndGameCache` - The created endgame cache
     pub fn new(size: u32) -> Self {
         let entries = 1usize << size;
-        let mask = (entries as u64) - 1;
-        let table = vec![0u64; entries].into_boxed_slice();
-        EndGameCache { table, mask }
+        EndGameCache {
+            table: vec![0u64; entries].into_boxed_slice(),
+            mask: entries - 1,
+        }
     }
 
-    /// Calculate the index in the cache table
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position
-    ///
-    /// # Returns
-    ///
-    /// * `usize` - The index in the cache table
     #[inline(always)]
     fn index(&self, key: u64) -> usize {
-        key as usize & self.mask as usize
+        (key as usize) & self.mask
     }
 
-    /// Pack the entry into a u64
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position
-    /// * `value` - The score to store
-    /// * `n_empties` - The number of empty squares on the board
-    /// * `bound` - The bound type (Exact, Lower, Upper)
-    /// * `best_move` - The best move found in this position
-    ///
-    /// # Returns
-    ///
-    /// * `u64` - The packed cache entry
     #[inline(always)]
-    fn pack(key: u64, value: Score, n_empties: Depth, bound: Bound, best_move: Square) -> u64 {
-        debug_assert!(
-            n_empties >= ENDGAME_CACHE_MIN_EMPTIES && n_empties <= ENDGAME_CACHE_MAX_EMPTIES
-        );
-
-        let v = (value as i8 as u8) as u64;
-        let e = ((n_empties - ENDGAME_CACHE_MIN_EMPTIES) as u64) << EMPTIES_SHIFT;
-        let b = (bound as u8 as u64) << BOUND_SHIFT;
-        let bm = (best_move as u64) << BEST_SHIFT;
-
-        (key & KEY_MASK) | bm | b | e | v
-    }
-
-    /// Unpack the value from the entry
-    ///
-    /// # Arguments
-    ///
-    /// * `entry` - The packed cache entry
-    ///
-    /// # Returns
-    ///
-    /// * `Score` - The unpacked score value
-    #[inline(always)]
-    fn unpack_value(entry: u64) -> Score {
-        (entry as u8) as i8 as Score
-    }
-
-    /// Unpack the bound from the entry
-    ///
-    /// # Arguments
-    ///
-    /// * `entry` - The packed cache entry
-    ///
-    /// # Returns
-    ///
-    /// * `Bound` - The bound type
-    #[inline(always)]
-    fn unpack_bound(entry: u64) -> Bound {
-        unsafe { std::mem::transmute(((entry & BOUND_SHIFTED_MASK) >> BOUND_SHIFT) as u8) }
-    }
-
-    /// Unpack the best move from the entry
-    ///
-    /// # Arguments
-    ///
-    /// * `entry` - The packed cache entry
-    ///
-    /// # Returns
-    /// * `u8` - The best move as a u8
-    #[inline(always)]
-    fn unpack_best(entry: u64) -> u8 {
-        ((entry & BEST_SHIFTED_MASK) >> BEST_SHIFT) as u8
+    fn pack(key: u64, value: Score, bound: EndGameCacheBound, best_move: Square) -> u64 {
+        (key & KEY_MASK)
+            | ((best_move as u64) << BEST_MOVE_SHIFT)
+            | ((bound as u64) << BOUND_SHIFT)
+            | ((value as i8 as u8) as u64)
     }
 
     /// Probe the cache for an entry
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position
-    /// * `empties` - The number of empty squares on the board
-    ///
-    /// # Returns
-    ///
-    /// * `Option<EndGameCacheEntry>` - The cached entry if found
     #[inline(always)]
-    pub fn probe(&self, key: u64, n_empties: Depth) -> Option<EndGameCacheEntry> {
-        if !Self::empties_supported(n_empties) {
-            return None;
-        }
-
+    pub fn probe(&self, key: u64) -> Option<EndGameCacheEntry> {
         let idx = self.index(key);
         let entry = unsafe { *self.table.get_unchecked(idx) };
 
-        if entry == 0 {
-            return None;
-        }
-
-        let expected_key = key & KEY_MASK;
-        let expected_empties = ((n_empties - EMPTIES_OFFSET) as u64) << EMPTIES_SHIFT;
-        let mask = KEY_MASK | EMPTIES_SHIFTED_MASK;
-
-        if (entry & mask) != (expected_key | expected_empties) {
+        if (entry ^ key) & KEY_MASK != 0 {
             return None;
         }
 
         Some(EndGameCacheEntry {
-            score: Self::unpack_value(entry),
-            best_move: Square::from_u8_unchecked(Self::unpack_best(entry)),
-            bound: Self::unpack_bound(entry),
+            score: (entry as u8) as i8 as Score,
+            best_move: Square::from_u8_unchecked(
+                ((entry >> BEST_MOVE_SHIFT) & BEST_MOVE_MASK) as u8,
+            ),
+            bound: unsafe { std::mem::transmute(((entry >> BOUND_SHIFT) & BOUND_MASK) as u8) },
         })
     }
 
     /// Store an entry
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position
-    /// * `n_empties` - The number of empty squares on the board
-    /// * `value` - The score to store
-    /// * `bound` - The bound type (Exact, Lower, Upper)
-    /// * `best_move` - The best move found in this position
     #[inline(always)]
-    pub fn store(
-        &mut self,
-        key: u64,
-        n_empties: Depth,
-        value: Score,
-        bound: Bound,
-        best_move: Square,
-    ) {
-        if !Self::empties_supported(n_empties) {
-            return;
-        }
-
+    pub fn store(&mut self, key: u64, value: Score, bound: EndGameCacheBound, best_move: Square) {
         let idx = self.index(key);
-        let entry = Self::pack(key, value, n_empties, bound, best_move);
         unsafe {
-            *self.table.get_unchecked_mut(idx) = entry;
+            *self.table.get_unchecked_mut(idx) = Self::pack(key, value, bound, best_move);
         }
+    }
+
+    /// Clear the cache
+    pub fn clear(&mut self) {
+        self.table.fill(0);
     }
 }

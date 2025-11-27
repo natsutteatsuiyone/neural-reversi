@@ -391,7 +391,7 @@ pub fn search<NT: NodeType>(
         && tt_hit
         && tt_data.depth >= depth
         && tt_data.selectivity >= ctx.selectivity
-        && tt_data.should_cut(beta)
+        && tt_data.can_cut(beta)
     {
         return tt_data.score;
     }
