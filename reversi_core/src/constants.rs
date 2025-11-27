@@ -1,6 +1,6 @@
 //! Global constants
 
-use crate::types::Score;
+use crate::types::{Score, Scoref};
 
 /// Size of a CPU cache line in bytes.
 pub const CACHE_LINE_SIZE: usize = 64;
@@ -29,30 +29,20 @@ pub const MID_SCORE_MIN: Score = SCORE_MIN << EVAL_SCORE_SCALE_BITS;
 /// Infinity score for search algorithms
 pub const SCORE_INF: Score = 30000;
 
-/// Converts an endgame score to a midgame score
-///
-/// # Arguments
-///
-/// * `endgame_score` - The endgame score to convert
-///
-/// # Returns
-///
-/// The corresponding midgame score
+/// Scales a disc-difference score into the internal midgame representation.
 #[inline(always)]
-pub const fn to_midgame_score(endgame_score: Score) -> Score {
-    endgame_score << EVAL_SCORE_SCALE_BITS
+pub const fn scale_score(unscaled_score: Score) -> Score {
+    unscaled_score << EVAL_SCORE_SCALE_BITS
 }
 
-/// Converts an midgame score to an endgame score
-///
-/// # Arguments
-///
-/// * `midgame_score` - The midgame score to convert
-///
-/// # Returns
-///
-/// The corresponding endgame score
+/// Converts an internal midgame score back to disc-difference units.
 #[inline(always)]
-pub const fn to_endgame_score(midgame_score: Score) -> Score {
-    midgame_score >> EVAL_SCORE_SCALE_BITS
+pub const fn unscale_score(scaled_score: Score) -> Score {
+    scaled_score >> EVAL_SCORE_SCALE_BITS
+}
+
+/// Converts an internal midgame score to a floating-point representation.
+#[inline(always)]
+pub const fn unscale_score_f32(scaled_score: Score) -> Scoref {
+    (scaled_score as f32) / (EVAL_SCORE_SCALE as f32)
 }

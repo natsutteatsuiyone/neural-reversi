@@ -7,7 +7,7 @@ use crate::bitboard::{
     BitboardIterator, corner_weighted_count, get_corner_stability, get_moves_and_potential,
 };
 use crate::board::Board;
-use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF};
+use crate::constants::{scale_score, SCORE_INF};
 use crate::flip;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
@@ -246,7 +246,7 @@ impl MoveList {
         if ctx.game_phase == GamePhase::MidGame {
             // Score-Based Reduction: reduce depth for poor moves
             // This implements a form of late move reduction based on evaluation scores
-            let sbr_margin: i32 = (9 + (MAX_SORT_DEPTH - sort_depth) * 2) << EVAL_SCORE_SCALE_BITS;
+            let sbr_margin: i32 = scale_score(9 + (MAX_SORT_DEPTH - sort_depth) * 2);
             let reduction_threshold = max_evaluated_value - sbr_margin;
 
             for mv in self.iter_mut() {

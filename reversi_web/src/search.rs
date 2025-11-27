@@ -11,16 +11,13 @@ use rand::seq::IteratorRandom;
 use reversi_core::{
     bitboard::BitboardIterator,
     board::Board,
-    constants::{
-        EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, MID_SCORE_MAX, SCORE_INF, to_endgame_score,
-        to_midgame_score,
-    },
+    constants::{MID_SCORE_MAX, SCORE_INF, scale_score, unscale_score, unscale_score_f32},
     flip,
     search::node_type::{NodeType, NonPV, PV, Root},
     square::Square,
     stability,
     transposition_table::{Bound, TranspositionTable},
-    types::{Depth, Score, Scoref},
+    types::{Depth, Score},
 };
 
 use crate::{
@@ -127,7 +124,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
 
 /// Performs the root search for midgame positions using iterative deepening
 fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
-    const INITIAL_DELTA: Score = 3 << EVAL_SCORE_SCALE_BITS;
+    const INITIAL_DELTA: Score = scale_score(3);
     let mut best_score = 0;
     let mut alpha = -SCORE_INF;
     let mut beta = SCORE_INF;
@@ -136,7 +133,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
     if max_depth == 0 {
         let score = search::<Root>(ctx, &board, max_depth, alpha, beta);
         return SearchResult {
-            score: to_scoref(score),
+            score: unscale_score_f32(score),
             best_move: None,
             n_nodes: ctx.n_nodes,
             depth: 0,
@@ -184,9 +181,14 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
     }
 
     let rm = ctx.get_best_root_move(false).unwrap();
-    ctx.notify_progress(max_depth, to_scoref(best_score), rm.sq, ctx.selectivity);
+    ctx.notify_progress(
+        max_depth,
+        unscale_score_f32(best_score),
+        rm.sq,
+        ctx.selectivity,
+    );
     SearchResult {
-        score: to_scoref(best_score),
+        score: unscale_score_f32(best_score),
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         depth: max_depth,
@@ -205,12 +207,12 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
     };
 
     let mut best_score = 0;
-    let mut alpha = score - to_midgame_score(5);
-    let mut beta = score + to_midgame_score(5);
+    let mut alpha = score - scale_score(5);
+    let mut beta = score + scale_score(5);
 
     for selectivity in 1..=final_selectivity {
         ctx.selectivity = selectivity;
-        let mut delta = to_midgame_score(3);
+        let mut delta = scale_score(3);
 
         loop {
             best_score = search::<Root>(ctx, &board, n_empties, alpha, beta);
@@ -228,14 +230,19 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
             delta += delta;
         }
 
-        alpha = (best_score - to_midgame_score(2)).max(-SCORE_INF);
-        beta = (best_score + to_midgame_score(2)).min(SCORE_INF);
+        alpha = (best_score - scale_score(2)).max(-SCORE_INF);
+        beta = (best_score + scale_score(2)).min(SCORE_INF);
     }
 
     let rm = ctx.get_best_root_move(false).unwrap();
-    ctx.notify_progress(n_empties, to_scoref(best_score), rm.sq, ctx.selectivity);
+    ctx.notify_progress(
+        n_empties,
+        unscale_score_f32(best_score),
+        rm.sq,
+        ctx.selectivity,
+    );
     SearchResult {
-        score: to_scoref(best_score),
+        score: unscale_score_f32(best_score),
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         depth: level.end_depth,
@@ -272,22 +279,6 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empt
     };
 
     score
-}
-
-/// Converts an internal score to floating-point disc units.
-///
-/// Internal scores are scaled by `EVAL_SCORE_SCALE` for precision.
-/// This function converts them back to the standard disc count scale.
-///
-/// # Arguments
-///
-/// * `score` - Internal score representation
-///
-/// # Returns
-///
-/// Score in disc units as a floating-point number
-fn to_scoref(score: Score) -> Scoref {
-    score as Scoref / EVAL_SCORE_SCALE as Scoref
 }
 
 /// Selects a random legal move from the current position.
@@ -341,8 +332,8 @@ pub fn search<NT: NodeType>(
         }
     } else {
         if n_empties == depth && depth <= DEPTH_MIDGAME_TO_ENDGAME {
-            let score = endgame::null_window_search(ctx, board, to_endgame_score(alpha));
-            return to_midgame_score(score);
+            let score = endgame::null_window_search(ctx, board, unscale_score(alpha));
+            return scale_score(score);
         }
 
         match depth {
@@ -599,7 +590,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
 ///
 /// The exact final score of the position, scaled to internal units.
 fn solve(board: &Board, n_empties: Depth) -> Score {
-    endgame::solve(board, n_empties) << EVAL_SCORE_SCALE_BITS
+    scale_score(endgame::solve(board, n_empties))
 }
 
 /// Evaluates a leaf node position using the neural network evaluator.
@@ -615,7 +606,7 @@ fn solve(board: &Board, n_empties: Depth) -> Score {
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     if ctx.ply() == 60 {
-        return endgame::calculate_final_score(board) << EVAL_SCORE_SCALE_BITS;
+        return scale_score(endgame::calculate_final_score(board));
     }
 
     ctx.eval.evaluate(ctx, board)
@@ -634,10 +625,8 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
 /// * `Some(score)` - If position can be pruned with this score
 /// * `None` - If no stability cutoff is possible
 fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
-    if let Some(score) =
-        stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS)
-    {
-        return Some(score << EVAL_SCORE_SCALE_BITS);
+    if let Some(score) = stability::stability_cutoff(board, n_empties, unscale_score(alpha)) {
+        return Some(scale_score(score));
     }
     None
 }

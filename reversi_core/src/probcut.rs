@@ -2,11 +2,11 @@ use std::sync::OnceLock;
 
 use std::sync::Arc;
 
-use crate::constants::to_midgame_score;
+use crate::constants::{scale_score, unscale_score};
 use crate::search::node_type::NonPV;
 use crate::{
     board::Board,
-    constants::{EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, MID_SCORE_MAX},
+    constants::MID_SCORE_MAX,
     search::{midgame, search_context::SearchContext, threading::Thread},
     types::{Depth, Score},
 };
@@ -60,6 +60,8 @@ const MAX_DEPTH: usize = 60;
 type MeanTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 type SigmaTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 
+const SCORE_SCALE_F64: f64 = scale_score(1) as f64;
+
 static MEAN_TABLE: OnceLock<Box<MeanTable>> = OnceLock::new();
 static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
 static MEAN_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
@@ -85,7 +87,7 @@ fn build_mean_table() -> Box<MeanTable> {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
             for deep in shallow..MAX_DEPTH {
-                let v = params.mean(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+                let v = params.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
                 tbl[ply][shallow][deep] = v;
                 tbl[ply][deep][shallow] = v; // Symmetric: mean(a,b) = mean(b,a)
             }
@@ -102,7 +104,7 @@ fn build_sigma_table() -> Box<SigmaTable> {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
             for deep in shallow..MAX_DEPTH {
-                let v = params.sigma(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+                let v = params.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
                 tbl[ply][shallow][deep] = v;
                 tbl[ply][deep][shallow] = v; // Symmetric: sigma(a,b) = sigma(b,a)
             }
@@ -118,7 +120,7 @@ fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
             let v =
-                PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+                PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
             tbl[shallow][deep] = v;
             tbl[deep][shallow] = v;
         }
@@ -133,7 +135,7 @@ fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
             let v =
-                PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+                PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
             tbl[shallow][deep] = v;
             tbl[deep][shallow] = v;
         }
@@ -301,12 +303,12 @@ pub fn probcut_endgame(
     thread: &Arc<Thread>,
 ) -> Option<Score> {
     if depth >= 10 && ctx.selectivity < NO_SELECTIVITY && ctx.probcut_level < 2 {
-        let scaled_alpha = to_midgame_score(alpha);
-        let scaled_beta = to_midgame_score(beta);
+        let scaled_alpha = scale_score(alpha);
+        let scaled_beta = scale_score(beta);
         if let Some(score) =
             probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta, thread)
         {
-            return Some(score >> EVAL_SCORE_SCALE_BITS);
+            return Some(unscale_score(score));
         }
     }
     None

@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use reversi_core::{
     board::Board,
-    constants::{EVAL_SCORE_SCALE, MID_SCORE_MAX, MID_SCORE_MIN},
+    constants::{MID_SCORE_MAX, MID_SCORE_MIN, scale_score},
     search::node_type::NonPV,
     types::{Depth, Score},
 };
@@ -58,6 +58,8 @@ const MAX_DEPTH: usize = 60;
 type MeanTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 type SigmaTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 
+const SCORE_SCALE_F64: f64 = scale_score(1) as f64;
+
 static MEAN_TABLE: OnceLock<Box<MeanTable>> = OnceLock::new();
 static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
 
@@ -75,7 +77,7 @@ fn build_mean_table() -> Box<MeanTable> {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
             for deep in shallow..MAX_DEPTH {
-                let v = params.mean(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+                let v = params.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
                 tbl[ply][shallow][deep] = v;
                 tbl[ply][deep][shallow] = v; // Symmetric: mean(a,b) = mean(b,a)
             }
@@ -92,7 +94,7 @@ fn build_sigma_table() -> Box<SigmaTable> {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
             for deep in shallow..MAX_DEPTH {
-                let v = params.sigma(shallow as f64, deep as f64) * EVAL_SCORE_SCALE as f64;
+                let v = params.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
                 tbl[ply][shallow][deep] = v;
                 tbl[ply][deep][shallow] = v; // Symmetric: sigma(a,b) = sigma(b,a)
             }

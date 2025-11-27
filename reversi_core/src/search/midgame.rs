@@ -11,10 +11,7 @@ use super::search_result::SearchResult;
 use super::threading::Thread;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
-use crate::constants::EVAL_SCORE_SCALE;
-use crate::constants::EVAL_SCORE_SCALE_BITS;
-use crate::constants::MID_SCORE_MAX;
-use crate::constants::SCORE_INF;
+use crate::constants::{MID_SCORE_MAX, SCORE_INF, scale_score, unscale_score, unscale_score_f32};
 use crate::flip;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::move_list::Move;
@@ -32,7 +29,6 @@ use crate::stability;
 use crate::transposition_table::Bound;
 use crate::types::Depth;
 use crate::types::Score;
-use crate::types::Scoref;
 
 /// Minimum depth required before considering parallel split.
 const MIN_SPLIT_DEPTH: Depth = 5;
@@ -85,7 +81,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         ctx.set_callback(callback.clone());
     }
 
-    const INITIAL_DELTA: Score = 3 << EVAL_SCORE_SCALE_BITS;
+    const INITIAL_DELTA: Score = scale_score(3);
     let mut best_score = 0;
     let mut alpha = -SCORE_INF;
     let mut beta = SCORE_INF;
@@ -95,7 +91,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     if max_depth == 0 {
         let score = search::<Root, false>(&mut ctx, &board, max_depth, alpha, beta, thread, None);
         return SearchResult {
-            score: to_scoref(score),
+            score: unscale_score_f32(score),
             best_move: None,
             n_nodes: ctx.n_nodes,
             pv_line: Vec::new(),
@@ -149,7 +145,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             let best_move = ctx.get_best_root_move(true).unwrap();
             ctx.mark_root_move_searched(best_move.sq);
-            ctx.notify_progress(depth, to_scoref(best_score), best_move.sq, ctx.selectivity);
+            ctx.notify_progress(depth, unscale_score_f32(best_score), best_move.sq, ctx.selectivity);
 
             if thread.is_search_aborted() {
                 break;
@@ -162,7 +158,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         if thread.is_search_aborted() {
             return SearchResult {
-                score: to_scoref(best_move.score),
+                score: unscale_score_f32(best_move.score),
                 best_move: Some(best_move.sq),
                 n_nodes: ctx.n_nodes,
                 pv_line: best_move.pv,
@@ -180,29 +176,13 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     let rm = ctx.get_best_root_move(false).unwrap();
     SearchResult {
-        score: to_scoref(best_score),
+        score: unscale_score_f32(best_score),
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         pv_line: rm.pv,
         depth: max_depth,
         selectivity: ctx.selectivity,
     }
-}
-
-/// Converts an internal score to floating-point disc units.
-///
-/// Internal scores are scaled by `EVAL_SCORE_SCALE` for precision.
-/// This function converts them back to the standard disc count scale.
-///
-/// # Arguments
-///
-/// * `score` - Internal score representation
-///
-/// # Returns
-///
-/// Score in disc units as a floating-point number
-fn to_scoref(score: Score) -> Scoref {
-    score as Scoref / EVAL_SCORE_SCALE as Scoref
 }
 
 /// Selects a random legal move from the current position.
@@ -616,7 +596,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     if ctx.ply() == 60 {
-        return endgame::calculate_final_score(board) << EVAL_SCORE_SCALE_BITS;
+        return scale_score(endgame::calculate_final_score(board));
     }
 
     ctx.eval.evaluate(ctx, board)
@@ -633,7 +613,7 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
 ///
 /// The exact final score of the position, scaled to internal units.
 fn solve(board: &Board, n_empties: Depth) -> Score {
-    endgame::solve(board, n_empties) << EVAL_SCORE_SCALE_BITS
+    scale_score(endgame::solve(board, n_empties))
 }
 
 /// Checks for stability-based cutoffs in the search.
@@ -650,9 +630,9 @@ fn solve(board: &Board, n_empties: Depth) -> Score {
 /// * `None` - If no stability cutoff is possible
 fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
     if let Some(score) =
-        stability::stability_cutoff(board, n_empties, alpha >> EVAL_SCORE_SCALE_BITS)
+        stability::stability_cutoff(board, n_empties, unscale_score(alpha))
     {
-        return Some(score << EVAL_SCORE_SCALE_BITS);
+        return Some(scale_score(score));
     }
     None
 }

@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 
 use reversi_core::board::Board;
-use reversi_core::constants::{SCORE_INF, SCORE_MAX, to_endgame_score, to_midgame_score};
+use reversi_core::constants::{SCORE_INF, SCORE_MAX, scale_score, unscale_score};
 use reversi_core::count_last_flip::count_last_flip;
 use reversi_core::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
 use reversi_core::search::node_type::NonPV;
@@ -79,9 +79,9 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     if tt_hit
         && tt_data.depth >= n_empties
         && tt_data.selectivity >= ctx.selectivity
-        && tt_data.can_cut(to_midgame_score(beta))
+        && tt_data.can_cut(scale_score(beta))
     {
-        return to_endgame_score(tt_data.score);
+        return unscale_score(tt_data.score);
     }
 
     let mut best_score = -SCORE_INF;
@@ -124,7 +124,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     ctx.tt.store(
         tt_entry_index,
         tt_key,
-        to_midgame_score(best_score),
+        scale_score(best_score),
         Bound::determine_bound::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,
