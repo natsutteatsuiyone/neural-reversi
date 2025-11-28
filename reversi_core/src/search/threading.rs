@@ -89,9 +89,6 @@ pub struct SplitPointTask {
     /// Search selectivity level (affects pruning aggressiveness).
     pub selectivity: u8,
 
-    /// Current probcut level (number of probcuts applied so far).
-    pub probcut_level: u8,
-
     /// Current game phase (opening, midgame, endgame).
     pub game_phase: GamePhase,
 
@@ -465,7 +462,6 @@ impl Thread {
             side_to_move: ctx.side_to_move,
             generation: ctx.generation,
             selectivity: ctx.selectivity,
-            probcut_level: ctx.probcut_level,
             tt: ctx.tt.clone(),
             root_moves: ctx.root_moves.clone(),
             eval: ctx.eval.clone(),

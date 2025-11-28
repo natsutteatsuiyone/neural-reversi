@@ -335,7 +335,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
 
         if !NT::PV_NODE
             && let Some(score) =
-                probcut::probcut_endgame(ctx, board, n_empties, alpha, beta, thread)
+                probcut::probcut_endgame(ctx, board, n_empties, beta, thread)
         {
             return score;
         }

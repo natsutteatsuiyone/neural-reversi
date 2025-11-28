@@ -2,14 +2,19 @@ use std::sync::OnceLock;
 
 use std::sync::Arc;
 
-use crate::constants::{scale_score, unscale_score};
+use crate::board::Board;
+use crate::constants::MID_SCORE_MAX;
+use crate::constants::scale_score;
+use crate::constants::unscale_score;
+use crate::search::midgame;
 use crate::search::node_type::NonPV;
-use crate::{
-    board::Board,
-    constants::MID_SCORE_MAX,
-    search::{midgame, search_context::SearchContext, threading::Thread},
-    types::{Depth, Score},
-};
+use crate::search::search_context::GamePhase;
+use crate::search::search_context::SearchContext;
+use crate::search::threading::Thread;
+use crate::types::Depth;
+use crate::types::Score;
+use crate::types::Selectivity;
+
 
 /// Maximum selectivity level (disables ProbCut when `selectivity >= NO_SELECTIVITY`)
 pub const NO_SELECTIVITY: u8 = 6;
@@ -179,23 +184,6 @@ fn calc_sigma_end(shallow: Depth, deep: Depth) -> f64 {
     tbl[shallow as usize][deep as usize]
 }
 
-/// Determines the depth of the shallow search in probcut.
-///
-/// # Arguments
-///
-/// * `depth` - The depth of the deep search.
-///
-/// # Returns
-///
-/// The depth of the shallow search.
-fn determine_probcut_depth(depth: Depth) -> Depth {
-    let mut probcut_depth = 2 * (depth as f64 * 0.2).floor() as Depth + (depth & 1);
-    if probcut_depth == 0 {
-        probcut_depth = depth - 2;
-    }
-    probcut_depth
-}
-
 /// Get the expected success probability percentage for a given selectivity level
 ///
 /// # Arguments
@@ -245,21 +233,29 @@ pub fn probcut_midgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth >= 3 && ctx.selectivity < NO_SELECTIVITY && ctx.probcut_level < 2 {
+    if depth < 3 && ctx.selectivity == NO_SELECTIVITY {
+        return None;
+    }
+
+    if ctx.game_phase == GamePhase::MidGame {
         let ply = ctx.ply();
-        let pc_depth = determine_probcut_depth(depth);
+        let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
         let mean = calc_mean(ply, pc_depth, depth);
         let sigma = calc_sigma(ply, pc_depth, depth);
         let t = get_t(ctx.selectivity);
+        let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
+        if pc_beta >= MID_SCORE_MAX {
+            return None;
+        }
 
         let eval_score = midgame::evaluate(ctx, board);
         let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
         let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
 
         let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
-        let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
-        if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
-            ctx.probcut_level += 1;
+        if eval_score >= eval_beta {
+            let current_selectivity = ctx.selectivity;
+            ctx.selectivity = NO_SELECTIVITY; // Disable nested probcut
             let score = midgame::search::<NonPV, false>(
                 ctx,
                 board,
@@ -269,14 +265,17 @@ pub fn probcut_midgame(
                 thread,
                 None,
             );
-            ctx.probcut_level -= 1;
+            ctx.selectivity = current_selectivity;
 
             if score >= pc_beta {
-                return Some(beta);
+                return Some((beta + pc_beta) / 2);
             }
         }
+        None
+    } else {
+        // nested probcut for endgame positions
+       probcut_endgame_internal(ctx, board, depth, beta, thread, NO_SELECTIVITY)
     }
-    None
 }
 
 /// Attempts ProbCut pruning for endgame positions
@@ -298,15 +297,13 @@ pub fn probcut_endgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    alpha: Score,
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth >= 10 && ctx.selectivity < NO_SELECTIVITY && ctx.probcut_level < 2 {
-        let scaled_alpha = scale_score(alpha);
+    if depth >= 10 && ctx.selectivity < NO_SELECTIVITY {
         let scaled_beta = scale_score(beta);
         if let Some(score) =
-            probcut_endgame_internal(ctx, board, depth, scaled_alpha, scaled_beta, thread)
+            probcut_endgame_internal(ctx, board, depth, scaled_beta, thread, ctx.selectivity)
         {
             return Some(unscale_score(score));
         }
@@ -319,20 +316,28 @@ fn probcut_endgame_internal(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    alpha: Score,
     beta: Score,
     thread: &Arc<Thread>,
+    selectivity: Selectivity
 ) -> Option<Score> {
-    let pc_depth = determine_probcut_depth(depth);
+    let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.75).floor()) as Depth;
     let mean: f64 = calc_mean_end(pc_depth, depth);
     let sigma: f64 = calc_sigma_end(pc_depth, depth);
     let t = get_t(ctx.selectivity);
-
-    let eval_score = midgame::evaluate(ctx, board);
-
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
-    if eval_score > alpha && pc_beta < MID_SCORE_MAX {
-        ctx.probcut_level += 1;
+    if pc_beta >= MID_SCORE_MAX {
+        return None;
+    }
+
+    let ply = ctx.ply();
+    let eval_score = midgame::evaluate(ctx, board);
+    let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
+    let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
+    let eval_beta = (beta as f64 - eval_sigma - eval_mean).round() as Score;
+
+    if eval_score >= eval_beta {
+        let current_selectivity = ctx.selectivity;
+        ctx.selectivity = selectivity;
         let score = midgame::search::<NonPV, false>(
             ctx,
             board,
@@ -342,12 +347,13 @@ fn probcut_endgame_internal(
             thread,
             None,
         );
-        ctx.probcut_level -= 1;
+        ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {
-            return Some(beta);
+            return Some((beta + pc_beta) / 2);
         }
     }
+
     None
 }
 
