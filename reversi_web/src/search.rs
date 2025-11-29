@@ -492,8 +492,8 @@ pub fn evaluate_depth2(
     mut alpha: Score,
     beta: Score,
 ) -> Score {
-    let moves = board.get_moves();
-    if moves == 0 {
+    let mut move_list = MoveList::new(board);
+    if move_list.count() == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -505,11 +505,13 @@ pub fn evaluate_depth2(
         }
     }
 
+    if move_list.count() >= 3 {
+        move_list.evaluate_moves_fast(board, Square::None);
+    }
+
     let mut best_score = -SCORE_INF;
-    for sq in BitboardIterator::new(moves) {
-        let flipped = flip::flip(sq, board.player, board.opponent);
-        let mv = Move::new(sq, flipped);
-        let next = board.make_move_with_flipped(flipped, sq);
+    for mv in move_list.best_first_iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
         ctx.update(&mv);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
