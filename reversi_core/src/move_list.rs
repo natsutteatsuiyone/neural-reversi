@@ -7,7 +7,7 @@ use crate::bitboard::{
     BitboardIterator, corner_weighted_count, get_corner_stability, get_moves_and_potential,
 };
 use crate::board::Board;
-use crate::constants::{SCORE_INF, scale_score};
+use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF, scale_score};
 use crate::flip;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
@@ -237,6 +237,15 @@ impl MoveList {
                     2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
                     _ => unreachable!(),
                 };
+
+                if ctx.game_phase == GamePhase::EndGame {
+                    let (moves, potential) = get_moves_and_potential(next.player, next.opponent);
+                    let mobility = corner_weighted_count(moves) as i32;
+                    let potential_mobility = corner_weighted_count(potential) as i32;
+                    let value = (mobility << (EVAL_SCORE_SCALE_BITS + 1))
+                        + (potential_mobility << (EVAL_SCORE_SCALE_BITS));
+                    mv.value -= value;
+                }
 
                 ctx.undo(mv);
                 max_evaluated_value = max_evaluated_value.max(mv.value);
