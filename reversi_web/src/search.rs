@@ -402,7 +402,7 @@ pub fn search<NT: NodeType>(
     }
 
     if !NT::PV_NODE
-        && let Some(score) = probcut::probcut_midgame(ctx, board, depth, alpha, beta)
+        && let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta)
     {
         return score;
     }

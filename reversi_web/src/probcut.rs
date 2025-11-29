@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use reversi_core::{
     board::Board,
-    constants::{MID_SCORE_MAX, MID_SCORE_MIN, scale_score},
+    constants::{MID_SCORE_MAX, scale_score},
     search::node_type::NonPV,
     types::{Depth, Score},
 };
@@ -172,7 +172,6 @@ pub fn probcut_midgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    alpha: Score,
     beta: Score,
 ) -> Option<Score> {
     if depth >= 3 && ctx.selectivity < NO_SELECTIVITY {
@@ -189,18 +188,12 @@ pub fn probcut_midgame(
         let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
+            let current_selectivity = ctx.selectivity;
+            ctx.selectivity = NO_SELECTIVITY; // Disable nested ProbCut
             let score = search::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta);
+            ctx.selectivity = current_selectivity; // Restore selectivity
             if score >= pc_beta {
-                return Some(beta);
-            }
-        }
-
-        let eval_alpha = (alpha as f64 + eval_sigma - eval_mean).ceil() as Score;
-        let pc_alpha = (alpha as f64 - t * sigma - mean).floor() as Score;
-        if eval_score < eval_alpha && pc_alpha > MID_SCORE_MIN {
-            let score = search::search::<NonPV>(ctx, board, pc_depth, pc_alpha, pc_alpha + 1);
-            if score <= pc_alpha {
-                return Some(alpha);
+                return Some((beta + pc_beta) / 2);
             }
         }
     }
