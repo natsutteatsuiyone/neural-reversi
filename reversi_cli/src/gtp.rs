@@ -483,7 +483,7 @@ impl GtpEngine {
     /// Success if the move was played, error if invalid
     fn handle_play(&mut self, color: &str, move_str: &str) -> GtpResponse {
         if move_str == "pass" {
-            if !self.game.board.has_legal_moves() {
+            if !self.game.board().has_legal_moves() {
                 self.game.make_pass();
                 return GtpResponse::Success("".to_string());
             } else {
@@ -497,7 +497,7 @@ impl GtpEngine {
 
         match move_str.parse::<Square>() {
             Ok(sq) => {
-                if self.game.board.is_legal_move(sq) {
+                if self.game.board().is_legal_move(sq) {
                     self.game.make_move(sq);
                     GtpResponse::Success("".to_string())
                 } else {
@@ -523,13 +523,13 @@ impl GtpEngine {
             return GtpResponse::Error(msg);
         }
 
-        if !self.game.board.has_legal_moves() {
+        if !self.game.board().has_legal_moves() {
             self.game.make_pass();
             return GtpResponse::Success("pass".to_string());
         }
 
         let result = self.search.run(
-            &self.game.board,
+            self.game.board(),
             level::get_level(self.level),
             self.selectivity,
             false,

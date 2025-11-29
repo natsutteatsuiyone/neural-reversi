@@ -180,7 +180,7 @@ pub fn ui_loop(
         let current_side = game.get_side_to_move();
 
         if game_mode.should_ai_play(current_side)
-            && !game.board.is_game_over()
+            && !game.board().is_game_over()
             && execute_ai_move(&mut game, &mut search, level, selectivity, false)
         {
             continue;
@@ -283,7 +283,7 @@ fn handle_command(
             Err(err) => Err(format!("Invalid board format: {err}")),
         },
         Command::Move(sq) => {
-            if game.board.is_legal_move(sq) {
+            if game.board().is_legal_move(sq) {
                 game.make_move(sq);
             } else {
                 return Err(format!("Illegal move: {sq:?}"));
@@ -356,7 +356,7 @@ fn execute_ai_move(
     selectivity: Selectivity,
     verbose: bool,
 ) -> bool {
-    let result = execute_ai_search(&game.board, search, level, selectivity);
+    let result = execute_ai_search(game.board(), search, level, selectivity);
 
     if let Some(mv) = result.best_move {
         game.make_move(mv);
@@ -462,7 +462,7 @@ fn execute_play_sequence(game: &mut GameState, moves: &str) -> Result<(), String
             .parse::<Square>()
             .map_err(|_| format!("Invalid move notation: {sq_str}"))?;
 
-        if game.board.is_legal_move(sq) {
+        if game.board().is_legal_move(sq) {
             game.make_move(sq);
         } else {
             return Err(format!("Illegal move in sequence: {sq_str}"));

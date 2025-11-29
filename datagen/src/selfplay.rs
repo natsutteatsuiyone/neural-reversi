@@ -10,6 +10,7 @@ use rand::seq::IteratorRandom;
 use regex::Regex;
 use reversi_core::bitboard::BitboardIterator;
 use reversi_core::board::Board;
+use reversi_core::game_state::GameState;
 use reversi_core::level::{Level, get_level};
 use reversi_core::piece::Piece;
 use reversi_core::search::{self, SearchOptions};
@@ -223,33 +224,34 @@ pub fn execute_with_openings(
 /// A `Vec<Square>` containing the sequence of moves.
 fn generate_random_opening(num_moves: u8) -> Vec<Square> {
     let mut opening = Vec::new();
-    let mut board = Board::new();
-    let mut side_to_move = Piece::Black;
+    let mut game = GameState::new();
 
     // A helper closure to handle a single move generation.
     // Returns `false` if the game ends.
-    let mut play_random_move = |b: &mut Board, stm: &mut Piece| -> bool {
-        if b.is_game_over() {
+    let mut play_random_move = |g: &mut GameState| -> bool {
+        if g.is_game_over() {
             return false;
         }
 
-        if !b.has_legal_moves() {
-            *b = b.switch_players();
-            *stm = stm.opposite();
-            if !b.has_legal_moves() {
-                return false; // Both players passed, game over.
+        if !g.board().has_legal_moves() {
+            if g.make_pass().is_err() {
+                return false;
+            }
+            if g.is_game_over() {
+                return false;
             }
         }
 
-        let sq = random_move(b);
+        let sq = random_move(g.board());
         opening.push(sq);
-        *b = b.make_move(sq);
-        *stm = stm.opposite();
+        if g.make_move(sq).is_err() {
+            return false;
+        }
         true
     };
 
     for _ in 0..num_moves {
-        if !play_random_move(&mut board, &mut side_to_move) {
+        if !play_random_move(&mut game) {
             return opening;
         }
     }
@@ -282,26 +284,27 @@ fn play_game(
     let game_start = Instant::now();
     search.init();
 
-    let mut board = Board::new();
-    let mut side_to_move = Piece::Black;
+    let mut game = GameState::new();
     let mut game_records = Vec::new();
 
     // Play opening moves
     for &sq in opening_sequence {
-        if board.is_game_over() {
+        if game.is_game_over() {
             break;
         }
 
         // Handle pass moves
-        if !board.has_legal_moves() {
-            board = board.switch_players();
-            side_to_move = side_to_move.opposite();
-            if !board.has_legal_moves() {
+        if !game.board().has_legal_moves() {
+            let _ = game.make_pass();
+            if game.is_game_over() {
                 break;
             }
         }
 
+        let board = *game.board();
+        let side_to_move = game.side_to_move();
         let key = board.hash();
+
         let record = if let Some(cached_record) = record_cache.get(&key)
             && cached_record.board == board
         {
@@ -325,8 +328,7 @@ fn play_game(
 
         game_records.push(record);
 
-        board = board.make_move(sq);
-        side_to_move = side_to_move.opposite();
+        let _ = game.make_move(sq);
     }
 
     if record_cache.len() > MAX_CACHE_SIZE {
@@ -334,13 +336,14 @@ fn play_game(
     }
 
     // Continue playing with search
-    while !board.is_game_over() {
-        if !board.has_legal_moves() {
-            board = board.switch_players();
-            side_to_move = side_to_move.opposite();
+    while !game.is_game_over() {
+        if !game.board().has_legal_moves() {
+            let _ = game.make_pass();
             continue;
         }
 
+        let board = *game.board();
+        let side_to_move = game.side_to_move();
         let result = search.run(&board, lv, selectivity, false);
 
         let ply = 60 - board.get_empty_count() as u8;
@@ -357,18 +360,19 @@ fn play_game(
         };
         game_records.push(record);
 
-        board = board.make_move(best_move);
-        side_to_move = side_to_move.opposite();
+        let _ = game.make_move(best_move);
     }
 
     // Calculate final game scores
     if !game_records.is_empty() {
-        let final_score = calculate_final_score(&board);
+        let final_board = *game.board();
+        let final_side_to_move = game.side_to_move();
+        let final_score = calculate_final_score(&final_board);
 
         for record in game_records.iter_mut() {
             let score = match record.side_to_move {
                 Piece::Black | Piece::White => {
-                    if record.side_to_move == side_to_move {
+                    if record.side_to_move == final_side_to_move {
                         final_score
                     } else {
                         -final_score
