@@ -1,5 +1,6 @@
 use std::io;
 
+mod colors;
 mod config;
 mod display;
 mod engine;

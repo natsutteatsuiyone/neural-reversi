@@ -3,14 +3,16 @@
 //! This module handles all terminal-based user interface elements including
 //! progress visualization, real-time match statistics, and formatted output.
 
+use crate::colors::ThemeColor;
 use crate::statistics::{MatchStatistics, MatchWinner};
 use colored::*;
+use indicatif::{ProgressBar, ProgressStyle};
 use reversi_core::piece::Piece;
 use std::io::{self, Write};
 
 /// Display constants
 const DEFAULT_BAR_WIDTH: usize = 60;
-const HEADER_RESERVED_LINES: usize = 16;
+const HEADER_RESERVED_LINES: usize = 19;
 const MIN_NAME_WIDTH: usize = 7;
 const MAX_OPENING_DISPLAY_LEN: usize = 16;
 const VISUALIZATION_START_LINE: &str = "\x1B[3;1H";
@@ -81,6 +83,18 @@ impl DisplayManager {
         Ok(())
     }
 
+    /// Create a styled progress bar for match tracking.
+    pub fn create_progress_bar(&self, total_games: u64) -> ProgressBar {
+        let progress_bar = ProgressBar::new(total_games);
+        progress_bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.cyan} [{bar:40.cyan}] {pos}/{len} ({percent}%)")
+                .unwrap()
+                .progress_chars("█▉▊▋▌▍▎▏ "),
+        );
+        progress_bar
+    }
+
     /// Update the live match visualization without scrolling.
     pub fn update_live_visualization(
         &self,
@@ -141,17 +155,12 @@ impl DisplayManager {
             "{}{} {} vs {}",
             CLEAR_LINE,
             layout.padding,
-            engine1_name.bright_cyan().bold(),
-            engine2_name.bright_cyan().bold()
+            engine1_name.primary().bold(),
+            engine2_name.primary().bold()
         );
 
         let separator = "─".repeat(layout.bar_width + layout.name_width + 15);
-        println!(
-            "{}{}{}",
-            CLEAR_LINE,
-            layout.padding,
-            separator.bright_black()
-        );
+        println!("{}{}{}", CLEAR_LINE, layout.padding, separator.subtext());
 
         Ok(())
     }
@@ -201,24 +210,28 @@ impl DisplayManager {
 
     fn display_bar(&self, bar_data: &BarData, layout: &DisplayLayout) {
         let bar_len = ((bar_data.percentage / 100.0) * layout.bar_width as f64) as usize;
-        let filled_bar = "█".repeat(bar_len);
-        let empty_bar = "░".repeat(layout.bar_width - bar_len).bright_black();
+        let filled_bar_str = "█".repeat(bar_len);
+        let empty_bar = " ".repeat(layout.bar_width - bar_len).bg_dark();
 
         let colored_bar = match bar_data.color {
-            BarColor::Green => filled_bar.bright_green(),
-            BarColor::Red => filled_bar.bright_red(),
-            BarColor::Blue => filled_bar.bright_blue(),
+            BarColor::Green => filled_bar_str.success(),
+            BarColor::Red => filled_bar_str.failure(),
+            BarColor::Blue => filled_bar_str.info(),
         };
 
+        let label_colored = bar_data.label.text();
+        let count_colored = format!("{:>4}", bar_data.count).text();
+        let percentage_colored = format!("{:>6.1}%", bar_data.percentage).text();
+
         println!(
-            "{}{}{:>width$} {}{} {:.1}% ({})",
+            "{}{}{:>width$} {}{} {} ({})",
             CLEAR_LINE,
             layout.padding,
-            bar_data.label.bright_white(),
+            label_colored,
             colored_bar,
             empty_bar,
-            bar_data.percentage,
-            bar_data.count.to_string().bright_white(),
+            percentage_colored,
+            count_colored,
             width = layout.name_width
         );
     }
@@ -229,14 +242,18 @@ impl DisplayManager {
         layout: &DisplayLayout,
     ) -> io::Result<()> {
         let separator = "─".repeat(layout.bar_width + layout.name_width + 15);
+        println!("{}{}{}", CLEAR_LINE, layout.padding, separator.subtext());
+
+        self.display_score_summary(statistics, layout);
+
+        println!("{}{}", CLEAR_LINE, layout.padding);
         println!(
             "{}{}{}",
             CLEAR_LINE,
             layout.padding,
-            separator.bright_black()
+            "Recent Games:".subtext()
         );
-
-        self.display_score_summary(statistics, layout);
+        println!("{}{}{}", CLEAR_LINE, layout.padding, separator.subtext());
         self.display_recent_games(statistics, layout);
 
         Ok(())
@@ -247,8 +264,8 @@ impl DisplayManager {
             "{}{}{:>width$}: {}",
             CLEAR_LINE,
             layout.padding,
-            "Disc Diff".bright_white(),
-            format!("{:+}", statistics.total_score).bright_cyan(),
+            "Disc Diff".text(),
+            format!("{:+}", statistics.total_score).primary(),
             width = layout.name_width
         );
     }
@@ -268,7 +285,7 @@ impl DisplayManager {
             let game_number = start_game_num + idx as u32;
 
             let result_symbol = self.format_result_symbol(game.winner);
-            let score_colored = self.format_score(game.score);
+            let score_colored = self.format_score(game.score, game.winner);
             let opening_display = self.format_opening(&game.opening);
             let vs_display = self.format_vs_display(game.engine1_color);
 
@@ -276,11 +293,11 @@ impl DisplayManager {
                 "{}{}  {:>5}: {} {} {} {}",
                 CLEAR_LINE,
                 layout.padding,
-                game_number.to_string().bright_white(),
+                game_number.to_string().subtext(),
                 result_symbol,
                 score_colored,
-                opening_display.bright_black(),
-                vs_display.bright_black()
+                opening_display.subtext(),
+                vs_display.subtext()
             );
         }
     }
@@ -288,18 +305,18 @@ impl DisplayManager {
     // Formatting helper methods
     fn format_result_symbol(&self, winner: MatchWinner) -> colored::ColoredString {
         match winner {
-            MatchWinner::Engine1 => "W".bright_green().bold(),
-            MatchWinner::Engine2 => "L".bright_red().bold(),
-            MatchWinner::Draw => "D".bright_blue().bold(),
+            MatchWinner::Engine1 => "W".success().bold(),
+            MatchWinner::Engine2 => "L".failure().bold(),
+            MatchWinner::Draw => "D".info().bold(),
         }
     }
 
-    fn format_score(&self, score: i32) -> colored::ColoredString {
+    fn format_score(&self, score: i32, winner: MatchWinner) -> colored::ColoredString {
         let score_str = format!("{score:+3}");
-        match score.cmp(&0) {
-            std::cmp::Ordering::Greater => score_str.bright_green(),
-            std::cmp::Ordering::Less => score_str.bright_red(),
-            std::cmp::Ordering::Equal => score_str.bright_blue(),
+        match winner {
+            MatchWinner::Engine1 => score_str.success(),
+            MatchWinner::Engine2 => score_str.failure(),
+            MatchWinner::Draw => score_str.info(),
         }
     }
 
@@ -351,15 +368,15 @@ mod tests {
         let display = DisplayManager::new();
 
         // Positive score should be green
-        let positive = display.format_score(5);
+        let positive = display.format_score(5, MatchWinner::Engine1);
         assert!(positive.to_string().contains("+5"));
 
         // Negative score should be red
-        let negative = display.format_score(-3);
+        let negative = display.format_score(-3, MatchWinner::Engine2);
         assert!(negative.to_string().contains("-3"));
 
         // Zero score should be blue
-        let zero = display.format_score(0);
+        let zero = display.format_score(0, MatchWinner::Draw);
         assert!(zero.to_string().contains("+0"));
     }
 }

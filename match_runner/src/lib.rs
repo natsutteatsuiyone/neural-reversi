@@ -1,3 +1,4 @@
+pub mod colors;
 pub mod config;
 pub mod display;
 pub mod engine;

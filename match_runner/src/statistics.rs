@@ -1,3 +1,4 @@
+use crate::colors::ThemeColor;
 use colored::*;
 use reversi_core::piece::Piece;
 use std::io;
@@ -100,438 +101,175 @@ impl MatchStatistics {
         }
     }
 
-    pub fn engine1_score_rate(&self) -> f64 {
-        if self.total_games() == 0 {
-            0.0
-        } else {
-            ((self.engine1_wins as f64 + self.draws as f64 * 0.5) / self.total_games() as f64)
-                * 100.0
-        }
-    }
-
-    pub fn engine2_score_rate(&self) -> f64 {
-        if self.total_games() == 0 {
-            0.0
-        } else {
-            ((self.engine2_wins as f64 + self.draws as f64 * 0.5) / self.total_games() as f64)
-                * 100.0
-        }
-    }
-
     pub fn print_final_results(&self, engine1_name: &str, engine2_name: &str) -> io::Result<()> {
         let total_games = self.total_games();
 
         if total_games == 0 {
-            println!("No games were played.");
+            println!("{}", "No games played yet.".info());
             return Ok(());
         }
 
         // Clear line and print header
         println!("\r\x1B[2K");
-        println!("{}", "═".repeat(80).bright_cyan());
-        println!("{:^80}", "MATCH RESULTS".bright_white().bold());
-        println!("{}", "═".repeat(80).bright_cyan());
+        println!("{}", "═".repeat(80).info().bold());
+        let header = format!("{} vs {}", engine1_name, engine2_name);
+        println!("{:^80}", header.primary().bold());
+        println!("{}", "═".repeat(80).info().bold());
         println!();
 
-        // Display match summary
-        self.print_match_summary(total_games);
+        self.print_summary();
         println!();
 
-        // Display detailed statistics
-        self.print_detailed_stats(engine1_name, engine2_name)?;
-        println!();
-
-        // Display ELO rating
-        self.print_elo_rating(engine1_name, engine2_name, total_games)?;
-        println!();
-
-        println!("{}", "═".repeat(80).bright_cyan());
+        println!("{}", "═".repeat(80).info().bold());
 
         Ok(())
     }
 
-    fn print_match_summary(&self, total_games: u32) {
-        println!(
-            "{} {}",
-            "Total Games:".bright_white(),
-            total_games.to_string().bright_yellow().bold()
-        );
-        println!(
-            "{} {} / {} / {}",
-            "Results:".bright_white(),
-            format!("{} wins", self.engine1_wins).bright_green(),
-            format!("{} draws", self.draws).bright_blue(),
-            format!("{} losses", self.engine2_wins).bright_red()
-        );
-    }
+    fn print_summary(&self) {
+        // Calculate pentanomial frequencies
+        let freq = self.calculate_pentanomial_frequencies();
 
-    fn print_detailed_stats(&self, engine1_name: &str, engine2_name: &str) -> io::Result<()> {
-        let name_width = std::cmp::max(engine1_name.len(), engine2_name.len());
+        // Combine DD and WL for pentanomial representation (0-2 format)
+        let ptnml = [
+            freq.ll,           // 0: Both losses
+            freq.ld,           // 1: Loss-Draw
+            freq.dd + freq.wl, // 2: Draw-Draw or Win-Loss
+            freq.wd,           // 3: Win-Draw
+            freq.ww,           // 4: Both wins
+        ];
 
-        // Header
         println!(
-            "{}",
-            format!(
-                "┌─{:─<width$}─┬─{:─^7}─┬─{:─^7}─┬─{:─^7}─┬─{:─^10}─┬─{:─^22}─┐",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                width = name_width
-            )
-            .bright_black()
+            "{} {} {} {} {} {} {} {}",
+            "Games:".text().bold(),
+            self.total_games().to_string().warning(),
+            "W:".text().bold(),
+            self.engine1_wins.to_string().success(),
+            "L:".text().bold(),
+            self.engine2_wins.to_string().failure(),
+            "D:".text().bold(),
+            self.draws.to_string().info()
         );
 
         println!(
-            "│ {:^width$} │ {:^7} │ {:^7} │ {:^7} │ {:^10} │ {:^22} │",
-            "Engine".bright_white(),
-            "Wins".bright_white(),
-            "Losses".bright_white(),
-            "Draws".bright_white(),
-            "Score %".bright_white(),
-            "Disc Diff".bright_white(),
-            width = name_width
+            "{} {}, {}, {}, {}, {}",
+            "Ptnml(0-2):".text().bold(),
+            ptnml[0].to_string().subtext(),
+            ptnml[1].to_string().subtext(),
+            ptnml[2].to_string().subtext(),
+            ptnml[3].to_string().subtext(),
+            ptnml[4].to_string().subtext()
         );
 
-        println!(
-            "{}",
-            format!(
-                "├─{:─<width$}─┼─{:─^7}─┼─{:─^7}─┼─{:─^7}─┼─{:─^10}─┼─{:─^22}─┤",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                width = name_width
-            )
-            .bright_black()
-        );
+        // Calculate and display Elo and LOS
+        if !self.paired_results.is_empty() {
+            let stats = PentanomialCalculator::calculate(&freq);
+            let los = stats.calculate_los();
 
-        // Engine 1 row
-        let avg_score1 = if self.total_games() > 0 {
+            // Format Elo
+            let elo_str = if stats.elo_diff.is_infinite() {
+                if stats.elo_diff > 0.0 {
+                    format!("{} ± {}", "∞".success().bold(), "∞".subtext())
+                } else {
+                    format!("{} ± {}", "-∞".failure().bold(), "∞".subtext())
+                }
+            } else {
+                let elo_colored = if stats.elo_diff >= 10.0 {
+                    format!("{:+.1}", stats.elo_diff).success().bold()
+                } else if stats.elo_diff > 0.0 {
+                    format!("{:+.1}", stats.elo_diff).success()
+                } else if stats.elo_diff == 0.0 {
+                    format!("{:+.1}", stats.elo_diff).subtext()
+                } else if stats.elo_diff >= -10.0 {
+                    format!("{:+.1}", stats.elo_diff).failure()
+                } else {
+                    format!("{:+.1}", stats.elo_diff).failure().bold()
+                };
+                format!(
+                    "{} ± {}",
+                    elo_colored,
+                    format!("{:.1}", stats.confidence_interval).subtext()
+                )
+            };
+
+            println!("{} {}", "Elo:".text().bold(), elo_str);
+
+            // Calculate and display expected win rate from Elo
+            if !stats.elo_diff.is_infinite() {
+                let win_rate = 1.0 / (1.0 + 10.0_f64.powf(-stats.elo_diff / 400.0));
+                let win_rate_pct = win_rate * 100.0;
+                let win_rate_str = if win_rate_pct >= 55.0 {
+                    format!("{:.1}%", win_rate_pct).success().bold()
+                } else if win_rate_pct > 50.0 {
+                    format!("{:.1}%", win_rate_pct).success()
+                } else if win_rate_pct == 50.0 {
+                    format!("{:.1}%", win_rate_pct).subtext()
+                } else if win_rate_pct >= 45.0 {
+                    format!("{:.1}%", win_rate_pct).failure()
+                } else {
+                    format!("{:.1}%", win_rate_pct).failure().bold()
+                };
+                println!("{} {}", "Win rate:".text().bold(), win_rate_str);
+            }
+
+            // Format LOS
+            let los_pct = los * 100.0;
+            let los_str = if los_pct >= 99.0 {
+                format!("{:.2}%", los_pct).success().bold()
+            } else if los_pct >= 95.0 {
+                format!("{:.1}%", los_pct).success()
+            } else if los_pct >= 80.0 {
+                format!("{:.1}%", los_pct).info()
+            } else if los_pct >= 60.0 {
+                format!("{:.1}%", los_pct).warning()
+            } else if los_pct >= 40.0 {
+                format!("{:.1}%", los_pct).danger()
+            } else {
+                format!("{:.1}%", los_pct).failure().bold()
+            };
+
+            println!("{} {}", "LOS:".text().bold(), los_str);
+        }
+
+        // Display Disk diff
+        let avg_score = if self.total_games() > 0 {
             self.total_score as f64 / self.total_games() as f64
         } else {
             0.0
         };
-        let engine1_score_str = format!("{:+} ({:+.2}/game)", self.total_score, avg_score1);
-        let engine1_score = match self.total_score.cmp(&0) {
-            std::cmp::Ordering::Greater => engine1_score_str.bright_green(),
-            std::cmp::Ordering::Less => engine1_score_str.bright_red(),
-            std::cmp::Ordering::Equal => engine1_score_str.bright_yellow(),
-        };
 
-        println!(
-            "│ {:width$} │ {:^7} │ {:^7} │ {:^7} │ {:^10} │ {:>22} │",
-            engine1_name.bright_cyan().bold(),
-            self.engine1_wins.to_string().bright_green(),
-            self.engine2_wins.to_string().bright_red(),
-            self.draws.to_string().bright_blue(),
-            format!("{:.1}%", self.engine1_score_rate()).bright_yellow(),
-            engine1_score,
-            width = name_width
-        );
-
-        // Engine 2 row
-        let avg_score2 = if self.total_games() > 0 {
-            -self.total_score as f64 / self.total_games() as f64
-        } else {
-            0.0
-        };
-        let engine2_score_str = format!("{:+} ({:+.2}/game)", -self.total_score, avg_score2);
-        let engine2_score = match (-self.total_score).cmp(&0) {
-            std::cmp::Ordering::Greater => engine2_score_str.bright_green(),
-            std::cmp::Ordering::Less => engine2_score_str.bright_red(),
-            std::cmp::Ordering::Equal => engine2_score_str.bright_yellow(),
-        };
-
-        println!(
-            "│ {:width$} │ {:^7} │ {:^7} │ {:^7} │ {:^10} │ {:>22} │",
-            engine2_name.bright_cyan().bold(),
-            self.engine2_wins.to_string().bright_green(),
-            self.engine1_wins.to_string().bright_red(),
-            self.draws.to_string().bright_blue(),
-            format!("{:.1}%", self.engine2_score_rate()).bright_yellow(),
-            engine2_score,
-            width = name_width
-        );
-
-        println!(
-            "{}",
+        let disk_diff_str = if self.total_score >= 10 {
             format!(
-                "└─{:─<width$}─┴─{:─^7}─┴─{:─^7}─┴─{:─^7}─┴─{:─^10}─┴─{:─^22}─┘",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                width = name_width
+                "{} ({})",
+                format!("+{}", self.total_score).success().bold(),
+                format!("{:+.2}/game", avg_score).subtext()
             )
-            .bright_black()
-        );
-
-        Ok(())
-    }
-
-    fn print_elo_rating(
-        &self,
-        engine1_name: &str,
-        engine2_name: &str,
-        total_games: u32,
-    ) -> io::Result<()> {
-        // If we have paired results, use pentanomial model for better accuracy
-        if !self.paired_results.is_empty() {
-            return self.print_combined_elo_stats(engine1_name, engine2_name);
-        }
-
-        // Otherwise, use simple trinomial model
-        let elo_stats = EloCalculator::calculate_stats(
-            self.engine1_wins,
-            self.engine2_wins,
-            self.draws,
-            total_games,
-        );
-
-        println!("{}", "Statistical Analysis".bright_white().underline());
-        println!();
-
-        self.print_elo_display(&elo_stats, engine1_name, engine2_name);
-
-        Ok(())
-    }
-
-    fn print_combined_elo_stats(&self, engine1_name: &str, engine2_name: &str) -> io::Result<()> {
-        let freq = self.calculate_pentanomial_frequencies();
-        let stats = PentanomialCalculator::calculate(&freq);
-        let total_pairs = self.paired_results.len();
-
-        println!("{}", "Statistical Analysis".bright_white().underline());
-        println!();
-
-        // Display paired game outcomes in a table format
-        println!("{}", "Paired Game Outcomes:".bright_white());
-
-        // Header
-        println!("  {:>14} {:>6} {:>8}", "Result", "Count", "Percent");
-        println!("  {:>14} {:>6} {:>8}", "-------------", "-----", "-------");
-
-        // Data rows
-        let outcomes = [
-            ("0-2 (LL)", freq.ll),
-            ("½-1½ (LD)", freq.ld),
-            ("1-1 (DD)", freq.dd),
-            ("1-1 (WL)", freq.wl),
-            ("1½-½ (WD)", freq.wd),
-            ("2-0 (WW)", freq.ww),
-        ];
-
-        for (result, count) in outcomes {
-            let percentage = count as f64 / total_pairs as f64 * 100.0;
-            let result_colored = if result.starts_with("0-") || result.starts_with("½-") {
-                result.bright_red()
-            } else if result.starts_with("1-") {
-                result.bright_yellow()
-            } else {
-                result.bright_green()
-            };
-
-            println!("  {:>14} {:>6} {:>7.1}%", result_colored, count, percentage);
-        }
-
-        println!();
-
-        // Display ELO with enhanced confidence interval
-        let elo_display = self.format_elo_display(stats.elo_diff, stats.confidence_interval);
-        println!("{:>20}: {}", "ELO Difference".bright_white(), elo_display);
-
-        // LOS (Likelihood of Superiority)
-        let los = stats.calculate_los();
-        println!(
-            "{:>20}: {}",
-            "LOS".bright_white(),
-            self.format_los(los * 100.0)
-        );
-
-        // Performance assessment
-        self.print_performance_assessment(
-            stats.elo_diff,
-            stats.confidence_interval,
-            engine1_name,
-            engine2_name,
-        );
-
-        Ok(())
-    }
-
-    fn print_elo_display(&self, stats: &EloStats, engine1_name: &str, engine2_name: &str) {
-        let elo_display = self.format_elo_display(stats.elo_diff, stats.confidence_interval);
-        println!("{:>20}: {}", "ELO Difference".bright_white(), elo_display);
-
-        if !stats.elo_diff.is_infinite() {
-            let win_rate = 1.0 / (1.0 + 10.0_f64.powf(-stats.elo_diff / 400.0));
-            println!(
-                "{:>20}: {}",
-                "Expected Win Rate".bright_white(),
-                self.format_percentage(win_rate * 100.0, stats.elo_diff)
-            );
-        }
-
-        self.print_performance_assessment(
-            stats.elo_diff,
-            stats.confidence_interval,
-            engine1_name,
-            engine2_name,
-        );
-    }
-
-    fn format_elo_display(&self, elo_diff: f64, confidence_interval: f64) -> String {
-        if elo_diff.is_infinite() {
-            if elo_diff > 0.0 {
-                format!(
-                    "{} {}",
-                    "∞".bright_green().bold(),
-                    "(Dominant)".bright_black()
-                )
-            } else {
-                format!(
-                    "{} {}",
-                    "-∞".bright_red().bold(),
-                    "(Dominant)".bright_black()
-                )
-            }
+        } else if self.total_score > 0 {
+            format!(
+                "{} ({})",
+                format!("+{}", self.total_score).success(),
+                format!("{:+.2}/game", avg_score).subtext()
+            )
+        } else if self.total_score == 0 {
+            format!(
+                "{} ({})",
+                self.total_score.to_string().subtext(),
+                format!("{:+.2}/game", avg_score).subtext()
+            )
+        } else if self.total_score >= -10 {
+            format!(
+                "{} ({})",
+                self.total_score.to_string().failure(),
+                format!("{:+.2}/game", avg_score).subtext()
+            )
         } else {
-            let elo_str = format!("{:+.1}", elo_diff);
-            let confidence_str = format!("± {:.1}", confidence_interval);
-            let colored_elo = if elo_diff > 0.0 {
-                elo_str.bright_green().bold()
-            } else if elo_diff < 0.0 {
-                elo_str.bright_red().bold()
-            } else {
-                elo_str.bright_yellow().bold()
-            };
-            format!("{} {}", colored_elo, confidence_str.bright_black())
-        }
-    }
-
-    fn format_percentage(&self, percentage: f64, elo_diff: f64) -> ColoredString {
-        let pct_str = format!("{:.1}%", percentage);
-        if elo_diff > 0.0 {
-            pct_str.bright_green()
-        } else if elo_diff < 0.0 {
-            pct_str.bright_red()
-        } else {
-            pct_str.bright_yellow()
-        }
-    }
-
-    fn format_los(&self, los_percentage: f64) -> ColoredString {
-        let los_str = format!("{:.1}%", los_percentage);
-        if los_percentage > 95.0 {
-            los_str.bright_green().bold()
-        } else if los_percentage > 75.0 {
-            los_str.bright_green()
-        } else if los_percentage > 50.0 {
-            los_str.bright_yellow()
-        } else {
-            los_str.bright_red()
-        }
-    }
-
-    fn print_performance_assessment(
-        &self,
-        elo_diff: f64,
-        confidence_interval: f64,
-        engine1_name: &str,
-        engine2_name: &str,
-    ) {
-        let ci_crosses_zero =
-            (elo_diff - confidence_interval) <= 0.0 && (elo_diff + confidence_interval) >= 0.0;
-
-        let assessment = self.format_performance_assessment(
-            elo_diff,
-            ci_crosses_zero,
-            engine1_name,
-            engine2_name,
-        );
-
-        println!("{:>20}: {}", "Performance".bright_white(), assessment);
-    }
-
-    fn format_performance_assessment(
-        &self,
-        elo_diff: f64,
-        ci_crosses_zero: bool,
-        engine1_name: &str,
-        engine2_name: &str,
-    ) -> ColoredString {
-        // Define performance levels with their thresholds
-        const SIGNIFICANT_THRESHOLD: f64 = 100.0;
-        const CLEAR_THRESHOLD: f64 = 50.0;
-        const SLIGHT_THRESHOLD: f64 = 20.0;
-
-        // Early returns for special cases
-        if ci_crosses_zero {
-            return "Statistically equivalent".bright_blue();
-        }
-
-        if elo_diff.is_infinite() {
-            return if elo_diff > 0.0 {
-                format!("{} is overwhelmingly superior", engine1_name)
-                    .bright_green()
-                    .bold()
-            } else {
-                format!("{} is overwhelmingly superior", engine2_name)
-                    .bright_red()
-                    .bold()
-            };
-        }
-
-        // Determine which engine is stronger
-        let (stronger, is_positive) = if elo_diff > 0.0 {
-            (engine1_name, true)
-        } else {
-            (engine2_name, false)
+            format!(
+                "{} ({})",
+                self.total_score.to_string().failure().bold(),
+                format!("{:+.2}/game", avg_score).subtext()
+            )
         };
 
-        // Select assessment level and color
-        let abs_diff = elo_diff.abs();
-        let (assessment_text, color_fn): (&str, fn(String) -> ColoredString) =
-            if abs_diff > SIGNIFICANT_THRESHOLD {
-                (
-                    "{} is decisively stronger (+{:.0} ELO)",
-                    if is_positive {
-                        |s| s.bright_green()
-                    } else {
-                        |s| s.bright_red()
-                    },
-                )
-            } else if abs_diff > CLEAR_THRESHOLD {
-                (
-                    "{} is clearly stronger (+{:.0} ELO)",
-                    if is_positive {
-                        |s| s.bright_green()
-                    } else {
-                        |s| s.bright_red()
-                    },
-                )
-            } else if abs_diff > SLIGHT_THRESHOLD {
-                ("{} is slightly stronger (+{:.0} ELO)", |s| {
-                    s.bright_yellow()
-                })
-            } else {
-                ("{} is marginally stronger (+{:.0} ELO)", |s| {
-                    s.bright_yellow()
-                })
-            };
-
-        color_fn(
-            assessment_text
-                .replace("{}", stronger)
-                .replace("{:.0}", &format!("{:.0}", abs_diff)),
-        )
+        println!("{} {}", "Disk diff:".text().bold(), disk_diff_str);
     }
 }
 
@@ -540,56 +278,6 @@ pub enum MatchWinner {
     Engine1,
     Engine2,
     Draw,
-}
-
-pub struct EloStats {
-    pub elo_diff: f64,
-    pub confidence_interval: f64,
-}
-
-pub struct EloCalculator;
-
-impl EloCalculator {
-    pub fn calculate_stats(wins: u32, losses: u32, draws: u32, total_games: u32) -> EloStats {
-        if total_games == 0 {
-            return EloStats {
-                elo_diff: 0.0,
-                confidence_interval: 0.0,
-            };
-        }
-
-        let n = total_games as f64;
-        let w = wins as f64;
-        let d = draws as f64;
-        let l = losses as f64;
-
-        let p_hat = (w + 0.5 * d) / n;
-
-        let elo_diff = if p_hat == 0.0 || p_hat == 1.0 {
-            if p_hat > 0.5 {
-                f64::INFINITY
-            } else {
-                f64::NEG_INFINITY
-            }
-        } else {
-            -ELO_K * (-(p_hat / (1.0 - p_hat)).ln()) / std::f64::consts::LN_10
-        };
-
-        let wld_var = w * (1.0 - p_hat).powi(2) + l * p_hat.powi(2) + d * (0.5 - p_hat).powi(2);
-        let se_elo = if p_hat == 0.0 || p_hat == 1.0 {
-            f64::INFINITY
-        } else {
-            (ELO_K / (std::f64::consts::LN_10 * n)) * wld_var.sqrt() / (p_hat * (1.0 - p_hat))
-        };
-
-        let z_score = 1.96;
-        let confidence_interval = z_score * se_elo;
-
-        EloStats {
-            elo_diff,
-            confidence_interval,
-        }
-    }
 }
 
 impl MatchStatistics {

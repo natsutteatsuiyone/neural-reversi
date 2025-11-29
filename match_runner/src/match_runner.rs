@@ -4,7 +4,7 @@
 //! two GTP engines, including game execution, progress tracking, and result
 //! aggregation.
 
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
 
 use crate::config::Config;
 use crate::display::DisplayManager;
@@ -104,7 +104,7 @@ impl MatchRunner {
         self.display
             .update_live_visualization(&statistics, &engine_names.0, &engine_names.1)?;
 
-        let progress_bar = self.create_progress_bar(total_games);
+        let progress_bar = self.display.create_progress_bar(total_games as u64);
 
         for (opening_idx, opening_str) in openings.iter().enumerate() {
             if let Err(e) = self.play_opening_pair(
@@ -311,17 +311,6 @@ impl MatchRunner {
         let engine1_name = engines.0.name();
         let engine2_name = engines.1.name();
         Ok((engine1_name, engine2_name))
-    }
-
-    fn create_progress_bar(&self, total_games: usize) -> ProgressBar {
-        let progress_bar = ProgressBar::new(total_games as u64);
-        progress_bar.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} ({percent}%)")
-                .unwrap()
-                .progress_chars("█▉▊▋▌▍▎▏ "),
-        );
-        progress_bar
     }
 
     fn play_opening_pair(
