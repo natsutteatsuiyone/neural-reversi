@@ -15,7 +15,6 @@ use crate::types::Depth;
 use crate::types::Score;
 use crate::types::Selectivity;
 
-
 /// Maximum selectivity level (disables ProbCut when `selectivity >= NO_SELECTIVITY`)
 pub const NO_SELECTIVITY: u8 = 6;
 
@@ -124,8 +123,7 @@ fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
-            let v =
-                PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
+            let v = PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
             tbl[shallow][deep] = v;
             tbl[deep][shallow] = v;
         }
@@ -139,8 +137,7 @@ fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
-            let v =
-                PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
+            let v = PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
             tbl[shallow][deep] = v;
             tbl[deep][shallow] = v;
         }
@@ -274,7 +271,7 @@ pub fn probcut_midgame(
         None
     } else {
         // nested probcut for endgame positions
-       probcut_endgame_internal(ctx, board, depth, beta, thread, NO_SELECTIVITY)
+        probcut_endgame_internal(ctx, board, depth, beta, thread, NO_SELECTIVITY)
     }
 }
 
@@ -318,7 +315,7 @@ fn probcut_endgame_internal(
     depth: Depth,
     beta: Score,
     thread: &Arc<Thread>,
-    selectivity: Selectivity
+    selectivity: Selectivity,
 ) -> Option<Score> {
     let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.75).floor()) as Depth;
     let mean: f64 = calc_mean_end(pc_depth, depth);

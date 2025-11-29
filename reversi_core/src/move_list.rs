@@ -7,7 +7,7 @@ use crate::bitboard::{
     BitboardIterator, corner_weighted_count, get_corner_stability, get_moves_and_potential,
 };
 use crate::board::Board;
-use crate::constants::{scale_score, SCORE_INF};
+use crate::constants::{SCORE_INF, scale_score};
 use crate::flip;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
