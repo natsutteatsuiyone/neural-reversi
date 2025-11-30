@@ -5,7 +5,8 @@ use std::sync::atomic;
 
 use crate::bitboard::{BitboardIterator, corner_weighted_count, get_corner_stability};
 use crate::board::Board;
-use crate::constants::{EVAL_SCORE_SCALE_BITS, SCORE_INF, scale_score};
+use crate::constants::{EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, SCORE_INF, scale_score};
+use crate::eval::Eval;
 use crate::flip;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
@@ -208,6 +209,24 @@ impl MoveList {
             return;
         }
 
+        match ctx.game_phase {
+            GamePhase::MidGame => {
+                self.evaluate_moves_midgame::<NT>(ctx, board, depth, tt_move);
+            }
+            GamePhase::EndGame => {
+                self.evaluate_moves_endgame::<NT>(ctx, board, depth, tt_move);
+            }
+        }
+    }
+
+    /// Evaluates moves specifically for midgame positions.
+    fn evaluate_moves_midgame<NT: NodeType>(
+        &mut self,
+        ctx: &mut SearchContext,
+        board: &Board,
+        depth: Depth,
+        tt_move: Square,
+    ) {
         const MAX_SORT_DEPTH: i32 = 2;
         let mut sort_depth = (depth as i32 - 15) / 3;
         sort_depth = sort_depth.clamp(1, MAX_SORT_DEPTH);
@@ -236,34 +255,71 @@ impl MoveList {
                     _ => unreachable!(),
                 };
 
-                if ctx.game_phase == GamePhase::EndGame {
-                    let (moves, potential) = next.get_moves_and_potential();
-                    let mobility = corner_weighted_count(moves) as i32;
-                    let potential_mobility = corner_weighted_count(potential) as i32;
-                    let value = (mobility << (EVAL_SCORE_SCALE_BITS + 1))
-                        + (potential_mobility << (EVAL_SCORE_SCALE_BITS));
-                    mv.value -= value;
-                }
-
                 ctx.undo(mv);
                 max_evaluated_value = max_evaluated_value.max(mv.value);
             };
         }
 
-        if ctx.game_phase == GamePhase::MidGame {
-            // Score-Based Reduction: reduce depth for poor moves
-            // This implements a form of late move reduction based on evaluation scores
-            let sbr_margin: i32 = scale_score(9 + (MAX_SORT_DEPTH - sort_depth) * 2);
-            let reduction_threshold = max_evaluated_value - sbr_margin;
+        // Score-Based Reduction: reduce depth for poor moves
+        // This implements a form of late move reduction based on evaluation scores
+        let sbr_margin: i32 = scale_score(9 + (MAX_SORT_DEPTH - sort_depth) * 2);
+        let reduction_threshold = max_evaluated_value - sbr_margin;
 
-            for mv in self.iter_mut() {
-                if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
-                    // Calculate reduction based on how much worse this move is
-                    let diff = max_evaluated_value - mv.value;
-                    let step = sbr_margin * 2;
-                    mv.reduction_depth = ((diff + sbr_margin) / step) as Depth;
-                }
+        for mv in self.iter_mut() {
+            if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
+                // Calculate reduction based on how much worse this move is
+                let diff = max_evaluated_value - mv.value;
+                let step = sbr_margin * 2;
+                mv.reduction_depth = ((diff + sbr_margin) / step) as Depth;
             }
+        }
+    }
+
+    /// Evaluates moves specifically for endgame positions.
+    fn evaluate_moves_endgame<NT: NodeType>(
+        &mut self,
+        ctx: &mut SearchContext,
+        board: &Board,
+        depth: Depth,
+        tt_move: Square,
+    ) {
+        const MAX_SORT_DEPTH: i32 = 2;
+        let mut sort_depth = (depth as i32 - 15) / 3;
+        sort_depth = sort_depth.clamp(1, MAX_SORT_DEPTH);
+
+        for mv in self.iter_mut() {
+            if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
+                // Already searched in previous iteration
+                mv.value = SEARCHED_MOVE_VALUE;
+            } else if mv.flipped == board.opponent {
+                // Wipeout move
+                mv.value = WIPEOUT_VALUE;
+            } else if mv.sq == tt_move {
+                // Transposition table move
+                mv.value = TT_MOVE_VALUE;
+            } else {
+                // Evaluate using shallow search
+                let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+                ctx.update(mv);
+
+                mv.value = match sort_depth {
+                    0 => -midgame::evaluate(ctx, &next),
+                    1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
+                    2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
+                    _ => unreachable!(),
+                };
+
+                const MOBILITY_SCALE: i32 = EVAL_SCORE_SCALE * 2;
+                const POTENTIAL_MOBILITY_SCALE: i32 = EVAL_SCORE_SCALE;
+
+                let (moves, potential) = next.get_moves_and_potential();
+                let mobility = corner_weighted_count(moves) as i32;
+                let potential_mobility = corner_weighted_count(potential) as i32;
+                mv.value -= mobility * MOBILITY_SCALE;
+                mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
+
+                ctx.undo(mv);
+            };
         }
     }
 
