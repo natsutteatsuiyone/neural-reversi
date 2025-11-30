@@ -15,6 +15,7 @@ use search_result::SearchResult;
 use threading::{Thread, ThreadPool};
 
 use crate::board::Board;
+use crate::constants::MAX_THREADS;
 use crate::eval::Eval;
 use crate::level::Level;
 use crate::square::Square;
@@ -58,7 +59,7 @@ pub use options::SearchOptions;
 
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
-        let n_threads = options.n_threads.min(num_cpus::get()).max(1);
+        let n_threads = options.n_threads.min(num_cpus::get()).clamp(1, MAX_THREADS);
         let eval = Eval::with_weight_files(
             options.eval_path.as_deref(),
             options.eval_sm_path.as_deref(),

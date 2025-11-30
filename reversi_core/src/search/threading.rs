@@ -28,7 +28,7 @@ use crate::util::spinlock;
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 
 /// Maximum number of slave threads that can join a single split point.
-const MAX_SLAVES_PER_SPLITPOINT: usize = 3;
+const MAX_SLAVES_PER_SPLITPOINT: u32 = 3;
 
 /// State information for a split point in the parallel search.
 pub struct SplitPointState {
@@ -272,7 +272,7 @@ impl Thread {
     ///
     /// `true` if the thread can create a new split point
     pub fn can_split(&self) -> bool {
-        let thread_pool_size = self.pool.upgrade().map_or(1, |p| p.size);
+        let thread_pool_size = self.pool.upgrade().map_or(1, |p| p.size) as u32;
         if thread_pool_size <= 1 {
             return false;
         }
@@ -283,7 +283,7 @@ impl Thread {
             let sp_state = sp.state();
             !sp_state.all_slaves_searching
                 || thread_pool_size > MAX_SLAVES_PER_SPLITPOINT
-                    && sp_state.slaves_mask.count == MAX_SLAVES_PER_SPLITPOINT
+                    && sp_state.slaves_mask.count() == MAX_SLAVES_PER_SPLITPOINT
         } else {
             true
         };
@@ -685,7 +685,7 @@ impl Thread {
             let sp = &th.state().split_points[size - 1];
             let sp_state = sp.state();
             if sp_state.all_slaves_searching
-                && sp_state.slaves_mask.count < MAX_SLAVES_PER_SPLITPOINT
+                && sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT
                 && self.can_join(sp)
             {
                 let mut level = 0;
@@ -708,7 +708,7 @@ impl Thread {
 
             let sp_state = sp.state_mut();
             if sp_state.all_slaves_searching
-                && sp_state.slaves_mask.count < MAX_SLAVES_PER_SPLITPOINT
+                && sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT
             {
                 self.lock();
 
@@ -873,7 +873,7 @@ impl ThreadPool {
     /// * `sp` - The split point that needs workers
     fn assign_task_to_slaves(&self, sp: &Arc<SplitPoint>) {
         let sp_state = sp.state_mut();
-        while sp_state.slaves_mask.count < MAX_SLAVES_PER_SPLITPOINT {
+        while sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT {
             if let Some(slave) = self.find_available_thread(sp) {
                 slave.lock();
 

@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::constants::MAX_THREADS;
+
 pub struct SearchOptions {
     pub tt_mb_size: usize,
     pub n_threads: usize,
@@ -46,7 +48,7 @@ impl Default for SearchOptions {
     fn default() -> Self {
         SearchOptions {
             tt_mb_size: 64,
-            n_threads: num_cpus::get(),
+            n_threads: num_cpus::get().min(MAX_THREADS),
             eval_path: None,
             eval_sm_path: None,
         }

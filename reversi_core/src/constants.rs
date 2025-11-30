@@ -29,6 +29,9 @@ pub const MID_SCORE_MIN: Score = SCORE_MIN << EVAL_SCORE_SCALE_BITS;
 /// Infinity score for search algorithms
 pub const SCORE_INF: Score = 30000;
 
+/// Maximum number of threads supported
+pub const MAX_THREADS: usize = 64;
+
 /// Scales a disc-difference score into the internal midgame representation.
 #[inline(always)]
 pub const fn scale_score(unscaled_score: Score) -> Score {

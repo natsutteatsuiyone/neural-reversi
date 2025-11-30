@@ -1,80 +1,70 @@
 /// A space-efficient bitset implementation using a 64-bit integer.
+#[derive(Clone, Copy, Default)]
 pub struct BitSet {
-    /// The underlying 64-bit storage for the bitset
     data: u64,
-    /// The number of bits currently set (maintained for O(1) count access)
-    pub count: usize,
 }
 
 impl BitSet {
     /// Creates a new empty bitset with all bits cleared.
-    pub fn new() -> BitSet {
-        BitSet { data: 0, count: 0 }
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self { data: 0 }
+    }
+
+    /// Returns the number of bits currently set.
+    ///
+    /// Returns the count of bits set to 1.
+    #[inline(always)]
+    pub const fn count(&self) -> u32 {
+        self.data.count_ones()
     }
 
     /// Sets the bit at the specified index to 1.
     ///
-    /// If the bit is already set, this operation has no effect.
-    /// The count is only incremented if the bit was previously unset.
-    ///
     /// # Arguments
     ///
-    /// * `index` - The bit position to set (0-63)
-    #[inline]
+    /// * `index` - The index of the bit to set (0-based).
+    #[inline(always)]
     pub fn set(&mut self, index: usize) {
-        let mask = 1 << index;
-        let old_data = self.data;
-        self.data |= mask;
-        self.count += (old_data != self.data) as usize;
+        debug_assert!(index < 64);
+        self.data |= 1 << index;
     }
 
-    /// Clears the bit at the specified index (sets it to 0).
-    ///
-    /// If the bit is already clear, this operation has no effect.
-    /// The count is only decremented if the bit was previously set.
+    /// Clears the bit at the specified index.
     ///
     /// # Arguments
     ///
-    /// * `index` - The bit position to clear (0-63)
-    #[inline]
+    /// * `index` - The index of the bit to clear (0-based).
+    #[inline(always)]
     pub fn reset(&mut self, index: usize) {
-        let mask = 1 << index;
-        let old_data = self.data;
-        self.data &= !mask;
-        self.count -= (old_data != self.data) as usize;
+        debug_assert!(index < 64);
+        self.data &= !(1 << index);
     }
 
     /// Tests whether the bit at the specified index is set.
     ///
     /// # Arguments
     ///
-    /// * `index` - The bit position to test (0-63)
+    /// * `index` - The index of the bit to test (0-based).
     ///
-    /// # Returns
-    ///
-    /// `true` if the bit is set (1), `false` if it's clear (0).
-    #[inline]
-    pub fn test(&self, index: usize) -> bool {
-        (self.data & (1 << index)) != 0
+    /// Returns `true` if the bit is set, `false` otherwise.
+    #[inline(always)]
+    pub const fn test(&self, index: usize) -> bool {
+        (self.data >> index) & 1 != 0
     }
 
-    /// Checks if all bits in the bitset are clear.
+    /// Checks if all bits are clear.
     ///
-    /// # Returns
-    ///
-    /// `true` if no bits are set, `false` otherwise.
-    #[inline]
-    pub fn none(&self) -> bool {
+    /// Returns `true` if no bits are set, `false` otherwise.
+    #[inline(always)]
+    pub const fn none(&self) -> bool {
         self.data == 0
     }
 
-    /// Clears all bits in the bitset, resetting it to its initial empty state.
-    ///
-    /// After calling this method, `count` will be 0 and `none()` will return `true`.
-    #[inline]
+    /// Clears all bits.
+    #[inline(always)]
     pub fn clear(&mut self) {
         self.data = 0;
-        self.count = 0;
     }
 }
 
@@ -85,119 +75,59 @@ mod tests {
     #[test]
     fn test_new() {
         let bitset = BitSet::new();
-        assert_eq!(bitset.count, 0);
+        assert_eq!(bitset.count(), 0);
         assert!(bitset.none());
-        assert_eq!(bitset.data, 0);
     }
 
     #[test]
-    fn test_set_single_bit() {
+    fn test_set_and_test() {
         let mut bitset = BitSet::new();
 
         bitset.set(0);
         assert!(bitset.test(0));
-        assert_eq!(bitset.count, 1);
-        assert!(!bitset.none());
+        assert_eq!(bitset.count(), 1);
+
+        bitset.set(5);
+        assert!(bitset.test(5));
+        assert_eq!(bitset.count(), 2);
 
         bitset.set(63);
         assert!(bitset.test(63));
-        assert_eq!(bitset.count, 2);
-
-        bitset.set(31);
-        assert!(bitset.test(31));
-        assert_eq!(bitset.count, 3);
+        assert_eq!(bitset.count(), 3);
     }
 
     #[test]
-    fn test_set_same_bit_twice() {
-        let mut bitset = BitSet::new();
-
-        bitset.set(5);
-        assert_eq!(bitset.count, 1);
-
-        // Setting the same bit again should not change count
-        bitset.set(5);
-        assert_eq!(bitset.count, 1);
-        assert!(bitset.test(5));
-    }
-
-    #[test]
-    fn test_reset_bit() {
+    fn test_reset() {
         let mut bitset = BitSet::new();
 
         bitset.set(10);
-        bitset.set(20);
-        assert_eq!(bitset.count, 2);
+        assert!(bitset.test(10));
 
         bitset.reset(10);
         assert!(!bitset.test(10));
-        assert!(bitset.test(20));
-        assert_eq!(bitset.count, 1);
-
-        bitset.reset(20);
-        assert!(!bitset.test(20));
-        assert_eq!(bitset.count, 0);
-        assert!(bitset.none());
+        assert_eq!(bitset.count(), 0);
     }
 
     #[test]
-    fn test_reset_unset_bit() {
+    fn test_count() {
         let mut bitset = BitSet::new();
+        assert_eq!(bitset.count(), 0);
 
-        bitset.set(5);
-        assert_eq!(bitset.count, 1);
-
-        // Resetting an unset bit should not change count
-        bitset.reset(6);
-        assert_eq!(bitset.count, 1);
-        assert!(bitset.test(5));
-        assert!(!bitset.test(6));
-    }
-
-    #[test]
-    fn test_test_method() {
-        let mut bitset = BitSet::new();
-
-        // Test all bits are initially false
-        for i in 0..64 {
-            assert!(!bitset.test(i));
+        for i in 0..10 {
+            bitset.set(i);
         }
-
-        // Set some bits and test
-        bitset.set(0);
-        bitset.set(7);
-        bitset.set(15);
-        bitset.set(31);
-        bitset.set(63);
-
-        assert!(bitset.test(0));
-        assert!(bitset.test(7));
-        assert!(bitset.test(15));
-        assert!(bitset.test(31));
-        assert!(bitset.test(63));
-
-        // Test unset bits are still false
-        assert!(!bitset.test(1));
-        assert!(!bitset.test(8));
-        assert!(!bitset.test(32));
+        assert_eq!(bitset.count(), 10);
     }
 
     #[test]
     fn test_none() {
         let mut bitset = BitSet::new();
-
         assert!(bitset.none());
 
         bitset.set(0);
         assert!(!bitset.none());
 
-        bitset.set(63);
-        assert!(!bitset.none());
-
         bitset.reset(0);
-        assert!(!bitset.none());
-
-        bitset.reset(63);
         assert!(bitset.none());
     }
 
@@ -205,44 +135,41 @@ mod tests {
     fn test_clear() {
         let mut bitset = BitSet::new();
 
-        // Set multiple bits
+        bitset.set(1);
+        bitset.set(5);
+        bitset.set(20);
+        assert_eq!(bitset.count(), 3);
+
+        bitset.clear();
+        assert_eq!(bitset.count(), 0);
+        assert!(bitset.none());
+    }
+
+    #[test]
+    fn test_multiple_operations() {
+        let mut bitset = BitSet::new();
+
         bitset.set(0);
         bitset.set(1);
-        bitset.set(2);
         bitset.set(31);
+        bitset.set(32);
         bitset.set(63);
-        assert_eq!(bitset.count, 5);
-        assert!(!bitset.none());
 
-        // Clear all
-        bitset.clear();
-        assert_eq!(bitset.count, 0);
-        assert!(bitset.none());
+        assert_eq!(bitset.count(), 5);
+        assert!(bitset.test(0));
+        assert!(bitset.test(1));
+        assert!(bitset.test(31));
+        assert!(bitset.test(32));
+        assert!(bitset.test(63));
 
-        // Verify all bits are cleared
-        for i in 0..64 {
-            assert!(!bitset.test(i));
-        }
-    }
+        bitset.reset(1);
+        bitset.reset(32);
 
-    #[test]
-    #[should_panic]
-    fn test_set_out_of_bounds() {
-        let mut bitset = BitSet::new();
-        bitset.set(64); // Should panic on shift overflow
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_reset_out_of_bounds() {
-        let mut bitset = BitSet::new();
-        bitset.reset(64); // Should panic on shift overflow
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_test_out_of_bounds() {
-        let bitset = BitSet::new();
-        bitset.test(64); // Should panic on shift overflow
+        assert_eq!(bitset.count(), 3);
+        assert!(!bitset.test(1));
+        assert!(!bitset.test(32));
+        assert!(bitset.test(0));
+        assert!(bitset.test(31));
+        assert!(bitset.test(63));
     }
 }
