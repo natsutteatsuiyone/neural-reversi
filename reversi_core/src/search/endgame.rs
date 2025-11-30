@@ -2,7 +2,7 @@
 //! - https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c
 //! - https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/search.cpp
 
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -51,8 +51,13 @@ pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 13;
 const EC_NWS_DEPTH: Depth = 12;
 
 thread_local! {
-    static ENDGAME_CACHE: RefCell<EndGameCache> =
-        RefCell::new(EndGameCache::new(16));
+    static ENDGAME_CACHE: UnsafeCell<EndGameCache> =
+        UnsafeCell::new(EndGameCache::new(16));
+}
+
+#[inline(always)]
+unsafe fn cache() -> &'static mut EndGameCache {
+    ENDGAME_CACHE.with(|cell| unsafe { &mut *cell.get() })
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
@@ -584,10 +589,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 /// * `Option<EndGameCacheEntry>` - The cached entry if found
 #[inline(always)]
 fn probe_endgame_cache(key: u64) -> Option<EndGameCacheEntry> {
-    ENDGAME_CACHE.with(|cell| {
-        let cache = cell.borrow();
-        cache.probe(key)
-    })
+    unsafe { cache().probe(key) }
 }
 
 /// Store an entry in the endgame cache
@@ -602,10 +604,9 @@ fn probe_endgame_cache(key: u64) -> Option<EndGameCacheEntry> {
 #[inline(always)]
 fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
     let bound = EndGameCacheBound::determine_bound(score, beta);
-    ENDGAME_CACHE.with(|cell| {
-        let mut cache = cell.borrow_mut();
-        cache.store(key, score, bound, best_move);
-    });
+    unsafe {
+        cache().store(key, score, bound, best_move);
+    }
 }
 
 /// Null window search with endgame cache probing.
