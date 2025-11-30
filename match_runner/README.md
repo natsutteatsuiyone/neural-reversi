@@ -15,6 +15,9 @@ match_runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <O
 - `-2, --engine2 <ENGINE2>`: Command for the second engine (executable path and arguments) (required)
 - `--engine2-working-dir <ENGINE2_WORKING_DIR>`: Working directory for the second engine
 - `-o, --opening-file <OPENING_FILE>`: File containing opening sequences (required)
+- `--time-control <MODE>`: Time control mode (`none`, `byoyomi`, `fischer`) (default: `none`)
+- `--main-time <SECONDS>`: Main time in seconds for Fischer mode (default: 300)
+- `--byoyomi-time <SECONDS>`: Time per move (byoyomi) or increment (Fischer) in seconds (default: 5)
 
 ### Opening File Format
 
@@ -47,6 +50,22 @@ match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli g
 match-runner --engine1 "./reversi_cli gtp --level 10" --engine1-working-dir "./engine1_dir" --engine2 "./reversi_cli gtp --level 5" --engine2-working-dir "./engine2_dir" --opening-file openings.txt
 ```
 
+### Match with Time Control (Byoyomi)
+
+Play with 5 seconds per move:
+
+```bash
+match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 10" --opening-file openings.txt --time-control byoyomi --byoyomi-time 5
+```
+
+### Match with Time Control (Fischer)
+
+Play with 60 seconds main time and 2 seconds increment per move:
+
+```bash
+match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 10" --opening-file openings.txt --time-control fischer --main-time 60 --byoyomi-time 2
+```
+
 ## GTP Protocol
 
 This tool communicates with Reversi programs using the [Go Text Protocol (GTP)](https://www.gnu.org/software/gnugo/gnugo_19.html).
@@ -58,6 +77,11 @@ The programs must support the following GTP commands:
 - `play <color> <move>` - Play a move of the specified color at the given coordinates
 - `genmove <color>` - Generate a move for the specified color
 - `quit` - Exit the program
+
+When time control is enabled, the following commands are also used (optional support):
+
+- `time_settings <main_time> <byoyomi_time> <byoyomi_stones>` - Configure time control
+- `time_left <color> <time> <stones>` - Update remaining time for a player
 
 ## Match Output
 

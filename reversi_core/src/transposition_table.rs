@@ -109,6 +109,9 @@ impl TTEntry {
     const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
     const GENERATION_MASK: u64 = (1 << (Self::GENERATION_SIZE)) - 1;
 
+    const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
+    const IS_ENDGAME_MASK: u64 = 1;
+
     /// Packs all fields into a single 64-bit value and stores it.
     #[allow(clippy::too_many_arguments)]
     fn pack(
@@ -120,6 +123,7 @@ impl TTEntry {
         depth: u8,
         selectivity: u8,
         generation: u8,
+        is_endgame: bool,
     ) {
         let data = key as u64
             | (((score as u16) as u64) << Self::SCORE_SHIFT)
@@ -127,7 +131,8 @@ impl TTEntry {
             | ((bound as u64) << Self::BOUND_SHIFT)
             | ((depth as u64) << Self::DEPTH_SHIFT)
             | ((selectivity as u64) << Self::SELECTIVITY_SHIFT)
-            | ((generation as u64) << Self::GENERATION_SHIFT);
+            | ((generation as u64) << Self::GENERATION_SHIFT)
+            | ((is_endgame as u64) << Self::IS_ENDGAME_SHIFT);
         self.data.store(data, Ordering::Relaxed);
     }
 
@@ -141,6 +146,7 @@ impl TTEntry {
         let depth = ((data_u64 >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u8;
         let selectivity = ((data_u64 >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
         let generation = ((data_u64 >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
+        let is_endgame = ((data_u64 >> Self::IS_ENDGAME_SHIFT) & Self::IS_ENDGAME_MASK) != 0;
 
         TTData {
             key,
@@ -150,6 +156,7 @@ impl TTEntry {
             depth: depth as Depth,
             selectivity,
             generation,
+            is_endgame,
         }
     }
 
@@ -171,6 +178,7 @@ impl TTEntry {
     /// * `best_move` - The best move found for the position
     /// * `selectivity` - The selectivity level of the search
     /// * `generation` - The current generation count for aging
+    /// * `is_endgame` - Whether this entry is from endgame search
     #[allow(clippy::too_many_arguments)]
     pub fn save(
         &self,
@@ -181,6 +189,7 @@ impl TTEntry {
         best_move: Square,
         selectivity: u8,
         generation: u8,
+        is_endgame: bool,
     ) {
         let tt_data = self.unpack();
         let key16 = key as u16;
@@ -206,6 +215,7 @@ impl TTEntry {
                 depth as u8,
                 selectivity,
                 generation,
+                is_endgame,
             );
         }
     }
@@ -230,6 +240,8 @@ pub struct TTData {
     pub selectivity: Selectivity,
     /// Generation counter for replacement policy
     pub generation: u8,
+    /// Whether this entry is from endgame search (disc-difference score)
+    pub is_endgame: bool,
 }
 
 impl Default for TTData {
@@ -243,6 +255,7 @@ impl Default for TTData {
             depth: 0,
             selectivity: 0,
             generation: 0,
+            is_endgame: false,
         }
     }
 }
@@ -501,6 +514,7 @@ impl TranspositionTable {
     /// * `best_move` - The best move found for the position
     /// * `selectivity` - The selectivity level used in search
     /// * `generation` - The current generation count
+    /// * `is_endgame` - Whether this entry is from endgame search
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn store(
@@ -513,9 +527,19 @@ impl TranspositionTable {
         best_move: Square,
         selectivity: u8,
         generation: u8,
+        is_endgame: bool,
     ) {
         let entry = unsafe { self.entries.get_unchecked(entry_index) };
-        entry.save(key, score, bound, depth, best_move, selectivity, generation);
+        entry.save(
+            key,
+            score,
+            bound,
+            depth,
+            best_move,
+            selectivity,
+            generation,
+            is_endgame,
+        );
     }
 
     /// Calculates the cluster index for a given hash key.
@@ -578,6 +602,7 @@ mod tests {
             sq(best_move),
             selectivity,
             generation,
+            false, // default to midgame for tests
         );
         idx
     }
@@ -616,6 +641,7 @@ mod tests {
             test_best_move,
             test_selectivity,
             test_generation,
+            false,
         );
 
         let data = entry.unpack();
@@ -651,6 +677,7 @@ mod tests {
             max_best_move,
             max_selectivity,
             max_generation,
+            false,
         );
 
         let data = entry.unpack();
@@ -663,7 +690,7 @@ mod tests {
         assert_eq!(data.generation, max_generation);
 
         // Test with minimum negative score
-        entry.save(0, min_score, Bound::Upper, 0, Square::None, 0, 0);
+        entry.save(0, min_score, Bound::Upper, 0, Square::None, 0, 0, false);
 
         let data = entry.unpack();
         assert_eq!(data.key, 0);
@@ -681,38 +708,38 @@ mod tests {
         let entry = TTEntry::default();
 
         // Initial save
-        entry.save(100, 50, Bound::Lower, 10, sq(5), 2, 1);
+        entry.save(100, 50, Bound::Lower, 10, sq(5), 2, 1, false);
         let data = entry.unpack();
         assert_eq!(data.depth, 10);
         assert_eq!(data.generation, 1);
 
         // Try to replace with slightly shallower depth (within 2 plies) - should replace
-        entry.save(100, 60, Bound::Lower, 8, sq(6), 2, 1);
+        entry.save(100, 60, Bound::Lower, 8, sq(6), 2, 1, false);
         let data = entry.unpack();
         assert_eq!(data.depth, 8); // Replacement allowed within 2 plies
         assert_eq!(data.score, 60); // New value should be stored
 
         // Replace with deeper depth - should replace
-        entry.save(100, 70, Bound::Lower, 12, sq(7), 2, 1);
+        entry.save(100, 70, Bound::Lower, 12, sq(7), 2, 1, false);
         let data = entry.unpack();
         assert_eq!(data.depth, 12);
         assert_eq!(data.score, 70);
 
         // Replace with exact bound - should always replace
-        entry.save(100, 80, Bound::Exact, 5, sq(8), 2, 1);
+        entry.save(100, 80, Bound::Exact, 5, sq(8), 2, 1, false);
         let data = entry.unpack();
         assert_eq!(data.depth, 5);
         assert_eq!(data.score, 80);
         assert_eq!(data.bound, Bound::Exact);
 
         // Different key - should replace
-        entry.save(200, 90, Bound::Upper, 3, sq(9), 2, 1);
+        entry.save(200, 90, Bound::Upper, 3, sq(9), 2, 1, false);
         let data = entry.unpack();
         assert_eq!(data.key, 200);
         assert_eq!(data.score, 90);
 
         // Newer generation - should replace
-        entry.save(200, 100, Bound::Lower, 2, sq(10), 2, 5);
+        entry.save(200, 100, Bound::Lower, 2, sq(10), 2, 5, false);
         let data = entry.unpack();
         assert_eq!(data.generation, 5);
         assert_eq!(data.score, 100);
@@ -797,7 +824,17 @@ mod tests {
         assert!(!found);
 
         // Store an entry
-        tt.store(idx, key, 100, Bound::Exact, 20, sq(10), 3, generation);
+        tt.store(
+            idx,
+            key,
+            100,
+            Bound::Exact,
+            20,
+            sq(10),
+            3,
+            generation,
+            false,
+        );
 
         // Second probe should find the entry
         let (found, data, _) = tt.probe(key, generation);
@@ -830,6 +867,7 @@ mod tests {
                 sq(i),
                 1,
                 1,
+                false,
             );
         }
 
@@ -838,7 +876,17 @@ mod tests {
         assert!(!found);
         assert_eq!(replace_idx, target_cluster + (CLUSTER_SIZE - 1));
 
-        tt.store(replace_idx, new_key, 999, Bound::Exact, 50, sq(20), 1, 1);
+        tt.store(
+            replace_idx,
+            new_key,
+            999,
+            Bound::Exact,
+            50,
+            sq(20),
+            1,
+            1,
+            false,
+        );
 
         let (found, data, _) = tt.probe(new_key, 1);
         assert!(found);
@@ -863,6 +911,7 @@ mod tests {
                 sq(i),
                 1,
                 1,
+                false,
             );
         }
 
@@ -871,7 +920,17 @@ mod tests {
         assert!(!found);
         assert_eq!(replace_idx, target_cluster + (CLUSTER_SIZE - 1));
 
-        tt.store(replace_idx, new_key, 200, Bound::Exact, 10, sq(20), 1, 10);
+        tt.store(
+            replace_idx,
+            new_key,
+            200,
+            Bound::Exact,
+            10,
+            sq(20),
+            1,
+            10,
+            false,
+        );
 
         let (found, data, _) = tt.probe(new_key, 10);
         assert!(found);

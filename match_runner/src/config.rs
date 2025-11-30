@@ -3,12 +3,24 @@
 //! This module handles command-line argument parsing and opening file loading
 //! for the match runner engine testing tool.
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
+
+/// Time control mode for matches.
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum TimeControlMode {
+    /// No time limit
+    #[default]
+    None,
+    /// Fixed time per move (byoyomi/sudden death)
+    Byoyomi,
+    /// Fischer time control (main time + increment per move)
+    Fischer,
+}
 
 /// Configuration for running automated matches between two GTP engines.
 ///
@@ -41,6 +53,18 @@ pub struct Config {
     /// Opening file (required)
     #[arg(short, long, required = true)]
     pub opening_file: PathBuf,
+
+    /// Time control mode (none, byoyomi, fischer)
+    #[arg(long, value_enum, default_value_t = TimeControlMode::None)]
+    pub time_control: TimeControlMode,
+
+    /// Main time in seconds (for fischer mode)
+    #[arg(long, default_value_t = 300)]
+    pub main_time: u64,
+
+    /// Time per move in seconds (for byoyomi mode) or increment (for fischer mode)
+    #[arg(long, default_value_t = 5)]
+    pub byoyomi_time: u64,
 }
 
 impl Config {
@@ -237,6 +261,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
+            time_control: TimeControlMode::None,
+            main_time: 300,
+            byoyomi_time: 5,
         };
 
         let (program, args) = config.parse_engine_command("./reversi_cli --level 10");
@@ -253,6 +280,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
+            time_control: TimeControlMode::None,
+            main_time: 300,
+            byoyomi_time: 5,
         };
 
         // Test with quotes (behavior varies by platform)
@@ -274,6 +304,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
+            time_control: TimeControlMode::None,
+            main_time: 300,
+            byoyomi_time: 5,
         };
 
         let (program, args) = config.parse_engine_command("");
@@ -290,6 +323,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
+            time_control: TimeControlMode::None,
+            main_time: 300,
+            byoyomi_time: 5,
         };
 
         // Test Windows path with spaces
@@ -315,6 +351,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
+            time_control: TimeControlMode::None,
+            main_time: 300,
+            byoyomi_time: 5,
         };
 
         // Test simple backslash path
@@ -337,6 +376,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
+            time_control: TimeControlMode::None,
+            main_time: 300,
+            byoyomi_time: 5,
         };
 
         // Test escaped spaces (shell-style) - shlex interprets the escape

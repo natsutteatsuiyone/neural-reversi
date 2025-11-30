@@ -32,7 +32,7 @@ const NEIGHBOUR_MASK: [u64; 64] = [
 ];
 
 /// Bitboard mask representing the four corner squares (A1, H1, A8, H8).
-const CORNER_MASK: u64 = 0x8100000000000081;
+pub const CORNER_MASK: u64 = 0x8100000000000081;
 
 /// Flips the player's bitboard at the specified square and the flipped bits.
 ///

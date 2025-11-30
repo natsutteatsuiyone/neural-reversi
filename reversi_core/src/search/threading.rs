@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{JoinHandle, sleep};
+use std::time::{Duration, Instant};
 
 use lock_api::RawMutex;
 
@@ -17,7 +18,7 @@ use crate::search::root_move::RootMove;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::search::search_result::SearchResult;
 use crate::search::side_to_move::SideToMove;
-use crate::search::{self, SearchTask, endgame, midgame};
+use crate::search::{self, SearchTask, endgame, midgame, time_control::TimeManager};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, Score};
@@ -29,6 +30,9 @@ const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 
 /// Maximum number of slave threads that can join a single split point.
 const MAX_SLAVES_PER_SPLITPOINT: u32 = 3;
+
+/// Interval between checks for abort flag in milliseconds.
+const CHECK_INTERVAL_MS: u64 = 1;
 
 /// State information for a split point in the parallel search.
 pub struct SplitPointState {
@@ -635,7 +639,7 @@ impl Thread {
         node_type: u32,
         sp: &Arc<SplitPoint>,
     ) {
-        let is_endgame = ctx.empty_list.count == depth;
+        let is_endgame = ctx.game_phase == GamePhase::EndGame && ctx.empty_list.count == depth;
 
         match (is_endgame, node_type) {
             // Endgame searches
@@ -762,6 +766,12 @@ pub struct ThreadPool {
 
     /// Flag for aborting the current search.
     abort_flag: Arc<AtomicBool>,
+
+    /// Handle for the timer thread (protected by mutex for interior mutability).
+    timer_handle: Mutex<Option<JoinHandle<()>>>,
+
+    /// Flag to signal the timer thread to stop.
+    timer_stop: Arc<AtomicBool>,
 }
 
 impl ThreadPool {
@@ -789,6 +799,8 @@ impl ThreadPool {
                 sender: Arc::new(sender),
                 receiver: Arc::new(Mutex::new(receiver)),
                 abort_flag: Arc::new(AtomicBool::new(false)),
+                timer_handle: Mutex::new(None),
+                timer_stop: Arc::new(AtomicBool::new(false)),
             };
 
             pool.init(weak);
@@ -848,6 +860,9 @@ impl ThreadPool {
     ///
     /// After this method returns, the thread pool is no longer usable.
     fn exit(&mut self) {
+        // Stop timer first if running
+        self.stop_timer();
+
         for thread in &self.threads {
             let lock = thread.mutex_for_sleep_condition.lock();
             thread.exit.store(true, Ordering::Release);
@@ -972,6 +987,80 @@ impl ThreadPool {
     /// `true` if the search should be aborted
     pub fn is_aborted(&self) -> bool {
         self.abort_flag.load(Ordering::Relaxed)
+    }
+
+    /// Get a clone of the abort flag for external use (e.g., time management).
+    ///
+    /// # Returns
+    ///
+    /// Arc reference to the abort flag
+    pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
+        self.abort_flag.clone()
+    }
+
+    /// Starts a timer thread that will set abort_flag when deadline is reached.
+    ///
+    /// The timer thread checks every 5ms against the current deadline computed
+    /// from the `TimeManager` (so it can react to dynamic extensions) and exits when:
+    /// - deadline is reached (sets abort_flag)
+    /// - timer_stop flag is set (search completed early)
+    ///
+    /// # Arguments
+    ///
+    /// * `time_manager` - Shared time manager for computing the deadline
+    pub fn start_timer(&self, time_manager: Arc<TimeManager>) {
+        // Reset stop flag
+        self.timer_stop.store(false, Ordering::Release);
+
+        let abort_flag = self.abort_flag.clone();
+        let stop_flag = self.timer_stop.clone();
+        let tm = time_manager.clone();
+
+        let handle = std::thread::Builder::new()
+            .name("timer".to_string())
+            .spawn(move || {
+                const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
+
+                loop {
+                    // Check if we should stop (search completed early)
+                    if stop_flag.load(Ordering::Acquire) {
+                        break;
+                    }
+
+                    // Recompute deadline to honor potential time extensions
+                    if let Some(deadline) = tm.deadline() {
+                        if Instant::now() >= deadline {
+                            abort_flag.store(true, Ordering::Release);
+                            break;
+                        }
+                    } else {
+                        // No deadline (infinite mode); nothing to do
+                        break;
+                    }
+
+                    // Sleep for check interval
+                    std::thread::sleep(CHECK_INTERVAL);
+                }
+            })
+            .expect("Failed to spawn timer thread");
+
+        *self.timer_handle.lock().unwrap() = Some(handle);
+    }
+
+    /// Stops the timer thread if running.
+    ///
+    /// This should be called when search completes (before waiting for result)
+    /// to ensure clean shutdown.
+    pub fn stop_timer(&self) {
+        // Signal timer to stop
+        self.timer_stop.store(true, Ordering::Release);
+
+        // Join the timer thread if it exists
+        let handle = self.timer_handle.lock().unwrap().take();
+        if let Some(h) = handle {
+            // Timer will exit within 5ms after seeing stop flag
+            let _ = h.join();
+        }
     }
 }
 

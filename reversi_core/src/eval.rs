@@ -138,4 +138,35 @@ impl Eval {
                 .evaluate(board, ctx.get_pattern_feature(), ctx.ply())
         }
     }
+
+    /// Simple evaluation without SearchContext.
+    ///
+    /// This is a convenience method for quick move selection when
+    /// there's no SearchContext available. It creates pattern features
+    /// on the fly, so it's slower than the cached version.
+    ///
+    /// # Arguments
+    ///
+    /// * `board` - The current board position.
+    ///
+    /// # Returns
+    ///
+    /// The evaluation score of the current position.
+    pub fn evaluate_simple(&self, board: &Board) -> Score {
+        use crate::constants::scale_score;
+
+        let n_empties = board.get_empty_count() as usize;
+        if n_empties == 0 {
+            // Game is over - calculate final disc difference
+            // Formula: player_count * 2 - 64 (same as calculate_final_score)
+            let final_score = board.get_player_count() as Score * 2 - 64;
+            return scale_score(final_score);
+        }
+
+        let ply = 60 - n_empties;
+        let pattern_features = pattern_feature::PatternFeatures::new(board, ply);
+
+        self.network
+            .evaluate(board, &pattern_features.p_features[ply], ply)
+    }
 }

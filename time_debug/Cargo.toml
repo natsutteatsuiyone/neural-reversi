@@ -1,0 +1,13 @@
+[package]
+name = "time_debug"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "time-debug"
+path = "src/main.rs"
+
+[dependencies]
+reversi_core = { path = "../reversi_core" }
+clap = { version = "4", features = ["derive"] }
+colored = "2"

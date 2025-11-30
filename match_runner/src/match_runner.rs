@@ -6,12 +6,13 @@
 
 use indicatif::ProgressBar;
 
-use crate::config::Config;
+use crate::config::{Config, TimeControlMode};
 use crate::display::DisplayManager;
 use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
 use crate::game::GameState;
 use crate::statistics::{MatchStatistics, MatchWinner};
+use crate::time_tracker::TimeTracker;
 use reversi_core::piece::Piece;
 use reversi_core::square::Square;
 
@@ -95,6 +96,10 @@ impl MatchRunner {
         let mut engines = self.initialize_engines(config)?;
         let engine_names = self.get_engine_names(&mut engines)?;
 
+        // Create time tracker
+        let mut time_tracker =
+            TimeTracker::new(config.time_control, config.main_time, config.byoyomi_time);
+
         let total_games = openings.len() * 2;
         let mut statistics = MatchStatistics::new();
 
@@ -114,6 +119,7 @@ impl MatchRunner {
                 opening_str,
                 opening_idx,
                 &progress_bar,
+                &mut time_tracker,
             ) {
                 progress_bar.finish_and_clear();
                 return Err(e);
@@ -137,6 +143,7 @@ impl MatchRunner {
     /// * `black_engine` - Engine playing as black
     /// * `white_engine` - Engine playing as white
     /// * `opening_moves` - Optional opening sequence in algebraic notation
+    /// * `time_tracker` - Time tracker for managing time control
     ///
     /// # Returns
     ///
@@ -153,9 +160,27 @@ impl MatchRunner {
         black_engine: &mut GtpEngine,
         white_engine: &mut GtpEngine,
         opening_moves: Option<&str>,
+        time_tracker: &mut TimeTracker,
     ) -> Result<MatchResult> {
         black_engine.clear_board()?;
         white_engine.clear_board()?;
+
+        // Reset time tracker for new game
+        time_tracker.reset();
+
+        // Send time settings to both engines
+        if time_tracker.is_enabled() {
+            black_engine.time_settings(
+                time_tracker.main_time_secs(),
+                time_tracker.byoyomi_time_secs(),
+                time_tracker.byoyomi_stones(),
+            )?;
+            white_engine.time_settings(
+                time_tracker.main_time_secs(),
+                time_tracker.byoyomi_time_secs(),
+                time_tracker.byoyomi_stones(),
+            )?;
+        }
 
         let mut game_state = GameState::new();
 
@@ -164,17 +189,44 @@ impl MatchRunner {
         }
 
         while !game_state.is_game_over() {
-            let current_color = if game_state.side_to_move() == Piece::Black {
-                "black"
-            } else {
-                "white"
-            };
+            let is_black = game_state.side_to_move() == Piece::Black;
+            let current_color = if is_black { "black" } else { "white" };
 
-            let mv = if current_color == "black" {
+            // Send time_left to both engines before move generation
+            if time_tracker.is_enabled() {
+                // Byoyomi sends stones=1, Fischer uses stones=0 so the engine treats
+                // the second field as increment instead of a period size.
+                let stones = if matches!(time_tracker.mode(), TimeControlMode::Byoyomi) {
+                    1
+                } else {
+                    0
+                };
+                black_engine.time_left("black", time_tracker.black_time_secs(), stones)?;
+                white_engine.time_left("black", time_tracker.black_time_secs(), stones)?;
+                black_engine.time_left("white", time_tracker.white_time_secs(), stones)?;
+                white_engine.time_left("white", time_tracker.white_time_secs(), stones)?;
+            }
+
+            // Start timing this move
+            time_tracker.start_move();
+
+            let mv = if is_black {
                 black_engine.genmove("black")?
             } else {
                 white_engine.genmove("white")?
             };
+
+            // End timing and update remaining time
+            let has_time = time_tracker.end_move(is_black);
+            if !has_time && time_tracker.is_enabled() {
+                // Player ran out of time - they lose
+                let result = if is_black {
+                    GameResult::WhiteWin
+                } else {
+                    GameResult::BlackWin
+                };
+                return Ok(MatchResult { result, score: 64 });
+            }
 
             self.execute_move(
                 &mut game_state,
@@ -313,6 +365,7 @@ impl MatchRunner {
         Ok((engine1_name, engine2_name))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn play_opening_pair(
         &mut self,
         engines: &mut (GtpEngine, GtpEngine),
@@ -321,6 +374,7 @@ impl MatchRunner {
         opening_str: &str,
         opening_idx: usize,
         progress_bar: &ProgressBar,
+        time_tracker: &mut TimeTracker,
     ) -> Result<()> {
         let mut paired_results = Vec::new();
 
@@ -334,7 +388,7 @@ impl MatchRunner {
                 (&mut engines.0, &mut engines.1)
             };
 
-            match self.play_game(black_engine, white_engine, Some(opening_str)) {
+            match self.play_game(black_engine, white_engine, Some(opening_str), time_tracker) {
                 Ok(match_result) => {
                     let winner = self.determine_match_winner(match_result.result, is_swapped);
                     let score = if is_swapped {

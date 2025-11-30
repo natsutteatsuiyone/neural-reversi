@@ -9,9 +9,9 @@
 //! engine configuration, including moves, board setup, and engine information.
 
 use reversi_core::{
-    level,
+    level::get_level,
     piece::Piece,
-    search::{self, SearchOptions},
+    search::{self, SearchConstraint, SearchOptions, time_control::TimeControlMode},
     square::Square,
     types::Selectivity,
 };
@@ -55,6 +55,18 @@ pub enum Command {
     Undo,
     /// Sets the engine's playing strength level (1-20)
     SetLevel(usize),
+    /// Sets time control settings (main_time, byoyomi_time, byoyomi_stones)
+    TimeSettings {
+        main_time: u64,
+        byoyomi_time: u64,
+        byoyomi_stones: u32,
+    },
+    /// Updates remaining time for a player (color, time, stones)
+    TimeLeft {
+        color: String,
+        time: u64,
+        stones: u32,
+    },
     /// Represents an unknown or malformed command
     Unknown(String),
 }
@@ -128,6 +140,41 @@ impl Command {
                     Command::Unknown(cmd.to_string())
                 }
             }
+            "time_settings" => {
+                if args.len() == 3 {
+                    if let (Ok(main_time), Ok(byoyomi_time), Ok(byoyomi_stones)) = (
+                        args[0].parse::<u64>(),
+                        args[1].parse::<u64>(),
+                        args[2].parse::<u32>(),
+                    ) {
+                        Command::TimeSettings {
+                            main_time,
+                            byoyomi_time,
+                            byoyomi_stones,
+                        }
+                    } else {
+                        Command::Unknown(cmd.to_string())
+                    }
+                } else {
+                    Command::Unknown(cmd.to_string())
+                }
+            }
+            "time_left" => {
+                if args.len() == 3 {
+                    if let (Ok(time), Ok(stones)) = (args[1].parse::<u64>(), args[2].parse::<u32>())
+                    {
+                        Command::TimeLeft {
+                            color: args[0].to_lowercase(),
+                            time,
+                            stones,
+                        }
+                    } else {
+                        Command::Unknown(cmd.to_string())
+                    }
+                } else {
+                    Command::Unknown(cmd.to_string())
+                }
+            }
             _ => Command::Unknown(cmd.to_string()),
         }
     }
@@ -149,6 +196,8 @@ const COMMAND_NAMES: &[&str] = &[
     "showboard",
     "undo",
     "set_level",
+    "time_settings",
+    "time_left",
 ];
 
 /// Represents a GTP response that can be either successful or an error.
@@ -192,6 +241,12 @@ pub struct GtpEngine {
     name: String,
     /// Engine version reported to GTP clients
     version: String,
+    /// Time control mode for timed games
+    time_control: TimeControlMode,
+    /// Remaining time for Black in milliseconds
+    black_time_ms: u64,
+    /// Remaining time for White in milliseconds
+    white_time_ms: u64,
 }
 
 impl GtpEngine {
@@ -223,6 +278,9 @@ impl GtpEngine {
             selectivity,
             name: "Neural Reversi".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            time_control: TimeControlMode::Infinite,
+            black_time_ms: 0,
+            white_time_ms: 0,
         })
     }
 
@@ -389,6 +447,16 @@ impl GtpEngine {
             Command::Showboard => self.handle_showboard(),
             Command::Undo => self.handle_undo(),
             Command::SetLevel(level) => self.handle_set_level(level),
+            Command::TimeSettings {
+                main_time,
+                byoyomi_time,
+                byoyomi_stones,
+            } => self.handle_time_settings(main_time, byoyomi_time, byoyomi_stones),
+            Command::TimeLeft {
+                color,
+                time,
+                stones,
+            } => self.handle_time_left(&color, time, stones),
             Command::Unknown(cmd) => GtpResponse::Error(format!("unknown command: {cmd}")),
         }
     }
@@ -511,7 +579,7 @@ impl GtpEngine {
     /// Handles the `genmove` command.
     ///
     /// Generates and plays the best move for the specified color using the
-    /// neural network search engine.
+    /// neural network search engine. If time control is active, uses timed search.
     ///
     /// # Arguments
     /// * `color` - The color to generate a move for
@@ -528,18 +596,78 @@ impl GtpEngine {
             return GtpResponse::Success("pass".to_string());
         }
 
-        let result = self.search.run(
+        // Determine time control mode for this move. If no time control is set,
+        // fall back to depth-limited search based on the configured level so
+        // `genmove` returns promptly instead of thinking indefinitely.
+        let time_control = self.get_current_time_control();
+        let constraint = match time_control {
+            TimeControlMode::Infinite => {
+                let level_idx = self.level.min(24); // clamp to available levels
+                SearchConstraint::Level(get_level(level_idx))
+            }
+            mode => SearchConstraint::Time(mode),
+        };
+        let result = self.search.run::<fn(search::SearchProgress)>(
             self.game.board(),
-            level::get_level(self.level),
+            constraint,
             self.selectivity,
             false,
+            None,
         );
 
-        if let Some(computer_move) = result.pv_line.first() {
-            self.game.make_move(*computer_move);
+        if let Some(computer_move) = result.best_move {
+            self.game.make_move(computer_move);
             GtpResponse::Success(format!("{computer_move:?}"))
         } else {
             GtpResponse::Error("failed to generate move".to_string())
+        }
+    }
+
+    /// Gets the current time control mode based on remaining time.
+    fn get_current_time_control(&self) -> TimeControlMode {
+        match self.time_control {
+            TimeControlMode::Infinite => TimeControlMode::Infinite,
+            TimeControlMode::Byoyomi { time_per_move_ms } => {
+                TimeControlMode::Byoyomi { time_per_move_ms }
+            }
+            TimeControlMode::Fischer { increment_ms, .. } => {
+                // Use remaining time for the current player
+                let remaining_time_ms = match self.game.get_side_to_move() {
+                    Piece::Black => self.black_time_ms,
+                    Piece::White => self.white_time_ms,
+                    _ => 0,
+                };
+                TimeControlMode::Fischer {
+                    main_time_ms: remaining_time_ms,
+                    increment_ms,
+                }
+            }
+            TimeControlMode::MovesToGo { moves, .. } => {
+                // Use remaining time for the current player
+                let remaining_time_ms = match self.game.get_side_to_move() {
+                    Piece::Black => self.black_time_ms,
+                    Piece::White => self.white_time_ms,
+                    _ => 0,
+                };
+                TimeControlMode::MovesToGo {
+                    time_ms: remaining_time_ms,
+                    moves,
+                }
+            }
+            TimeControlMode::JapaneseByo {
+                time_per_move_ms, ..
+            } => {
+                // Use remaining time for the current player
+                let remaining_time_ms = match self.game.get_side_to_move() {
+                    Piece::Black => self.black_time_ms,
+                    Piece::White => self.white_time_ms,
+                    _ => 0,
+                };
+                TimeControlMode::JapaneseByo {
+                    main_time_ms: remaining_time_ms,
+                    time_per_move_ms,
+                }
+            }
         }
     }
 
@@ -612,6 +740,112 @@ impl GtpEngine {
         }
 
         Ok(())
+    }
+
+    /// Handles the `time_settings` command.
+    ///
+    /// Sets up time control for the game. GTP time_settings uses seconds,
+    /// which are converted to milliseconds internally.
+    ///
+    /// # Arguments
+    /// * `main_time` - Main time in seconds (0 for no main time)
+    /// * `byoyomi_time` - Byoyomi period time in seconds
+    /// * `byoyomi_stones` - Number of stones per byoyomi period (0 for sudden death)
+    ///
+    /// # Time Control Interpretation
+    /// - main_time=0, byoyomi_time>0, byoyomi_stones=0: Pure byoyomi (N seconds per move)
+    /// - main_time>0, byoyomi_time=0: Sudden death (main_time total)
+    /// - main_time>0, byoyomi_time>0: Main time + byoyomi overtime
+    fn handle_time_settings(
+        &mut self,
+        main_time: u64,
+        byoyomi_time: u64,
+        byoyomi_stones: u32,
+    ) -> GtpResponse {
+        // Convert seconds to milliseconds
+        let main_time_ms = main_time * 1000;
+        let byoyomi_time_ms = byoyomi_time * 1000;
+
+        if main_time == 0 && byoyomi_time > 0 && byoyomi_stones == 0 {
+            // Pure byoyomi: N seconds per move (already in byoyomi from start)
+            self.time_control = TimeControlMode::Byoyomi {
+                time_per_move_ms: byoyomi_time_ms,
+            };
+        } else if main_time > 0 && byoyomi_time == 0 {
+            // Sudden death: total time for the game (Fischer with no increment)
+            self.time_control = TimeControlMode::Fischer {
+                main_time_ms,
+                increment_ms: 0,
+            };
+            self.black_time_ms = main_time_ms;
+            self.white_time_ms = main_time_ms;
+        } else if main_time > 0 && byoyomi_time > 0 && byoyomi_stones == 0 {
+            // Treat stones=0 as Fischer increment (GTP has no dedicated increment field).
+            self.time_control = TimeControlMode::Fischer {
+                main_time_ms,
+                increment_ms: byoyomi_time_ms,
+            };
+            self.black_time_ms = main_time_ms;
+            self.white_time_ms = main_time_ms;
+        } else if main_time > 0 && byoyomi_time > 0 {
+            // Canadian/Japanese byo yomi: main time + overtime periods
+            let time_per_move_ms = if byoyomi_stones > 0 {
+                byoyomi_time_ms / byoyomi_stones as u64
+            } else {
+                byoyomi_time_ms
+            };
+            self.time_control = TimeControlMode::JapaneseByo {
+                main_time_ms,
+                time_per_move_ms,
+            };
+            self.black_time_ms = main_time_ms;
+            self.white_time_ms = main_time_ms;
+        } else if main_time == 0 && byoyomi_time > 0 && byoyomi_stones > 0 {
+            // Pure byoyomi with stones (Japanese style starting in byoyomi)
+            let time_per_move_ms = byoyomi_time_ms / byoyomi_stones as u64;
+            self.time_control = TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms,
+            };
+        } else {
+            // No time control (infinite)
+            self.time_control = TimeControlMode::Infinite;
+        }
+
+        GtpResponse::Success("".to_string())
+    }
+
+    /// Handles the `time_left` command.
+    ///
+    /// Updates the remaining time for a player. GTP uses seconds,
+    /// which are converted to milliseconds internally.
+    ///
+    /// # Arguments
+    /// * `color` - The player color ("b"/"black" or "w"/"white")
+    /// * `time` - Remaining time in seconds
+    /// * `stones` - Number of stones remaining in current period (0 if not applicable)
+    fn handle_time_left(&mut self, color: &str, time: u64, _stones: u32) -> GtpResponse {
+        let time_ms = time * 1000;
+
+        match color {
+            "b" | "black" => {
+                self.black_time_ms = time_ms;
+            }
+            "w" | "white" => {
+                self.white_time_ms = time_ms;
+            }
+            _ => {
+                return GtpResponse::Error(
+                    "invalid color (must be 'b', 'w', 'black', or 'white')".to_string(),
+                );
+            }
+        }
+
+        // Note: Do not override the current time control mode here; `time_left`
+        // is used only to refresh remaining time. Changing modes causes engines
+        // to misinterpret clocks (e.g., switching Fischer/Byoyomi into MovesToGo).
+
+        GtpResponse::Success("".to_string())
     }
 
     /// Checks if a command name is in the list of supported commands.

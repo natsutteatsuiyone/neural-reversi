@@ -40,3 +40,5 @@ export type GameState = {
 
 export type GameMode = "analyze" | "ai-black" | "ai-white";
 export type GameStatus = "waiting" | "playing" | "finished";
+export type AIMode = "level" | "time" | "game-time";
+

@@ -469,6 +469,7 @@ pub fn search<NT: NodeType>(
         best_move,
         ctx.selectivity,
         ctx.generation,
+        n_empties == depth,
     );
 
     best_score
@@ -667,6 +668,7 @@ fn enhanced_transposition_cutoff(
                     mv.sq,
                     ctx.selectivity,
                     ctx.generation,
+                    ctx.empty_list.count == depth,
                 );
                 return Some(score);
             }

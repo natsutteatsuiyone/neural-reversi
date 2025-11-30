@@ -72,8 +72,9 @@ unsafe fn cache() -> &'static mut EndGameCache {
 /// SearchResult containing the best move, score, and search statistics
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
-    let level = task.level;
-    let multi_pv = task.multi_pv;
+    let time_manager = task.time_manager.clone();
+    let use_time_control = time_manager.is_some();
+
     let mut ctx = SearchContext::new(
         &board,
         task.generation,
@@ -82,23 +83,34 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         task.eval.clone(),
     );
 
+    // Enable endgame mode for time management
+    if let Some(ref tm) = time_manager {
+        tm.set_endgame_mode(true);
+    }
+
     if let Some(ref callback) = task.callback {
         ctx.set_callback(callback.clone());
     }
 
     let n_empties = ctx.empty_list.count;
-    let score = estimate_aspiration_base_score(&mut ctx, &board, n_empties, thread);
 
+    // Estimate initial aspiration window center
+    let base_score = estimate_aspiration_base_score(&mut ctx, &board, n_empties, thread);
+
+    // Configure for endgame search
     ctx.selectivity = NO_SELECTIVITY;
     ctx.game_phase = GamePhase::EndGame;
 
+    let pv_count = if task.multi_pv {
+        ctx.root_moves_count()
+    } else {
+        1
+    };
     let mut best_score = 0;
-    let mut alpha = score - 3;
-    let mut beta = score + 3;
+    let mut alpha = base_score - 3;
+    let mut beta = base_score + 3;
 
-    let num_root_moves = ctx.root_moves_count();
-    let pv_count = if multi_pv { num_root_moves } else { 1 };
-
+    // Multi-PV loop
     for pv_idx in 0..pv_count {
         if pv_idx >= 1 {
             alpha = -SCORE_INF;
@@ -106,38 +118,27 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
 
         let mut best_move_sq = Square::None;
+
+        // Iterative selectivity loop
         for selectivity in 1..=NO_SELECTIVITY {
-            if level.get_end_depth(selectivity) < n_empties {
+            // Check depth limit when not using time control
+            if !use_time_control && task.level.get_end_depth(selectivity) < n_empties {
                 break;
             }
 
             ctx.selectivity = selectivity;
-            let mut delta = 2;
-
-            loop {
-                best_score = search::<Root, false>(&mut ctx, &board, alpha, beta, thread, None);
-
-                if thread.is_search_aborted() {
-                    break;
-                }
-
-                if best_score <= alpha {
-                    beta = alpha;
-                    alpha = (best_score - delta).max(-SCORE_INF);
-                } else if best_score >= beta {
-                    alpha = (beta - delta).max(alpha);
-                    beta = (best_score + delta).min(SCORE_INF);
-                } else {
-                    break;
-                }
-
-                delta += delta;
-            }
+            best_score = aspiration_search(&mut ctx, &board, &mut alpha, &mut beta, thread);
 
             let best_move = ctx.get_best_root_move(true).unwrap();
+
+            // Update aspiration window for next selectivity
             alpha = (best_score - 2).max(-SCORE_INF);
             beta = (best_score + 2).min(SCORE_INF);
             best_move_sq = best_move.sq;
+
+            if thread.is_search_aborted() {
+                break;
+            }
 
             ctx.notify_progress(
                 n_empties,
@@ -146,7 +147,8 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 ctx.selectivity,
             );
 
-            if thread.is_search_aborted() {
+            // Check time control
+            if should_stop_iteration(&time_manager) {
                 break;
             }
         }
@@ -156,26 +158,70 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         let best_move = ctx.get_best_root_move(false).unwrap();
         best_score = best_move.score;
 
-        if thread.is_search_aborted() {
-            return SearchResult {
-                score: best_score as Scoref,
-                best_move: Some(best_move.sq),
-                n_nodes: ctx.n_nodes,
-                pv_line: best_move.pv,
-                depth: n_empties,
-                selectivity: ctx.selectivity,
-            };
+        // Check abort or time limit
+        if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
+            return build_endgame_result(&ctx, &best_move, n_empties);
         }
     }
 
     let rm = ctx.get_best_root_move(false).unwrap();
+    build_endgame_result(&ctx, &rm, n_empties)
+}
+
+/// Performs aspiration window search for endgame at the current selectivity level.
+fn aspiration_search(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: &mut Score,
+    beta: &mut Score,
+    thread: &Arc<Thread>,
+) -> Score {
+    let mut delta = 2;
+
+    loop {
+        let score = search::<Root, false>(ctx, board, *alpha, *beta, thread, None);
+
+        if thread.is_search_aborted() {
+            return score;
+        }
+
+        // Widen window based on fail direction
+        if score <= *alpha {
+            *beta = *alpha;
+            *alpha = (score - delta).max(-SCORE_INF);
+        } else if score >= *beta {
+            *alpha = (*beta - delta).max(*alpha);
+            *beta = (score + delta).min(SCORE_INF);
+        } else {
+            return score;
+        }
+
+        delta += delta; // Exponential widening
+    }
+}
+
+/// Determines whether to stop the current selectivity iteration based on time control.
+fn should_stop_iteration(time_manager: &Option<Arc<super::time_control::TimeManager>>) -> bool {
+    match time_manager {
+        Some(tm) => tm.check_time() || !tm.should_continue_iteration(),
+        None => false,
+    }
+}
+
+/// Builds the search result for endgame.
+fn build_endgame_result(
+    ctx: &SearchContext,
+    best_move: &super::root_move::RootMove,
+    n_empties: Depth,
+) -> SearchResult {
     SearchResult {
-        score: best_score as Scoref,
-        best_move: Some(rm.sq),
+        score: best_move.score as Scoref,
+        best_move: Some(best_move.sq),
         n_nodes: ctx.n_nodes,
-        pv_line: rm.pv,
+        pv_line: best_move.pv.clone(),
         depth: n_empties,
         selectivity: ctx.selectivity,
+        game_phase: GamePhase::EndGame,
     }
 }
 
@@ -198,6 +244,7 @@ fn estimate_aspiration_base_score(
     thread: &Arc<Thread>,
 ) -> Score {
     ctx.game_phase = GamePhase::MidGame;
+    ctx.selectivity = 0;
     let midgame_depth = n_empties / 2;
 
     let hash_key = board.hash();
@@ -205,7 +252,6 @@ fn estimate_aspiration_base_score(
     let score = if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
         tt_data.score
     } else if n_empties >= 22 {
-        ctx.selectivity = 0;
         midgame::search::<PV, false>(
             ctx,
             board,
@@ -315,6 +361,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
 
         if !NT::PV_NODE
             && tt_hit
+            && tt_data.is_endgame
             && tt_data.depth >= n_empties
             && tt_data.selectivity >= ctx.selectivity
             && tt_data.can_cut(scale_score(beta))
@@ -469,6 +516,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         best_move,
         ctx.selectivity,
         ctx.generation,
+        true,
     );
 
     best_score
@@ -517,6 +565,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     };
 
     if tt_hit
+        && tt_data.is_endgame
         && tt_data.depth >= n_empties
         && tt_data.selectivity >= ctx.selectivity
         && tt_data.can_cut(scale_score(beta))
@@ -570,6 +619,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         best_move,
         NO_SELECTIVITY,
         ctx.generation,
+        true,
     );
 
     best_score

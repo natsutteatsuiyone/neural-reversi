@@ -22,6 +22,25 @@ pub struct Level {
 }
 
 impl Level {
+    /// Creates a Level with no depth restrictions (for time-controlled search).
+    ///
+    /// This Level allows the search to continue until time runs out,
+    /// without any artificial depth limits. The search will be controlled
+    /// solely by the TimeManager.
+    ///
+    /// Note: `end_depth` is set to 20 as a safety threshold - at 20 or fewer
+    /// empties, endgame search is always fast enough. For more empties,
+    /// the dynamic transition based on NPS estimation determines when to
+    /// switch from midgame to endgame search. When endgame search is entered
+    /// via dynamic transition, the time_manager controls the selectivity loop
+    /// instead of end_depth.
+    pub const fn unlimited() -> Self {
+        Level {
+            mid_depth: 60,      // Maximum possible depth for midgame
+            end_depth: [14; 7], // Static transition at 14 empties; dynamic for higher
+        }
+    }
+
     /// Returns the endgame search depth for a given selectivity level.
     ///
     /// # Arguments

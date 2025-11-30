@@ -8,6 +8,7 @@ mod error;
 mod game;
 mod match_runner;
 mod statistics;
+mod time_tracker;
 
 use config::Config;
 use error::MatchRunnerError;

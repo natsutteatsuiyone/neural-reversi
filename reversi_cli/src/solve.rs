@@ -7,7 +7,7 @@ use reversi_core::{
     board::Board,
     level::get_level,
     piece::Piece,
-    search::{Search, SearchOptions},
+    search::{Search, SearchConstraint, SearchOptions},
     types::Selectivity,
 };
 
@@ -110,7 +110,14 @@ fn solve_position(
     // search
     search.init();
     let start_time = Instant::now();
-    let result = search.run(&board, level, selectivity, false);
+    let constraint = SearchConstraint::Level(level);
+    let result = search.run(
+        &board,
+        constraint,
+        selectivity,
+        false,
+        None::<fn(reversi_core::search::SearchProgress)>,
+    );
     let elapsed = start_time.elapsed();
 
     let depth = if result.get_probability() == 100 {

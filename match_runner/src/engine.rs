@@ -270,6 +270,59 @@ impl GtpEngine {
     }
 
     // =============================================================================
+    // Time Control
+    // =============================================================================
+
+    /// Configure time control settings for the engine.
+    ///
+    /// Sends a "time_settings" GTP command to configure the engine's time control.
+    /// This command is optional and some engines may not support it.
+    ///
+    /// # Arguments
+    ///
+    /// * `main_time` - Main time in seconds (0 for byoyomi-only mode)
+    /// * `byoyomi_time` - Time per period in seconds (or increment for Fischer)
+    /// * `byoyomi_stones` - Number of moves per period (1 for byoyomi/Fischer)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success or if the engine doesn't support time_settings.
+    pub fn time_settings(
+        &mut self,
+        main_time: u64,
+        byoyomi_time: u64,
+        byoyomi_stones: u32,
+    ) -> Result<()> {
+        let response = self.send_command(&format!(
+            "time_settings {main_time} {byoyomi_time} {byoyomi_stones}"
+        ))?;
+        // Ignore errors - not all engines support time_settings
+        let _ = Self::parse_optional_response(&response);
+        Ok(())
+    }
+
+    /// Update the remaining time for a player.
+    ///
+    /// Sends a "time_left" GTP command to inform the engine of the current
+    /// remaining time for a player.
+    ///
+    /// # Arguments
+    ///
+    /// * `color` - The color ("black" or "white")
+    /// * `time` - Remaining time in seconds
+    /// * `stones` - Number of stones/moves remaining in the period (0 for sudden death)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on success or if the engine doesn't support time_left.
+    pub fn time_left(&mut self, color: &str, time: u64, stones: u32) -> Result<()> {
+        let response = self.send_command(&format!("time_left {color} {time} {stones}"))?;
+        // Ignore errors - not all engines support time_left
+        let _ = Self::parse_optional_response(&response);
+        Ok(())
+    }
+
+    // =============================================================================
     // Engine Management
     // =============================================================================
 

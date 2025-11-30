@@ -8,16 +8,18 @@ pub mod search_context;
 pub mod search_result;
 pub mod side_to_move;
 pub mod threading;
+pub mod time_control;
 
 use std::sync::Arc;
-
-use search_result::SearchResult;
-use threading::{Thread, ThreadPool};
 
 use crate::board::Board;
 use crate::constants::MAX_THREADS;
 use crate::eval::Eval;
 use crate::level::Level;
+use crate::search::search_context::GamePhase;
+use crate::search::search_result::SearchResult;
+use crate::search::threading::{Thread, ThreadPool};
+use crate::search::time_control::{TimeControlMode, TimeManager};
 use crate::square::Square;
 use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, Score, Scoref, Selectivity};
@@ -29,9 +31,11 @@ pub struct Search {
     generation: u8,
     threads: Arc<ThreadPool>,
     eval: Arc<Eval>,
+    endgame_start_n_empties: Option<Depth>,
 }
 
 /// Task structure passed to search threads
+#[derive(Clone)]
 pub struct SearchTask {
     pub board: Board,
     pub generation: u8,
@@ -42,6 +46,7 @@ pub struct SearchTask {
     pub level: Level,
     pub multi_pv: bool,
     pub callback: Option<Arc<SearchProgressCallback>>,
+    pub time_manager: Option<Arc<TimeManager>>,
 }
 
 /// Progress information during search
@@ -56,6 +61,12 @@ pub struct SearchProgress {
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
 pub use options::SearchOptions;
+
+/// Search constraint definition
+pub enum SearchConstraint {
+    Level(Level),
+    Time(TimeControlMode),
+}
 
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
@@ -75,6 +86,7 @@ impl Search {
             generation: 0,
             threads: ThreadPool::new(n_threads),
             eval: Arc::new(eval),
+            endgame_start_n_empties: None,
         }
     }
 
@@ -82,22 +94,13 @@ impl Search {
         self.tt.clear();
         self.eval.cache.clear();
         self.generation = 0;
+        self.endgame_start_n_empties = None;
     }
 
-    pub fn run(
+    pub fn run<F>(
         &mut self,
         board: &Board,
-        level: Level,
-        selectivity: Selectivity,
-        multi_pv: bool,
-    ) -> SearchResult {
-        self.run_with_callback::<fn(SearchProgress)>(board, level, selectivity, multi_pv, None)
-    }
-
-    pub fn run_with_callback<F>(
-        &mut self,
-        board: &Board,
-        level: Level,
+        constraint: SearchConstraint,
         selectivity: Selectivity,
         multi_pv: bool,
         callback: Option<F>,
@@ -105,8 +108,70 @@ impl Search {
     where
         F: Fn(SearchProgress) + Send + Sync + 'static,
     {
+        use crate::constants::SCORE_INF;
+        use crate::types::Scoref;
+
         let callback = callback.map(|f| Arc::new(f) as Arc<SearchProgressCallback>);
-        self.execute_search(board, level, selectivity, multi_pv, callback)
+
+        // Configure time manager and level based on constraint
+        let (time_manager, mut effective_level) = match constraint {
+            SearchConstraint::Level(level) => (None, level),
+            SearchConstraint::Time(mode) => {
+                let tm = Arc::new(TimeManager::new(
+                    mode,
+                    self.threads.get_abort_flag(),
+                    board.get_empty_count(),
+                ));
+                (Some(tm), Level::unlimited())
+            }
+        };
+
+        let n_empties = board.get_empty_count();
+        if let Some(endgame_start_n_empties) = self.endgame_start_n_empties {
+            if n_empties > endgame_start_n_empties {
+                self.endgame_start_n_empties = None;
+            } else {
+                effective_level.end_depth = [60; 7];
+            }
+        }
+
+        let mut result = self.execute_search(
+            board,
+            effective_level,
+            selectivity,
+            multi_pv,
+            callback.clone(),
+            time_manager,
+        );
+
+        // Fallback to quick_move if score is invalid
+        // This can happen when search is aborted before completing any iteration
+        if result.score == (-SCORE_INF) as Scoref {
+            let fallback = self.quick_move(board);
+            result.score = fallback.score;
+            if result.best_move.is_none() {
+                result.best_move = fallback.best_move;
+                result.pv_line = fallback.pv_line;
+            }
+        }
+
+        if let Some(callback) = callback {
+            callback(SearchProgress {
+                depth: result.depth,
+                score: result.score,
+                probability: result.get_probability(),
+                best_move: result.best_move.unwrap_or(Square::None),
+            });
+        }
+
+        if self.endgame_start_n_empties.is_none()
+            && result.depth + 1 >= n_empties
+            && result.selectivity >= 3
+        {
+            self.endgame_start_n_empties = Some(n_empties - 1);
+        }
+
+        result
     }
 
     fn execute_search(
@@ -116,8 +181,12 @@ impl Search {
         selectivity: Selectivity,
         multi_pv: bool,
         callback: Option<Arc<SearchProgressCallback>>,
+        time_manager: Option<Arc<TimeManager>>,
     ) -> SearchResult {
         self.generation += 1;
+
+        // Get deadline for timer thread
+        let timer_time_manager = time_manager.clone();
 
         let task = SearchTask {
             board: *board,
@@ -129,13 +198,27 @@ impl Search {
             level,
             multi_pv,
             callback,
+            time_manager,
         };
 
+        // Start timer thread if we have a deadline
+        if let Some(tm) = timer_time_manager
+            && tm.deadline().is_some()
+        {
+            self.threads.start_timer(tm);
+        }
+
         let result_receiver = self.threads.start_thinking(task);
-        result_receiver.recv().unwrap()
+        let result = result_receiver.recv().unwrap();
+
+        // Stop timer thread
+        self.threads.stop_timer();
+
+        result
     }
 
     pub fn abort(&self) {
+        self.threads.stop_timer();
         self.threads.abort_search();
     }
 
@@ -148,7 +231,67 @@ impl Search {
     }
 
     pub fn test(&mut self, board: &Board, level: Level, selectivity: Selectivity) -> SearchResult {
-        self.execute_search(board, level, selectivity, false, None)
+        self.execute_search(board, level, selectivity, false, None, None)
+    }
+
+    /// Quick move selection for time-critical situations.
+    ///
+    /// Performs a shallow 1-ply search to find the best move when there's
+    /// not enough time for a full search. This is a fallback for situations
+    /// where the main search would return invalid results.
+    ///
+    /// # Arguments
+    ///
+    /// * `board` - The board position to search
+    ///
+    /// # Returns
+    ///
+    /// SearchResult with the best move found by shallow evaluation
+    pub fn quick_move(&self, board: &Board) -> SearchResult {
+        use crate::bitboard::BitboardIterator;
+        use crate::constants::{SCORE_INF, unscale_score_f32};
+        use crate::flip;
+
+        let moves = board.get_moves();
+        if moves == 0 {
+            // No legal moves - return pass
+            return SearchResult {
+                score: 0.0,
+                best_move: None,
+                n_nodes: 0,
+                pv_line: vec![],
+                depth: 0,
+                selectivity: 0,
+                game_phase: GamePhase::MidGame,
+            };
+        }
+
+        let mut best_move = Square::None;
+        let mut best_score = -SCORE_INF;
+
+        // Evaluate each move with depth-1 search
+        for sq in BitboardIterator::new(moves) {
+            let flipped = flip::flip(sq, board.player, board.opponent);
+            let next = board.make_move_with_flipped(flipped, sq);
+
+            // Evaluate the resulting position (negamax)
+            let score = -self.eval.evaluate_simple(&next);
+
+            if score > best_score {
+                best_score = score;
+                best_move = sq;
+            }
+        }
+
+        SearchResult {
+            score: unscale_score_f32(best_score),
+            best_move: Some(best_move),
+            n_nodes: BitboardIterator::new(moves).count() as u64,
+            pv_line: vec![best_move],
+            depth: 1,
+            selectivity: 0,
+            game_phase: GamePhase::MidGame,
+        }
     }
 }
 
@@ -163,11 +306,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let min_end_depth = task.level.get_end_depth(0);
     let n_empties = task.board.get_empty_count();
 
-    if min_end_depth < n_empties {
-        midgame::search_root(task, thread)
-    } else {
-        endgame::search_root(task, thread)
+    if min_end_depth >= n_empties {
+        return endgame::search_root(task, thread);
     }
+
+    midgame::search_root(task, thread)
 }
 
 /// Enhanced Transposition Cutoff
@@ -187,7 +330,9 @@ fn enhanced_transposition_cutoff(
 
         let etc_tt_key = next.hash();
         let (etc_tt_hit, etc_tt_data, _tt_entry_index) = ctx.tt.probe(etc_tt_key, ctx.generation);
+        let is_endgame = ctx.game_phase == GamePhase::EndGame;
         if etc_tt_hit
+            && etc_tt_data.is_endgame == is_endgame
             && etc_tt_data.depth >= etc_depth
             && etc_tt_data.selectivity >= ctx.selectivity
         {
@@ -204,6 +349,7 @@ fn enhanced_transposition_cutoff(
                     mv.sq,
                     ctx.selectivity,
                     ctx.generation,
+                    ctx.game_phase == GamePhase::EndGame,
                 );
                 return Some(score);
             }

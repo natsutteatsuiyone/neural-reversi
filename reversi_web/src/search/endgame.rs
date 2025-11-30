@@ -130,6 +130,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         best_move,
         NO_SELECTIVITY,
         ctx.generation,
+        true,
     );
 
     best_score

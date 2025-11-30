@@ -36,6 +36,9 @@ const MIN_SPLIT_DEPTH: Depth = 5;
 /// Minimum depth for enhanced transposition table cutoff.
 const MIN_ETC_DEPTH: Depth = 6;
 
+/// Initial aspiration window delta.
+const ASPIRATION_DELTA: Score = scale_score(3);
+
 /// Performs the root search using iterative deepening with aspiration windows.
 ///
 /// # Arguments
@@ -46,15 +49,10 @@ const MIN_ETC_DEPTH: Depth = 6;
 /// # Returns
 ///
 /// SearchResult containing the best move, score, and search statistics
-///
-/// # Special Cases
-///
-/// - Returns a random move for the opening position (60 empty squares)
-/// - Returns evaluation only for depth 0 searches
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
-    let level = task.level;
-    let multi_pv = task.multi_pv;
+    let time_manager = task.time_manager.clone();
+    let use_time_control = time_manager.is_some();
 
     let mut ctx = SearchContext::new(
         &board,
@@ -63,118 +61,186 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         task.tt.clone(),
         task.eval.clone(),
     );
+    ctx.game_phase = GamePhase::MidGame;
 
     let n_empties = ctx.empty_list.count;
+
+    // Handle opening position with random move
     if n_empties == 60 && !task.multi_pv {
-        let mv = random_move(&board);
-        return SearchResult {
-            score: 0.0,
-            best_move: Some(mv),
-            n_nodes: 0,
-            pv_line: vec![],
-            depth: 0,
-            selectivity: NO_SELECTIVITY,
-        };
+        return SearchResult::new_random_move(random_move(&board));
     }
 
     if let Some(ref callback) = task.callback {
         ctx.set_callback(callback.clone());
     }
 
-    const INITIAL_DELTA: Score = scale_score(3);
+    // Search configuration
+    let org_selectivity = ctx.selectivity;
+    let pv_count = if task.multi_pv {
+        ctx.root_moves_count()
+    } else {
+        1
+    };
+    let max_depth = task.level.mid_depth.max(1).min(n_empties);
+    let mut prev_best_move: Option<Square> = None;
+
+    let mut depth = compute_start_depth(max_depth);
     let mut best_score = 0;
     let mut alpha = -SCORE_INF;
     let mut beta = SCORE_INF;
-    ctx.game_phase = GamePhase::MidGame;
 
-    let num_root_moves = ctx.root_moves_count();
-    let pv_count = if multi_pv { num_root_moves } else { 1 };
-
-    let org_selectivty = ctx.selectivity;
-    let max_depth = level.mid_depth.max(1);
-    let start_depth = if max_depth.is_multiple_of(2) { 2 } else { 1 };
-    let mut depth = start_depth;
     while depth <= max_depth {
-        ctx.selectivity = org_selectivty - ((max_depth - depth) as u8).min(org_selectivty);
+        // Adjust selectivity based on remaining depth (only without time control)
+        if !use_time_control {
+            ctx.selectivity = org_selectivity.saturating_sub((max_depth - depth) as u8);
+        }
         ctx.reset_root_move_searched();
 
-        let mut delta = INITIAL_DELTA;
+        // Reset aspiration window for shallow depths
         if depth <= 10 {
             alpha = -SCORE_INF;
             beta = SCORE_INF;
         }
 
+        // Multi-PV loop
         for pv_idx in 0..pv_count {
             if pv_idx >= 1 {
                 alpha = -SCORE_INF;
                 beta = best_score;
             }
 
-            loop {
-                best_score =
-                    search::<Root, false>(&mut ctx, &board, depth, alpha, beta, thread, None);
-
-                if thread.is_search_aborted() {
-                    break;
-                }
-
-                if best_score <= alpha {
-                    beta = alpha;
-                    alpha = (best_score - delta).max(-SCORE_INF);
-                } else if best_score >= beta {
-                    alpha = (beta - delta).max(alpha);
-                    beta = (best_score + delta).min(SCORE_INF);
-                } else {
-                    break;
-                }
-
-                delta += delta / 2;
-            }
+            best_score = aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
 
             let best_move = ctx.get_best_root_move(true).unwrap();
             ctx.mark_root_move_searched(best_move.sq);
+
+            if thread.is_search_aborted() {
+                break;
+            }
+
             ctx.notify_progress(
                 depth,
                 unscale_score_f32(best_score),
                 best_move.sq,
                 ctx.selectivity,
             );
-
-            if thread.is_search_aborted() {
-                break;
-            }
         }
 
         let best_move = ctx.get_best_root_move(false).unwrap();
-        alpha = (best_move.average_score - INITIAL_DELTA).max(-SCORE_INF);
-        beta = (best_move.average_score + INITIAL_DELTA).min(SCORE_INF);
 
-        if thread.is_search_aborted() {
-            return SearchResult {
-                score: unscale_score_f32(best_move.score),
-                best_move: Some(best_move.sq),
-                n_nodes: ctx.n_nodes,
-                pv_line: best_move.pv,
-                depth,
-                selectivity: ctx.selectivity,
-            };
+        // Update aspiration window for next iteration
+        alpha = (best_move.average_score - ASPIRATION_DELTA).max(-SCORE_INF);
+        beta = (best_move.average_score + ASPIRATION_DELTA).min(SCORE_INF);
+
+        // Notify time manager about search progress
+        if let Some(ref tm) = time_manager {
+            let pv_changed = prev_best_move.is_some_and(|sq| sq != best_move.sq);
+            tm.try_extend_time(unscale_score_f32(best_move.score), pv_changed, depth);
+        }
+        prev_best_move = Some(best_move.sq);
+
+        // Check termination conditions
+        if thread.is_search_aborted() || should_stop_iteration(&time_manager) {
+            return build_search_result(&ctx, &best_move, depth.min(n_empties));
         }
 
-        if depth <= 10 {
-            depth += 2;
-        } else {
-            depth += 1;
+        // Advance to next depth
+        depth = next_iteration_depth(depth, max_depth, &mut ctx.selectivity, use_time_control);
+        if depth == 0 {
+            break; // selectivity maxed out, exit loop
         }
     }
 
     let rm = ctx.get_best_root_move(false).unwrap();
+    build_search_result(&ctx, &rm, max_depth.min(n_empties))
+}
+
+/// Computes the starting depth for iterative deepening.
+fn compute_start_depth(max_depth: Depth) -> Depth {
+    if max_depth.is_multiple_of(2) { 2 } else { 1 }
+}
+
+/// Performs aspiration window search at the given depth.
+fn aspiration_search(
+    ctx: &mut SearchContext,
+    board: &Board,
+    depth: Depth,
+    alpha: &mut Score,
+    beta: &mut Score,
+    thread: &Arc<Thread>,
+) -> Score {
+    let mut delta = ASPIRATION_DELTA;
+
+    loop {
+        let score = search::<Root, false>(ctx, board, depth, *alpha, *beta, thread, None);
+
+        if thread.is_search_aborted() {
+            return score;
+        }
+
+        if score <= *alpha {
+            *beta = *alpha;
+            *alpha = (score - delta).max(-SCORE_INF);
+        } else if score >= *beta {
+            *alpha = (*beta - delta).max(*alpha);
+            *beta = (score + delta).min(SCORE_INF);
+        } else {
+            return score;
+        }
+
+        delta += delta / 2;
+    }
+}
+
+/// Determines whether to stop the current iteration based on time control.
+fn should_stop_iteration(time_manager: &Option<Arc<super::time_control::TimeManager>>) -> bool {
+    match time_manager {
+        Some(tm) => tm.check_time() || !tm.should_continue_iteration(),
+        None => false,
+    }
+}
+
+/// Computes the next iteration depth, handling selectivity progression.
+///
+/// Returns 0 if the search should terminate (selectivity maxed out).
+fn next_iteration_depth(
+    current_depth: Depth,
+    max_depth: Depth,
+    selectivity: &mut u8,
+    use_time_control: bool,
+) -> Depth {
+    // At max_depth - 1 with time control, try increasing selectivity instead of depth
+    if use_time_control && current_depth == max_depth - 1 {
+        if *selectivity < NO_SELECTIVITY {
+            *selectivity += 1;
+            return current_depth; // Stay at same depth with higher selectivity
+        } else {
+            return 0; // Signal to exit
+        }
+    }
+
+    // Normal depth progression: +2 for shallow, +1 for deep
+    if current_depth <= 10 {
+        current_depth + 2
+    } else {
+        current_depth + 1
+    }
+}
+
+/// Builds the final search result from the current state.
+fn build_search_result(
+    ctx: &SearchContext,
+    best_move: &super::root_move::RootMove,
+    reported_depth: Depth,
+) -> SearchResult {
     SearchResult {
-        score: unscale_score_f32(best_score),
-        best_move: Some(rm.sq),
+        score: unscale_score_f32(best_move.score),
+        best_move: Some(best_move.sq),
         n_nodes: ctx.n_nodes,
-        pv_line: rm.pv,
-        depth: max_depth,
+        pv_line: best_move.pv.clone(),
+        depth: reported_depth,
         selectivity: ctx.selectivity,
+        game_phase: GamePhase::MidGame,
     }
 }
 
@@ -465,6 +531,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         best_move,
         ctx.selectivity,
         ctx.generation,
+        false, // midgame search
     );
 
     best_score

@@ -1,155 +1,14 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Trophy, RotateCcw, Play, Bot, CircleX } from "lucide-react";
+import { Trophy, RotateCcw, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MoveHistory } from "./move-history";
 import { GameModeSelector } from "./game-mode-selector";
-import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { getNotation, getWinner } from "@/lib/game-logic";
+import { getWinner } from "@/lib/game-logic";
 import { AIEvaluationChart } from "./ai-evaluation-chart";
-import { type AIMoveProgress, type AIMoveResult } from "@/lib/ai";
-
-const DISC_CLASS: Record<"black" | "white", string> = {
-  black: "w-7 h-7 rounded-full bg-gradient-to-br from-neutral-600 to-black shadow-md",
-  white: "w-7 h-7 rounded-full bg-gradient-to-br from-white to-neutral-200 border border-white/20 shadow-md",
-};
-
-type PlayerScoreCardProps = {
-  color: "black" | "white";
-  score: number;
-  isCurrent: boolean;
-  isAIControlled: boolean;
-  aiLevel: number;
-  isThinking: boolean;
-  lastAIMove: AIMoveResult | null;
-  aiMoveProgress: AIMoveProgress | null;
-  onAbort: () => Promise<void>;
-};
-
-type AIInfoProps = {
-  thinking: boolean;
-  lastMove: AIMoveResult | null;
-  aiMoveProgress: AIMoveProgress | null;
-  onAbort: () => Promise<void>;
-};
-
-function formatScore(score: number): string {
-  return score > 0 ? `+${score}` : String(score);
-}
-
-function formatDepth(depth: number, acc: number): string {
-  return acc === 100 ? `${depth}` : `${depth}@${acc}%`;
-}
-
-function AIInfo({ thinking, lastMove, aiMoveProgress, onAbort }: AIInfoProps) {
-  if (!thinking && !lastMove) {
-    return null;
-  }
-
-  const showProgress = thinking && aiMoveProgress;
-  const showLastMove = !thinking && lastMove;
-
-  let moveLabel = "";
-  let scoreLabel = "";
-  let depthLabel = "";
-
-  if (showProgress) {
-    moveLabel = aiMoveProgress!.bestMove;
-    scoreLabel = formatScore(aiMoveProgress!.score);
-    depthLabel = formatDepth(aiMoveProgress!.depth, aiMoveProgress!.acc);
-  } else if (showLastMove) {
-    const move = lastMove!;
-    moveLabel = getNotation(move.row, move.col);
-    scoreLabel = formatScore(move.score);
-    depthLabel = formatDepth(move.depth, move.acc);
-  }
-
-  return (
-    <div className="flex items-center grow">
-      <div className="flex items-center gap-2 grow">
-        <Bot
-          className={cn(
-            "w-4 h-4",
-            thinking ? "text-emerald-300 animate-pulse" : "text-emerald-300"
-          )}
-        />
-        {moveLabel && (
-          <div className="text-sm text-emerald-200/70 font-mono">
-            <div>
-              <span>{moveLabel}</span>
-              <span className="ml-1">({scoreLabel})</span>
-            </div>
-            <div>{depthLabel}</div>
-          </div>
-        )}
-      </div>
-      {thinking && (
-        <div className="text-sm text-emerald-200/70 flex flex-col items-center">
-          <button type="button" onClick={() => void onAbort()}>
-            <CircleX className="w-5 h-5 text-amber-200 hover:text-amber-100 cursor-pointer" />
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PlayerScoreCard({
-  color,
-  score,
-  isCurrent,
-  isAIControlled,
-  aiLevel,
-  isThinking,
-  lastAIMove,
-  aiMoveProgress,
-  onAbort,
-}: PlayerScoreCardProps) {
-  return (
-    <div
-      className={cn("rounded-lg h-14", isCurrent ? "bg-white/20" : "bg-white/10")}
-    >
-      <div className="h-full px-3 flex items-center gap-3">
-        <div className="shrink-0">
-          <div className={DISC_CLASS[color]} />
-        </div>
-        <div className="flex-1 min-w-0 flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xl font-bold text-white/90">{score}</span>
-            <span className="text-sm text-white/70">
-              {isAIControlled ? (
-                <div className="flex flex-col">
-                  <span>AI</span>
-                  <span>Lv.{aiLevel}</span>
-                </div>
-              ) : (
-                <div>Player</div>
-              )}
-            </span>
-          </div>
-          {isAIControlled && (
-            <AIInfo
-              thinking={isThinking}
-              lastMove={isThinking ? null : lastAIMove}
-              aiMoveProgress={aiMoveProgress}
-              onAbort={onAbort}
-            />
-          )}
-        </div>
-        <div className="shrink-0">
-          <div
-            className={cn(
-              "w-2 h-2 rounded-full transition-colors",
-              isCurrent ? "bg-emerald-400" : "bg-transparent"
-            )}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
+import { PlayerScoreCard } from "./info-panel/player-score-card";
 
 export function InfoPanel() {
   const currentPlayer = useReversiStore((state) => state.currentPlayer);
@@ -158,6 +17,8 @@ export function InfoPanel() {
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const lastAIMove = useReversiStore((state) => state.lastAIMove);
   const aiLevel = useReversiStore((state) => state.aiLevel);
+  const aiMode = useReversiStore((state) => state.aiMode);
+  const aiRemainingTime = useReversiStore((state) => state.aiRemainingTime);
   const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress);
   const startGame = useReversiStore((state) => state.startGame);
   const resetGame = useReversiStore((state) => state.resetGame);
@@ -192,6 +53,8 @@ export function InfoPanel() {
                   lastAIMove={blackIsAI ? lastAIMove : null}
                   aiMoveProgress={aiMoveProgress}
                   onAbort={abortAIMove}
+                  aiMode={aiMode}
+                  aiRemainingTime={aiRemainingTime}
                 />
                 <PlayerScoreCard
                   color="white"
@@ -203,6 +66,8 @@ export function InfoPanel() {
                   lastAIMove={whiteIsAI ? lastAIMove : null}
                   aiMoveProgress={aiMoveProgress}
                   onAbort={abortAIMove}
+                  aiMode={aiMode}
+                  aiRemainingTime={aiRemainingTime}
                 />
               </div>
             </div>

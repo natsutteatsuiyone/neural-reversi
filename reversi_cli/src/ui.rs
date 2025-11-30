@@ -9,7 +9,7 @@ use reversi_core::{
     level::{self},
     piece::Piece,
     search::search_result::SearchResult,
-    search::{self, SearchOptions},
+    search::{self, SearchConstraint, SearchOptions},
     square::Square,
     types::Selectivity,
 };
@@ -311,7 +311,14 @@ fn execute_ai_search(
     level: usize,
     selectivity: Selectivity,
 ) -> SearchResult {
-    search.run(board, level::get_level(level), selectivity, false)
+    let constraint = SearchConstraint::Level(level::get_level(level));
+    search.run(
+        board,
+        constraint,
+        selectivity,
+        false,
+        None::<fn(search::SearchProgress)>,
+    )
 }
 
 /// Display the results of an AI search in either verbose or compact format.

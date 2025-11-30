@@ -9,6 +9,7 @@ export type AIMoveResult = {
   score: number;
   depth: number;
   acc: number;
+  timeTaken: number;
 } | null;
 
 export type AIMoveProgress = {
@@ -24,7 +25,8 @@ export async function getAIMove(
   board: Board,
   player: Player,
   level: number,
-  selectivity: number,
+  timeLimit: number | undefined,
+  remainingTime: number | undefined,
   callback: (arg0: Event<AIMoveProgress>) => void
 ): Promise<AIMoveResult> {
   const validMoves = getValidMoves(board, player);
@@ -45,7 +47,8 @@ export async function getAIMove(
     return await invoke<AIMoveResult>("ai_move_command", {
       boardString,
       level,
-      selectivity,
+      timeLimit,
+      remainingTime,
     });
   } catch {
     return null;
@@ -74,7 +77,6 @@ export async function analyze(
   board: Board,
   player: Player,
   level: number,
-  selectivity: number,
   callback: (arg0: Event<AIMoveProgress>) => void
 ): Promise<void> {
   const validMoves = getValidMoves(board, player);
@@ -95,7 +97,6 @@ export async function analyze(
     await invoke<AIMoveResult>("analyze_command", {
       boardString,
       level,
-      selectivity,
     });
   } finally {
     unlisten();

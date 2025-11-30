@@ -52,7 +52,7 @@ export function AIEvaluationChart() {
   }, [moves]);
 
   const yAxisDomain = useMemo(() => {
-    const defaultRange = [-4, 4];
+    const defaultRange = [-8, 8];
     if (chartData.length === 0) {
       return defaultRange;
     }

@@ -60,6 +60,36 @@ In GTP mode, the program accepts standard GTP commands plus some Reversi-specifi
 - `genmove <color>` - Let the AI generate a move
 - `showboard` - Display the current board state
 - `set_level <level>` - Change the AI difficulty level
+- `time_settings <main_time> <byoyomi_time> <byoyomi_stones>` - Configure time control
+- `time_left <color> <time> <stones>` - Update remaining time for a player
+
+#### Time Control
+
+The GTP mode supports time control for timed games. Use `time_settings` to configure the time control mode:
+
+**Byoyomi (fixed time per move):**
+
+```
+time_settings 0 5 1
+```
+
+This sets 5 seconds per move with no main time.
+
+**Fischer (main time + increment):**
+
+```
+time_settings 300 5 1
+```
+
+This sets 300 seconds main time with 5 seconds increment per move.
+
+Before each `genmove`, send `time_left` to inform the engine of the remaining time:
+
+```
+time_left black 295 0
+time_left white 300 0
+genmove black
+```
 
 ### Solve Mode
 
