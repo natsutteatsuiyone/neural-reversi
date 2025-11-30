@@ -176,12 +176,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                 );
             }
 
-            println!(
-                "Line {}, Ply {}: Analyzed move {}",
-                line_no + 1,
-                ply,
-                sq.to_string()
-            );
+            println!("Line {}, Ply {}: Analyzed move {}", line_no + 1, ply, sq);
 
             board = board.make_move(sq);
         }

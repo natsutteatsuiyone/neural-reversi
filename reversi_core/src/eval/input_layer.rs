@@ -385,7 +385,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 
         let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_avx512::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
-        self.apply_activation_avx512(&*acc, output);
+        self.apply_activation_avx512(&acc, output);
     }
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -398,7 +398,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 
         let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_avx2::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
-        self.apply_activation_avx2(&*acc, output);
+        self.apply_activation_avx2(&acc, output);
     }
 
     // AVX-512-optimized activation function.

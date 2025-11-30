@@ -192,6 +192,7 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 /// A `u64` value representing the possible moves for the player.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
+#[allow(dead_code)]
 fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
 
@@ -428,6 +429,7 @@ pub fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
+#[allow(dead_code)]
 fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::x86_64::*;
 

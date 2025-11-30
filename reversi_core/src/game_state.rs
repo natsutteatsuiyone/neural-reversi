@@ -158,7 +158,7 @@ impl GameState {
     pub fn is_game_over(&self) -> bool {
         // Check if the last move was a pass and current player has no legal moves
         // (meaning both players passed consecutively)
-        if self.history.last().map_or(false, |(sq, _, _)| sq.is_none())
+        if self.history.last().is_some_and(|(sq, _, _)| sq.is_none())
             && !self.board.has_legal_moves()
         {
             return true;

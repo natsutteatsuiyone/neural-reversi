@@ -95,7 +95,11 @@ impl EndGameCache {
             best_move: Square::from_u8_unchecked(
                 ((entry >> BEST_MOVE_SHIFT) & BEST_MOVE_MASK) as u8,
             ),
-            bound: unsafe { std::mem::transmute(((entry >> BOUND_SHIFT) & BOUND_MASK) as u8) },
+            bound: unsafe {
+                std::mem::transmute::<u8, EndGameCacheBound>(
+                    ((entry >> BOUND_SHIFT) & BOUND_MASK) as u8,
+                )
+            },
         })
     }
 

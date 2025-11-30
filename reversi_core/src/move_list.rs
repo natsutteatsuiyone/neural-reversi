@@ -5,8 +5,7 @@ use std::sync::atomic;
 
 use crate::bitboard::{BitboardIterator, corner_weighted_count, get_corner_stability};
 use crate::board::Board;
-use crate::constants::{EVAL_SCORE_SCALE, EVAL_SCORE_SCALE_BITS, SCORE_INF, scale_score};
-use crate::eval::Eval;
+use crate::constants::{EVAL_SCORE_SCALE, SCORE_INF, scale_score};
 use crate::flip;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;

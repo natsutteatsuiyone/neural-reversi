@@ -3,7 +3,7 @@ use crate::{
     util::align::Align64,
 };
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use std::arch::x86_64::*;
 
 /// Clone an evaluation bias vector into a 64-byte aligned array.

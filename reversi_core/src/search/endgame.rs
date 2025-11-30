@@ -324,8 +324,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return unscale_score(tt_data.score);
         }
 
-        if !NT::PV_NODE && n_empties >= MIN_ETC_DEPTH {
-            if let Some(score) = enhanced_transposition_cutoff(
+        if !NT::PV_NODE
+            && n_empties >= MIN_ETC_DEPTH
+            && let Some(score) = enhanced_transposition_cutoff(
                 ctx,
                 board,
                 &move_list,
@@ -333,9 +334,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 scale_score(alpha),
                 tt_key,
                 tt_entry_index,
-            ) {
-                return unscale_score(score);
-            }
+            )
+        {
+            return unscale_score(score);
         }
 
         if !NT::PV_NODE
@@ -735,20 +736,20 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 
     let mut best_move = Square::None;
     let mut best_score = -SCORE_INF;
-    if tt_move != Square::None {
-        if let Some(next) = board.try_make_move(tt_move) {
-            ctx.update_endgame(tt_move);
-            let score = search_child(ctx, &next, beta);
-            ctx.undo_endgame(tt_move);
+    if tt_move != Square::None
+        && let Some(next) = board.try_make_move(tt_move)
+    {
+        ctx.update_endgame(tt_move);
+        let score = search_child(ctx, &next, beta);
+        ctx.undo_endgame(tt_move);
 
-            if score > best_score {
-                if score >= beta {
-                    store_endgame_cache(key, beta, score, tt_move);
-                    return score;
-                }
-                best_move = tt_move;
-                best_score = score;
+        if score > best_score {
+            if score >= beta {
+                store_endgame_cache(key, beta, score, tt_move);
+                return score;
             }
+            best_move = tt_move;
+            best_score = score;
         }
     }
 

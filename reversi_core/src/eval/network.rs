@@ -219,7 +219,7 @@ impl Network {
 
         const L2_INPUT_DIMS_HALF: usize = L2_INPUT_DIMS / 2;
         sqr_clipped_relu::<L1_OUTPUT_DIMS>(
-            &buffers.l1_li_out.as_slice(),
+            buffers.l1_li_out.as_slice(),
             &mut buffers.l1_out[..L2_INPUT_DIMS_HALF],
         );
         clipped_relu::<L1_OUTPUT_DIMS>(

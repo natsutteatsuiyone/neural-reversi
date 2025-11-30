@@ -1,3 +1,5 @@
+#![allow(clippy::needless_late_init)]
+
 //! Based on flip_kindergarten.c from edax-reversi.
 //! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_kindergarten.c
 
@@ -1089,18 +1091,18 @@ fn flip_a1(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0001010101010100).wrapping_mul(0x0002040810204000)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0001010101010100).wrapping_mul(0x0002040810204000)) >> 57) as usize))
         & (((p & 0x0101010101010101).wrapping_mul(0x0102040810204080)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = a2a7!(index_v as usize);
 
-    index_h = (outflank!(0, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(0, index_h as usize) as u64) << 1;
+    index_h = (outflank!(0, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(0, index_h as usize)) << 1;
 
     index_d9 =
-        (outflank!(0, (((o & 0x0040201008040200).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(0, (((o & 0x0040201008040200).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x8040201008040201).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d9 = flipped!(0, index_d9 as usize) as u64;
+    index_d9 = flipped!(0, index_d9 as usize);
     flipped |= b2g7!(index_d9 as usize);
 
     flipped
@@ -1123,18 +1125,18 @@ fn flip_b1(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0002020202020200).wrapping_mul(0x0001020408102000)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0002020202020200).wrapping_mul(0x0001020408102000)) >> 57) as usize))
         & (((p & 0x0202020202020202).wrapping_mul(0x0081020408102040)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = b2b7!(index_v as usize);
 
-    index_h = (outflank!(1, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(1, index_h as usize) as u64) << 1;
+    index_h = (outflank!(1, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(1, index_h as usize)) << 1;
 
     index_d9 =
-        (outflank!(1, (((o & 0x0000402010080400).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(1, (((o & 0x0000402010080400).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x0080402010080402).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d9 = flipped!(1, index_d9 as usize) as u64;
+    index_d9 = flipped!(1, index_d9 as usize);
     flipped |= c2g6!(((index_d9 >> 1) as usize));
 
     flipped
@@ -1157,18 +1159,18 @@ fn flip_c1(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0004040404040400).wrapping_mul(0x0000810204081000)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0004040404040400).wrapping_mul(0x0000810204081000)) >> 57) as usize))
         & (((p & 0x0404040404040404).wrapping_mul(0x0040810204081020)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = c2c7!(index_v as usize);
 
-    index_h = (outflank!(2, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(2, index_h as usize) as u64) << 1;
+    index_h = (outflank!(2, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(2, index_h as usize)) << 1;
 
     index_d =
-        (outflank!(2, (((o & 0x0000004020100a04).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(2, (((o & 0x0000004020100a04).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x0000804020110a04).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d = flipped!(2, index_d as usize) as u64;
+    index_d = flipped!(2, index_d as usize);
     flipped |= b2c1g5!(index_d as usize);
 
     flipped
@@ -1191,18 +1193,18 @@ fn flip_d1(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0008080808080800).wrapping_mul(0x0000408102040800)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0008080808080800).wrapping_mul(0x0000408102040800)) >> 57) as usize))
         & (((p & 0x0808080808080808).wrapping_mul(0x0020408102040810)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = d2d7!(index_v as usize);
 
-    index_h = (outflank!(3, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(3, index_h as usize) as u64) << 1;
+    index_h = (outflank!(3, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(3, index_h as usize)) << 1;
 
     index_d =
-        (outflank!(3, (((o & 0x0000000040221408).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(3, (((o & 0x0000000040221408).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x0000008041221408).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d = flipped!(3, index_d as usize) as u64;
+    index_d = flipped!(3, index_d as usize);
     flipped |= b3d1g4!(index_d as usize);
 
     flipped
@@ -1225,18 +1227,18 @@ fn flip_e1(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0010101010101000).wrapping_mul(0x0000204081020400)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0010101010101000).wrapping_mul(0x0000204081020400)) >> 57) as usize))
         & (((p & 0x1010101010101010).wrapping_mul(0x0010204081020408)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = e2e7!(index_v as usize);
 
-    index_h = (outflank!(4, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(4, index_h as usize) as u64) << 1;
+    index_h = (outflank!(4, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(4, index_h as usize)) << 1;
 
     index_d =
-        (outflank!(4, (((o & 0x0000000002442810).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(4, (((o & 0x0000000002442810).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x0000000182442810).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d = flipped!(4, index_d as usize) as u64;
+    index_d = flipped!(4, index_d as usize);
     flipped |= b4e1g3!(index_d as usize);
 
     flipped
@@ -1259,18 +1261,18 @@ fn flip_f1(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0020202020202000).wrapping_mul(0x0000102040810200)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0020202020202000).wrapping_mul(0x0000102040810200)) >> 57) as usize))
         & (((p & 0x2020202020202020).wrapping_mul(0x0008102040810204)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = f2f7!(index_v as usize);
 
-    index_h = (outflank!(5, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(5, index_h as usize) as u64) << 1;
+    index_h = (outflank!(5, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(5, index_h as usize)) << 1;
 
     index_d =
-        (outflank!(5, (((o & 0x0000000204085020).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(5, (((o & 0x0000000204085020).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x0000010204885020).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d = flipped!(5, index_d as usize) as u64;
+    index_d = flipped!(5, index_d as usize);
     flipped |= b5f1g2!(index_d as usize);
 
     flipped
@@ -1293,18 +1295,18 @@ fn flip_g1(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0040404040404000).wrapping_mul(0x0000081020408100)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0040404040404000).wrapping_mul(0x0000081020408100)) >> 57) as usize))
         & (((p & 0x4040404040404040).wrapping_mul(0x0004081020408102)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = g2g7!(index_v as usize);
 
-    index_h = (outflank!(6, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(6, index_h as usize) as u64) << 1;
+    index_h = (outflank!(6, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(6, index_h as usize)) << 1;
 
     index_d7 =
-        (outflank!(6, (((o & 0x0000020408102040).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(6, (((o & 0x0000020408102040).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x0001020408102040).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d7 = flipped!(6, index_d7 as usize) as u64;
+    index_d7 = flipped!(6, index_d7 as usize);
     flipped |= f2b6!(index_d7 as usize);
 
     flipped
@@ -1327,18 +1329,18 @@ fn flip_h1(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = (outflank!(0, (((o & 0x0080808080808000).wrapping_mul(0x0000040810204080)) >> 57) as usize) as u64)
+    index_v = (outflank!(0, (((o & 0x0080808080808000).wrapping_mul(0x0000040810204080)) >> 57) as usize))
         & (((p & 0x8080808080808080).wrapping_mul(0x0002040810204081)) >> 56);
-    index_v = flipped!(0, index_v as usize) as u64;
+    index_v = flipped!(0, index_v as usize);
     flipped = h2h7!(index_v as usize);
 
-    index_h = (outflank!(7, ((o >> 1) & 0x3f) as usize) as u64) & p;
-    flipped |= (flipped!(7, index_h as usize) as u64) << 1;
+    index_h = (outflank!(7, ((o >> 1) & 0x3f) as usize)) & p;
+    flipped |= (flipped!(7, index_h as usize)) << 1;
 
     index_d7 =
-        (outflank!(7, (((o & 0x0002040810204080).wrapping_mul(0x0101010101010101)) >> 57) as usize) as u64)
+        (outflank!(7, (((o & 0x0002040810204080).wrapping_mul(0x0101010101010101)) >> 57) as usize))
             & (((p & 0x0102040810204080).wrapping_mul(0x0101010101010101)) >> 56);
-    index_d7 = flipped!(7, index_d7 as usize) as u64;
+    index_d7 = flipped!(7, index_d7 as usize);
     flipped |= g2b7!(index_d7 as usize);
 
     flipped
@@ -1361,18 +1363,18 @@ fn flip_a2(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) as u64 & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = a2a7!((index_v) as usize);
 
-    index_h = outflank!(0, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(0, index_h as usize) as u64) << 9;
+    index_h = outflank!(0, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(0, index_h as usize)) << 9;
 
-    index_d9 = outflank!(0, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(0, (index_d9) as usize) as u64;
+    index_d9 = outflank!(0, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(0, (index_d9) as usize);
     flipped |= b3f7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square B2.
@@ -1392,18 +1394,18 @@ fn flip_b2(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) as u64 & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = b2b7!((index_v) as usize);
 
-    index_h = outflank!(1, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(1, index_h as usize) as u64) << 9;
+    index_h = outflank!(1, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(1, index_h as usize)) << 9;
 
-    index_d9 = outflank!(1, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(1, (index_d9) as usize) as u64;
+    index_d9 = outflank!(1, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(1, (index_d9) as usize);
     flipped |= b2g7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square C2.
@@ -1423,18 +1425,18 @@ fn flip_c2(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) as u64 & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = c2c7!((index_v) as usize);
 
-    index_h = outflank!(2, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(2, index_h as usize) as u64) << 9;
+    index_h = outflank!(2, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(2, index_h as usize)) << 9;
 
-    index_d = outflank!(2, ((o & 0x00004020100a0400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x00804020110a0400u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(2, (index_d) as usize) as u64;
+    index_d = outflank!(2, ((o & 0x00004020100a0400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x00804020110a0400u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(2, (index_d) as usize);
     flipped |= b3c2g6!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square D2.
@@ -1454,18 +1456,18 @@ fn flip_d2(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) as u64 & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = d2d7!((index_v) as usize);
 
-    index_h = outflank!(3, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(3, index_h as usize) as u64) << 9;
+    index_h = outflank!(3, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(3, index_h as usize)) << 9;
 
-    index_d = outflank!(3, ((o & 0x0000004022140800u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0000804122140800u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(3, (index_d) as usize) as u64;
+    index_d = outflank!(3, ((o & 0x0000004022140800u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0000804122140800u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(3, (index_d) as usize);
     flipped |= b4d2g5!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square E2.
@@ -1485,18 +1487,18 @@ fn flip_e2(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) as u64 & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = e2e7!((index_v) as usize);
 
-    index_h = outflank!(4, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(4, index_h as usize) as u64) << 9;
+    index_h = outflank!(4, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(4, index_h as usize)) << 9;
 
-    index_d = outflank!(4, ((o & 0x0000000244281000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0000018244281000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(4, (index_d) as usize) as u64;
+    index_d = outflank!(4, ((o & 0x0000000244281000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0000018244281000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(4, (index_d) as usize);
     flipped |= b5e2g4!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square F2.
@@ -1516,18 +1518,18 @@ fn flip_f2(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) as u64 & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = f2f7!((index_v) as usize);
 
-    index_h = outflank!(5, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(5, index_h as usize) as u64) << 9;
+    index_h = outflank!(5, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(5, index_h as usize)) << 9;
 
-    index_d = outflank!(5, ((o & 0x0000020408502000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0001020488502000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(5, (index_d) as usize) as u64;
+    index_d = outflank!(5, ((o & 0x0000020408502000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0001020488502000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(5, (index_d) as usize);
     flipped |= b6f2g3!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square G2.
@@ -1547,18 +1549,18 @@ fn flip_g2(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) as u64 & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = g2g7!((index_v) as usize);
 
-    index_h = outflank!(6, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(6, index_h as usize) as u64) << 9;
+    index_h = outflank!(6, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(6, index_h as usize)) << 9;
 
-    index_d7 = outflank!(6, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(6, (index_d7) as usize) as u64;
+    index_d7 = outflank!(6, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(6, (index_d7) as usize);
     flipped |= g2b7!((index_d7) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square H2.
@@ -1578,18 +1580,18 @@ fn flip_h2(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(1, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) as u64 & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
-    index_v = flipped!(1, (index_v) as usize) as u64;
+    index_v = outflank!(1, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
+    index_v = flipped!(1, (index_v) as usize);
     flipped = h2h7!((index_v) as usize);
 
-    index_h = outflank!(7, ((o >> 9) & 0x3f) as usize) as u64 & (p >> 8);
-    flipped |= (flipped!(7, index_h as usize) as u64) << 9;
+    index_h = outflank!(7, ((o >> 9) & 0x3f) as usize) & (p >> 8);
+    flipped |= (flipped!(7, index_h as usize)) << 9;
 
-    index_d7 = outflank!(7, ((o & 0x0004081020408000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(7, (index_d7) as usize) as u64;
+    index_d7 = outflank!(7, ((o & 0x0004081020408000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(7, (index_d7) as usize);
     flipped |= g3c7!((index_d7 >> 1) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square A3.
@@ -1609,18 +1611,18 @@ fn flip_a3(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) as u64 & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = a2a7!((index_v) as usize);
 
-    index_h = outflank!(0, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(0, index_h as usize) as u64) << 17;
+    index_h = outflank!(0, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(0, index_h as usize)) << 17;
 
-    index_d = outflank!(2, ((((o & 0x0010080402000200u64) + 0x0070787c7e007e00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x2010080402010204u64) + 0x6070787c7e7f7e7cu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(2, (index_d) as usize) as u64;
+    index_d = outflank!(2, ((((o & 0x0010080402000200u64) + 0x0070787c7e007e00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x2010080402010204u64) + 0x6070787c7e7f7e7cu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(2, (index_d) as usize);
     flipped |= b2a3e7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square B3.
@@ -1640,18 +1642,18 @@ fn flip_b3(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) as u64 & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = b2b7!((index_v) as usize);
 
-    index_h = outflank!(1, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(1, index_h as usize) as u64) << 17;
+    index_h = outflank!(1, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(1, index_h as usize)) << 17;
 
-    index_d = outflank!(2, ((((o & 0x0020100804020400u64) + 0x006070787c7e7c00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x4020100804020408u64) + 0x406070787c7e7c78u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(2, (index_d) as usize) as u64;
+    index_d = outflank!(2, ((((o & 0x0020100804020400u64) + 0x006070787c7e7c00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x4020100804020408u64) + 0x406070787c7e7c78u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(2, (index_d) as usize);
     flipped |= c2b3f7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square C3.
@@ -1671,20 +1673,20 @@ fn flip_c3(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) as u64 & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = c2c7!((index_v) as usize);
 
-    index_h = outflank!(2, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(2, index_h as usize) as u64) << 17;
+    index_h = outflank!(2, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(2, index_h as usize)) << 17;
 
     flipped |= ((p >> 7) & 0x0000000002000000u64 & o) | ((p << 7) & 0x0000000000000800u64 & o);
 
-    index_d9 = outflank!(2, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(2, (index_d9) as usize) as u64;
+    index_d9 = outflank!(2, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(2, (index_d9) as usize);
     flipped |= b2g7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square D3.
@@ -1705,22 +1707,22 @@ fn flip_d3(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) as u64 & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = d2d7!((index_v) as usize);
 
-    index_h = outflank!(3, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(3, index_h as usize) as u64) << 17;
+    index_h = outflank!(3, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(3, index_h as usize)) << 17;
 
-    index_d7 = outflank!(3, ((o & 0x0000000204081000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0000010204081020u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(3, (index_d7) as usize) as u64;
+    index_d7 = outflank!(3, ((o & 0x0000000204081000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0000010204081020u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(3, (index_d7) as usize);
     flipped |= e2b5!((index_d7) as usize);
 
-    index_d9 = outflank!(3, ((o & 0x0000402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(3, (index_d9) as usize) as u64;
+    index_d9 = outflank!(3, ((o & 0x0000402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(3, (index_d9) as usize);
     flipped |= c2g6!((index_d9 >> 1) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square E3.
@@ -1741,22 +1743,22 @@ fn flip_e3(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) as u64 & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = e2e7!((index_v) as usize);
 
-    index_h = outflank!(4, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(4, index_h as usize) as u64) << 17;
+    index_h = outflank!(4, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(4, index_h as usize)) << 17;
 
-    index_d7 = outflank!(4, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(4, (index_d7) as usize) as u64;
+    index_d7 = outflank!(4, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(4, (index_d7) as usize);
     flipped |= f2b6!((index_d7) as usize);
 
-    index_d9 = outflank!(4, ((o & 0x0000004020100800u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0000804020100804u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(4, (index_d9) as usize) as u64;
+    index_d9 = outflank!(4, ((o & 0x0000004020100800u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0000804020100804u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(4, (index_d9) as usize);
     flipped |= d2g5!((index_d9 >> 2) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square F3.
@@ -1776,20 +1778,20 @@ fn flip_f3(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) as u64 & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = f2f7!((index_v) as usize);
 
-    index_h = outflank!(5, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(5, index_h as usize) as u64) << 17;
+    index_h = outflank!(5, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(5, index_h as usize)) << 17;
 
-    index_d7 = outflank!(5, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(5, (index_d7) as usize) as u64;
+    index_d7 = outflank!(5, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(5, (index_d7) as usize);
     flipped |= g2b7!((index_d7) as usize);
 
     flipped |= ((p >> 9) & 0x0000000040000000u64 & o) | ((p << 9) & 0x0000000000001000u64 & o);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square G3.
@@ -1809,18 +1811,18 @@ fn flip_g3(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) as u64 & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = g2g7!((index_v) as usize);
 
-    index_h = outflank!(6, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(6, index_h as usize) as u64) << 17;
+    index_h = outflank!(6, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(6, index_h as usize)) << 17;
 
-    index_d = outflank!(2, ((((o & 0x0004081020402000u64) + 0x007c787060406000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0204081020402010u64) + 0x7e7c787060406070u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(2, (index_d) as usize) as u64;
+    index_d = outflank!(2, ((((o & 0x0004081020402000u64) + 0x007c787060406000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0204081020402010u64) + 0x7e7c787060406070u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(2, (index_d) as usize);
     flipped |= f2g3c7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square H3.
@@ -1840,18 +1842,18 @@ fn flip_h3(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(2, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) as u64 & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
-    index_v = flipped!(2, (index_v) as usize) as u64;
+    index_v = outflank!(2, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
+    index_v = flipped!(2, (index_v) as usize);
     flipped = h2h7!((index_v) as usize);
 
-    index_h = outflank!(7, ((o >> 17) & 0x3f) as usize) as u64 & (p >> 16);
-    flipped |= (flipped!(7, index_h as usize) as u64) << 17;
+    index_h = outflank!(7, ((o >> 17) & 0x3f) as usize) & (p >> 16);
+    flipped |= (flipped!(7, index_h as usize)) << 17;
 
-    index_d = outflank!(2, ((((o & 0x0008102040804000u64) + 0x0078706040004000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0408102040804020u64) + 0x7c78706040004060u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(2, (index_d) as usize) as u64;
+    index_d = outflank!(2, ((((o & 0x0008102040804000u64) + 0x0078706040004000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0408102040804020u64) + 0x7c78706040004060u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(2, (index_d) as usize);
     flipped |= g2h3d7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square A4.
@@ -1871,18 +1873,18 @@ fn flip_a4(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) as u64 & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = a2a7!((index_v) as usize);
 
-    index_h = outflank!(0, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(0, index_h as usize) as u64) << 25;
+    index_h = outflank!(0, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(0, index_h as usize)) << 25;
 
-    index_d = outflank!(3, ((((o & 0x0008040200020400u64) + 0x00787c7e007e7c00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x1008040201020408u64) + 0x70787c7e7f7e7c78u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(3, (index_d) as usize) as u64;
+    index_d = outflank!(3, ((((o & 0x0008040200020400u64) + 0x00787c7e007e7c00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x1008040201020408u64) + 0x70787c7e7f7e7c78u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(3, (index_d) as usize);
     flipped |= c2a4d7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square B4.
@@ -1902,18 +1904,18 @@ fn flip_b4(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) as u64 & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = b2b7!((index_v) as usize);
 
-    index_h = outflank!(1, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(1, index_h as usize) as u64) << 25;
+    index_h = outflank!(1, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(1, index_h as usize)) << 25;
 
-    index_d = outflank!(3, ((((o & 0x0010080402040800u64) + 0x0070787c7e7c7800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x2010080402040810u64) + 0x6070787c7e7c7870u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(3, (index_d) as usize) as u64;
+    index_d = outflank!(3, ((((o & 0x0010080402040800u64) + 0x0070787c7e7c7800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x2010080402040810u64) + 0x6070787c7e7c7870u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(3, (index_d) as usize);
     flipped |= d2b4e7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square C4.
@@ -1934,22 +1936,22 @@ fn flip_c4(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) as u64 & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = c2c7!((index_v) as usize);
 
-    index_h = outflank!(2, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(2, index_h as usize) as u64) << 25;
+    index_h = outflank!(2, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(2, index_h as usize)) << 25;
 
-    index_d7 = outflank!(2, ((o & 0x0000000204081000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0000010204081020u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(2, (index_d7) as usize) as u64;
+    index_d7 = outflank!(2, ((o & 0x0000000204081000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0000010204081020u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(2, (index_d7) as usize);
     flipped |= e2b5!((index_d7) as usize);
 
-    index_d9 = outflank!(2, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(2, (index_d9) as usize) as u64;
+    index_d9 = outflank!(2, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(2, (index_d9) as usize);
     flipped |= b3f7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square D4.
@@ -1970,22 +1972,22 @@ fn flip_d4(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) as u64 & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = d2d7!((index_v) as usize);
 
-    index_h = outflank!(3, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(3, index_h as usize) as u64) << 25;
+    index_h = outflank!(3, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(3, index_h as usize)) << 25;
 
-    index_d7 = outflank!(3, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(3, (index_d7) as usize) as u64;
+    index_d7 = outflank!(3, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(3, (index_d7) as usize);
     flipped |= f2b6!((index_d7) as usize);
 
-    index_d9 = outflank!(3, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(3, (index_d9) as usize) as u64;
+    index_d9 = outflank!(3, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(3, (index_d9) as usize);
     flipped |= b2g7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square E4.
@@ -2006,22 +2008,22 @@ fn flip_e4(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) as u64 & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = e2e7!((index_v) as usize);
 
-    index_h = outflank!(4, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(4, index_h as usize) as u64) << 25;
+    index_h = outflank!(4, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(4, index_h as usize)) << 25;
 
-    index_d7 = outflank!(4, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(4, (index_d7) as usize) as u64;
+    index_d7 = outflank!(4, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(4, (index_d7) as usize);
     flipped |= g2b7!((index_d7) as usize);
 
-    index_d9 = outflank!(4, ((o & 0x0000402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(4, (index_d9) as usize) as u64;
+    index_d9 = outflank!(4, ((o & 0x0000402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(4, (index_d9) as usize);
     flipped |= c2g6!((index_d9 >> 1) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square F4.
@@ -2042,22 +2044,22 @@ fn flip_f4(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) as u64 & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = f2f7!((index_v) as usize);
 
-    index_h = outflank!(5, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(5, index_h as usize) as u64) << 25;
+    index_h = outflank!(5, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(5, index_h as usize)) << 25;
 
-    index_d7 = outflank!(5, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(5, (index_d7) as usize) as u64;
+    index_d7 = outflank!(5, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(5, (index_d7) as usize);
     flipped |= g3c7!((index_d7 >> 1) as usize);
 
-    index_d9 = outflank!(5, ((o & 0x0000004020100800u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0000804020100804u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(5, (index_d9) as usize) as u64;
+    index_d9 = outflank!(5, ((o & 0x0000004020100800u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0000804020100804u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(5, (index_d9) as usize);
     flipped |= d2g5!((index_d9 >> 2) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square G4.
@@ -2077,18 +2079,18 @@ fn flip_g4(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) as u64 & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = g2g7!((index_v) as usize);
 
-    index_h = outflank!(6, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(6, index_h as usize) as u64) << 25;
+    index_h = outflank!(6, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(6, index_h as usize)) << 25;
 
-    index_d = outflank!(3, ((((o & 0x0008102040201000u64) + 0x0078706040607000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0408102040201008u64) + 0x7c78706040607078u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(3, (index_d) as usize) as u64;
+    index_d = outflank!(3, ((((o & 0x0008102040201000u64) + 0x0078706040607000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0408102040201008u64) + 0x7c78706040607078u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(3, (index_d) as usize);
     flipped |= e2g4d7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square H4.
@@ -2108,18 +2110,18 @@ fn flip_h4(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(3, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) as u64 & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
-    index_v = flipped!(3, (index_v) as usize) as u64;
+    index_v = outflank!(3, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
+    index_v = flipped!(3, (index_v) as usize);
     flipped = h2h7!((index_v) as usize);
 
-    index_h = outflank!(7, ((o >> 25) & 0x3f) as usize) as u64 & (p >> 24);
-    flipped |= (flipped!(7, index_h as usize) as u64) << 25;
+    index_h = outflank!(7, ((o >> 25) & 0x3f) as usize) & (p >> 24);
+    flipped |= (flipped!(7, index_h as usize)) << 25;
 
-    index_d = outflank!(3, ((((o & 0x0010204080402000u64) + 0x0070604000406000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0810204080402010u64) + 0x7870604000406070u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(3, (index_d) as usize) as u64;
+    index_d = outflank!(3, ((((o & 0x0010204080402000u64) + 0x0070604000406000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0810204080402010u64) + 0x7870604000406070u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(3, (index_d) as usize);
     flipped |= f2h4e7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square A5.
@@ -2139,18 +2141,18 @@ fn flip_a5(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) as u64 & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = a2a7!((index_v) as usize);
 
-    index_h = outflank!(0, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(0, index_h as usize) as u64) << 33;
+    index_h = outflank!(0, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(0, index_h as usize)) << 33;
 
-    index_d = outflank!(4, ((((o & 0x0004020002040800u64) + 0x007c7e007e7c7800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0804020102040810u64) + 0x787c7e7f7e7c7870u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(4, (index_d) as usize) as u64;
+    index_d = outflank!(4, ((((o & 0x0004020002040800u64) + 0x007c7e007e7c7800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0804020102040810u64) + 0x787c7e7f7e7c7870u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(4, (index_d) as usize);
     flipped |= d2a5c7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square B5.
@@ -2170,18 +2172,18 @@ fn flip_b5(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) as u64 & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = b2b7!((index_v) as usize);
 
-    index_h = outflank!(1, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(1, index_h as usize) as u64) << 33;
+    index_h = outflank!(1, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(1, index_h as usize)) << 33;
 
-    index_d = outflank!(4, ((((o & 0x0008040204081000u64) + 0x00787c7e7c787000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x1008040204081020u64) + 0x70787c7e7c787060u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(4, (index_d) as usize) as u64;
+    index_d = outflank!(4, ((((o & 0x0008040204081000u64) + 0x00787c7e7c787000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x1008040204081020u64) + 0x70787c7e7c787060u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(4, (index_d) as usize);
     flipped |= e2b5d7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square C5.
@@ -2202,22 +2204,22 @@ fn flip_c5(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) as u64 & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = c2c7!((index_v) as usize);
 
-    index_h = outflank!(2, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(2, index_h as usize) as u64) << 33;
+    index_h = outflank!(2, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(2, index_h as usize)) << 33;
 
-    index_d7 = outflank!(2, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(2, (index_d7) as usize) as u64;
+    index_d7 = outflank!(2, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(2, (index_d7) as usize);
     flipped |= f2b6!((index_d7) as usize);
 
-    index_d9 = outflank!(2, ((o & 0x0010080402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x2010080402010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(2, (index_d9) as usize) as u64;
+    index_d9 = outflank!(2, ((o & 0x0010080402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x2010080402010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(2, (index_d9) as usize);
     flipped |= b4e7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square D5.
@@ -2238,22 +2240,22 @@ fn flip_d5(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) as u64 & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = d2d7!((index_v) as usize);
 
-    index_h = outflank!(3, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(3, index_h as usize) as u64) << 33;
+    index_h = outflank!(3, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(3, index_h as usize)) << 33;
 
-    index_d7 = outflank!(3, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(3, (index_d7) as usize) as u64;
+    index_d7 = outflank!(3, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(3, (index_d7) as usize);
     flipped |= g2b7!((index_d7) as usize);
 
-    index_d9 = outflank!(3, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(3, (index_d9) as usize) as u64;
+    index_d9 = outflank!(3, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(3, (index_d9) as usize);
     flipped |= b3f7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square E5.
@@ -2274,22 +2276,22 @@ fn flip_e5(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) as u64 & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = e2e7!((index_v) as usize);
 
-    index_h = outflank!(4, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(4, index_h as usize) as u64) << 33;
+    index_h = outflank!(4, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(4, index_h as usize)) << 33;
 
-    index_d7 = outflank!(4, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(4, (index_d7) as usize) as u64;
+    index_d7 = outflank!(4, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(4, (index_d7) as usize);
     flipped |= g3c7!((index_d7 >> 1) as usize);
 
-    index_d9 = outflank!(4, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(4, (index_d9) as usize) as u64;
+    index_d9 = outflank!(4, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(4, (index_d9) as usize);
     flipped |= b2g7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square F5.
@@ -2310,22 +2312,22 @@ fn flip_f5(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) as u64 & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = f2f7!((index_v) as usize);
 
-    index_h = outflank!(5, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(5, index_h as usize) as u64) << 33;
+    index_h = outflank!(5, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(5, index_h as usize)) << 33;
 
-    index_d7 = outflank!(5, ((o & 0x0008102040000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0408102040800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(5, (index_d7) as usize) as u64;
+    index_d7 = outflank!(5, ((o & 0x0008102040000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0408102040800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(5, (index_d7) as usize);
     flipped |= g4d7!((index_d7 >> 2) as usize);
 
-    index_d9 = outflank!(5, ((o & 0x0000402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(5, (index_d9) as usize) as u64;
+    index_d9 = outflank!(5, ((o & 0x0000402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(5, (index_d9) as usize);
     flipped |= c2g6!((index_d9 >> 1) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square G5.
@@ -2345,18 +2347,18 @@ fn flip_g5(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) as u64 & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = g2g7!((index_v) as usize);
 
-    index_h = outflank!(6, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(6, index_h as usize) as u64) << 33;
+    index_h = outflank!(6, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(6, index_h as usize)) << 33;
 
-    index_d = outflank!(4, ((((o & 0x0010204020100800u64) + 0x0070604060707800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0810204020100804u64) + 0x787060406070787cu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(4, (index_d) as usize) as u64;
+    index_d = outflank!(4, ((((o & 0x0010204020100800u64) + 0x0070604060707800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0810204020100804u64) + 0x787060406070787cu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(4, (index_d) as usize);
     flipped |= d2g5e7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square H5.
@@ -2376,18 +2378,18 @@ fn flip_h5(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(4, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) as u64 & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
-    index_v = flipped!(4, (index_v) as usize) as u64;
+    index_v = outflank!(4, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
+    index_v = flipped!(4, (index_v) as usize);
     flipped = h2h7!((index_v) as usize);
 
-    index_h = outflank!(7, ((o >> 33) & 0x3f) as usize) as u64 & (p >> 32);
-    flipped |= (flipped!(7, index_h as usize) as u64) << 33;
+    index_h = outflank!(7, ((o >> 33) & 0x3f) as usize) & (p >> 32);
+    flipped |= (flipped!(7, index_h as usize)) << 33;
 
-    index_d = outflank!(4, ((((o & 0x0020408040201000u64) + 0x0060400040607000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x1020408040201008u64) + 0x7060400040607078u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(4, (index_d) as usize) as u64;
+    index_d = outflank!(4, ((((o & 0x0020408040201000u64) + 0x0060400040607000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x1020408040201008u64) + 0x7060400040607078u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(4, (index_d) as usize);
     flipped |= e2h5f7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square A6.
@@ -2407,18 +2409,18 @@ fn flip_a6(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) as u64 & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = a2a7!((index_v) as usize);
 
-    index_h = outflank!(0, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(0, index_h as usize) as u64) << 41;
+    index_h = outflank!(0, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(0, index_h as usize)) << 41;
 
-    index_d = outflank!(5, ((((o & 0x0002000204081000u64) + 0x007e007e7c787000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0402010204081020u64) + 0x7c7e7f7e7c787060u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(5, (index_d) as usize) as u64;
+    index_d = outflank!(5, ((((o & 0x0002000204081000u64) + 0x007e007e7c787000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0402010204081020u64) + 0x7c7e7f7e7c787060u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(5, (index_d) as usize);
     flipped |= e2a6b7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square B6.
@@ -2438,18 +2440,18 @@ fn flip_b6(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) as u64 & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = b2b7!((index_v) as usize);
 
-    index_h = outflank!(1, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(1, index_h as usize) as u64) << 41;
+    index_h = outflank!(1, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(1, index_h as usize)) << 41;
 
-    index_d = outflank!(5, ((((o & 0x0004020408102000u64) + 0x007c7e7c78706000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x0804020408102040u64) + 0x787c7e7c78706040u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(5, (index_d) as usize) as u64;
+    index_d = outflank!(5, ((((o & 0x0004020408102000u64) + 0x007c7e7c78706000u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x0804020408102040u64) + 0x787c7e7c78706040u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(5, (index_d) as usize);
     flipped |= f2b6c7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square C6.
@@ -2469,20 +2471,20 @@ fn flip_c6(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) as u64 & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = c2c7!((index_v) as usize);
 
-    index_h = outflank!(2, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(2, index_h as usize) as u64) << 41;
+    index_h = outflank!(2, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(2, index_h as usize)) << 41;
 
-    index_d7 = outflank!(2, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(2, (index_d7) as usize) as u64;
+    index_d7 = outflank!(2, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(2, (index_d7) as usize);
     flipped |= g2b7!((index_d7) as usize);
 
     flipped |= ((p >> 9) & 0x0008000000000000u64 & o) | ((p << 9) & 0x0000000200000000u64 & o);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square D6.
@@ -2503,22 +2505,22 @@ fn flip_d6(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) as u64 & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = d2d7!((index_v) as usize);
 
-    index_h = outflank!(3, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(3, index_h as usize) as u64) << 41;
+    index_h = outflank!(3, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(3, index_h as usize)) << 41;
 
-    index_d7 = outflank!(3, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(3, (index_d7) as usize) as u64;
+    index_d7 = outflank!(3, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(3, (index_d7) as usize);
     flipped |= g3c7!((index_d7 >> 1) as usize);
 
-    index_d9 = outflank!(3, ((o & 0x0010080402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x2010080402010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(3, (index_d9) as usize) as u64;
+    index_d9 = outflank!(3, ((o & 0x0010080402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x2010080402010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(3, (index_d9) as usize);
     flipped |= b4e7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square E6.
@@ -2539,22 +2541,22 @@ fn flip_e6(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) as u64 & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = e2e7!((index_v) as usize);
 
-    index_h = outflank!(4, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(4, index_h as usize) as u64) << 41;
+    index_h = outflank!(4, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(4, index_h as usize)) << 41;
 
-    index_d7 = outflank!(4, ((o & 0x0008102040000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0408102040800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(4, (index_d7) as usize) as u64;
+    index_d7 = outflank!(4, ((o & 0x0008102040000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0408102040800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(4, (index_d7) as usize);
     flipped |= g4d7!((index_d7 >> 2) as usize);
 
-    index_d9 = outflank!(4, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(4, (index_d9) as usize) as u64;
+    index_d9 = outflank!(4, ((o & 0x0020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(4, (index_d9) as usize);
     flipped |= b3f7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square F6.
@@ -2574,20 +2576,20 @@ fn flip_f6(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) as u64 & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = f2f7!((index_v) as usize);
 
-    index_h = outflank!(5, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(5, index_h as usize) as u64) << 41;
+    index_h = outflank!(5, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(5, index_h as usize)) << 41;
 
     flipped |= ((p >> 7) & 0x0010000000000000u64 & o) | ((p << 7) & 0x0000004000000000u64 & o);
 
-    index_d9 = outflank!(5, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(5, (index_d9) as usize) as u64;
+    index_d9 = outflank!(5, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(5, (index_d9) as usize);
     flipped |= b2g7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square G6.
@@ -2607,18 +2609,18 @@ fn flip_g6(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) as u64 & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = g2g7!((index_v) as usize);
 
-    index_h = outflank!(6, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(6, index_h as usize) as u64) << 41;
+    index_h = outflank!(6, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(6, index_h as usize)) << 41;
 
-    index_d = outflank!(5, ((((o & 0x0020402010080400u64) + 0x0060406070787c00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x1020402010080402u64) + 0x7060406070787c7eu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(5, (index_d) as usize) as u64;
+    index_d = outflank!(5, ((((o & 0x0020402010080400u64) + 0x0060406070787c00u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x1020402010080402u64) + 0x7060406070787c7eu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(5, (index_d) as usize);
     flipped |= c2g6f7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square H6.
@@ -2638,18 +2640,18 @@ fn flip_h6(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(5, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) as u64 & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
-    index_v = flipped!(5, (index_v) as usize) as u64;
+    index_v = outflank!(5, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
+    index_v = flipped!(5, (index_v) as usize);
     flipped = h2h7!((index_v) as usize);
 
-    index_h = outflank!(7, ((o >> 41) & 0x3f) as usize) as u64 & (p >> 40);
-    flipped |= (flipped!(7, index_h as usize) as u64) << 41;
+    index_h = outflank!(7, ((o >> 41) & 0x3f) as usize) & (p >> 40);
+    flipped |= (flipped!(7, index_h as usize)) << 41;
 
-    index_d = outflank!(5, ((((o & 0x0040804020100800u64) + 0x0040004060707800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) as u64 & (((p & 0x2040804020100804u64) + 0x604000406070787cu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
-    index_d = flipped!(5, (index_d) as usize) as u64;
+    index_d = outflank!(5, ((((o & 0x0040804020100800u64) + 0x0040004060707800u64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 57) as usize) & (((p & 0x2040804020100804u64) + 0x604000406070787cu64) & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64) >> 56;
+    index_d = flipped!(5, (index_d) as usize);
     flipped |= d2h6g7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square A7.
@@ -2669,18 +2671,18 @@ fn flip_a7(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) as u64 & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = a2a7!((index_v) as usize);
 
-    index_h = outflank!(0, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(0, index_h as usize) as u64) << 49;
+    index_h = outflank!(0, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(0, index_h as usize)) << 49;
 
-    index_d7 = outflank!(0, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(0, (index_d7) as usize) as u64;
+    index_d7 = outflank!(0, ((o & 0x0000020408102000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0001020408102040u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(0, (index_d7) as usize);
     flipped |= f2b6!((index_d7) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square B7.
@@ -2700,18 +2702,18 @@ fn flip_b7(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) as u64 & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = b2b7!((index_v) as usize);
 
-    index_h = outflank!(1, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(1, index_h as usize) as u64) << 49;
+    index_h = outflank!(1, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(1, index_h as usize)) << 49;
 
-    index_d7 = outflank!(1, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(1, (index_d7) as usize) as u64;
+    index_d7 = outflank!(1, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(1, (index_d7) as usize);
     flipped |= g2b7!((index_d7) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square C7.
@@ -2731,18 +2733,18 @@ fn flip_c7(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) as u64 & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = c2c7!((index_v) as usize);
 
-    index_h = outflank!(2, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(2, index_h as usize) as u64) << 49;
+    index_h = outflank!(2, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(2, index_h as usize)) << 49;
 
-    index_d = outflank!(2, ((o & 0x00040a1020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x00040a1120408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(2, (index_d) as usize) as u64;
+    index_d = outflank!(2, ((o & 0x00040a1020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x00040a1120408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(2, (index_d) as usize);
     flipped |= b6c7g3!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square D7.
@@ -2762,18 +2764,18 @@ fn flip_d7(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) as u64 & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = d2d7!((index_v) as usize);
 
-    index_h = outflank!(3, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(3, index_h as usize) as u64) << 49;
+    index_h = outflank!(3, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(3, index_h as usize)) << 49;
 
-    index_d = outflank!(3, ((o & 0x0008142240000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0008142241800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(3, (index_d) as usize) as u64;
+    index_d = outflank!(3, ((o & 0x0008142240000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0008142241800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(3, (index_d) as usize);
     flipped |= b5d7g4!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square E7.
@@ -2793,18 +2795,18 @@ fn flip_e7(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) as u64 & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = e2e7!((index_v) as usize);
 
-    index_h = outflank!(4, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(4, index_h as usize) as u64) << 49;
+    index_h = outflank!(4, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(4, index_h as usize)) << 49;
 
-    index_d = outflank!(4, ((o & 0x0010284402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0010284482010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(4, (index_d) as usize) as u64;
+    index_d = outflank!(4, ((o & 0x0010284402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0010284482010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(4, (index_d) as usize);
     flipped |= b4e7g5!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square F7.
@@ -2824,18 +2826,18 @@ fn flip_f7(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) as u64 & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = f2f7!((index_v) as usize);
 
-    index_h = outflank!(5, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(5, index_h as usize) as u64) << 49;
+    index_h = outflank!(5, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(5, index_h as usize)) << 49;
 
-    index_d = outflank!(5, ((o & 0x0020500804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0020508804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(5, (index_d) as usize) as u64;
+    index_d = outflank!(5, ((o & 0x0020500804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0020508804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(5, (index_d) as usize);
     flipped |= b3f7g6!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square G7.
@@ -2855,18 +2857,18 @@ fn flip_g7(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) as u64 & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = g2g7!((index_v) as usize);
 
-    index_h = outflank!(6, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(6, index_h as usize) as u64) << 49;
+    index_h = outflank!(6, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(6, index_h as usize)) << 49;
 
-    index_d9 = outflank!(6, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(6, (index_d9) as usize) as u64;
+    index_d9 = outflank!(6, ((o & 0x0040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(6, (index_d9) as usize);
     flipped |= b2g7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square H7.
@@ -2886,18 +2888,18 @@ fn flip_h7(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(6, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) as u64 & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
-    index_v = flipped!(6, (index_v) as usize) as u64;
+    index_v = outflank!(6, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
+    index_v = flipped!(6, (index_v) as usize);
     flipped = h2h7!((index_v) as usize);
 
-    index_h = outflank!(7, ((o >> 49) & 0x3f) as usize) as u64 & (p >> 48);
-    flipped |= (flipped!(7, index_h as usize) as u64) << 49;
+    index_h = outflank!(7, ((o >> 49) & 0x3f) as usize) & (p >> 48);
+    flipped |= (flipped!(7, index_h as usize)) << 49;
 
-    index_d9 = outflank!(7, ((o & 0x0080402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(7, (index_d9) as usize) as u64;
+    index_d9 = outflank!(7, ((o & 0x0080402010080400u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0080402010080402u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(7, (index_d9) as usize);
     flipped |= c2g6!((index_d9 >> 1) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square A8.
@@ -2917,18 +2919,18 @@ fn flip_a8(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) as u64 & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0001010101010100).wrapping_mul(0x0002040810204000) >> 57) as usize) & (p & 0x0101010101010101).wrapping_mul(0x0102040810204080) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = a2a7!((index_v) as usize);
 
-    index_h = outflank!(0, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(0, index_h as usize) as u64) << 57;
+    index_h = outflank!(0, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(0, index_h as usize)) << 57;
 
-    index_d7 = outflank!(0, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(0, (index_d7) as usize) as u64;
+    index_d7 = outflank!(0, ((o & 0x0002040810204000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0102040810204080u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(0, (index_d7) as usize);
     flipped |= g2b7!((index_d7) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square B8.
@@ -2948,18 +2950,18 @@ fn flip_b8(p: u64, o: u64) -> u64 {
     let mut index_d7: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) as u64 & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0002020202020200).wrapping_mul(0x0001020408102000) >> 57) as usize) & (p & 0x0202020202020202).wrapping_mul(0x0081020408102040) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = b2b7!((index_v) as usize);
 
-    index_h = outflank!(1, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(1, index_h as usize) as u64) << 57;
+    index_h = outflank!(1, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(1, index_h as usize)) << 57;
 
-    index_d7 = outflank!(1, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d7 = flipped!(1, (index_d7) as usize) as u64;
+    index_d7 = outflank!(1, ((o & 0x0004081020400000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0204081020408000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d7 = flipped!(1, (index_d7) as usize);
     flipped |= g3c7!((index_d7 >> 1) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square C8.
@@ -2979,18 +2981,18 @@ fn flip_c8(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) as u64 & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0004040404040400).wrapping_mul(0x0000810204081000) >> 57) as usize) & (p & 0x0404040404040404).wrapping_mul(0x0040810204081020) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = c2c7!((index_v) as usize);
 
-    index_h = outflank!(2, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(2, index_h as usize) as u64) << 57;
+    index_h = outflank!(2, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(2, index_h as usize)) << 57;
 
-    index_d = outflank!(2, ((o & 0x040a102040000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x040a112040800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(2, (index_d) as usize) as u64;
+    index_d = outflank!(2, ((o & 0x040a102040000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x040a112040800000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(2, (index_d) as usize);
     flipped |= b7c8g4!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square D8.
@@ -3010,18 +3012,18 @@ fn flip_d8(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) as u64 & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0008080808080800).wrapping_mul(0x0000408102040800) >> 57) as usize) & (p & 0x0808080808080808).wrapping_mul(0x0020408102040810) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = d2d7!((index_v) as usize);
 
-    index_h = outflank!(3, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(3, index_h as usize) as u64) << 57;
+    index_h = outflank!(3, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(3, index_h as usize)) << 57;
 
-    index_d = outflank!(3, ((o & 0x0814224000000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x0814224180000000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(3, (index_d) as usize) as u64;
+    index_d = outflank!(3, ((o & 0x0814224000000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x0814224180000000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(3, (index_d) as usize);
     flipped |= b6d8g5!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square E8.
@@ -3041,18 +3043,18 @@ fn flip_e8(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) as u64 & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0010101010101000).wrapping_mul(0x0000204081020400) >> 57) as usize) & (p & 0x1010101010101010).wrapping_mul(0x0010204081020408) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = e2e7!((index_v) as usize);
 
-    index_h = outflank!(4, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(4, index_h as usize) as u64) << 57;
+    index_h = outflank!(4, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(4, index_h as usize)) << 57;
 
-    index_d = outflank!(4, ((o & 0x1028440200000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x1028448201000000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(4, (index_d) as usize) as u64;
+    index_d = outflank!(4, ((o & 0x1028440200000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x1028448201000000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(4, (index_d) as usize);
     flipped |= b5e8g6!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square F8.
@@ -3072,18 +3074,18 @@ fn flip_f8(p: u64, o: u64) -> u64 {
     let mut index_d: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) as u64 & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0020202020202000).wrapping_mul(0x0000102040810200) >> 57) as usize) & (p & 0x2020202020202020).wrapping_mul(0x0008102040810204) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = f2f7!((index_v) as usize);
 
-    index_h = outflank!(5, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(5, index_h as usize) as u64) << 57;
+    index_h = outflank!(5, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(5, index_h as usize)) << 57;
 
-    index_d = outflank!(5, ((o & 0x2050080402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x2050880402010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d = flipped!(5, (index_d) as usize) as u64;
+    index_d = outflank!(5, ((o & 0x2050080402000000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x2050880402010000u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d = flipped!(5, (index_d) as usize);
     flipped |= b4f8g7!((index_d) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square G8.
@@ -3103,18 +3105,18 @@ fn flip_g8(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) as u64 & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0040404040404000).wrapping_mul(0x0000081020408100) >> 57) as usize) & (p & 0x4040404040404040).wrapping_mul(0x0004081020408102) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = g2g7!((index_v) as usize);
 
-    index_h = outflank!(6, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(6, index_h as usize) as u64) << 57;
+    index_h = outflank!(6, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(6, index_h as usize)) << 57;
 
-    index_d9 = outflank!(6, ((o & 0x4020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(6, (index_d9) as usize) as u64;
+    index_d9 = outflank!(6, ((o & 0x4020100804020000u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x4020100804020100u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(6, (index_d9) as usize);
     flipped |= b3f7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 /// Compute flipped discs when playing on square H8.
@@ -3134,18 +3136,18 @@ fn flip_h8(p: u64, o: u64) -> u64 {
     let mut index_d9: u64;
     let mut flipped: u64;
 
-    index_v = outflank!(7, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) as u64 & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
-    index_v = flipped!(7, (index_v) as usize) as u64;
+    index_v = outflank!(7, ((o & 0x0080808080808000).wrapping_mul(0x0000040810204080) >> 57) as usize) & (p & 0x8080808080808080).wrapping_mul(0x0002040810204081) >> 56;
+    index_v = flipped!(7, (index_v) as usize);
     flipped = h2h7!((index_v) as usize);
 
-    index_h = outflank!(7, ((o >> 57) & 0x3f) as usize) as u64 & (p >> 56);
-    flipped |= (flipped!(7, index_h as usize) as u64) << 57;
+    index_h = outflank!(7, ((o >> 57) & 0x3f) as usize) & (p >> 56);
+    flipped |= (flipped!(7, index_h as usize)) << 57;
 
-    index_d9 = outflank!(7, ((o & 0x8040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) as u64 & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
-    index_d9 = flipped!(7, (index_d9) as usize) as u64;
+    index_d9 = outflank!(7, ((o & 0x8040201008040200u64).wrapping_mul(0x0101010101010101u64) >> 57) as usize) & (p & 0x8040201008040201u64).wrapping_mul(0x0101010101010101u64) >> 56;
+    index_d9 = flipped!(7, (index_d9) as usize);
     flipped |= b2g7!((index_d9) as usize);
 
-    return flipped;
+    flipped
 }
 
 type FlipFunction = fn(u64, u64) -> u64;

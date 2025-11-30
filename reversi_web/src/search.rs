@@ -64,7 +64,7 @@ impl Search {
     ) -> SearchResult {
         self.generation = self.generation.wrapping_add(1);
         let task = SearchTask {
-            board: board.clone(),
+            board: *board,
             level,
             generation: self.generation,
             selectivity,
@@ -199,7 +199,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 /// Performs the root search for endgame positions
 fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
     let n_empties = ctx.empty_list.count;
-    let score = estimate_aspiration_base_score(ctx, &board, n_empties);
+    let score = estimate_aspiration_base_score(ctx, board, n_empties);
     let final_selectivity = if n_empties > level.perfect_depth {
         NO_SELECTIVITY - 2
     } else {
@@ -215,7 +215,7 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
         let mut delta = scale_score(3);
 
         loop {
-            best_score = search::<Root>(ctx, &board, n_empties, alpha, beta);
+            best_score = search::<Root>(ctx, board, n_empties, alpha, beta);
 
             if best_score <= alpha {
                 beta = alpha;
@@ -267,7 +267,8 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empt
 
     let hash_key = board.hash();
     let (tt_hit, tt_data, _) = ctx.tt.probe(hash_key, ctx.generation);
-    let score = if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
+
+    if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
         tt_data.score
     } else if n_empties >= 16 {
         ctx.selectivity = 0;
@@ -276,9 +277,7 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empt
         evaluate_depth2(ctx, board, -SCORE_INF, SCORE_INF)
     } else {
         evaluate(ctx, board)
-    };
-
-    score
+    }
 }
 
 /// Selects a random legal move from the current position.
@@ -387,8 +386,9 @@ pub fn search<NT: NodeType>(
         return tt_data.score;
     }
 
-    if !NT::PV_NODE && depth >= MIN_ETC_DEPTH {
-        if let Some(score) = enhanced_transposition_cutoff(
+    if !NT::PV_NODE
+        && depth >= MIN_ETC_DEPTH
+        && let Some(score) = enhanced_transposition_cutoff(
             ctx,
             board,
             &move_list,
@@ -396,9 +396,9 @@ pub fn search<NT: NodeType>(
             alpha,
             tt_key,
             tt_entry_index,
-        ) {
-            return score;
-        }
+        )
+    {
+        return score;
     }
 
     if !NT::PV_NODE
@@ -513,9 +513,9 @@ pub fn evaluate_depth2(
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-        ctx.update(&mv);
+        ctx.update(mv);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-        ctx.undo(&mv);
+        ctx.undo(mv);
 
         if score > best_score {
             best_score = score;

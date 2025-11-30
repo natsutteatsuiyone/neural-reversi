@@ -29,13 +29,13 @@ use cfg_if::cfg_if;
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     cfg_if! {
         if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
-            return unsafe { flip_avx512::flip(sq, p, o) };
+            unsafe { flip_avx512::flip(sq, p, o) }
         } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
-            return unsafe { flip_avx2::flip(sq, p, o) };
+            unsafe { flip_avx2::flip(sq, p, o) }
         } else if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
-            return flip_bmi2::flip(sq, p, o);
+            flip_bmi2::flip(sq, p, o)
         } else {
-            return flip_kindergarten::flip(sq, p, o);
+            flip_kindergarten::flip(sq, p, o)
         }
     }
 }

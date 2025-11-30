@@ -104,12 +104,12 @@ impl Game {
     pub fn board(&self) -> Vec<u8> {
         let (black_bits, white_bits) = self.color_bitboards();
         let mut cells = vec![0u8; TOTAL_SQUARES];
-        for idx in 0..TOTAL_SQUARES {
+        for (idx, cell) in cells.iter_mut().enumerate().take(TOTAL_SQUARES) {
             let mask = 1u64 << idx;
             if (black_bits & mask) != 0 {
-                cells[idx] = 1;
+                *cell = 1;
             } else if (white_bits & mask) != 0 {
-                cells[idx] = 2;
+                *cell = 2;
             }
         }
         cells
@@ -504,7 +504,7 @@ impl BenchmarkRunner {
         let mut result_41_opt: Option<(SearchResult, f64)> = None;
 
         let benchmark_result = Self::measure_benchmark(
-            &format!("Endgame Search (FFO #40-41)"),
+            "Endgame Search (FFO #40-41)",
             iterations,
             2, // 2 positions per iteration
             || {

@@ -310,8 +310,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             return tt_data.score;
         }
 
-        if !NT::PV_NODE && depth >= MIN_ETC_DEPTH {
-            if let Some(score) = enhanced_transposition_cutoff(
+        if !NT::PV_NODE
+            && depth >= MIN_ETC_DEPTH
+            && let Some(score) = enhanced_transposition_cutoff(
                 ctx,
                 board,
                 &move_list,
@@ -319,9 +320,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 alpha,
                 tt_key,
                 tt_entry_index,
-            ) {
-                return score;
-            }
+            )
+        {
+            return score;
         }
 
         if !NT::PV_NODE
@@ -520,9 +521,9 @@ pub fn evaluate_depth2(
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-        ctx.update(&mv);
+        ctx.update(mv);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-        ctx.undo(&mv);
+        ctx.undo(mv);
 
         if score > best_score {
             best_score = score;

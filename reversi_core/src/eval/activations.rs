@@ -244,7 +244,6 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
                     _mm256_permutevar8x32_epi32(_mm256_packus_epi16(words0, words1), shuffle),
                 );
             }
-            return;
         } else {
             let num_chunks = SIZE / SSE2_SIMD_WIDTH;
             let input_ptr = input.as_ptr() as *const __m128i;
@@ -285,7 +284,7 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 /// * `start_idx` - Start index for processing (allows partial processing)
 fn screlu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
-        let clamped = input[i].max(0).min(255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;
+        let clamped = input[i].clamp(0, 255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;
         const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8;
         let val = (clamped * clamped) >> SHIFT;
         output[i] = val as u8;

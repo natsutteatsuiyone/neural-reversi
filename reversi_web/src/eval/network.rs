@@ -243,7 +243,7 @@ impl Network {
         input_layer: &InputLayer,
         output_layer: &OutputLayer,
     ) -> i32 {
-        let mut acc: [i16; NN_DIMS] = input_layer.biases.0.clone();
+        let mut acc: [i16; NN_DIMS] = input_layer.biases.0;
 
         // accumulate
         let weights = input_layer.weights.as_slice();

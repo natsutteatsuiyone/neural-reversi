@@ -162,7 +162,7 @@ const MASK_X: [[u64; 4];64] = [
 #[target_feature(enable = "bmi2")]
 #[inline]
 pub fn count_last_flip(player: u64, sq: Square) -> i32 {
-    let sq_idx = sq.index() as usize;
+    let sq_idx = sq.index();
     let x = sq_idx & 7;
     let y = sq_idx >> 3;
 

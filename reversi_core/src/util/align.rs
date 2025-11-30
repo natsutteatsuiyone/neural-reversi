@@ -13,6 +13,7 @@ impl<T> Align64<T> {
     /// Returns a raw pointer to the wrapped value.
     ///
     /// This is commonly used for SIMD operations that require aligned pointers.
+    #[allow(dead_code)]
     pub fn as_ptr(&self) -> *const T {
         &self.0 as *const T
     }

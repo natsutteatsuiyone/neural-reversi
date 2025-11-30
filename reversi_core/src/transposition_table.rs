@@ -45,10 +45,8 @@ impl Bound {
             return Bound::Lower;
         }
 
-        if NT::PV_NODE {
-            if best_score > alpha {
-                return Bound::Exact;
-            }
+        if NT::PV_NODE && best_score > alpha {
+            return Bound::Exact;
         }
 
         Bound::Upper

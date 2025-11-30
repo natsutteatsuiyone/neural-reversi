@@ -77,6 +77,12 @@ pub struct PatternFeature {
     data: [u16; FEATURE_VECTOR_SIZE],
 }
 
+impl Default for PatternFeature {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatternFeature {
     /// Creates a new PatternFeature initialized to zero.
     pub const fn new() -> Self {
@@ -91,6 +97,10 @@ impl PatternFeature {
     }
 
     /// Unsafe getter for internal data without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `idx < FEATURE_VECTOR_SIZE`.
     pub unsafe fn get_unchecked(&self, idx: usize) -> u16 {
         *unsafe { self.data.get_unchecked(idx) }
     }

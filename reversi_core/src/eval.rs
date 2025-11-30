@@ -134,10 +134,8 @@ impl Eval {
             self.cache.store(key, score);
             score
         } else {
-            let score = self
-                .network_sm
-                .evaluate(board, ctx.get_pattern_feature(), ctx.ply());
-            score
+            self.network_sm
+                .evaluate(board, ctx.get_pattern_feature(), ctx.ply())
         }
     }
 }

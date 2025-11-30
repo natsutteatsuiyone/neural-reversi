@@ -1,21 +1,12 @@
 //! Reference: https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h
-use std::{
-    io::{self, Read},
-    mem::size_of,
-    ptr::copy_nonoverlapping,
-};
-
-#[cfg(target_arch = "x86_64")]
-use {std::arch::is_x86_feature_detected, std::arch::x86_64::*};
+use std::io::{self, Read};
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 use cfg_if::cfg_if;
 
 use crate::constants::CACHE_LINE_SIZE;
-use crate::eval::util::clone_biases;
 use crate::util::align::Align64;
-use crate::util::ceil_to_multiple;
 
 /// Linear transformation layer.
 ///
@@ -33,12 +24,20 @@ pub struct LinearLayer<
 > {
     biases: AVec<i32, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i8, ConstAlign<CACHE_LINE_SIZE>>,
-    forward_fn: unsafe fn(
-        &Self,
-        &Align64<[u8; PADDED_INPUT_DIMS]>,
-        &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
-    ),
+    forward_fn: ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>,
 }
+
+/// Type alias for the forward function pointer.
+type ForwardFn<
+    const INPUT_DIMS: usize,
+    const OUTPUT_DIMS: usize,
+    const PADDED_INPUT_DIMS: usize,
+    const PADDED_OUTPUT_DIMS: usize,
+> = unsafe fn(
+    &LinearLayer<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>,
+    &Align64<[u8; PADDED_INPUT_DIMS]>,
+    &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+);
 
 impl<
     const INPUT_DIMS: usize,
@@ -86,31 +85,32 @@ impl<
 
     /// Selects the optimal forward implementation based on CPU features.
     fn select_forward_fn()
-    -> unsafe fn(&Self, &Align64<[u8; PADDED_INPUT_DIMS]>, &mut Align64<[i32; PADDED_OUTPUT_DIMS]>)
-    {
+    -> ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS> {
         cfg_if! {
             if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
+                use std::arch::x86_64::__m512i;
+                use std::arch::is_x86_feature_detected;
+
                 const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
                 let should_use_avx2 = OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH;
 
                 if should_use_avx2 {
                     if is_x86_feature_detected!("avxvnni") {
-                        return Self::forward_avx2_vnni;
+                        Self::forward_avx2_vnni
                     } else {
-                        return Self::forward_avx2_no_vnni;
+                        Self::forward_avx2_no_vnni
                     }
+                } else if is_x86_feature_detected!("avx512vnni") {
+                    Self::forward_avx512_vnni
                 } else {
-                    if is_x86_feature_detected!("avx512vnni") {
-                        return Self::forward_avx512_vnni;
-                    } else {
-                        return Self::forward_avx512_no_vnni;
-                    }
+                    Self::forward_avx512_no_vnni
                 }
             }  else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+                use std::arch::is_x86_feature_detected;
                 if is_x86_feature_detected!("avxvnni") {
-                    return Self::forward_avx2_vnni;
+                    Self::forward_avx2_vnni
                 } else {
-                    return Self::forward_avx2_no_vnni;
+                    Self::forward_avx2_no_vnni
                 }
             } else {
                 Self::forward_fallback_wrapper
@@ -213,7 +213,12 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
+        use crate::eval::util::clone_biases;
         use crate::eval::util::mm512_dpbusd_epi32;
+        use crate::util::ceil_to_multiple;
+        use std::arch::x86_64::*;
+        use std::mem::size_of;
+        use std::ptr::copy_nonoverlapping;
 
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
 
@@ -248,7 +253,12 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
+        use crate::eval::util::clone_biases;
         use crate::eval::util::mm256_dpbusd_epi32;
+        use crate::util::ceil_to_multiple;
+        use std::arch::x86_64::*;
+        use std::mem::size_of;
+        use std::ptr::copy_nonoverlapping;
 
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<i32>();
 
@@ -299,6 +309,8 @@ impl<
 
 #[cfg(test)]
 mod tests {
+    use aligned_vec::avec;
+
     use super::*;
     use std::io::Cursor;
 

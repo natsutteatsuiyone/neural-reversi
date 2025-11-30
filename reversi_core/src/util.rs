@@ -21,11 +21,13 @@ pub const fn ceil_to_multiple(n: usize, base: usize) -> usize {
 macro_rules! uget {
     ($arr:expr; $i:expr $(,)?) => {{
         #[allow(unused_unsafe)]
+        #[allow(clippy::macro_metavars_in_unsafe)]
         unsafe {{ ($arr).get_unchecked($i) }}
     }};
     ($arr:expr; $i:expr, $($rest:expr),+ $(,)?) => {{
         let __p = {{
             #[allow(unused_unsafe)]
+            #[allow(clippy::macro_metavars_in_unsafe)]
             unsafe {{ ($arr).get_unchecked($i) }}
         }};
         $crate::uget!(&*__p; $($rest),+)

@@ -81,7 +81,7 @@ const LRMASK:[V8DI; 66] = [
 	V8DI { ull: [ 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000 ]}
 ];
 
-#[cfg(all(target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 fn mm_flip(op: __m128i, pos: usize) -> __m128i {
     let mut flip: __m256i;
@@ -124,7 +124,7 @@ fn mm_flip(op: __m128i, pos: usize) -> __m128i {
     )
 }
 
-#[cfg(all(target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
 pub unsafe fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
