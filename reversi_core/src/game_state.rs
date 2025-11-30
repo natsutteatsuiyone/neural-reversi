@@ -175,9 +175,15 @@ impl GameState {
     /// discs each player has on the board
     pub fn get_score(&self) -> (u32, u32) {
         let (black_count, white_count) = if self.side_to_move == Piece::Black {
-            (self.board.get_player_count(), self.board.get_opponent_count())
+            (
+                self.board.get_player_count(),
+                self.board.get_opponent_count(),
+            )
         } else {
-            (self.board.get_opponent_count(), self.board.get_player_count())
+            (
+                self.board.get_opponent_count(),
+                self.board.get_player_count(),
+            )
         };
 
         (black_count, white_count)
@@ -259,7 +265,9 @@ mod tests {
         while !game.is_game_over() {
             if game.board().has_legal_moves() {
                 let moves = game.board().get_moves();
-                let first_move = crate::bitboard::BitboardIterator::new(moves).next().unwrap();
+                let first_move = crate::bitboard::BitboardIterator::new(moves)
+                    .next()
+                    .unwrap();
                 let _ = game.make_move(first_move);
             } else {
                 let _ = game.make_pass();
@@ -330,7 +338,6 @@ mod tests {
         assert_eq!(game.last_move(), Some(Square::C3));
     }
 
-
     #[test]
     fn test_from_board() {
         let board = Board::new();
@@ -340,7 +347,6 @@ mod tests {
         assert_eq!(*game.board(), board);
         assert_eq!(game.move_history().len(), 0);
     }
-
 
     #[test]
     fn test_history_complete_record() {
@@ -458,25 +464,13 @@ mod tests {
         );
 
         // Verify the first few moves in history
-        assert_eq!(
-            history[0].0,
-            Some(Square::E6),
-            "First move should be e6"
-        );
+        assert_eq!(history[0].0, Some(Square::E6), "First move should be e6");
         assert_eq!(history[0].2, Piece::Black, "First move by Black");
 
-        assert_eq!(
-            history[1].0,
-            Some(Square::F4),
-            "Second move should be f4"
-        );
+        assert_eq!(history[1].0, Some(Square::F4), "Second move should be f4");
         assert_eq!(history[1].2, Piece::White, "Second move by White");
 
-        assert_eq!(
-            history[2].0,
-            Some(Square::C3),
-            "Third move should be c3"
-        );
+        assert_eq!(history[2].0, Some(Square::C3), "Third move should be c3");
         assert_eq!(history[2].2, Piece::Black, "Third move by Black");
 
         // Verify last_move
@@ -493,24 +487,15 @@ mod tests {
                 assert_eq!(*sq, Some(Square::B1), "Second to last move should be b1");
             }
         } else {
-            assert_eq!(
-                game.last_move(),
-                Some(Square::B1),
-                "Last move should be b1"
-            );
+            assert_eq!(game.last_move(), Some(Square::B1), "Last move should be b1");
         }
 
         // Verify complete history matches the game record
-        let expected_moves: Vec<Square> = moves
-            .iter()
-            .map(|s| s.parse::<Square>().unwrap())
-            .collect();
+        let expected_moves: Vec<Square> =
+            moves.iter().map(|s| s.parse::<Square>().unwrap()).collect();
 
         // Extract non-pass moves from history
-        let actual_moves: Vec<Square> = history
-            .iter()
-            .filter_map(|(sq, _, _)| *sq)
-            .collect();
+        let actual_moves: Vec<Square> = history.iter().filter_map(|(sq, _, _)| *sq).collect();
 
         // All expected moves should be in the actual moves
         assert_eq!(
@@ -521,7 +506,8 @@ mod tests {
 
         for (i, (expected, actual)) in expected_moves.iter().zip(actual_moves.iter()).enumerate() {
             assert_eq!(
-                actual, expected,
+                actual,
+                expected,
                 "Move #{} mismatch: expected {:?}, got {:?}",
                 i + 1,
                 expected,

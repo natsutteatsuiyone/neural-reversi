@@ -402,16 +402,17 @@ pub fn get_potential_moves(p: u64, o: u64) -> u64 {
     (h | v | d1 | d2) & !(p | o)
 }
 
-/// Gets the possible moves and potential moves for the player simultaneously.
+/// Gets both the legal moves and potential moves for the current player.
 ///
 /// # Arguments
 ///
-/// * `player` - The player's bitboard.
-/// * `opponent` - The opponent's bitboard.
+/// * `p` - The player's bitboard.
+/// * `o` - The opponent's bitboard.
 ///
 /// # Returns
-///
-/// A tuple `(moves, potential_moves)`.
+/// A tuple containing two `u64` values:
+/// - The first value represents the legal moves.
+/// - The second value represents the potential moves.
 #[inline(always)]
 pub fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
     cfg_if! {

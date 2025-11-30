@@ -277,6 +277,17 @@ impl Board {
         crate::bitboard::get_potential_moves(self.player, self.opponent)
     }
 
+    /// Gets both the legal moves and potential moves for the current player.
+    ///
+    /// # Returns
+    /// A tuple containing two `u64` values:
+    /// - The first value represents the legal moves.
+    /// - The second value represents the potential moves.
+    #[inline]
+    pub fn get_moves_and_potential(&self) -> (u64, u64) {
+        crate::bitboard::get_moves_and_potential(self.player, self.opponent)
+    }
+
     /// Checks if a given square is empty.
     ///
     /// # Arguments
