@@ -23,13 +23,13 @@ const WIPEOUT_VALUE: i32 = 1 << 30;
 const TT_MOVE_VALUE: i32 = 1 << 20;
 
 /// Weight factor for potential mobility evaluation.
-const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 5;
+const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
 
 /// Weight factor for mobility evaluation.
 const MOBILITY_WEIGHT: i32 = 1 << 14;
 
 /// Weight factor for corner stability evaluation.
-const CORNER_STABILITY_WEIGHT: i32 = 1 << 11;
+const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
 
 /// Value assigned to moves that have already been searched in root node.
 const SEARCHED_MOVE_VALUE: i32 = -(1 << 20);
