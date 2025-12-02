@@ -34,11 +34,8 @@ const SELECTIVITY: [(u8, f64, i32); NO_SELECTIVITY as usize + 1] = [
 ];
 
 /// Statistical parameters for ProbCut prediction models
-/// - `depth_gap = max(deep_depth - shallow_depth, 0)`
-/// - `depth_gap_is_even = 1` when `depth_gap` is even, `0` otherwise
-/// - `depth_feat = 1 / (1 + ln(1 + depth_gap))`
-/// - `mean = mean_intercept + mean_coef_shallow * shallow_depth + mean_coef_deep * deep_depth + mean_coef_depth_diff * depth_feat + mean_coef_depth_gap_is_even * depth_gap_is_even`
-/// - `sigma = exp(std_intercept + std_coef_shallow * shallow_depth + std_coef_deep * deep_depth + std_coef_depth_diff * depth_feat + std_coef_depth_gap_is_even * depth_gap_is_even)`
+/// - `mean = mean_intercept + mean_coef_shallow * shallow_depth + mean_coef_deep * deep_depth`
+/// - `sigma = exp(std_intercept + std_coef_shallow * shallow_depth + std_coef_deep * deep_depth)`
 struct ProbcutParams {
     mean_intercept: f64,
     mean_coef_shallow: f64,
@@ -155,28 +152,28 @@ pub fn init() {
 
 /// Fast lookup of pre-computed mean value for midgame positions
 #[inline]
-fn calc_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
+fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = MEAN_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
 
 /// Fast lookup of pre-computed sigma value for midgame positions
 #[inline]
-fn calc_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
+fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = SIGMA_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
 
 /// Fast lookup of pre-computed mean value for endgame positions
 #[inline]
-fn calc_mean_end(shallow: Depth, deep: Depth) -> f64 {
+fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
     let tbl = MEAN_TABLE_END.get().expect("probcut not initialized");
     tbl[shallow as usize][deep as usize]
 }
 
 /// Fast lookup of pre-computed sigma value for endgame positions
 #[inline]
-fn calc_sigma_end(shallow: Depth, deep: Depth) -> f64 {
+fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
     let tbl = SIGMA_TABLE_END.get().expect("probcut not initialized");
     tbl[shallow as usize][deep as usize]
 }
@@ -237,8 +234,8 @@ pub fn probcut_midgame(
     if ctx.game_phase == GamePhase::MidGame {
         let ply = ctx.ply();
         let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
-        let mean = calc_mean(ply, pc_depth, depth);
-        let sigma = calc_sigma(ply, pc_depth, depth);
+        let mean = get_mean(ply, pc_depth, depth);
+        let sigma = get_sigma(ply, pc_depth, depth);
         let t = get_t(ctx.selectivity);
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if pc_beta >= MID_SCORE_MAX {
@@ -246,8 +243,8 @@ pub fn probcut_midgame(
         }
 
         let eval_score = midgame::evaluate(ctx, board);
-        let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
-        let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
+        let eval_mean = 0.5 * get_mean(ply, 0, depth) + mean;
+        let eval_sigma = t * 0.5 * get_sigma(ply, 0, depth) + sigma;
 
         let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
         if eval_score >= eval_beta {
@@ -318,18 +315,17 @@ fn probcut_endgame_internal(
     selectivity: Selectivity,
 ) -> Option<Score> {
     let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.75).floor()) as Depth;
-    let mean: f64 = calc_mean_end(pc_depth, depth);
-    let sigma: f64 = calc_sigma_end(pc_depth, depth);
+    let mean: f64 = get_mean_end(pc_depth, depth);
+    let sigma: f64 = get_sigma_end(pc_depth, depth);
     let t = get_t(ctx.selectivity);
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
     if pc_beta >= MID_SCORE_MAX {
         return None;
     }
 
-    let ply = ctx.ply();
     let eval_score = midgame::evaluate(ctx, board);
-    let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
-    let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
+    let eval_mean = 0.5 * get_mean_end(0, depth) + mean;
+    let eval_sigma = t * 0.5 * get_sigma_end(0, depth) + sigma;
     let eval_beta = (beta as f64 - eval_sigma - eval_mean).round() as Score;
 
     if eval_score >= eval_beta {
