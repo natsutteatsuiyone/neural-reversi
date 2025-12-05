@@ -19,7 +19,7 @@ use crate::square::Square;
 /// Used for endgame parity optimization where different quadrant
 /// combinations affect move ordering efficiency.
 #[rustfmt::skip]
-pub const QUADRANT_ID: [u8; 64] = [
+const QUADRANT_ID: [u8; 64] = [
     1, 1, 1, 1, 2, 2, 2, 2,
     1, 1, 1, 1, 2, 2, 2, 2,
     1, 1, 1, 1, 2, 2, 2, 2,
@@ -83,8 +83,6 @@ struct EmptyNode {
     next: Square,
     /// Previous square in the linked list (Square::None if first)
     prev: Square,
-    /// Quadrant bit mask (1, 2, 4, or 8) for parity tracking
-    quad_id: u8,
 }
 
 /// Efficient linked list of empty squares for move generation
@@ -100,6 +98,7 @@ pub struct EmptyList {
     /// XOR of all quadrant IDs (used for endgame parity optimization)
     pub parity: u8,
 }
+
 impl EmptyList {
     /// Creates a new `EmptyList` by scanning the board for empty squares.
     ///
@@ -122,8 +121,7 @@ impl EmptyList {
                 let sq_idx = sq.index();
                 nodes[prev_sq.index()].next = sq;
                 nodes[sq_idx].prev = prev_sq;
-                nodes[sq_idx].quad_id = QUADRANT_ID[sq_idx];
-                parity ^= nodes[sq_idx].quad_id;
+                parity ^= QUADRANT_ID[sq_idx];
                 prev_sq = sq;
                 count += 1;
             }
@@ -155,7 +153,7 @@ impl EmptyList {
     #[inline(always)]
     pub fn first_with_quad_id(&self) -> (Square, u8) {
         let first_sq = unsafe { self.nodes.get_unchecked(Square::None.index()).next };
-        let quad_id = unsafe { self.nodes.get_unchecked(first_sq.index()).quad_id };
+        let quad_id = unsafe { *QUADRANT_ID.get_unchecked(first_sq.index()) };
         (first_sq, quad_id)
     }
 
@@ -186,7 +184,7 @@ impl EmptyList {
     #[inline(always)]
     pub fn next_with_quad_id(&self, sq: Square) -> (Square, u8) {
         let next_sq = unsafe { self.nodes.get_unchecked(sq.index()).next };
-        let quad_id = unsafe { self.nodes.get_unchecked(next_sq.index()).quad_id };
+        let quad_id = unsafe { *QUADRANT_ID.get_unchecked(next_sq.index()) };
         (next_sq, quad_id)
     }
 
@@ -199,17 +197,17 @@ impl EmptyList {
     pub fn remove(&mut self, sq: Square) {
         let sq_idx = sq.index();
         unsafe {
-            let prev_idx = self.nodes.get_unchecked(sq_idx).prev.index();
-            let next_idx = self.nodes.get_unchecked(sq_idx).next.index();
-            let quad_id = self.nodes.get_unchecked(sq_idx).quad_id;
+            let node = self.nodes.get_unchecked(sq_idx);
+            let prev = node.prev;
+            let next = node.next;
 
-            let next = self.nodes.get_unchecked(sq_idx).next;
-            let prev = self.nodes.get_unchecked(sq_idx).prev;
+            let prev_idx = prev.index();
+            let next_idx = next.index();
 
             self.nodes.get_unchecked_mut(prev_idx).next = next;
             self.nodes.get_unchecked_mut(next_idx).prev = prev;
 
-            self.parity ^= quad_id;
+            self.parity ^= *QUADRANT_ID.get_unchecked(sq_idx);
         }
         self.count -= 1;
     }
@@ -221,16 +219,17 @@ impl EmptyList {
     /// * `sq` - The `Square` to restore. Must have been previously removed.
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
-        let sq_idx = sq.index();
+        let idx = sq.index();
         unsafe {
-            let prev_idx = self.nodes.get_unchecked(sq_idx).prev.index();
-            let next_idx = self.nodes.get_unchecked(sq_idx).next.index();
-            let quad_id = self.nodes.get_unchecked(sq_idx).quad_id;
+            let node = self.nodes.get_unchecked(idx);
+            let prev_idx = node.prev.index();
+            let next_idx = node.next.index();
 
             self.nodes.get_unchecked_mut(prev_idx).next = sq;
             self.nodes.get_unchecked_mut(next_idx).prev = sq;
 
-            self.parity ^= quad_id;
+            // `get_unchecked` returns `&u8`; parity stores the value, so XOR the byte
+            self.parity ^= *QUADRANT_ID.get_unchecked(idx);
         }
         self.count += 1;
     }
