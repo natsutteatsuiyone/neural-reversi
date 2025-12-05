@@ -3560,6 +3560,7 @@ name = "reversi_core"
 version = "0.13.1"
 dependencies = [
  "aligned-vec",
+ "arrayvec",
  "byteorder",
  "cfg-if",
  "criterion",

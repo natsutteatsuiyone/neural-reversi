@@ -1,5 +1,6 @@
 //! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c
 
+use arrayvec::ArrayVec;
 use std::slice;
 use std::sync::atomic;
 
@@ -72,10 +73,8 @@ impl Move {
 /// Container for all legal moves in a position with evaluation and ordering capabilities.
 #[derive(Clone, Debug)]
 pub struct MoveList {
-    /// Fixed-size buffer storing all moves in the position.
-    move_buffer: [Move; MAX_MOVES],
-    /// Number of legal moves in this position.
-    count: usize,
+    /// List of moves.
+    moves: ArrayVec<Move, MAX_MOVES>,
     /// The square of the wipeout move, if found.
     pub wipeout_move: Option<Square>,
 }
@@ -91,15 +90,13 @@ impl MoveList {
     ///
     /// A new MoveList containing all legal moves for the current player
     pub fn new(board: &Board) -> MoveList {
-        let mut move_buffer = [Move::default(); MAX_MOVES];
-        let mut count = 0;
+        let mut moves = ArrayVec::new();
         let mut wipeout_move = None;
         for sq in BitboardIterator::new(board.get_moves()) {
             let flipped = flip::flip(sq, board.player, board.opponent);
-            move_buffer[count].sq = sq;
-            move_buffer[count].flipped = flipped;
-            move_buffer[count].value = i32::MIN;
-            count += 1;
+            let mut mv = Move::new(sq, flipped);
+            mv.value = i32::MIN;
+            unsafe { moves.push_unchecked(mv) };
 
             if flipped == board.opponent {
                 wipeout_move = Some(sq);
@@ -107,8 +104,7 @@ impl MoveList {
         }
 
         MoveList {
-            move_buffer,
-            count,
+            moves,
             wipeout_move,
         }
     }
@@ -120,7 +116,7 @@ impl MoveList {
     /// The count of legal moves
     #[inline]
     pub fn count(&self) -> usize {
-        self.count
+        self.moves.len()
     }
 
     /// Returns the first move in the list, if any exists.
@@ -130,11 +126,7 @@ impl MoveList {
     /// Reference to the first move, or None if no legal moves exist
     #[inline]
     pub fn first(&self) -> Option<&Move> {
-        if self.count == 0 {
-            None
-        } else {
-            Some(&self.move_buffer[0])
-        }
+        self.moves.first()
     }
 
     /// Returns an iterator over all moves in the list.
@@ -147,7 +139,7 @@ impl MoveList {
     /// Iterator over moves in the list
     #[inline]
     pub fn iter(&self) -> slice::Iter<'_, Move> {
-        self.move_buffer[..self.count].iter()
+        self.moves.iter()
     }
 
     /// Returns a mutable iterator over all moves in the list.
@@ -157,7 +149,7 @@ impl MoveList {
     /// Mutable iterator over moves in the list
     #[inline]
     pub fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
-        self.move_buffer[..self.count].iter_mut()
+        self.moves.iter_mut()
     }
 
     /// Returns an iterator that yields moves in order of decreasing value.
@@ -353,7 +345,7 @@ impl MoveList {
     /// Sorts all moves in descending order of their evaluation values.
     #[inline]
     pub fn sort(&mut self) {
-        self.move_buffer[..self.count].sort_unstable_by_key(|m| -m.value);
+        self.moves.sort_unstable_by_key(|m| -m.value);
     }
 }
 
@@ -393,8 +385,8 @@ impl ConcurrentMoveIterator {
     /// Returns None when all moves have been consumed.
     pub fn next(&self) -> Option<(&Move, usize)> {
         let current = self.current.fetch_add(1, atomic::Ordering::Relaxed);
-        if current < self.move_list.count {
-            Some((&self.move_list.move_buffer[current], current + 1))
+        if current < self.move_list.moves.len() {
+            Some((&self.move_list.moves[current], current + 1))
         } else {
             None
         }
@@ -407,7 +399,7 @@ impl ConcurrentMoveIterator {
     /// Total count of moves (does not change as moves are consumed)
     #[inline]
     pub fn count(&self) -> usize {
-        self.move_list.count
+        self.move_list.count()
     }
 }
 
@@ -472,15 +464,15 @@ impl<'a> Iterator for BestFirstMoveIterator<'a> {
     /// first few moves are needed.
     fn next(&mut self) -> Option<Self::Item> {
         // Check if we've exhausted all moves
-        if self.current == self.move_list.count {
+        if self.current == self.move_list.count() {
             return None;
         }
 
         // Find the move with the highest value among remaining moves
         let mut max_idx = self.current;
-        for i in (self.current + 1)..self.move_list.count {
-            if self.move_list.move_buffer[self.indices[i]].value
-                > self.move_list.move_buffer[self.indices[max_idx]].value
+        for i in (self.current + 1)..self.move_list.count() {
+            if self.move_list.moves[self.indices[i]].value
+                > self.move_list.moves[self.indices[max_idx]].value
             {
                 max_idx = i;
             }
@@ -488,7 +480,7 @@ impl<'a> Iterator for BestFirstMoveIterator<'a> {
 
         // Move the best move to the current position
         self.indices.swap(self.current, max_idx);
-        let result = Some(&self.move_list.move_buffer[self.indices[self.current]]);
+        let result = Some(&self.move_list.moves[self.indices[self.current]]);
         self.current += 1;
         result
     }
@@ -505,7 +497,7 @@ mod tests {
     fn test_move_list_new() {
         let board = Board::new();
         let move_list = MoveList::new(&board);
-        assert_eq!(move_list.count, 4);
+        assert_eq!(move_list.count(), 4);
 
         // Verify moves are at correct positions
         let moves: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
@@ -532,7 +524,7 @@ mod tests {
         );
 
         let move_list = MoveList::new(&board);
-        assert!(move_list.count > 0);
+        assert!(move_list.count() > 0);
 
         // Verify all moves have valid flipped pieces
         for mv in move_list.iter() {
@@ -548,7 +540,7 @@ mod tests {
         // Create position with no legal moves
         let board = Board::from_bitboards(u64::MAX, 0);
         let move_list = MoveList::new(&board);
-        assert_eq!(move_list.count, 0);
+        assert_eq!(move_list.count(), 0);
         assert!(move_list.first().is_none());
     }
 
@@ -598,10 +590,10 @@ mod tests {
         let mut move_list = MoveList::new(&board);
 
         // Set values in non-sorted order
-        move_list.move_buffer[0].value = 10;
-        move_list.move_buffer[1].value = 30;
-        move_list.move_buffer[2].value = 20;
-        move_list.move_buffer[3].value = 40;
+        move_list.moves[0].value = 10;
+        move_list.moves[1].value = 30;
+        move_list.moves[2].value = 20;
+        move_list.moves[3].value = 40;
 
         move_list.sort();
 
@@ -615,11 +607,11 @@ mod tests {
     fn test_best_first_iter() {
         let board = Board::new();
         let mut move_list = MoveList::new(&board);
-        move_list.move_buffer[0].value = 10;
-        move_list.move_buffer[1].value = 5;
-        move_list.move_buffer[2].value = 15;
-        move_list.move_buffer[3].value = 2;
-        move_list.count = 4;
+        move_list.moves[0].value = 10;
+        move_list.moves[1].value = 5;
+        move_list.moves[2].value = 15;
+        move_list.moves[3].value = 2;
+        // move_list.count = 4; // Already 4 from new()
 
         let mut iter = move_list.best_first_iter();
         assert_eq!(iter.next().unwrap().value, 15);
@@ -636,8 +628,8 @@ mod tests {
         let mut move_list = MoveList::new(&board);
 
         // Set all values equal
-        for i in 0..move_list.count {
-            move_list.move_buffer[i].value = 100;
+        for i in 0..move_list.count() {
+            move_list.moves[i].value = 100;
         }
 
         let iter = move_list.best_first_iter();
@@ -646,7 +638,7 @@ mod tests {
             assert_eq!(mv.value, 100);
             count += 1;
         }
-        assert_eq!(count, move_list.count);
+        assert_eq!(count, move_list.count());
     }
 
     /// Tests best-first iterator behavior with no legal moves.
@@ -654,7 +646,7 @@ mod tests {
     fn test_best_first_iter_empty_list() {
         let board = Board::from_bitboards(u64::MAX, 0);
         let move_list = MoveList::new(&board);
-        assert_eq!(move_list.count, 0);
+        assert_eq!(move_list.count(), 0);
 
         let mut iter = move_list.best_first_iter();
         assert!(iter.next().is_none());
@@ -677,7 +669,7 @@ mod tests {
         );
 
         let move_list = MoveList::new(&board);
-        assert_eq!(move_list.count, 1);
+        assert_eq!(move_list.count(), 1);
 
         let mut iter = move_list.best_first_iter();
         assert!(iter.next().is_some());
@@ -691,8 +683,8 @@ mod tests {
         let mut move_list = MoveList::new(&board);
 
         // Set unique values
-        for i in 0..move_list.count {
-            move_list.move_buffer[i].value = (i * 10) as i32;
+        for i in 0..move_list.count() {
+            move_list.moves[i].value = (i * 10) as i32;
         }
 
         let iter = move_list.best_first_iter();
@@ -702,7 +694,7 @@ mod tests {
             assert!(seen_values.insert(mv.value));
         }
 
-        assert_eq!(seen_values.len(), move_list.count);
+        assert_eq!(seen_values.len(), move_list.count());
     }
 
     /// Tests concurrent move iterator.

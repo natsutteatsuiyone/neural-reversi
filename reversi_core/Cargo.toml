@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 aligned-vec = "0.6.4"
+arrayvec = "0.7.6"
 byteorder = "1.5.0"
 cfg-if = "1.0.4"
 lock_api = "0.4.14"
