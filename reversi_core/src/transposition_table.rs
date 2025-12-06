@@ -323,9 +323,8 @@ impl TranspositionTable {
 
     /// Clears all entries in the transposition table.
     pub fn clear(&self) {
-        unsafe {
-            let ptr = self.entries.as_ptr() as *mut TTEntry;
-            std::ptr::write_bytes(ptr, 0, self.entries.len());
+        for entry in &*self.entries {
+            entry.data.store(0, Ordering::Relaxed);
         }
     }
 
