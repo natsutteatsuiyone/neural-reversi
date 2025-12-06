@@ -22,9 +22,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         let bias = reader.read_i32::<LittleEndian>()?;
 
         let mut weights = avec![[CACHE_LINE_SIZE]|0i16; PADDED_INPUT_DIMS];
-        for weight in weights.iter_mut().take(PADDED_INPUT_DIMS) {
-            *weight = reader.read_i16::<LittleEndian>()?;
-        }
+        reader.read_i16_into::<LittleEndian>(&mut weights)?;
 
         // Select the optimal forward implementation at load time
         let forward_fn = Self::select_forward_fn();
