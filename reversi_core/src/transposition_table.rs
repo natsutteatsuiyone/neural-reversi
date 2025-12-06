@@ -396,14 +396,13 @@ impl TranspositionTable {
             const LANE_MASK: u32 = 0x03030303;
             let mut relevant_hits = hit_mask & LANE_MASK;
 
+            let entries: [u64; 4] = std::mem::transmute(v);
+
             while relevant_hits != 0 {
                 let tz = relevant_hits.trailing_zeros();
                 let lane_idx = (tz / 8) as usize;
 
-                let entries_array: [u64; 4] = std::mem::transmute(v);
-                let raw = entries_array[lane_idx];
-
-                let data = TTEntry::unpack_from_u64(raw);
+                let data = TTEntry::unpack_from_u64(entries[lane_idx]);
                 if data.is_occupied() {
                     return (true, data, base + lane_idx);
                 }
@@ -426,7 +425,9 @@ impl TranspositionTable {
             let current_gen_vec = _mm256_set1_epi64x(generation as i64);
             let age_vec = _mm256_sub_epi64(current_gen_vec, gen_vec);
             let score_vec = _mm256_sub_epi64(depth_vec, _mm256_slli_epi64(age_vec, 3));
-            let scores: [i64; 4] = core::mem::transmute(score_vec);
+
+            // Extract scores (transmute is safe: both are 256-bit)
+            let scores: [i64; 4] = std::mem::transmute(score_vec);
 
             // Find the entry with the lowest replacement score
             let mut replace_idx = 0;
