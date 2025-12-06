@@ -87,23 +87,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let mut beta = SCORE_INF;
     ctx.game_phase = GamePhase::MidGame;
 
-    let max_depth = level.mid_depth;
-    if max_depth == 0 {
-        let score = search::<Root, false>(&mut ctx, &board, max_depth, alpha, beta, thread, None);
-        return SearchResult {
-            score: unscale_score_f32(score),
-            best_move: None,
-            n_nodes: ctx.n_nodes,
-            pv_line: Vec::new(),
-            depth: 0,
-            selectivity: NO_SELECTIVITY,
-        };
-    }
-
     let num_root_moves = ctx.root_moves_count();
     let pv_count = if multi_pv { num_root_moves } else { 1 };
 
     let org_selectivty = ctx.selectivity;
+    let max_depth = level.mid_depth.max(1);
     let start_depth = if max_depth.is_multiple_of(2) { 2 } else { 1 };
     let mut depth = start_depth;
     while depth <= max_depth {
