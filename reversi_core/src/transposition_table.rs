@@ -54,9 +54,7 @@ impl Bound {
 
     #[inline]
     pub fn from_u8(value: u8) -> Bound {
-        debug_assert!(value < 4);
         match value {
-            0 => Bound::None,
             1 => Bound::Lower,
             2 => Bound::Upper,
             3 => Bound::Exact,
