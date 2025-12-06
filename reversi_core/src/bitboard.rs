@@ -291,7 +291,7 @@ fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
 
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
-unsafe fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128 {
+fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128 {
     let mut tmp = u64x2_shl(x, shift);
     x = v128_or(x, v128_and(mask, tmp));
     mask = v128_and(mask, u64x2_shl(mask, shift));
@@ -305,7 +305,7 @@ unsafe fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128
 
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
-unsafe fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
+fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
     let mut tmp = u64x2_shr(x, shift);
     x = v128_or(x, v128_and(mask, tmp));
     mask = v128_and(mask, u64x2_shr(mask, shift));
@@ -320,49 +320,47 @@ unsafe fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128
 #[cfg(target_arch = "wasm32")]
 #[target_feature(enable = "simd128")]
 fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
-    unsafe {
-        let empty = !(player | opponent);
+    let empty = !(player | opponent);
 
-        let pp = u64x2_splat(player);
-        let oo = u64x2_splat(opponent);
+    let pp = u64x2_splat(player);
+    let oo = u64x2_splat(opponent);
 
-        let masked_oo_hv = v128_and(oo, u64x2(0x7E7E7E7E7E7E7E7E, 0x00FFFFFFFFFFFF00));
+    let masked_oo_hv = v128_and(oo, u64x2(0x7E7E7E7E7E7E7E7E, 0x00FFFFFFFFFFFF00));
 
-        let adj_h_l = v128_and(masked_oo_hv, u64x2_shl(pp, 1));
-        let adj_h_r = v128_and(masked_oo_hv, u64x2_shr(pp, 1));
-        let adj_v_l = v128_and(masked_oo_hv, u64x2_shl(pp, 8));
-        let adj_v_r = v128_and(masked_oo_hv, u64x2_shr(pp, 8));
+    let adj_h_l = v128_and(masked_oo_hv, u64x2_shl(pp, 1));
+    let adj_h_r = v128_and(masked_oo_hv, u64x2_shr(pp, 1));
+    let adj_v_l = v128_and(masked_oo_hv, u64x2_shl(pp, 8));
+    let adj_v_r = v128_and(masked_oo_hv, u64x2_shr(pp, 8));
 
-        let flip_h_l = expand_ray_double_shl(masked_oo_hv, adj_h_l, 1);
-        let flip_h_r = expand_ray_double_shr(masked_oo_hv, adj_h_r, 1);
-        let flip_v_l = expand_ray_double_shl(masked_oo_hv, adj_v_l, 8);
-        let flip_v_r = expand_ray_double_shr(masked_oo_hv, adj_v_r, 8);
+    let flip_h_l = expand_ray_double_shl(masked_oo_hv, adj_h_l, 1);
+    let flip_h_r = expand_ray_double_shr(masked_oo_hv, adj_h_r, 1);
+    let flip_v_l = expand_ray_double_shl(masked_oo_hv, adj_v_l, 8);
+    let flip_v_r = expand_ray_double_shr(masked_oo_hv, adj_v_r, 8);
 
-        let moves_h = v128_or(u64x2_shl(flip_h_l, 1), u64x2_shr(flip_h_r, 1));
-        let moves_v = v128_or(u64x2_shl(flip_v_l, 8), u64x2_shr(flip_v_r, 8));
+    let moves_h = v128_or(u64x2_shl(flip_h_l, 1), u64x2_shr(flip_h_r, 1));
+    let moves_v = v128_or(u64x2_shl(flip_v_l, 8), u64x2_shr(flip_v_r, 8));
 
-        let masked_oo_d = v128_and(oo, u64x2_splat(0x007E7E7E7E7E7E00));
+    let masked_oo_d = v128_and(oo, u64x2_splat(0x007E7E7E7E7E7E00));
 
-        let adj_d7_l = v128_and(masked_oo_d, u64x2_shl(pp, 7));
-        let adj_d7_r = v128_and(masked_oo_d, u64x2_shr(pp, 7));
-        let adj_d9_l = v128_and(masked_oo_d, u64x2_shl(pp, 9));
-        let adj_d9_r = v128_and(masked_oo_d, u64x2_shr(pp, 9));
+    let adj_d7_l = v128_and(masked_oo_d, u64x2_shl(pp, 7));
+    let adj_d7_r = v128_and(masked_oo_d, u64x2_shr(pp, 7));
+    let adj_d9_l = v128_and(masked_oo_d, u64x2_shl(pp, 9));
+    let adj_d9_r = v128_and(masked_oo_d, u64x2_shr(pp, 9));
 
-        let flip_d7_l = expand_ray_double_shl(masked_oo_d, adj_d7_l, 7);
-        let flip_d7_r = expand_ray_double_shr(masked_oo_d, adj_d7_r, 7);
-        let flip_d9_l = expand_ray_double_shl(masked_oo_d, adj_d9_l, 9);
-        let flip_d9_r = expand_ray_double_shr(masked_oo_d, adj_d9_r, 9);
+    let flip_d7_l = expand_ray_double_shl(masked_oo_d, adj_d7_l, 7);
+    let flip_d7_r = expand_ray_double_shr(masked_oo_d, adj_d7_r, 7);
+    let flip_d9_l = expand_ray_double_shl(masked_oo_d, adj_d9_l, 9);
+    let flip_d9_r = expand_ray_double_shr(masked_oo_d, adj_d9_r, 9);
 
-        let moves_d7 = v128_or(u64x2_shl(flip_d7_l, 7), u64x2_shr(flip_d7_r, 7));
-        let moves_d9 = v128_or(u64x2_shl(flip_d9_l, 9), u64x2_shr(flip_d9_r, 9));
+    let moves_d7 = v128_or(u64x2_shl(flip_d7_l, 7), u64x2_shr(flip_d7_r, 7));
+    let moves_d9 = v128_or(u64x2_shl(flip_d9_l, 9), u64x2_shr(flip_d9_r, 9));
 
-        let h_moves = u64x2_extract_lane::<0>(moves_h);
-        let v_moves = u64x2_extract_lane::<1>(moves_v);
-        let d7_moves = u64x2_extract_lane::<0>(moves_d7);
-        let d9_moves = u64x2_extract_lane::<1>(moves_d9);
+    let h_moves = u64x2_extract_lane::<0>(moves_h);
+    let v_moves = u64x2_extract_lane::<1>(moves_v);
+    let d7_moves = u64x2_extract_lane::<0>(moves_d7);
+    let d9_moves = u64x2_extract_lane::<1>(moves_d9);
 
-        (h_moves | v_moves | d7_moves | d9_moves) & empty
-    }
+    (h_moves | v_moves | d7_moves | d9_moves) & empty
 }
 
 /// Gets some potential moves in a specific direction.

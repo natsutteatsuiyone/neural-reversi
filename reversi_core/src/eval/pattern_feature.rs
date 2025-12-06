@@ -405,7 +405,7 @@ impl PatternFeatures {
             if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
             } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
-                unsafe { self.update_wasm_simd(sq, flipped, ply, side_to_move) }
+                self.update_wasm_simd(sq, flipped, ply, side_to_move)
             } else {
                 self.update_fallback(sq, flipped, ply, side_to_move);
             }
