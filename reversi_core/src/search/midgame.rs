@@ -635,8 +635,5 @@ fn solve(board: &Board, n_empties: Depth) -> Score {
 /// * `Some(score)` - If position can be pruned with this score
 /// * `None` - If no stability cutoff is possible
 fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
-    if let Some(score) = stability::stability_cutoff(board, n_empties, unscale_score(alpha)) {
-        return Some(scale_score(score));
-    }
-    None
+    stability::stability_cutoff(board, n_empties, unscale_score(alpha)).map(scale_score)
 }
