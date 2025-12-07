@@ -267,8 +267,6 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         tt_key = 0;
         tt_entry_index = 0;
     } else {
-        let n_empties = ctx.empty_list.count;
-
         if NT::PV_NODE {
             if n_empties == 0 {
                 return calculate_final_score(board);
