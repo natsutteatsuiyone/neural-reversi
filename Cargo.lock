@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "datagen"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "ffotest"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "clap",
  "colored 3.0.0",
@@ -2328,7 +2328,7 @@ dependencies = [
 
 [[package]]
 name = "match_runner"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "clap",
  "colored 3.0.0",
@@ -2450,7 +2450,7 @@ dependencies = [
 
 [[package]]
 name = "neural-reversi"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "reversi_core",
  "serde",
@@ -3557,7 +3557,7 @@ dependencies = [
 
 [[package]]
 name = "reversi_cli"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "clap",
  "colored 3.0.0",
@@ -3567,7 +3567,7 @@ dependencies = [
 
 [[package]]
 name = "reversi_core"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "aligned-vec",
  "arrayvec",
@@ -3583,7 +3583,7 @@ dependencies = [
 
 [[package]]
 name = "reversi_web"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "byteorder",
  "console_error_panic_hook",
@@ -4547,7 +4547,7 @@ dependencies = [
 
 [[package]]
 name = "time_debug"
-version = "0.13.1"
+version = "1.0.0"
 dependencies = [
  "clap",
  "colored 2.2.0",
