@@ -7,7 +7,6 @@ use std::path::Path;
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::board::Board;
 use crate::constants::{CACHE_LINE_SIZE, MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
@@ -16,7 +15,6 @@ use crate::util::align::Align64;
 
 const PA_OUTPUT_DIMS: usize = 128;
 
-const MOBILITY_SCALE: u32 = 30;
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 8;
 const NUM_INPUT_LAYERS: usize = 3;
 const NUM_OUTPUT_LAYERS: usize = 30;
@@ -45,7 +43,6 @@ impl InputLayer {
 struct OutputLayer {
     bias: i32,
     weights: Align64<[i16; PA_OUTPUT_DIMS]>,
-    mobility_weight: i32,
 }
 
 impl OutputLayer {
@@ -55,13 +52,7 @@ impl OutputLayer {
         let mut weights = Align64([0i16; PA_OUTPUT_DIMS]);
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
-        let mobility_weight = reader.read_i16::<LittleEndian>()? as i32;
-
-        Ok(Self {
-            bias,
-            weights,
-            mobility_weight,
-        })
+        Ok(Self { bias, weights })
     }
 }
 
@@ -138,12 +129,9 @@ impl NetworkSmall {
     /// Faster but less accurate than the main network
     ///
     /// # Arguments
-    /// * `board` - The current board state
     /// * `pattern_feature` - Extracted pattern features from the board
     /// * `ply` - Current game ply (move number)
-    pub fn evaluate(&self, board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
-        let mobility = board.get_moves().count_ones() * MOBILITY_SCALE;
-
+    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> Score {
         debug_assert!(ply >= ENDGAME_START_PLY);
         debug_assert_eq!(NUM_OUTPUT_LAYERS % NUM_INPUT_LAYERS, 0);
 
@@ -154,8 +142,7 @@ impl NetworkSmall {
         let output_layer = &self.output_layers[ply_offset];
 
         let sum = unsafe { (self.forward_fn)(pattern_feature, input_layer, output_layer) };
-        let mobility_adjustment = (mobility as i32) * output_layer.mobility_weight;
-        let total = sum + output_layer.bias + mobility_adjustment;
+        let total = sum + output_layer.bias;
         let score = total >> OUTPUT_WEIGHT_SCALE_BITS;
 
         score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
@@ -318,7 +305,7 @@ impl NetworkSmall {
             let out3 = mm512_dpwssd_epi32::<USE_VNNI>(_mm512_setzero_si512(), act3, ow3);
 
             let combined =
-                _mm512_add_epi32(_mm512_add_epi32(out0, out1), _mm512_add_epi32(out2, out3));
+                _mm512_add_epi32(_mm512_add_epi32(_mm512_add_epi32(out0, out1), out2), out3);
             _mm512_reduce_add_epi32(combined)
         }
     }

@@ -353,12 +353,12 @@ fn probcut_endgame_internal(
 /// Statistical parameters for endgame ProbCut
 #[rustfmt::skip]
 const PROBCUT_ENDGAME_PARAMS: ProbcutParams = ProbcutParams {
-    mean_intercept: -0.1781667645,
-    mean_coef_shallow: 0.0147725713,
-    mean_coef_deep: 0.0033718233,
-    std_intercept: 0.8300938828,
-    std_coef_shallow: -0.0612042521,
-    std_coef_deep: 0.0359699791,
+    mean_intercept: -0.1491234189,
+    mean_coef_shallow: 0.0158979662,
+    mean_coef_deep: -0.0015993451,
+    std_intercept: 0.5931694894,
+    std_coef_shallow: -0.0608362414,
+    std_coef_deep: 0.0426371540,
 };
 
 /// Statistical parameters for midgame ProbCut indexed by ply

@@ -928,14 +928,14 @@ fn solve4(
 
     if let Some(next) = board.try_make_move(sq1) {
         best_score = -solve3(ctx, &next, -beta, sq2, sq3, sq4);
-        if best_score > alpha {
+        if best_score >= beta {
             return best_score;
         }
     }
 
     if let Some(next) = board.try_make_move(sq2) {
         let score = -solve3(ctx, &next, -beta, sq1, sq3, sq4);
-        if score > alpha {
+        if score >= beta {
             return score;
         }
         best_score = score.max(best_score);
@@ -943,7 +943,7 @@ fn solve4(
 
     if let Some(next) = board.try_make_move(sq3) {
         let score = -solve3(ctx, &next, -beta, sq1, sq2, sq4);
-        if score > alpha {
+        if score >= beta {
             return score;
         }
         best_score = score.max(best_score);
@@ -993,14 +993,14 @@ fn solve3(
     // player moves
     if let Some(next) = board.try_make_move(sq1) {
         best_score = -solve2(ctx, &next, -beta, sq2, sq3);
-        if best_score > alpha {
+        if best_score >= beta {
             return best_score;
         }
     }
 
     if let Some(next) = board.try_make_move(sq2) {
         let score = -solve2(ctx, &next, -beta, sq1, sq3);
-        if score > alpha {
+        if score >= beta {
             return score;
         }
         best_score = score.max(best_score);
@@ -1067,7 +1067,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     // player moves
     if let Some(next) = board.try_make_move(sq1) {
         let best_score = -solve1(ctx, &next, -beta, sq2);
-        if best_score > alpha {
+        if best_score >= beta {
             return best_score;
         }
         if let Some(next) = board.try_make_move(sq2) {

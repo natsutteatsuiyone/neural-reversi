@@ -89,11 +89,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             "network_small expects ply >= 30 for benchmarking"
         );
         b.iter(|| {
-            black_box(network_small.evaluate(
-                black_box(&endgame.board),
-                black_box(endgame.pattern_feature()),
-                endgame.ply,
-            ))
+            black_box(network_small.evaluate(black_box(endgame.pattern_feature()), endgame.ply))
         });
     });
 }

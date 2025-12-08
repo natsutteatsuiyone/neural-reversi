@@ -28,7 +28,7 @@ macro_rules! eval_main_weights_literal {
 
 macro_rules! eval_small_weights_literal {
     () => {
-        "eval_sm-882dcae6.zst"
+        "eval_sm-8d62dc63.zst"
     };
 }
 
@@ -135,7 +135,7 @@ impl Eval {
             score
         } else {
             self.network_sm
-                .evaluate(board, ctx.get_pattern_feature(), ctx.ply())
+                .evaluate(ctx.get_pattern_feature(), ctx.ply())
         }
     }
 
