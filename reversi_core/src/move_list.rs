@@ -6,8 +6,9 @@ use std::sync::atomic;
 
 use crate::bitboard::{BitboardIterator, corner_weighted_count, get_corner_stability};
 use crate::board::Board;
-use crate::constants::{EVAL_SCORE_SCALE, SCORE_INF, scale_score};
+use crate::constants::{EVAL_SCORE_SCALE, SCORE_INF};
 use crate::flip;
+use crate::probcut;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
 use crate::search::search_context::{GamePhase, SearchContext};
@@ -222,7 +223,7 @@ impl MoveList {
         let mut sort_depth = (depth as i32 - 15) / 3;
         sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
 
-        let mut max_evaluated_value = -SCORE_INF;
+        let mut best_sort_value = -SCORE_INF;
 
         for mv in self.iter_mut() {
             if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
@@ -247,21 +248,33 @@ impl MoveList {
                 };
 
                 ctx.undo(mv);
-                max_evaluated_value = max_evaluated_value.max(mv.value);
+                best_sort_value = best_sort_value.max(mv.value);
             };
         }
 
-        // Score-Based Reduction: reduce depth for poor moves
-        // This implements a form of late move reduction based on evaluation scores
-        let sbr_margin: i32 = scale_score(9 + (MAX_SORT_DEPTH - sort_depth) * 2);
-        let reduction_threshold = max_evaluated_value - sbr_margin;
+        if best_sort_value == -SCORE_INF {
+            return;
+        }
 
+        // Score-Based Reduction: reduce depth for poor moves
+        // This implements a form of late move reduction based on evaluation scores,
+        // using the same statistical error model as ProbCut.
+        let sigma = probcut::get_sigma(ctx.ply(), sort_depth as Depth, depth);
+        let t = probcut::get_t(ctx.selectivity);
+        let sbr_margin = (t * sigma).ceil() as i32;
+        if sbr_margin == 0 {
+            return;
+        }
+
+        // best_lower_bound = best_sort_value - sbr_margin
+        // other_upper_bound = mv.value + sbr_margin
+        // Condition: best_lower_bound > other_upper_bound
+        //         => best_sort_value - sbr_margin > mv.value + sbr_margin
+        //         => mv.value < best_sort_value - 2 * sbr_margin
+        let reduction_threshold = best_sort_value - 2 * sbr_margin;
         for mv in self.iter_mut() {
             if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
-                // Calculate reduction based on how much worse this move is
-                let diff = max_evaluated_value - mv.value;
-                let step = sbr_margin * 2;
-                mv.reduction_depth = ((diff + sbr_margin) / step) as Depth;
+                mv.reduction_depth = 1;
             }
         }
     }

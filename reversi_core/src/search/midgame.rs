@@ -412,9 +412,14 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 alpha = sp_state.alpha;
             }
 
-            let d = depth - 1 - mv.reduction_depth.min(depth - 1);
+            let d = (depth - 1).saturating_sub(mv.reduction_depth);
             score = -search::<NonPV, false>(ctx, &next, d, -(alpha + 1), -alpha, thread, None);
             if score > alpha {
+                if SP_NODE {
+                    let sp_state = split_point.as_ref().unwrap().state();
+                    alpha = sp_state.alpha;
+                }
+
                 score = -search::<NonPV, false>(
                     ctx,
                     &next,

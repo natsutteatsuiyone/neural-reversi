@@ -159,7 +159,7 @@ fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 
 /// Fast lookup of pre-computed sigma value for midgame positions
 #[inline]
-fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
+pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = SIGMA_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
@@ -202,7 +202,7 @@ pub fn get_probability(selectivity: u8) -> i32 {
 ///
 /// The t-multiplier for statistical confidence calculations
 #[inline]
-fn get_t(selectivity: u8) -> f64 {
+pub fn get_t(selectivity: u8) -> f64 {
     SELECTIVITY[selectivity as usize].1
 }
 
