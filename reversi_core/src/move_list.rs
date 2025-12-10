@@ -220,7 +220,7 @@ impl MoveList {
     ) {
         const MAX_SORT_DEPTH: i32 = 2;
         let mut sort_depth = (depth as i32 - 15) / 3;
-        sort_depth = sort_depth.clamp(1, MAX_SORT_DEPTH);
+        sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
 
         let mut max_evaluated_value = -SCORE_INF;
 
@@ -276,7 +276,7 @@ impl MoveList {
     ) {
         const MAX_SORT_DEPTH: i32 = 2;
         let mut sort_depth = (depth as i32 - 15) / 3;
-        sort_depth = sort_depth.clamp(1, MAX_SORT_DEPTH);
+        sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
 
         for mv in self.iter_mut() {
             if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
