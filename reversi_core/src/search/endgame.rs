@@ -52,7 +52,7 @@ const EC_NWS_DEPTH: Depth = 12;
 
 thread_local! {
     static ENDGAME_CACHE: UnsafeCell<EndGameCache> =
-        UnsafeCell::new(EndGameCache::new(16));
+        UnsafeCell::new(EndGameCache::new(15));
 }
 
 #[inline(always)]
@@ -761,11 +761,22 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 
     fn search_child(ctx: &mut SearchContext, next: &Board, beta: Score) -> Score {
         if ctx.empty_list.count == 4 {
+            let key = next.hash();
+            let entry = probe_endgame_cache(key);
+            let next_beta = -beta + 1;
+            if let Some(entry_data) = &entry {
+                if entry_data.can_cut(next_beta) {
+                    return -entry_data.score;
+                }
+            }
+
             if let Some(score) = stability::stability_cutoff(next, 4, -beta) {
                 -score
             } else {
                 let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
-                -solve4(ctx, next, -beta, sq1, sq2, sq3, sq4)
+                let score = solve4(ctx, next, -beta, sq1, sq2, sq3, sq4);
+                store_endgame_cache(key, next_beta, score, Square::None);
+                -score
             }
         } else {
             -shallow_search(ctx, next, -beta)
