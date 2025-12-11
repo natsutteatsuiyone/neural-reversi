@@ -227,7 +227,7 @@ pub fn probcut_midgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth < 3 && ctx.selectivity == NO_SELECTIVITY {
+    if depth < 3 || ctx.selectivity == NO_SELECTIVITY {
         return None;
     }
 
@@ -294,13 +294,19 @@ pub fn probcut_endgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth >= 10 && ctx.selectivity < NO_SELECTIVITY {
-        let scaled_beta = scale_score(beta);
-        if let Some(score) =
-            probcut_endgame_internal(ctx, board, depth, scaled_beta, thread, ctx.selectivity)
-        {
-            return Some(unscale_score(score));
-        }
+    if depth < 10 || ctx.selectivity == NO_SELECTIVITY {
+        return None;
+    }
+
+    if let Some(score) = probcut_endgame_internal(
+        ctx,
+        board,
+        depth,
+        scale_score(beta),
+        thread,
+        ctx.selectivity,
+    ) {
+        return Some(unscale_score(score));
     }
     None
 }
