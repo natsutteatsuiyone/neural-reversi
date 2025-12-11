@@ -764,10 +764,10 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
             let key = next.hash();
             let entry = probe_endgame_cache(key);
             let next_beta = -beta + 1;
-            if let Some(entry_data) = &entry {
-                if entry_data.can_cut(next_beta) {
-                    return -entry_data.score;
-                }
+            if let Some(entry_data) = &entry
+                && entry_data.can_cut(next_beta)
+            {
+                return -entry_data.score;
             }
 
             if let Some(score) = stability::stability_cutoff(next, 4, -beta) {
