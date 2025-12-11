@@ -4,28 +4,10 @@ use reversi_core::{
     board::Board,
     constants::{MID_SCORE_MAX, scale_score},
     search::node_type::NonPV,
-    types::{Depth, Score},
+    types::{Depth, Score, Selectivity},
 };
 
 use crate::search::{self, search_context::SearchContext};
-
-/// Maximum selectivity level (disables ProbCut when `selectivity >= NO_SELECTIVITY`)
-pub const NO_SELECTIVITY: u8 = 6;
-
-/// Selectivity configuration table: (level, t_multiplier, probability_percent)
-///
-/// - `level`: Selectivity level (0-6)
-/// - `t_multiplier`: Statistical confidence multiplier (higher = more conservative)
-/// - `probability_percent`: Expected success probability percentage
-const SELECTIVITY: [(u8, f64, i32); NO_SELECTIVITY as usize + 1] = [
-    (0, 1.0, 68), // Most aggressive: 68% confidence
-    (1, 1.1, 73),
-    (2, 1.5, 87),
-    (3, 2.0, 95),
-    (4, 2.6, 98),
-    (5, 3.3, 99),    // Most conservative: 99% confidence
-    (6, 999.0, 100), // Effectively disabled
-];
 
 /// Statistical parameters for ProbCut prediction models
 /// - `depth_gap = max(deep_depth - shallow_depth, 0)`
@@ -140,20 +122,6 @@ fn determine_probcut_depth(depth: Depth) -> Depth {
     probcut_depth
 }
 
-/// Get the statistical confidence multiplier (t-value) for a given selectivity level
-///
-/// # Arguments
-///
-/// * `selectivity` - Selectivity level (0-6)
-///
-/// # Returns
-///
-/// The t-multiplier for statistical confidence calculations
-#[inline]
-fn get_t(selectivity: u8) -> f64 {
-    SELECTIVITY[selectivity as usize].1
-}
-
 /// Attempts ProbCut pruning for midgame positions
 ///
 /// # Arguments
@@ -174,12 +142,12 @@ pub fn probcut_midgame(
     depth: Depth,
     beta: Score,
 ) -> Option<Score> {
-    if depth >= 3 && ctx.selectivity < NO_SELECTIVITY {
+    if depth >= 3 && ctx.selectivity.is_enabled() {
         let ply = ctx.ply();
         let pc_depth = determine_probcut_depth(depth);
         let mean = calc_mean(ply, pc_depth, depth);
         let sigma = calc_sigma(ply, pc_depth, depth);
-        let t = get_t(ctx.selectivity);
+        let t = ctx.selectivity.t_value();
 
         let eval_score = search::evaluate(ctx, board);
         let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
@@ -189,7 +157,7 @@ pub fn probcut_midgame(
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
             let current_selectivity = ctx.selectivity;
-            ctx.selectivity = NO_SELECTIVITY; // Disable nested ProbCut
+            ctx.selectivity = Selectivity::None; // Disable nested ProbCut
             let score = search::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta);
             ctx.selectivity = current_selectivity; // Restore selectivity
             if score >= pc_beta {

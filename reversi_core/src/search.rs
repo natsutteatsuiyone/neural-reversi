@@ -39,7 +39,7 @@ pub struct Search {
 pub struct SearchTask {
     pub board: Board,
     pub generation: u8,
-    pub selectivity: u8,
+    pub selectivity: Selectivity,
     pub tt: Arc<TranspositionTable>,
     pub pool: Arc<ThreadPool>,
     pub eval: Arc<Eval>,
@@ -166,7 +166,7 @@ impl Search {
 
         if self.endgame_start_n_empties.is_none()
             && result.depth + 1 >= n_empties
-            && result.selectivity >= 3
+            && result.selectivity >= Selectivity::Level3
         {
             self.endgame_start_n_empties = Some(n_empties - 1);
         }
@@ -261,7 +261,7 @@ impl Search {
                 n_nodes: 0,
                 pv_line: vec![],
                 depth: 0,
-                selectivity: 0,
+                selectivity: Selectivity::None,
                 game_phase: GamePhase::MidGame,
             };
         }
@@ -289,7 +289,7 @@ impl Search {
             n_nodes: BitboardIterator::new(moves).count() as u64,
             pv_line: vec![best_move],
             depth: 1,
-            selectivity: 0,
+            selectivity: Selectivity::None,
             game_phase: GamePhase::MidGame,
         }
     }
@@ -303,7 +303,7 @@ impl Drop for Search {
 
 /// Main search entry point that delegates to midgame or endgame search
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
-    let min_end_depth = task.level.get_end_depth(0);
+    let min_end_depth = task.level.get_end_depth(Selectivity::Level0);
     let n_empties = task.board.get_empty_count();
 
     if min_end_depth >= n_empties {

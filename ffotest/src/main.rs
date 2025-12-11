@@ -40,7 +40,7 @@ struct TestResult {
     nodes: u64,
     score: Scoref,
     depth: Depth,
-    selectivity: u8,
+    selectivity: Selectivity,
     pv_line: Vec<Square>,
     score_difference: Scoref,
     move_accuracy: MoveAccuracy,
@@ -448,8 +448,8 @@ struct Args {
     depth: Depth,
 
     /// Search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%)
-    #[arg(long, default_value = "1")]
-    selectivity: Selectivity,
+    #[arg(long, default_value = "1", value_parser = clap::value_parser!(u8).range(0..=6))]
+    selectivity: u8,
 
     /// Transposition table size in MB
     #[arg(long, default_value = "256", value_parser = clap::value_parser!(u16).range(1..))]
@@ -500,5 +500,10 @@ fn main() {
     let search_options =
         search::SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
 
-    execute(&filtered, &search_options, args.depth, args.selectivity);
+    execute(
+        &filtered,
+        &search_options,
+        args.depth,
+        Selectivity::from_u8(args.selectivity),
+    );
 }

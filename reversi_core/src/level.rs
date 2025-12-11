@@ -1,6 +1,6 @@
 //! Game difficulty levels and search depth configuration.
 
-use crate::{probcut::NO_SELECTIVITY, types::Depth};
+use crate::types::{Depth, Selectivity};
 
 /// Represents a difficulty level with associated search depths.
 ///
@@ -15,29 +15,18 @@ pub struct Level {
     pub mid_depth: Depth,
     /// Endgame search depths indexed by selectivity level.
     ///
-    /// The array has 7 elements (NO_SELECTIVITY + 1), where:
+    /// The array has 7 elements, where:
     /// - Index 0: Highest selectivity (most aggressive pruning)
     /// - Index 6: Lowest selectivity (least pruning, most thorough)
-    pub end_depth: [Depth; NO_SELECTIVITY as usize + 1],
+    pub end_depth: [Depth; 7],
 }
 
 impl Level {
     /// Creates a Level with no depth restrictions (for time-controlled search).
-    ///
-    /// This Level allows the search to continue until time runs out,
-    /// without any artificial depth limits. The search will be controlled
-    /// solely by the TimeManager.
-    ///
-    /// Note: `end_depth` is set to 20 as a safety threshold - at 20 or fewer
-    /// empties, endgame search is always fast enough. For more empties,
-    /// the dynamic transition based on NPS estimation determines when to
-    /// switch from midgame to endgame search. When endgame search is entered
-    /// via dynamic transition, the time_manager controls the selectivity loop
-    /// instead of end_depth.
     pub const fn unlimited() -> Self {
         Level {
-            mid_depth: 60,      // Maximum possible depth for midgame
-            end_depth: [14; 7], // Static transition at 14 empties; dynamic for higher
+            mid_depth: 60,
+            end_depth: [14; 7],
         }
     }
 
@@ -45,14 +34,14 @@ impl Level {
     ///
     /// # Arguments
     ///
-    /// * `selectivity` - A value from 0 to NO_SELECTIVITY (6), where lower
-    ///   values mean more aggressive pruning and faster searches.
+    /// * `selectivity` - The selectivity level, where lower values mean
+    ///   more aggressive pruning and faster searches.
     ///
     /// # Returns
     ///
     /// The search depth to use for endgame positions at the given selectivity.
-    pub fn get_end_depth(&self, selectivity: u8) -> Depth {
-        self.end_depth[selectivity as usize]
+    pub fn get_end_depth(&self, selectivity: Selectivity) -> Depth {
+        self.end_depth[selectivity.as_u8() as usize]
     }
 }
 
@@ -133,7 +122,10 @@ mod tests {
 
         // Test all selectivity levels
         for i in 0..=6 {
-            assert_eq!(level.get_end_depth(i), 20 + i as Depth);
+            assert_eq!(
+                level.get_end_depth(Selectivity::from_u8(i)),
+                20 + i as Depth
+            );
         }
     }
 

@@ -8,11 +8,10 @@ use reversi_core::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGa
 use reversi_core::search::node_type::NonPV;
 use reversi_core::square::Square;
 use reversi_core::transposition_table::Bound;
-use reversi_core::types::{Depth, Score};
+use reversi_core::types::{Depth, Score, Selectivity};
 use reversi_core::{bitboard, stability};
 
 use crate::move_list::MoveList;
-use crate::probcut::NO_SELECTIVITY;
 use crate::search::search_context::SearchContext;
 
 /// Quadrant masks for move ordering in shallow search.
@@ -128,7 +127,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         Bound::determine_bound::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,
-        NO_SELECTIVITY,
+        Selectivity::None,
         ctx.generation,
         true,
     );

@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use serde::Serialize;
 
-const SELECTIVITY: Selectivity = 1;
+const SELECTIVITY: Selectivity = Selectivity::Level1;
 
 struct AppState {
     search: Arc<Mutex<search::Search>>,

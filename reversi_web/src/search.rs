@@ -17,14 +17,14 @@ use reversi_core::{
     square::Square,
     stability,
     transposition_table::{Bound, TranspositionTable},
-    types::{Depth, Score},
+    types::{Depth, Score, Selectivity},
 };
 
 use crate::{
     eval::Eval,
     level::Level,
     move_list::{Move, MoveList},
-    probcut::{self, NO_SELECTIVITY},
+    probcut,
     search::{search_context::SearchContext, search_result::SearchResult, search_task::SearchTask},
 };
 
@@ -59,7 +59,7 @@ impl Search {
         &mut self,
         board: &Board,
         level: Level,
-        selectivity: u8,
+        selectivity: Selectivity,
         progress_callback: Option<Function>,
     ) -> SearchResult {
         self.generation = self.generation.wrapping_add(1);
@@ -111,7 +111,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             best_move: Some(mv),
             n_nodes: 0,
             depth: 0,
-            selectivity: NO_SELECTIVITY,
+            selectivity: Selectivity::None,
         };
     }
 
@@ -137,15 +137,16 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
             best_move: None,
             n_nodes: ctx.n_nodes,
             depth: 0,
-            selectivity: NO_SELECTIVITY,
+            selectivity: Selectivity::None,
         };
     }
 
-    let org_selectivty = ctx.selectivity;
+    let org_selectivity = ctx.selectivity;
     let start_depth = if max_depth.is_multiple_of(2) { 2 } else { 1 };
     let mut depth = start_depth;
     while depth <= max_depth {
-        ctx.selectivity = org_selectivty - ((max_depth - depth) as u8).min(org_selectivty);
+        let depth_diff = (max_depth - depth) as u8;
+        ctx.selectivity = Selectivity::from_u8(org_selectivity.as_u8().saturating_sub(depth_diff));
 
         let mut delta = INITIAL_DELTA;
         if depth <= 8 {
@@ -201,17 +202,17 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
     let n_empties = ctx.empty_list.count;
     let score = estimate_aspiration_base_score(ctx, board, n_empties);
     let final_selectivity = if n_empties > level.perfect_depth {
-        NO_SELECTIVITY - 2
+        Selectivity::Level4
     } else {
-        NO_SELECTIVITY
+        Selectivity::None
     };
 
     let mut best_score = 0;
     let mut alpha = score - scale_score(5);
     let mut beta = score + scale_score(5);
 
-    for selectivity in 1..=final_selectivity {
-        ctx.selectivity = selectivity;
+    for selectivity in 1..=final_selectivity.as_u8() {
+        ctx.selectivity = Selectivity::from_u8(selectivity);
         let mut delta = scale_score(3);
 
         loop {
@@ -271,7 +272,7 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empt
     if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
         tt_data.score
     } else if n_empties >= 16 {
-        ctx.selectivity = 0;
+        ctx.selectivity = Selectivity::Level0;
         search::<PV>(ctx, board, midgame_depth, -SCORE_INF, SCORE_INF)
     } else if n_empties >= 6 {
         evaluate_depth2(ctx, board, -SCORE_INF, SCORE_INF)

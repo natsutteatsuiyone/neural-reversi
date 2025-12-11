@@ -15,24 +15,6 @@ use crate::types::Depth;
 use crate::types::Score;
 use crate::types::Selectivity;
 
-/// Maximum selectivity level (disables ProbCut when `selectivity >= NO_SELECTIVITY`)
-pub const NO_SELECTIVITY: u8 = 6;
-
-/// Selectivity configuration table: (level, t_multiplier, probability_percent)
-///
-/// - `level`: Selectivity level (0-6)
-/// - `t_multiplier`: Statistical confidence multiplier (higher = more conservative)
-/// - `probability_percent`: Expected success probability percentage
-const SELECTIVITY: [(u8, f64, i32); NO_SELECTIVITY as usize + 1] = [
-    (0, 1.0, 68), // Most aggressive: 68% confidence
-    (1, 1.1, 73),
-    (2, 1.5, 87),
-    (3, 2.0, 95),
-    (4, 2.6, 98),
-    (5, 3.3, 99),    // Most conservative: 99% confidence
-    (6, 999.0, 100), // Effectively disabled
-];
-
 /// Statistical parameters for ProbCut prediction models
 /// - `mean = mean_intercept + mean_coef_shallow * shallow_depth + mean_coef_deep * deep_depth`
 /// - `sigma = exp(std_intercept + std_coef_shallow * shallow_depth + std_coef_deep * deep_depth)`
@@ -178,34 +160,6 @@ fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
     tbl[shallow as usize][deep as usize]
 }
 
-/// Get the expected success probability percentage for a given selectivity level
-///
-/// # Arguments
-///
-/// * `selectivity` - Selectivity level (0-6)
-///
-/// # Returns
-///
-/// Expected success probability as a percentage (68-100)
-#[inline]
-pub fn get_probability(selectivity: u8) -> i32 {
-    SELECTIVITY[selectivity as usize].2
-}
-
-/// Get the statistical confidence multiplier (t-value) for a given selectivity level
-///
-/// # Arguments
-///
-/// * `selectivity` - Selectivity level (0-6)
-///
-/// # Returns
-///
-/// The t-multiplier for statistical confidence calculations
-#[inline]
-pub fn get_t(selectivity: u8) -> f64 {
-    SELECTIVITY[selectivity as usize].1
-}
-
 /// Attempts ProbCut pruning for midgame positions
 ///
 /// # Arguments
@@ -227,7 +181,7 @@ pub fn probcut_midgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth < 3 || ctx.selectivity == NO_SELECTIVITY {
+    if depth < 3 || !ctx.selectivity.is_enabled() {
         return None;
     }
 
@@ -236,7 +190,7 @@ pub fn probcut_midgame(
         let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
         let mean = get_mean(ply, pc_depth, depth);
         let sigma = get_sigma(ply, pc_depth, depth);
-        let t = get_t(ctx.selectivity);
+        let t = ctx.selectivity.t_value();
         let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
         if pc_beta >= MID_SCORE_MAX {
             return None;
@@ -249,7 +203,7 @@ pub fn probcut_midgame(
         let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
         if eval_score >= eval_beta {
             let current_selectivity = ctx.selectivity;
-            ctx.selectivity = NO_SELECTIVITY; // Disable nested probcut
+            ctx.selectivity = Selectivity::None; // Disable nested probcut
             let score = midgame::search::<NonPV, false>(
                 ctx,
                 board,
@@ -268,7 +222,7 @@ pub fn probcut_midgame(
         None
     } else {
         // nested probcut for endgame positions
-        probcut_endgame_internal(ctx, board, depth, beta, thread, NO_SELECTIVITY)
+        probcut_endgame_internal(ctx, board, depth, beta, thread, Selectivity::None)
     }
 }
 
@@ -294,7 +248,7 @@ pub fn probcut_endgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth < 10 || ctx.selectivity == NO_SELECTIVITY {
+    if depth < 10 || !ctx.selectivity.is_enabled() {
         return None;
     }
 
@@ -323,7 +277,7 @@ fn probcut_endgame_internal(
     let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.75).floor()) as Depth;
     let mean: f64 = get_mean_end(pc_depth, depth);
     let sigma: f64 = get_sigma_end(pc_depth, depth);
-    let t = get_t(ctx.selectivity);
+    let t = ctx.selectivity.t_value();
     let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
     if pc_beta >= MID_SCORE_MAX {
         return None;

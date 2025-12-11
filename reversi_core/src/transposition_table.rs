@@ -154,7 +154,7 @@ impl TTEntry {
             best_move: Square::from_u8_unchecked(best_move),
             bound: Bound::from_u8(bound),
             depth: depth as Depth,
-            selectivity,
+            selectivity: Selectivity::from_u8(selectivity),
             generation,
             is_endgame,
         }
@@ -187,7 +187,7 @@ impl TTEntry {
         bound: Bound,
         depth: Depth,
         best_move: Square,
-        selectivity: u8,
+        selectivity: Selectivity,
         generation: u8,
         is_endgame: bool,
     ) {
@@ -213,7 +213,7 @@ impl TTEntry {
                 bm as u8,
                 bound as u8,
                 depth as u8,
-                selectivity,
+                selectivity.as_u8(),
                 generation,
                 is_endgame,
             );
@@ -253,7 +253,7 @@ impl Default for TTData {
             best_move: Square::None,
             bound: Bound::None,
             depth: 0,
-            selectivity: 0,
+            selectivity: Selectivity::Level0,
             generation: 0,
             is_endgame: false,
         }
@@ -525,7 +525,7 @@ impl TranspositionTable {
         bound: Bound,
         depth: Depth,
         best_move: Square,
-        selectivity: u8,
+        selectivity: Selectivity,
         generation: u8,
         is_endgame: bool,
     ) {
@@ -589,7 +589,7 @@ mod tests {
         bound: Bound,
         depth: Depth,
         best_move: usize,
-        selectivity: u8,
+        selectivity: Selectivity,
         generation: u8,
     ) -> usize {
         let (_, _, idx) = tt.probe(key, generation);
@@ -630,7 +630,7 @@ mod tests {
         let test_bound = Bound::Exact;
         let test_depth: Depth = 60;
         let test_best_move = sq(3);
-        let test_selectivity: u8 = 5;
+        let test_selectivity = Selectivity::Level5;
         let test_generation: u8 = 127;
 
         entry.save(
@@ -665,7 +665,6 @@ mod tests {
         let min_score: Score = -32768; // Min i16
         let max_depth: Depth = 63; // 6 bits
         let max_best_move = sq(63); // 7 bits (0-63 squares)
-        let max_selectivity: u8 = 7; // 3 bits
         let max_generation: u8 = 127; // 7 bits
 
         // Test with maximum positive score
@@ -675,7 +674,7 @@ mod tests {
             Bound::Lower,
             max_depth,
             max_best_move,
-            max_selectivity,
+            Selectivity::None,
             max_generation,
             false,
         );
@@ -686,11 +685,20 @@ mod tests {
         assert_eq!(data.bound, Bound::Lower);
         assert_eq!(data.depth, max_depth);
         assert_eq!(data.best_move, max_best_move);
-        assert_eq!(data.selectivity, max_selectivity);
+        assert_eq!(data.selectivity, Selectivity::None);
         assert_eq!(data.generation, max_generation);
 
         // Test with minimum negative score
-        entry.save(0, min_score, Bound::Upper, 0, Square::None, 0, 0, false);
+        entry.save(
+            0,
+            min_score,
+            Bound::Upper,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            0,
+            false,
+        );
 
         let data = entry.unpack();
         assert_eq!(data.key, 0);
@@ -698,7 +706,7 @@ mod tests {
         assert_eq!(data.bound, Bound::Upper);
         assert_eq!(data.depth, 0);
         assert_eq!(data.best_move, Square::None);
-        assert_eq!(data.selectivity, 0);
+        assert_eq!(data.selectivity, Selectivity::Level0);
         assert_eq!(data.generation, 0);
     }
 
@@ -708,38 +716,92 @@ mod tests {
         let entry = TTEntry::default();
 
         // Initial save
-        entry.save(100, 50, Bound::Lower, 10, sq(5), 2, 1, false);
+        entry.save(
+            100,
+            50,
+            Bound::Lower,
+            10,
+            sq(5),
+            Selectivity::Level2,
+            1,
+            false,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 10);
         assert_eq!(data.generation, 1);
 
         // Try to replace with slightly shallower depth (within 2 plies) - should replace
-        entry.save(100, 60, Bound::Lower, 8, sq(6), 2, 1, false);
+        entry.save(
+            100,
+            60,
+            Bound::Lower,
+            8,
+            sq(6),
+            Selectivity::Level2,
+            1,
+            false,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 8); // Replacement allowed within 2 plies
         assert_eq!(data.score, 60); // New value should be stored
 
         // Replace with deeper depth - should replace
-        entry.save(100, 70, Bound::Lower, 12, sq(7), 2, 1, false);
+        entry.save(
+            100,
+            70,
+            Bound::Lower,
+            12,
+            sq(7),
+            Selectivity::Level2,
+            1,
+            false,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 12);
         assert_eq!(data.score, 70);
 
         // Replace with exact bound - should always replace
-        entry.save(100, 80, Bound::Exact, 5, sq(8), 2, 1, false);
+        entry.save(
+            100,
+            80,
+            Bound::Exact,
+            5,
+            sq(8),
+            Selectivity::Level2,
+            1,
+            false,
+        );
         let data = entry.unpack();
         assert_eq!(data.depth, 5);
         assert_eq!(data.score, 80);
         assert_eq!(data.bound, Bound::Exact);
 
         // Different key - should replace
-        entry.save(200, 90, Bound::Upper, 3, sq(9), 2, 1, false);
+        entry.save(
+            200,
+            90,
+            Bound::Upper,
+            3,
+            sq(9),
+            Selectivity::Level2,
+            1,
+            false,
+        );
         let data = entry.unpack();
         assert_eq!(data.key, 200);
         assert_eq!(data.score, 90);
 
         // Newer generation - should replace
-        entry.save(200, 100, Bound::Lower, 2, sq(10), 2, 5, false);
+        entry.save(
+            200,
+            100,
+            Bound::Lower,
+            2,
+            sq(10),
+            Selectivity::Level2,
+            5,
+            false,
+        );
         let data = entry.unpack();
         assert_eq!(data.generation, 5);
         assert_eq!(data.score, 100);
@@ -831,7 +893,7 @@ mod tests {
             Bound::Exact,
             20,
             sq(10),
-            3,
+            Selectivity::Level3,
             generation,
             false,
         );
@@ -844,7 +906,7 @@ mod tests {
         assert_eq!(data.bound, Bound::Exact);
         assert_eq!(data.depth, 20);
         assert_eq!(data.best_move, sq(10));
-        assert_eq!(data.selectivity, 3);
+        assert_eq!(data.selectivity, Selectivity::Level3);
         assert_eq!(data.generation, generation);
     }
 
@@ -865,7 +927,7 @@ mod tests {
                 Bound::Lower,
                 depth,
                 sq(i),
-                1,
+                Selectivity::Level1,
                 1,
                 false,
             );
@@ -883,7 +945,7 @@ mod tests {
             Bound::Exact,
             50,
             sq(20),
-            1,
+            Selectivity::Level1,
             1,
             false,
         );
@@ -909,7 +971,7 @@ mod tests {
                 Bound::Lower,
                 depth,
                 sq(i),
-                1,
+                Selectivity::Level1,
                 1,
                 false,
             );
@@ -927,7 +989,7 @@ mod tests {
             Bound::Exact,
             10,
             sq(20),
-            1,
+            Selectivity::Level1,
             10,
             false,
         );
@@ -952,7 +1014,7 @@ mod tests {
                 Bound::Exact,
                 20,
                 i as usize,
-                1,
+                Selectivity::Level1,
                 1,
             );
         }

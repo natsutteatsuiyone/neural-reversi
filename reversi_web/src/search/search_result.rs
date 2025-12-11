@@ -1,6 +1,6 @@
 use reversi_core::{
     square::Square,
-    types::{Depth, Scoref},
+    types::{Depth, Scoref, Selectivity},
 };
 
 pub struct SearchResult {
@@ -12,5 +12,5 @@ pub struct SearchResult {
     #[allow(dead_code)]
     pub n_nodes: u64,
     #[allow(dead_code)]
-    pub selectivity: u8,
+    pub selectivity: Selectivity,
 }

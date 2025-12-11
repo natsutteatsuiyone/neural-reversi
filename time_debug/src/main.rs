@@ -239,7 +239,7 @@ fn main() {
     let options = SearchOptions::new(args.hash_size);
     let mut black_search = Search::new(&options);
     let mut white_search = Search::new(&options);
-    let selectivity: Selectivity = 1;
+    let selectivity = Selectivity::Level1;
 
     let mut stats = GameStats::default();
 

@@ -21,7 +21,7 @@ use reversi_core::{
     piece::Piece,
     search::{Search, SearchOptions},
     square::Square,
-    types::{Depth, Scoref},
+    types::{Depth, Scoref, Selectivity},
 };
 
 /// Transposition table size in MB for search
@@ -37,7 +37,7 @@ const MAX_SHALLOW_DEPTH: usize = 7;
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
 /// Search selectivity level
-const SELECTIVITY: u8 = 6;
+const SELECTIVITY: Selectivity = Selectivity::None;
 
 /// Command line arguments for ProbCut training data generation.
 #[derive(Parser)]

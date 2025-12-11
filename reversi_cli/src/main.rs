@@ -16,8 +16,8 @@ struct EngineParams {
     #[arg(short, long, default_value = "21")]
     level: usize,
 
-    #[arg(long, default_value = "1", value_parser = clap::value_parser!(Selectivity).range(1..=6))]
-    selectivity: Selectivity,
+    #[arg(long, default_value = "1", value_parser = clap::value_parser!(u8).range(0..=6))]
+    selectivity: u8,
 
     #[arg(long)]
     threads: Option<usize>,
@@ -64,7 +64,7 @@ fn main() {
             let mut gtp_engine = gtp::GtpEngine::new(
                 engine_params.hash_size,
                 engine_params.level,
-                engine_params.selectivity,
+                Selectivity::from_u8(engine_params.selectivity),
                 engine_params.threads,
                 engine_params.eval_file.as_deref(),
                 engine_params.eval_sm_file.as_deref(),
@@ -92,7 +92,7 @@ fn main() {
                 path,
                 engine_params.hash_size,
                 engine_params.level,
-                engine_params.selectivity,
+                Selectivity::from_u8(engine_params.selectivity),
                 engine_params.threads,
                 engine_params.eval_file.as_deref(),
                 engine_params.eval_sm_file.as_deref(),
@@ -108,7 +108,7 @@ fn main() {
             ui::ui_loop(
                 args.engine_params.hash_size,
                 args.engine_params.level,
-                args.engine_params.selectivity,
+                Selectivity::from_u8(args.engine_params.selectivity),
                 args.engine_params.threads,
                 args.engine_params.eval_file.as_deref(),
                 args.engine_params.eval_sm_file.as_deref(),

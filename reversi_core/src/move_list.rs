@@ -252,7 +252,7 @@ impl MoveList {
             };
         }
 
-        if best_sort_value == -SCORE_INF || ctx.selectivity == probcut::NO_SELECTIVITY {
+        if best_sort_value == -SCORE_INF || !ctx.selectivity.is_enabled() {
             return;
         }
 
@@ -260,8 +260,7 @@ impl MoveList {
         // This implements a form of late move reduction based on evaluation scores,
         // using the same statistical error model as ProbCut.
         let sigma = probcut::get_sigma(ctx.ply(), sort_depth as Depth, depth);
-        let t = probcut::get_t(ctx.selectivity);
-        let sbr_margin = (t * sigma).ceil() as i32;
+        let sbr_margin = (ctx.selectivity.t_value() * sigma).ceil() as i32;
         if sbr_margin == 0 {
             return;
         }

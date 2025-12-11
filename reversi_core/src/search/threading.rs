@@ -21,7 +21,7 @@ use crate::search::side_to_move::SideToMove;
 use crate::search::{self, SearchTask, endgame, midgame, time_control::TimeManager};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, Score};
+use crate::types::{Depth, Score, Selectivity};
 use crate::util::bitset::BitSet;
 use crate::util::spinlock;
 
@@ -91,7 +91,7 @@ pub struct SplitPointTask {
     pub generation: u8,
 
     /// Search selectivity level (affects pruning aggressiveness).
-    pub selectivity: u8,
+    pub selectivity: Selectivity,
 
     /// Current game phase (opening, midgame, endgame).
     pub game_phase: GamePhase,

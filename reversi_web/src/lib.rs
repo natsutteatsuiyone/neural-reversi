@@ -18,13 +18,13 @@ use reversi_core::piece::Piece;
 use reversi_core::search::side_to_move::SideToMove;
 use reversi_core::square::{Square, TOTAL_SQUARES};
 use reversi_core::transposition_table::TranspositionTable;
-use reversi_core::types::Depth;
+use reversi_core::types::{Depth, Selectivity};
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 const DEFAULT_TT_MB: usize = 32;
 const DEFAULT_MID_DEPTH: Depth = 7;
-const MIDGAME_SELECTIVITY: u8 = 2;
+const MIDGAME_SELECTIVITY: Selectivity = Selectivity::Level2;
 const MIN_MID_DEPTH: u8 = 1;
 const MAX_MID_DEPTH: u8 = 15;
 

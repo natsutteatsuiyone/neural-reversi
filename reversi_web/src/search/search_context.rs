@@ -6,11 +6,10 @@ use reversi_core::{
     constants::{MAX_PLY, SCORE_INF},
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
-    probcut,
     search::{root_move::RootMove, search_context::StackRecord, side_to_move::SideToMove},
     square::Square,
     transposition_table::TranspositionTable,
-    types::{Depth, Score, Scoref},
+    types::{Depth, Score, Scoref, Selectivity},
 };
 
 use crate::{
@@ -28,7 +27,7 @@ pub struct SearchContext {
     /// Transposition table generation counter for aging entries
     pub generation: u8,
     /// Selectivity level
-    pub selectivity: u8,
+    pub selectivity: Selectivity,
     /// List of empty squares on the board, optimized for quick access
     pub empty_list: EmptyList,
     /// Transposition table for storing search results
@@ -61,7 +60,7 @@ impl SearchContext {
     pub fn new(
         board: &Board,
         generation: u8,
-        selectivity: u8,
+        selectivity: Selectivity,
         tt: Rc<TranspositionTable>,
         eval: Rc<Eval>,
         progress_callback: Option<Function>,
@@ -285,7 +284,13 @@ impl SearchContext {
     /// * `score` - Current best score (from engine's perspective)
     /// * `best_move` - Current best move
     /// * `selectivity` - Current selectivity level
-    pub fn notify_progress(&self, depth: Depth, score: Scoref, best_move: Square, selectivity: u8) {
+    pub fn notify_progress(
+        &self,
+        depth: Depth,
+        score: Scoref,
+        best_move: Square,
+        selectivity: Selectivity,
+    ) {
         let Some(callback) = &self.progress_callback else {
             return;
         };
@@ -300,7 +305,7 @@ impl SearchContext {
         let _ = Reflect::set(
             &payload,
             &JsValue::from_str("probcut"),
-            &JsValue::from_f64(probcut::get_probability(selectivity) as f64),
+            &JsValue::from_f64(selectivity.probability() as f64),
         );
         let _ = Reflect::set(
             &payload,

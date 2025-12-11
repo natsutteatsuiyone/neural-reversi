@@ -50,8 +50,8 @@ enum SubCommands {
         #[arg(long, default_value = "12")]
         level: usize,
 
-        #[arg(long, default_value = "1", value_parser = clap::value_parser!(Selectivity).range(1..=6))]
-        selectivity: Selectivity,
+        #[arg(long, default_value = "1", value_parser = clap::value_parser!(u8).range(0..=6))]
+        selectivity: u8,
 
         #[arg(long, default_value = "game")]
         prefix: String,
@@ -135,7 +135,7 @@ fn main() {
                     records_per_file,
                     hash_size,
                     level,
-                    selectivity,
+                    Selectivity::from_u8(selectivity),
                     &prefix,
                     &output_dir,
                 )
@@ -146,7 +146,7 @@ fn main() {
                     records_per_file,
                     hash_size,
                     level,
-                    selectivity,
+                    Selectivity::from_u8(selectivity),
                     &prefix,
                     &output_dir,
                 )

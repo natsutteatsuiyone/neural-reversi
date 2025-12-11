@@ -10,7 +10,6 @@ use crate::board::Board;
 use crate::constants::{SCORE_INF, SCORE_MAX, scale_score, unscale_score};
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
-use crate::probcut::NO_SELECTIVITY;
 use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
 use crate::search::enhanced_transposition_cutoff;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
@@ -18,7 +17,7 @@ use crate::search::search_context::SearchContext;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, Score, Scoref};
+use crate::types::{Depth, Score, Scoref, Selectivity};
 use crate::{bitboard, probcut, stability};
 
 use super::search_context::GamePhase;
@@ -33,6 +32,16 @@ const QUADRANT_MASK: [u64; 16] = [
     0x0F0F0F0F00000000, 0x0F0F0F0F0F0F0F0F, 0x0F0F0F0FF0F0F0F0, 0x0F0F0F0FFFFFFFFF,
     0xF0F0F0F000000000, 0xF0F0F0F00F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0xF0F0F0F0FFFFFFFF,
     0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
+];
+
+/// Selectivity sequence for endgame search
+const SELECTIVITY_SEQUENCE: [Selectivity; 6] = [
+    Selectivity::Level1,
+    Selectivity::Level2,
+    Selectivity::Level3,
+    Selectivity::Level4,
+    Selectivity::Level5,
+    Selectivity::None,
 ];
 
 /// Depth threshold for switching to specialized shallow search.
@@ -98,7 +107,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let base_score = estimate_aspiration_base_score(&mut ctx, &board, n_empties, thread);
 
     // Configure for endgame search
-    ctx.selectivity = NO_SELECTIVITY;
+    ctx.selectivity = Selectivity::None;
     ctx.game_phase = GamePhase::EndGame;
 
     let pv_count = if task.multi_pv {
@@ -120,7 +129,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         let mut best_move_sq = Square::None;
 
         // Iterative selectivity loop
-        for selectivity in 1..=NO_SELECTIVITY {
+        for selectivity in SELECTIVITY_SEQUENCE {
             // Check depth limit when not using time control
             if !use_time_control && task.level.get_end_depth(selectivity) < n_empties {
                 break;
@@ -244,7 +253,7 @@ fn estimate_aspiration_base_score(
     thread: &Arc<Thread>,
 ) -> Score {
     ctx.game_phase = GamePhase::MidGame;
-    ctx.selectivity = 0;
+    ctx.selectivity = Selectivity::Level0;
     let midgame_depth = n_empties / 2;
 
     let hash_key = board.hash();
@@ -617,7 +626,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         Bound::determine_bound::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,
-        NO_SELECTIVITY,
+        Selectivity::None,
         ctx.generation,
         true,
     );

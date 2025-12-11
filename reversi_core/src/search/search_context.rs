@@ -7,7 +7,6 @@ use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::move_list::{Move, MoveList};
-use crate::probcut::{self};
 use crate::search::SearchProgress;
 use crate::search::SearchProgressCallback;
 use crate::search::root_move::RootMove;
@@ -15,7 +14,7 @@ use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, Score, Scoref};
+use crate::types::{Depth, Score, Scoref, Selectivity};
 
 /// Represents the current phase of the game for search strategy selection.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -42,7 +41,7 @@ pub struct SearchContext {
     /// Transposition table generation counter for aging entries
     pub generation: u8,
     /// Selectivity level
-    pub selectivity: u8,
+    pub selectivity: Selectivity,
     /// List of empty squares on the board, optimized for quick access
     pub empty_list: EmptyList,
     /// Shared transposition table for storing search results
@@ -76,7 +75,7 @@ impl SearchContext {
     pub fn new(
         board: &Board,
         generation: u8,
-        selectivity: u8,
+        selectivity: Selectivity,
         tt: Arc<TranspositionTable>,
         eval: Arc<Eval>,
     ) -> SearchContext {
@@ -380,13 +379,19 @@ impl SearchContext {
     /// * `score` - Current best score (from engine's perspective)
     /// * `best_move` - Current best move
     /// * `selectivity` - Current selectivity level
-    pub fn notify_progress(&self, depth: Depth, score: Scoref, best_move: Square, selectivity: u8) {
+    pub fn notify_progress(
+        &self,
+        depth: Depth,
+        score: Scoref,
+        best_move: Square,
+        selectivity: Selectivity,
+    ) {
         if let Some(ref callback) = self.callback {
             callback(SearchProgress {
                 depth,
                 score,
                 best_move,
-                probability: probcut::get_probability(selectivity),
+                probability: selectivity.probability(),
             });
         }
     }

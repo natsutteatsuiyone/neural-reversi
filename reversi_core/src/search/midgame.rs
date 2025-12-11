@@ -17,7 +17,6 @@ use crate::move_list::ConcurrentMoveIterator;
 use crate::move_list::Move;
 use crate::move_list::MoveList;
 use crate::probcut;
-use crate::probcut::NO_SELECTIVITY;
 use crate::search::endgame;
 use crate::search::enhanced_transposition_cutoff;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
@@ -29,6 +28,7 @@ use crate::stability;
 use crate::transposition_table::Bound;
 use crate::types::Depth;
 use crate::types::Score;
+use crate::types::Selectivity;
 
 /// Minimum depth required before considering parallel split.
 const MIN_SPLIT_DEPTH: Depth = 5;
@@ -92,7 +92,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     while depth <= max_depth {
         // Adjust selectivity based on remaining depth (only without time control)
         if !use_time_control {
-            ctx.selectivity = org_selectivity.saturating_sub((max_depth - depth) as u8);
+            let depth_diff = (max_depth - depth) as u8;
+            ctx.selectivity =
+                Selectivity::from_u8(org_selectivity.as_u8().saturating_sub(depth_diff));
         }
         ctx.reset_root_move_searched();
 
@@ -206,13 +208,13 @@ fn should_stop_iteration(time_manager: &Option<Arc<super::time_control::TimeMana
 fn next_iteration_depth(
     current_depth: Depth,
     max_depth: Depth,
-    selectivity: &mut u8,
+    selectivity: &mut Selectivity,
     use_time_control: bool,
 ) -> Depth {
     // At max_depth - 1 with time control, try increasing selectivity instead of depth
     if use_time_control && current_depth == max_depth - 1 {
-        if *selectivity < NO_SELECTIVITY {
-            *selectivity += 1;
+        if selectivity.is_enabled() {
+            *selectivity = Selectivity::from_u8(selectivity.as_u8() + 1);
             return current_depth; // Stay at same depth with higher selectivity
         } else {
             return 0; // Signal to exit
