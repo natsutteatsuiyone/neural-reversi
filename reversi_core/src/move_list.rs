@@ -252,7 +252,7 @@ impl MoveList {
             };
         }
 
-        if best_sort_value == -SCORE_INF {
+        if best_sort_value == -SCORE_INF || ctx.selectivity == probcut::NO_SELECTIVITY {
             return;
         }
 
