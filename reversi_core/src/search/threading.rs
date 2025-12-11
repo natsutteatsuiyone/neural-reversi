@@ -29,7 +29,7 @@ use crate::util::spinlock;
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 
 /// Maximum number of slave threads that can join a single split point.
-const MAX_SLAVES_PER_SPLITPOINT: u32 = 3;
+const MAX_SLAVES_PER_SPLITPOINT: u32 = 5;
 
 /// Interval between checks for abort flag in milliseconds.
 const CHECK_INTERVAL_MS: u64 = 1;
