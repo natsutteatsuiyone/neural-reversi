@@ -52,14 +52,14 @@ impl Bound {
         Bound::Upper
     }
 
+    /// Converts an 8-bit value to a `Bound` without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the value is a valid `Bound` variant.
     #[inline]
-    pub fn from_u8(value: u8) -> Bound {
-        match value {
-            1 => Bound::Lower,
-            2 => Bound::Upper,
-            3 => Bound::Exact,
-            _ => Bound::None,
-        }
+    pub unsafe fn from_u8_unchecked(value: u8) -> Bound {
+        unsafe { std::mem::transmute(value) }
     }
 }
 
@@ -152,7 +152,7 @@ impl TTEntry {
             key,
             score: score as Score,
             best_move: Square::from_u8_unchecked(best_move),
-            bound: Bound::from_u8(bound),
+            bound: unsafe { Bound::from_u8_unchecked(bound) },
             depth: depth as Depth,
             selectivity: Selectivity::from_u8(selectivity),
             generation,
