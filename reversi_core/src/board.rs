@@ -1,6 +1,6 @@
 use std::fmt;
+use std::hash::BuildHasher;
 use std::hash::Hash;
-use std::hash::Hasher;
 
 use crate::bit;
 use crate::bitboard;
@@ -306,10 +306,7 @@ impl Board {
     /// A 64-bit hash value representing the current board position.
     #[inline]
     pub fn hash(&self) -> u64 {
-        let mut hasher = rapidhash::fast::RapidHasher::default();
-        hasher.write_u64(self.player);
-        hasher.write_u64(self.opponent);
-        hasher.finish()
+        rapidhash::fast::SeedableState::fixed().hash_one((self.player, self.opponent))
     }
 
     /// Rotates the board 90 degrees clockwise.
