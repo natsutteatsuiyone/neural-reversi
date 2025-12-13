@@ -286,9 +286,11 @@ impl MoveList {
         depth: Depth,
         tt_move: Square,
     ) {
-        const MAX_SORT_DEPTH: i32 = 2;
-        let mut sort_depth = (depth as i32 - 15) / 3;
-        sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
+        let sort_depth = match depth {
+            0..=17 => 0,
+            18..=25 => 1,
+            _ => 2,
+        };
 
         for mv in self.iter_mut() {
             if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
