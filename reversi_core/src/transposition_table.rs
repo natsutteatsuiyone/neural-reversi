@@ -191,26 +191,65 @@ impl TTEntry {
         generation: u8,
         is_endgame: bool,
     ) {
-        let tt_data = self.unpack();
         let key16 = key as u16;
-        let is_key_different = key16 != tt_data.key;
 
-        if bound == Bound::Exact
-            || is_key_different
-            || depth >= tt_data.depth.saturating_sub(2)
-            || selectivity > tt_data.selectivity
-            || tt_data.relative_age(generation) > 0
-        {
-            let bm = if best_move != Square::None || is_key_different {
-                best_move
+        // Fast path: Exact bound always replaces
+        if bound == Bound::Exact {
+            self.pack(
+                key16,
+                score,
+                best_move as u8,
+                bound as u8,
+                depth as u8,
+                selectivity.as_u8(),
+                generation,
+                is_endgame,
+            );
+            return;
+        }
+
+        // Load raw data once
+        let raw_data = self.data.load(Ordering::Relaxed);
+        let stored_key = (raw_data & Self::KEY_MASK) as u16;
+
+        // Different key: always replace (don't need to preserve best_move)
+        if key16 != stored_key {
+            self.pack(
+                key16,
+                score,
+                best_move as u8,
+                bound as u8,
+                depth as u8,
+                selectivity.as_u8(),
+                generation,
+                is_endgame,
+            );
+            return;
+        }
+
+        // Same key: check replacement conditions using bit operations
+        let stored_depth = ((raw_data >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as i8;
+        let stored_selectivity =
+            ((raw_data >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
+        let stored_generation =
+            ((raw_data >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
+
+        let should_replace = (depth as i8) >= stored_depth.saturating_sub(2)
+            || selectivity.as_u8() > stored_selectivity
+            || generation != stored_generation;
+
+        if should_replace {
+            // Need to preserve best_move if new one is Square::None
+            let bm = if best_move != Square::None {
+                best_move as u8
             } else {
-                tt_data.best_move
+                ((raw_data >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8
             };
 
             self.pack(
                 key16,
                 score,
-                bm as u8,
+                bm,
                 bound as u8,
                 depth as u8,
                 selectivity.as_u8(),
