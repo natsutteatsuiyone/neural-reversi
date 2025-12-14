@@ -30,6 +30,14 @@ impl Level {
         }
     }
 
+    /// Creates a Level for perfect endgame solving (read to the end).
+    pub const fn perfect() -> Self {
+        Level {
+            mid_depth: 60,
+            end_depth: [60; 7],
+        }
+    }
+
     /// Returns the endgame search depth for a given selectivity level.
     ///
     /// # Arguments

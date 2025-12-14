@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use reversi_core::{
     board::Board,
-    level::get_level,
+    level::{Level, get_level},
     piece::Piece,
     search::{Search, SearchConstraint, SearchOptions},
     types::Selectivity,
@@ -19,6 +19,7 @@ pub fn solve(
     threads: Option<usize>,
     eval_path: Option<&Path>,
     eval_sm_path: Option<&Path>,
+    exact: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -28,7 +29,11 @@ pub fn solve(
         .with_eval_paths(eval_path, eval_sm_path);
 
     let mut search = Search::new(&search_options);
-    let level_config = get_level(level);
+    let level_config = if exact {
+        Level::perfect()
+    } else {
+        get_level(level)
+    };
 
     println!(
         "| {:^3} | {:^6} | {:^5} | {:^9} | {:^11} | {:^10} | {:^23} |",

@@ -48,6 +48,10 @@ enum SubCommands {
         #[arg()]
         file: PathBuf,
 
+        /// Solve to the end with exact depth (ignore level)
+        #[arg(long)]
+        exact: bool,
+
         #[command(flatten)]
         engine_params: EngineParams,
     },
@@ -77,6 +81,7 @@ fn main() {
         }
         Some(SubCommands::Solve {
             file,
+            exact,
             engine_params,
         }) => {
             if !file.exists() {
@@ -96,6 +101,7 @@ fn main() {
                 engine_params.threads,
                 engine_params.eval_file.as_deref(),
                 engine_params.eval_sm_file.as_deref(),
+                exact,
             ) {
                 eprintln!("Error solving game: {e}");
             }
