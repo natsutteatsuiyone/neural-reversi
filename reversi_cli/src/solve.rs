@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::time::Instant;
+use std::time::Duration;
 
 use reversi_core::{
     board::Board,
@@ -36,12 +36,15 @@ pub fn solve(
     };
 
     println!(
-        "| {:^3} | {:^6} | {:^5} | {:^9} | {:^11} | {:^10} | {:^23} |",
+        "| {:^3} | {:^6} | {:^5} | {:^9} | {:^12} | {:^10} | {:^23} |",
         "#", "Depth", "Score", "Time", "Nodes", "N/s", "Principal Variation"
     );
     println!(
-        "|-----|--------|-------|-----------|-------------|------------|-------------------------|"
+        "|-----|--------|-------|-----------|--------------|------------|-------------------------|"
     );
+
+    let mut total_time = Duration::ZERO;
+    let mut total_nodes: u64 = 0;
 
     for (line_num, line) in reader.lines().enumerate() {
         let line = line?;
@@ -59,7 +62,7 @@ pub fn solve(
 
         match parse_position_line(line) {
             Ok((board, side_to_move)) => {
-                solve_position(
+                let (elapsed, nodes) = solve_position(
                     &mut search,
                     board,
                     side_to_move,
@@ -67,6 +70,8 @@ pub fn solve(
                     selectivity,
                     line_num + 1,
                 );
+                total_time += elapsed;
+                total_nodes += nodes;
             }
             Err(e) => {
                 eprintln!("Error parsing line {}: {}", line_num + 1, e);
@@ -74,6 +79,18 @@ pub fn solve(
             }
         }
     }
+
+    // Print summary
+    let total_secs = total_time.as_secs_f64();
+    let total_nps = if total_secs > 0.0 {
+        total_nodes as f64 / total_secs
+    } else {
+        0.0
+    };
+    println!(
+        "Total: {:.3}s, {} nodes, {:.0} N/s",
+        total_secs, total_nodes, total_nps
+    );
 
     Ok(())
 }
@@ -111,7 +128,9 @@ fn solve_position(
     level: reversi_core::level::Level,
     selectivity: Selectivity,
     position_num: usize,
-) {
+) -> (Duration, u64) {
+    use std::time::Instant;
+
     // search
     search.init();
     let start_time = Instant::now();
@@ -152,7 +171,7 @@ fn solve_position(
     };
 
     println!(
-        "| {:^3} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>11} | {:>10.0} | {:23} |",
+        "| {:^3} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>12} | {:>10.0} | {:23} |",
         position_num,
         depth,
         result.score as i32,
@@ -162,4 +181,6 @@ fn solve_position(
         nodes_per_sec,
         pv_string
     );
+
+    (elapsed, result.n_nodes)
 }
