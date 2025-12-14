@@ -11,6 +11,7 @@ use reversi_core::{
     types::Selectivity,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn solve(
     file_path: &Path,
     hash_size: usize,
