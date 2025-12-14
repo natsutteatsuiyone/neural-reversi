@@ -299,7 +299,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     let tt_entry_index;
 
     if SP_NODE {
-        let sp_state = split_point.as_ref().unwrap().state();
+        let sp_state = split_point.unwrap().state();
         best_move = sp_state.best_move;
         best_score = sp_state.best_score;
         move_iter = sp_state.move_iter.clone().unwrap();
@@ -401,7 +401,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         if SP_NODE {
-            split_point.as_ref().unwrap().unlock();
+            split_point.unwrap().unlock();
         }
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -410,7 +410,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         let mut score = -SCORE_INF;
         if depth >= 2 && mv.reduction_depth > 0 {
             if SP_NODE {
-                let sp_state = split_point.as_ref().unwrap().state();
+                let sp_state = split_point.unwrap().state();
                 alpha = sp_state.alpha;
             }
 
@@ -418,7 +418,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             score = -search::<NonPV, false>(ctx, &next, d, -(alpha + 1), -alpha, thread, None);
             if score > alpha {
                 if SP_NODE {
-                    let sp_state = split_point.as_ref().unwrap().state();
+                    let sp_state = split_point.unwrap().state();
                     alpha = sp_state.alpha;
                 }
 
@@ -434,7 +434,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             }
         } else if !NT::PV_NODE || move_count > 1 {
             if SP_NODE {
-                let sp_state = split_point.as_ref().unwrap().state();
+                let sp_state = split_point.unwrap().state();
                 alpha = sp_state.alpha;
             }
             score =
@@ -449,7 +449,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         ctx.undo(mv);
 
         if SP_NODE {
-            let sp = split_point.as_ref().unwrap();
+            let sp = split_point.unwrap();
             sp.lock();
             let sp_state = sp.state();
             best_score = sp_state.best_score;
@@ -466,14 +466,14 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
 
         if score > best_score {
             if SP_NODE {
-                let sp_state = split_point.as_ref().unwrap().state_mut();
+                let sp_state = split_point.unwrap().state_mut();
                 sp_state.best_score = score;
             }
             best_score = score;
 
             if score > alpha {
                 if SP_NODE {
-                    let sp_state = split_point.as_ref().unwrap().state_mut();
+                    let sp_state = split_point.unwrap().state_mut();
                     sp_state.best_move = mv.sq;
                 }
                 best_move = mv.sq;
@@ -484,13 +484,13 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
 
                 if NT::PV_NODE && score < beta {
                     if SP_NODE {
-                        let sp_state = split_point.as_ref().unwrap().state_mut();
+                        let sp_state = split_point.unwrap().state_mut();
                         sp_state.alpha = score;
                     }
                     alpha = score;
                 } else {
                     if SP_NODE {
-                        let sp = split_point.as_ref().unwrap();
+                        let sp = split_point.unwrap();
                         sp.state_mut().cutoff = true;
                     }
 
