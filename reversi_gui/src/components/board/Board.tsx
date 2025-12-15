@@ -1,6 +1,4 @@
-"use client";
-
-import { BoardCell } from "./board-cell";
+import { BoardCell } from "./BoardCell";
 import type { AIMoveProgress } from "@/lib/ai";
 import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
 import { useReversiStore } from "@/stores/use-reversi-store";
@@ -15,7 +13,7 @@ interface MoveHistoryItem {
 const AI_MOVE_HIGHLIGHT_DURATION = 1200;
 const MAX_MOVE_HISTORY_SIZE = 3;
 
-export function GameBoard() {
+export function Board() {
   const board = useReversiStore((state) => state.board);
   const gameOver = useReversiStore((state) => state.gameOver);
   const lastMove = useReversiStore((state) => state.lastMove);
@@ -24,8 +22,7 @@ export function GameBoard() {
   const makeMove = useReversiStore((state) => state.makeMove);
   const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress) as AIMoveProgress | null;
   const analyzeResults = useReversiStore((state) => state.analyzeResults) as Map<string, AIMoveProgress> | null;
-  const gameMode = useReversiStore((state) => state.gameMode);
-  const aiLevel = useReversiStore((state) => state.aiLevel);
+  const hintLevel = useReversiStore((state) => state.hintLevel);
 
   const [moveHistory, setMoveHistory] = useState<MoveHistoryItem[]>([]);
   const [lastAIMove, setLastAIMove] = useState<{ row: number; col: number; timestamp: number } | null>(null);
@@ -35,8 +32,9 @@ export function GameBoard() {
 
     let highest = Number.NEGATIVE_INFINITY;
     for (const result of analyzeResults.values()) {
-      if (result.score > highest) {
-        highest = result.score;
+      const rounded = Math.round(result.score);
+      if (rounded > highest) {
+        highest = rounded;
       }
     }
     return highest;
@@ -75,7 +73,7 @@ export function GameBoard() {
       setLastAIMove({
         row: lastMove.row,
         col: lastMove.col,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       const timer = setTimeout(() => {
@@ -99,27 +97,15 @@ export function GameBoard() {
   }
 
   return (
-    <div className="w-full max-w-2xl lg:w-[calc(100vh-2rem)] lg:max-w-[calc(100vh-2rem)] shrink-0 p-2">
-      {/* Column labels */}
-      <div className="flex mb-2 ms-12 me-4">
-        {COLUMN_LABELS.map((label) => (
-          <div
-            key={label}
-            className="flex-1 text-center text-xl font-bold text-emerald-50"
-            aria-hidden="true"
-          >
-            {label}
-          </div>
-        ))}
-      </div>
-
-      <div className="flex">
-        {/* Row labels */}
-        <div className="flex flex-col justify-around pr-4 w-8 mb-4 mt-3">
-          {ROW_LABELS.map((label) => (
+    <div className="h-full w-full flex flex-col items-center justify-center">
+      {/* Board container - maintains square aspect ratio */}
+      <div className="h-full max-h-[min(calc(100vh-200px),600px)] max-w-full aspect-square flex flex-col">
+        {/* Column labels */}
+        <div className="flex ml-7 shrink-0 h-6">
+          {COLUMN_LABELS.map((label) => (
             <div
               key={label}
-              className="text-center text-xl font-bold text-emerald-50"
+              className="flex-1 text-center text-sm font-semibold text-foreground-secondary uppercase"
               aria-hidden="true"
             >
               {label}
@@ -127,32 +113,45 @@ export function GameBoard() {
           ))}
         </div>
 
-        {/* Board */}
-        <div className="flex-1 bg-[#0d6245] p-4 rounded-lg shadow-[inset_0_2px_12px_rgba(0,0,0,0.3)]">
-          <div className="grid grid-cols-8 gap-1">
-            {board.map((row, rowIndex) =>
-              row.map((cell, colIndex) => (
-                <BoardCell
-                  key={`${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]}`}
-                  rowIndex={rowIndex}
-                  colIndex={colIndex}
-                  cell={cell}
-                  lastMove={lastMove}
-                  aiMoveProgress={aiMoveProgress}
-                  lastAIMove={lastAIMove}
-                  moveHistory={moveHistory}
-                  gameOver={gameOver}
-                  isValidMove={isValidMove}
-                  isAITurn={isAITurn}
-                  onCellClick={onCellClick}
-                  analyzeResults={analyzeResults}
-                  gameMode={gameMode}
-                  maxScore={maxScore}
-                  aiLevel={aiLevel}
-                  board={board}
-                />
-              ))
-            )}
+        <div className="flex flex-1 min-h-0">
+          {/* Row labels */}
+          <div className="flex flex-col justify-around w-7 shrink-0">
+            {ROW_LABELS.map((label) => (
+              <div
+                key={label}
+                className="text-center text-sm font-semibold text-foreground-secondary"
+                aria-hidden="true"
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+
+          {/* Board */}
+          <div className="flex-1 bg-board-surface p-1.5 rounded-xl shadow-xl">
+            <div className="grid grid-cols-8 grid-rows-8 gap-0.5 h-full w-full">
+              {board.map((row, rowIndex) =>
+                row.map((cell, colIndex) => (
+                  <BoardCell
+                    key={`${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]}`}
+                    rowIndex={rowIndex}
+                    colIndex={colIndex}
+                    cell={cell}
+                    lastMove={lastMove}
+                    aiMoveProgress={aiMoveProgress}
+                    lastAIMove={lastAIMove}
+                    moveHistory={moveHistory}
+                    gameOver={gameOver}
+                    isValidMove={isValidMove}
+                    isAITurn={isAITurn}
+                    onCellClick={onCellClick}
+                    analyzeResults={analyzeResults}
+                    maxScore={maxScore}
+                    hintLevel={hintLevel}
+                  />
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Bot, Zap } from "lucide-react";
+import { Bot } from "lucide-react";
 import type { AIMoveProgress } from "@/lib/ai";
 
 interface MoveHistoryItem {
@@ -16,23 +16,23 @@ interface AIThinkingIndicatorProps {
   lastAIMove: { row: number; col: number; timestamp: number } | null;
 }
 
-function ThinkingRippleEffect() {
+function ThinkingRipple() {
   return (
     <>
       {[1, 2, 3].map((i) => (
         <motion.div
           key={i}
-          className="absolute inset-0 rounded-sm border-2 border-cyan-400"
-          initial={{ opacity: 0.7, scale: 0.3 }}
+          className="absolute inset-0 rounded-sm border-2 border-cyan-400/70"
+          initial={{ opacity: 0.7, scale: 0.5 }}
           animate={{
             opacity: 0,
-            scale: 1.2,
+            scale: 1.1,
           }}
           transition={{
-            duration: 2,
+            duration: 1.5,
             ease: "easeOut",
             repeat: Number.POSITIVE_INFINITY,
-            delay: i * 0.4,
+            delay: i * 0.3,
           }}
         />
       ))}
@@ -69,11 +69,11 @@ export function AIThinkingIndicator({
   if (isCurrentThinkingCell) {
     return (
       <div className="absolute inset-0 flex items-center justify-center z-10">
-        <ThinkingRippleEffect />
+        <ThinkingRipple />
         <motion.div
           animate={{
-            rotate: [0, 20, 0, -20, 0],
-            scale: [1, 1.1, 1, 1.1, 1],
+            rotate: [0, 10, 0, -10, 0],
+            scale: [1, 1.05, 1, 1.05, 1],
           }}
           transition={{
             duration: 2,
@@ -82,14 +82,7 @@ export function AIThinkingIndicator({
           }}
           className="relative"
         >
-          <Bot className="text-cyan-400 drop-shadow-glow" size={24} />
-          <motion.div
-            animate={{ opacity: [0, 1, 0] }}
-            transition={{ duration: 0.8, repeat: Number.POSITIVE_INFINITY }}
-            className="absolute -top-2 -right-2"
-          >
-            <Zap className="text-yellow-300 fill-yellow-300" size={10} />
-          </motion.div>
+          <Bot className="text-cyan-400 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" size={22} />
         </motion.div>
       </div>
     );
@@ -100,8 +93,8 @@ export function AIThinkingIndicator({
   );
 
   if (historyIndex !== -1 && historyIndex < 3) {
-    const opacity = 0.8 - historyIndex * 0.2;
-    const size = 20 - historyIndex * 4;
+    const opacity = 0.7 - historyIndex * 0.15;
+    const size = 18 - historyIndex * 3;
 
     return (
       <div className="absolute inset-0 flex items-center justify-center z-5">
@@ -109,8 +102,7 @@ export function AIThinkingIndicator({
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{
             opacity,
-            scale: size / 24,
-            rotate: historyIndex * 15,
+            scale: size / 22,
           }}
           transition={{
             type: "spring",
@@ -118,7 +110,7 @@ export function AIThinkingIndicator({
             damping: 10,
           }}
         >
-          <Bot className="text-cyan-300/70" size={24} />
+          <Bot className="text-cyan-400/70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]" size={22} />
         </motion.div>
       </div>
     );

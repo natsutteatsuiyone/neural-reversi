@@ -16,6 +16,7 @@ import {
     getRedoMoves,
     reconstructBoardFromMoves,
 } from "@/lib/store-helpers";
+import { abortAISearch } from "@/lib/ai";
 import type { Board, MoveRecord } from "@/types";
 import type { GameSlice, ReversiState } from "./types";
 import { initializeAI } from "@/lib/ai";
@@ -50,7 +51,9 @@ function deriveStateFromMoves(moves: MoveRecord[]): {
     };
 }
 
-export function triggerAutomation(state: ReversiState): void {
+export function triggerAutomation(getState: () => ReversiState): void {
+    const state = getState();
+
     if (state.gameStatus !== "playing") {
         return;
     }
@@ -60,7 +63,8 @@ export function triggerAutomation(state: ReversiState): void {
         return;
     }
 
-    if (state.gameMode === "analyze") {
+    // Re-fetch state to ensure we have the latest isHintMode value
+    if (getState().isHintMode) {
         void state.analyzeBoard();
     }
 }
@@ -101,11 +105,17 @@ export const createGameSlice: StateCreator<
         return validMoves.some((move) => move[0] === row && move[1] === col);
     },
 
-    makeMove: (move: Move) => {
+    makeMove: async (move: Move) => {
+        // Abort analysis in background if it's a user move (don't await to avoid blocking)
+        if (!move.isAI && get().isAnalyzing) {
+            set({ isAnalyzing: false });
+            void abortAISearch();
+        }
+
         set((state) => {
             const currentPlayer = state.currentPlayer;
             const newBoard = applyMove(state.board, move, currentPlayer);
-            const newMoveRecord = createMoveRecord(state.moves.length, currentPlayer, move);
+            const newMoveRecord = createMoveRecord(state.moves.length, currentPlayer, move, state.aiRemainingTime);
             const nextPlayerTurn = nextPlayer(currentPlayer);
 
             return {
@@ -133,13 +143,13 @@ export const createGameSlice: StateCreator<
             return;
         }
 
-        triggerAutomation(updatedState);
+        triggerAutomation(get);
     },
 
     makePass: () => {
         set((state) => {
             const currentPlayer = state.currentPlayer;
-            const passMove = createPassMove(state.moves.length, currentPlayer);
+            const passMove = createPassMove(state.moves.length, currentPlayer, state.aiRemainingTime);
             const nextPlayerTurn = nextPlayer(currentPlayer);
             const boardClone = cloneBoard(state.board);
 
@@ -170,11 +180,14 @@ export const createGameSlice: StateCreator<
                 isPass: false,
                 analyzeResults: null,
                 gameOver: false,
+                aiRemainingTime: newMoves.length > 0
+                    ? (newMoves[newMoves.length - 1].remainingTime ?? state.gameTimeLimit * 1000)
+                    : state.gameTimeLimit * 1000,
             };
         });
 
         const state = get();
-        if (state.gameMode === "analyze" && state.gameStatus === "playing") {
+        if (state.isHintMode && state.gameStatus === "playing") {
             void state.analyzeBoard();
         }
     },
@@ -195,11 +208,14 @@ export const createGameSlice: StateCreator<
                 isPass: false,
                 analyzeResults: null,
                 gameOver,
+                aiRemainingTime: newMoves.length > 0
+                    ? (newMoves[newMoves.length - 1].remainingTime ?? state.gameTimeLimit * 1000)
+                    : state.gameTimeLimit * 1000,
             };
         });
 
         const state = get();
-        if (state.gameMode === "analyze" && state.gameStatus === "playing") {
+        if (state.isHintMode && state.gameStatus === "playing") {
             void state.analyzeBoard();
         }
     },
@@ -258,7 +274,7 @@ export const createGameSlice: StateCreator<
             };
         });
 
-        triggerAutomation(get());
+        triggerAutomation(get);
     },
 
     setGameStatus: (status) => set({ gameStatus: status }),

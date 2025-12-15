@@ -151,9 +151,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 break;
             }
 
-            // Notify progress with the current best move at pv_idx
+            // Stable sort moves from pv_idx to end, bringing best to pv_idx position
+            ctx.sort_root_moves_from_pv_idx();
+
+            // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(rm) = ctx.get_current_pv_root_move() {
-                ctx.notify_progress(n_empties, score as Scoref, rm.sq, ctx.selectivity);
+                ctx.notify_progress(n_empties, score as Scoref, rm.sq, ctx.selectivity, ctx.n_nodes, rm.pv.clone());
             }
 
             // Check time control
@@ -161,9 +164,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 break;
             }
         }
-
-        // Stable sort moves from pv_idx to end, bringing best to pv_idx position
-        ctx.sort_root_moves_from_pv_idx();
 
         // Check abort or time limit
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {

@@ -1,6 +1,5 @@
 import { StateCreator } from "zustand";
 import { analyze, type AIMoveProgress } from "@/lib/ai";
-import { abortAISearch } from "@/lib/ai";
 import type { ReversiState, UISlice } from "./types";
 import { triggerAutomation } from "./game-slice";
 
@@ -13,20 +12,34 @@ export const createUISlice: StateCreator<
     showPassNotification: false,
     isAnalyzing: false,
     analyzeResults: null,
+    isNewGameModalOpen: false,
+    isHintMode: false,
+
+    setNewGameModalOpen: (open) => set({ isNewGameModalOpen: open }),
+
+    setHintMode: (enabled) => {
+        set({ isHintMode: enabled, analyzeResults: null });
+        if (enabled) {
+            get().analyzeBoard();
+        } else {
+            get().abortAIMove();
+        }
+    },
 
     hidePassNotification: () => {
         set({ showPassNotification: false });
         const { makePass } = get();
         makePass();
-        triggerAutomation(get());
+        triggerAutomation(get);
     },
 
     analyzeBoard: async () => {
-        if (get().gameMode !== "analyze" || get().gameStatus !== "playing") {
+        const { isHintMode, gameStatus, isAIThinking, isAITurn, isAnalyzing } = get();
+
+        // Analyze only if Hint Mode is ON, game is playing, not AI thinking, not AI's turn, and not already analyzing
+        if (!isHintMode || gameStatus !== "playing" || isAIThinking || isAITurn() || isAnalyzing) {
             return;
         }
-
-        await abortAISearch();
 
         const board = get().board;
         const player = get().currentPlayer;
@@ -35,7 +48,10 @@ export const createUISlice: StateCreator<
         set({ analyzeResults: null, isAnalyzing: true });
 
         try {
-            await analyze(board, player, get().aiLevel, (ev) => {
+            await analyze(board, player, get().hintLevel, (ev) => {
+                // Check if hint mode was disabled or analysis was cancelled
+                if (!get().isHintMode || !get().isAnalyzing) return;
+
                 if (ev.payload.row !== undefined && ev.payload.col !== undefined) {
                     const key = `${ev.payload.row},${ev.payload.col}`;
                     results.set(key, ev.payload);

@@ -53,6 +53,8 @@ pub struct SearchProgress {
     pub score: Scoref,
     pub best_move: Square,
     pub probability: i32,
+    pub nodes: u64,
+    pub pv_line: Vec<Square>,
 }
 
 /// Type alias for search progress callback
@@ -123,12 +125,16 @@ impl Search {
             }
         };
 
+        // In Time mode, automatically extend endgame search depth once endgame phase is reached
+        let is_time_mode = time_manager.is_some();
         let n_empties = board.get_empty_count();
-        if let Some(endgame_start_n_empties) = self.endgame_start_n_empties {
-            if n_empties > endgame_start_n_empties {
-                self.endgame_start_n_empties = None;
-            } else {
-                effective_level.end_depth = [60; 7];
+        if is_time_mode {
+            if let Some(endgame_start_n_empties) = self.endgame_start_n_empties {
+                if n_empties > endgame_start_n_empties {
+                    self.endgame_start_n_empties = None;
+                } else {
+                    effective_level.end_depth = [60; 7];
+                }
             }
         }
 
@@ -158,10 +164,13 @@ impl Search {
                 score: result.score,
                 probability: result.get_probability(),
                 best_move: result.best_move.unwrap_or(Square::None),
+                nodes: result.n_nodes,
+                pv_line: result.pv_line.clone(),
             });
         }
 
-        if self.endgame_start_n_empties.is_none()
+        if is_time_mode
+            && self.endgame_start_n_empties.is_none()
             && result.depth + 1 >= n_empties
             && result.selectivity >= Selectivity::Level3
         {

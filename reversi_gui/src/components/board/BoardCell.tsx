@@ -1,14 +1,12 @@
-"use client";
-
-import { motion } from "framer-motion";
 import { memo } from "react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { GamePiece } from "./game-piece";
-import { AIThinkingIndicator } from "./ai-thinking-indicator";
-import { AIScoreDisplay } from "./ai-score-display";
+import { Stone } from "./Stone";
+import { AIThinkingIndicator } from "./AIThinkingIndicator";
+import { HintScoreDisplay } from "./HintScoreDisplay";
 import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
 import type { AIMoveProgress } from "@/lib/ai";
-import type { Cell, Board } from "@/types";
+import type { Cell } from "@/types";
 
 interface MoveHistoryItem {
   row: number;
@@ -37,12 +35,9 @@ interface BoardCellProps {
   isAITurn: () => boolean;
   onCellClick: (row: number, col: number) => void;
   analyzeResults: Map<string, AIMoveProgress> | null;
-  gameMode: string;
   maxScore: number | null;
-  aiLevel: number;
-  board: Board;
+  hintLevel: number;
 }
-
 
 export const BoardCell = memo(function BoardCell({
   rowIndex,
@@ -57,54 +52,50 @@ export const BoardCell = memo(function BoardCell({
   isAITurn,
   onCellClick,
   analyzeResults,
-  gameMode,
   maxScore,
-  aiLevel,
-  board,
+  hintLevel,
 }: BoardCellProps) {
   const isLastMove = lastMove?.row === rowIndex && lastMove?.col === colIndex;
-  const isAIMoveCell = (aiMoveProgress?.row === rowIndex && aiMoveProgress?.col === colIndex) ||
-                      (lastAIMove?.row === rowIndex && lastAIMove?.col === colIndex);
+  const isAIMoveCell =
+    (aiMoveProgress?.row === rowIndex && aiMoveProgress?.col === colIndex) ||
+    (lastAIMove?.row === rowIndex && lastAIMove?.col === colIndex);
   const isValidMoveCell = isValidMove(rowIndex, colIndex);
-  const showValidMoveIndicator = !cell.color && isValidMoveCell && !isAITurn() &&
-    !(gameMode === "analyze" && analyzeResults && analyzeResults.has(`${rowIndex},${colIndex}`));
-
-  const cellClasses = cn(
-    "w-full pt-[100%] relative bg-[#0e7250] rounded-sm",
-    "hover:bg-[#0f8259] transition-colors",
-    "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#11936a]",
-    isLastMove && "ring-2 ring-[#c8b45c]/70",
-    "shadow-[inset_1px_1px_1px_rgba(255,255,255,0.1),inset_-1px_-1px_1px_rgba(0,0,0,0.1)]",
-    isAIMoveCell && "bg-[#0e7d58]"
-  );
+  const showValidMoveIndicator =
+    !cell.color &&
+    isValidMoveCell &&
+    !isAITurn() &&
+    !(analyzeResults && analyzeResults.has(`${rowIndex},${colIndex}`));
 
   const cellAriaLabel = `${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]} - ${
     cell.color
       ? `${cell.color} piece`
       : isValidMoveCell && !isAITurn()
-      ? "valid move"
-      : "empty"
+        ? "valid move"
+        : "empty"
   }`;
 
   return (
     <motion.button
-      key={`${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]}`}
-      className={cellClasses}
+      className={cn(
+        "w-full pt-[100%] relative rounded-sm cell-shadow",
+        "bg-board-cell transition-colors duration-150",
+        "hover:bg-board-cell-hover",
+        "focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/30",
+        isLastMove && "last-move-highlight",
+        isAIMoveCell && "bg-board-cell-hover"
+      )}
       onClick={() => onCellClick(rowIndex, colIndex)}
       disabled={gameOver || !isValidMoveCell}
-      whileHover={
-        !gameOver && isValidMoveCell ? { scale: 0.95 } : {}
-      }
-      transition={{ type: "spring", stiffness: 400, damping: 17 }}
+      whileHover={!gameOver && isValidMoveCell ? { scale: 0.96 } : {}}
+      whileTap={!gameOver && isValidMoveCell ? { scale: 0.92 } : {}}
+      transition={{ type: "spring", stiffness: 400, damping: 20 }}
       aria-label={cellAriaLabel}
     >
       <div className="absolute inset-0 flex items-center justify-center">
-        {cell.color && (
-          <GamePiece color={cell.color} isNew={cell.isNew} />
-        )}
+        {cell.color && <Stone color={cell.color} />}
 
         {showValidMoveIndicator && (
-          <div className="w-[20%] h-[20%] rounded-full bg-emerald-100 opacity-20" />
+          <div className="w-[24%] h-[24%] rounded-full bg-white/25 shadow-inner" />
         )}
 
         <AIThinkingIndicator
@@ -115,15 +106,13 @@ export const BoardCell = memo(function BoardCell({
           lastAIMove={lastAIMove}
         />
 
-        <AIScoreDisplay
+        <HintScoreDisplay
           rowIndex={rowIndex}
           colIndex={colIndex}
           analyzeResults={analyzeResults}
-          gameMode={gameMode}
           maxScore={maxScore}
-          aiLevel={aiLevel}
+          hintLevel={hintLevel}
           gameOver={gameOver}
-          board={board}
         />
       </div>
     </motion.button>

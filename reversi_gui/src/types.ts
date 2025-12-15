@@ -15,6 +15,7 @@ export type MoveRecord = {
   notation: string;
   score?: number;
   isAI?: boolean;
+  remainingTime?: number;
 };
 
 
@@ -38,7 +39,7 @@ export type GameState = {
   moves: MoveRecord[];
 };
 
-export type GameMode = "analyze" | "ai-black" | "ai-white";
+export type GameMode = "ai-black" | "ai-white";
 export type GameStatus = "waiting" | "playing" | "finished";
 export type AIMode = "level" | "time" | "game-time";
 

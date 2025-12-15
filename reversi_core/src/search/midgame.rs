@@ -125,7 +125,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(rm) = ctx.get_current_pv_root_move() {
-                ctx.notify_progress(depth, unscale_score_f32(score), rm.sq, ctx.selectivity);
+                ctx.notify_progress(depth, unscale_score_f32(score), rm.sq, ctx.selectivity, ctx.n_nodes, rm.pv.clone());
             }
         }
 

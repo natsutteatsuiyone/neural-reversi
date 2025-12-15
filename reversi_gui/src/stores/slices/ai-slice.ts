@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
 import { abortAISearch, getAIMove } from "@/lib/ai";
 import type { AISlice, ReversiState } from "./types";
+import { saveSetting } from "@/lib/settings-store";
 
 export const createAISlice: StateCreator<
     ReversiState,
@@ -10,6 +11,8 @@ export const createAISlice: StateCreator<
 > = (set, get) => ({
     aiLevel: 21,
     aiMoveProgress: null,
+    aiThinkingHistory: [],
+    aiSearchStartTime: null,
     isAIThinking: false,
     lastAIMove: null,
     aiMode: "game-time",
@@ -17,7 +20,7 @@ export const createAISlice: StateCreator<
     searchTimer: null,
 
     makeAIMove: async () => {
-        set({ isAIThinking: true });
+        set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime: Date.now() });
         const player = get().currentPlayer;
         const board = get().board;
         const { aiLevel, aiMode, timeLimit, aiRemainingTime } = get();
@@ -47,7 +50,29 @@ export const createAISlice: StateCreator<
                 aiMode === "time" ? timeLimit * 1000 : undefined,
                 aiMode === "game-time" ? aiRemainingTime : undefined,
                 (ev) => {
-                    set({ aiMoveProgress: ev.payload });
+                    const progress = ev.payload;
+                    set((state) => {
+                        // Skip duplicate entries
+                        const last = state.aiThinkingHistory[state.aiThinkingHistory.length - 1];
+                        if (last &&
+                            last.depth === progress.depth &&
+                            last.score === progress.score &&
+                            last.nodes === progress.nodes &&
+                            last.pvLine === progress.pvLine) {
+                            return { aiMoveProgress: progress };
+                        }
+
+                        // Calculate NPS at this moment
+                        const elapsedMs = state.aiSearchStartTime
+                            ? Date.now() - state.aiSearchStartTime
+                            : 0;
+                        const nps = elapsedMs > 0 ? (progress.nodes / elapsedMs) * 1000 : 0;
+
+                        return {
+                            aiMoveProgress: progress,
+                            aiThinkingHistory: [...state.aiThinkingHistory, { ...progress, nps }]
+                        };
+                    });
                 }
             );
 
@@ -71,7 +96,7 @@ export const createAISlice: StateCreator<
                     score: aiMove.score,
                     isAI: true,
                 };
-                get().makeMove(move);
+                await get().makeMove(move);
                 set({
                     lastAIMove: aiMove,
                 });
@@ -106,7 +131,15 @@ export const createAISlice: StateCreator<
         }
     },
 
-    setAILevelChange: (level) => set({ aiLevel: level }),
+    setAILevelChange: (level) => {
+        set({ aiLevel: level });
+        void saveSetting("aiLevel", level);
+    },
 
-    setAIMode: (mode) => set({ aiMode: mode }),
+    setAIMode: (mode) => {
+        set({ aiMode: mode });
+        void saveSetting("aiMode", mode);
+    },
+
+    clearAiThinkingHistory: () => set({ aiThinkingHistory: [] }),
 });

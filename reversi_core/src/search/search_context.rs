@@ -391,12 +391,16 @@ impl SearchContext {
     /// * `score` - Current best score (from engine's perspective)
     /// * `best_move` - Current best move
     /// * `selectivity` - Current selectivity level
+    /// * `nodes` - Number of nodes searched
+    /// * `pv_line` - Principal variation line
     pub fn notify_progress(
         &self,
         depth: Depth,
         score: Scoref,
         best_move: Square,
         selectivity: Selectivity,
+        nodes: u64,
+        pv_line: Vec<Square>,
     ) {
         if let Some(ref callback) = self.callback {
             callback(SearchProgress {
@@ -404,6 +408,8 @@ impl SearchContext {
                 score,
                 best_move,
                 probability: selectivity.probability(),
+                nodes,
+                pv_line,
             });
         }
     }

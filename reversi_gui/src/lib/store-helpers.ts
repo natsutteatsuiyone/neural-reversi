@@ -21,7 +21,8 @@ export function cloneBoard(board: Board): Board {
 export function createMoveRecord(
   moveId: number,
   player: Player,
-  move: Move
+  move: Move,
+  remainingTime?: number
 ): MoveRecord {
   return {
     id: moveId,
@@ -31,6 +32,7 @@ export function createMoveRecord(
     notation: getNotation(move.row, move.col),
     score: move.score,
     isAI: move.isAI,
+    remainingTime,
   };
 }
 
@@ -50,13 +52,14 @@ export function applyMove(board: Board, move: Move, player: Player): Board {
   return newBoard;
 }
 
-export function createPassMove(moveId: number, player: Player): MoveRecord {
+export function createPassMove(moveId: number, player: Player, remainingTime?: number): MoveRecord {
   return {
     id: moveId,
     player,
     row: -1,
     col: -1,
     notation: "Pass",
+    remainingTime,
   };
 }
 

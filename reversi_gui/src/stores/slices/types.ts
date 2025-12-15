@@ -15,7 +15,7 @@ export interface GameSlice {
     getScores: () => { black: number; white: number };
     isAITurn: () => boolean;
     isValidMove: (row: number, col: number) => boolean;
-    makeMove: (move: Move) => void;
+    makeMove: (move: Move) => Promise<void>;
     makePass: () => void;
     undoMove: () => void;
     redoMove: () => void;
@@ -24,9 +24,15 @@ export interface GameSlice {
     setGameStatus: (status: "waiting" | "playing" | "finished") => void;
 }
 
+export interface AIThinkingEntry extends AIMoveProgress {
+    nps: number;
+}
+
 export interface AISlice {
     aiLevel: number;
     aiMoveProgress: AIMoveProgress | null;
+    aiThinkingHistory: AIThinkingEntry[];
+    aiSearchStartTime: number | null;
     isAIThinking: boolean;
     lastAIMove: AIMoveResult | null;
     aiMode: AIMode;
@@ -36,23 +42,32 @@ export interface AISlice {
     abortAIMove: () => Promise<void>;
     setAILevelChange: (level: number) => void;
     setAIMode: (mode: AIMode) => void;
+    clearAiThinkingHistory: () => void;
 }
 
 export interface UISlice {
     showPassNotification: boolean;
     isAnalyzing: boolean;
     analyzeResults: Map<string, AIMoveProgress> | null;
+    isNewGameModalOpen: boolean;
+    isHintMode: boolean;
     hidePassNotification: () => void;
     analyzeBoard: () => Promise<void>;
+    setNewGameModalOpen: (open: boolean) => void;
+    setHintMode: (enabled: boolean) => void;
 }
 
 export interface SettingsSlice {
     gameMode: GameMode;
     timeLimit: number;
     gameTimeLimit: number;
+    hintLevel: number;
+    aiAnalysisPanelOpen: boolean;
     setGameMode: (mode: GameMode) => void;
     setTimeLimit: (limit: number) => void;
     setGameTimeLimit: (limit: number) => void;
+    setHintLevel: (level: number) => void;
+    setAIAnalysisPanelOpen: (open: boolean) => void;
 }
 
 export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice;

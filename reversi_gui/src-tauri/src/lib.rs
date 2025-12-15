@@ -37,6 +37,8 @@ pub struct SearchProgressPayload {
     pub score: Scoref,
     pub depth: u32,
     pub acc: i32,
+    pub nodes: u64,
+    pub pv_line: String,
 }
 
 #[tauri::command]
@@ -93,6 +95,13 @@ async fn ai_move_command(
                 row: (progress.best_move as i32 / 8),
                 col: (progress.best_move as i32 % 8),
                 acc: progress.probability,
+                nodes: progress.nodes,
+                pv_line: progress
+                    .pv_line
+                    .iter()
+                    .map(|sq| format!("{}", sq))
+                    .collect::<Vec<_>>()
+                    .join(" "),
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
@@ -161,6 +170,13 @@ async fn analyze_command(
                 row: (progress.best_move as i32 / 8),
                 col: (progress.best_move as i32 % 8),
                 acc: progress.probability,
+                nodes: progress.nodes,
+                pv_line: progress
+                    .pv_line
+                    .iter()
+                    .map(|sq| format!("{}", sq))
+                    .collect::<Vec<_>>()
+                    .join(" "),
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
@@ -184,6 +200,7 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             app.manage(AppState {
                 search,
