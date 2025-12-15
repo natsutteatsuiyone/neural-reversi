@@ -102,7 +102,7 @@ neural-reversi-cli solve <file> [options]
 Options:
 
 - `<file>` - Path to the position file (required)
-- `--exact` - Solve to the end with exact depth (ignore level for perfect endgame solving)
+- `--exact` - Solve for exact score with perfect play (ignores level setting)
 - `--hash-size <size>` - Set the transposition table size in MB (default: 64)
 - `-l, --level <level>` - Set the AI search level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)

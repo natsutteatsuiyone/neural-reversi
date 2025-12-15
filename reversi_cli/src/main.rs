@@ -48,7 +48,7 @@ enum SubCommands {
         #[arg()]
         file: PathBuf,
 
-        /// Solve to the end with exact depth (ignore level)
+        /// Solve for exact score with perfect play (ignores level setting)
         #[arg(long)]
         exact: bool,
 
