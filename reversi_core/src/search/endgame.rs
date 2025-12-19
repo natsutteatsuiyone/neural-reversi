@@ -61,7 +61,7 @@ const EC_NWS_DEPTH: Depth = 12;
 
 thread_local! {
     static ENDGAME_CACHE: UnsafeCell<EndGameCache> =
-        UnsafeCell::new(EndGameCache::new(15));
+        UnsafeCell::new(EndGameCache::new(14));
 }
 
 #[inline(always)]
