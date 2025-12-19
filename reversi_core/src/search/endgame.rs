@@ -18,7 +18,7 @@ use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, Score, Scoref, Selectivity};
-use crate::{bitboard, probcut, stability};
+use crate::{bitboard, flip, probcut, stability};
 
 use super::search_context::GamePhase;
 use super::search_result::SearchResult;
@@ -1121,43 +1121,71 @@ fn solve3(
 /// # Returns
 ///
 /// Exact score with perfect play
-#[inline(always)]
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
+    let player = board.player;
+    let opponent = board.opponent;
     let beta = alpha + 1;
+    let mut flipped: u64;
+    let best_score: Score;
 
-    // player moves
-    if let Some(next) = board.try_make_move(sq1) {
-        let best_score = -solve1(ctx, &next, -beta, sq2);
-        if best_score >= beta {
+    if bitboard::has_adjacent_bit(opponent, sq1) {
+        flipped = flip::flip(sq1, player, opponent);
+        if flipped != 0 {
+            let next_player = bitboard::opponent_flip(opponent, flipped);
+            best_score = -solve1(ctx, next_player, -beta, sq2);
+            if best_score >= beta {
+                return best_score;
+            }
+
+            if bitboard::has_adjacent_bit(opponent, sq2) {
+                flipped = flip::flip(sq2, player, opponent);
+                if flipped != 0 {
+                    let next_player = bitboard::opponent_flip(opponent, flipped);
+                    let score = -solve1(ctx, next_player, -beta, sq1);
+                    return score.max(best_score);
+                }
+            }
             return best_score;
         }
-        if let Some(next) = board.try_make_move(sq2) {
-            let score = -solve1(ctx, &next, -beta, sq1);
-            return score.max(best_score);
-        } else {
-            return best_score;
-        }
-    } else if let Some(next) = board.try_make_move(sq2) {
-        return -solve1(ctx, &next, -beta, sq1);
     }
 
-    // opponent moves
+    if bitboard::has_adjacent_bit(opponent, sq2) {
+        flipped = flip::flip(sq2, player, opponent);
+        if flipped != 0 {
+            let next_player = bitboard::opponent_flip(opponent, flipped);
+            return -solve1(ctx, next_player, -beta, sq1);
+        }
+    }
+
     ctx.increment_nodes();
-    let pass = board.switch_players();
-    if let Some(next) = pass.try_make_move(sq1) {
-        let best_score = solve1(ctx, &next, alpha, sq2);
-        if best_score <= alpha {
+    if bitboard::has_adjacent_bit(player, sq1) {
+        flipped = flip::flip(sq1, opponent, player);
+        if flipped != 0 {
+            let next_player = bitboard::opponent_flip(player, flipped);
+            best_score = solve1(ctx, next_player, alpha, sq2);
+            if best_score <= alpha {
+                return best_score;
+            }
+
+            if bitboard::has_adjacent_bit(player, sq2) {
+                flipped = flip::flip(sq2, opponent, player);
+                if flipped != 0 {
+                    let next_player = bitboard::opponent_flip(player, flipped);
+                    let score = solve1(ctx, next_player, alpha, sq1);
+                    return score.min(best_score);
+                }
+            }
             return best_score;
         }
-        if let Some(next) = pass.try_make_move(sq2) {
-            let score = solve1(ctx, &next, alpha, sq1);
-            return score.min(best_score);
-        } else {
-            return best_score;
+    }
+
+    if bitboard::has_adjacent_bit(player, sq2) {
+        flipped = flip::flip(sq2, opponent, player);
+        if flipped != 0 {
+            let next_player = bitboard::opponent_flip(player, flipped);
+            return solve1(ctx, next_player, alpha, sq1);
         }
-    } else if let Some(next) = pass.try_make_move(sq2) {
-        return solve1(ctx, &next, alpha, sq1);
     }
 
     // both players pass
@@ -1169,31 +1197,30 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 /// # Arguments
 ///
 /// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold (for pruning opponent check)
+/// * `player` - Current player's bitboard
+/// * `alpha` - Score threshold
 /// * `sq` - The single remaining empty square
 ///
 /// # Returns
 ///
 /// Exact final score after optimal play
 #[inline(always)]
-fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> Score {
+fn solve1(ctx: &mut SearchContext, player: u64, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
-    let mut score = board.get_player_count() as Score * 2 - 64 + 2;
-    let mut n_flipped = count_last_flip(board.player, sq);
-    score += n_flipped;
+    let mut n_flipped = count_last_flip(player, sq);
+    let mut score = 2 * player.count_ones() as Score - 64 + 2 + n_flipped;
 
     if n_flipped == 0 {
-        // pass
-        let score2 = score - 2;
         if score <= 0 {
-            score = score2;
-        }
-
-        if score > alpha {
-            n_flipped = count_last_flip(board.opponent, sq);
+            score -= 2;
+            if score > alpha {
+                n_flipped = count_last_flip(!player, sq);
+                score -= n_flipped;
+            }
+        } else if score > alpha {
+            n_flipped = count_last_flip(!player, sq);
             if n_flipped != 0 {
-                score = score2 - n_flipped;
+                score -= n_flipped + 2;
             }
         }
     }
