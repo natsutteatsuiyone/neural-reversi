@@ -707,16 +707,6 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         return score;
     }
 
-    let key = board.hash();
-    let entry = probe_endgame_cache(key);
-    let mut tt_move = Square::None;
-    if let Some(entry_data) = &entry {
-        if entry_data.can_cut(beta) {
-            return entry_data.score;
-        }
-        tt_move = entry_data.best_move;
-    }
-
     let mut move_list = MoveList::new(board);
     if move_list.wipeout_move.is_some() {
         return SCORE_MAX;
@@ -727,6 +717,16 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         } else {
             return solve(board, n_empties);
         }
+    }
+
+    let key = board.hash();
+    let entry = probe_endgame_cache(key);
+    let mut tt_move = Square::None;
+    if let Some(entry_data) = &entry {
+        if entry_data.can_cut(beta) {
+            return entry_data.score;
+        }
+        tt_move = entry_data.best_move;
     }
 
     let mut best_score = -SCORE_INF;
@@ -810,6 +810,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         return score;
     }
 
+    #[inline(always)]
     fn search_child(ctx: &mut SearchContext, next: &Board, beta: Score) -> Score {
         if ctx.empty_list.count == 4 {
             let key = next.hash();
@@ -834,33 +835,28 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         }
     }
 
-    let key = board.hash();
-    let entry = probe_endgame_cache(key);
-    let mut tt_move = Square::None;
-    if let Some(entry_data) = &entry {
-        if entry_data.can_cut(beta) {
-            return entry_data.score;
-        }
-        tt_move = entry_data.best_move;
-    }
-
-    let mut best_move = Square::None;
-    let mut best_score = -SCORE_INF;
-    if tt_move != Square::None
-        && let Some(next) = board.try_make_move(tt_move)
-    {
-        ctx.update_endgame(tt_move);
+    #[inline(always)]
+    fn search_move(
+        ctx: &mut SearchContext,
+        board: &Board,
+        sq: Square,
+        beta: Score,
+        best_score: &mut Score,
+        best_move: &mut Square,
+    ) -> Option<Score> {
+        let next = board.make_move(sq);
+        ctx.update_endgame(sq);
         let score = search_child(ctx, &next, beta);
-        ctx.undo_endgame(tt_move);
+        ctx.undo_endgame(sq);
 
-        if score > best_score {
+        if score > *best_score {
             if score >= beta {
-                store_endgame_cache(key, beta, score, tt_move);
-                return score;
+                return Some(score);
             }
-            best_move = tt_move;
-            best_score = score;
+            *best_move = sq;
+            *best_score = score;
         }
+        None
     }
 
     let mut moves = board.get_moves();
@@ -871,51 +867,88 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         } else {
             return solve(board, n_empties);
         }
-    } else if best_move != Square::None {
-        moves &= !best_move.bitboard();
-        if moves == 0 {
-            store_endgame_cache(key, beta, best_score, best_move);
-            return best_score;
+    }
+
+    let key = board.hash();
+    let entry = probe_endgame_cache(key);
+    let tt_move = if let Some(entry_data) = &entry {
+        if entry_data.can_cut(beta) {
+            return entry_data.score;
+        }
+        entry_data.best_move
+    } else {
+        Square::None
+    };
+
+    let mut best_move = Square::None;
+    let mut best_score = -SCORE_INF;
+
+    // Search tt_move first if valid (now validated against moves bitboard)
+    if tt_move != Square::None && bitboard::is_set(moves, tt_move) {
+        moves &= !tt_move.bitboard();
+        if let Some(score) = search_move(ctx, board, tt_move, beta, &mut best_score, &mut best_move)
+        {
+            store_endgame_cache(key, beta, score, tt_move);
+            return score;
+        }
+        best_move = tt_move;
+    }
+
+    if moves == 0 {
+        store_endgame_cache(key, beta, best_score, best_move);
+        return best_score;
+    }
+
+    // Split moves into priority (matching parity) and remaining
+    let quadrant_mask = QUADRANT_MASK[ctx.empty_list.parity as usize];
+    let priority_moves = moves & quadrant_mask;
+    let remaining_moves = moves & !quadrant_mask;
+
+    // Process corners first within priority moves
+    let mut current = priority_moves & bitboard::CORNER_MASK;
+    while current != 0 {
+        let sq = Square::from_u32_unchecked(current.trailing_zeros());
+        current &= current - 1;
+
+        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
+            store_endgame_cache(key, beta, score, sq);
+            return score;
         }
     }
 
-    let mut priority_moves = moves & QUADRANT_MASK[ctx.empty_list.parity as usize];
-    if priority_moves == 0 {
-        priority_moves = moves;
+    // Process non-corner priority moves
+    current = priority_moves & !bitboard::CORNER_MASK;
+    while current != 0 {
+        let sq = Square::from_u32_unchecked(current.trailing_zeros());
+        current &= current - 1;
+
+        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
+            store_endgame_cache(key, beta, score, sq);
+            return score;
+        }
     }
 
-    loop {
-        moves ^= priority_moves;
-        let mut sq = ctx.empty_list.first();
-        loop {
-            while !bitboard::is_set(priority_moves, sq) {
-                sq = ctx.empty_list.next(sq);
-            }
+    // Process corners first within remaining moves
+    current = remaining_moves & bitboard::CORNER_MASK;
+    while current != 0 {
+        let sq = Square::from_u32_unchecked(current.trailing_zeros());
+        current &= current - 1;
 
-            priority_moves &= !sq.bitboard();
-            let next = board.make_move(sq);
-
-            ctx.update_endgame(sq);
-            let score = search_child(ctx, &next, beta);
-            ctx.undo_endgame(sq);
-
-            if score > best_score {
-                if score >= beta {
-                    store_endgame_cache(key, beta, score, sq);
-                    return score;
-                }
-                best_move = sq;
-                best_score = score;
-            }
-
-            if priority_moves == 0 {
-                break;
-            }
+        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
+            store_endgame_cache(key, beta, score, sq);
+            return score;
         }
+    }
 
-        priority_moves = moves;
-        if priority_moves == 0 {
-            break;
+    // Process non-corner remaining moves
+    current = remaining_moves & !bitboard::CORNER_MASK;
+    while current != 0 {
+        let sq = Square::from_u32_unchecked(current.trailing_zeros());
+        current &= current - 1;
+
+        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
+            store_endgame_cache(key, beta, score, sq);
+            return score;
         }
     }
 
