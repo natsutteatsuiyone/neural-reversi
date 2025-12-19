@@ -4,7 +4,7 @@
 //! web-specific implementation of evaluate_moves that uses the web search module.
 
 // Re-export core move list types
-pub use reversi_core::move_list::{Move, MoveList};
+pub use reversi_core::move_list::MoveList;
 
 use reversi_core::{board::Board, square::Square};
 
@@ -55,9 +55,9 @@ pub fn evaluate_moves(
         } else {
             // Evaluate using shallow search
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update(mv);
+            ctx.update(mv.sq, mv.flipped);
             mv.value = -search::evaluate(ctx, &next);
-            ctx.undo(mv);
+            ctx.undo(mv.sq);
         };
     }
 }

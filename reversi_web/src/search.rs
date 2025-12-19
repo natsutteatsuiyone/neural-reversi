@@ -23,7 +23,7 @@ use reversi_core::{
 use crate::{
     eval::Eval,
     level::Level,
-    move_list::{Move, MoveList},
+    move_list::MoveList,
     probcut,
     search::{search_context::SearchContext, search_result::SearchResult, search_task::SearchTask},
 };
@@ -418,7 +418,7 @@ pub fn search<NT: NodeType>(
         move_count += 1;
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update(mv);
+        ctx.update(mv.sq, mv.flipped);
 
         let mut score = -SCORE_INF;
         if depth >= 2 && mv.reduction_depth > 0 {
@@ -436,7 +436,7 @@ pub fn search<NT: NodeType>(
             score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha);
         }
 
-        ctx.undo(mv);
+        ctx.undo(mv.sq);
 
         if NT::ROOT_NODE {
             ctx.update_root_move(mv.sq, score, move_count, alpha);
@@ -512,12 +512,12 @@ pub fn evaluate_depth2(
     }
 
     let mut best_score = -SCORE_INF;
-    for mv in move_list.best_first_iter() {
+    for mv in move_list.into_best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-        ctx.update(mv);
+        ctx.update(mv.sq, mv.flipped);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-        ctx.undo(mv);
+        ctx.undo(mv.sq);
 
         if score > best_score {
             best_score = score;
@@ -567,10 +567,9 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
         }
         let next = board.make_move_with_flipped(flipped, sq);
 
-        let mv = Move::new(sq, flipped);
-        ctx.update(&mv);
+        ctx.update(sq, flipped);
         let score = -evaluate(ctx, &next);
-        ctx.undo(&mv);
+        ctx.undo(sq);
 
         if score > best_score {
             best_score = score;

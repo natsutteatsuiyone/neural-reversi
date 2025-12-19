@@ -6,7 +6,7 @@ use crate::constants::SCORE_INF;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
-use crate::move_list::{Move, MoveList};
+use crate::move_list::MoveList;
 use crate::search::SearchProgress;
 use crate::search::SearchProgressCallback;
 use crate::search::root_move::RootMove;
@@ -144,23 +144,24 @@ impl SearchContext {
     /// Updates the search context after making a move in midgame search.
     ///
     /// # Arguments
-    /// * `mv` - The move being made, including square and flipped pieces
+    /// * `sq` - The square where the move is played
+    /// * `flipped` - The flipped pieces as a bitboard
     #[inline]
-    pub fn update(&mut self, mv: &Move) {
+    pub fn update(&mut self, sq: Square, flipped: u64) {
         self.increment_nodes();
         self.pattern_features
-            .update(mv.sq, mv.flipped, self.ply(), self.side_to_move);
+            .update(sq, flipped, self.ply(), self.side_to_move);
         self.switch_players();
-        self.empty_list.remove(mv.sq);
+        self.empty_list.remove(sq);
     }
 
     /// Undoes a move in the search context.
     ///
     /// # Arguments
-    /// * `mv` - The move to undo
+    /// * `sq` - The square to undo
     #[inline]
-    pub fn undo(&mut self, mv: &Move) {
-        self.empty_list.restore(mv.sq);
+    pub fn undo(&mut self, sq: Square) {
+        self.empty_list.restore(sq);
         self.switch_players();
     }
 

@@ -159,8 +159,8 @@ impl MoveList {
     ///
     /// Iterator that yields moves in best-first order
     #[inline]
-    pub fn best_first_iter(&self) -> BestFirstMoveIterator<'_> {
-        BestFirstMoveIterator::new(self)
+    pub fn into_best_first_iter(self) -> BestFirstMoveIterator {
+        BestFirstMoveIterator::new(self.moves)
     }
 
     /// Evaluates all moves to assign ordering values and reduction depths.
@@ -238,7 +238,7 @@ impl MoveList {
             } else {
                 // Evaluate using shallow search
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                ctx.update(mv);
+                ctx.update(mv.sq, mv.flipped);
 
                 mv.value = match sort_depth {
                     0 => -midgame::evaluate(ctx, &next),
@@ -247,7 +247,7 @@ impl MoveList {
                     _ => unreachable!(),
                 };
 
-                ctx.undo(mv);
+                ctx.undo(mv.sq);
                 best_sort_value = best_sort_value.max(mv.value);
             };
         }
@@ -305,7 +305,7 @@ impl MoveList {
             } else {
                 // Evaluate using shallow search
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                ctx.update(mv);
+                ctx.update(mv.sq, mv.flipped);
 
                 mv.value = match sort_depth {
                     0 => -midgame::evaluate(ctx, &next),
@@ -323,7 +323,7 @@ impl MoveList {
                 mv.value -= mobility * MOBILITY_SCALE;
                 mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
 
-                ctx.undo(mv);
+                ctx.undo(mv.sq);
             };
         }
     }
@@ -423,82 +423,83 @@ impl ConcurrentMoveIterator {
 /// move on each call to next(). This is more efficient than full sorting when
 /// only the first few moves are needed, which is common in alpha-beta search
 /// due to early cutoffs.
-pub struct BestFirstMoveIterator<'a> {
-    /// Reference to the move list being iterated
-    move_list: &'a MoveList,
-    /// Indices into the move list, rearranged as moves are selected
-    indices: [usize; MAX_MOVES],
-    /// Current position in the iteration (number of moves already returned)
+pub struct BestFirstMoveIterator {
+    /// Owned moves array, partially sorted as iteration progresses
+    moves: ArrayVec<Move, MAX_MOVES>,
+    /// Current position in the iteration
     current: usize,
 }
 
-impl BestFirstMoveIterator<'_> {
-    /// Creates a new best-first iterator over the given move list.
+impl BestFirstMoveIterator {
+    /// Creates a new owning best-first iterator from a moves array.
     ///
     /// # Arguments
     ///
-    /// * `move_list` - Reference to the move list to iterate over
-    ///
-    /// # Returns
-    ///
-    /// A new iterator ready to yield moves in best-first order
-    pub fn new(move_list: &MoveList) -> BestFirstMoveIterator<'_> {
-        let indices = BestFirstMoveIterator::create_indices();
-
-        BestFirstMoveIterator {
-            move_list,
-            indices,
-            current: 0,
-        }
+    /// * `moves` - The moves array to take ownership of
+    #[inline]
+    pub fn new(moves: ArrayVec<Move, MAX_MOVES>) -> Self {
+        BestFirstMoveIterator { moves, current: 0 }
     }
 
-    /// Creates an identity permutation array for move indices.
-    ///
-    /// This initializes the indices array with [0, 1, 2, ..., MAX_MOVES-1]
-    /// which will be rearranged as the iterator finds the best moves.
-    const fn create_indices() -> [usize; MAX_MOVES] {
-        let mut indices = [0; MAX_MOVES];
-        let mut i = 0;
-        while i < MAX_MOVES {
-            indices[i] = i;
-            i += 1;
-        }
-        indices
+    /// Returns the number of remaining moves.
+    #[inline]
+    pub fn remaining(&self) -> usize {
+        self.moves.len() - self.current
     }
-}
 
-impl<'a> Iterator for BestFirstMoveIterator<'a> {
-    type Item = &'a Move;
-
-    /// Returns the next best move from the remaining unexamined moves.
-    ///
-    /// This implements selection sort behavior: find the maximum value among
-    /// remaining moves, swap it to the current position, and return it.
-    /// This gives O(n²) total complexity but is efficient when only the
-    /// first few moves are needed.
-    fn next(&mut self) -> Option<Self::Item> {
-        // Check if we've exhausted all moves
-        if self.current == self.move_list.count() {
-            return None;
+    /// Selects the best remaining move and swaps it to the current position.
+    #[inline(always)]
+    fn select_best_to_current(&mut self) {
+        let len = self.moves.len();
+        if self.current >= len {
+            return;
         }
 
-        // Find the move with the highest value among remaining moves
         let mut max_idx = self.current;
-        for i in (self.current + 1)..self.move_list.count() {
-            if self.move_list.moves[self.indices[i]].value
-                > self.move_list.moves[self.indices[max_idx]].value
-            {
+        let mut max_val = self.moves[self.current].value;
+
+        for i in (self.current + 1)..len {
+            let val = self.moves[i].value;
+            if val > max_val {
+                max_val = val;
                 max_idx = i;
             }
         }
 
-        // Move the best move to the current position
-        self.indices.swap(self.current, max_idx);
-        let result = Some(&self.move_list.moves[self.indices[self.current]]);
-        self.current += 1;
-        result
+        if max_idx != self.current {
+            self.moves.swap(self.current, max_idx);
+        }
     }
 }
+
+impl Iterator for BestFirstMoveIterator {
+    type Item = Move;
+
+    /// Returns the next best move, consuming it.
+    ///
+    /// This performs a partial selection sort: finds the maximum among
+    /// remaining elements, swaps it to the current position, and returns it.
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current >= self.moves.len() {
+            return None;
+        }
+
+        self.select_best_to_current();
+
+        let result = self.moves[self.current];
+        self.current += 1;
+        Some(result)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.moves.len() - self.current;
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for BestFirstMoveIterator {}
 
 #[cfg(test)]
 mod tests {
@@ -627,7 +628,7 @@ mod tests {
         move_list.moves[3].value = 2;
         // move_list.count = 4; // Already 4 from new()
 
-        let mut iter = move_list.best_first_iter();
+        let mut iter = move_list.into_best_first_iter();
         assert_eq!(iter.next().unwrap().value, 15);
         assert_eq!(iter.next().unwrap().value, 10);
         assert_eq!(iter.next().unwrap().value, 5);
@@ -646,13 +647,14 @@ mod tests {
             move_list.moves[i].value = 100;
         }
 
-        let iter = move_list.best_first_iter();
+        let total = move_list.count();
+        let iter = move_list.into_best_first_iter();
         let mut count = 0;
         for mv in iter {
             assert_eq!(mv.value, 100);
             count += 1;
         }
-        assert_eq!(count, move_list.count());
+        assert_eq!(count, total);
     }
 
     /// Tests best-first iterator behavior with no legal moves.
@@ -662,7 +664,7 @@ mod tests {
         let move_list = MoveList::new(&board);
         assert_eq!(move_list.count(), 0);
 
-        let mut iter = move_list.best_first_iter();
+        let mut iter = move_list.into_best_first_iter();
         assert!(iter.next().is_none());
     }
 
@@ -685,7 +687,7 @@ mod tests {
         let move_list = MoveList::new(&board);
         assert_eq!(move_list.count(), 1);
 
-        let mut iter = move_list.best_first_iter();
+        let mut iter = move_list.into_best_first_iter();
         assert!(iter.next().is_some());
         assert!(iter.next().is_none());
     }
@@ -701,14 +703,15 @@ mod tests {
             move_list.moves[i].value = (i * 10) as i32;
         }
 
-        let iter = move_list.best_first_iter();
+        let count = move_list.count();
+        let iter = move_list.into_best_first_iter();
         let mut seen_values = HashSet::new();
 
         for mv in iter {
             assert!(seen_values.insert(mv.value));
         }
 
-        assert_eq!(seen_values.len(), move_list.count());
+        assert_eq!(seen_values.len(), count);
     }
 
     /// Tests concurrent move iterator.
@@ -793,7 +796,7 @@ mod tests {
             let wipeout_mv = move_list.iter().find(|m| m.sq == wipeout_sq).unwrap();
             assert_eq!(wipeout_mv.value, WIPEOUT_VALUE);
 
-            let best = move_list.best_first_iter().next().unwrap();
+            let best = move_list.into_best_first_iter().next().unwrap();
             assert_eq!(best.sq, wipeout_sq);
         }
     }

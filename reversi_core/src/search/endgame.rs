@@ -417,7 +417,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update(mv);
+        ctx.update(mv.sq, mv.flipped);
 
         let mut score = -SCORE_INF;
         if !NT::PV_NODE || move_count > 1 {
@@ -433,7 +433,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             score = -search::<PV, false>(ctx, &next, -beta, -alpha, thread, None);
         }
 
-        ctx.undo(mv);
+        ctx.undo(mv.sq);
 
         if SP_NODE {
             let sp = split_point.unwrap();
@@ -585,7 +585,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     let mut best_move = tt_move;
     if move_list.count() >= 2 {
         move_list.evaluate_moves_fast(board, tt_move);
-        for mv in move_list.best_first_iter() {
+        for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
             ctx.update_endgame(mv.sq);
@@ -711,7 +711,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     let mut best_move = tt_move;
     if move_list.count() >= 2 {
         move_list.evaluate_moves_fast(board, tt_move);
-        for mv in move_list.best_first_iter() {
+        for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update_endgame(mv.sq);
             let score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {

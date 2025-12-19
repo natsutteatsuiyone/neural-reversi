@@ -14,7 +14,6 @@ use crate::board::Board;
 use crate::constants::{MID_SCORE_MAX, SCORE_INF, scale_score, unscale_score, unscale_score_f32};
 use crate::flip;
 use crate::move_list::ConcurrentMoveIterator;
-use crate::move_list::Move;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::search::endgame;
@@ -405,7 +404,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update(mv);
+        ctx.update(mv.sq, mv.flipped);
 
         let mut score = -SCORE_INF;
         if depth >= 2 && mv.reduction_depth > 0 {
@@ -446,7 +445,7 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
             score = -search::<PV, false>(ctx, &next, depth - 1, -beta, -alpha, thread, None);
         }
 
-        ctx.undo(mv);
+        ctx.undo(mv.sq);
 
         if SP_NODE {
             let sp = split_point.unwrap();
@@ -580,12 +579,12 @@ pub fn evaluate_depth2(
     }
 
     let mut best_score = -SCORE_INF;
-    for mv in move_list.best_first_iter() {
+    for mv in move_list.into_best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-        ctx.update(mv);
+        ctx.update(mv.sq, mv.flipped);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-        ctx.undo(mv);
+        ctx.undo(mv.sq);
 
         if score > best_score {
             best_score = score;
@@ -635,10 +634,9 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
         }
         let next = board.make_move_with_flipped(flipped, sq);
 
-        let mv = Move::new(sq, flipped);
-        ctx.update(&mv);
+        ctx.update(sq, flipped);
         let score = -evaluate(ctx, &next);
-        ctx.undo(&mv);
+        ctx.undo(sq);
 
         if score > best_score {
             best_score = score;

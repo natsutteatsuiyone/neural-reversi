@@ -12,10 +12,7 @@ use reversi_core::{
     types::{Depth, Score, Scoref, Selectivity},
 };
 
-use crate::{
-    eval::Eval,
-    move_list::{Move, MoveList},
-};
+use crate::{eval::Eval, move_list::MoveList};
 use wasm_bindgen::JsValue;
 
 /// The search context that maintains all state during search operations.
@@ -94,23 +91,24 @@ impl SearchContext {
     /// Updates the search context after making a move in midgame search.
     ///
     /// # Arguments
-    /// * `mv` - The move being made, including square and flipped pieces
+    /// * `sq` - The square where the move is played
+    /// * `flipped` - The number of pieces flipped by the move
     #[inline]
-    pub fn update(&mut self, mv: &Move) {
+    pub fn update(&mut self, sq: Square, flipped: u64) {
         self.increment_nodes();
         self.pattern_features
-            .update(mv.sq, mv.flipped, self.ply(), self.side_to_move);
+            .update(sq, flipped, self.ply(), self.side_to_move);
         self.switch_players();
-        self.empty_list.remove(mv.sq);
+        self.empty_list.remove(sq);
     }
 
     /// Undoes a move in the search context.
     ///
     /// # Arguments
-    /// * `mv` - The move to undo
+    /// * `sq` - The square where the move is played
     #[inline]
-    pub fn undo(&mut self, mv: &Move) {
-        self.empty_list.restore(mv.sq);
+    pub fn undo(&mut self, sq: Square) {
+        self.empty_list.restore(sq);
         self.switch_players();
     }
 
