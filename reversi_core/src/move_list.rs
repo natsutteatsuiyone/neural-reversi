@@ -359,8 +359,41 @@ impl MoveList {
     /// Sorts all moves in descending order of their evaluation values.
     #[inline]
     pub fn sort(&mut self) {
-        self.moves.sort_unstable_by_key(|m| -m.value);
+        let len = self.moves.len();
+        match len {
+            0 | 1 => {}
+            2 => sort2(&mut self.moves),
+            3 => sort3(&mut self.moves),
+            _ => self.moves.sort_unstable_by_key(|m| -m.value),
+        }
     }
+}
+
+#[inline(always)]
+fn cas(moves: &mut [Move], i: usize, j: usize) {
+    unsafe {
+        let base_ptr = moves.as_mut_ptr();
+
+        let ptr_i = base_ptr.add(i);
+        let ptr_j = base_ptr.add(j);
+
+        if (*ptr_i).value < (*ptr_j).value {
+            std::ptr::swap(ptr_i, ptr_j);
+        }
+    }
+}
+
+#[inline]
+fn sort2(m: &mut [Move]) {
+    cas(m, 0, 1);
+}
+
+/// 3 elements: 3 comparisons (optimal)
+#[inline]
+fn sort3(m: &mut [Move]) {
+    cas(m, 0, 1);
+    cas(m, 1, 2);
+    cas(m, 0, 1);
 }
 
 /// Thread-safe iterator for distributing moves across multiple search threads.
@@ -446,30 +479,6 @@ impl BestFirstMoveIterator {
     pub fn remaining(&self) -> usize {
         self.moves.len() - self.current
     }
-
-    /// Selects the best remaining move and swaps it to the current position.
-    #[inline(always)]
-    fn select_best_to_current(&mut self) {
-        let len = self.moves.len();
-        if self.current >= len {
-            return;
-        }
-
-        let mut max_idx = self.current;
-        let mut max_val = self.moves[self.current].value;
-
-        for i in (self.current + 1)..len {
-            let val = self.moves[i].value;
-            if val > max_val {
-                max_val = val;
-                max_idx = i;
-            }
-        }
-
-        if max_idx != self.current {
-            self.moves.swap(self.current, max_idx);
-        }
-    }
 }
 
 impl Iterator for BestFirstMoveIterator {
@@ -481,15 +490,40 @@ impl Iterator for BestFirstMoveIterator {
     /// remaining elements, swaps it to the current position, and returns it.
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current >= self.moves.len() {
+        let len = self.moves.len();
+        let current = self.current;
+        if current >= len {
             return None;
         }
 
-        self.select_best_to_current();
+        unsafe {
+            let base_ptr = self.moves.as_mut_ptr();
+            let current_ptr = base_ptr.add(current);
 
-        let result = self.moves[self.current];
-        self.current += 1;
-        Some(result)
+            let mut max_ptr = current_ptr;
+            let mut max_val = (*current_ptr).value;
+
+            let mut ptr = current_ptr.add(1);
+            let end_ptr = base_ptr.add(len);
+
+            while ptr < end_ptr {
+                let val = (*ptr).value;
+                if val > max_val {
+                    max_val = val;
+                    max_ptr = ptr;
+                }
+                ptr = ptr.add(1);
+            }
+
+            // Swap if needed
+            if max_ptr != current_ptr {
+                std::ptr::swap(current_ptr, max_ptr);
+            }
+
+            let result = *current_ptr;
+            self.current = current + 1;
+            Some(result)
+        }
     }
 
     #[inline]

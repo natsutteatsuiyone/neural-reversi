@@ -583,9 +583,31 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 
     let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
-    if move_list.count() >= 2 {
+    if move_list.count() >= 4 {
         move_list.evaluate_moves_fast(board, tt_move);
         for mv in move_list.into_best_first_iter() {
+            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+
+            ctx.update_endgame(mv.sq);
+            let score = if ctx.empty_list.count <= EC_NWS_DEPTH {
+                -null_window_search_with_ec(ctx, &next, -beta)
+            } else {
+                -null_window_search(ctx, &next, -beta)
+            };
+            ctx.undo_endgame(mv.sq);
+
+            if score > best_score {
+                best_score = score;
+                if score >= beta {
+                    best_move = mv.sq;
+                    break;
+                }
+            }
+        }
+    } else if move_list.count() >= 2 {
+        move_list.evaluate_moves_fast(board, tt_move);
+        move_list.sort();
+        for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
             ctx.update_endgame(mv.sq);
@@ -709,9 +731,30 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
 
     let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
-    if move_list.count() >= 2 {
+    if move_list.count() >= 4 {
         move_list.evaluate_moves_fast(board, tt_move);
         for mv in move_list.into_best_first_iter() {
+            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+            ctx.update_endgame(mv.sq);
+            let score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
+                -shallow_search(ctx, &next, -beta)
+            } else {
+                -null_window_search_with_ec(ctx, &next, -beta)
+            };
+            ctx.undo_endgame(mv.sq);
+
+            if score > best_score {
+                best_score = score;
+                if score >= beta {
+                    best_move = mv.sq;
+                    break;
+                }
+            }
+        }
+    } else if move_list.count() >= 2 {
+        move_list.evaluate_moves_fast(board, tt_move);
+        move_list.sort();
+        for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update_endgame(mv.sq);
             let score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
