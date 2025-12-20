@@ -3,7 +3,7 @@
 # ───────────────────────────────────────────────────────────────
 
 [env]
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 # ───────────────────────────────────────────────────────────────
 #  Development Tasks
@@ -19,7 +19,14 @@ args = ["test", "--workspace"]
 
 [tasks.clippy]
 command = "cargo"
-args = ["clippy", "--workspace", "--all-targets", "--all-features", "-D", "warnings"]
+args = [
+  "clippy",
+  "--workspace",
+  "--all-targets",
+  "--all-features",
+  "-D",
+  "warnings",
+]
 
 [tasks.fmt]
 command = "cargo"
@@ -120,7 +127,11 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-p
 [tasks.build-cli-windows]
 workspace = false
 description = "Build all Windows CLI binaries"
-run_task = { name = ["build-cli-windows-v2", "build-cli-windows-v3", "build-cli-windows-v4"] }
+run_task = { name = [
+  "build-cli-windows-v2",
+  "build-cli-windows-v3",
+  "build-cli-windows-v4",
+] }
 
 # ───────────────────────────────────────────────────────────────
 #  Linux CLI Builds
@@ -149,7 +160,11 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-u
 [tasks.build-cli-linux]
 workspace = false
 description = "Build all Linux CLI binaries"
-run_task = { name = ["build-cli-linux-v2", "build-cli-linux-v3", "build-cli-linux-v4"] }
+run_task = { name = [
+  "build-cli-linux-v2",
+  "build-cli-linux-v3",
+  "build-cli-linux-v4",
+] }
 
 # ═══════════════════════════════════════════════════════════════
 #  GUI Application Builds
@@ -232,7 +247,11 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-p
 [tasks.build-gui-windows]
 workspace = false
 description = "Build all Windows GUI binaries"
-run_task = { name = ["build-gui-windows-v2", "build-gui-windows-v3", "build-gui-windows-v4"] }
+run_task = { name = [
+  "build-gui-windows-v2",
+  "build-gui-windows-v3",
+  "build-gui-windows-v4",
+] }
 
 # ───────────────────────────────────────────────────────────────
 #  Linux GUI Builds
@@ -261,7 +280,11 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-u
 [tasks.build-gui-linux]
 workspace = false
 description = "Build all Linux GUI binaries"
-run_task = { name = ["build-gui-linux-v2", "build-gui-linux-v3", "build-gui-linux-v4"] }
+run_task = { name = [
+  "build-gui-linux-v2",
+  "build-gui-linux-v3",
+  "build-gui-linux-v4",
+] }
 
 # ═══════════════════════════════════════════════════════════════
 #  Native Builds (All Platforms)
@@ -270,4 +293,9 @@ run_task = { name = ["build-gui-linux-v2", "build-gui-linux-v3", "build-gui-linu
 [tasks.build-native]
 workspace = false
 description = "Build native CLI and GUI for all platforms"
-run_task = { name = ["build-cli-windows-native", "build-cli-linux-native", "build-gui-windows-native", "build-gui-linux-native"] }
+run_task = { name = [
+  "build-cli-windows-native",
+  "build-cli-linux-native",
+  "build-gui-windows-native",
+  "build-gui-linux-native",
+] }
