@@ -10,4 +10,4 @@ path = "src/main.rs"
 [dependencies]
 reversi_core = { path = "../reversi_core" }
 clap = { version = "4", features = ["derive"] }
-colored = "2"
+colored = "3"
