@@ -70,6 +70,12 @@ struct SearchStats {
     acceptable_score_count: usize,
 }
 
+/// Round duration to 0.01ms precision for consistent display
+fn round_duration(elapsed: std::time::Duration) -> std::time::Duration {
+    let rounded_micros = (elapsed.as_secs_f64() * 10000.0).round() as u64 * 100;
+    std::time::Duration::from_micros(rounded_micros)
+}
+
 impl SearchStats {
     /// Update statistics with results from a single test case
     fn update(
@@ -78,7 +84,7 @@ impl SearchStats {
         result: &SearchResult,
         test_case: &TestCase,
     ) {
-        self.total_time += elapsed;
+        self.total_time += round_duration(elapsed);
         self.total_nodes += result.n_nodes;
         self.total_count += 1;
 
@@ -165,7 +171,7 @@ impl SearchStats {
 
         let (mean_diff, std_dev) = self.calculate_statistics();
         let nps = if self.total_time.as_secs_f64() > 0.0 {
-            (self.total_nodes as f64 / self.total_time.as_secs_f64()) as u64
+            (self.total_nodes as f64 / self.total_time.as_secs_f64()).round() as u64
         } else {
             0
         };
@@ -173,7 +179,7 @@ impl SearchStats {
         let stats = [
             (
                 "Total time",
-                format!("{:.3}s", self.total_time.as_secs_f64()),
+                format!("{:.4}s", self.total_time.as_secs_f64()),
             ),
             (
                 "Total nodes",
@@ -275,11 +281,11 @@ impl SearchStats {
 /// Print the table header for test results
 fn print_header() {
     println!(
-        "| {:^3} | {:^6} | {:^8} | {:^14} | {:^13} | {:^8} | {:^6} | {:<32} |",
+        "| {:^3} | {:^6} | {:^9} | {:^14} | {:^13} | {:^8} | {:^6} | {:<32} |",
         "#", "Depth", "Time(s)", "Nodes", "NPS", "Line", "Score", "Expected"
     );
     println!(
-        "|----:|-------:|---------:|---------------:|--------------:|:---------|-------:|:---------------------------------|"
+        "|----:|-------:|----------:|---------------:|--------------:|:---------|-------:|:---------------------------------|"
     );
 }
 
@@ -359,8 +365,10 @@ fn execute_test_case(
 /// Print a single test result row
 fn print_test_result(test_case: &TestCase, result: &TestResult) {
     let nodes_formatted = result.nodes.to_formatted_string(&Locale::en);
-    let nps = if result.elapsed.as_secs_f64() > 0.0 {
-        (result.nodes as f64 / result.elapsed.as_secs_f64()) as u64
+    let rounded_time = round_duration(result.elapsed);
+    let rounded_secs = rounded_time.as_secs_f64();
+    let nps = if rounded_secs > 0.0 {
+        (result.nodes as f64 / rounded_secs).round() as u64
     } else {
         0
     };
@@ -382,10 +390,10 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
     let depth_str = format_depth(&temp_result);
 
     println!(
-        "| {:>3} | {:^6} | {:>8.3} | {:>14} | {:>13} | {:<8} | {:>6} | {:<32} |",
+        "| {:>3} | {:^6} | {:>9.4} | {:>14} | {:>13} | {:<8} | {:>6} | {:<32} |",
         test_case.no,
         depth_str,
-        result.elapsed.as_secs_f64(),
+        rounded_secs,
         nodes_formatted,
         nps_formatted,
         pv_line_colored,
