@@ -204,15 +204,8 @@ pub fn probcut_midgame(
         if eval_score >= eval_beta {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested probcut
-            let score = midgame::search::<NonPV, false>(
-                ctx,
-                board,
-                pc_depth,
-                pc_beta - 1,
-                pc_beta,
-                thread,
-                None,
-            );
+            let score =
+                midgame::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
             ctx.selectivity = current_selectivity;
 
             if score >= pc_beta {
@@ -291,15 +284,7 @@ fn probcut_endgame_internal(
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = selectivity;
-        let score = midgame::search::<NonPV, false>(
-            ctx,
-            board,
-            pc_depth,
-            pc_beta - 1,
-            pc_beta,
-            thread,
-            None,
-        );
+        let score = midgame::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {

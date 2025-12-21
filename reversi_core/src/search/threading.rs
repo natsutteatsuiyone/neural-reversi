@@ -43,7 +43,7 @@ pub struct SplitPointState {
     pub alpha: Score,
 
     /// Beta bound for the alpha-beta search at this node.
-    beta: Score,
+    pub beta: Score,
 
     /// Best score found so far at this split point.
     pub best_score: Score,
@@ -548,22 +548,15 @@ impl Thread {
                 self.unlock();
 
                 // Extract search parameters from split point
-                let (board, depth, alpha, beta, node_type) = {
+                let (board, depth, node_type) = {
                     sp.lock();
                     let task = sp.state().task.as_ref().unwrap();
                     let sp_state = sp.state();
-                    (
-                        task.board,
-                        sp_state.depth,
-                        sp_state.alpha,
-                        sp_state.beta,
-                        sp_state.node_type,
-                    )
+                    (task.board, sp_state.depth, sp_state.node_type)
                 };
 
                 let mut ctx = SearchContext::from_split_point(&sp);
-
-                self.dispatch_search(&mut ctx, &board, depth, alpha, beta, node_type, &sp);
+                self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
 
                 self.lock();
                 self.searching.store(false, Ordering::Release);
@@ -628,14 +621,20 @@ impl Thread {
     }
 
     /// Dispatch to the appropriate search function based on game phase and node type.
-    #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - A reference to the thread.
+    /// * `ctx` - A mutable reference to the search context.
+    /// * `board` - A reference to the board.
+    /// * `depth` - The search depth.
+    /// * `node_type` - The node type.
+    /// * `sp` - A reference to the split point.
     fn dispatch_search(
         self: &Arc<Self>,
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        alpha: Score,
-        beta: Score,
         node_type: u32,
         sp: &Arc<SplitPoint>,
     ) {
@@ -644,23 +643,23 @@ impl Thread {
         match (is_endgame, node_type) {
             // Endgame searches
             (true, NonPV::TYPE_ID) => {
-                endgame::search::<NonPV, true>(ctx, board, alpha, beta, self, Some(sp));
+                endgame::search_sp::<NonPV>(ctx, board, self, sp);
             }
             (true, PV::TYPE_ID) => {
-                endgame::search::<PV, true>(ctx, board, alpha, beta, self, Some(sp));
+                endgame::search_sp::<PV>(ctx, board, self, sp);
             }
             (true, Root::TYPE_ID) => {
-                endgame::search::<Root, true>(ctx, board, alpha, beta, self, Some(sp));
+                endgame::search_sp::<Root>(ctx, board, self, sp);
             }
             // Midgame searches
             (false, NonPV::TYPE_ID) => {
-                midgame::search::<NonPV, true>(ctx, board, depth, alpha, beta, self, Some(sp));
+                midgame::search_sp::<NonPV>(ctx, board, depth, self, sp);
             }
             (false, PV::TYPE_ID) => {
-                midgame::search::<PV, true>(ctx, board, depth, alpha, beta, self, Some(sp));
+                midgame::search_sp::<PV>(ctx, board, depth, self, sp);
             }
             (false, Root::TYPE_ID) => {
-                midgame::search::<Root, true>(ctx, board, depth, alpha, beta, self, Some(sp));
+                midgame::search_sp::<Root>(ctx, board, depth, self, sp);
             }
             _ => unreachable!("Invalid node type: {}", node_type),
         }

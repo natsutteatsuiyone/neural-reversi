@@ -173,7 +173,7 @@ fn aspiration_search(
     let mut delta = ASPIRATION_DELTA;
 
     loop {
-        let score = search::<Root, false>(ctx, board, depth, *alpha, *beta, thread, None);
+        let score = search::<Root>(ctx, board, depth, *alpha, *beta, thread);
 
         if thread.is_search_aborted() {
             return score;
@@ -266,7 +266,6 @@ fn random_move(board: &Board) -> Square {
 /// # Type Parameters
 ///
 /// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-/// * `SP_NODE` - Whether this is a split point node in parallel search.
 ///
 /// # Arguments
 ///
@@ -276,131 +275,111 @@ fn random_move(board: &Board) -> Square {
 /// * `alpha` - Lower bound of the search window
 /// * `beta` - Upper bound of the search window
 /// * `thread` - Thread handle for parallel search coordination.
-/// * `split_point` - Optional split point for parallel search nodes.
 ///
 /// # Returns
 ///
 /// The best score found for the position.
-pub fn search<NT: NodeType, const SP_NODE: bool>(
+pub fn search<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
     mut alpha: Score,
     beta: Score,
     thread: &Arc<Thread>,
-    split_point: Option<&Arc<SplitPoint>>,
 ) -> Score {
     let org_alpha = alpha;
+    let n_empties = ctx.empty_list.count;
+
+    if NT::PV_NODE {
+        if depth == 0 {
+            return evaluate(ctx, board);
+        }
+    } else {
+        match depth {
+            0 => return evaluate(ctx, board),
+            1 => return evaluate_depth1(ctx, board, alpha, beta),
+            2 => return evaluate_depth2(ctx, board, alpha, beta),
+            _ => {}
+        }
+
+        if let Some(score) = stability_cutoff(board, n_empties, alpha) {
+            return score;
+        }
+    }
+
+    let tt_key = board.hash();
+    ctx.tt.prefetch(tt_key);
+
+    let mut move_list = MoveList::new(board);
+    if move_list.count() == 0 {
+        let next = board.switch_players();
+        if next.has_legal_moves() {
+            ctx.update_pass();
+            let score = -search::<NT>(ctx, &next, depth, -beta, -alpha, thread);
+            ctx.undo_pass();
+            return score;
+        } else {
+            return solve(board, n_empties);
+        }
+    } else if let Some(sq) = move_list.wipeout_move {
+        if NT::ROOT_NODE {
+            ctx.update_root_move(sq, MID_SCORE_MAX, 1, alpha);
+        } else if NT::PV_NODE {
+            ctx.update_pv(sq);
+        }
+        return MID_SCORE_MAX;
+    }
+
+    // Look up position in transposition table
+    let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_move = if tt_hit {
+        tt_data.best_move
+    } else {
+        Square::None
+    };
+
+    if !NT::PV_NODE
+        && tt_hit
+        && tt_data.depth >= depth
+        && tt_data.selectivity >= ctx.selectivity
+        && tt_data.can_cut(beta)
+    {
+        return tt_data.score;
+    }
+
+    if !NT::PV_NODE
+        && depth >= MIN_ETC_DEPTH
+        && let Some(score) = enhanced_transposition_cutoff(
+            ctx,
+            board,
+            &move_list,
+            depth,
+            alpha,
+            tt_key,
+            tt_entry_index,
+        )
+    {
+        return score;
+    }
+
+    if !NT::PV_NODE
+        && let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta, thread)
+    {
+        return score;
+    }
+
+    if move_list.count() > 1 {
+        move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
+        move_list.sort();
+    }
+
+    let move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
     let mut best_move = Square::None;
     let mut best_score = -SCORE_INF;
-    let move_iter: Arc<ConcurrentMoveIterator>;
-    let tt_key;
-    let tt_entry_index;
-
-    if SP_NODE {
-        let sp_state = split_point.unwrap().state();
-        best_move = sp_state.best_move;
-        best_score = sp_state.best_score;
-        move_iter = sp_state.move_iter.clone().unwrap();
-        tt_key = 0;
-        tt_entry_index = 0;
-    } else {
-        let n_empties = ctx.empty_list.count;
-
-        if NT::PV_NODE {
-            if depth == 0 {
-                return evaluate(ctx, board);
-            }
-        } else {
-            match depth {
-                0 => return evaluate(ctx, board),
-                1 => return evaluate_depth1(ctx, board, alpha, beta),
-                2 => return evaluate_depth2(ctx, board, alpha, beta),
-                _ => {}
-            }
-
-            if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-                return score;
-            }
-        }
-
-        tt_key = board.hash();
-        ctx.tt.prefetch(tt_key);
-
-        let mut move_list = MoveList::new(board);
-        if move_list.count() == 0 {
-            let next = board.switch_players();
-            if next.has_legal_moves() {
-                ctx.update_pass();
-                let score = -search::<NT, false>(ctx, &next, depth, -beta, -alpha, thread, None);
-                ctx.undo_pass();
-                return score;
-            } else {
-                return solve(board, n_empties);
-            }
-        } else if let Some(sq) = move_list.wipeout_move {
-            if NT::ROOT_NODE {
-                ctx.update_root_move(sq, MID_SCORE_MAX, 1, alpha);
-            } else if NT::PV_NODE {
-                ctx.update_pv(sq);
-            }
-            return MID_SCORE_MAX;
-        }
-
-        // Look up position in transposition table
-        let (tt_hit, tt_data, _tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
-        tt_entry_index = _tt_entry_index;
-        let tt_move = if tt_hit {
-            tt_data.best_move
-        } else {
-            Square::None
-        };
-
-        if !NT::PV_NODE
-            && tt_hit
-            && tt_data.depth >= depth
-            && tt_data.selectivity >= ctx.selectivity
-            && tt_data.can_cut(beta)
-        {
-            return tt_data.score;
-        }
-
-        if !NT::PV_NODE
-            && depth >= MIN_ETC_DEPTH
-            && let Some(score) = enhanced_transposition_cutoff(
-                ctx,
-                board,
-                &move_list,
-                depth,
-                alpha,
-                tt_key,
-                tt_entry_index,
-            )
-        {
-            return score;
-        }
-
-        if !NT::PV_NODE
-            && let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta, thread)
-        {
-            return score;
-        }
-
-        if move_list.count() > 1 {
-            move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
-            move_list.sort();
-        }
-
-        move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
-    }
 
     while let Some((mv, move_count)) = move_iter.next() {
         if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
             continue;
-        }
-
-        if SP_NODE {
-            split_point.unwrap().unlock();
         }
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -408,52 +387,21 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
 
         let mut score = -SCORE_INF;
         if depth >= 2 && mv.reduction_depth > 0 {
-            if SP_NODE {
-                let sp_state = split_point.unwrap().state();
-                alpha = sp_state.alpha;
-            }
-
             let d = (depth - 1).saturating_sub(mv.reduction_depth);
-            score = -search::<NonPV, false>(ctx, &next, d, -(alpha + 1), -alpha, thread, None);
+            score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, thread);
             if score > alpha {
-                if SP_NODE {
-                    let sp_state = split_point.unwrap().state();
-                    alpha = sp_state.alpha;
-                }
-
-                score = -search::<NonPV, false>(
-                    ctx,
-                    &next,
-                    depth - 1,
-                    -(alpha + 1),
-                    -alpha,
-                    thread,
-                    None,
-                );
+                score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
             }
         } else if !NT::PV_NODE || move_count > 1 {
-            if SP_NODE {
-                let sp_state = split_point.unwrap().state();
-                alpha = sp_state.alpha;
-            }
-            score =
-                -search::<NonPV, false>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread, None);
+            score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
         }
 
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
             ctx.clear_pv();
-            score = -search::<PV, false>(ctx, &next, depth - 1, -beta, -alpha, thread, None);
+            score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha, thread);
         }
 
         ctx.undo(mv.sq);
-
-        if SP_NODE {
-            let sp = split_point.unwrap();
-            sp.lock();
-            let sp_state = sp.state();
-            best_score = sp_state.best_score;
-            alpha = sp_state.alpha;
-        }
 
         if thread.is_search_aborted() || thread.cutoff_occurred() {
             return 0;
@@ -464,17 +412,9 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
 
         if score > best_score {
-            if SP_NODE {
-                let sp_state = split_point.unwrap().state_mut();
-                sp_state.best_score = score;
-            }
             best_score = score;
 
             if score > alpha {
-                if SP_NODE {
-                    let sp_state = split_point.unwrap().state_mut();
-                    sp_state.best_move = mv.sq;
-                }
                 best_move = mv.sq;
 
                 if NT::PV_NODE && !NT::ROOT_NODE {
@@ -482,23 +422,14 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
                 }
 
                 if NT::PV_NODE && score < beta {
-                    if SP_NODE {
-                        let sp_state = split_point.unwrap().state_mut();
-                        sp_state.alpha = score;
-                    }
                     alpha = score;
                 } else {
-                    if SP_NODE {
-                        let sp = split_point.unwrap();
-                        sp.state_mut().cutoff = true;
-                    }
-
                     break;
                 }
             }
         }
 
-        if !SP_NODE && depth >= MIN_SPLIT_DEPTH && move_iter.count() > 1 && thread.can_split() {
+        if depth >= MIN_SPLIT_DEPTH && move_iter.count() > 1 && thread.can_split() {
             let (s, m, n) = thread.split(
                 ctx,
                 board,
@@ -524,10 +455,6 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
         }
     }
 
-    if SP_NODE {
-        return best_score;
-    }
-
     ctx.tt.store(
         tt_entry_index,
         tt_key,
@@ -541,6 +468,100 @@ pub fn search<NT: NodeType, const SP_NODE: bool>(
     );
 
     best_score
+}
+
+/// Alpha-beta search function for splitpoint nodes in parallel search.
+///
+/// # Type Parameters
+///
+/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context tracking game state and statistics.
+/// * `board` - Current board position to search.
+/// * `depth` - Remaining search depth.
+/// * `thread` - Thread handle for parallel search coordination.
+/// * `split_point` - Split point for parallel search coordination.
+///
+/// # Returns
+///
+/// The best score found for the position.
+pub fn search_sp<NT: NodeType>(
+    ctx: &mut SearchContext,
+    board: &Board,
+    depth: Depth,
+    thread: &Arc<Thread>,
+    split_point: &Arc<SplitPoint>,
+) -> Score {
+    let beta = split_point.state().beta;
+    let move_iter = split_point.state().move_iter.clone().unwrap();
+
+    while let Some((mv, move_count)) = move_iter.next() {
+        if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
+            continue;
+        }
+
+        split_point.unlock();
+
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+        ctx.update(mv.sq, mv.flipped);
+
+        let alpha = split_point.state().alpha;
+
+        let mut score = -SCORE_INF;
+        if depth >= 2 && mv.reduction_depth > 0 {
+            let d = (depth - 1).saturating_sub(mv.reduction_depth);
+            score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, thread);
+            if score > alpha {
+                let alpha = split_point.state().alpha;
+                score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+            }
+        } else if !NT::PV_NODE || move_count > 1 {
+            score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+        }
+
+        if NT::PV_NODE && score > alpha {
+            ctx.clear_pv();
+            let alpha = split_point.state().alpha;
+            score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha, thread);
+        }
+
+        ctx.undo(mv.sq);
+
+        split_point.lock();
+
+        if thread.is_search_aborted() || thread.cutoff_occurred() {
+            return 0;
+        }
+
+        let sp = split_point.state_mut();
+
+        if NT::ROOT_NODE {
+            ctx.update_root_move(mv.sq, score, move_count, sp.alpha);
+        }
+
+        if score > sp.best_score {
+            sp.best_score = score;
+
+            if score > sp.alpha {
+                sp.best_move = mv.sq;
+
+                if NT::PV_NODE && !NT::ROOT_NODE {
+                    ctx.update_pv(mv.sq);
+                }
+
+                if NT::PV_NODE && score < beta {
+                    sp.alpha = score;
+                } else {
+                    sp.cutoff = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    split_point.state().best_score
 }
 
 /// Specialized evaluation function for positions at depth 2.
