@@ -308,7 +308,7 @@ impl Board {
         use rapidhash::v3;
         let words = [self.player, self.opponent];
         let bytes: &[u8] = unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, 16) };
-        v3::rapidhash_v3_nano_inline::<true, true>(bytes, &v3::DEFAULT_RAPID_SECRETS)
+        v3::rapidhash_v3_nano_inline::<true, false>(bytes, &v3::DEFAULT_RAPID_SECRETS)
     }
 
     /// Rotates the board 90 degrees clockwise.
