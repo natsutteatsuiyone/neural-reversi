@@ -460,7 +460,7 @@ struct Args {
     selectivity: u8,
 
     /// Transposition table size in MB
-    #[arg(long, default_value = "256", value_parser = clap::value_parser!(u16).range(1..))]
+    #[arg(long, default_value = "512", value_parser = clap::value_parser!(u16).range(1..))]
     hash_size: u16,
 
     /// Number of parallel search threads
