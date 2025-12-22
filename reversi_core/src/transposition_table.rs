@@ -67,13 +67,14 @@ impl Bound {
 ///
 /// # Entry Format
 ///
-/// - 16 bits: Hash key (lower 16 bits for verification)
+/// - 22 bits: Hash key (lower 22 bits for verification)
 /// - 16 bits: Evaluation score
 /// - 7 bits: Best move square
 /// - 2 bits: Bound type (none/lower/upper/exact)
 /// - 6 bits: Search depth
 /// - 3 bits: Selectivity level
 /// - 7 bits: Generation counter for aging
+/// - 1 bit: Endgame flag
 #[derive(Default)]
 struct TTEntry {
     data: AtomicU64,
@@ -81,7 +82,7 @@ struct TTEntry {
 
 impl TTEntry {
     // Bit layout constants for packing data into 64 bits
-    const KEY_SIZE: i32 = 16;
+    const KEY_SIZE: i32 = 22;
     const KEY_SHIFT: i32 = 0;
     const KEY_MASK: u64 = (1 << (Self::KEY_SIZE)) - 1;
 
@@ -116,7 +117,7 @@ impl TTEntry {
     #[allow(clippy::too_many_arguments)]
     fn pack(
         &self,
-        key: u16,
+        key: u32,
         score: Score,
         best_move: u8,
         bound: u8,
@@ -139,7 +140,7 @@ impl TTEntry {
     /// Unpacks a 64-bit value into TTData fields.
     #[inline]
     fn unpack_from_u64(data_u64: u64) -> TTData {
-        let key = ((data_u64 >> Self::KEY_SHIFT) & Self::KEY_MASK) as u16;
+        let key = ((data_u64 >> Self::KEY_SHIFT) & Self::KEY_MASK) as u32;
         let score = ((data_u64 >> Self::SCORE_SHIFT) & Self::SCORE_MASK) as i16;
         let best_move = ((data_u64 >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8;
         let bound = ((data_u64 >> Self::BOUND_SHIFT) & Self::BOUND_MASK) as u8;
@@ -191,12 +192,12 @@ impl TTEntry {
         generation: u8,
         is_endgame: bool,
     ) {
-        let key16 = key as u16;
+        let key22 = (key & Self::KEY_MASK) as u32;
 
         // Fast path: Exact bound always replaces
         if bound == Bound::Exact {
             self.pack(
-                key16,
+                key22,
                 score,
                 best_move as u8,
                 bound as u8,
@@ -210,12 +211,12 @@ impl TTEntry {
 
         // Load raw data once
         let raw_data = self.data.load(Ordering::Relaxed);
-        let stored_key = (raw_data & Self::KEY_MASK) as u16;
+        let stored_key = (raw_data & Self::KEY_MASK) as u32;
 
         // Different key: always replace (don't need to preserve best_move)
-        if key16 != stored_key {
+        if key22 != stored_key {
             self.pack(
-                key16,
+                key22,
                 score,
                 best_move as u8,
                 bound as u8,
@@ -247,7 +248,7 @@ impl TTEntry {
             };
 
             self.pack(
-                key16,
+                key22,
                 score,
                 bm,
                 bound as u8,
@@ -265,8 +266,8 @@ impl TTEntry {
 /// This struct represents the unpacked form of a transposition table entry,
 /// containing all the information needed to use cached search results.
 pub struct TTData {
-    /// Lower 16 bits of the position hash for verification
-    pub key: u16,
+    /// Lower 22 bits of the position hash for verification
+    pub key: u32,
     /// Evaluation score of the position
     pub score: Score,
     /// Best move found during search
@@ -429,7 +430,8 @@ impl TranspositionTable {
         unsafe {
             use std::arch::x86_64::*;
 
-            let key16 = key as u16;
+            let key22 = (key & TTEntry::KEY_MASK) as u32;
+            let key16 = key22 as u16; // Use lower 16 bits for SIMD pre-filtering
             let base = self.get_cluster_idx(key);
             let ptr = self.entries.as_ptr().add(base) as *const __m256i;
             let v = _mm256_load_si256(ptr);
@@ -455,7 +457,8 @@ impl TranspositionTable {
                 let lane_idx = (tz / 8) as usize;
 
                 let data = TTEntry::unpack_from_u64(entries[lane_idx]);
-                if data.is_occupied() {
+                // Verify full 22-bit key match (16-bit SIMD match was just pre-filtering)
+                if data.key == key22 && data.is_occupied() {
                     return (true, data, base + lane_idx);
                 }
 
@@ -504,7 +507,7 @@ impl TranspositionTable {
     /// Fallback probe implementation.
     #[allow(dead_code)]
     fn probe_fallback(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
-        let key16 = key as u16;
+        let key22 = (key & TTEntry::KEY_MASK) as u32;
         let cluster_idx = self.get_cluster_idx(key);
 
         // look for exact key match
@@ -513,7 +516,7 @@ impl TranspositionTable {
             let entry = unsafe { self.entries.get_unchecked(idx) };
             let tt_data = entry.unpack();
 
-            if tt_data.key == key16 && tt_data.is_occupied() {
+            if tt_data.key == key22 && tt_data.is_occupied() {
                 return (true, tt_data, idx);
             }
         }
@@ -684,7 +687,7 @@ mod tests {
         );
 
         let data = entry.unpack();
-        assert_eq!(data.key, test_key as u16);
+        assert_eq!(data.key, (test_key & TTEntry::KEY_MASK) as u32);
         assert_eq!(data.score, test_score);
         assert_eq!(data.bound, test_bound);
         assert_eq!(data.depth, test_depth);
@@ -699,7 +702,7 @@ mod tests {
         let entry = TTEntry::default();
 
         // Test maximum values for each field
-        let max_key: u64 = 0xFFFF; // 16 bits
+        let max_key: u64 = 0x3FFFFF; // 22 bits
         let max_score: Score = 32767; // Max i16
         let min_score: Score = -32768; // Min i16
         let max_depth: Depth = 63; // 6 bits
@@ -719,7 +722,7 @@ mod tests {
         );
 
         let data = entry.unpack();
-        assert_eq!(data.key, max_key as u16);
+        assert_eq!(data.key, max_key as u32);
         assert_eq!(data.score, max_score);
         assert_eq!(data.bound, Bound::Lower);
         assert_eq!(data.depth, max_depth);
@@ -940,7 +943,7 @@ mod tests {
         // Second probe should find the entry
         let (found, data, _) = tt.probe(key, generation);
         assert!(found);
-        assert_eq!(data.key, key as u16);
+        assert_eq!(data.key, (key & TTEntry::KEY_MASK) as u32);
         assert_eq!(data.score, 100);
         assert_eq!(data.bound, Bound::Exact);
         assert_eq!(data.depth, 20);
