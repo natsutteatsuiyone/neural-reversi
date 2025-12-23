@@ -57,7 +57,7 @@ const MIN_ETC_DEPTH: Depth = 6;
 pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 14;
 
 /// Depth threshold for endgame cache null window search.
-const EC_NWS_DEPTH: Depth = 12;
+const EC_NWS_DEPTH: Depth = 11;
 
 thread_local! {
     static ENDGAME_CACHE: UnsafeCell<EndGameCache> =
@@ -604,6 +604,20 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         return unscale_score(tt_data.score);
     }
 
+    if n_empties == DEPTH_MIDGAME_TO_ENDGAME
+        && let Some(score) = enhanced_transposition_cutoff(
+            ctx,
+            board,
+            &move_list,
+            n_empties,
+            scale_score(alpha),
+            tt_key,
+            tt_entry_index,
+        )
+    {
+        return unscale_score(score);
+    }
+
     let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
     if move_list.count() >= 4 {
@@ -611,7 +625,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-            let score = if ctx.empty_list.count <= EC_NWS_DEPTH {
+            let score = if (ctx.empty_list.count - 1) <= EC_NWS_DEPTH {
                 ctx.update_endgame(mv.sq);
                 let score = -null_window_search_with_ec(ctx, &next, -beta);
                 ctx.undo_endgame(mv.sq);
@@ -637,7 +651,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-            let score = if ctx.empty_list.count <= EC_NWS_DEPTH {
+            let score = if (ctx.empty_list.count - 1) <= EC_NWS_DEPTH {
                 ctx.update_endgame(mv.sq);
                 let score = -null_window_search_with_ec(ctx, &next, -beta);
                 ctx.undo_endgame(mv.sq);
@@ -661,7 +675,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         // only one move available
         let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        best_score = if ctx.empty_list.count <= EC_NWS_DEPTH {
+        best_score = if (ctx.empty_list.count - 1) <= EC_NWS_DEPTH {
             ctx.update_endgame(mv.sq);
             let score = -null_window_search_with_ec(ctx, &next, -beta);
             ctx.undo_endgame(mv.sq);
