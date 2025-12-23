@@ -241,7 +241,7 @@ pub fn probcut_endgame(
     beta: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
-    if depth < 10 || !ctx.selectivity.is_enabled() {
+    if depth < 14 || !ctx.selectivity.is_enabled() {
         return None;
     }
 

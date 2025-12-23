@@ -279,7 +279,7 @@ impl MoveList {
     }
 
     /// Evaluates moves specifically for endgame positions.
-    fn evaluate_moves_endgame<NT: NodeType>(
+    pub fn evaluate_moves_endgame<NT: NodeType>(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,

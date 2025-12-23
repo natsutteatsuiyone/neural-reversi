@@ -54,7 +54,7 @@ const MIN_SPLIT_DEPTH: Depth = 7;
 const MIN_ETC_DEPTH: Depth = 6;
 
 /// Depth threshold for switching from midgame to endgame search.
-pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 13;
+pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 14;
 
 /// Depth threshold for endgame cache null window search.
 const EC_NWS_DEPTH: Depth = 12;
@@ -253,8 +253,8 @@ fn estimate_aspiration_base_score(
     thread: &Arc<Thread>,
 ) -> Score {
     ctx.game_phase = GamePhase::MidGame;
-    ctx.selectivity = Selectivity::Level0;
-    let midgame_depth = n_empties / 2;
+    ctx.selectivity = Selectivity::Level1;
+    let midgame_depth = n_empties / 4;
 
     let hash_key = board.hash();
     let (tt_hit, tt_data, _) = ctx.tt.probe(hash_key, ctx.generation);
@@ -580,7 +580,10 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     } else if move_list.count() == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
-            return -null_window_search(ctx, &next, -beta);
+            ctx.update_pass();
+            let score = -null_window_search(ctx, &next, -beta);
+            ctx.undo_pass();
+            return score;
         } else {
             return solve(board, n_empties);
         }
@@ -606,17 +609,21 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
     if move_list.count() >= 4 {
-        move_list.evaluate_moves_fast(ctx, board, tt_move);
+        move_list.evaluate_moves::<NonPV>(ctx, board, n_empties, tt_move);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-            ctx.update_endgame(mv.sq);
             let score = if ctx.empty_list.count <= EC_NWS_DEPTH {
-                -null_window_search_with_ec(ctx, &next, -beta)
+                ctx.update_endgame(mv.sq);
+                let score = -null_window_search_with_ec(ctx, &next, -beta);
+                ctx.undo_endgame(mv.sq);
+                score
             } else {
-                -null_window_search(ctx, &next, -beta)
+                ctx.update(mv.sq, mv.flipped);
+                let score = -null_window_search(ctx, &next, -beta);
+                ctx.undo(mv.sq);
+                score
             };
-            ctx.undo_endgame(mv.sq);
 
             if score > best_score {
                 best_score = score;
@@ -627,18 +634,22 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             }
         }
     } else if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(ctx, board, tt_move);
+        move_list.evaluate_moves::<NonPV>(ctx, board, n_empties, tt_move);
         move_list.sort();
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-            ctx.update_endgame(mv.sq);
             let score = if ctx.empty_list.count <= EC_NWS_DEPTH {
-                -null_window_search_with_ec(ctx, &next, -beta)
+                ctx.update_endgame(mv.sq);
+                let score = -null_window_search_with_ec(ctx, &next, -beta);
+                ctx.undo_endgame(mv.sq);
+                score
             } else {
-                -null_window_search(ctx, &next, -beta)
+                ctx.update(mv.sq, mv.flipped);
+                let score = -null_window_search(ctx, &next, -beta);
+                ctx.undo(mv.sq);
+                score
             };
-            ctx.undo_endgame(mv.sq);
 
             if score > best_score {
                 best_score = score;
@@ -652,13 +663,17 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         // only one move available
         let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update_endgame(mv.sq);
         best_score = if ctx.empty_list.count <= EC_NWS_DEPTH {
-            -null_window_search_with_ec(ctx, &next, -beta)
+            ctx.update_endgame(mv.sq);
+            let score = -null_window_search_with_ec(ctx, &next, -beta);
+            ctx.undo_endgame(mv.sq);
+            score
         } else {
-            -null_window_search(ctx, &next, -beta)
+            ctx.update(mv.sq, mv.flipped);
+            let score = -null_window_search(ctx, &next, -beta);
+            ctx.undo(mv.sq);
+            score
         };
-        ctx.undo_endgame(mv.sq);
         best_move = mv.sq;
     }
 
