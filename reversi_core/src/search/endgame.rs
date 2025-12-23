@@ -343,35 +343,33 @@ pub fn search<NT: NodeType>(
         Square::None
     };
 
-    if !NT::PV_NODE
-        && tt_hit
-        && tt_data.is_endgame
-        && tt_data.depth >= n_empties
-        && tt_data.selectivity >= ctx.selectivity
-        && tt_data.can_cut(scale_score(beta))
-    {
-        return unscale_score(tt_data.score);
-    }
+    if !NT::PV_NODE {
+        if tt_hit
+            && tt_data.is_endgame
+            && tt_data.depth >= n_empties
+            && tt_data.selectivity >= ctx.selectivity
+            && tt_data.can_cut(scale_score(beta))
+        {
+            return unscale_score(tt_data.score);
+        }
 
-    if !NT::PV_NODE
-        && n_empties >= MIN_ETC_DEPTH
-        && let Some(score) = enhanced_transposition_cutoff(
-            ctx,
-            board,
-            &move_list,
-            n_empties,
-            scale_score(alpha),
-            tt_key,
-            tt_entry_index,
-        )
-    {
-        return unscale_score(score);
-    }
+        if n_empties >= MIN_ETC_DEPTH
+            && let Some(score) = enhanced_transposition_cutoff(
+                ctx,
+                board,
+                &move_list,
+                n_empties,
+                scale_score(alpha),
+                tt_key,
+                tt_entry_index,
+            )
+        {
+            return unscale_score(score);
+        }
 
-    if !NT::PV_NODE
-        && let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, beta, thread)
-    {
-        return score;
+        if let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, beta, thread) {
+            return score;
+        }
     }
 
     if move_list.count() > 1 {

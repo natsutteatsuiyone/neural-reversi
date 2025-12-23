@@ -338,34 +338,32 @@ pub fn search<NT: NodeType>(
         Square::None
     };
 
-    if !NT::PV_NODE
-        && tt_hit
-        && tt_data.depth >= depth
-        && tt_data.selectivity >= ctx.selectivity
-        && tt_data.can_cut(beta)
-    {
-        return tt_data.score;
-    }
+    if !NT::PV_NODE {
+        if tt_hit
+            && tt_data.depth >= depth
+            && tt_data.selectivity >= ctx.selectivity
+            && tt_data.can_cut(beta)
+        {
+            return tt_data.score;
+        }
 
-    if !NT::PV_NODE
-        && depth >= MIN_ETC_DEPTH
-        && let Some(score) = enhanced_transposition_cutoff(
-            ctx,
-            board,
-            &move_list,
-            depth,
-            alpha,
-            tt_key,
-            tt_entry_index,
-        )
-    {
-        return score;
-    }
+        if depth >= MIN_ETC_DEPTH
+            && let Some(score) = enhanced_transposition_cutoff(
+                ctx,
+                board,
+                &move_list,
+                depth,
+                alpha,
+                tt_key,
+                tt_entry_index,
+            )
+        {
+            return score;
+        }
 
-    if !NT::PV_NODE
-        && let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta, thread)
-    {
-        return score;
+        if let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta, thread) {
+            return score;
+        }
     }
 
     if move_list.count() > 1 {
