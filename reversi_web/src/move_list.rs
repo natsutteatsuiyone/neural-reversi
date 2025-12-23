@@ -6,7 +6,12 @@
 // Re-export core move list types
 pub use reversi_core::move_list::MoveList;
 
-use reversi_core::{board::Board, square::Square};
+use reversi_core::{
+    bitboard::{corner_weighted_count, get_corner_stability},
+    board::Board,
+    move_list::{CORNER_STABILITY_WEIGHT, MOBILITY_WEIGHT, POTENTIAL_MOBILITY_WEIGHT},
+    square::Square,
+};
 
 use crate::search::{self, search_context::SearchContext};
 
@@ -39,7 +44,7 @@ pub fn evaluate_moves(
     tt_move: Square,
 ) {
     if ctx.empty_list.count <= 18 {
-        move_list.evaluate_moves_fast(board, tt_move);
+        evaluate_moves_fast(move_list, ctx, board, tt_move);
         return;
     }
 
@@ -59,5 +64,33 @@ pub fn evaluate_moves(
             mv.value = -search::evaluate(ctx, &next);
             ctx.undo(mv.sq);
         };
+    }
+}
+
+pub fn evaluate_moves_fast(
+    move_list: &mut MoveList,
+    ctx: &mut SearchContext,
+    board: &Board,
+    tt_move: Square,
+) {
+    for mv in move_list.iter_mut() {
+        mv.value = if mv.flipped == board.opponent {
+            // Wipeout move (capture all opponent pieces)
+            WIPEOUT_VALUE
+        } else if mv.sq == tt_move {
+            // Transposition table move
+            TT_MOVE_VALUE
+        } else {
+            ctx.increment_nodes();
+            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+            let (moves, potential) = next.get_moves_and_potential();
+            let potential_mobility = corner_weighted_count(potential) as i32;
+            let corner_stability = get_corner_stability(next.opponent) as i32;
+            let weighted_mobility = corner_weighted_count(moves) as i32;
+            let mut value = corner_stability * CORNER_STABILITY_WEIGHT;
+            value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
+            value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
+            value
+        }
     }
 }

@@ -23,7 +23,7 @@ use reversi_core::{
 use crate::{
     eval::Eval,
     level::Level,
-    move_list::MoveList,
+    move_list::{MoveList, evaluate_moves_fast},
     probcut,
     search::{search_context::SearchContext, search_result::SearchResult, search_task::SearchTask},
 };
@@ -508,7 +508,7 @@ pub fn evaluate_depth2(
     }
 
     if move_list.count() >= 3 {
-        move_list.evaluate_moves_fast(board, Square::None);
+        evaluate_moves_fast(&mut move_list, ctx, board, Square::None);
     }
 
     let mut best_score = -SCORE_INF;

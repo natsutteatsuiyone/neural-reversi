@@ -597,7 +597,7 @@ pub fn evaluate_depth2(
 
     let mut best_score = -SCORE_INF;
     if move_list.count() >= 3 {
-        move_list.evaluate_moves_fast(board, Square::None);
+        move_list.evaluate_moves_fast(ctx, board, Square::None);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 

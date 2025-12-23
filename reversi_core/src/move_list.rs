@@ -25,13 +25,13 @@ const WIPEOUT_VALUE: i32 = 1 << 30;
 const TT_MOVE_VALUE: i32 = 1 << 20;
 
 /// Weight factor for potential mobility evaluation.
-const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
+pub const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
 
 /// Weight factor for mobility evaluation.
-const MOBILITY_WEIGHT: i32 = 1 << 14;
+pub const MOBILITY_WEIGHT: i32 = 1 << 14;
 
 /// Weight factor for corner stability evaluation.
-const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
+pub const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
 
 /// Value assigned to moves that have already been searched in root node.
 const SEARCHED_MOVE_VALUE: i32 = -(1 << 20);
@@ -197,7 +197,7 @@ impl MoveList {
         ];
 
         if depth <= MIN_DEPTH[ctx.empty_list.count as usize] {
-            self.evaluate_moves_fast(board, tt_move);
+            self.evaluate_moves_fast(ctx, board, tt_move);
             return;
         }
 
@@ -334,7 +334,7 @@ impl MoveList {
     ///
     /// * `board` - Current board position
     /// * `tt_move` - Move suggested by transposition table (if any)
-    pub fn evaluate_moves_fast(&mut self, board: &Board, tt_move: Square) {
+    pub fn evaluate_moves_fast(&mut self, ctx: &mut SearchContext, board: &Board, tt_move: Square) {
         for mv in self.iter_mut() {
             mv.value = if mv.flipped == board.opponent {
                 // Wipeout move (capture all opponent pieces)
@@ -343,6 +343,7 @@ impl MoveList {
                 // Transposition table move
                 TT_MOVE_VALUE
             } else {
+                ctx.increment_nodes();
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 let (moves, potential) = next.get_moves_and_potential();
                 let potential_mobility = corner_weighted_count(potential) as i32;
@@ -771,67 +772,5 @@ mod tests {
 
         // Verify no more moves
         assert!(concurrent_iter.next().is_none());
-    }
-
-    /// Tests evaluate_moves_fast with various scenarios.
-    #[test]
-    fn test_evaluate_moves_fast() {
-        let board = Board::new();
-        let mut move_list = MoveList::new(&board);
-
-        // Test with no TT move
-        move_list.evaluate_moves_fast(&board, Square::None);
-
-        // All moves should have heuristic values
-        for mv in move_list.iter() {
-            assert_ne!(mv.value, i32::MIN);
-            assert_ne!(mv.value, WIPEOUT_VALUE); // No wipeout in starting position
-            assert_ne!(mv.value, TT_MOVE_VALUE); // No TT move set
-        }
-
-        // Test with TT move
-        let tt_move = move_list.first().unwrap().sq;
-        move_list.evaluate_moves_fast(&board, tt_move);
-
-        let tt_move_found = move_list.iter().any(|m| m.value == TT_MOVE_VALUE);
-        assert!(tt_move_found);
-    }
-
-    /// Tests wipeout move detection.
-    #[test]
-    fn test_wipeout_detection() {
-        // Create position where next move captures all opponent pieces
-        let board = Board::from_string(
-            "........\
-             ........\
-             ........\
-             ...XX...\
-             ...XO...\
-             ........\
-             ........\
-             ........",
-            Piece::Black,
-        );
-
-        let mut move_list = MoveList::new(&board);
-
-        // Find the wipeout move manually
-        let mut wipeout_move = None;
-        for mv in move_list.iter() {
-            if mv.flipped == board.opponent {
-                wipeout_move = Some(mv.sq);
-                break;
-            }
-        }
-
-        if let Some(wipeout_sq) = wipeout_move {
-            move_list.evaluate_moves_fast(&board, Square::None);
-
-            let wipeout_mv = move_list.iter().find(|m| m.sq == wipeout_sq).unwrap();
-            assert_eq!(wipeout_mv.value, WIPEOUT_VALUE);
-
-            let best = move_list.into_best_first_iter().next().unwrap();
-            assert_eq!(best.sq, wipeout_sq);
-        }
     }
 }

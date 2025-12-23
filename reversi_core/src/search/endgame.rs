@@ -606,7 +606,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
     if move_list.count() >= 4 {
-        move_list.evaluate_moves_fast(board, tt_move);
+        move_list.evaluate_moves_fast(ctx, board, tt_move);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -627,7 +627,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             }
         }
     } else if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(board, tt_move);
+        move_list.evaluate_moves_fast(ctx, board, tt_move);
         move_list.sort();
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -754,7 +754,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
     if move_list.count() >= 4 {
-        move_list.evaluate_moves_fast(board, tt_move);
+        move_list.evaluate_moves_fast(ctx, board, tt_move);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update_endgame(mv.sq);
@@ -774,7 +774,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
             }
         }
     } else if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(board, tt_move);
+        move_list.evaluate_moves_fast(ctx, board, tt_move);
         move_list.sort();
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);

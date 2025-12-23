@@ -11,7 +11,7 @@ use reversi_core::transposition_table::Bound;
 use reversi_core::types::{Depth, Score, Selectivity};
 use reversi_core::{bitboard, stability};
 
-use crate::move_list::MoveList;
+use crate::move_list::{MoveList, evaluate_moves_fast};
 use crate::search::search_context::SearchContext;
 
 /// Quadrant masks for move ordering in shallow search.
@@ -86,7 +86,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     let mut best_score = -SCORE_INF;
     let mut best_move = Square::None;
     if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(board, tt_move);
+        evaluate_moves_fast(&mut move_list, ctx, board, tt_move);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -213,7 +213,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     let mut best_score = -SCORE_INF;
     let mut best_move = Square::None;
     if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(board, tt_move);
+        evaluate_moves_fast(&mut move_list, ctx, board, tt_move);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update_endgame(mv.sq);
