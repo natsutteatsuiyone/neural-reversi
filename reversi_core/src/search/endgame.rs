@@ -54,7 +54,7 @@ const MIN_SPLIT_DEPTH: Depth = 7;
 const MIN_ETC_DEPTH: Depth = 6;
 
 /// Depth threshold for switching from midgame to endgame search.
-pub const DEPTH_MIDGAME_TO_ENDGAME: Depth = 14;
+pub const DEPTH_TO_NWS: Depth = 14;
 
 /// Depth threshold for endgame cache null window search.
 const EC_NWS_DEPTH: Depth = 11;
@@ -308,7 +308,7 @@ pub fn search<NT: NodeType>(
             return calculate_final_score(board);
         }
     } else {
-        if n_empties <= DEPTH_MIDGAME_TO_ENDGAME {
+        if n_empties <= DEPTH_TO_NWS {
             return null_window_search(ctx, board, alpha);
         }
 
@@ -551,6 +551,55 @@ pub fn search_sp<NT: NodeType>(
     split_point.state().best_score
 }
 
+/// Null window search for endgame positions.
+/// Dispatches to the optimal solver based on empty square count.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context
+/// * `board` - Current board position
+/// * `alpha` - Score threshold for null window search
+///
+/// # Returns
+///
+/// Best score found
+#[inline(always)]
+fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
+    let n_empties = ctx.empty_list.count;
+
+    if n_empties > EC_NWS_DEPTH {
+        return null_window_search_with_tt(ctx, board, alpha);
+    }
+
+    if n_empties > DEPTH_TO_SHALLOW_SEARCH {
+        return null_window_search_with_ec(ctx, board, alpha);
+    }
+
+    match n_empties {
+        0 => calculate_final_score(board),
+        1 => {
+            let sq = ctx.empty_list.first();
+            solve1(ctx, board.player, alpha, sq)
+        }
+        2 => {
+            let sq1 = ctx.empty_list.first();
+            let sq2 = ctx.empty_list.next(sq1);
+            solve2(ctx, board, alpha, sq1, sq2)
+        }
+        3 => {
+            let sq1 = ctx.empty_list.first();
+            let sq2 = ctx.empty_list.next(sq1);
+            let sq3 = ctx.empty_list.next(sq2);
+            solve3(ctx, board, alpha, sq1, sq2, sq3)
+        }
+        4 => {
+            let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+            solve4(ctx, board, alpha, sq1, sq2, sq3, sq4)
+        }
+        _ => shallow_search(ctx, board, alpha),
+    }
+}
+
 /// Performs a null window search for fast endgame solving.
 ///
 /// # Arguments
@@ -562,7 +611,7 @@ pub fn search_sp<NT: NodeType>(
 /// # Returns
 ///
 /// Best score found
-pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
+pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
 
@@ -580,7 +629,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -null_window_search(ctx, &next, -beta);
+            let score = -null_window_search_with_tt(ctx, &next, -beta);
             ctx.undo_pass();
             return score;
         } else {
@@ -600,7 +649,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         return unscale_score(tt_data.score());
     }
 
-    if n_empties == DEPTH_MIDGAME_TO_ENDGAME
+    if n_empties == DEPTH_TO_NWS
         && let Some(score) = enhanced_transposition_cutoff(
             ctx,
             board,
@@ -628,7 +677,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
                 score
             } else {
                 ctx.update(mv.sq, mv.flipped);
-                let score = -null_window_search(ctx, &next, -beta);
+                let score = -null_window_search_with_tt(ctx, &next, -beta);
                 ctx.undo(mv.sq);
                 score
             };
@@ -654,7 +703,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
                 score
             } else {
                 ctx.update(mv.sq, mv.flipped);
-                let score = -null_window_search(ctx, &next, -beta);
+                let score = -null_window_search_with_tt(ctx, &next, -beta);
                 ctx.undo(mv.sq);
                 score
             };
@@ -678,7 +727,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             score
         } else {
             ctx.update(mv.sq, mv.flipped);
-            let score = -null_window_search(ctx, &next, -beta);
+            let score = -null_window_search_with_tt(ctx, &next, -beta);
             ctx.undo(mv.sq);
             score
         };
