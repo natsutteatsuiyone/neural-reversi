@@ -674,23 +674,54 @@ impl Thread {
     }
 
     /// Main thread message processing loop.
+    ///
+    /// This is the entry point for the main thread (thread 0), which handles
+    /// control messages from the thread pool. Unlike worker threads which
+    /// participate in split-point searches, the main thread:
+    ///
+    /// 1. Receives search tasks via the message channel
+    /// 2. Coordinates the search by waking worker threads
+    /// 3. Executes the root search
+    /// 4. Sends results back via the result channel
+    /// 5. Handles shutdown requests
     fn main_thread_loop(self: Arc<Self>, receiver: Arc<std::sync::Mutex<Receiver<Message>>>) {
-        while !self.exit.load(Ordering::Acquire) {
-            let receiver = receiver.lock().unwrap();
-            if let Ok(message) = receiver.recv() {
-                match message {
-                    Message::StartThinking(task, thread, result_sender) => {
-                        thread.searching.store(true, Ordering::Release);
-                        task.pool.notify_all();
+        loop {
+            // Check exit flag before blocking on receive
+            if self.exit.load(Ordering::Acquire) {
+                break;
+            }
 
-                        let result = search::search_root(task, &thread);
-                        thread.searching.store(false, Ordering::Release);
-                        result_sender.send(result).unwrap();
-                    }
-                    Message::Exit => {
-                        self.exit.store(true, Ordering::Release);
-                        break;
-                    }
+            // Block waiting for next message
+            let message = {
+                let receiver_guard = receiver.lock().unwrap();
+                receiver_guard.recv()
+            };
+
+            match message {
+                Ok(Message::StartThinking(task, thread, result_sender)) => {
+                    // Mark thread as actively searching
+                    thread.searching.store(true, Ordering::Release);
+
+                    // Wake up worker threads to participate in parallel search
+                    task.pool.notify_all();
+
+                    // Execute root search - this is where the main work happens
+                    let result = search::search_root(task, &thread);
+
+                    // Search complete - update state and send result
+                    thread.searching.store(false, Ordering::Release);
+
+                    // Send result back to caller
+                    // Ignore error if receiver was dropped (caller gave up waiting)
+                    let _ = result_sender.send(result);
+                }
+                Ok(Message::Exit) => {
+                    self.exit.store(true, Ordering::Release);
+                    break;
+                }
+                Err(_) => {
+                    // Channel disconnected - sender was dropped
+                    break;
                 }
             }
         }
@@ -932,28 +963,40 @@ impl ThreadPool {
     }
 
     /// Shut down the thread pool and wait for all threads to exit.
-    ///
-    /// After this method returns, the thread pool is no longer usable.
     fn exit(&mut self) {
-        // Stop timer first if running
+        // Already shut down - nothing to do
+        if self.threads.is_empty() {
+            return;
+        }
+
+        // Stop timer thread first to prevent it from setting abort flags
         self.stop_timer();
 
+        // Signal all worker threads to exit and wake them up
         for thread in &self.threads {
-            let lock = thread.mutex_for_sleep_condition.lock();
+            let _lock = thread.mutex_for_sleep_condition.lock();
             thread.exit.store(true, Ordering::Release);
-            drop(lock);
+        }
 
+        // Wake up all sleeping threads so they can observe the exit flag
+        for thread in &self.threads {
             thread.notify_one();
         }
 
-        self.sender.send(Message::Exit).unwrap();
+        // Send exit message to main thread's message loop
+        // Ignore send error if receiver is already dropped
+        let _ = self.sender.send(Message::Exit);
 
-        for thread_handle in self.thread_handles.drain(..) {
-            thread_handle.join().expect("Thread panicked");
+        // Join all threads, collecting any panic information
+        for (_idx, thread_handle) in self.thread_handles.drain(..).enumerate() {
+            if let Err(_panic_info) = thread_handle.join() {
+                #[cfg(debug_assertions)]
+                eprintln!("Warning: Thread {} panicked during shutdown", _idx);
+            }
         }
 
+        // Clear thread references
         self.threads.clear();
-        drop(self.sender.clone());
     }
 
     /// Assign idle threads to work on a split point.
@@ -1000,24 +1043,33 @@ impl ThreadPool {
     ///
     /// # Arguments
     ///
-    /// * `task` - The search task containing position and parameters
+    /// * `task` - The search task containing position, depth, time control, etc.
     ///
     /// # Returns
     ///
     /// A receiver channel that will receive the search result
     pub fn start_thinking(&self, task: SearchTask) -> std::sync::mpsc::Receiver<SearchResult> {
+        debug_assert!(
+            !self.threads.is_empty(),
+            "Cannot start thinking: thread pool has been shut down"
+        );
+
         let (result_sender, result_receiver) = std::sync::mpsc::channel();
 
+        // Ensure clean state before starting new search
         self.reset_abort_flag();
 
+        // Mark pool as actively thinking before sending message
         self.thinking.store(true, Ordering::Release);
+
+        // Dispatch task to main thread
         self.sender
             .send(Message::StartThinking(
                 task,
                 self.main().clone(),
                 result_sender,
             ))
-            .unwrap();
+            .expect("Failed to send search task: main thread receiver disconnected");
 
         result_receiver
     }
@@ -1032,7 +1084,7 @@ impl ThreadPool {
     }
 
     /// Wake up all threads in the pool.
-    pub fn notify_all(&self) {
+    fn notify_all(&self) {
         for thread in &self.threads {
             thread.notify_one();
         }
@@ -1040,8 +1092,10 @@ impl ThreadPool {
 
     /// Wait for the current search to complete.
     pub fn wait_for_think_finished(&self) {
+        const POLL_INTERVAL: Duration = Duration::from_millis(5);
+
         while self.thinking.load(Ordering::Acquire) {
-            sleep(std::time::Duration::from_millis(5));
+            sleep(POLL_INTERVAL);
         }
     }
 
@@ -1051,7 +1105,7 @@ impl ThreadPool {
     }
 
     /// Reset the abort flag for a new search.
-    pub fn reset_abort_flag(&self) {
+    fn reset_abort_flag(&self) {
         self.abort_flag.store(false, Ordering::Release);
     }
 
@@ -1060,8 +1114,9 @@ impl ThreadPool {
     /// # Returns
     ///
     /// `true` if the search should be aborted
+    #[inline]
     pub fn is_aborted(&self) -> bool {
-        self.abort_flag.load(Ordering::Relaxed)
+        self.abort_flag.load(Ordering::Acquire)
     }
 
     /// Get a clone of the abort flag for external use (e.g., time management).
@@ -1075,51 +1130,61 @@ impl ThreadPool {
 
     /// Starts a timer thread that will set abort_flag when deadline is reached.
     ///
-    /// The timer thread checks every 5ms against the current deadline computed
-    /// from the `TimeManager` (so it can react to dynamic extensions) and exits when:
-    /// - deadline is reached (sets abort_flag)
-    /// - timer_stop flag is set (search completed early)
+    /// - Checks every `CHECK_INTERVAL_MS` milliseconds against the current deadline
+    /// - Responds to dynamic time extensions from the `TimeManager`
+    /// - Exits cleanly when:
+    ///   - Deadline is reached (sets abort_flag)
+    ///   - `stop_timer()` is called (search completed early)
+    ///   - No deadline is set (infinite time mode)
     ///
     /// # Arguments
     ///
     /// * `time_manager` - Shared time manager for computing the deadline
     pub fn start_timer(&self, time_manager: Arc<TimeManager>) {
-        // Reset stop flag
+        // Reset stop flag before spawning new timer
         self.timer_stop.store(false, Ordering::Release);
 
         let abort_flag = self.abort_flag.clone();
         let stop_flag = self.timer_stop.clone();
-        let tm = time_manager.clone();
 
         let handle = std::thread::Builder::new()
-            .name("timer".to_string())
+            .name("search-timer".to_string())
             .spawn(move || {
-                const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
-
-                loop {
-                    // Check if we should stop (search completed early)
-                    if stop_flag.load(Ordering::Acquire) {
-                        break;
-                    }
-
-                    // Recompute deadline to honor potential time extensions
-                    if let Some(deadline) = tm.deadline() {
-                        if Instant::now() >= deadline {
-                            abort_flag.store(true, Ordering::Release);
-                            break;
-                        }
-                    } else {
-                        // No deadline (infinite mode); nothing to do
-                        break;
-                    }
-
-                    // Sleep for check interval
-                    std::thread::sleep(CHECK_INTERVAL);
-                }
+                Self::timer_loop(&time_manager, &abort_flag, &stop_flag);
             })
             .expect("Failed to spawn timer thread");
 
         *self.timer_handle.lock().unwrap() = Some(handle);
+    }
+
+    /// Timer thread loop.
+    fn timer_loop(time_manager: &TimeManager, abort_flag: &AtomicBool, stop_flag: &AtomicBool) {
+        const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
+
+        loop {
+            // Check if search completed early
+            if stop_flag.load(Ordering::Acquire) {
+                return;
+            }
+
+            // Recompute deadline to honor potential time extensions
+            match time_manager.deadline() {
+                Some(deadline) if Instant::now() >= deadline => {
+                    // Time's up - signal abort and exit
+                    abort_flag.store(true, Ordering::Release);
+                    return;
+                }
+                Some(_) => {
+                    // Still have time - continue monitoring
+                }
+                None => {
+                    // No deadline (infinite mode) - timer not needed
+                    return;
+                }
+            }
+
+            std::thread::sleep(CHECK_INTERVAL);
+        }
     }
 
     /// Stops the timer thread if running.
@@ -1131,10 +1196,8 @@ impl ThreadPool {
         self.timer_stop.store(true, Ordering::Release);
 
         // Join the timer thread if it exists
-        let handle = self.timer_handle.lock().unwrap().take();
-        if let Some(h) = handle {
-            // Timer will exit within 5ms after seeing stop flag
-            let _ = h.join();
+        if let Some(handle) = self.timer_handle.lock().unwrap().take() {
+            let _ = handle.join();
         }
     }
 }
