@@ -1,7 +1,7 @@
 //! Reference: https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{JoinHandle, sleep};
@@ -22,7 +22,7 @@ use crate::search::{self, SearchTask, endgame, midgame, time_control::TimeManage
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, Score, Selectivity};
-use crate::util::bitset::BitSet;
+use crate::util::bitset::AtomicBitSet;
 use crate::util::spinlock;
 
 /// Maximum number of split points that a single thread can have active at once.
@@ -37,19 +37,19 @@ const CHECK_INTERVAL_MS: u64 = 1;
 /// State information for a split point in the parallel search.
 pub struct SplitPointState {
     /// Flag indicating if all slave threads are actively searching.
-    all_slaves_searching: bool,
+    all_slaves_searching: AtomicBool,
 
     /// Alpha bound for the alpha-beta search at this node.
-    pub alpha: Score,
+    alpha: AtomicI32,
 
     /// Beta bound for the alpha-beta search at this node.
     pub beta: Score,
 
     /// Best score found so far at this split point.
-    pub best_score: Score,
+    best_score: AtomicI32,
 
     /// Best move found so far at this split point.
-    pub best_move: Square,
+    best_move: AtomicU8,
 
     /// Iterator over moves to be searched, shared among threads.
     pub move_iter: Option<Arc<ConcurrentMoveIterator>>,
@@ -58,25 +58,99 @@ pub struct SplitPointState {
     node_type: u32,
 
     /// Flag indicating if a beta cutoff has occurred.
-    pub cutoff: bool,
+    cutoff: AtomicBool,
 
     /// Index of the master thread that created this split point.
     master_thread_idx: usize,
 
     /// Bitmask tracking which threads are working on this split point.
-    slaves_mask: BitSet,
+    slaves_mask: AtomicBitSet,
 
     /// Search depth remaining from this position.
     depth: Depth,
 
     /// Total number of nodes searched by all threads at this split point.
-    n_nodes: u64,
+    n_nodes: AtomicU64,
 
     /// Task data containing the position and search context.
     pub task: Option<SplitPointTask>,
 
     /// Parent split point in the tree hierarchy (for helpful master).
     parent_split_point: Option<Arc<SplitPoint>>,
+}
+
+impl SplitPointState {
+    /// Gets the current alpha value atomically.
+    #[inline]
+    pub fn alpha(&self) -> Score {
+        self.alpha.load(Ordering::Relaxed)
+    }
+
+    /// Sets the alpha value atomically.
+    #[inline]
+    pub fn set_alpha(&self, value: Score) {
+        self.alpha.store(value, Ordering::Relaxed);
+    }
+
+    /// Gets the all_slaves_searching flag.
+    #[inline]
+    pub fn all_slaves_searching(&self) -> bool {
+        self.all_slaves_searching.load(Ordering::Relaxed)
+    }
+
+    /// Sets the all_slaves_searching flag.
+    #[inline]
+    pub fn set_all_slaves_searching(&self, value: bool) {
+        self.all_slaves_searching.store(value, Ordering::Relaxed);
+    }
+
+    /// Gets the cutoff flag.
+    #[inline]
+    pub fn cutoff(&self) -> bool {
+        self.cutoff.load(Ordering::Relaxed)
+    }
+
+    /// Sets the cutoff flag.
+    #[inline]
+    pub fn set_cutoff(&self, value: bool) {
+        self.cutoff.store(value, Ordering::Relaxed);
+    }
+
+    /// Gets the best score.
+    #[inline]
+    pub fn best_score(&self) -> Score {
+        self.best_score.load(Ordering::Relaxed)
+    }
+
+    /// Sets the best score.
+    #[inline]
+    pub fn set_best_score(&self, value: Score) {
+        self.best_score.store(value, Ordering::Relaxed);
+    }
+
+    /// Gets the best move.
+    #[inline]
+    pub fn best_move(&self) -> Square {
+        Square::from_u8_unchecked(self.best_move.load(Ordering::Relaxed))
+    }
+
+    /// Sets the best move.
+    #[inline]
+    pub fn set_best_move(&self, value: Square) {
+        self.best_move.store(value as u8, Ordering::Relaxed);
+    }
+
+    /// Gets the node count.
+    #[inline]
+    pub fn n_nodes(&self) -> u64 {
+        self.n_nodes.load(Ordering::Relaxed)
+    }
+
+    /// Adds to the node count.
+    #[inline]
+    pub fn add_nodes(&self, count: u64) {
+        self.n_nodes.fetch_add(count, Ordering::Relaxed);
+    }
 }
 
 /// Task data for a split point containing all information needed for search.
@@ -126,18 +200,18 @@ impl Default for SplitPoint {
         SplitPoint {
             mutex: spinlock::RawSpinLock::INIT,
             state: UnsafeCell::new(SplitPointState {
-                all_slaves_searching: false,
-                alpha: 0,
+                all_slaves_searching: AtomicBool::new(false),
+                alpha: AtomicI32::new(0),
                 beta: 0,
-                best_score: 0,
-                best_move: Square::None,
+                best_score: AtomicI32::new(0),
+                best_move: std::sync::atomic::AtomicU8::new(Square::None as u8),
                 move_iter: None,
                 node_type: 0,
-                cutoff: false,
+                cutoff: AtomicBool::new(false),
                 master_thread_idx: 0,
-                slaves_mask: BitSet::new(),
+                slaves_mask: AtomicBitSet::new(),
                 depth: 0,
-                n_nodes: 0,
+                n_nodes: AtomicU64::new(0),
                 task: None,
                 parent_split_point: None,
             }),
@@ -285,7 +359,7 @@ impl Thread {
 
         let cond = if let Some(sp) = &th_state.active_split_point {
             let sp_state = sp.state();
-            !sp_state.all_slaves_searching
+            !sp_state.all_slaves_searching()
                 || thread_pool_size > MAX_SLAVES_PER_SPLITPOINT
                     && sp_state.slaves_mask.count() == MAX_SLAVES_PER_SPLITPOINT
         } else {
@@ -323,7 +397,7 @@ impl Thread {
         let mut current_sp = self.state().active_split_point.as_ref();
         while let Some(sp) = current_sp {
             let sp_state = sp.state();
-            if sp_state.cutoff {
+            if sp_state.cutoff() {
                 return true;
             }
             current_sp = sp_state.parent_split_point.as_ref();
@@ -423,7 +497,11 @@ impl Thread {
 
         // Extract results - split point data is now immutable
         let sp_state = sp.state();
-        (sp_state.best_score, sp_state.best_move, sp_state.n_nodes)
+        (
+            sp_state.best_score(),
+            sp_state.best_move(),
+            sp_state.n_nodes(),
+        )
     }
 
     /// Initialize a split point with search parameters and find workers.
@@ -455,9 +533,9 @@ impl Thread {
         sp_state.slaves_mask.clear();
         sp_state.slaves_mask.set(self.idx);
         sp_state.depth = depth;
-        sp_state.best_score = best_score;
-        sp_state.best_move = best_move;
-        sp_state.alpha = alpha;
+        sp_state.set_best_score(best_score);
+        sp_state.set_best_move(best_move);
+        sp_state.set_alpha(alpha);
         sp_state.beta = beta;
         sp_state.node_type = node_type;
         sp_state.move_iter = Some(move_iter.clone());
@@ -472,9 +550,9 @@ impl Thread {
             game_phase: ctx.game_phase,
             empty_list: ctx.empty_list.clone(),
         });
-        sp_state.n_nodes = 0;
-        sp_state.cutoff = false;
-        sp_state.all_slaves_searching = true; // Must be set under lock protection
+        sp_state.n_nodes.store(0, Ordering::Relaxed);
+        sp_state.set_cutoff(false);
+        sp_state.set_all_slaves_searching(true); // Must be set under lock protection
 
         th_state.split_points_size += 1;
         th_state.active_split_point = Some(sp.clone());
@@ -565,8 +643,8 @@ impl Thread {
                 // Update split point state
                 let sp_state = sp.state_mut();
                 sp_state.slaves_mask.reset(self.idx);
-                sp_state.all_slaves_searching = false;
-                sp_state.n_nodes += ctx.n_nodes;
+                sp_state.set_all_slaves_searching(false);
+                sp_state.add_nodes(ctx.n_nodes);
 
                 // After releasing the lock we can't access any SplitPoint related data
                 // in a safe way because it could have been released under our feet by
@@ -607,8 +685,6 @@ impl Thread {
 
                         let result = search::search_root(task, &thread);
                         thread.searching.store(false, Ordering::Release);
-
-                        thread.thinking.store(false, Ordering::Release);
                         result_sender.send(result).unwrap();
                     }
                     Message::Exit => {
@@ -687,7 +763,7 @@ impl Thread {
 
             let sp = &th.state().split_points[size - 1];
             let sp_state = sp.state();
-            if sp_state.all_slaves_searching
+            if sp_state.all_slaves_searching()
                 && sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT
                 && self.can_join(sp)
             {
@@ -710,7 +786,7 @@ impl Thread {
             sp.lock();
 
             let sp_state = sp.state_mut();
-            if sp_state.all_slaves_searching
+            if sp_state.all_slaves_searching()
                 && sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT
             {
                 self.lock();

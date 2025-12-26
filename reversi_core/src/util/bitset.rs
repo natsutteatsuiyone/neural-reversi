@@ -1,22 +1,24 @@
-/// A space-efficient bitset implementation using a 64-bit integer.
-#[derive(Clone, Copy, Default)]
-pub struct BitSet {
-    data: u64,
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// A thread-safe bitset implementation using atomic operations.
+#[derive(Default)]
+pub struct AtomicBitSet {
+    data: AtomicU64,
 }
 
-impl BitSet {
-    /// Creates a new empty bitset with all bits cleared.
+impl AtomicBitSet {
+    /// Creates a new empty atomic bitset with all bits cleared.
     #[inline(always)]
     pub const fn new() -> Self {
-        Self { data: 0 }
+        Self {
+            data: AtomicU64::new(0),
+        }
     }
 
     /// Returns the number of bits currently set.
-    ///
-    /// Returns the count of bits set to 1.
     #[inline(always)]
-    pub const fn count(&self) -> u32 {
-        self.data.count_ones()
+    pub fn count(&self) -> u32 {
+        self.data.load(Ordering::Relaxed).count_ones()
     }
 
     /// Sets the bit at the specified index to 1.
@@ -25,9 +27,9 @@ impl BitSet {
     ///
     /// * `index` - The index of the bit to set (0-based).
     #[inline(always)]
-    pub fn set(&mut self, index: usize) {
+    pub fn set(&self, index: usize) {
         debug_assert!(index < 64);
-        self.data |= 1 << index;
+        self.data.fetch_or(1 << index, Ordering::Relaxed);
     }
 
     /// Clears the bit at the specified index.
@@ -36,9 +38,9 @@ impl BitSet {
     ///
     /// * `index` - The index of the bit to clear (0-based).
     #[inline(always)]
-    pub fn reset(&mut self, index: usize) {
+    pub fn reset(&self, index: usize) {
         debug_assert!(index < 64);
-        self.data &= !(1 << index);
+        self.data.fetch_and(!(1 << index), Ordering::Relaxed);
     }
 
     /// Tests whether the bit at the specified index is set.
@@ -49,22 +51,22 @@ impl BitSet {
     ///
     /// Returns `true` if the bit is set, `false` otherwise.
     #[inline(always)]
-    pub const fn test(&self, index: usize) -> bool {
-        (self.data >> index) & 1 != 0
+    pub fn test(&self, index: usize) -> bool {
+        (self.data.load(Ordering::Relaxed) >> index) & 1 != 0
     }
 
     /// Checks if all bits are clear.
     ///
     /// Returns `true` if no bits are set, `false` otherwise.
     #[inline(always)]
-    pub const fn none(&self) -> bool {
-        self.data == 0
+    pub fn none(&self) -> bool {
+        self.data.load(Ordering::Relaxed) == 0
     }
 
     /// Clears all bits.
     #[inline(always)]
-    pub fn clear(&mut self) {
-        self.data = 0;
+    pub fn clear(&self) {
+        self.data.store(0, Ordering::Relaxed);
     }
 }
 
@@ -74,14 +76,14 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let bitset = BitSet::new();
+        let bitset = AtomicBitSet::new();
         assert_eq!(bitset.count(), 0);
         assert!(bitset.none());
     }
 
     #[test]
     fn test_set_and_test() {
-        let mut bitset = BitSet::new();
+        let bitset = AtomicBitSet::new();
 
         bitset.set(0);
         assert!(bitset.test(0));
@@ -98,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_reset() {
-        let mut bitset = BitSet::new();
+        let bitset = AtomicBitSet::new();
 
         bitset.set(10);
         assert!(bitset.test(10));
@@ -110,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_count() {
-        let mut bitset = BitSet::new();
+        let bitset = AtomicBitSet::new();
         assert_eq!(bitset.count(), 0);
 
         for i in 0..10 {
@@ -121,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_none() {
-        let mut bitset = BitSet::new();
+        let bitset = AtomicBitSet::new();
         assert!(bitset.none());
 
         bitset.set(0);
@@ -133,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let mut bitset = BitSet::new();
+        let bitset = AtomicBitSet::new();
 
         bitset.set(1);
         bitset.set(5);
@@ -147,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_multiple_operations() {
-        let mut bitset = BitSet::new();
+        let bitset = AtomicBitSet::new();
 
         bitset.set(0);
         bitset.set(1);

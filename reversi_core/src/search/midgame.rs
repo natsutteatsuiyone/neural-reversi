@@ -501,14 +501,13 @@ pub fn search_sp<NT: NodeType>(
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
-        let alpha = split_point.state().alpha;
-
+        let alpha = split_point.state().alpha();
         let mut score = -SCORE_INF;
         if depth >= 2 && mv.reduction_depth > 0 {
             let d = (depth - 1).saturating_sub(mv.reduction_depth);
             score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, thread);
             if score > alpha {
-                let alpha = split_point.state().alpha;
+                let alpha = split_point.state().alpha();
                 score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
             }
         } else if !NT::PV_NODE || move_count > 1 {
@@ -517,7 +516,7 @@ pub fn search_sp<NT: NodeType>(
 
         if NT::PV_NODE && score > alpha {
             ctx.clear_pv();
-            let alpha = split_point.state().alpha;
+            let alpha = split_point.state().alpha();
             score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha, thread);
         }
 
@@ -529,33 +528,33 @@ pub fn search_sp<NT: NodeType>(
             return 0;
         }
 
-        let sp = split_point.state_mut();
+        let sp = split_point.state();
 
         if NT::ROOT_NODE {
-            ctx.update_root_move(mv.sq, score, move_count, sp.alpha);
+            ctx.update_root_move(mv.sq, score, move_count, sp.alpha());
         }
 
-        if score > sp.best_score {
-            sp.best_score = score;
+        if score > sp.best_score() {
+            sp.set_best_score(score);
 
-            if score > sp.alpha {
-                sp.best_move = mv.sq;
+            if score > sp.alpha() {
+                sp.set_best_move(mv.sq);
 
                 if NT::PV_NODE && !NT::ROOT_NODE {
                     ctx.update_pv(mv.sq);
                 }
 
                 if NT::PV_NODE && score < beta {
-                    sp.alpha = score;
+                    sp.set_alpha(score);
                 } else {
-                    sp.cutoff = true;
+                    sp.set_cutoff(true);
                     break;
                 }
             }
         }
     }
 
-    split_point.state().best_score
+    split_point.state().best_score()
 }
 
 /// Specialized evaluation function for positions at depth 2.
