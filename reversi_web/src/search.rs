@@ -267,11 +267,16 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empt
     let midgame_depth = n_empties / 2;
 
     let hash_key = board.hash();
-    let (tt_hit, tt_data, _) = ctx.tt.probe(hash_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(hash_key, ctx.generation);
 
-    if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
-        tt_data.score
-    } else if n_empties >= 16 {
+    if let Some(tt_data) = tt_probe_result.data()
+        && tt_data.bound() == Bound::Exact
+        && tt_data.depth() >= midgame_depth
+    {
+        return tt_data.score();
+    }
+
+    if n_empties >= 16 {
         ctx.selectivity = Selectivity::Level0;
         search::<PV>(ctx, board, midgame_depth, -SCORE_INF, SCORE_INF)
     } else if n_empties >= 6 {
@@ -348,8 +353,6 @@ pub fn search<NT: NodeType>(
         }
     }
 
-    let tt_key = board.hash();
-
     let mut move_list = MoveList::new(board);
     if move_list.count() == 0 {
         let next = board.switch_players();
@@ -371,41 +374,36 @@ pub fn search<NT: NodeType>(
     }
 
     // Look up position in transposition table
-    let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
-    let tt_move = if tt_hit {
-        tt_data.best_move
-    } else {
-        Square::None
-    };
+    let tt_key = board.hash();
+    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_move = tt_probe_result.best_move();
 
-    if !NT::PV_NODE
-        && tt_hit
-        && tt_data.depth >= depth
-        && tt_data.selectivity >= ctx.selectivity
-        && tt_data.can_cut(beta)
-    {
-        return tt_data.score;
-    }
+    if !NT::PV_NODE {
+        if let Some(tt_data) = tt_probe_result.data()
+            && tt_data.depth() >= depth
+            && tt_data.selectivity() >= ctx.selectivity
+            && tt_data.can_cut(beta)
+        {
+            return tt_data.score();
+        }
 
-    if !NT::PV_NODE
-        && depth >= MIN_ETC_DEPTH
-        && let Some(score) = enhanced_transposition_cutoff(
-            ctx,
-            board,
-            &move_list,
-            depth,
-            alpha,
-            tt_key,
-            tt_entry_index,
-        )
-    {
-        return score;
-    }
+        if depth >= MIN_ETC_DEPTH
+            && let Some(score) = enhanced_transposition_cutoff(
+                ctx,
+                board,
+                &move_list,
+                depth,
+                alpha,
+                tt_key,
+                tt_probe_result.index(),
+            )
+        {
+            return score;
+        }
 
-    if !NT::PV_NODE
-        && let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta)
-    {
-        return score;
+        if let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta) {
+            return score;
+        }
     }
 
     if move_list.count() > 1 {
@@ -462,7 +460,7 @@ pub fn search<NT: NodeType>(
     }
 
     ctx.tt.store(
-        tt_entry_index,
+        tt_probe_result.index(),
         tt_key,
         best_score,
         Bound::determine_bound::<NT>(best_score, org_alpha, beta),
@@ -650,13 +648,13 @@ fn enhanced_transposition_cutoff(
         ctx.increment_nodes();
 
         let etc_tt_key = next.hash();
-        let (etc_tt_hit, etc_tt_data, _tt_entry_index) = ctx.tt.probe(etc_tt_key, ctx.generation);
-        if etc_tt_hit
-            && etc_tt_data.depth >= etc_depth
-            && etc_tt_data.selectivity >= ctx.selectivity
+        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key, ctx.generation);
+        if let Some(etc_tt_data) = etc_tt_probe_result.data()
+            && etc_tt_data.depth() >= etc_depth
+            && etc_tt_data.selectivity() >= ctx.selectivity
         {
-            let score = -etc_tt_data.score;
-            if (etc_tt_data.bound == Bound::Exact || etc_tt_data.bound == Bound::Upper)
+            let score = -etc_tt_data.score();
+            if (etc_tt_data.bound() == Bound::Exact || etc_tt_data.bound() == Bound::Upper)
                 && score > alpha
             {
                 ctx.tt.store(

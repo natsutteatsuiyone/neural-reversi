@@ -329,15 +329,15 @@ fn enhanced_transposition_cutoff(
         ctx.increment_nodes();
 
         let etc_tt_key = next.hash();
-        let (etc_tt_hit, etc_tt_data, _tt_entry_index) = ctx.tt.probe(etc_tt_key, ctx.generation);
+        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key, ctx.generation);
         let is_endgame = ctx.game_phase == GamePhase::EndGame;
-        if etc_tt_hit
-            && etc_tt_data.is_endgame == is_endgame
-            && etc_tt_data.depth >= etc_depth
-            && etc_tt_data.selectivity >= ctx.selectivity
+        if let Some(etc_tt_data) = etc_tt_probe_result.data()
+            && etc_tt_data.is_endgame() == is_endgame
+            && etc_tt_data.depth() >= etc_depth
+            && etc_tt_data.selectivity() >= ctx.selectivity
         {
-            let score = -etc_tt_data.score;
-            if (etc_tt_data.bound == Bound::Exact || etc_tt_data.bound == Bound::Upper)
+            let score = -etc_tt_data.score();
+            if (etc_tt_data.bound() == Bound::Exact || etc_tt_data.bound() == Bound::Upper)
                 && score > alpha
             {
                 ctx.tt.store(

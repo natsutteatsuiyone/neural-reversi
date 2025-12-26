@@ -257,10 +257,15 @@ fn estimate_aspiration_base_score(
     let midgame_depth = n_empties / 4;
 
     let hash_key = board.hash();
-    let (tt_hit, tt_data, _) = ctx.tt.probe(hash_key, ctx.generation);
-    let score = if tt_hit && tt_data.bound == Bound::Exact && tt_data.depth >= midgame_depth {
-        tt_data.score
-    } else if n_empties >= 22 {
+    let tt_probe_result = ctx.tt.probe(hash_key, ctx.generation);
+    if let Some(tt_data) = tt_probe_result.data()
+        && tt_data.bound() == Bound::Exact
+        && tt_data.depth() >= midgame_depth
+    {
+        return unscale_score(tt_data.score());
+    }
+
+    let score = if n_empties >= 24 {
         midgame::search::<PV>(ctx, board, midgame_depth, -SCORE_INF, SCORE_INF, thread)
     } else if n_empties >= 12 {
         midgame::evaluate_depth2(ctx, board, -SCORE_INF, SCORE_INF)
@@ -336,21 +341,17 @@ pub fn search<NT: NodeType>(
     }
 
     // Look up position in transposition table
-    let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
-    let tt_move = if tt_hit {
-        tt_data.best_move
-    } else {
-        Square::None
-    };
+    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_move = tt_probe_result.best_move();
 
     if !NT::PV_NODE {
-        if tt_hit
-            && tt_data.is_endgame
-            && tt_data.depth >= n_empties
-            && tt_data.selectivity >= ctx.selectivity
+        if let Some(tt_data) = tt_probe_result.data()
+            && tt_data.is_endgame()
+            && tt_data.depth() >= n_empties
+            && tt_data.selectivity() >= ctx.selectivity
             && tt_data.can_cut(scale_score(beta))
         {
-            return unscale_score(tt_data.score);
+            return unscale_score(tt_data.score());
         }
 
         if n_empties >= MIN_ETC_DEPTH
@@ -361,7 +362,7 @@ pub fn search<NT: NodeType>(
                 n_empties,
                 scale_score(alpha),
                 tt_key,
-                tt_entry_index,
+                tt_probe_result.index(),
             )
         {
             return unscale_score(score);
@@ -454,7 +455,7 @@ pub fn search<NT: NodeType>(
     }
 
     ctx.tt.store(
-        tt_entry_index,
+        tt_probe_result.index(),
         tt_key,
         scale_score(best_score),
         Bound::determine_bound::<NT>(best_score, org_alpha, beta),
@@ -587,21 +588,16 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         }
     }
 
-    // transposition table lookup
-    let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
-    let tt_move = if tt_hit {
-        tt_data.best_move
-    } else {
-        Square::None
-    };
+    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_move = tt_probe_result.best_move();
 
-    if tt_hit
-        && tt_data.is_endgame
-        && tt_data.depth >= n_empties
-        && tt_data.selectivity >= ctx.selectivity
+    if let Some(tt_data) = tt_probe_result.data()
+        && tt_data.is_endgame()
+        && tt_data.depth() >= n_empties
+        && tt_data.selectivity() >= ctx.selectivity
         && tt_data.can_cut(scale_score(beta))
     {
-        return unscale_score(tt_data.score);
+        return unscale_score(tt_data.score());
     }
 
     if n_empties == DEPTH_MIDGAME_TO_ENDGAME
@@ -612,7 +608,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             n_empties,
             scale_score(alpha),
             tt_key,
-            tt_entry_index,
+            tt_probe_result.index(),
         )
     {
         return unscale_score(score);
@@ -690,7 +686,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 
     ctx.tt.store(
-        tt_entry_index,
+        tt_probe_result.index(),
         tt_key,
         scale_score(best_score),
         Bound::determine_bound::<NonPV>(best_score, alpha, beta),

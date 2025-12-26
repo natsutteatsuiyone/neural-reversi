@@ -331,20 +331,16 @@ pub fn search<NT: NodeType>(
     }
 
     // Look up position in transposition table
-    let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
-    let tt_move = if tt_hit {
-        tt_data.best_move
-    } else {
-        Square::None
-    };
+    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_move = tt_probe_result.best_move();
 
     if !NT::PV_NODE {
-        if tt_hit
-            && tt_data.depth >= depth
-            && tt_data.selectivity >= ctx.selectivity
+        if let Some(tt_data) = tt_probe_result.data()
+            && tt_data.depth() >= depth
+            && tt_data.selectivity() >= ctx.selectivity
             && tt_data.can_cut(beta)
         {
-            return tt_data.score;
+            return tt_data.score();
         }
 
         if depth >= MIN_ETC_DEPTH
@@ -355,7 +351,7 @@ pub fn search<NT: NodeType>(
                 depth,
                 alpha,
                 tt_key,
-                tt_entry_index,
+                tt_probe_result.index(),
             )
         {
             return score;
@@ -454,7 +450,7 @@ pub fn search<NT: NodeType>(
     }
 
     ctx.tt.store(
-        tt_entry_index,
+        tt_probe_result.index(),
         tt_key,
         best_score,
         Bound::determine_bound::<NT>(best_score, org_alpha, beta),

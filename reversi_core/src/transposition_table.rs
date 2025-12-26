@@ -63,6 +63,152 @@ impl Bound {
     }
 }
 
+/// Result of a transposition table probe operation.
+///
+/// This enum provides a type-safe representation of probe results,
+/// distinguishing between cache hits and misses while avoiding
+/// unnecessary `TTEntryData` initialization on misses.
+#[derive(Debug)]
+pub enum TTProbeResult {
+    /// Found an entry with a matching key.
+    Hit {
+        /// The data of the entry.
+        data: TTEntryData,
+        /// The index of the entry in the table.
+        index: usize,
+    },
+    /// No matching entry found, or collision.
+    Miss {
+        /// The index where a new entry should be stored.
+        index: usize,
+    },
+}
+
+impl TTProbeResult {
+    /// Returns the entry index for storing data.
+    #[inline(always)]
+    pub fn index(&self) -> usize {
+        match self {
+            TTProbeResult::Hit { index, .. } => *index,
+            TTProbeResult::Miss { index } => *index,
+        }
+    }
+
+    /// Returns the cached data if hit, otherwise None.
+    #[inline(always)]
+    pub fn data(&self) -> Option<TTEntryData> {
+        match self {
+            TTProbeResult::Hit { data, .. } => Some(*data),
+            TTProbeResult::Miss { .. } => None,
+        }
+    }
+
+    /// Returns the best move if hit, otherwise Square::None.
+    #[inline(always)]
+    pub fn best_move(&self) -> Square {
+        match self {
+            TTProbeResult::Hit { data, .. } => data.best_move(),
+            TTProbeResult::Miss { .. } => Square::None,
+        }
+    }
+
+    /// Returns true if the probe was a hit.
+    #[inline(always)]
+    pub fn is_hit(&self) -> bool {
+        matches!(self, TTProbeResult::Hit { .. })
+    }
+}
+
+/// A lightweight wrapper around raw TT entry data for lazy unpacking.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TTEntryData {
+    raw: u64,
+}
+
+impl TTEntryData {
+    #[inline(always)]
+    pub fn key(&self) -> u32 {
+        ((self.raw >> TTEntry::KEY_SHIFT) & TTEntry::KEY_MASK) as u32
+    }
+
+    #[inline(always)]
+    pub fn score(&self) -> Score {
+        ((self.raw >> TTEntry::SCORE_SHIFT) & TTEntry::SCORE_MASK) as i16 as Score
+    }
+
+    #[inline(always)]
+    pub fn best_move(&self) -> Square {
+        let val = ((self.raw >> TTEntry::BEST_MOVE_SHIFT) & TTEntry::BEST_MOVE_MASK) as u8;
+        Square::from_u8_unchecked(val)
+    }
+
+    #[inline(always)]
+    pub fn bound(&self) -> Bound {
+        let val = ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) as u8;
+        unsafe { Bound::from_u8_unchecked(val) }
+    }
+
+    #[inline(always)]
+    pub fn depth(&self) -> Depth {
+        ((self.raw >> TTEntry::DEPTH_SHIFT) & TTEntry::DEPTH_MASK) as u8 as Depth
+    }
+
+    #[inline(always)]
+    pub fn selectivity(&self) -> Selectivity {
+        let val = ((self.raw >> TTEntry::SELECTIVITY_SHIFT) & TTEntry::SELECTIVITY_MASK) as u8;
+        Selectivity::from_u8(val)
+    }
+
+    #[inline(always)]
+    pub fn generation(&self) -> u8 {
+        ((self.raw >> TTEntry::GENERATION_SHIFT) & TTEntry::GENERATION_MASK) as u8
+    }
+
+    #[inline(always)]
+    pub fn is_endgame(&self) -> bool {
+        ((self.raw >> TTEntry::IS_ENDGAME_SHIFT) & TTEntry::IS_ENDGAME_MASK) != 0
+    }
+
+    /// Determines whether a cutoff should occur based on the bound and beta value.
+    #[inline(always)]
+    pub fn can_cut(&self, beta: Score) -> bool {
+        let score = self.score();
+        let bound_raw = ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) as u8;
+
+        let required = if score >= beta {
+            Bound::Lower as u8
+        } else {
+            Bound::Upper as u8
+        };
+
+        (bound_raw & required) != 0
+    }
+
+    /// Checks if the transposition table entry contains valid data.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the entry has a valid bound type (not None), `false` otherwise
+    #[inline(always)]
+    pub fn is_occupied(&self) -> bool {
+        ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) != 0
+    }
+
+    /// Calculates the relative age of the entry based on the current generation.
+    ///
+    /// # Arguments
+    ///
+    /// * `generation` - The current generation count
+    ///
+    /// # Returns
+    ///
+    /// The age difference (positive means this entry is older)
+    #[inline(always)]
+    fn relative_age(&self, generation: u8) -> i32 {
+        generation as i32 - self.generation() as i32
+    }
+}
+
 /// A single entry in the transposition table.
 ///
 /// # Entry Format
@@ -76,42 +222,43 @@ impl Bound {
 /// - 7 bits: Generation counter for aging
 /// - 1 bit: Endgame flag
 #[derive(Default)]
-struct TTEntry {
+#[repr(transparent)]
+pub struct TTEntry {
     data: AtomicU64,
 }
 
 impl TTEntry {
     // Bit layout constants for packing data into 64 bits
-    const KEY_SIZE: i32 = 22;
-    const KEY_SHIFT: i32 = 0;
-    const KEY_MASK: u64 = (1 << (Self::KEY_SIZE)) - 1;
+    pub(crate) const KEY_SIZE: i32 = 22;
+    pub(crate) const KEY_SHIFT: i32 = 0;
+    pub(crate) const KEY_MASK: u64 = (1 << (Self::KEY_SIZE)) - 1;
 
-    const SCORE_SIZE: i32 = 16;
-    const SCORE_SHIFT: i32 = Self::KEY_SHIFT + Self::KEY_SIZE;
-    const SCORE_MASK: u64 = (1 << (Self::SCORE_SIZE)) - 1;
+    pub(crate) const SCORE_SIZE: i32 = 16;
+    pub(crate) const SCORE_SHIFT: i32 = Self::KEY_SHIFT + Self::KEY_SIZE;
+    pub(crate) const SCORE_MASK: u64 = (1 << (Self::SCORE_SIZE)) - 1;
 
-    const BEST_MOVE_SIZE: i32 = 7;
-    const BEST_MOVE_SHIFT: i32 = Self::SCORE_SHIFT + Self::SCORE_SIZE;
-    const BEST_MOVE_MASK: u64 = (1 << (Self::BEST_MOVE_SIZE)) - 1;
+    pub(crate) const BEST_MOVE_SIZE: i32 = 7;
+    pub(crate) const BEST_MOVE_SHIFT: i32 = Self::SCORE_SHIFT + Self::SCORE_SIZE;
+    pub(crate) const BEST_MOVE_MASK: u64 = (1 << (Self::BEST_MOVE_SIZE)) - 1;
 
-    const BOUND_SIZE: i32 = 2;
-    const BOUND_SHIFT: i32 = Self::BEST_MOVE_SHIFT + Self::BEST_MOVE_SIZE;
-    const BOUND_MASK: u64 = (1 << (Self::BOUND_SIZE)) - 1;
+    pub(crate) const BOUND_SIZE: i32 = 2;
+    pub(crate) const BOUND_SHIFT: i32 = Self::BEST_MOVE_SHIFT + Self::BEST_MOVE_SIZE;
+    pub(crate) const BOUND_MASK: u64 = (1 << (Self::BOUND_SIZE)) - 1;
 
-    const DEPTH_SIZE: i32 = 6;
-    const DEPTH_SHIFT: i32 = Self::BOUND_SHIFT + Self::BOUND_SIZE;
-    const DEPTH_MASK: u64 = (1 << (Self::DEPTH_SIZE)) - 1;
+    pub(crate) const DEPTH_SIZE: i32 = 6;
+    pub(crate) const DEPTH_SHIFT: i32 = Self::BOUND_SHIFT + Self::BOUND_SIZE;
+    pub(crate) const DEPTH_MASK: u64 = (1 << (Self::DEPTH_SIZE)) - 1;
 
-    const SELECTIVITY_SIZE: i32 = 3;
-    const SELECTIVITY_SHIFT: i32 = Self::DEPTH_SHIFT + Self::DEPTH_SIZE;
-    const SELECTIVITY_MASK: u64 = (1 << (Self::SELECTIVITY_SIZE)) - 1;
+    pub(crate) const SELECTIVITY_SIZE: i32 = 3;
+    pub(crate) const SELECTIVITY_SHIFT: i32 = Self::DEPTH_SHIFT + Self::DEPTH_SIZE;
+    pub(crate) const SELECTIVITY_MASK: u64 = (1 << (Self::SELECTIVITY_SIZE)) - 1;
 
-    const GENERATION_SIZE: i32 = 7;
-    const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
-    const GENERATION_MASK: u64 = (1 << (Self::GENERATION_SIZE)) - 1;
+    pub(crate) const GENERATION_SIZE: i32 = 7;
+    pub(crate) const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
+    pub(crate) const GENERATION_MASK: u64 = (1 << (Self::GENERATION_SIZE)) - 1;
 
-    const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
-    const IS_ENDGAME_MASK: u64 = 1;
+    pub(crate) const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
+    pub(crate) const IS_ENDGAME_MASK: u64 = 1;
 
     /// Packs all fields into a single 64-bit value and stores it.
     #[allow(clippy::too_many_arguments)]
@@ -137,33 +284,15 @@ impl TTEntry {
         self.data.store(data, Ordering::Relaxed);
     }
 
-    /// Unpacks a 64-bit value into TTData fields.
-    #[inline]
-    fn unpack_from_u64(data_u64: u64) -> TTData {
-        let key = ((data_u64 >> Self::KEY_SHIFT) & Self::KEY_MASK) as u32;
-        let score = ((data_u64 >> Self::SCORE_SHIFT) & Self::SCORE_MASK) as i16;
-        let best_move = ((data_u64 >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8;
-        let bound = ((data_u64 >> Self::BOUND_SHIFT) & Self::BOUND_MASK) as u8;
-        let depth = ((data_u64 >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u8;
-        let selectivity = ((data_u64 >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
-        let generation = ((data_u64 >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
-        let is_endgame = ((data_u64 >> Self::IS_ENDGAME_SHIFT) & Self::IS_ENDGAME_MASK) != 0;
-
-        TTData {
-            key,
-            score: score as Score,
-            best_move: Square::from_u8_unchecked(best_move),
-            bound: unsafe { Bound::from_u8_unchecked(bound) },
-            depth: depth as Depth,
-            selectivity: Selectivity::from_u8(selectivity),
-            generation,
-            is_endgame,
-        }
+    /// Unpacks a 64-bit value into TTEntryData.
+    #[inline(always)]
+    fn unpack_from_u64(data_u64: u64) -> TTEntryData {
+        TTEntryData { raw: data_u64 }
     }
 
     /// Loads and unpacks the entry data atomically.
-    #[inline]
-    fn unpack(&self) -> TTData {
+    #[inline(always)]
+    pub fn unpack(&self) -> TTEntryData {
         let data = self.data.load(Ordering::Relaxed);
         Self::unpack_from_u64(data)
     }
@@ -261,88 +390,6 @@ impl TTEntry {
     }
 }
 
-/// Data stored in and retrieved from transposition table entries.
-///
-/// This struct represents the unpacked form of a transposition table entry,
-/// containing all the information needed to use cached search results.
-pub struct TTData {
-    /// Lower 22 bits of the position hash for verification
-    pub key: u32,
-    /// Evaluation score of the position
-    pub score: Score,
-    /// Best move found during search
-    pub best_move: Square,
-    /// Bound type
-    pub bound: Bound,
-    /// Search depth at which this position was evaluated
-    pub depth: Depth,
-    /// Selectivity level used during search
-    pub selectivity: Selectivity,
-    /// Generation counter for replacement policy
-    pub generation: u8,
-    /// Whether this entry is from endgame search (disc-difference score)
-    pub is_endgame: bool,
-}
-
-impl Default for TTData {
-    /// Creates an empty TTData instance with default values.
-    fn default() -> Self {
-        TTData {
-            key: 0,
-            score: 0,
-            best_move: Square::None,
-            bound: Bound::None,
-            depth: 0,
-            selectivity: Selectivity::Level0,
-            generation: 0,
-            is_endgame: false,
-        }
-    }
-}
-
-impl TTData {
-    /// Determines whether a cutoff should occur based on the bound and beta value.
-    ///
-    /// # Arguments
-    ///
-    /// * `beta` - The beta value from alpha-beta pruning.
-    ///
-    /// # Returns
-    ///
-    /// `true` if a cutoff should occur, otherwise `false`.
-    #[inline]
-    pub fn can_cut(&self, beta: Score) -> bool {
-        let bound = if self.score >= beta {
-            Bound::Lower
-        } else {
-            Bound::Upper
-        };
-        (self.bound as u8 & bound as u8) != 0
-    }
-
-    /// Checks if the transposition table entry contains valid data.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the entry has a valid bound type (not None), `false` otherwise
-    pub fn is_occupied(&self) -> bool {
-        self.bound != Bound::None
-    }
-
-    /// Calculates the relative age of the entry based on the current generation.
-    ///
-    /// # Arguments
-    ///
-    /// * `generation` - The current generation count
-    ///
-    /// # Returns
-    ///
-    /// The age difference (positive means this entry is older)
-    fn relative_age(&self, generation: u8) -> i32 {
-        generation as i32 - self.generation as i32
-    }
-}
-
 /// The main transposition table structure.
 pub struct TranspositionTable {
     /// Array of table entries organized in clusters
@@ -408,12 +455,18 @@ impl TranspositionTable {
     ///
     /// # Returns
     ///
-    /// A tuple containing:
-    /// - `bool`: Whether a matching entry was found
-    /// - `TTData`: The entry data (default if not found)
-    /// - `usize`: The index for storing new data (either the found entry or replacement candidate)
+    /// Probes the transposition table for an entry matching the given key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The hash key of the board position to probe
+    /// * `generation` - The current generation count for aging
+    ///
+    /// # Returns
+    ///
+    /// A `ProbeResult` indicating whether a matching entry was found.
     #[inline(always)]
-    pub fn probe(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
+    pub fn probe(&self, key: u64, generation: u8) -> TTProbeResult {
         cfg_if! {
             if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
                 unsafe { self.probe_avx2(key, generation) }
@@ -426,87 +479,75 @@ impl TranspositionTable {
     /// AVX2-optimized probe implementation for faster cluster scanning.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
-    fn probe_avx2(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
-        unsafe {
-            use std::arch::x86_64::*;
+    #[inline]
+    fn probe_avx2(&self, key: u64, generation: u8) -> TTProbeResult {
+        use std::arch::x86_64::*;
 
-            let key22 = (key & TTEntry::KEY_MASK) as u32;
-            let key16 = key22 as u16; // Use lower 16 bits for SIMD pre-filtering
-            let base = self.get_cluster_idx(key);
-            let ptr = self.entries.as_ptr().add(base) as *const __m256i;
-            let v = _mm256_load_si256(ptr);
+        let key22 = (key & TTEntry::KEY_MASK) as u32;
+        let base = self.get_cluster_idx(key);
+        let ptr = unsafe { self.entries.as_ptr().add(base) } as *const __m256i;
 
-            // Create a vector with the key repeated in all 16-bit lanes
-            let key_vec = _mm256_set1_epi16(key16 as i16);
-            // Compare all keys in the cluster simultaneously
-            let cmp = _mm256_cmpeq_epi16(v, key_vec);
-            let hit_mask = _mm256_movemask_epi8(cmp) as u32;
+        let v = unsafe { _mm256_load_si256(ptr) };
+        let key_mask = _mm256_set1_epi64x(TTEntry::KEY_MASK as i64);
+        let keys_in_entries = _mm256_and_si256(v, key_mask);
+        let key_broadcast = _mm256_set1_epi64x(key22 as i64);
+        let cmp = _mm256_cmpeq_epi32(keys_in_entries, key_broadcast);
+        let mask = _mm256_movemask_epi8(cmp) as u32;
 
-            // Mask to check only the key fields (first 16 bits of each 64-bit entry)
-            // bits 0-1: first 16 bits of entry 0 (the key)
-            // bits 8-9: first 16 bits of entry 1 (the key)
-            // bits 16-17: first 16 bits of entry 2 (the key)
-            // bits 24-25: first 16 bits of entry 3 (the key)
-            const LANE_MASK: u32 = 0x03030303;
-            let mut relevant_hits = hit_mask & LANE_MASK;
+        const KEY_MATCH_MASK: u32 = 0x0F0F0F0F;
+        let key_matches = mask & KEY_MATCH_MASK;
 
-            let entries: [u64; 4] = std::mem::transmute(v);
+        let bound_mask = _mm256_set1_epi64x(TTEntry::BOUND_MASK as i64);
+        let bounds = _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::BOUND_SHIFT), bound_mask);
+        let zero = _mm256_setzero_si256();
+        let occupied_cmp = _mm256_cmpeq_epi32(bounds, zero);
+        let occupied_mask = !(_mm256_movemask_epi8(occupied_cmp) as u32) & KEY_MATCH_MASK;
 
-            while relevant_hits != 0 {
-                let tz = relevant_hits.trailing_zeros();
-                let lane_idx = (tz / 8) as usize;
+        let hits = key_matches & occupied_mask;
 
-                let data = TTEntry::unpack_from_u64(entries[lane_idx]);
-                // Verify full 22-bit key match (16-bit SIMD match was just pre-filtering)
-                if data.key == key22 && data.is_occupied() {
-                    return (true, data, base + lane_idx);
-                }
+        if hits != 0 {
+            let tz = hits.trailing_zeros();
+            let lane_idx = (tz / 8) as usize;
 
-                relevant_hits &= !(0xFF << (lane_idx * 8));
-            }
+            let entries_ptr = ptr as *const u64;
+            let raw_data = unsafe { *entries_ptr.add(lane_idx) };
+            let tt_data = TTEntryData { raw: raw_data };
 
-            // Extract depth and generation fields from all entries using SIMD
-            let depth_mask_vec = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
-            let gen_mask_vec = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
+            return TTProbeResult::Hit {
+                data: tt_data,
+                index: base + lane_idx,
+            };
+        }
 
-            let depth_vec =
-                _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT), depth_mask_vec);
-            let gen_vec = _mm256_and_si256(
-                _mm256_srli_epi64(v, TTEntry::GENERATION_SHIFT),
-                gen_mask_vec,
-            );
+        let depth_mask = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
+        let depths = _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT), depth_mask);
 
-            // Calculate replacement scores: depth - (age * 8)
-            let current_gen_vec = _mm256_set1_epi64x(generation as i64);
-            let age_vec = _mm256_sub_epi64(current_gen_vec, gen_vec);
-            let score_vec = _mm256_sub_epi64(depth_vec, _mm256_slli_epi64(age_vec, 3));
+        let gen_mask = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
+        let gens = _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::GENERATION_SHIFT), gen_mask);
 
-            // Extract scores (transmute is safe: both are 256-bit)
-            let scores: [i64; 4] = std::mem::transmute(score_vec);
+        let current_gen = _mm256_set1_epi64x(generation as i64);
+        let ages = _mm256_sub_epi64(current_gen, gens);
 
-            // Find the entry with the lowest replacement score
-            let mut replace_idx = 0;
-            let mut min_score = scores[0];
+        let scores = _mm256_sub_epi64(depths, _mm256_slli_epi64(ages, 3));
+        let scores_arr: [i64; 4] = unsafe { std::mem::transmute(scores) };
 
-            if scores[1] < min_score {
-                min_score = scores[1];
-                replace_idx = 1;
-            }
-            if scores[2] < min_score {
-                min_score = scores[2];
-                replace_idx = 2;
-            }
-            if scores[3] < min_score {
-                replace_idx = 3;
-            }
+        let s0 = scores_arr[0];
+        let s1 = scores_arr[1];
+        let s2 = scores_arr[2];
+        let s3 = scores_arr[3];
 
-            (false, TTData::default(), base + replace_idx)
+        let min01 = if s0 <= s1 { (s0, 0usize) } else { (s1, 1) };
+        let min23 = if s2 <= s3 { (s2, 2usize) } else { (s3, 3) };
+        let (_, replace_idx) = if min01.0 <= min23.0 { min01 } else { min23 };
+
+        TTProbeResult::Miss {
+            index: base + replace_idx,
         }
     }
 
     /// Fallback probe implementation.
     #[allow(dead_code)]
-    fn probe_fallback(&self, key: u64, generation: u8) -> (bool, TTData, usize) {
+    fn probe_fallback(&self, key: u64, generation: u8) -> TTProbeResult {
         let key22 = (key & TTEntry::KEY_MASK) as u32;
         let cluster_idx = self.get_cluster_idx(key);
 
@@ -514,10 +555,17 @@ impl TranspositionTable {
         for i in 0..CLUSTER_SIZE {
             let idx = cluster_idx + i;
             let entry = unsafe { self.entries.get_unchecked(idx) };
-            let tt_data = entry.unpack();
+            let data = entry.data.load(Ordering::Relaxed);
+            let entry_key = ((data >> TTEntry::KEY_SHIFT) & TTEntry::KEY_MASK) as u32;
+            let bound_val = (data >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK;
+            let is_occupied = bound_val != 0;
 
-            if tt_data.key == key22 && tt_data.is_occupied() {
-                return (true, tt_data, idx);
+            if entry_key == key22 && is_occupied {
+                let tt_data = TTEntryData { raw: data };
+                return TTProbeResult::Hit {
+                    data: tt_data,
+                    index: idx,
+                };
             }
         }
 
@@ -527,13 +575,13 @@ impl TranspositionTable {
         let mut replace_idx = cluster_idx;
         let replace_data = unsafe { self.entries.get_unchecked(cluster_idx).unpack() };
         let mut replace_score =
-            replace_data.depth as i32 - replace_data.relative_age(generation) * 8;
+            replace_data.depth() as i32 - replace_data.relative_age(generation) * 8;
 
         for i in 1..CLUSTER_SIZE {
             let idx = cluster_idx + i;
             let entry = unsafe { self.entries.get_unchecked(idx) };
             let tt_data = entry.unpack();
-            let score = tt_data.depth as i32 - tt_data.relative_age(generation) * 8;
+            let score = tt_data.depth() as i32 - tt_data.relative_age(generation) * 8;
 
             if score < replace_score {
                 replace_score = score;
@@ -541,9 +589,8 @@ impl TranspositionTable {
             }
         }
 
-        (false, TTData::default(), replace_idx)
+        TTProbeResult::Miss { index: replace_idx }
     }
-
     /// Stores data in the transposition table at the specified entry index.
     ///
     /// # Arguments
@@ -634,7 +681,7 @@ mod tests {
         selectivity: Selectivity,
         generation: u8,
     ) -> usize {
-        let (_, _, idx) = tt.probe(key, generation);
+        let idx = tt.probe(key, generation).index();
         tt.store(
             idx,
             key,
@@ -687,13 +734,13 @@ mod tests {
         );
 
         let data = entry.unpack();
-        assert_eq!(data.key, (test_key & TTEntry::KEY_MASK) as u32);
-        assert_eq!(data.score, test_score);
-        assert_eq!(data.bound, test_bound);
-        assert_eq!(data.depth, test_depth);
-        assert_eq!(data.best_move, test_best_move);
-        assert_eq!(data.selectivity, test_selectivity);
-        assert_eq!(data.generation, test_generation);
+        assert_eq!(data.key(), (test_key & TTEntry::KEY_MASK) as u32);
+        assert_eq!(data.score(), test_score);
+        assert_eq!(data.bound(), test_bound);
+        assert_eq!(data.depth(), test_depth);
+        assert_eq!(data.best_move(), test_best_move);
+        assert_eq!(data.selectivity(), test_selectivity);
+        assert_eq!(data.generation(), test_generation);
     }
 
     /// Tests boundary values for packed fields.
@@ -722,13 +769,13 @@ mod tests {
         );
 
         let data = entry.unpack();
-        assert_eq!(data.key, max_key as u32);
-        assert_eq!(data.score, max_score);
-        assert_eq!(data.bound, Bound::Lower);
-        assert_eq!(data.depth, max_depth);
-        assert_eq!(data.best_move, max_best_move);
-        assert_eq!(data.selectivity, Selectivity::None);
-        assert_eq!(data.generation, max_generation);
+        assert_eq!(data.key(), (max_key & TTEntry::KEY_MASK) as u32);
+        assert_eq!(data.score(), max_score);
+        assert_eq!(data.bound(), Bound::Lower);
+        assert_eq!(data.depth(), max_depth);
+        assert_eq!(data.best_move(), max_best_move);
+        assert_eq!(data.selectivity(), Selectivity::None);
+        assert_eq!(data.generation(), max_generation);
 
         // Test with minimum negative score
         entry.save(
@@ -743,13 +790,13 @@ mod tests {
         );
 
         let data = entry.unpack();
-        assert_eq!(data.key, 0);
-        assert_eq!(data.score, min_score);
-        assert_eq!(data.bound, Bound::Upper);
-        assert_eq!(data.depth, 0);
-        assert_eq!(data.best_move, Square::None);
-        assert_eq!(data.selectivity, Selectivity::Level0);
-        assert_eq!(data.generation, 0);
+        assert_eq!(data.key(), 0);
+        assert_eq!(data.score(), min_score);
+        assert_eq!(data.bound(), Bound::Upper);
+        assert_eq!(data.depth(), 0);
+        assert_eq!(data.best_move(), Square::None);
+        assert_eq!(data.selectivity(), Selectivity::Level0);
+        assert_eq!(data.generation(), 0);
     }
 
     /// Tests the replacement policy in TTEntry::save.
@@ -769,8 +816,8 @@ mod tests {
             false,
         );
         let data = entry.unpack();
-        assert_eq!(data.depth, 10);
-        assert_eq!(data.generation, 1);
+        assert_eq!(data.depth(), 10);
+        assert_eq!(data.generation(), 1);
 
         // Try to replace with slightly shallower depth (within 2 plies) - should replace
         entry.save(
@@ -784,8 +831,8 @@ mod tests {
             false,
         );
         let data = entry.unpack();
-        assert_eq!(data.depth, 8); // Replacement allowed within 2 plies
-        assert_eq!(data.score, 60); // New value should be stored
+        assert_eq!(data.depth(), 8); // Replacement allowed within 2 plies
+        assert_eq!(data.score(), 60); // New value should be stored
 
         // Replace with deeper depth - should replace
         entry.save(
@@ -799,8 +846,8 @@ mod tests {
             false,
         );
         let data = entry.unpack();
-        assert_eq!(data.depth, 12);
-        assert_eq!(data.score, 70);
+        assert_eq!(data.depth(), 12);
+        assert_eq!(data.score(), 70);
 
         // Replace with exact bound - should always replace
         entry.save(
@@ -814,9 +861,9 @@ mod tests {
             false,
         );
         let data = entry.unpack();
-        assert_eq!(data.depth, 5);
-        assert_eq!(data.score, 80);
-        assert_eq!(data.bound, Bound::Exact);
+        assert_eq!(data.depth(), 5);
+        assert_eq!(data.score(), 80);
+        assert_eq!(data.bound(), Bound::Exact);
 
         // Different key - should replace
         entry.save(
@@ -830,8 +877,8 @@ mod tests {
             false,
         );
         let data = entry.unpack();
-        assert_eq!(data.key, 200);
-        assert_eq!(data.score, 90);
+        assert_eq!(data.key(), 200);
+        assert_eq!(data.score(), 90);
 
         // Newer generation - should replace
         entry.save(
@@ -845,8 +892,8 @@ mod tests {
             false,
         );
         let data = entry.unpack();
-        assert_eq!(data.generation, 5);
-        assert_eq!(data.score, 100);
+        assert_eq!(data.generation(), 5);
+        assert_eq!(data.score(), 100);
     }
 
     /// Tests Bound::determine_bound for different node types.
@@ -863,42 +910,108 @@ mod tests {
         assert_eq!(Bound::determine_bound::<NonPV>(20, 30, 50), Bound::Upper); // score <= alpha in non-PV
     }
 
-    /// Tests TTData methods.
+    /// Tests TTEntryData methods.
     #[test]
-    fn test_ttdata_methods() {
-        let mut data = TTData::default();
+    fn test_ttentry_data_methods() {
+        // Construct a TTEntry to test TTEntryData via unpack
+        let entry = TTEntry::default();
 
         // Test is_occupied
-        assert!(!data.is_occupied());
-        data.bound = Bound::Lower;
-        assert!(data.is_occupied());
-        data.bound = Bound::Upper;
-        assert!(data.is_occupied());
-        data.bound = Bound::Exact;
-        assert!(data.is_occupied());
-        data.bound = Bound::None;
-        assert!(!data.is_occupied());
+        assert!(!entry.unpack().is_occupied());
+
+        entry.save(
+            0,
+            0,
+            Bound::Lower,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            0,
+            false,
+        );
+        assert!(entry.unpack().is_occupied());
+
+        entry.save(
+            0,
+            0,
+            Bound::Upper,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            0,
+            false,
+        );
+        assert!(entry.unpack().is_occupied());
+
+        entry.save(
+            0,
+            0,
+            Bound::Exact,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            0,
+            false,
+        );
+        assert!(entry.unpack().is_occupied());
+
+        // can_cut and relative_age are tested implicitly or can be tested via helper if necessary
+        // Recreating scenarios for can_cut
 
         // Test can_cut
-        data.score = 100;
-        data.bound = Bound::Lower;
-        assert!(data.can_cut(50)); // score >= beta, lower bound
-        assert!(!data.can_cut(150)); // score < beta, lower bound
+        entry.save(
+            0,
+            100,
+            Bound::Lower,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            0,
+            false,
+        );
+        assert!(entry.unpack().can_cut(50)); // score >= beta, lower bound
+        assert!(!entry.unpack().can_cut(150)); // score < beta, lower bound
 
-        data.score = 30;
-        data.bound = Bound::Upper;
-        assert!(data.can_cut(50)); // score < beta, upper bound
-        assert!(!data.can_cut(20)); // score >= beta, upper bound
+        entry.save(
+            0,
+            30,
+            Bound::Upper,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            0,
+            false,
+        );
+        assert!(entry.unpack().can_cut(50)); // score < beta, upper bound
+        assert!(!entry.unpack().can_cut(20)); // score >= beta, upper bound
 
-        data.bound = Bound::Exact;
-        assert!(data.can_cut(50)); // exact bound matches both
-        assert!(data.can_cut(20));
+        entry.save(
+            0,
+            30,
+            Bound::Exact,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            0,
+            false,
+        );
+        assert!(entry.unpack().can_cut(50)); // exact bound matches both
+        assert!(entry.unpack().can_cut(20));
 
         // Test relative_age
-        data.generation = 5;
-        assert_eq!(data.relative_age(8), 3);
-        assert_eq!(data.relative_age(5), 0);
-        assert_eq!(data.relative_age(3), -2);
+        entry.save(
+            0,
+            0,
+            Bound::Exact,
+            0,
+            Square::None,
+            Selectivity::Level0,
+            5,
+            false,
+        );
+        assert_eq!(entry.unpack().relative_age(8), 3);
+        assert_eq!(entry.unpack().relative_age(5), 0);
+        assert_eq!(entry.unpack().relative_age(3), -2);
     }
 
     /// Tests TranspositionTable creation with different sizes.
@@ -924,10 +1037,10 @@ mod tests {
         let generation = 1;
 
         // First probe should return not found
-        let (found, _, idx) = tt.probe(key, generation);
-        assert!(!found);
+        assert!(!tt.probe(key, generation).is_hit());
 
         // Store an entry
+        let idx = tt.probe(key, generation).index();
         tt.store(
             idx,
             key,
@@ -941,29 +1054,32 @@ mod tests {
         );
 
         // Second probe should find the entry
-        let (found, data, _) = tt.probe(key, generation);
-        assert!(found);
-        assert_eq!(data.key, (key & TTEntry::KEY_MASK) as u32);
-        assert_eq!(data.score, 100);
-        assert_eq!(data.bound, Bound::Exact);
-        assert_eq!(data.depth, 20);
-        assert_eq!(data.best_move, sq(10));
-        assert_eq!(data.selectivity, Selectivity::Level3);
-        assert_eq!(data.generation, generation);
+        let result = tt.probe(key, generation);
+        assert!(result.is_hit());
+        let d = result.data().unwrap();
+        assert_eq!(d.key(), (key & TTEntry::KEY_MASK) as u32);
+        assert_eq!(d.score(), 100);
+        assert_eq!(d.bound(), Bound::Exact);
+        assert_eq!(d.depth(), 20);
+        assert_eq!(d.best_move(), sq(10));
+        assert_eq!(d.selectivity(), Selectivity::Level3);
+        assert_eq!(d.generation(), generation);
     }
 
-    /// Tests cluster replacement when full.
+    /// Tests collision handling and replacement strategies.
     #[test]
     fn test_cluster_replacement() {
         let tt = TranspositionTable::new(1);
         let target_cluster = tt.get_cluster_idx(0);
+
+        // Generate keys that map to the same cluster
         let keys = cluster_keys(&tt, target_cluster, CLUSTER_SIZE + 1);
 
+        // Fill the cluster
         for (i, key) in keys.iter().take(CLUSTER_SIZE).enumerate() {
-            let entry_idx = target_cluster + i;
-            let depth = (CLUSTER_SIZE - i) as Depth;
+            let depth: Depth = i as Depth * 10;
             tt.store(
-                entry_idx,
+                target_cluster + i,
                 *key,
                 i as Score * 10,
                 Bound::Lower,
@@ -976,9 +1092,10 @@ mod tests {
         }
 
         let new_key = keys[CLUSTER_SIZE];
-        let (found, _, replace_idx) = tt.probe(new_key, 1);
-        assert!(!found);
-        assert_eq!(replace_idx, target_cluster + (CLUSTER_SIZE - 1));
+        let result = tt.probe(new_key, 1);
+        assert!(!result.is_hit());
+        let replace_idx = result.index();
+        assert_eq!(replace_idx, target_cluster);
 
         tt.store(
             replace_idx,
@@ -992,9 +1109,9 @@ mod tests {
             false,
         );
 
-        let (found, data, _) = tt.probe(new_key, 1);
-        assert!(found);
-        assert_eq!(data.score, 999);
+        let result = tt.probe(new_key, 1);
+        assert!(result.is_hit());
+        assert_eq!(result.data().unwrap().score(), 999);
     }
 
     /// Tests generation-based aging in replacement.
@@ -1020,8 +1137,9 @@ mod tests {
         }
 
         let new_key = keys[CLUSTER_SIZE];
-        let (found, _, replace_idx) = tt.probe(new_key, 10);
-        assert!(!found);
+        let result = tt.probe(new_key, 10);
+        assert!(!result.is_hit());
+        let replace_idx = result.index();
         assert_eq!(replace_idx, target_cluster + (CLUSTER_SIZE - 1));
 
         tt.store(
@@ -1036,9 +1154,9 @@ mod tests {
             false,
         );
 
-        let (found, data, _) = tt.probe(new_key, 10);
-        assert!(found);
-        assert_eq!(data.generation, 10);
+        let result = tt.probe(new_key, 10);
+        assert!(result.is_hit());
+        assert_eq!(result.data().unwrap().generation(), 10);
     }
 
     /// Tests the clear function.
@@ -1062,8 +1180,7 @@ mod tests {
         }
 
         // Verify entries exist
-        let (found, _, _) = tt.probe(0, 1);
-        assert!(found);
+        assert!(tt.probe(0, 1).is_hit());
 
         // Clear the table
         tt.clear();
@@ -1071,8 +1188,7 @@ mod tests {
         // Verify entries are gone
         for i in 0..10 {
             let key = i * 0x1000000000000000;
-            let (found, _, _) = tt.probe(key, 1);
-            assert!(!found);
+            assert!(!tt.probe(key, 1).is_hit());
         }
     }
 }

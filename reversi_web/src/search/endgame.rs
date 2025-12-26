@@ -53,8 +53,6 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         return score;
     }
 
-    let tt_key = board.hash();
-
     let mut move_list = MoveList::new(board);
     if move_list.wipeout_move.is_some() {
         return SCORE_MAX;
@@ -68,19 +66,16 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 
     // transposition table lookup
-    let (tt_hit, tt_data, tt_entry_index) = ctx.tt.probe(tt_key, ctx.generation);
-    let tt_move = if tt_hit {
-        tt_data.best_move
-    } else {
-        Square::None
-    };
+    let tt_key = board.hash();
+    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_move = tt_probe_result.best_move();
 
-    if tt_hit
-        && tt_data.depth >= n_empties
-        && tt_data.selectivity >= ctx.selectivity
+    if let Some(tt_data) = tt_probe_result.data()
+        && tt_data.depth() >= n_empties
+        && tt_data.selectivity() >= ctx.selectivity
         && tt_data.can_cut(scale_score(beta))
     {
-        return unscale_score(tt_data.score);
+        return unscale_score(tt_data.score());
     }
 
     let mut best_score = -SCORE_INF;
@@ -121,7 +116,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 
     ctx.tt.store(
-        tt_entry_index,
+        tt_probe_result.index(),
         tt_key,
         scale_score(best_score),
         Bound::determine_bound::<NonPV>(best_score, alpha, beta),
