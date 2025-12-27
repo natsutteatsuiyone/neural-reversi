@@ -28,16 +28,16 @@ use crate::util::spinlock;
 /// Maximum number of split points that a single thread can have active at once.
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 
-/// Maximum number of slave threads that can join a single split point.
-const MAX_SLAVES_PER_SPLITPOINT: u32 = 5;
+/// Maximum number of helper threads that can join a single split point.
+const MAX_HELPERS_PER_SPLITPOINT: u32 = 5;
 
 /// Interval between checks for abort flag in milliseconds.
 const CHECK_INTERVAL_MS: u64 = 1;
 
 /// State information for a split point in the parallel search.
 pub struct SplitPointState {
-    /// Flag indicating if all slave threads are actively searching.
-    all_slaves_searching: AtomicBool,
+    /// Flag indicating if all helper threads are actively searching.
+    all_helpers_searching: AtomicBool,
 
     /// Alpha bound for the alpha-beta search at this node.
     alpha: AtomicI32,
@@ -60,11 +60,11 @@ pub struct SplitPointState {
     /// Flag indicating if a beta cutoff has occurred.
     cutoff: AtomicBool,
 
-    /// Index of the master thread that created this split point.
-    master_thread_idx: usize,
+    /// Index of the owner thread that created this split point.
+    owner_thread_idx: usize,
 
     /// Bitmask tracking which threads are working on this split point.
-    slaves_mask: AtomicBitSet,
+    helpers_mask: AtomicBitSet,
 
     /// Search depth remaining from this position.
     depth: Depth,
@@ -75,7 +75,7 @@ pub struct SplitPointState {
     /// Task data containing the position and search context.
     pub task: Option<SplitPointTask>,
 
-    /// Parent split point in the tree hierarchy (for helpful master).
+    /// Parent split point in the tree hierarchy.
     parent_split_point: Option<Arc<SplitPoint>>,
 }
 
@@ -92,16 +92,16 @@ impl SplitPointState {
         self.alpha.store(value, Ordering::Relaxed);
     }
 
-    /// Gets the all_slaves_searching flag.
+    /// Gets the all_helpers_searching flag.
     #[inline]
-    pub fn all_slaves_searching(&self) -> bool {
-        self.all_slaves_searching.load(Ordering::Relaxed)
+    pub fn all_helpers_searching(&self) -> bool {
+        self.all_helpers_searching.load(Ordering::Relaxed)
     }
 
-    /// Sets the all_slaves_searching flag.
+    /// Sets the all_helpers_searching flag.
     #[inline]
-    pub fn set_all_slaves_searching(&self, value: bool) {
-        self.all_slaves_searching.store(value, Ordering::Relaxed);
+    pub fn set_all_helpers_searching(&self, value: bool) {
+        self.all_helpers_searching.store(value, Ordering::Relaxed);
     }
 
     /// Gets the cutoff flag.
@@ -200,7 +200,7 @@ impl Default for SplitPoint {
         SplitPoint {
             mutex: spinlock::RawSpinLock::INIT,
             state: UnsafeCell::new(SplitPointState {
-                all_slaves_searching: AtomicBool::new(false),
+                all_helpers_searching: AtomicBool::new(false),
                 alpha: AtomicI32::new(0),
                 beta: 0,
                 best_score: AtomicI32::new(0),
@@ -208,8 +208,8 @@ impl Default for SplitPoint {
                 move_iter: None,
                 node_type: 0,
                 cutoff: AtomicBool::new(false),
-                master_thread_idx: 0,
-                slaves_mask: AtomicBitSet::new(),
+                owner_thread_idx: 0,
+                helpers_mask: AtomicBitSet::new(),
                 depth: 0,
                 n_nodes: AtomicU64::new(0),
                 task: None,
@@ -254,7 +254,7 @@ pub struct ThreadState {
     /// Number of split points in the split_points array.
     pub split_points_size: usize,
 
-    /// Stack of split points created by this thread (for helpful master).
+    /// Stack of split points created by this thread.
     split_points: [Arc<SplitPoint>; MAX_SPLITPOINTS_PER_THREAD],
 }
 
@@ -343,8 +343,8 @@ impl Thread {
     /// 2. The thread hasn't reached its split point limit
     /// 3. Either:
     ///    - The thread has no active split point, OR
-    ///    - Not all slaves are searching (room for more), OR
-    ///    - We can steal slaves from the current split point
+    ///    - Not all helpers are searching (room for more), OR
+    ///    - We can steal helpers from the current split point
     ///
     /// # Returns
     ///
@@ -359,9 +359,9 @@ impl Thread {
 
         let cond = if let Some(sp) = &th_state.active_split_point {
             let sp_state = sp.state();
-            !sp_state.all_slaves_searching()
-                || thread_pool_size > MAX_SLAVES_PER_SPLITPOINT
-                    && sp_state.slaves_mask.count() == MAX_SLAVES_PER_SPLITPOINT
+            !sp_state.all_helpers_searching()
+                || thread_pool_size > MAX_HELPERS_PER_SPLITPOINT
+                    && sp_state.helpers_mask.count() == MAX_HELPERS_PER_SPLITPOINT
         } else {
             true
         };
@@ -409,8 +409,8 @@ impl Thread {
     ///
     /// A thread can join a split point if:
     /// 1. The thread is not currently searching (is idle)
-    /// 2. For the "helpful master" concept: if the thread is a master of other
-    ///    split points, it can only join split points created by its slaves
+    /// 2. For the "helpful owner" concept: if the thread is an owner of other
+    ///    split points, it can only join split points created by its helpers
     ///
     /// # Arguments
     ///
@@ -429,15 +429,15 @@ impl Thread {
         let th_state = self.state();
         let size = th_state.split_points_size;
 
-        // No split points means that the thread is available as a slave for any
-        // other thread otherwise apply the "helpful master" concept if possible.
+        // No split points means that the thread is available as a helper for any
+        // other thread otherwise apply the "helpful owner" concept if possible.
         if size == 0 {
             return true;
         }
 
         let sp_state = th_state.split_points[size - 1].state();
-        let master_idx = sp.state().master_thread_idx;
-        sp_state.slaves_mask.test(master_idx)
+        let owner_idx = sp.state().owner_thread_idx;
+        sp_state.helpers_mask.test(owner_idx)
     }
 
     /// Create a split point and distribute work among available threads.
@@ -448,7 +448,7 @@ impl Thread {
     ///
     /// 1. Creates a new split point with the current search parameters
     /// 2. Finds idle threads and assigns them to help search
-    /// 3. The calling thread also participates in the search (helpful master)
+    /// 3. The calling thread also participates in the search (helpful owner)
     /// 4. Waits for all threads to complete their work
     /// 5. Returns the best move and score found
     ///
@@ -489,7 +489,7 @@ impl Thread {
             sp, ctx, depth, best_score, best_move, alpha, beta, node_type, move_iter, board,
         );
 
-        // Enter idle loop as master thread - will return when all slaves finish
+        // Enter idle loop as owner thread - will return when all helpers finish
         self.idle_loop();
 
         // Clean up the split point
@@ -527,11 +527,11 @@ impl Thread {
         sp.lock();
         // No contention here until we don't increment splitPointsSize
         let sp_state = sp.state_mut();
-        sp_state.master_thread_idx = self.idx;
+        sp_state.owner_thread_idx = self.idx;
         sp_state.parent_split_point = th_state.active_split_point.clone();
         // Initialize split point state
-        sp_state.slaves_mask.clear();
-        sp_state.slaves_mask.set(self.idx);
+        sp_state.helpers_mask.clear();
+        sp_state.helpers_mask.set(self.idx);
         sp_state.depth = depth;
         sp_state.set_best_score(best_score);
         sp_state.set_best_move(best_move);
@@ -552,17 +552,20 @@ impl Thread {
         });
         sp_state.n_nodes.store(0, Ordering::Relaxed);
         sp_state.set_cutoff(false);
-        sp_state.set_all_slaves_searching(true); // Must be set under lock protection
+        sp_state.set_all_helpers_searching(true); // Must be set under lock protection
 
         th_state.split_points_size += 1;
         th_state.active_split_point = Some(sp.clone());
 
         // Try to allocate available threads
-        self.pool.upgrade().unwrap().assign_task_to_slaves(sp);
+        self.pool
+            .upgrade()
+            .unwrap()
+            .assign_helpers_to_split_point(sp);
 
-        // Everything is set up. The master thread enters the idle loop, from which
+        // Everything is set up. The owner thread enters the idle loop, from which
         // it will instantly launch a search, because its 'searching' flag is set.
-        // The thread will return from the idle loop when all slaves have finished
+        // The thread will return from the idle loop when all helpers have finished
         // their work at this split point.
         sp.unlock();
     }
@@ -576,9 +579,9 @@ impl Thread {
     fn finalize_split_point(&self, sp: &Arc<SplitPoint>) {
         debug_assert!(!self.searching.load(Ordering::Acquire));
 
-        // In the helpful master concept, a master can help only a sub-tree of its
+        // In the helpful owner concept, an owner can help only a sub-tree of its
         // split point and because everything is finished here, it's not possible
-        // for the master to be booked.
+        // for the owner to be booked.
         self.lock();
 
         // We have returned from the idle loop, which means that all threads are
@@ -599,21 +602,21 @@ impl Thread {
     ///
     /// This method implements the core logic for thread synchronization:
     ///
-    /// 1. **Master Mode**: If called from split(), acts as the master thread
-    ///    and waits for all slaves to finish before returning
+    /// 1. **Owner Mode**: If called from split(), acts as the owner thread
+    ///    and waits for all helpers to finish before returning
     ///
-    /// 2. **Slave Mode**: If called at thread creation, waits for work assignments
+    /// 2. **Helper Mode**: If called at thread creation, waits for work assignments
     ///    and executes search tasks when assigned to split points
     fn idle_loop(self: &Arc<Self>) {
         // Pointer 'this_sp' is not null only if we are called from split(), and not
-        // at the thread creation. This means we are the split point's master.
+        // at the thread creation. This means we are the split point's owner.
         let this_sp = self.state().active_split_point.clone();
 
         // Main loop - continues until thread exit is signaled
         while !self.exit.load(Ordering::Acquire) {
-            // Check if we're the master of a split point and all slaves have finished
+            // Check if we're the owner of a split point and all helpers have finished
             if let Some(ref sp) = this_sp
-                && sp.state().slaves_mask.none()
+                && sp.state().helpers_mask.none()
             {
                 break;
             }
@@ -642,13 +645,13 @@ impl Thread {
 
                 // Update split point state
                 let sp_state = sp.state_mut();
-                sp_state.slaves_mask.reset(self.idx);
-                sp_state.set_all_slaves_searching(false);
+                sp_state.helpers_mask.reset(self.idx);
+                sp_state.set_all_helpers_searching(false);
                 sp_state.add_nodes(ctx.n_nodes);
 
                 // After releasing the lock we can't access any SplitPoint related data
                 // in a safe way because it could have been released under our feet by
-                // the sp master.
+                // the sp owner.
                 sp.unlock();
 
                 self.try_late_join();
@@ -667,7 +670,7 @@ impl Thread {
                     })
                     .unwrap();
             } else {
-                // Wait for a new job or for our slaves to finish
+                // Wait for a new job or for our helpers to finish
                 std::thread::yield_now();
             }
         }
@@ -778,9 +781,9 @@ impl Thread {
     /// by joining their split points. This method finds the best available
     /// split point to join based on:
     ///
-    /// 1. The split point must have room for more slaves
-    /// 2. All current slaves must still be searching
-    /// 3. The thread must be able to join (helpful master rules)
+    /// 1. The split point must have room for more helpers
+    /// 2. All current helpers must still be searching
+    /// 3. The thread must be able to join (helpful owner rules)
     /// 4. Prefer split points higher in the tree (lower level)
     fn try_late_join(&self) {
         let mut best_sp = None;
@@ -794,8 +797,8 @@ impl Thread {
 
             let sp = &th.state().split_points[size - 1];
             let sp_state = sp.state();
-            if sp_state.all_slaves_searching()
-                && sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT
+            if sp_state.all_helpers_searching()
+                && sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT
                 && self.can_join(sp)
             {
                 let mut level = 0;
@@ -817,13 +820,13 @@ impl Thread {
             sp.lock();
 
             let sp_state = sp.state_mut();
-            if sp_state.all_slaves_searching()
-                && sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT
+            if sp_state.all_helpers_searching()
+                && sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT
             {
                 self.lock();
 
                 if self.can_join(sp) {
-                    sp_state.slaves_mask.set(self.idx);
+                    sp_state.helpers_mask.set(self.idx);
                     let th_state = self.state_mut();
                     th_state.active_split_point = Some(sp.clone());
                     self.searching.store(true, Ordering::Release);
@@ -1004,19 +1007,19 @@ impl ThreadPool {
     /// # Arguments
     ///
     /// * `sp` - The split point that needs workers
-    fn assign_task_to_slaves(&self, sp: &Arc<SplitPoint>) {
+    fn assign_helpers_to_split_point(&self, sp: &Arc<SplitPoint>) {
         let sp_state = sp.state_mut();
-        while sp_state.slaves_mask.count() < MAX_SLAVES_PER_SPLITPOINT {
-            if let Some(slave) = self.find_available_thread(sp) {
-                slave.lock();
+        while sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT {
+            if let Some(helper) = self.find_available_thread(sp) {
+                helper.lock();
 
-                if slave.can_join(sp) {
-                    sp_state.slaves_mask.set(slave.idx);
-                    let slave_state = slave.state_mut();
-                    slave_state.active_split_point = Some(sp.clone());
-                    slave.searching.store(true, Ordering::Release);
+                if helper.can_join(sp) {
+                    sp_state.helpers_mask.set(helper.idx);
+                    let helper_state = helper.state_mut();
+                    helper_state.active_split_point = Some(sp.clone());
+                    helper.searching.store(true, Ordering::Release);
                 }
-                slave.unlock();
+                helper.unlock();
             } else {
                 break;
             }
