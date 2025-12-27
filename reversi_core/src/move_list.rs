@@ -24,15 +24,6 @@ const WIPEOUT_VALUE: i32 = 1 << 30;
 /// Value assigned to moves suggested by the transposition table.
 const TT_MOVE_VALUE: i32 = 1 << 20;
 
-/// Weight factor for potential mobility evaluation.
-pub const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
-
-/// Weight factor for mobility evaluation.
-pub const MOBILITY_WEIGHT: i32 = 1 << 14;
-
-/// Weight factor for corner stability evaluation.
-pub const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
-
 /// Value assigned to moves that have already been searched in root node.
 const SEARCHED_MOVE_VALUE: i32 = -(1 << 20);
 
@@ -335,6 +326,24 @@ impl MoveList {
     /// * `board` - Current board position
     /// * `tt_move` - Move suggested by transposition table (if any)
     pub fn evaluate_moves_fast(&mut self, ctx: &mut SearchContext, board: &Board, tt_move: Square) {
+        /// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c#L30
+        #[rustfmt::skip]
+        const SQUARE_VALUE: [i32; 64] = [
+            18,  4, 16, 12, 12, 16,  4, 18,
+             4,  2,  6,  8,  8,  6,  2,  4,
+            16,  6, 14, 10, 10, 14,  6, 16,
+            12,  8, 10,  0,  0, 10,  8, 12,
+            12,  8, 10,  0,  0, 10,  8, 12,
+            16,  6, 14, 10, 10, 14,  6, 16,
+             4,  2,  6,  8,  8,  6,  2,  4,
+            18,  4, 16, 12, 12, 16,  4, 18,
+        ];
+
+        const SQAURE_VALUE_WEIGHT: i32 = 1 << 8;
+        const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
+        const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
+        const MOBILITY_WEIGHT: i32 = 1 << 14;
+
         for mv in self.iter_mut() {
             mv.value = if mv.flipped == board.opponent {
                 // Wipeout move (capture all opponent pieces)
@@ -349,7 +358,8 @@ impl MoveList {
                 let potential_mobility = corner_weighted_count(potential) as i32;
                 let corner_stability = get_corner_stability(next.opponent) as i32;
                 let weighted_mobility = corner_weighted_count(moves) as i32;
-                let mut value = corner_stability * CORNER_STABILITY_WEIGHT;
+                let mut value = SQUARE_VALUE[mv.sq.index()] * SQAURE_VALUE_WEIGHT;
+                value += corner_stability * CORNER_STABILITY_WEIGHT;
                 value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
                 value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
                 value
