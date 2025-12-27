@@ -44,9 +44,6 @@ const SELECTIVITY_SEQUENCE: [Selectivity; 6] = [
     Selectivity::None,
 ];
 
-/// Depth threshold for switching to specialized shallow search.
-const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
-
 /// Minimum depth required for parallel search splitting.
 const MIN_SPLIT_DEPTH: Depth = 7;
 
@@ -57,7 +54,10 @@ const MIN_ETC_DEPTH: Depth = 6;
 pub const DEPTH_TO_NWS: Depth = 14;
 
 /// Depth threshold for endgame cache null window search.
-const EC_NWS_DEPTH: Depth = 11;
+const DEPTH_TO_NWS_EC: Depth = 11;
+
+/// Depth threshold for switching to specialized shallow search.
+const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
 
 thread_local! {
     static ENDGAME_CACHE: UnsafeCell<EndGameCache> =
@@ -566,7 +566,7 @@ pub fn search_sp<NT: NodeType>(
 fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
 
-    if n_empties > EC_NWS_DEPTH {
+    if n_empties > DEPTH_TO_NWS_EC {
         return null_window_search_with_tt(ctx, board, alpha);
     }
 
@@ -669,7 +669,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-            let score = if (ctx.empty_list.count - 1) <= EC_NWS_DEPTH {
+            let score = if (ctx.empty_list.count - 1) <= DEPTH_TO_NWS_EC {
                 ctx.update_endgame(mv.sq);
                 let score = -null_window_search_with_ec(ctx, &next, -beta);
                 ctx.undo_endgame(mv.sq);
@@ -695,7 +695,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-            let score = if (ctx.empty_list.count - 1) <= EC_NWS_DEPTH {
+            let score = if (ctx.empty_list.count - 1) <= DEPTH_TO_NWS_EC {
                 ctx.update_endgame(mv.sq);
                 let score = -null_window_search_with_ec(ctx, &next, -beta);
                 ctx.undo_endgame(mv.sq);
@@ -719,7 +719,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         // only one move available
         let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        best_score = if (ctx.empty_list.count - 1) <= EC_NWS_DEPTH {
+        best_score = if (ctx.empty_list.count - 1) <= DEPTH_TO_NWS_EC {
             ctx.update_endgame(mv.sq);
             let score = -null_window_search_with_ec(ctx, &next, -beta);
             ctx.undo_endgame(mv.sq);
