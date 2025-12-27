@@ -9,7 +9,6 @@ pub use reversi_core::move_list::MoveList;
 use reversi_core::{
     bitboard::{corner_weighted_count, get_corner_stability},
     board::Board,
-    move_list::{CORNER_STABILITY_WEIGHT, MOBILITY_WEIGHT, POTENTIAL_MOBILITY_WEIGHT},
     square::Square,
 };
 
@@ -73,6 +72,10 @@ pub fn evaluate_moves_fast(
     board: &Board,
     tt_move: Square,
 ) {
+    const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
+    const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
+    const MOBILITY_WEIGHT: i32 = 1 << 14;
+
     for mv in move_list.iter_mut() {
         mv.value = if mv.flipped == board.opponent {
             // Wipeout move (capture all opponent pieces)
