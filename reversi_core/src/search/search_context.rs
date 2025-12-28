@@ -364,6 +364,16 @@ impl SearchContext {
         self.stack[self.ply()].pv.fill(Square::None);
     }
 
+    /// Gets the principal variation at the current ply.
+    pub fn get_pv(&self) -> &[Square; MAX_PLY] {
+        &self.stack[self.ply()].pv
+    }
+
+    /// Sets the principal variation at the current ply.
+    pub fn set_pv(&mut self, pv: &[Square; MAX_PLY]) {
+        self.stack[self.ply()].pv.copy_from_slice(pv);
+    }
+
     /// The callback is invoked periodically during search to report progress
     /// to the UI, including current depth, best move, and evaluation.
     ///

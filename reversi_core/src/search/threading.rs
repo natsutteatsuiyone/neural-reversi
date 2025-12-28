@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use lock_api::RawMutex;
 
 use crate::board::Board;
+use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::move_list::ConcurrentMoveIterator;
@@ -77,6 +78,9 @@ pub struct SplitPointState {
 
     /// Parent split point in the tree hierarchy.
     parent_split_point: Option<Arc<SplitPoint>>,
+
+    /// Principal variation line from the best move found at this split point.
+    pv: [Square; MAX_PLY],
 }
 
 impl SplitPointState {
@@ -151,6 +155,18 @@ impl SplitPointState {
     pub fn add_nodes(&self, count: u64) {
         self.n_nodes.fetch_add(count, Ordering::Relaxed);
     }
+
+    /// Copies PV from source to the split point's internal PV storage.
+    #[inline]
+    pub fn copy_pv(&mut self, src: &[Square; MAX_PLY]) {
+        self.pv.copy_from_slice(src);
+    }
+
+    /// Gets a reference to the internal PV.
+    #[inline]
+    pub fn pv(&self) -> &[Square; MAX_PLY] {
+        &self.pv
+    }
 }
 
 /// Task data for a split point containing all information needed for search.
@@ -214,6 +230,7 @@ impl Default for SplitPoint {
                 n_nodes: AtomicU64::new(0),
                 task: None,
                 parent_split_point: None,
+                pv: [Square::None; MAX_PLY],
             }),
         }
     }
@@ -470,7 +487,7 @@ impl Thread {
     #[allow(clippy::too_many_arguments)]
     pub fn split(
         self: &Arc<Self>,
-        ctx: &SearchContext,
+        ctx: &mut SearchContext,
         board: &Board,
         alpha: Score,
         beta: Score,
@@ -497,6 +514,10 @@ impl Thread {
 
         // Extract results - split point data is now immutable
         let sp_state = sp.state();
+
+        // Copy PV from split point back to coordinator's stack
+        ctx.set_pv(sp_state.pv());
+
         (
             sp_state.best_score(),
             sp_state.best_move(),
@@ -553,6 +574,7 @@ impl Thread {
         sp_state.n_nodes.store(0, Ordering::Relaxed);
         sp_state.set_cutoff(false);
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
+        sp_state.copy_pv(ctx.get_pv()); // Initialize PV from coordinator's current PV
 
         th_state.split_points_size += 1;
         th_state.active_split_point = Some(sp.clone());

@@ -535,6 +535,7 @@ pub fn search_sp<NT: NodeType>(
 
                 if NT::PV_NODE && !NT::ROOT_NODE {
                     ctx.update_pv(mv.sq);
+                    split_point.state_mut().copy_pv(ctx.get_pv());
                 }
 
                 if NT::PV_NODE && score < beta {
