@@ -53,12 +53,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let time_manager = task.time_manager.clone();
     let use_time_control = time_manager.is_some();
 
-    let mut ctx = SearchContext::new(
-        &board,
-        task.selectivity,
-        task.tt.clone(),
-        task.eval.clone(),
-    );
+    let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
     ctx.game_phase = GamePhase::MidGame;
 
     let n_empties = ctx.empty_list.count;
@@ -100,19 +95,16 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             ctx.set_pv_idx(pv_idx);
 
             // Set up aspiration window based on previous score at this PV index
-            let (mut alpha, mut beta) = if depth >= 5 {
-                if let Some(rm) = ctx.get_current_pv_root_move() {
-                    let delta = ASPIRATION_DELTA;
+            let (mut alpha, mut beta) = ctx
+                .get_current_pv_root_move()
+                .filter(|_| depth >= 5)
+                .map(|rm| {
                     (
-                        (rm.previous_score - delta).max(-SCORE_INF),
-                        (rm.previous_score + delta).min(SCORE_INF),
+                        (rm.previous_score - ASPIRATION_DELTA).max(-SCORE_INF),
+                        (rm.previous_score + ASPIRATION_DELTA).min(SCORE_INF),
                     )
-                } else {
-                    (-SCORE_INF, SCORE_INF)
-                }
-            } else {
-                (-SCORE_INF, SCORE_INF)
-            };
+                })
+                .unwrap_or((-SCORE_INF, SCORE_INF));
 
             let score = aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
 
@@ -125,7 +117,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(rm) = ctx.get_current_pv_root_move() {
-                ctx.notify_progress(depth, unscale_score_f32(score), rm.sq, ctx.selectivity, ctx.n_nodes, rm.pv.clone());
+                ctx.notify_progress(
+                    depth,
+                    unscale_score_f32(score),
+                    rm.sq,
+                    ctx.selectivity,
+                    ctx.n_nodes,
+                    rm.pv.clone(),
+                );
             }
         }
 

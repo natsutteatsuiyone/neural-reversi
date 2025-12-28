@@ -128,13 +128,11 @@ impl Search {
         // In Time mode, automatically extend endgame search depth once endgame phase is reached
         let is_time_mode = time_manager.is_some();
         let n_empties = board.get_empty_count();
-        if is_time_mode {
-            if let Some(endgame_start_n_empties) = self.endgame_start_n_empties {
-                if n_empties > endgame_start_n_empties {
-                    self.endgame_start_n_empties = None;
-                } else {
-                    effective_level.end_depth = [60; 7];
-                }
+        if is_time_mode && let Some(endgame_start_n_empties) = self.endgame_start_n_empties {
+            if n_empties > endgame_start_n_empties {
+                self.endgame_start_n_empties = None;
+            } else {
+                effective_level.end_depth = [60; 7];
             }
         }
 

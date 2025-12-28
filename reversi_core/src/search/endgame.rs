@@ -84,12 +84,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let time_manager = task.time_manager.clone();
     let use_time_control = time_manager.is_some();
 
-    let mut ctx = SearchContext::new(
-        &board,
-        task.selectivity,
-        task.tt.clone(),
-        task.eval.clone(),
-    );
+    let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
 
     // Enable endgame mode for time management
     if let Some(ref tm) = time_manager {
@@ -156,7 +151,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(rm) = ctx.get_current_pv_root_move() {
-                ctx.notify_progress(n_empties, score as Scoref, rm.sq, ctx.selectivity, ctx.n_nodes, rm.pv.clone());
+                ctx.notify_progress(
+                    n_empties,
+                    score as Scoref,
+                    rm.sq,
+                    ctx.selectivity,
+                    ctx.n_nodes,
+                    rm.pv.clone(),
+                );
             }
 
             // Check time control
