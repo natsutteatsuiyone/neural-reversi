@@ -55,7 +55,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     let mut ctx = SearchContext::new(
         &board,
-        task.generation,
         task.selectivity,
         task.tt.clone(),
         task.eval.clone(),
@@ -348,7 +347,7 @@ pub fn search<NT: NodeType>(
     }
 
     // Look up position in transposition table
-    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if !NT::PV_NODE {
@@ -474,7 +473,6 @@ pub fn search<NT: NodeType>(
         depth,
         best_move,
         ctx.selectivity,
-        ctx.generation,
         false, // midgame search
     );
 

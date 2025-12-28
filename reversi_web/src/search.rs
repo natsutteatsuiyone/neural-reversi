@@ -36,7 +36,6 @@ pub const MIN_ETC_DEPTH: Depth = 6;
 
 /// Single-threaded search implementation intended for the web target.
 pub struct Search {
-    generation: u8,
     tt: Rc<TranspositionTable>,
     eval: Rc<Eval>,
 }
@@ -48,11 +47,7 @@ impl Search {
         probcut::init();
         stability::init();
 
-        Search {
-            generation: 0,
-            tt,
-            eval,
-        }
+        Search { tt, eval }
     }
 
     pub fn run(
@@ -62,11 +57,10 @@ impl Search {
         selectivity: Selectivity,
         progress_callback: Option<Function>,
     ) -> SearchResult {
-        self.generation = self.generation.wrapping_add(1);
+        self.tt.increment_generation();
         let task = SearchTask {
             board: *board,
             level,
-            generation: self.generation,
             selectivity,
             tt: Rc::clone(&self.tt),
             eval: Rc::clone(&self.eval),
@@ -77,7 +71,7 @@ impl Search {
 
     #[allow(dead_code)]
     pub fn init(&mut self) {
-        self.generation = 0;
+        self.tt.reset_generation();
         self.tt.clear();
     }
 }
@@ -96,7 +90,6 @@ pub fn search_root(task: SearchTask) -> SearchResult {
     let level = task.level;
     let mut ctx = SearchContext::new(
         &board,
-        task.generation,
         task.selectivity,
         task.tt.clone(),
         task.eval.clone(),
@@ -267,7 +260,7 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empt
     let midgame_depth = n_empties / 2;
 
     let hash_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(hash_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(hash_key);
 
     if let Some(tt_data) = tt_probe_result.data()
         && tt_data.bound() == Bound::Exact
@@ -375,7 +368,7 @@ pub fn search<NT: NodeType>(
 
     // Look up position in transposition table
     let tt_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if !NT::PV_NODE {
@@ -467,7 +460,6 @@ pub fn search<NT: NodeType>(
         depth,
         best_move,
         ctx.selectivity,
-        ctx.generation,
         n_empties == depth,
     );
 
@@ -648,7 +640,7 @@ fn enhanced_transposition_cutoff(
         ctx.increment_nodes();
 
         let etc_tt_key = next.hash();
-        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key, ctx.generation);
+        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key);
         if let Some(etc_tt_data) = etc_tt_probe_result.data()
             && etc_tt_data.depth() >= etc_depth
             && etc_tt_data.selectivity() >= ctx.selectivity
@@ -665,7 +657,6 @@ fn enhanced_transposition_cutoff(
                     depth,
                     mv.sq,
                     ctx.selectivity,
-                    ctx.generation,
                     ctx.empty_list.count == depth,
                 );
                 return Some(score);

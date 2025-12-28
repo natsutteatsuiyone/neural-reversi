@@ -21,8 +21,6 @@ pub struct SearchContext {
     pub n_nodes: u64,
     /// Current side to move
     pub side_to_move: SideToMove,
-    /// Transposition table generation counter for aging entries
-    pub generation: u8,
     /// Selectivity level
     pub selectivity: Selectivity,
     /// List of empty squares on the board, optimized for quick access
@@ -46,7 +44,6 @@ impl SearchContext {
     ///
     /// # Arguments
     /// * `board` - The current board position
-    /// * `generation` - Transposition table generation for aging
     /// * `selectivity` - Selectivity level
     /// * `tt` - Transposition table
     /// * `eval` - Neural network evaluator
@@ -56,7 +53,6 @@ impl SearchContext {
     /// A new SearchContext ready for search operations
     pub fn new(
         board: &Board,
-        generation: u8,
         selectivity: Selectivity,
         tt: Rc<TranspositionTable>,
         eval: Rc<Eval>,
@@ -68,7 +64,6 @@ impl SearchContext {
         SearchContext {
             n_nodes: 0,
             side_to_move: SideToMove::Player,
-            generation,
             selectivity,
             empty_list,
             tt,

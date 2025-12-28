@@ -445,7 +445,6 @@ impl BenchmarkRunner {
                     // Create a temporary SearchContext for evaluation
                     let ctx = SearchContext::new(
                         board,
-                        0,
                         MIDGAME_SELECTIVITY,
                         Rc::clone(&tt),
                         Rc::clone(&eval),

@@ -5,7 +5,7 @@ use aligned_vec::{AVec, ConstAlign};
 use cfg_if::cfg_if;
 use std::{
     mem,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU8, AtomicU64, Ordering},
 };
 
 /// Size of each cluster in the transposition table.
@@ -396,6 +396,8 @@ pub struct TranspositionTable {
     entries: AVec<TTEntry, ConstAlign<32>>,
     /// Number of clusters in the table
     cluster_count: u64,
+    /// Generation counter for entry aging (incremented each search)
+    generation: AtomicU8,
 }
 
 impl TranspositionTable {
@@ -416,6 +418,7 @@ impl TranspositionTable {
         TranspositionTable {
             entries: AVec::from_iter(32, (0..entries_size).map(|_| TTEntry::default())),
             cluster_count,
+            generation: AtomicU8::new(0),
         }
     }
 
@@ -424,6 +427,28 @@ impl TranspositionTable {
         for entry in &*self.entries {
             entry.data.store(0, Ordering::Relaxed);
         }
+    }
+
+    /// Returns the current generation counter value.
+    #[inline]
+    pub fn generation(&self) -> u8 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    /// Increments the generation counter and returns the new value.
+    ///
+    /// This should be called at the start of each new search to age old entries.
+    #[inline]
+    pub fn increment_generation(&self) -> u8 {
+        self.generation
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1)
+    }
+
+    /// Resets the generation counter to zero.
+    #[inline]
+    pub fn reset_generation(&self) {
+        self.generation.store(0, Ordering::Relaxed);
     }
 
     /// Prefetches the transposition table entry corresponding to the given hash.
@@ -451,22 +476,13 @@ impl TranspositionTable {
     /// # Arguments
     ///
     /// * `key` - The hash key of the board position to probe
-    /// * `generation` - The current generation count for aging
-    ///
-    /// # Returns
-    ///
-    /// Probes the transposition table for an entry matching the given key.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position to probe
-    /// * `generation` - The current generation count for aging
     ///
     /// # Returns
     ///
     /// A `ProbeResult` indicating whether a matching entry was found.
     #[inline(always)]
-    pub fn probe(&self, key: u64, generation: u8) -> TTProbeResult {
+    pub fn probe(&self, key: u64) -> TTProbeResult {
+        let generation = self.generation();
         cfg_if! {
             if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
                 unsafe { self.probe_avx2(key, generation) }
@@ -602,7 +618,6 @@ impl TranspositionTable {
     /// * `depth` - The search depth at which the position was evaluated
     /// * `best_move` - The best move found for the position
     /// * `selectivity` - The selectivity level used in search
-    /// * `generation` - The current generation count
     /// * `is_endgame` - Whether this entry is from endgame search
     #[inline]
     #[allow(clippy::too_many_arguments)]
@@ -615,7 +630,6 @@ impl TranspositionTable {
         depth: Depth,
         best_move: Square,
         selectivity: Selectivity,
-        generation: u8,
         is_endgame: bool,
     ) {
         let entry = unsafe { self.entries.get_unchecked(entry_index) };
@@ -626,7 +640,7 @@ impl TranspositionTable {
             depth,
             best_move,
             selectivity,
-            generation,
+            self.generation(),
             is_endgame,
         );
     }
@@ -671,7 +685,6 @@ mod tests {
         Square::from_usize_unchecked(idx)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn store_entry(
         tt: &TranspositionTable,
         key: u64,
@@ -680,9 +693,8 @@ mod tests {
         depth: Depth,
         best_move: usize,
         selectivity: Selectivity,
-        generation: u8,
     ) -> usize {
-        let idx = tt.probe(key, generation).index();
+        let idx = tt.probe(key).index();
         tt.store(
             idx,
             key,
@@ -691,7 +703,6 @@ mod tests {
             depth,
             sq(best_move),
             selectivity,
-            generation,
             false, // default to midgame for tests
         );
         idx
@@ -1035,13 +1046,13 @@ mod tests {
     fn test_probe_and_store() {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x123456789ABCDEF0;
-        let generation = 1;
+        let generation = tt.increment_generation();
 
         // First probe should return not found
-        assert!(!tt.probe(key, generation).is_hit());
+        assert!(!tt.probe(key).is_hit());
 
         // Store an entry
-        let idx = tt.probe(key, generation).index();
+        let idx = tt.probe(key).index();
         tt.store(
             idx,
             key,
@@ -1050,12 +1061,11 @@ mod tests {
             20,
             sq(10),
             Selectivity::Level3,
-            generation,
             false,
         );
 
         // Second probe should find the entry
-        let result = tt.probe(key, generation);
+        let result = tt.probe(key);
         assert!(result.is_hit());
         let d = result.data().unwrap();
         assert_eq!(d.key(), (key & TTEntry::KEY_MASK) as u32);
@@ -1071,6 +1081,7 @@ mod tests {
     #[test]
     fn test_cluster_replacement() {
         let tt = TranspositionTable::new(1);
+        tt.increment_generation(); // generation = 1
         let target_cluster = tt.get_cluster_idx(0);
 
         // Generate keys that map to the same cluster
@@ -1087,13 +1098,12 @@ mod tests {
                 depth,
                 sq(i),
                 Selectivity::Level1,
-                1,
                 false,
             );
         }
 
         let new_key = keys[CLUSTER_SIZE];
-        let result = tt.probe(new_key, 1);
+        let result = tt.probe(new_key);
         assert!(!result.is_hit());
         let replace_idx = result.index();
         assert_eq!(replace_idx, target_cluster);
@@ -1106,11 +1116,10 @@ mod tests {
             50,
             sq(20),
             Selectivity::Level1,
-            1,
             false,
         );
 
-        let result = tt.probe(new_key, 1);
+        let result = tt.probe(new_key);
         assert!(result.is_hit());
         assert_eq!(result.data().unwrap().score(), 999);
     }
@@ -1119,6 +1128,7 @@ mod tests {
     #[test]
     fn test_generation_aging() {
         let tt = TranspositionTable::new(1);
+        tt.increment_generation(); // generation = 1
         let target_cluster = tt.get_cluster_idx(0);
         let keys = cluster_keys(&tt, target_cluster, CLUSTER_SIZE + 1);
 
@@ -1132,13 +1142,17 @@ mod tests {
                 depth,
                 sq(i),
                 Selectivity::Level1,
-                1,
                 false,
             );
         }
 
+        // Advance generation to 10 to simulate aging
+        for _ in 1..10 {
+            tt.increment_generation();
+        }
+
         let new_key = keys[CLUSTER_SIZE];
-        let result = tt.probe(new_key, 10);
+        let result = tt.probe(new_key);
         assert!(!result.is_hit());
         let replace_idx = result.index();
         assert_eq!(replace_idx, target_cluster + (CLUSTER_SIZE - 1));
@@ -1151,11 +1165,10 @@ mod tests {
             10,
             sq(20),
             Selectivity::Level1,
-            10,
             false,
         );
 
-        let result = tt.probe(new_key, 10);
+        let result = tt.probe(new_key);
         assert!(result.is_hit());
         assert_eq!(result.data().unwrap().generation(), 10);
     }
@@ -1164,6 +1177,7 @@ mod tests {
     #[test]
     fn test_clear() {
         let tt = TranspositionTable::new(1);
+        tt.increment_generation(); // generation = 1
 
         // Store some entries
         for i in 0..10 {
@@ -1176,12 +1190,11 @@ mod tests {
                 20,
                 i as usize,
                 Selectivity::Level1,
-                1,
             );
         }
 
         // Verify entries exist
-        assert!(tt.probe(0, 1).is_hit());
+        assert!(tt.probe(0).is_hit());
 
         // Clear the table
         tt.clear();
@@ -1189,7 +1202,7 @@ mod tests {
         // Verify entries are gone
         for i in 0..10 {
             let key = i * 0x1000000000000000;
-            assert!(!tt.probe(key, 1).is_hit());
+            assert!(!tt.probe(key).is_hit());
         }
     }
 }

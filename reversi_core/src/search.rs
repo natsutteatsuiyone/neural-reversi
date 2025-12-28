@@ -28,7 +28,6 @@ use crate::{move_list, probcut, stability};
 /// Main search engine structure
 pub struct Search {
     tt: Arc<TranspositionTable>,
-    generation: u8,
     threads: Arc<ThreadPool>,
     eval: Arc<Eval>,
     endgame_start_n_empties: Option<Depth>,
@@ -38,7 +37,6 @@ pub struct Search {
 #[derive(Clone)]
 pub struct SearchTask {
     pub board: Board,
-    pub generation: u8,
     pub selectivity: Selectivity,
     pub tt: Arc<TranspositionTable>,
     pub pool: Arc<ThreadPool>,
@@ -83,7 +81,6 @@ impl Search {
 
         Search {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
-            generation: 0,
             threads: ThreadPool::new(n_threads),
             eval: Arc::new(eval),
             endgame_start_n_empties: None,
@@ -92,8 +89,8 @@ impl Search {
 
     pub fn init(&mut self) {
         self.tt.clear();
+        self.tt.reset_generation();
         self.eval.cache.clear();
-        self.generation = 0;
         self.endgame_start_n_empties = None;
     }
 
@@ -183,14 +180,13 @@ impl Search {
         callback: Option<Arc<SearchProgressCallback>>,
         time_manager: Option<Arc<TimeManager>>,
     ) -> SearchResult {
-        self.generation += 1;
+        self.tt.increment_generation();
 
         // Get deadline for timer thread
         let timer_time_manager = time_manager.clone();
 
         let task = SearchTask {
             board: *board,
-            generation: self.generation,
             selectivity,
             tt: self.tt.clone(),
             pool: self.threads.clone(),
@@ -331,7 +327,7 @@ fn enhanced_transposition_cutoff(
         ctx.increment_nodes();
 
         let etc_tt_key = next.hash();
-        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key, ctx.generation);
+        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key);
         let is_endgame = ctx.game_phase == GamePhase::EndGame;
         if let Some(etc_tt_data) = etc_tt_probe_result.data()
             && etc_tt_data.is_endgame() == is_endgame
@@ -350,7 +346,6 @@ fn enhanced_transposition_cutoff(
                     depth,
                     mv.sq,
                     ctx.selectivity,
-                    ctx.generation,
                     ctx.game_phase == GamePhase::EndGame,
                 );
                 return Some(score);

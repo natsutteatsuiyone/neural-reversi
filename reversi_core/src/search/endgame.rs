@@ -86,7 +86,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     let mut ctx = SearchContext::new(
         &board,
-        task.generation,
         task.selectivity,
         task.tt.clone(),
         task.eval.clone(),
@@ -275,7 +274,7 @@ fn estimate_aspiration_base_score(
     let midgame_depth = n_empties / 4;
 
     let hash_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(hash_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(hash_key);
     if let Some(tt_data) = tt_probe_result.data()
         && tt_data.bound() == Bound::Exact
         && tt_data.depth() >= midgame_depth
@@ -359,7 +358,7 @@ pub fn search<NT: NodeType>(
     }
 
     // Look up position in transposition table
-    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if !NT::PV_NODE {
@@ -480,7 +479,6 @@ pub fn search<NT: NodeType>(
         n_empties,
         best_move,
         ctx.selectivity,
-        ctx.generation,
         true,
     );
 
@@ -651,7 +649,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         }
     }
 
-    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if let Some(tt_data) = tt_probe_result.data()
@@ -756,7 +754,6 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         n_empties,
         best_move,
         Selectivity::None,
-        ctx.generation,
         true,
     );
 

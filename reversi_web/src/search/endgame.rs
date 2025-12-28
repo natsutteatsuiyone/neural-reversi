@@ -67,7 +67,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 
     // transposition table lookup
     let tt_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(tt_key, ctx.generation);
+    let tt_probe_result = ctx.tt.probe(tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if let Some(tt_data) = tt_probe_result.data()
@@ -123,7 +123,6 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         n_empties,
         best_move,
         Selectivity::None,
-        ctx.generation,
         true,
     );
 

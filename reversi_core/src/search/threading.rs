@@ -177,9 +177,6 @@ pub struct SplitPointTask {
     /// Which player is to move in this position.
     pub side_to_move: SideToMove,
 
-    /// Transposition table generation number for age tracking.
-    pub generation: u8,
-
     /// Search selectivity level (affects pruning aggressiveness).
     pub selectivity: Selectivity,
 
@@ -566,7 +563,6 @@ impl Thread {
         sp_state.task = Some(SplitPointTask {
             board: *board,
             side_to_move: ctx.side_to_move,
-            generation: ctx.generation,
             selectivity: ctx.selectivity,
             tt: ctx.tt.clone(),
             root_moves: ctx.root_moves.clone(),
