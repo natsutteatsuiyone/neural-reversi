@@ -211,23 +211,12 @@ impl SearchContext {
         }
     }
 
-    /// Gets the best root move based on current search results.
-    ///
-    /// # Arguments
-    /// * `skip_seached_move` - If true, only consider unsearched moves
+    /// Gets the best root move (the one with highest score).
     ///
     /// # Returns
-    /// The best root move, or None if no moves match the criteria
-    pub fn get_best_root_move(&self, skip_seached_move: bool) -> Option<RootMove> {
-        if skip_seached_move {
-            self.root_moves
-                .iter()
-                .filter(|rm| !rm.searched)
-                .max_by_key(|rm| rm.score)
-                .cloned()
-        } else {
-            self.root_moves.iter().max_by_key(|rm| rm.score).cloned()
-        }
+    /// The best root move, or None if no moves exist
+    pub fn get_best_root_move(&self) -> Option<RootMove> {
+        self.root_moves.iter().max_by_key(|rm| rm.score).cloned()
     }
 
     /// Creates the initial list of root moves from the current board position.
@@ -241,13 +230,7 @@ impl SearchContext {
         let move_list = MoveList::new(board);
         let mut root_moves = Vec::<RootMove>::with_capacity(move_list.count());
         for m in move_list.iter() {
-            root_moves.push(RootMove {
-                sq: m.sq,
-                score: -SCORE_INF,
-                average_score: -SCORE_INF,
-                pv: Vec::new(),
-                searched: false,
-            });
+            root_moves.push(RootMove::new(m.sq));
         }
         root_moves
     }

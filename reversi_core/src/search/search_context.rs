@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::board::Board;
 use crate::constants::MAX_PLY;
@@ -46,8 +47,11 @@ pub struct SearchContext {
     pub empty_list: EmptyList,
     /// Shared transposition table for storing search results
     pub tt: Arc<TranspositionTable>,
-    /// Shared list of root moves being searched
+    /// Shared list of root moves being searched (sorted by score after each PV line)
     pub root_moves: Arc<std::sync::Mutex<Vec<RootMove>>>,
+    /// Current PV index for Multi-PV search
+    /// Moves at indices < pv_idx are already part of earlier PV lines
+    pub pv_idx: Arc<AtomicUsize>,
     /// Neural network evaluator for position assessment
     pub eval: Arc<Eval>,
     /// Pattern features for efficient neural network input
@@ -89,6 +93,7 @@ impl SearchContext {
             empty_list,
             tt,
             root_moves: Arc::new(std::sync::Mutex::new(Self::create_root_moves(board))),
+            pv_idx: Arc::new(AtomicUsize::new(0)),
             eval,
             pattern_features: PatternFeatures::new(board, ply),
             callback: None,
@@ -125,6 +130,7 @@ impl SearchContext {
             selectivity: task.selectivity,
             tt: task.tt.clone(),
             root_moves: task.root_moves.clone(),
+            pv_idx: task.pv_idx.clone(),
             eval: task.eval.clone(),
             pattern_features,
             callback: None,
@@ -265,46 +271,65 @@ impl SearchContext {
         }
     }
 
-    /// Gets the best root move based on current search results.
+    /// Gets the root move at the current PV index.
     ///
-    /// # Arguments
-    /// * `skip_seached_move` - If true, only consider unsearched moves
+    /// In Multi-PV mode, this returns the move at the current PV position
+    /// which should be searched next.
     ///
     /// # Returns
-    /// The best root move, or None if no moves match the criteria
-    pub fn get_best_root_move(&self, skip_seached_move: bool) -> Option<RootMove> {
-        let root_moves = self
-            .root_moves
-            .lock()
-            .expect("Failed to acquire lock on root_moves");
-        if skip_seached_move {
-            root_moves
-                .iter()
-                .filter(|rm| !rm.searched)
-                .max_by_key(|rm| rm.score)
-                .cloned()
-        } else {
-            root_moves.iter().max_by_key(|rm| rm.score).cloned()
-        }
+    /// The root move at the current PV index, or None if index is out of bounds
+    pub fn get_current_pv_root_move(&self) -> Option<RootMove> {
+        let root_moves = self.root_moves.lock().unwrap();
+        root_moves.get(self.pv_idx()).cloned()
     }
 
-    /// Marks a root move as having been searched.
+    /// Gets the best root move (the one at index 0 after sorting).
+    ///
+    /// # Returns
+    /// The best root move, or None if no moves exist
+    pub fn get_best_root_move(&self) -> Option<RootMove> {
+        let root_moves = self.root_moves.lock().unwrap();
+        root_moves.first().cloned()
+    }
+
+    /// Sets the current PV index for Multi-PV search.
     ///
     /// # Arguments
-    /// * `sq` - The square of the root move to mark as searched
-    pub fn mark_root_move_searched(&mut self, sq: Square) {
+    /// * `idx` - The new PV index
+    pub fn set_pv_idx(&self, idx: usize) {
+        self.pv_idx.store(idx, Ordering::Relaxed);
+    }
+
+    /// Returns the current PV index.
+    #[inline]
+    pub fn pv_idx(&self) -> usize {
+        self.pv_idx.load(Ordering::Relaxed)
+    }
+
+    /// Saves current scores as previous scores before starting a new iteration.
+    ///
+    /// This is called at the beginning of each iterative deepening iteration
+    /// to preserve scores for aspiration window calculation.
+    pub fn save_previous_scores(&mut self) {
         let mut root_moves = self.root_moves.lock().unwrap();
-        if let Some(rm) = root_moves.iter_mut().find(|rm| rm.sq == sq) {
-            rm.searched = true;
+        for rm in root_moves.iter_mut() {
+            rm.previous_score = rm.score;
         }
     }
 
-    /// Resets the searched flag for all root moves.
-    pub fn reset_root_move_searched(&mut self) {
+    /// Sorts root moves from pv_idx to end by score (stable sort).
+    pub fn sort_root_moves_from_pv_idx(&self) {
+        let pv_idx = self.pv_idx();
         let mut root_moves = self.root_moves.lock().unwrap();
-        for rm in root_moves.iter_mut() {
-            rm.searched = false;
+        if pv_idx < root_moves.len() {
+            root_moves[pv_idx..].sort_by(|a, b| b.score.cmp(&a.score));
         }
+    }
+
+    /// Sorts all root moves by score for final result ordering.
+    pub fn sort_all_root_moves(&self) {
+        let mut root_moves = self.root_moves.lock().unwrap();
+        root_moves.sort_by(|a, b| b.score.cmp(&a.score));
     }
 
     /// Creates the initial list of root moves from the current board position.
@@ -318,27 +343,9 @@ impl SearchContext {
         let move_list = MoveList::new(board);
         let mut root_moves = Vec::<RootMove>::with_capacity(move_list.count());
         for m in move_list.iter() {
-            root_moves.push(RootMove {
-                sq: m.sq,
-                score: -SCORE_INF,
-                average_score: -SCORE_INF,
-                pv: Vec::new(),
-                searched: false,
-            });
+            root_moves.push(RootMove::new(m.sq));
         }
         root_moves
-    }
-
-    /// Checks if a specific root move has been searched.
-    ///
-    /// # Arguments
-    /// * `sq` - The square to check
-    ///
-    /// # Returns
-    /// True if the move has been searched, false otherwise
-    pub fn is_move_searched(&self, sq: Square) -> bool {
-        let root_moves = self.root_moves.lock().unwrap();
-        root_moves.iter().any(|rm| rm.sq == sq && rm.searched)
     }
 
     /// Updates the principal variation at the current ply.

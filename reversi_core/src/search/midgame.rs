@@ -84,9 +84,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let mut prev_best_move: Option<Square> = None;
 
     let mut depth = compute_start_depth(max_depth);
-    let mut best_score = 0;
-    let mut alpha = -SCORE_INF;
-    let mut beta = SCORE_INF;
 
     while depth <= max_depth {
         // Adjust selectivity based on remaining depth (only without time control)
@@ -95,43 +92,47 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             ctx.selectivity =
                 Selectivity::from_u8(org_selectivity.as_u8().saturating_sub(depth_diff));
         }
-        ctx.reset_root_move_searched();
 
-        // Reset aspiration window for shallow depths
-        if depth <= 10 {
-            alpha = -SCORE_INF;
-            beta = SCORE_INF;
-        }
+        // Save previous iteration scores for aspiration windows
+        ctx.save_previous_scores();
 
-        // Multi-PV loop
+        // Multi-PV loop: search each PV line with its own aspiration window
         for pv_idx in 0..pv_count {
-            if pv_idx >= 1 {
-                alpha = -SCORE_INF;
-                beta = best_score;
-            }
+            ctx.set_pv_idx(pv_idx);
 
-            best_score = aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
+            // Set up aspiration window based on previous score at this PV index
+            let (mut alpha, mut beta) = if depth >= 5 {
+                if let Some(rm) = ctx.get_current_pv_root_move() {
+                    let delta = ASPIRATION_DELTA;
+                    (
+                        (rm.previous_score - delta).max(-SCORE_INF),
+                        (rm.previous_score + delta).min(SCORE_INF),
+                    )
+                } else {
+                    (-SCORE_INF, SCORE_INF)
+                }
+            } else {
+                (-SCORE_INF, SCORE_INF)
+            };
 
-            let best_move = ctx.get_best_root_move(true).unwrap();
-            ctx.mark_root_move_searched(best_move.sq);
+            let score = aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
+
+            // Stable sort moves from pv_idx to end, bringing best to pv_idx position
+            ctx.sort_root_moves_from_pv_idx();
 
             if thread.is_search_aborted() {
                 break;
             }
 
-            ctx.notify_progress(
-                depth,
-                unscale_score_f32(best_score),
-                best_move.sq,
-                ctx.selectivity,
-            );
+            // Notify progress with the move now at pv_idx (the best for this PV line)
+            if let Some(rm) = ctx.get_current_pv_root_move() {
+                ctx.notify_progress(depth, unscale_score_f32(score), rm.sq, ctx.selectivity);
+            }
         }
 
-        let best_move = ctx.get_best_root_move(false).unwrap();
-
-        // Update aspiration window for next iteration
-        alpha = (best_move.average_score - ASPIRATION_DELTA).max(-SCORE_INF);
-        beta = (best_move.average_score + ASPIRATION_DELTA).min(SCORE_INF);
+        // Sort all root moves by score for consistent ordering
+        ctx.sort_all_root_moves();
+        let best_move = ctx.get_best_root_move().unwrap();
 
         // Notify time manager about search progress
         if let Some(ref tm) = time_manager {
@@ -152,7 +153,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
     }
 
-    let rm = ctx.get_best_root_move(false).unwrap();
+    let rm = ctx.get_best_root_move().unwrap();
     build_search_result(&ctx, &rm, max_depth.min(n_empties))
 }
 
@@ -362,6 +363,10 @@ pub fn search<NT: NodeType>(
         }
     }
 
+    if NT::ROOT_NODE {
+        move_list.exclude_earlier_pv_moves(ctx);
+    }
+
     if move_list.count() > 1 {
         move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
         move_list.sort();
@@ -372,10 +377,6 @@ pub fn search<NT: NodeType>(
     let mut best_score = -SCORE_INF;
 
     while let Some((mv, move_count)) = move_iter.next() {
-        if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-            continue;
-        }
-
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
@@ -492,10 +493,6 @@ pub fn search_sp<NT: NodeType>(
     let move_iter = split_point.state().move_iter.clone().unwrap();
 
     while let Some((mv, move_count)) = move_iter.next() {
-        if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-            continue;
-        }
-
         split_point.unlock();
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);

@@ -1,7 +1,7 @@
 //! Reference: https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{JoinHandle, sleep};
@@ -191,6 +191,9 @@ pub struct SplitPointTask {
 
     /// List of moves being searched at the root (for root node only).
     pub root_moves: Arc<Mutex<Vec<RootMove>>>,
+
+    /// Current PV index for Multi-PV search.
+    pub pv_idx: Arc<AtomicUsize>,
 
     /// Neural network evaluator for position evaluation.
     pub eval: Arc<Eval>,
@@ -567,6 +570,7 @@ impl Thread {
             selectivity: ctx.selectivity,
             tt: ctx.tt.clone(),
             root_moves: ctx.root_moves.clone(),
+            pv_idx: ctx.pv_idx.clone(),
             eval: ctx.eval.clone(),
             game_phase: ctx.game_phase,
             empty_list: ctx.empty_list.clone(),

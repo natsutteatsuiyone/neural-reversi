@@ -24,9 +24,6 @@ const WIPEOUT_VALUE: i32 = 1 << 30;
 /// Value assigned to moves suggested by the transposition table.
 const TT_MOVE_VALUE: i32 = 1 << 20;
 
-/// Value assigned to moves that have already been searched in root node.
-const SEARCHED_MOVE_VALUE: i32 = -(1 << 20);
-
 /// Represents a single move.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Move {
@@ -194,16 +191,16 @@ impl MoveList {
 
         match ctx.game_phase {
             GamePhase::MidGame => {
-                self.evaluate_moves_midgame::<NT>(ctx, board, depth, tt_move);
+                self.evaluate_moves_midgame(ctx, board, depth, tt_move);
             }
             GamePhase::EndGame => {
-                self.evaluate_moves_endgame::<NT>(ctx, board, depth, tt_move);
+                self.evaluate_moves_endgame(ctx, board, depth, tt_move);
             }
         }
     }
 
     /// Evaluates moves specifically for midgame positions.
-    fn evaluate_moves_midgame<NT: NodeType>(
+    fn evaluate_moves_midgame(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,
@@ -217,10 +214,7 @@ impl MoveList {
         let mut best_sort_value = -SCORE_INF;
 
         for mv in self.iter_mut() {
-            if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-                // Already searched in previous iteration
-                mv.value = SEARCHED_MOVE_VALUE;
-            } else if mv.flipped == board.opponent {
+            if mv.flipped == board.opponent {
                 // Wipeout move
                 mv.value = WIPEOUT_VALUE;
             } else if mv.sq == tt_move {
@@ -263,14 +257,14 @@ impl MoveList {
         //         => mv.value < best_sort_value - 2 * sbr_margin
         let reduction_threshold = best_sort_value - 2 * sbr_margin;
         for mv in self.iter_mut() {
-            if mv.value < reduction_threshold && mv.value != SEARCHED_MOVE_VALUE {
+            if mv.value < reduction_threshold {
                 mv.reduction_depth = 1;
             }
         }
     }
 
     /// Evaluates moves specifically for endgame positions.
-    pub fn evaluate_moves_endgame<NT: NodeType>(
+    fn evaluate_moves_endgame(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,
@@ -284,10 +278,7 @@ impl MoveList {
         };
 
         for mv in self.iter_mut() {
-            if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-                // Already searched in previous iteration
-                mv.value = SEARCHED_MOVE_VALUE;
-            } else if mv.flipped == board.opponent {
+            if mv.flipped == board.opponent {
                 // Wipeout move
                 mv.value = WIPEOUT_VALUE;
             } else if mv.sq == tt_move {
@@ -377,6 +368,25 @@ impl MoveList {
             3 => sort3(&mut self.moves),
             _ => self.moves.sort_unstable_by_key(|m| -m.value),
         }
+    }
+
+    /// Excludes moves that belong to earlier PV lines in Multi-PV search.
+    ///
+    /// In Multi-PV mode, moves at indices < pv_idx in root_moves have already been
+    /// searched as part of earlier PV lines and should be excluded from the current search.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - Search context containing root_moves and pv_idx
+    pub fn exclude_earlier_pv_moves(&mut self, ctx: &SearchContext) {
+        let pv_idx = ctx.pv_idx();
+        if pv_idx == 0 {
+            return; // No filtering needed for first PV line
+        }
+
+        let root_moves = ctx.root_moves.lock().unwrap();
+        self.moves
+            .retain(|mv| root_moves.iter().skip(pv_idx).any(|rm| rm.sq == mv.sq));
     }
 }
 

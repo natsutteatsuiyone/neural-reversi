@@ -115,18 +115,24 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     } else {
         1
     };
-    let mut best_score = 0;
-    let mut alpha = base_score - 3;
-    let mut beta = base_score + 3;
 
-    // Multi-PV loop
+    // Multi-PV loop: search each PV line with its own aspiration window
     for pv_idx in 0..pv_count {
-        if pv_idx >= 1 {
-            alpha = -SCORE_INF;
-            beta = best_score;
-        }
+        ctx.set_pv_idx(pv_idx);
 
-        let mut best_move_sq = Square::None;
+        // Initialize aspiration window for this PV line
+        let mut alpha = if pv_idx == 0 {
+            base_score - 3
+        } else {
+            -SCORE_INF
+        };
+        let mut beta = if pv_idx == 0 {
+            base_score + 3
+        } else if let Some(rm) = ctx.get_best_root_move() {
+            rm.score
+        } else {
+            SCORE_INF
+        };
 
         // Iterative selectivity loop
         for selectivity in SELECTIVITY_SEQUENCE {
@@ -136,25 +142,20 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             ctx.selectivity = selectivity;
-            best_score = aspiration_search(&mut ctx, &board, &mut alpha, &mut beta, thread);
-
-            let best_move = ctx.get_best_root_move(true).unwrap();
+            let score = aspiration_search(&mut ctx, &board, &mut alpha, &mut beta, thread);
 
             // Update aspiration window for next selectivity
-            alpha = (best_score - 2).max(-SCORE_INF);
-            beta = (best_score + 2).min(SCORE_INF);
-            best_move_sq = best_move.sq;
+            alpha = (score - 2).max(-SCORE_INF);
+            beta = (score + 2).min(SCORE_INF);
 
             if thread.is_search_aborted() {
                 break;
             }
 
-            ctx.notify_progress(
-                n_empties,
-                best_score as Scoref,
-                best_move.sq,
-                ctx.selectivity,
-            );
+            // Notify progress with the current best move at pv_idx
+            if let Some(rm) = ctx.get_current_pv_root_move() {
+                ctx.notify_progress(n_empties, score as Scoref, rm.sq, ctx.selectivity);
+            }
 
             // Check time control
             if should_stop_iteration(&time_manager) {
@@ -162,18 +163,19 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
         }
 
-        ctx.mark_root_move_searched(best_move_sq);
-
-        let best_move = ctx.get_best_root_move(false).unwrap();
-        best_score = best_move.score;
+        // Stable sort moves from pv_idx to end, bringing best to pv_idx position
+        ctx.sort_root_moves_from_pv_idx();
 
         // Check abort or time limit
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
+            ctx.sort_all_root_moves();
+            let best_move = ctx.get_best_root_move().unwrap();
             return build_endgame_result(&ctx, &best_move, n_empties);
         }
     }
 
-    let rm = ctx.get_best_root_move(false).unwrap();
+    ctx.sort_all_root_moves();
+    let rm = ctx.get_best_root_move().unwrap();
     build_endgame_result(&ctx, &rm, n_empties)
 }
 
@@ -373,6 +375,10 @@ pub fn search<NT: NodeType>(
         }
     }
 
+    if NT::ROOT_NODE {
+        move_list.exclude_earlier_pv_moves(ctx);
+    }
+
     if move_list.count() > 1 {
         move_list.evaluate_moves::<NT>(ctx, board, n_empties, tt_move);
         move_list.sort();
@@ -383,10 +389,6 @@ pub fn search<NT: NodeType>(
     let mut best_score = -SCORE_INF;
 
     while let Some((mv, move_count)) = move_iter.next() {
-        if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-            continue;
-        }
-
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
@@ -495,10 +497,6 @@ pub fn search_sp<NT: NodeType>(
     let move_iter = split_point.state().move_iter.clone().unwrap();
 
     while let Some((mv, move_count)) = move_iter.next() {
-        if NT::ROOT_NODE && ctx.is_move_searched(mv.sq) {
-            continue;
-        }
-
         split_point.unlock();
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
