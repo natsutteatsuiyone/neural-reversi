@@ -225,6 +225,21 @@ fn build_endgame_result(
     best_move: &super::root_move::RootMove,
     n_empties: Depth,
 ) -> SearchResult {
+    use super::search_result::PvMove;
+
+    // Collect all root moves with their scores for Multi-PV results
+    let pv_moves: Vec<PvMove> = ctx
+        .root_moves
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|rm| PvMove {
+            sq: rm.sq,
+            score: rm.score as Scoref,
+            pv_line: rm.pv.clone(),
+        })
+        .collect();
+
     SearchResult {
         score: best_move.score as Scoref,
         best_move: Some(best_move.sq),
@@ -233,6 +248,7 @@ fn build_endgame_result(
         depth: n_empties,
         selectivity: ctx.selectivity,
         game_phase: GamePhase::EndGame,
+        pv_moves,
     }
 }
 

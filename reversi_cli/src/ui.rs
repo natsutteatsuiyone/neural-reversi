@@ -41,6 +41,8 @@ enum Command {
     Mode(Option<usize>),
     /// Force AI to make a move with detailed analysis
     Go,
+    /// Show move hints with evaluations (Multi-PV)
+    Hint(usize),
     /// Play a sequence of moves
     Play(String),
     /// Set board position from string representation
@@ -90,6 +92,10 @@ impl Command {
                 }
             }
             "go" => Ok(Command::Go),
+            "hint" => {
+                let count = parts.next().and_then(|s| s.parse().ok()).unwrap_or(3);
+                Ok(Command::Hint(count.min(10))) // Cap at 10
+            }
             "play" => {
                 if let Some(moves) = parts.next() {
                     Ok(Command::Play(moves.to_string()))
@@ -269,6 +275,10 @@ fn handle_command(
             execute_ai_move(game, search, *level, selectivity, false);
             Ok(true)
         }
+        Command::Hint(count) => {
+            execute_hint(game, search, *level, selectivity, count);
+            Ok(true)
+        }
         Command::Play(moves) => {
             execute_play_sequence(game, &moves)?;
             Ok(true)
@@ -376,6 +386,88 @@ fn execute_ai_move(
         }
         false
     }
+}
+
+/// Execute a Multi-PV hint search and display move evaluations.
+///
+/// # Arguments
+/// * `game` - Current game state
+/// * `search` - Search engine instance
+/// * `level` - Search depth/level
+/// * `selectivity` - Search selectivity setting
+/// * `count` - Maximum number of moves to show
+fn execute_hint(
+    game: &GameState,
+    search: &mut search::Search,
+    level: usize,
+    selectivity: Selectivity,
+    count: usize,
+) {
+    let board = game.board();
+    if !board.has_legal_moves() {
+        println!("No legal moves available.");
+        return;
+    }
+
+    let constraint = SearchConstraint::Level(level::get_level(level));
+    let result = search.run(
+        board,
+        constraint,
+        selectivity,
+        true, // multi_pv = true
+        None::<fn(search::SearchProgress)>,
+    );
+
+    let moves_to_show: Vec<_> = result.pv_moves.iter().take(count).collect();
+    let depth_str = if result.get_probability() == 100 {
+        format!("{}", result.depth)
+    } else {
+        format!("{}@{}%", result.depth, result.get_probability())
+    };
+
+    // Format PV lines and find max length
+    let pv_strings: Vec<String> = moves_to_show
+        .iter()
+        .map(|m| {
+            m.pv_line
+                .iter()
+                .map(|sq| format!("{}", sq))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    let max_pv_len = pv_strings.iter().map(|s| s.len()).max().unwrap_or(8).max(8);
+
+    // Print markdown table
+    println!();
+    println!(
+        "| {:>3} | {:>4} | {:>8} | {:<width$} |",
+        "No.",
+        "Move",
+        "Score",
+        "PV Line",
+        width = max_pv_len
+    );
+    println!(
+        "|----:|-----:|---------:|:{:-<width$}|",
+        "",
+        width = max_pv_len + 1
+    );
+
+    for (i, (pv_move, pv_str)) in moves_to_show.iter().zip(pv_strings.iter()).enumerate() {
+        let move_str = format!("{}", pv_move.sq);
+        println!(
+            "| {:>3} | {:>4} | {:>+8.2} | {:<width$} |",
+            i + 1,
+            move_str,
+            pv_move.score,
+            pv_str,
+            width = max_pv_len
+        );
+    }
+
+    println!();
+    println!("Depth: {}  Nodes: {}", depth_str, result.n_nodes);
 }
 
 /// Parse a board position string into Board and side-to-move.
@@ -497,6 +589,7 @@ fn print_help() {
     println!("  level, l <n>    - Set AI level");
     println!("  mode, m [n]     - Show/set game mode");
     println!("  go              - Let AI make a move with analysis");
+    println!("  hint [n]        - Show top n move hints (default: 3, max: 10)");
     println!("  play <moves>    - Play a sequence of moves");
     println!(
         "  setboard <pos>  - Set board position (64 board chars + optional spaces + 1 side to move char)"

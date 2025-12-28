@@ -32,6 +32,7 @@ In interactive mode, you can use the following commands:
   - `2`: Black-AI, White-AI
   - `3`: Black-Human, White-Human
 - `go` - Let AI make a move with analysis
+- `hint [n]` - Show top n move hints with evaluations (default: 3, max: 10)
 - `play <moves>` - Play a sequence of moves
 - `setboard <pos>` - Set board position (64 board chars + optional spaces + 1 side to move char)
 - `help`, `h` - Show this help

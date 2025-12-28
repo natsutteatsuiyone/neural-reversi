@@ -263,6 +263,7 @@ impl Search {
                 depth: 0,
                 selectivity: Selectivity::None,
                 game_phase: GamePhase::MidGame,
+                pv_moves: vec![],
             };
         }
 
@@ -291,6 +292,7 @@ impl Search {
             depth: 1,
             selectivity: Selectivity::None,
             game_phase: GamePhase::MidGame,
+            pv_moves: vec![],
         }
     }
 }

@@ -235,6 +235,21 @@ fn build_search_result(
     best_move: &super::root_move::RootMove,
     reported_depth: Depth,
 ) -> SearchResult {
+    use super::search_result::PvMove;
+
+    // Collect all root moves with their scores for Multi-PV results
+    let pv_moves: Vec<PvMove> = ctx
+        .root_moves
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|rm| PvMove {
+            sq: rm.sq,
+            score: unscale_score_f32(rm.score),
+            pv_line: rm.pv.clone(),
+        })
+        .collect();
+
     SearchResult {
         score: unscale_score_f32(best_move.score),
         best_move: Some(best_move.sq),
@@ -243,6 +258,7 @@ fn build_search_result(
         depth: reported_depth,
         selectivity: ctx.selectivity,
         game_phase: GamePhase::MidGame,
+        pv_moves,
     }
 }
 
