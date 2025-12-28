@@ -297,7 +297,7 @@ mod tests {
     use crate::util::align::Align64;
 
     fn expected_screlu(val: i32) -> u8 {
-        let clamped = val.max(0).min(255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;
+        let clamped = val.clamp(0, 255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;
         let shift = (HIDDEN_WEIGHT_SCALE_BITS * 2 + 8) as u32;
         ((clamped * clamped) >> shift) as u8
     }

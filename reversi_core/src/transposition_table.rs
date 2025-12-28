@@ -671,6 +671,7 @@ mod tests {
         Square::from_usize_unchecked(idx)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn store_entry(
         tt: &TranspositionTable,
         key: u64,
