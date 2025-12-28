@@ -1,7 +1,6 @@
 use std::fmt;
 use std::hash::Hash;
 
-use crate::bit;
 use crate::bitboard;
 use crate::flip;
 use crate::piece::Piece;
@@ -318,8 +317,8 @@ impl Board {
     #[inline]
     pub fn rotate_90_clockwise(&self) -> Board {
         Board::from_bitboards(
-            bit::rotate_90_clockwise(self.player),
-            bit::rotate_90_clockwise(self.opponent),
+            bitboard::rotate_90_clockwise(self.player),
+            bitboard::rotate_90_clockwise(self.opponent),
         )
     }
 
@@ -330,8 +329,8 @@ impl Board {
     #[inline]
     pub fn rotate_180_clockwise(&self) -> Board {
         Board::from_bitboards(
-            bit::rotate_180_clockwise(self.player),
-            bit::rotate_180_clockwise(self.opponent),
+            bitboard::rotate_180_clockwise(self.player),
+            bitboard::rotate_180_clockwise(self.opponent),
         )
     }
 
@@ -342,8 +341,8 @@ impl Board {
     #[inline]
     pub fn rotate_270_clockwise(&self) -> Board {
         Board::from_bitboards(
-            bit::rotate_270_clockwise(self.player),
-            bit::rotate_270_clockwise(self.opponent),
+            bitboard::rotate_270_clockwise(self.player),
+            bitboard::rotate_270_clockwise(self.opponent),
         )
     }
 
@@ -353,8 +352,8 @@ impl Board {
     /// A new `Board` instance with the board flipped vertically.
     pub fn flip_vertical(&self) -> Board {
         Board::from_bitboards(
-            bit::flip_vertical(self.player),
-            bit::flip_vertical(self.opponent),
+            bitboard::flip_vertical(self.player),
+            bitboard::flip_vertical(self.opponent),
         )
     }
 
@@ -364,8 +363,8 @@ impl Board {
     /// A new `Board` instance with the board flipped horizontally.
     pub fn flip_horizontal(&self) -> Board {
         Board::from_bitboards(
-            bit::flip_horizontal(self.player),
-            bit::flip_horizontal(self.opponent),
+            bitboard::flip_horizontal(self.player),
+            bitboard::flip_horizontal(self.opponent),
         )
     }
 
@@ -375,8 +374,8 @@ impl Board {
     /// A new `Board` instance with the board flipped along the main diagonal.
     pub fn flip_diag_a1h8(&self) -> Board {
         Board::from_bitboards(
-            bit::flip_diag_a1h8(self.player),
-            bit::flip_diag_a1h8(self.opponent),
+            bitboard::flip_diag_a1h8(self.player),
+            bitboard::flip_diag_a1h8(self.opponent),
         )
     }
 
@@ -386,8 +385,8 @@ impl Board {
     /// A new `Board` instance with the board flipped along the anti-diagonal.
     pub fn flip_diag_a8h1(&self) -> Board {
         Board::from_bitboards(
-            bit::flip_diag_a8h1(self.player),
-            bit::flip_diag_a8h1(self.opponent),
+            bitboard::flip_diag_a8h1(self.player),
+            bitboard::flip_diag_a8h1(self.opponent),
         )
     }
 
