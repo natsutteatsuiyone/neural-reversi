@@ -11,6 +11,9 @@ use crate::eval::pattern_feature::{NUM_FEATURES, PatternFeature};
 use crate::eval::util::{clone_biases, feature_offset};
 use crate::util::align::Align64;
 
+const ACTIVATION_MAX: i16 = 255 * 2;
+const ACTIVATION_SHIFT: u32 = 10;
+
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod simd_layout {
     use std::mem::size_of;
@@ -92,6 +95,7 @@ macro_rules! impl_base_input_apply_activation {
     ) => {
         #[cfg(target_arch = "x86_64")]
         #[target_feature(enable = $target_feature)]
+        #[inline]
         fn $fn_name(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
             use std::arch::x86_64::*;
             use std::mem::size_of;
@@ -100,7 +104,7 @@ macro_rules! impl_base_input_apply_activation {
                 let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
                 const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
                 let num_regs = HIDDEN_DIMS / LANES_PER_REG;
-                let one = $set1(255 * 2);
+                let one = $set1(ACTIVATION_MAX);
                 let zero = $setzero();
                 let mut in0_ptr = acc_ptr;
                 let mut in1_ptr = acc_ptr.add(num_regs / 2);
@@ -147,6 +151,7 @@ macro_rules! impl_phase_input_apply_activation {
     ) => {
         #[cfg(target_arch = "x86_64")]
         #[target_feature(enable = $target_feature)]
+        #[inline]
         fn $fn_name(&self, acc: &[i16; OUTPUT_DIMS], output: &mut [u8]) {
             use std::arch::x86_64::*;
             use std::mem::size_of;
@@ -155,7 +160,7 @@ macro_rules! impl_phase_input_apply_activation {
                 let mut acc_ptr = acc.as_ptr() as *mut $lane_ty;
                 const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
                 let num_regs = OUTPUT_DIMS / LANES_PER_REG;
-                let one = $set1(255 * 2);
+                let one = $set1(ACTIVATION_MAX);
                 let zero = $setzero();
                 let iterations = num_regs / 2;
 
@@ -300,17 +305,10 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     /// Fallback scalar implementation.
     #[allow(dead_code)]
     fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        let mut acc = [0; HIDDEN_DIMS];
+        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
 
         accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
-
-        for i in 0..OUTPUT_DIMS {
-            let sum0 = acc[i] + self.biases[i];
-            let sum1 = acc[i + OUTPUT_DIMS] + self.biases[i + OUTPUT_DIMS];
-            let sum0 = sum0.clamp(0, 255 * 2) as u32;
-            let sum1 = sum1.clamp(0, 255 * 2) as u32;
-            output[i] = ((sum0 * sum1) / 1024) as u8;
-        }
+        apply_base_activation_scalar::<OUTPUT_DIMS, HIDDEN_DIMS>(&acc, output);
     }
 }
 
@@ -440,11 +438,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_scalar::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
-        for i in 0..OUTPUT_DIMS {
-            let v = acc[i] as i32;
-            let v = v.clamp(0, 255 * 2).pow(2) / 1024;
-            output[i] = v as u8;
-        }
+        apply_phase_activation_scalar::<OUTPUT_DIMS>(&acc, output);
     }
 }
 
@@ -454,25 +448,27 @@ macro_rules! impl_accumulate {
         $fn_name:ident,
         $target_feature:literal,
         $lane_ty:ty,
-        load_u = $loadu:path,
         load = $load:path,
         store = $store:path,
         add = $add:path
     ) => {
         #[cfg(target_arch = "x86_64")]
         #[target_feature(enable = $target_feature)]
+        #[inline]
         fn $fn_name<const DIMS: usize>(
             pattern_feature: &PatternFeature,
             weights: &[i16],
             acc: &mut [i16; DIMS],
         ) {
             use std::arch::x86_64::*;
+            use std::mem::size_of;
 
             unsafe {
                 let acc_ptr = acc.as_mut_ptr() as *mut $lane_ty;
-                let lanes_per_reg = size_of::<$lane_ty>() / size_of::<i16>();
-                let num_regs = DIMS / lanes_per_reg;
-                let weights_ptr = weights.as_ptr();
+                const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
+                let num_regs = DIMS / LANES_PER_REG;
+                debug_assert!(DIMS.is_multiple_of(LANES_PER_REG));
+                let weights_ptr = weights.as_ptr() as *const $lane_ty;
 
                 let mut base = 0;
                 while base + 8 <= NUM_FEATURES {
@@ -485,24 +481,24 @@ macro_rules! impl_accumulate {
                     let idx6 = feature_offset(pattern_feature, base + 6);
                     let idx7 = feature_offset(pattern_feature, base + 7);
 
-                    let fw0 = weights_ptr.add(idx0 * DIMS) as *const $lane_ty;
-                    let fw1 = weights_ptr.add(idx1 * DIMS) as *const $lane_ty;
-                    let fw2 = weights_ptr.add(idx2 * DIMS) as *const $lane_ty;
-                    let fw3 = weights_ptr.add(idx3 * DIMS) as *const $lane_ty;
-                    let fw4 = weights_ptr.add(idx4 * DIMS) as *const $lane_ty;
-                    let fw5 = weights_ptr.add(idx5 * DIMS) as *const $lane_ty;
-                    let fw6 = weights_ptr.add(idx6 * DIMS) as *const $lane_ty;
-                    let fw7 = weights_ptr.add(idx7 * DIMS) as *const $lane_ty;
+                    let fw0 = weights_ptr.add(idx0 * num_regs);
+                    let fw1 = weights_ptr.add(idx1 * num_regs);
+                    let fw2 = weights_ptr.add(idx2 * num_regs);
+                    let fw3 = weights_ptr.add(idx3 * num_regs);
+                    let fw4 = weights_ptr.add(idx4 * num_regs);
+                    let fw5 = weights_ptr.add(idx5 * num_regs);
+                    let fw6 = weights_ptr.add(idx6 * num_regs);
+                    let fw7 = weights_ptr.add(idx7 * num_regs);
 
                     for j in 0..num_regs {
-                        let w0 = $loadu(fw0.add(j));
-                        let w1 = $loadu(fw1.add(j));
-                        let w2 = $loadu(fw2.add(j));
-                        let w3 = $loadu(fw3.add(j));
-                        let w4 = $loadu(fw4.add(j));
-                        let w5 = $loadu(fw5.add(j));
-                        let w6 = $loadu(fw6.add(j));
-                        let w7 = $loadu(fw7.add(j));
+                        let w0 = $load(fw0.add(j));
+                        let w1 = $load(fw1.add(j));
+                        let w2 = $load(fw2.add(j));
+                        let w3 = $load(fw3.add(j));
+                        let w4 = $load(fw4.add(j));
+                        let w5 = $load(fw5.add(j));
+                        let w6 = $load(fw6.add(j));
+                        let w7 = $load(fw7.add(j));
 
                         let sum01 = $add(w0, w1);
                         let sum23 = $add(w2, w3);
@@ -527,16 +523,16 @@ macro_rules! impl_accumulate {
                     let idx2 = feature_offset(pattern_feature, base + 2);
                     let idx3 = feature_offset(pattern_feature, base + 3);
 
-                    let fw0 = weights_ptr.add(idx0 * DIMS) as *const $lane_ty;
-                    let fw1 = weights_ptr.add(idx1 * DIMS) as *const $lane_ty;
-                    let fw2 = weights_ptr.add(idx2 * DIMS) as *const $lane_ty;
-                    let fw3 = weights_ptr.add(idx3 * DIMS) as *const $lane_ty;
+                    let fw0 = weights_ptr.add(idx0 * num_regs);
+                    let fw1 = weights_ptr.add(idx1 * num_regs);
+                    let fw2 = weights_ptr.add(idx2 * num_regs);
+                    let fw3 = weights_ptr.add(idx3 * num_regs);
 
                     for j in 0..num_regs {
-                        let w0 = $loadu(fw0.add(j));
-                        let w1 = $loadu(fw1.add(j));
-                        let w2 = $loadu(fw2.add(j));
-                        let w3 = $loadu(fw3.add(j));
+                        let w0 = $load(fw0.add(j));
+                        let w1 = $load(fw1.add(j));
+                        let w2 = $load(fw2.add(j));
+                        let w3 = $load(fw3.add(j));
 
                         let sum = $add($add(w0, w1), $add(w2, w3));
 
@@ -549,9 +545,9 @@ macro_rules! impl_accumulate {
 
                 while base < NUM_FEATURES {
                     let idx = feature_offset(pattern_feature, base);
-                    let feature_weights = weights_ptr.add(idx * DIMS) as *const $lane_ty;
+                    let feature_weights = weights_ptr.add(idx * num_regs);
                     for j in 0..num_regs {
-                        let weight = $loadu(feature_weights.add(j));
+                        let weight = $load(feature_weights.add(j));
                         let acc_val = $load(acc_ptr.add(j));
                         $store(acc_ptr.add(j), $add(acc_val, weight));
                     }
@@ -567,7 +563,6 @@ impl_accumulate!(
     accumulate_avx512,
     "avx512bw",
     __m512i,
-    load_u = _mm512_loadu_si512,
     load = _mm512_load_si512,
     store = _mm512_store_si512,
     add = _mm512_add_epi16
@@ -578,7 +573,6 @@ impl_accumulate!(
     accumulate_avx2,
     "avx2",
     __m256i,
-    load_u = _mm256_loadu_si256,
     load = _mm256_load_si256,
     store = _mm256_store_si256,
     add = _mm256_add_epi16
@@ -592,16 +586,79 @@ impl_accumulate!(
 /// * `pattern_feature` - Sparse feature values indexed by pattern identifier.
 /// * `weights` - Flat weight matrix laid out in feature-major order.
 /// * `acc` - Dense accumulation buffer that will be incremented in-place.
+#[inline(always)]
 fn accumulate_scalar<const DIMS: usize>(
     pattern_feature: &PatternFeature,
     weights: &[i16],
     acc: &mut [i16; DIMS],
 ) {
+    let acc_ptr = acc.as_mut_ptr();
+    let weights_ptr = weights.as_ptr();
     for idx in 0..NUM_FEATURES {
         let offset = feature_offset(pattern_feature, idx);
-        let weights_row = &weights[offset * DIMS..][..DIMS];
-        for (a, w) in acc.iter_mut().zip(weights_row.iter()) {
-            *a += *w;
+        let row_ptr = unsafe { weights_ptr.add(offset * DIMS) };
+        let mut j = 0;
+        unsafe {
+            while j + 4 <= DIMS {
+                let acc_j = acc_ptr.add(j);
+                let row_j = row_ptr.add(j);
+                *acc_j += *row_j;
+                *acc_j.add(1) = *acc_j.add(1) + *row_j.add(1);
+                *acc_j.add(2) = *acc_j.add(2) + *row_j.add(2);
+                *acc_j.add(3) = *acc_j.add(3) + *row_j.add(3);
+                j += 4;
+            }
+
+            while j < DIMS {
+                let acc_j = acc_ptr.add(j);
+                *acc_j += *row_ptr.add(j);
+                j += 1;
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn clamp_activation(value: i16) -> u16 {
+    if value <= 0 {
+        0
+    } else if value >= ACTIVATION_MAX {
+        ACTIVATION_MAX as u16
+    } else {
+        value as u16
+    }
+}
+
+#[inline(always)]
+fn apply_base_activation_scalar<const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize>(
+    acc: &[i16; HIDDEN_DIMS],
+    output: &mut [u8],
+) {
+    debug_assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
+    debug_assert!(output.len() >= OUTPUT_DIMS);
+    let acc_ptr = acc.as_ptr();
+    let out_ptr = output.as_mut_ptr();
+    unsafe {
+        for i in 0..OUTPUT_DIMS {
+            let sum0 = clamp_activation(*acc_ptr.add(i)) as u32;
+            let sum1 = clamp_activation(*acc_ptr.add(i + OUTPUT_DIMS)) as u32;
+            *out_ptr.add(i) = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
+        }
+    }
+}
+
+#[inline(always)]
+fn apply_phase_activation_scalar<const OUTPUT_DIMS: usize>(
+    acc: &[i16; OUTPUT_DIMS],
+    output: &mut [u8],
+) {
+    debug_assert!(output.len() >= OUTPUT_DIMS);
+    let acc_ptr = acc.as_ptr();
+    let out_ptr = output.as_mut_ptr();
+    unsafe {
+        for i in 0..OUTPUT_DIMS {
+            let v = clamp_activation(*acc_ptr.add(i)) as u32;
+            *out_ptr.add(i) = ((v * v) >> ACTIVATION_SHIFT) as u8;
         }
     }
 }
