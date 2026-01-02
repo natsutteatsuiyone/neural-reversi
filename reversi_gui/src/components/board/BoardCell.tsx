@@ -36,7 +36,6 @@ interface BoardCellProps {
   onCellClick: (row: number, col: number) => void;
   analyzeResults: Map<string, AIMoveProgress> | null;
   maxScore: number | null;
-  hintLevel: number;
 }
 
 export const BoardCell = memo(function BoardCell({
@@ -53,7 +52,6 @@ export const BoardCell = memo(function BoardCell({
   onCellClick,
   analyzeResults,
   maxScore,
-  hintLevel,
 }: BoardCellProps) {
   const isLastMove = lastMove?.row === rowIndex && lastMove?.col === colIndex;
   const isAIMoveCell =
@@ -111,8 +109,8 @@ export const BoardCell = memo(function BoardCell({
           colIndex={colIndex}
           analyzeResults={analyzeResults}
           maxScore={maxScore}
-          hintLevel={hintLevel}
           gameOver={gameOver}
+          isValidMoveCell={isValidMoveCell}
         />
       </div>
     </motion.button>

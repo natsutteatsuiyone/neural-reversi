@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use reversi_core::level::get_level;
 use reversi_core::piece::Piece;
-use reversi_core::search::{SearchConstraint, SearchOptions, time_control::TimeControlMode};
+use reversi_core::search::{GamePhase, SearchConstraint, SearchOptions, time_control::TimeControlMode};
 use reversi_core::types::{Scoref, Selectivity};
 use reversi_core::{board, search};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -36,9 +36,11 @@ pub struct SearchProgressPayload {
     pub col: i32,
     pub score: Scoref,
     pub depth: u32,
+    pub target_depth: u32,
     pub acc: i32,
     pub nodes: u64,
     pub pv_line: String,
+    pub is_endgame: bool,
 }
 
 #[tauri::command]
@@ -90,6 +92,7 @@ async fn ai_move_command(
         let callback = move |progress: search::SearchProgress| {
             let payload = SearchProgressPayload {
                 depth: progress.depth,
+                target_depth: progress.target_depth,
                 score: (progress.score * 10.0).round() / 10.0,
                 best_move: format!("{}", progress.best_move),
                 row: (progress.best_move as i32 / 8),
@@ -102,6 +105,7 @@ async fn ai_move_command(
                     .map(|sq| format!("{}", sq))
                     .collect::<Vec<_>>()
                     .join(" "),
+                is_endgame: progress.game_phase == GamePhase::EndGame,
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
@@ -165,6 +169,7 @@ async fn analyze_command(
         let callback = move |progress: search::SearchProgress| {
             let payload = SearchProgressPayload {
                 depth: progress.depth,
+                target_depth: progress.target_depth,
                 score: (progress.score * 10.0).round() / 10.0,
                 best_move: format!("{}", progress.best_move),
                 row: (progress.best_move as i32 / 8),
@@ -177,6 +182,7 @@ async fn analyze_command(
                     .map(|sq| format!("{}", sq))
                     .collect::<Vec<_>>()
                     .join(" "),
+                is_endgame: progress.game_phase == GamePhase::EndGame,
             };
             app.emit("ai-move-progress", payload).unwrap();
         };

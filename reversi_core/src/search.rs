@@ -16,7 +16,7 @@ use crate::board::Board;
 use crate::constants::MAX_THREADS;
 use crate::eval::Eval;
 use crate::level::Level;
-use crate::search::search_context::GamePhase;
+
 use crate::search::search_result::SearchResult;
 use crate::search::threading::{Thread, ThreadPool};
 use crate::search::time_control::{TimeControlMode, TimeManager};
@@ -50,17 +50,20 @@ pub struct SearchTask {
 /// Progress information during search
 pub struct SearchProgress {
     pub depth: Depth,
+    pub target_depth: Depth,
     pub score: Scoref,
     pub best_move: Square,
     pub probability: i32,
     pub nodes: u64,
     pub pv_line: Vec<Square>,
+    pub game_phase: GamePhase,
 }
 
 /// Type alias for search progress callback
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
 pub use options::SearchOptions;
+pub use search_context::GamePhase;
 
 /// Search constraint definition
 pub enum SearchConstraint {
@@ -159,11 +162,13 @@ impl Search {
         if let Some(callback) = callback {
             callback(SearchProgress {
                 depth: result.depth,
+                target_depth: result.depth,
                 score: result.score,
                 probability: result.get_probability(),
                 best_move: result.best_move.unwrap_or(Square::None),
                 nodes: result.n_nodes,
                 pv_line: result.pv_line.clone(),
+                game_phase: result.game_phase,
             });
         }
 

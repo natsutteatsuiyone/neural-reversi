@@ -119,6 +119,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             if let Some(rm) = ctx.get_current_pv_root_move() {
                 ctx.notify_progress(
                     depth,
+                    max_depth,
                     unscale_score_f32(score),
                     rm.sq,
                     ctx.selectivity,

@@ -22,7 +22,6 @@ export function Board() {
   const makeMove = useReversiStore((state) => state.makeMove);
   const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress) as AIMoveProgress | null;
   const analyzeResults = useReversiStore((state) => state.analyzeResults) as Map<string, AIMoveProgress> | null;
-  const hintLevel = useReversiStore((state) => state.hintLevel);
 
   const [moveHistory, setMoveHistory] = useState<MoveHistoryItem[]>([]);
   const [lastAIMove, setLastAIMove] = useState<{ row: number; col: number; timestamp: number } | null>(null);
@@ -147,7 +146,6 @@ export function Board() {
                     onCellClick={onCellClick}
                     analyzeResults={analyzeResults}
                     maxScore={maxScore}
-                    hintLevel={hintLevel}
                   />
                 ))
               )}

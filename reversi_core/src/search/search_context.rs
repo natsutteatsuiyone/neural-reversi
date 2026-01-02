@@ -388,14 +388,17 @@ impl SearchContext {
     ///
     /// # Arguments
     /// * `depth` - Current search depth
+    /// * `target_depth` - Target search depth (max_depth for midgame, n_empties for endgame)
     /// * `score` - Current best score (from engine's perspective)
     /// * `best_move` - Current best move
     /// * `selectivity` - Current selectivity level
     /// * `nodes` - Number of nodes searched
     /// * `pv_line` - Principal variation line
+    #[allow(clippy::too_many_arguments)]
     pub fn notify_progress(
         &self,
         depth: Depth,
+        target_depth: Depth,
         score: Scoref,
         best_move: Square,
         selectivity: Selectivity,
@@ -405,11 +408,13 @@ impl SearchContext {
         if let Some(ref callback) = self.callback {
             callback(SearchProgress {
                 depth,
+                target_depth,
                 score,
                 best_move,
                 probability: selectivity.probability(),
                 nodes,
                 pv_line,
+                game_phase: self.game_phase,
             });
         }
     }

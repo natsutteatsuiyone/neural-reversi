@@ -18,9 +18,11 @@ export type AIMoveProgress = {
   col: number;
   score: number;
   depth: number;
+  targetDepth: number;
   acc: number;
   nodes: number;
   pvLine: string;
+  isEndgame: boolean;
 };
 
 export async function getAIMove(
