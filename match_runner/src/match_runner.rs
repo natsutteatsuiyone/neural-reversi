@@ -6,7 +6,7 @@
 
 use indicatif::ProgressBar;
 
-use crate::config::{Config, TimeControlMode};
+use crate::config::Config;
 use crate::display::DisplayManager;
 use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
@@ -96,9 +96,9 @@ impl MatchRunner {
         let mut engines = self.initialize_engines(config)?;
         let engine_names = self.get_engine_names(&mut engines)?;
 
-        // Create time tracker
+        // Create time tracker (mode is auto-detected from GTP time_settings parameters)
         let mut time_tracker =
-            TimeTracker::new(config.time_control, config.main_time, config.byoyomi_time);
+            TimeTracker::new(config.main_time, config.byoyomi_time, config.byoyomi_stones);
 
         let total_games = openings.len() * 2;
         let mut statistics = MatchStatistics::new();
@@ -194,17 +194,13 @@ impl MatchRunner {
 
             // Send time_left to both engines before move generation
             if time_tracker.is_enabled() {
-                // Byoyomi sends stones=1, Fischer uses stones=0 so the engine treats
-                // the second field as increment instead of a period size.
-                let stones = if matches!(time_tracker.mode(), TimeControlMode::Byoyomi) {
-                    1
-                } else {
-                    0
-                };
-                black_engine.time_left("black", time_tracker.black_time_secs(), stones)?;
-                white_engine.time_left("black", time_tracker.black_time_secs(), stones)?;
-                black_engine.time_left("white", time_tracker.white_time_secs(), stones)?;
-                white_engine.time_left("white", time_tracker.white_time_secs(), stones)?;
+                // GTP time_left uses stones=0 for both byoyomi and Fischer modes.
+                // The engine uses time_settings to determine the time control mode,
+                // and time_left simply updates the remaining time.
+                black_engine.time_left("black", time_tracker.black_time_secs(), 0)?;
+                white_engine.time_left("black", time_tracker.black_time_secs(), 0)?;
+                black_engine.time_left("white", time_tracker.white_time_secs(), 0)?;
+                white_engine.time_left("white", time_tracker.white_time_secs(), 0)?;
             }
 
             // Start timing this move

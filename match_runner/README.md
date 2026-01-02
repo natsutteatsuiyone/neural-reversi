@@ -15,9 +15,20 @@ match_runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <O
 - `-2, --engine2 <ENGINE2>`: Command for the second engine (executable path and arguments) (required)
 - `--engine2-working-dir <ENGINE2_WORKING_DIR>`: Working directory for the second engine
 - `-o, --opening-file <OPENING_FILE>`: File containing opening sequences (required)
-- `--time-control <MODE>`: Time control mode (`none`, `byoyomi`, `fischer`) (default: `none`)
-- `--main-time <SECONDS>`: Main time in seconds for Fischer mode (default: 300)
-- `--byoyomi-time <SECONDS>`: Time per move (byoyomi) or increment (Fischer) in seconds (default: 5)
+- `--main-time <SECONDS>`: Main time in seconds (default: 0)
+- `--byoyomi-time <SECONDS>`: Byoyomi time in seconds (default: 0)
+- `--byoyomi-stones <STONES>`: Byoyomi stones (default: 0)
+
+### Time Control
+
+Time control follows the GTP `time_settings` command format. The mode is automatically determined by the combination of parameters:
+
+| Mode | Parameters | Description |
+|------|------------|-------------|
+| No time control | `--main-time 0 --byoyomi-time 0` | No time limit (default) |
+| Byoyomi | `--main-time 0 --byoyomi-time N` | N seconds per move |
+| Fischer | `--main-time M --byoyomi-time N` | M seconds + N seconds increment per move |
+| Japanese byo-yomi | `--main-time M --byoyomi-time N --byoyomi-stones 1` | M seconds main time, then N seconds per move |
 
 ### Opening File Format
 
@@ -38,7 +49,7 @@ For each opening sequence in the file, two games will be played (with colors swa
 
 ## Examples
 
-### Basic Match
+### Basic Match (No Time Control)
 
 ```bash
 match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 5" --opening-file openings.txt
@@ -55,7 +66,7 @@ match-runner --engine1 "./reversi_cli gtp --level 10" --engine1-working-dir "./e
 Play with 5 seconds per move:
 
 ```bash
-match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 10" --opening-file openings.txt --time-control byoyomi --byoyomi-time 5
+match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --opening-file openings.txt --byoyomi-time 5
 ```
 
 ### Match with Time Control (Fischer)
@@ -63,7 +74,15 @@ match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli g
 Play with 60 seconds main time and 2 seconds increment per move:
 
 ```bash
-match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 10" --opening-file openings.txt --time-control fischer --main-time 60 --byoyomi-time 2
+match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --opening-file openings.txt --main-time 60 --byoyomi-time 2
+```
+
+### Match with Time Control (Japanese Byo-yomi)
+
+Play with 5 minutes main time, then 30 seconds per move:
+
+```bash
+match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --opening-file openings.txt --main-time 300 --byoyomi-time 30 --byoyomi-stones 1
 ```
 
 ## GTP Protocol

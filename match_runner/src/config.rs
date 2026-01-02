@@ -3,30 +3,30 @@
 //! This module handles command-line argument parsing and opening file loading
 //! for the match runner engine testing tool.
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 
-/// Time control mode for matches.
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-pub enum TimeControlMode {
-    /// No time limit
-    #[default]
-    None,
-    /// Fixed time per move (byoyomi/sudden death)
-    Byoyomi,
-    /// Fischer time control (main time + increment per move)
-    Fischer,
-}
-
 /// Configuration for running automated matches between two GTP engines.
 ///
 /// This struct defines all the necessary parameters for setting up and running
 /// a match between two Reversi engines, including engine commands, working directories,
 /// and opening positions.
+///
+/// # Time Control
+///
+/// Time control follows the GTP `time_settings` command format:
+/// `time_settings main_time byo_yomi_time byo_yomi_stones`
+///
+/// The time control mode is automatically determined by the combination of parameters:
+///
+/// - No time control: `--main-time 0 --byoyomi-time 0`
+/// - Pure byoyomi (fixed time per move): `--main-time 0 --byoyomi-time N --byoyomi-stones 0`
+/// - Fischer (main time + increment): `--main-time M --byoyomi-time N --byoyomi-stones 0`
+/// - Japanese byo-yomi: `--main-time M --byoyomi-time N --byoyomi-stones 1`
 #[derive(Parser, Debug)]
 #[command(
     author,
@@ -54,17 +54,17 @@ pub struct Config {
     #[arg(short, long, required = true)]
     pub opening_file: PathBuf,
 
-    /// Time control mode (none, byoyomi, fischer)
-    #[arg(long, value_enum, default_value_t = TimeControlMode::None)]
-    pub time_control: TimeControlMode,
-
-    /// Main time in seconds (for fischer mode)
-    #[arg(long, default_value_t = 300)]
+    /// Main time in seconds (0 for no main time, starts in byoyomi)
+    #[arg(long, default_value_t = 0)]
     pub main_time: u64,
 
-    /// Time per move in seconds (for byoyomi mode) or increment (for fischer mode)
-    #[arg(long, default_value_t = 5)]
+    /// Byoyomi time in seconds (time per move or increment depending on byoyomi-stones)
+    #[arg(long, default_value_t = 0)]
     pub byoyomi_time: u64,
+
+    /// Byoyomi stones (0: time is increment/per-move, 1+: stones per byoyomi period)
+    #[arg(long, default_value_t = 0)]
+    pub byoyomi_stones: u32,
 }
 
 impl Config {
@@ -261,9 +261,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
-            time_control: TimeControlMode::None,
-            main_time: 300,
-            byoyomi_time: 5,
+            main_time: 0,
+            byoyomi_time: 0,
+            byoyomi_stones: 0,
         };
 
         let (program, args) = config.parse_engine_command("./reversi_cli --level 10");
@@ -280,9 +280,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
-            time_control: TimeControlMode::None,
-            main_time: 300,
-            byoyomi_time: 5,
+            main_time: 0,
+            byoyomi_time: 0,
+            byoyomi_stones: 0,
         };
 
         // Test with quotes (behavior varies by platform)
@@ -304,9 +304,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
-            time_control: TimeControlMode::None,
-            main_time: 300,
-            byoyomi_time: 5,
+            main_time: 0,
+            byoyomi_time: 0,
+            byoyomi_stones: 0,
         };
 
         let (program, args) = config.parse_engine_command("");
@@ -323,9 +323,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
-            time_control: TimeControlMode::None,
-            main_time: 300,
-            byoyomi_time: 5,
+            main_time: 0,
+            byoyomi_time: 0,
+            byoyomi_stones: 0,
         };
 
         // Test Windows path with spaces
@@ -351,9 +351,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
-            time_control: TimeControlMode::None,
-            main_time: 300,
-            byoyomi_time: 5,
+            main_time: 0,
+            byoyomi_time: 0,
+            byoyomi_stones: 0,
         };
 
         // Test simple backslash path
@@ -376,9 +376,9 @@ mod tests {
             engine1_working_dir: None,
             engine2_working_dir: None,
             opening_file: PathBuf::from("test_openings.txt"),
-            time_control: TimeControlMode::None,
-            main_time: 300,
-            byoyomi_time: 5,
+            main_time: 0,
+            byoyomi_time: 0,
+            byoyomi_stones: 0,
         };
 
         // Test escaped spaces (shell-style) - shlex interprets the escape
