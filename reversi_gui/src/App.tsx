@@ -34,7 +34,7 @@ function App() {
   useEffect(() => {
     const initApp = async () => {
       const settings = await loadSettings();
-      setGameMode(settings.gameMode as "ai-black" | "ai-white");
+      setGameMode("ai-white"); // Always start with player black / AI white
       setAILevelChange(settings.aiLevel);
       setAIMode(settings.aiMode as "level" | "time" | "game-time");
       setTimeLimit(settings.timeLimit);
