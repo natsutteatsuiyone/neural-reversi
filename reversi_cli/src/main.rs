@@ -1,6 +1,7 @@
 mod game;
 mod gtp;
 mod solve;
+mod tui;
 mod ui;
 
 use std::path::{Path, PathBuf};

@@ -46,6 +46,7 @@ impl GameState {
     ///
     /// # Returns
     /// A new `GameState` with the specified position
+    #[allow(dead_code)]
     pub fn from_board(board: Board, side_to_move: Piece) -> Self {
         Self {
             core: game_state::GameState::from_board(board, side_to_move),
@@ -161,9 +162,49 @@ impl GameState {
         self.core.undo()
     }
 
+    /// Returns the last move played.
+    ///
+    /// # Returns
+    /// `Some(Square)` if a regular move was played, `None` if the last move was a pass
+    /// or if no moves have been played yet
+    pub fn last_move(&self) -> Option<Square> {
+        self.core.last_move()
+    }
+
+    /// Returns the disc count for both players.
+    ///
+    /// # Returns
+    /// A tuple `(black_count, white_count)` representing the number of
+    /// discs each player has on the board
+    pub fn get_score(&self) -> (u32, u32) {
+        self.core.get_score()
+    }
+
+    /// Checks if the game has ended.
+    ///
+    /// # Returns
+    /// `true` if the game is over, `false` otherwise
+    #[allow(dead_code)]
+    pub fn is_game_over(&self) -> bool {
+        self.core.is_game_over()
+    }
+
+    /// Returns the move history as a list of squares.
+    ///
+    /// # Returns
+    /// A vector of moves played (excluding passes)
+    pub fn get_move_history(&self) -> Vec<Square> {
+        self.core
+            .move_history()
+            .iter()
+            .filter_map(|(sq, _, _)| *sq)
+            .collect()
+    }
+
     /// Prints a colored representation of the board to the terminal.
     ///
     /// This is designed for human players using a terminal interface.
+    #[allow(dead_code)]
     pub fn print(&self) {
         let board = self.core.board();
         let side_to_move = self.core.side_to_move();
