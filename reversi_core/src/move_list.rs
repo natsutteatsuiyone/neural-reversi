@@ -9,7 +9,6 @@ use crate::board::Board;
 use crate::flip;
 use crate::probcut;
 use crate::search::midgame;
-use crate::search::node_type::NodeType;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
@@ -158,11 +157,7 @@ impl MoveList {
     /// * `board` - Current position before making any move
     /// * `depth` - Remaining search depth at this node
     /// * `tt_move` - Best move from transposition table (if any)
-    ///
-    /// # Type Parameters
-    ///
-    /// * `NT` - Node type affecting evaluation depth and strategy
-    pub fn evaluate_moves<NT: NodeType>(
+    pub fn evaluate_moves(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,

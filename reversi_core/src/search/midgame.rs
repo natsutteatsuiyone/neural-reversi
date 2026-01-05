@@ -380,7 +380,7 @@ pub fn search<NT: NodeType>(
     }
 
     if move_list.count() > 1 {
-        move_list.evaluate_moves::<NT>(ctx, board, depth, tt_move);
+        move_list.evaluate_moves(ctx, board, depth, tt_move);
         move_list.sort();
     }
 
