@@ -1,6 +1,6 @@
 use crate::search::node_type::NodeType;
 use crate::square::Square;
-use crate::types::{Depth, Score, Selectivity};
+use crate::types::{Depth, ScaledScore, Selectivity};
 use aligned_vec::{AVec, ConstAlign};
 use cfg_if::cfg_if;
 use std::{
@@ -40,7 +40,7 @@ impl Bound {
     ///
     /// * `NT` - Node type (PV or non-PV) that affects bound determination
     #[inline]
-    pub fn determine_bound<NT: NodeType>(best_score: Score, alpha: Score, beta: Score) -> Bound {
+    pub fn determine_bound<NT: NodeType>(best_score: i32, alpha: i32, beta: i32) -> Bound {
         if best_score >= beta {
             return Bound::Lower;
         }
@@ -132,8 +132,9 @@ impl TTEntryData {
     }
 
     #[inline(always)]
-    pub fn score(&self) -> Score {
-        ((self.raw >> TTEntry::SCORE_SHIFT) & TTEntry::SCORE_MASK) as i16 as Score
+    pub fn score(&self) -> ScaledScore {
+        let raw = ((self.raw >> TTEntry::SCORE_SHIFT) & TTEntry::SCORE_MASK) as i16 as i32;
+        ScaledScore::new(raw)
     }
 
     #[inline(always)]
@@ -171,7 +172,7 @@ impl TTEntryData {
 
     /// Determines whether a cutoff should occur based on the bound and beta value.
     #[inline(always)]
-    pub fn can_cut(&self, beta: Score) -> bool {
+    pub fn can_cut(&self, beta: ScaledScore) -> bool {
         let score = self.score();
         let bound_raw = ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) as u8;
 
@@ -265,7 +266,7 @@ impl TTEntry {
     fn pack(
         &self,
         key: u32,
-        score: Score,
+        score: ScaledScore,
         best_move: u8,
         bound: u8,
         depth: u8,
@@ -274,7 +275,7 @@ impl TTEntry {
         is_endgame: bool,
     ) {
         let data = key as u64
-            | (((score as u16) as u64) << Self::SCORE_SHIFT)
+            | (((score.value() as u16) as u64) << Self::SCORE_SHIFT)
             | ((best_move as u64) << Self::BEST_MOVE_SHIFT)
             | ((bound as u64) << Self::BOUND_SHIFT)
             | ((depth as u64) << Self::DEPTH_SHIFT)
@@ -313,7 +314,7 @@ impl TTEntry {
     pub fn save(
         &self,
         key: u64,
-        score: Score,
+        score: ScaledScore,
         bound: Bound,
         depth: Depth,
         best_move: Square,
@@ -625,7 +626,7 @@ impl TranspositionTable {
         &self,
         entry_index: usize,
         key: u64,
-        score: Score,
+        score: ScaledScore,
         bound: Bound,
         depth: Depth,
         best_move: Square,
@@ -688,7 +689,7 @@ mod tests {
     fn store_entry(
         tt: &TranspositionTable,
         key: u64,
-        score: Score,
+        score: ScaledScore,
         bound: Bound,
         depth: Depth,
         best_move: usize,
@@ -727,7 +728,7 @@ mod tests {
     fn test_ttentry_store_and_read() {
         let entry = TTEntry::default();
         let test_key: u64 = 42;
-        let test_score: Score = -64;
+        let test_score = ScaledScore::from_disc_diff(-64);
         let test_bound = Bound::Exact;
         let test_depth: Depth = 60;
         let test_best_move = sq(3);
@@ -762,8 +763,8 @@ mod tests {
 
         // Test maximum values for each field
         let max_key: u64 = 0x3FFFFF; // 22 bits
-        let max_score: Score = 32767; // Max i16
-        let min_score: Score = -32768; // Min i16
+        let max_score = ScaledScore::new(32767); // Max i16
+        let min_score = ScaledScore::new(-32768); // Min i16
         let max_depth: Depth = 63; // 6 bits
         let max_best_move = sq(63); // 7 bits (0-63 squares)
         let max_generation: u8 = 127; // 7 bits
@@ -819,7 +820,7 @@ mod tests {
         // Initial save
         entry.save(
             100,
-            50,
+            ScaledScore::new(50),
             Bound::Lower,
             10,
             sq(5),
@@ -834,7 +835,7 @@ mod tests {
         // Try to replace with slightly shallower depth (within 2 plies) - should replace
         entry.save(
             100,
-            60,
+            ScaledScore::new(60),
             Bound::Lower,
             8,
             sq(6),
@@ -844,12 +845,12 @@ mod tests {
         );
         let data = entry.unpack();
         assert_eq!(data.depth(), 8); // Replacement allowed within 2 plies
-        assert_eq!(data.score(), 60); // New value should be stored
+        assert_eq!(data.score().value(), 60); // New value should be stored
 
         // Replace with deeper depth - should replace
         entry.save(
             100,
-            70,
+            ScaledScore::new(70),
             Bound::Lower,
             12,
             sq(7),
@@ -859,12 +860,12 @@ mod tests {
         );
         let data = entry.unpack();
         assert_eq!(data.depth(), 12);
-        assert_eq!(data.score(), 70);
+        assert_eq!(data.score().value(), 70);
 
         // Replace with exact bound - should always replace
         entry.save(
             100,
-            80,
+            ScaledScore::new(80),
             Bound::Exact,
             5,
             sq(8),
@@ -874,13 +875,13 @@ mod tests {
         );
         let data = entry.unpack();
         assert_eq!(data.depth(), 5);
-        assert_eq!(data.score(), 80);
+        assert_eq!(data.score().value(), 80);
         assert_eq!(data.bound(), Bound::Exact);
 
         // Different key - should replace
         entry.save(
             200,
-            90,
+            ScaledScore::new(90),
             Bound::Upper,
             3,
             sq(9),
@@ -890,12 +891,12 @@ mod tests {
         );
         let data = entry.unpack();
         assert_eq!(data.key(), 200);
-        assert_eq!(data.score(), 90);
+        assert_eq!(data.score().value(), 90);
 
         // Newer generation - should replace
         entry.save(
             200,
-            100,
+            ScaledScore::new(100),
             Bound::Lower,
             2,
             sq(10),
@@ -905,7 +906,7 @@ mod tests {
         );
         let data = entry.unpack();
         assert_eq!(data.generation(), 5);
-        assert_eq!(data.score(), 100);
+        assert_eq!(data.score().value(), 100);
     }
 
     /// Tests Bound::determine_bound for different node types.
@@ -925,6 +926,7 @@ mod tests {
     /// Tests TTEntryData methods.
     #[test]
     fn test_ttentry_data_methods() {
+        let s = |v| ScaledScore::new(v);
         // Construct a TTEntry to test TTEntryData via unpack
         let entry = TTEntry::default();
 
@@ -933,7 +935,7 @@ mod tests {
 
         entry.save(
             0,
-            0,
+            s(0),
             Bound::Lower,
             0,
             Square::None,
@@ -945,7 +947,7 @@ mod tests {
 
         entry.save(
             0,
-            0,
+            s(0),
             Bound::Upper,
             0,
             Square::None,
@@ -957,7 +959,7 @@ mod tests {
 
         entry.save(
             0,
-            0,
+            s(0),
             Bound::Exact,
             0,
             Square::None,
@@ -973,7 +975,7 @@ mod tests {
         // Test can_cut
         entry.save(
             0,
-            100,
+            s(100),
             Bound::Lower,
             0,
             Square::None,
@@ -981,12 +983,12 @@ mod tests {
             0,
             false,
         );
-        assert!(entry.unpack().can_cut(50)); // score >= beta, lower bound
-        assert!(!entry.unpack().can_cut(150)); // score < beta, lower bound
+        assert!(entry.unpack().can_cut(s(50))); // score >= beta, lower bound
+        assert!(!entry.unpack().can_cut(s(150))); // score < beta, lower bound
 
         entry.save(
             0,
-            30,
+            s(30),
             Bound::Upper,
             0,
             Square::None,
@@ -994,12 +996,12 @@ mod tests {
             0,
             false,
         );
-        assert!(entry.unpack().can_cut(50)); // score < beta, upper bound
-        assert!(!entry.unpack().can_cut(20)); // score >= beta, upper bound
+        assert!(entry.unpack().can_cut(s(50))); // score < beta, upper bound
+        assert!(!entry.unpack().can_cut(s(20))); // score >= beta, upper bound
 
         entry.save(
             0,
-            30,
+            s(30),
             Bound::Exact,
             0,
             Square::None,
@@ -1007,13 +1009,13 @@ mod tests {
             0,
             false,
         );
-        assert!(entry.unpack().can_cut(50)); // exact bound matches both
-        assert!(entry.unpack().can_cut(20));
+        assert!(entry.unpack().can_cut(s(50))); // exact bound matches both
+        assert!(entry.unpack().can_cut(s(20)));
 
         // Test relative_age
         entry.save(
             0,
-            0,
+            s(0),
             Bound::Exact,
             0,
             Square::None,
@@ -1056,7 +1058,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            100,
+            ScaledScore::new(100),
             Bound::Exact,
             20,
             sq(10),
@@ -1069,7 +1071,7 @@ mod tests {
         assert!(result.is_hit());
         let d = result.data().unwrap();
         assert_eq!(d.key(), (key & TTEntry::KEY_MASK) as u32);
-        assert_eq!(d.score(), 100);
+        assert_eq!(d.score().value(), 100);
         assert_eq!(d.bound(), Bound::Exact);
         assert_eq!(d.depth(), 20);
         assert_eq!(d.best_move(), sq(10));
@@ -1093,7 +1095,7 @@ mod tests {
             tt.store(
                 target_cluster + i,
                 *key,
-                i as Score * 10,
+                ScaledScore::new(i as i32 * 10),
                 Bound::Lower,
                 depth,
                 sq(i),
@@ -1111,7 +1113,7 @@ mod tests {
         tt.store(
             replace_idx,
             new_key,
-            999,
+            ScaledScore::new(999),
             Bound::Exact,
             50,
             sq(20),
@@ -1121,7 +1123,7 @@ mod tests {
 
         let result = tt.probe(new_key);
         assert!(result.is_hit());
-        assert_eq!(result.data().unwrap().score(), 999);
+        assert_eq!(result.data().unwrap().score().value(), 999);
     }
 
     /// Tests generation-based aging in replacement.
@@ -1137,7 +1139,7 @@ mod tests {
             tt.store(
                 target_cluster + i,
                 *key,
-                100 + i as Score,
+                ScaledScore::new(100 + i as i32),
                 Bound::Lower,
                 depth,
                 sq(i),
@@ -1160,7 +1162,7 @@ mod tests {
         tt.store(
             replace_idx,
             new_key,
-            200,
+            ScaledScore::new(200),
             Bound::Exact,
             10,
             sq(20),
@@ -1185,7 +1187,7 @@ mod tests {
             store_entry(
                 &tt,
                 key,
-                i as Score * 10,
+                ScaledScore::new(i as i32 * 10),
                 Bound::Exact,
                 20,
                 i as usize,

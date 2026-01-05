@@ -3,13 +3,13 @@ use std::rc::Rc;
 
 use reversi_core::{
     board::Board,
-    constants::{MAX_PLY, SCORE_INF},
+    constants::MAX_PLY,
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
     search::{root_move::RootMove, search_context::StackRecord, side_to_move::SideToMove},
     square::Square,
     transposition_table::TranspositionTable,
-    types::{Depth, Score, Scoref, Selectivity},
+    types::{Depth, ScaledScore, Scoref, Selectivity},
 };
 
 use crate::{eval::Eval, move_list::MoveList};
@@ -178,7 +178,13 @@ impl SearchContext {
     /// * `score` - The score returned from searching this move
     /// * `move_count` - Which move this is in the search order (1-based)
     /// * `alpha` - The current alpha bound
-    pub fn update_root_move(&mut self, sq: Square, score: Score, move_count: usize, alpha: Score) {
+    pub fn update_root_move(
+        &mut self,
+        sq: Square,
+        score: ScaledScore,
+        move_count: usize,
+        alpha: ScaledScore,
+    ) {
         let is_pv = move_count == 1 || score > alpha;
         if is_pv {
             self.update_pv(sq);
@@ -186,7 +192,7 @@ impl SearchContext {
 
         let ply = self.ply();
         let rm = self.root_moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
-        rm.average_score = if rm.average_score == -SCORE_INF {
+        rm.average_score = if rm.average_score == -ScaledScore::INF {
             score
         } else {
             (rm.average_score + score) / 2
@@ -202,7 +208,7 @@ impl SearchContext {
                 rm.pv.push(*sq);
             }
         } else {
-            rm.score = -SCORE_INF;
+            rm.score = -ScaledScore::INF;
         }
     }
 

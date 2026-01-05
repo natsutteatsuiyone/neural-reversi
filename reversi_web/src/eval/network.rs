@@ -3,11 +3,10 @@ use std::io::{self, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 use reversi_core::{
     board::Board,
-    constants::{MID_SCORE_MAX, MID_SCORE_MIN},
     eval::pattern_feature::{
         INPUT_FEATURE_DIMS, NUM_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature,
     },
-    types::Score,
+    types::ScaledScore,
 };
 
 const NN_DIMS: usize = 256;
@@ -127,7 +126,12 @@ impl Network {
         })
     }
 
-    pub fn evaluate(&self, _board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
+    pub fn evaluate(
+        &self,
+        _board: &Board,
+        pattern_feature: &PatternFeature,
+        ply: usize,
+    ) -> ScaledScore {
         let output_layer = &self.output_layers[ply];
         let score: i32;
 
@@ -141,7 +145,8 @@ impl Network {
             score = self.forward_scalar(pattern_feature, &self.input_layer, output_layer);
         }
 
-        (score >> OUTPUT_WEIGHT_SCALE_BITS).clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
+        let score = ScaledScore::new(score >> OUTPUT_WEIGHT_SCALE_BITS);
+        score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]

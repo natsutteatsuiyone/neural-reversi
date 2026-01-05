@@ -22,7 +22,7 @@ use crate::search::threading::{Thread, ThreadPool};
 use crate::search::time_control::{TimeControlMode, TimeManager};
 use crate::square::Square;
 use crate::transposition_table::{Bound, TranspositionTable};
-use crate::types::{Depth, Score, Scoref, Selectivity};
+use crate::types::{Depth, ScaledScore, Scoref, Selectivity};
 use crate::{move_list, probcut, stability};
 
 /// Main search engine structure
@@ -110,9 +110,6 @@ impl Search {
     where
         F: Fn(SearchProgress) + Send + Sync + 'static,
     {
-        use crate::constants::SCORE_INF;
-        use crate::types::Scoref;
-
         let callback = callback.map(|f| Arc::new(f) as Arc<SearchProgressCallback>);
 
         // Configure time manager and level based on constraint
@@ -150,7 +147,7 @@ impl Search {
 
         // Fallback to quick_move if score is invalid
         // This can happen when search is aborted before completing any iteration
-        if result.score == (-SCORE_INF) as Scoref {
+        if result.score == (-ScaledScore::INF).to_disc_diff_f32() {
             let fallback = self.quick_move(board);
             result.score = fallback.score;
             if result.best_move.is_none() {
@@ -257,7 +254,6 @@ impl Search {
     /// SearchResult with the best move found by shallow evaluation
     pub fn quick_move(&self, board: &Board) -> SearchResult {
         use crate::bitboard::BitboardIterator;
-        use crate::constants::{SCORE_INF, unscale_score_f32};
         use crate::flip;
 
         let moves = board.get_moves();
@@ -276,7 +272,7 @@ impl Search {
         }
 
         let mut best_move = Square::None;
-        let mut best_score = -SCORE_INF;
+        let mut best_score = -ScaledScore::INF;
 
         // Evaluate each move with depth-1 search
         for sq in BitboardIterator::new(moves) {
@@ -293,7 +289,7 @@ impl Search {
         }
 
         SearchResult {
-            score: unscale_score_f32(best_score),
+            score: best_score.to_disc_diff_f32(),
             best_move: Some(best_move),
             n_nodes: BitboardIterator::new(moves).count() as u64,
             pv_line: vec![best_move],
@@ -329,10 +325,10 @@ fn enhanced_transposition_cutoff(
     board: &Board,
     move_list: &move_list::MoveList,
     depth: u32,
-    alpha: Score,
+    alpha: ScaledScore,
     tt_key: u64,
     tt_entry_index: usize,
-) -> Option<Score> {
+) -> Option<ScaledScore> {
     let etc_depth = depth - 1;
     for mv in move_list.iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);

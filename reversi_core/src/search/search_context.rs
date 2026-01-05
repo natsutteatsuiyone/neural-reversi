@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::board::Board;
 use crate::constants::MAX_PLY;
-use crate::constants::SCORE_INF;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
@@ -15,7 +14,7 @@ use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, Score, Scoref, Selectivity};
+use crate::types::{Depth, ScaledScore, Scoref, Selectivity};
 
 /// Represents the current phase of the game for search strategy selection.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -236,7 +235,13 @@ impl SearchContext {
     /// * `score` - The score returned from searching this move
     /// * `move_count` - Which move this is in the search order (1-based)
     /// * `alpha` - The current alpha bound
-    pub fn update_root_move(&mut self, sq: Square, score: Score, move_count: usize, alpha: Score) {
+    pub fn update_root_move(
+        &mut self,
+        sq: Square,
+        score: ScaledScore,
+        move_count: usize,
+        alpha: ScaledScore,
+    ) {
         let is_pv = move_count == 1 || score > alpha;
         if is_pv {
             self.update_pv(sq);
@@ -244,7 +249,7 @@ impl SearchContext {
 
         let mut root_moves = self.root_moves.lock().unwrap();
         let rm = root_moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
-        rm.average_score = if rm.average_score == -SCORE_INF {
+        rm.average_score = if rm.average_score == -ScaledScore::INF {
             score
         } else {
             (rm.average_score + score) / 2
@@ -261,7 +266,7 @@ impl SearchContext {
                 rm.pv.push(*sq);
             }
         } else {
-            rm.score = -SCORE_INF;
+            rm.score = -ScaledScore::INF;
         }
     }
 

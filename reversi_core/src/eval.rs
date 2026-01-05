@@ -18,7 +18,7 @@ pub use network_small::NetworkSmall;
 
 use crate::board::Board;
 use crate::search::search_context::{GamePhase, SearchContext};
-use crate::types::Score;
+use crate::types::{ScaledScore, Score};
 
 macro_rules! eval_main_weights_literal {
     () => {
@@ -121,7 +121,7 @@ impl Eval {
     /// # Returns
     ///
     /// The evaluation score of the current position.
-    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> Score {
+    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
         if ctx.game_phase == GamePhase::MidGame || ctx.ply() < 30 {
             let key = board.hash();
             if let Some(score_cache) = self.cache.probe(key) {
@@ -152,15 +152,13 @@ impl Eval {
     /// # Returns
     ///
     /// The evaluation score of the current position.
-    pub fn evaluate_simple(&self, board: &Board) -> Score {
-        use crate::constants::scale_score;
-
+    pub fn evaluate_simple(&self, board: &Board) -> ScaledScore {
         let n_empties = board.get_empty_count() as usize;
         if n_empties == 0 {
             // Game is over - calculate final disc difference
             // Formula: player_count * 2 - 64 (same as calculate_final_score)
             let final_score = board.get_player_count() as Score * 2 - 64;
-            return scale_score(final_score);
+            return ScaledScore::from_disc_diff(final_score);
         }
 
         let ply = 60 - n_empties;

@@ -1,11 +1,11 @@
 //! Rendering logic for the TUI.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Frame,
 };
 use reversi_core::piece::Piece;
 

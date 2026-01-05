@@ -6,14 +6,13 @@ use std::sync::atomic;
 
 use crate::bitboard::{BitboardIterator, corner_weighted_count, get_corner_stability};
 use crate::board::Board;
-use crate::constants::{EVAL_SCORE_SCALE, SCORE_INF};
 use crate::flip;
 use crate::probcut;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::square::Square;
-use crate::types::Depth;
+use crate::types::{Depth, ScaledScore};
 
 /// Maximum number of moves possible in a Reversi position.
 const MAX_MOVES: usize = 34;
@@ -211,7 +210,7 @@ impl MoveList {
         let mut sort_depth = (depth as i32 - 15) / 3;
         sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
 
-        let mut best_sort_value = -SCORE_INF;
+        let mut best_sort_value = i32::MIN;
 
         for mv in self.iter_mut() {
             if mv.flipped == board.opponent {
@@ -225,19 +224,20 @@ impl MoveList {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
 
-                mv.value = match sort_depth {
+                let score = match sort_depth {
                     0 => -midgame::evaluate(ctx, &next),
-                    1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
-                    2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
+                    1 => -midgame::evaluate_depth1(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
+                    2 => -midgame::evaluate_depth2(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
                     _ => unreachable!(),
                 };
+                mv.value = score.value();
 
                 ctx.undo(mv.sq);
                 best_sort_value = best_sort_value.max(mv.value);
             };
         }
 
-        if best_sort_value == -SCORE_INF || !ctx.selectivity.is_enabled() {
+        if best_sort_value == i32::MIN || !ctx.selectivity.is_enabled() {
             return;
         }
 
@@ -289,15 +289,16 @@ impl MoveList {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
 
-                mv.value = match sort_depth {
+                let score = match sort_depth {
                     0 => -midgame::evaluate(ctx, &next),
-                    1 => -midgame::evaluate_depth1(ctx, &next, -SCORE_INF, SCORE_INF),
-                    2 => -midgame::evaluate_depth2(ctx, &next, -SCORE_INF, SCORE_INF),
+                    1 => -midgame::evaluate_depth1(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
+                    2 => -midgame::evaluate_depth2(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
                     _ => unreachable!(),
                 };
+                mv.value = score.value();
 
-                const MOBILITY_SCALE: i32 = EVAL_SCORE_SCALE * 2;
-                const POTENTIAL_MOBILITY_SCALE: i32 = EVAL_SCORE_SCALE;
+                const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
+                const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
 
                 let (moves, potential) = next.get_moves_and_potential();
                 let mobility = corner_weighted_count(moves) as i32;

@@ -2,12 +2,13 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 
 use reversi_core::board::Board;
-use reversi_core::constants::{SCORE_INF, SCORE_MAX, scale_score, unscale_score};
+use reversi_core::constants::{SCORE_INF, SCORE_MAX};
 use reversi_core::count_last_flip::count_last_flip;
 use reversi_core::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
 use reversi_core::search::node_type::NonPV;
 use reversi_core::square::Square;
 use reversi_core::transposition_table::Bound;
+use reversi_core::types::ScaledScore;
 use reversi_core::types::{Depth, Score, Selectivity};
 use reversi_core::{bitboard, stability};
 
@@ -73,9 +74,9 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     if let Some(tt_data) = tt_probe_result.data()
         && tt_data.depth() >= n_empties
         && tt_data.selectivity() >= ctx.selectivity
-        && tt_data.can_cut(scale_score(beta))
+        && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
     {
-        return unscale_score(tt_data.score());
+        return tt_data.score().to_disc_diff();
     }
 
     let mut best_score = -SCORE_INF;
@@ -118,7 +119,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     ctx.tt.store(
         tt_probe_result.index(),
         tt_key,
-        scale_score(best_score),
+        ScaledScore::new(best_score),
         Bound::determine_bound::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,

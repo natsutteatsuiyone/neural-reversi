@@ -2,9 +2,8 @@ use std::sync::OnceLock;
 
 use reversi_core::{
     board::Board,
-    constants::{MID_SCORE_MAX, scale_score},
     search::node_type::NonPV,
-    types::{Depth, Score, Selectivity},
+    types::{Depth, ScaledScore, Selectivity},
 };
 
 use crate::search::{self, search_context::SearchContext};
@@ -40,7 +39,7 @@ const MAX_DEPTH: usize = 60;
 type MeanTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 type SigmaTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 
-const SCORE_SCALE_F64: f64 = scale_score(1) as f64;
+const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
 
 static MEAN_TABLE: OnceLock<Box<MeanTable>> = OnceLock::new();
 static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
@@ -140,8 +139,8 @@ pub fn probcut_midgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: Score,
-) -> Option<Score> {
+    beta: ScaledScore,
+) -> Option<ScaledScore> {
     if depth >= 3 && ctx.selectivity.is_enabled() {
         let ply = ctx.ply();
         let pc_depth = determine_probcut_depth(depth);
@@ -153,9 +152,10 @@ pub fn probcut_midgame(
         let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
         let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
 
-        let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
-        let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
-        if eval_score >= eval_beta && pc_beta < MID_SCORE_MAX {
+        let beta_raw = beta.value() as f64;
+        let eval_beta = ScaledScore::new((beta_raw - eval_sigma - eval_mean).floor() as i32);
+        let pc_beta = ScaledScore::new((beta_raw + t * sigma - mean).ceil() as i32);
+        if eval_score >= eval_beta && pc_beta < ScaledScore::MAX {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested ProbCut
             let score = search::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta);

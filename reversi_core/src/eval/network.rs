@@ -5,13 +5,12 @@ use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 use crate::board::Board;
-use crate::constants::{MID_SCORE_MAX, MID_SCORE_MIN};
 use crate::eval::activations::{clipped_relu, screlu, sqr_clipped_relu};
 use crate::eval::input_layer::{BaseInput, PhaseAdaptiveInput};
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::output_layer::OutputLayer;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
-use crate::types::Score;
+use crate::types::ScaledScore;
 use crate::util::align::Align64;
 use crate::util::ceil_to_multiple;
 
@@ -156,13 +155,18 @@ impl Network {
     /// * `board` - The current board state
     /// * `pattern_feature` - Extracted pattern features from the board
     /// * `ply` - Current game ply (move number)
-    pub fn evaluate(&self, board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
+    pub fn evaluate(
+        &self,
+        board: &Board,
+        pattern_feature: &PatternFeature,
+        ply: usize,
+    ) -> ScaledScore {
         let mobility = board.get_moves().count_ones();
 
         NETWORK_BUFFERS.with(|buffers| {
             let mut buffers = buffers.borrow_mut();
             let score = self.forward(&mut buffers, pattern_feature, mobility as u8, ply);
-            score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
+            score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
         })
     }
 
@@ -173,7 +177,7 @@ impl Network {
         pattern_feature: &PatternFeature,
         mobility: u8,
         ply: usize,
-    ) -> Score {
+    ) -> ScaledScore {
         self.forward_input_base(buffers, pattern_feature);
         self.forward_input_pa(buffers, pattern_feature, ply);
         let mobility_scaled = mobility.saturating_mul(MOBILITY_SCALE);
@@ -239,13 +243,13 @@ impl Network {
     }
 
     #[inline(always)]
-    fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> Score {
+    fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> ScaledScore {
         let segments = [
             &buffers.l2_out[..L2_OUTPUT_DIMS],
             &buffers.base_out[..BASE_OUTPUT_DIMS],
             &buffers.pa_out[..PA_OUTPUT_DIMS],
         ];
 
-        ls.lo.forward(segments) >> OUTPUT_WEIGHT_SCALE_BITS
+        ScaledScore::new(ls.lo.forward(segments) >> OUTPUT_WEIGHT_SCALE_BITS)
     }
 }

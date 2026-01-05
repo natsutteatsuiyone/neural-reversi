@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use reversi_core::level::get_level;
 use reversi_core::piece::Piece;
-use reversi_core::search::{GamePhase, SearchConstraint, SearchOptions, time_control::TimeControlMode};
+use reversi_core::search::{
+    GamePhase, SearchConstraint, SearchOptions, time_control::TimeControlMode,
+};
 use reversi_core::types::{Scoref, Selectivity};
 use reversi_core::{board, search};
 use tauri::{AppHandle, Emitter, Manager, State};

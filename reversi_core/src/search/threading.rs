@@ -22,7 +22,7 @@ use crate::search::side_to_move::SideToMove;
 use crate::search::{self, SearchTask, endgame, midgame, time_control::TimeManager};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, Score, Selectivity};
+use crate::types::{Depth, ScaledScore, Selectivity};
 use crate::util::bitset::AtomicBitSet;
 use crate::util::spinlock;
 
@@ -44,7 +44,7 @@ pub struct SplitPointState {
     alpha: AtomicI32,
 
     /// Beta bound for the alpha-beta search at this node.
-    pub beta: Score,
+    pub beta: ScaledScore,
 
     /// Best score found so far at this split point.
     best_score: AtomicI32,
@@ -86,14 +86,14 @@ pub struct SplitPointState {
 impl SplitPointState {
     /// Gets the current alpha value atomically.
     #[inline]
-    pub fn alpha(&self) -> Score {
-        self.alpha.load(Ordering::Relaxed)
+    pub fn alpha(&self) -> ScaledScore {
+        ScaledScore::new(self.alpha.load(Ordering::Relaxed))
     }
 
     /// Sets the alpha value atomically.
     #[inline]
-    pub fn set_alpha(&self, value: Score) {
-        self.alpha.store(value, Ordering::Relaxed);
+    pub fn set_alpha(&self, value: ScaledScore) {
+        self.alpha.store(value.value(), Ordering::Relaxed);
     }
 
     /// Gets the all_helpers_searching flag.
@@ -122,14 +122,14 @@ impl SplitPointState {
 
     /// Gets the best score.
     #[inline]
-    pub fn best_score(&self) -> Score {
-        self.best_score.load(Ordering::Relaxed)
+    pub fn best_score(&self) -> ScaledScore {
+        ScaledScore::new(self.best_score.load(Ordering::Relaxed))
     }
 
     /// Sets the best score.
     #[inline]
-    pub fn set_best_score(&self, value: Score) {
-        self.best_score.store(value, Ordering::Relaxed);
+    pub fn set_best_score(&self, value: ScaledScore) {
+        self.best_score.store(value.value(), Ordering::Relaxed);
     }
 
     /// Gets the best move.
@@ -218,7 +218,7 @@ impl Default for SplitPoint {
             state: UnsafeCell::new(SplitPointState {
                 all_helpers_searching: AtomicBool::new(false),
                 alpha: AtomicI32::new(0),
-                beta: 0,
+                beta: ScaledScore::new(0),
                 best_score: AtomicI32::new(0),
                 best_move: std::sync::atomic::AtomicU8::new(Square::None as u8),
                 move_iter: None,
@@ -489,14 +489,14 @@ impl Thread {
         self: &Arc<Self>,
         ctx: &mut SearchContext,
         board: &Board,
-        alpha: Score,
-        beta: Score,
-        best_score: Score,
+        alpha: ScaledScore,
+        beta: ScaledScore,
+        best_score: ScaledScore,
         best_move: Square,
         depth: Depth,
         move_iter: &Arc<ConcurrentMoveIterator>,
         node_type: u32,
-    ) -> (Score, Square, u64) {
+    ) -> (ScaledScore, Square, u64) {
         let th_state = self.state();
         // Pick the next available split point
         let sp = &th_state.split_points[th_state.split_points_size];
@@ -533,10 +533,10 @@ impl Thread {
         sp: &Arc<SplitPoint>,
         ctx: &SearchContext,
         depth: Depth,
-        best_score: Score,
+        best_score: ScaledScore,
         best_move: Square,
-        alpha: Score,
-        beta: Score,
+        alpha: ScaledScore,
+        beta: ScaledScore,
         node_type: u32,
         move_iter: &Arc<ConcurrentMoveIterator>,
         board: &Board,

@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::types::Score;
+use crate::types::ScaledScore;
 
 const KEY_MASK: u64 = 0xFFFFFFFFFFFF;
 const SCORE_BITS: u32 = 16;
@@ -46,9 +46,9 @@ impl EvalCache {
     /// * `key` - The hash key
     /// * `score` - The evaluation score
     #[inline(always)]
-    pub fn store(&self, key: u64, score: i32) {
+    pub fn store(&self, key: u64, score: ScaledScore) {
         let index = self.index(key);
-        let value = Self::pack(key, score);
+        let value = Self::pack(key, score.value());
 
         unsafe {
             self.table
@@ -68,7 +68,7 @@ impl EvalCache {
     ///
     /// The evaluation score if the key matches, None otherwise
     #[inline(always)]
-    pub fn probe(&self, key: u64) -> Option<Score> {
+    pub fn probe(&self, key: u64) -> Option<ScaledScore> {
         let index = self.index(key);
         let entry = unsafe { self.table.get_unchecked(index).load(Ordering::Relaxed) };
 
@@ -82,7 +82,7 @@ impl EvalCache {
             return None;
         }
 
-        let score = entry as i16 as Score;
+        let score = ScaledScore::new(entry as i16 as i32);
         Some(score)
     }
 
@@ -138,7 +138,7 @@ mod tests {
     fn test_store_and_probe() {
         let cache = EvalCache::new(4);
         let key = 0x123456789ABCDEF0;
-        let score = 42;
+        let score = ScaledScore::new(42);
 
         cache.store(key, score);
         assert_eq!(cache.probe(key), Some(score));
@@ -155,9 +155,9 @@ mod tests {
         let cache = EvalCache::new(4);
         let key = 0x123456789ABCDEF0;
 
-        cache.store(key, 42);
-        cache.store(key, 84);
-        assert_eq!(cache.probe(key), Some(84));
+        cache.store(key, ScaledScore::new(42));
+        cache.store(key, ScaledScore::new(84));
+        assert_eq!(cache.probe(key), Some(ScaledScore::new(84)));
     }
 
     #[test]
@@ -166,11 +166,11 @@ mod tests {
         let key1 = 0x123456789ABCDEF0;
         let key2 = 0xDEF0123456789ABC;
 
-        cache.store(key1, 42);
-        cache.store(key2, 84);
+        cache.store(key1, ScaledScore::new(42));
+        cache.store(key2, ScaledScore::new(84));
 
-        assert_eq!(cache.probe(key1), Some(42));
-        assert_eq!(cache.probe(key2), Some(84));
+        assert_eq!(cache.probe(key1), Some(ScaledScore::new(42)));
+        assert_eq!(cache.probe(key2), Some(ScaledScore::new(84)));
     }
 
     #[test]
@@ -179,11 +179,11 @@ mod tests {
         let key1 = 0x123456789ABCDEF0;
         let key2 = 0xDEF0123456789ABC;
 
-        cache.store(key1, i16::MAX as i32);
-        cache.store(key2, i16::MIN as i32);
+        cache.store(key1, ScaledScore::new(i16::MAX as i32));
+        cache.store(key2, ScaledScore::new(i16::MIN as i32));
 
-        assert_eq!(cache.probe(key1), Some(i16::MAX as i32));
-        assert_eq!(cache.probe(key2), Some(i16::MIN as i32));
+        assert_eq!(cache.probe(key1), Some(ScaledScore::new(i16::MAX as i32)));
+        assert_eq!(cache.probe(key2), Some(ScaledScore::new(i16::MIN as i32)));
     }
 
     #[test]
@@ -192,8 +192,8 @@ mod tests {
         let key1 = 0x123456789ABCDEF0;
         let key2 = 0xDEF0123456789ABC;
 
-        cache.store(key1, 42);
-        cache.store(key2, 84);
+        cache.store(key1, ScaledScore::new(42));
+        cache.store(key2, ScaledScore::new(84));
 
         cache.clear();
 

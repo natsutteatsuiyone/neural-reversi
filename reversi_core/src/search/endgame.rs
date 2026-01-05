@@ -7,23 +7,21 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::board::Board;
-use crate::constants::{SCORE_INF, SCORE_MAX, scale_score, unscale_score};
+use crate::constants::{SCORE_INF, SCORE_MAX};
 use crate::count_last_flip::count_last_flip;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
+use crate::probcut::probcut_endgame;
 use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
-use crate::search::enhanced_transposition_cutoff;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::search_context::SearchContext;
-use crate::search::threading::SplitPoint;
+use crate::search::search_result::SearchResult;
+use crate::search::threading::{SplitPoint, Thread};
+use crate::search::{GamePhase, SearchTask, enhanced_transposition_cutoff, midgame};
 use crate::square::Square;
+use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, Score, Scoref, Selectivity};
-use crate::{bitboard, flip, probcut, stability};
-
-use super::search_context::GamePhase;
-use super::search_result::SearchResult;
-use super::threading::Thread;
-use super::{SearchTask, midgame};
+use crate::types::{Depth, ScaledScore, Score, Selectivity};
+use crate::{bitboard, flip};
 
 /// Quadrant masks for move ordering in shallow search.
 #[rustfmt::skip]
@@ -51,7 +49,7 @@ const MIN_SPLIT_DEPTH: Depth = 7;
 const MIN_ETC_DEPTH: Depth = 6;
 
 /// Depth threshold for switching from midgame to endgame search.
-pub const DEPTH_TO_NWS: Depth = 14;
+const DEPTH_TO_NWS: Depth = 14;
 
 /// Depth threshold for endgame cache null window search.
 const DEPTH_TO_NWS_EC: Depth = 11;
@@ -116,16 +114,16 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         // Initialize aspiration window for this PV line
         let mut alpha = if pv_idx == 0 {
-            base_score - 3
+            base_score - ScaledScore::from_disc_diff(3)
         } else {
-            -SCORE_INF
+            -ScaledScore::INF
         };
         let mut beta = if pv_idx == 0 {
-            base_score + 3
+            base_score + ScaledScore::from_disc_diff(3)
         } else if let Some(rm) = ctx.get_best_root_move() {
             rm.score
         } else {
-            SCORE_INF
+            ScaledScore::INF
         };
 
         // Iterative selectivity loop
@@ -139,8 +137,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             let score = aspiration_search(&mut ctx, &board, &mut alpha, &mut beta, thread);
 
             // Update aspiration window for next selectivity
-            alpha = (score - 2).max(-SCORE_INF);
-            beta = (score + 2).min(SCORE_INF);
+            let delta = ScaledScore::from_disc_diff(2);
+            alpha = (score - delta).max(-ScaledScore::INF);
+            beta = (score + delta).min(ScaledScore::INF);
 
             if thread.is_search_aborted() {
                 break;
@@ -154,7 +153,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 ctx.notify_progress(
                     n_empties,
                     n_empties,
-                    score as Scoref,
+                    score.to_disc_diff_f32(),
                     rm.sq,
                     ctx.selectivity,
                     ctx.n_nodes,
@@ -185,10 +184,10 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 fn aspiration_search(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: &mut Score,
-    beta: &mut Score,
+    alpha: &mut ScaledScore,
+    beta: &mut ScaledScore,
     thread: &Arc<Thread>,
-) -> Score {
+) -> ScaledScore {
     let mut delta = 2;
 
     loop {
@@ -201,10 +200,10 @@ fn aspiration_search(
         // Widen window based on fail direction
         if score <= *alpha {
             *beta = *alpha;
-            *alpha = (score - delta).max(-SCORE_INF);
+            *alpha = (score - delta).max(-ScaledScore::INF);
         } else if score >= *beta {
             *alpha = (*beta - delta).max(*alpha);
-            *beta = (score + delta).min(SCORE_INF);
+            *beta = (score + delta).min(ScaledScore::INF);
         } else {
             return score;
         }
@@ -237,13 +236,13 @@ fn build_endgame_result(
         .iter()
         .map(|rm| PvMove {
             sq: rm.sq,
-            score: rm.score as Scoref,
+            score: rm.score.to_disc_diff_f32(),
             pv_line: rm.pv.clone(),
         })
         .collect();
 
     SearchResult {
-        score: best_move.score as Scoref,
+        score: best_move.score.to_disc_diff_f32(),
         best_move: Some(best_move.sq),
         n_nodes: ctx.n_nodes,
         pv_line: best_move.pv.clone(),
@@ -271,7 +270,7 @@ fn estimate_aspiration_base_score(
     board: &Board,
     n_empties: u32,
     thread: &Arc<Thread>,
-) -> Score {
+) -> ScaledScore {
     ctx.game_phase = GamePhase::MidGame;
     ctx.selectivity = Selectivity::Level1;
     let midgame_depth = n_empties / 4;
@@ -282,18 +281,23 @@ fn estimate_aspiration_base_score(
         && tt_data.bound() == Bound::Exact
         && tt_data.depth() >= midgame_depth
     {
-        return unscale_score(tt_data.score());
+        return tt_data.score();
     }
 
-    let score = if n_empties >= 24 {
-        midgame::search::<PV>(ctx, board, midgame_depth, -SCORE_INF, SCORE_INF, thread)
+    if n_empties >= 24 {
+        midgame::search::<PV>(
+            ctx,
+            board,
+            midgame_depth,
+            -ScaledScore::INF,
+            ScaledScore::INF,
+            thread,
+        )
     } else if n_empties >= 12 {
-        midgame::evaluate_depth2(ctx, board, -SCORE_INF, SCORE_INF)
+        midgame::evaluate_depth2(ctx, board, -ScaledScore::INF, ScaledScore::INF)
     } else {
         midgame::evaluate(ctx, board)
-    };
-
-    unscale_score(score)
+    }
 }
 
 /// Alpha-beta search function for endgame positions.
@@ -316,24 +320,25 @@ fn estimate_aspiration_base_score(
 pub fn search<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
-    mut alpha: Score,
-    beta: Score,
+    mut alpha: ScaledScore,
+    beta: ScaledScore,
     thread: &Arc<Thread>,
-) -> Score {
+) -> ScaledScore {
     let org_alpha = alpha;
     let n_empties = ctx.empty_list.count;
 
     if NT::PV_NODE {
         if n_empties == 0 {
-            return calculate_final_score(board);
+            return ScaledScore::from_disc_diff(calculate_final_score(board));
         }
     } else {
         if n_empties <= DEPTH_TO_NWS {
-            return null_window_search(ctx, board, alpha);
+            let score = null_window_search(ctx, board, alpha.to_disc_diff());
+            return ScaledScore::from_disc_diff(score);
         }
 
-        if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
-            return score;
+        if let Some(score) = stability_cutoff(board, n_empties, alpha.to_disc_diff()) {
+            return ScaledScore::from_disc_diff(score);
         }
     }
 
@@ -349,15 +354,15 @@ pub fn search<NT: NodeType>(
             ctx.undo_pass();
             return score;
         } else {
-            return solve(board, n_empties);
+            return ScaledScore::from_disc_diff(solve(board, n_empties));
         }
     } else if let Some(sq) = move_list.wipeout_move {
         if NT::ROOT_NODE {
-            ctx.update_root_move(sq, SCORE_MAX, 1, alpha);
+            ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
         } else if NT::PV_NODE {
             ctx.update_pv(sq);
         }
-        return SCORE_MAX;
+        return ScaledScore::MAX;
     }
 
     // Look up position in transposition table
@@ -369,9 +374,9 @@ pub fn search<NT: NodeType>(
             && tt_data.is_endgame()
             && tt_data.depth() >= n_empties
             && tt_data.selectivity() >= ctx.selectivity
-            && tt_data.can_cut(scale_score(beta))
+            && tt_data.can_cut(beta)
         {
-            return unscale_score(tt_data.score());
+            return tt_data.score();
         }
 
         if n_empties >= MIN_ETC_DEPTH
@@ -380,15 +385,15 @@ pub fn search<NT: NodeType>(
                 board,
                 &move_list,
                 n_empties,
-                scale_score(alpha),
+                alpha,
                 tt_key,
                 tt_probe_result.index(),
             )
         {
-            return unscale_score(score);
+            return score;
         }
 
-        if let Some(score) = probcut::probcut_endgame(ctx, board, n_empties, beta, thread) {
+        if let Some(score) = probcut_endgame(ctx, board, n_empties, beta, thread) {
             return score;
         }
     }
@@ -404,13 +409,13 @@ pub fn search<NT: NodeType>(
 
     let move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
     let mut best_move = Square::None;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -ScaledScore::INF;
 
     while let Some((mv, move_count)) = move_iter.next() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
-        let mut score = -SCORE_INF;
+        let mut score = -ScaledScore::INF;
         if !NT::PV_NODE || move_count > 1 {
             score = -search::<NonPV>(ctx, &next, -(alpha + 1), -alpha, thread);
         }
@@ -423,7 +428,7 @@ pub fn search<NT: NodeType>(
         ctx.undo(mv.sq);
 
         if thread.is_search_aborted() || thread.cutoff_occurred() {
-            return 0;
+            return ScaledScore::ZERO;
         }
 
         if NT::ROOT_NODE {
@@ -465,7 +470,7 @@ pub fn search<NT: NodeType>(
             ctx.n_nodes += n;
 
             if thread.is_search_aborted() || thread.cutoff_occurred() {
-                return 0;
+                return ScaledScore::ZERO;
             }
 
             if best_score >= beta {
@@ -477,8 +482,8 @@ pub fn search<NT: NodeType>(
     ctx.tt.store(
         tt_probe_result.index(),
         tt_key,
-        scale_score(best_score),
-        Bound::determine_bound::<NT>(best_score, org_alpha, beta),
+        best_score,
+        Bound::determine_bound::<NT>(best_score.value(), org_alpha.value(), beta.value()),
         n_empties,
         best_move,
         ctx.selectivity,
@@ -509,7 +514,7 @@ pub fn search_sp<NT: NodeType>(
     board: &Board,
     thread: &Arc<Thread>,
     split_point: &Arc<SplitPoint>,
-) -> Score {
+) -> ScaledScore {
     let beta = split_point.state().beta;
     let move_iter = split_point.state().move_iter.clone().unwrap();
 
@@ -533,13 +538,13 @@ pub fn search_sp<NT: NodeType>(
         split_point.lock();
 
         if thread.is_search_aborted() || thread.cutoff_occurred() {
-            return 0;
+            return ScaledScore::ZERO;
         }
 
         let sp = split_point.state();
 
         if NT::ROOT_NODE {
-            ctx.update_root_move(mv.sq, score, move_count, sp.alpha());
+            ctx.update_root_move(mv.sq, score, move_count, alpha);
         }
 
         if score > sp.best_score() {
@@ -630,7 +635,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
 
-    if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
+    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
         return score;
     }
 
@@ -659,9 +664,9 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         && tt_data.is_endgame()
         && tt_data.depth() >= n_empties
         && tt_data.selectivity() >= ctx.selectivity
-        && tt_data.can_cut(scale_score(beta))
+        && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
     {
-        return unscale_score(tt_data.score());
+        return tt_data.score().to_disc_diff();
     }
 
     if n_empties == DEPTH_TO_NWS
@@ -670,12 +675,12 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
             board,
             &move_list,
             n_empties,
-            scale_score(alpha),
+            ScaledScore::from_disc_diff(alpha),
             tt_key,
             tt_probe_result.index(),
         )
     {
-        return unscale_score(score);
+        return score.to_disc_diff();
     }
 
     let mut best_score = -SCORE_INF;
@@ -752,7 +757,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
     ctx.tt.store(
         tt_probe_result.index(),
         tt_key,
-        scale_score(best_score),
+        ScaledScore::from_disc_diff(best_score),
         Bound::determine_bound::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,
@@ -811,7 +816,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
 
-    if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
+    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
         return score;
     }
 
@@ -914,7 +919,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
 
-    if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
+    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
         return score;
     }
 
@@ -930,7 +935,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
                 return -entry_data.score;
             }
 
-            if let Some(score) = stability::stability_cutoff(next, 4, -beta) {
+            if let Some(score) = stability_cutoff(next, 4, -beta) {
                 -score
             } else {
                 let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);

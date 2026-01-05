@@ -3,16 +3,13 @@ use std::sync::OnceLock;
 use std::sync::Arc;
 
 use crate::board::Board;
-use crate::constants::MID_SCORE_MAX;
-use crate::constants::scale_score;
-use crate::constants::unscale_score;
 use crate::search::midgame;
 use crate::search::node_type::NonPV;
 use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
 use crate::search::threading::Thread;
 use crate::types::Depth;
-use crate::types::Score;
+use crate::types::ScaledScore;
 use crate::types::Selectivity;
 
 /// Statistical parameters for ProbCut prediction models
@@ -43,7 +40,7 @@ const MAX_DEPTH: usize = 60;
 type MeanTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 type SigmaTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
 
-const SCORE_SCALE_F64: f64 = scale_score(1) as f64;
+const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
 
 static MEAN_TABLE: OnceLock<Box<MeanTable>> = OnceLock::new();
 static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
@@ -178,9 +175,9 @@ pub fn probcut_midgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: Score,
+    beta: ScaledScore,
     thread: &Arc<Thread>,
-) -> Option<Score> {
+) -> Option<ScaledScore> {
     if depth < 3 || !ctx.selectivity.is_enabled() {
         return None;
     }
@@ -191,8 +188,8 @@ pub fn probcut_midgame(
         let mean = get_mean(ply, pc_depth, depth);
         let sigma = get_sigma(ply, pc_depth, depth);
         let t = ctx.selectivity.t_value();
-        let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
-        if pc_beta >= MID_SCORE_MAX {
+        let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
+        if pc_beta >= ScaledScore::MAX {
             return None;
         }
 
@@ -200,7 +197,8 @@ pub fn probcut_midgame(
         let eval_mean = 0.5 * get_mean(ply, 0, depth) + mean;
         let eval_sigma = t * 0.5 * get_sigma(ply, 0, depth) + sigma;
 
-        let eval_beta = (beta as f64 - eval_sigma - eval_mean).floor() as Score;
+        let eval_beta =
+            ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32);
         if eval_score >= eval_beta {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested probcut
@@ -209,7 +207,7 @@ pub fn probcut_midgame(
             ctx.selectivity = current_selectivity;
 
             if score >= pc_beta {
-                return Some((beta + pc_beta) / 2);
+                return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
             }
         }
         None
@@ -238,22 +236,16 @@ pub fn probcut_endgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: Score,
+    beta: ScaledScore,
     thread: &Arc<Thread>,
-) -> Option<Score> {
+) -> Option<ScaledScore> {
     if depth < 14 || !ctx.selectivity.is_enabled() {
         return None;
     }
 
-    if let Some(score) = probcut_endgame_internal(
-        ctx,
-        board,
-        depth,
-        scale_score(beta),
-        thread,
-        ctx.selectivity,
-    ) {
-        return Some(unscale_score(score));
+    if let Some(score) = probcut_endgame_internal(ctx, board, depth, beta, thread, ctx.selectivity)
+    {
+        return Some(score);
     }
     None
 }
@@ -263,23 +255,23 @@ fn probcut_endgame_internal(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: Score,
+    beta: ScaledScore,
     thread: &Arc<Thread>,
     selectivity: Selectivity,
-) -> Option<Score> {
+) -> Option<ScaledScore> {
     let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.75).floor()) as Depth;
     let mean: f64 = get_mean_end(pc_depth, depth);
     let sigma: f64 = get_sigma_end(pc_depth, depth);
     let t = ctx.selectivity.t_value();
-    let pc_beta = (beta as f64 + t * sigma - mean).ceil() as Score;
-    if pc_beta >= MID_SCORE_MAX {
+    let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
+    if pc_beta >= ScaledScore::MAX {
         return None;
     }
 
     let eval_score = midgame::evaluate(ctx, board);
     let eval_mean = 0.5 * get_mean_end(0, depth) + mean;
     let eval_sigma = t * 0.5 * get_sigma_end(0, depth) + sigma;
-    let eval_beta = (beta as f64 - eval_sigma - eval_mean).round() as Score;
+    let eval_beta = ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).round() as i32);
 
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
@@ -288,7 +280,7 @@ fn probcut_endgame_internal(
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {
-            return Some((beta + pc_beta) / 2);
+            return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
         }
     }
 

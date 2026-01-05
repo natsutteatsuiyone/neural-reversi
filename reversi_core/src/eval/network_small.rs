@@ -7,10 +7,10 @@ use std::path::Path;
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::constants::{CACHE_LINE_SIZE, MID_SCORE_MAX, MID_SCORE_MIN};
+use crate::constants::CACHE_LINE_SIZE;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
-use crate::types::Score;
+use crate::types::ScaledScore;
 use crate::util::align::Align64;
 
 const PA_OUTPUT_DIMS: usize = 128;
@@ -131,7 +131,7 @@ impl NetworkSmall {
     /// # Arguments
     /// * `pattern_feature` - Extracted pattern features from the board
     /// * `ply` - Current game ply (move number)
-    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> Score {
+    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
         debug_assert!(ply >= ENDGAME_START_PLY);
         debug_assert_eq!(NUM_OUTPUT_LAYERS % NUM_INPUT_LAYERS, 0);
 
@@ -143,9 +143,9 @@ impl NetworkSmall {
 
         let sum = unsafe { (self.forward_fn)(pattern_feature, input_layer, output_layer) };
         let total = sum + output_layer.bias;
-        let score = total >> OUTPUT_WEIGHT_SCALE_BITS;
+        let score = ScaledScore::new(total >> OUTPUT_WEIGHT_SCALE_BITS);
 
-        score.clamp(MID_SCORE_MIN + 1, MID_SCORE_MAX - 1)
+        score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 
     /// AVX-512 accelerated forward pass optionally using VNNI.

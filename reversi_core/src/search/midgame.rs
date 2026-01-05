@@ -6,28 +6,25 @@ use std::sync::Arc;
 
 use rand::seq::IteratorRandom;
 
-use super::SearchTask;
-use super::search_result::SearchResult;
-use super::threading::Thread;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
-use crate::constants::{MID_SCORE_MAX, SCORE_INF, scale_score, unscale_score, unscale_score_f32};
 use crate::flip;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::move_list::MoveList;
-use crate::probcut;
+use crate::probcut::probcut_midgame;
+use crate::search::SearchTask;
 use crate::search::endgame;
 use crate::search::enhanced_transposition_cutoff;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
+use crate::search::search_result::SearchResult;
 use crate::search::threading::SplitPoint;
+use crate::search::threading::Thread;
 use crate::square::Square;
 use crate::stability;
 use crate::transposition_table::Bound;
-use crate::types::Depth;
-use crate::types::Score;
-use crate::types::Selectivity;
+use crate::types::{Depth, ScaledScore, Selectivity};
 
 /// Minimum depth required before considering parallel split.
 const MIN_SPLIT_DEPTH: Depth = 5;
@@ -36,7 +33,7 @@ const MIN_SPLIT_DEPTH: Depth = 5;
 const MIN_ETC_DEPTH: Depth = 6;
 
 /// Initial aspiration window delta.
-const ASPIRATION_DELTA: Score = scale_score(3);
+const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);
 
 /// Performs the root search using iterative deepening with aspiration windows.
 ///
@@ -100,11 +97,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 .filter(|_| depth >= 5)
                 .map(|rm| {
                     (
-                        (rm.previous_score - ASPIRATION_DELTA).max(-SCORE_INF),
-                        (rm.previous_score + ASPIRATION_DELTA).min(SCORE_INF),
+                        (rm.previous_score - ASPIRATION_DELTA).max(-ScaledScore::INF),
+                        (rm.previous_score + ASPIRATION_DELTA).min(ScaledScore::INF),
                     )
                 })
-                .unwrap_or((-SCORE_INF, SCORE_INF));
+                .unwrap_or((-ScaledScore::INF, ScaledScore::INF));
 
             let score = aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
 
@@ -120,7 +117,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 ctx.notify_progress(
                     depth,
                     max_depth,
-                    unscale_score_f32(score),
+                    score.to_disc_diff_f32(),
                     rm.sq,
                     ctx.selectivity,
                     ctx.n_nodes,
@@ -136,7 +133,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         // Notify time manager about search progress
         if let Some(ref tm) = time_manager {
             let pv_changed = prev_best_move.is_some_and(|sq| sq != best_move.sq);
-            tm.try_extend_time(unscale_score_f32(best_move.score), pv_changed, depth);
+            tm.try_extend_time(best_move.score.to_disc_diff_f32(), pv_changed, depth);
         }
         prev_best_move = Some(best_move.sq);
 
@@ -166,10 +163,10 @@ fn aspiration_search(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    alpha: &mut Score,
-    beta: &mut Score,
+    alpha: &mut ScaledScore,
+    beta: &mut ScaledScore,
     thread: &Arc<Thread>,
-) -> Score {
+) -> ScaledScore {
     let mut delta = ASPIRATION_DELTA;
 
     loop {
@@ -181,10 +178,10 @@ fn aspiration_search(
 
         if score <= *alpha {
             *beta = *alpha;
-            *alpha = (score - delta).max(-SCORE_INF);
+            *alpha = (score - delta).max(-ScaledScore::INF);
         } else if score >= *beta {
             *alpha = (*beta - delta).max(*alpha);
-            *beta = (score + delta).min(SCORE_INF);
+            *beta = (score + delta).min(ScaledScore::INF);
         } else {
             return score;
         }
@@ -244,13 +241,13 @@ fn build_search_result(
         .iter()
         .map(|rm| PvMove {
             sq: rm.sq,
-            score: unscale_score_f32(rm.score),
+            score: rm.score.to_disc_diff_f32(),
             pv_line: rm.pv.clone(),
         })
         .collect();
 
     SearchResult {
-        score: unscale_score_f32(best_move.score),
+        score: best_move.score.to_disc_diff_f32(),
         best_move: Some(best_move.sq),
         n_nodes: ctx.n_nodes,
         pv_line: best_move.pv.clone(),
@@ -299,10 +296,10 @@ pub fn search<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    mut alpha: Score,
-    beta: Score,
+    mut alpha: ScaledScore,
+    beta: ScaledScore,
     thread: &Arc<Thread>,
-) -> Score {
+) -> ScaledScore {
     let org_alpha = alpha;
     let n_empties = ctx.empty_list.count;
 
@@ -339,11 +336,11 @@ pub fn search<NT: NodeType>(
         }
     } else if let Some(sq) = move_list.wipeout_move {
         if NT::ROOT_NODE {
-            ctx.update_root_move(sq, MID_SCORE_MAX, 1, alpha);
+            ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
         } else if NT::PV_NODE {
             ctx.update_pv(sq);
         }
-        return MID_SCORE_MAX;
+        return ScaledScore::MAX;
     }
 
     // Look up position in transposition table
@@ -373,7 +370,7 @@ pub fn search<NT: NodeType>(
             return score;
         }
 
-        if let Some(score) = probcut::probcut_midgame(ctx, board, depth, beta, thread) {
+        if let Some(score) = probcut_midgame(ctx, board, depth, beta, thread) {
             return score;
         }
     }
@@ -389,13 +386,13 @@ pub fn search<NT: NodeType>(
 
     let move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
     let mut best_move = Square::None;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -ScaledScore::INF;
 
     while let Some((mv, move_count)) = move_iter.next() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
-        let mut score = -SCORE_INF;
+        let mut score = -ScaledScore::INF;
         if depth >= 2 && mv.reduction_depth > 0 {
             let d = (depth - 1).saturating_sub(mv.reduction_depth);
             score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, thread);
@@ -414,7 +411,7 @@ pub fn search<NT: NodeType>(
         ctx.undo(mv.sq);
 
         if thread.is_search_aborted() || thread.cutoff_occurred() {
-            return 0;
+            return ScaledScore::ZERO;
         }
 
         if NT::ROOT_NODE {
@@ -456,7 +453,7 @@ pub fn search<NT: NodeType>(
             ctx.n_nodes += n;
 
             if thread.is_search_aborted() || thread.cutoff_occurred() {
-                return 0;
+                return ScaledScore::ZERO;
             }
 
             if best_score >= beta {
@@ -469,7 +466,7 @@ pub fn search<NT: NodeType>(
         tt_probe_result.index(),
         tt_key,
         best_score,
-        Bound::determine_bound::<NT>(best_score, org_alpha, beta),
+        Bound::determine_bound::<NT>(best_score.value(), org_alpha.value(), beta.value()),
         depth,
         best_move,
         ctx.selectivity,
@@ -495,14 +492,14 @@ pub fn search<NT: NodeType>(
 ///
 /// # Returns
 ///
-/// The best score found for the position.
+/// The best score found for the position (raw i32 for threading compatibility).
 pub fn search_sp<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
     thread: &Arc<Thread>,
     split_point: &Arc<SplitPoint>,
-) -> Score {
+) -> ScaledScore {
     let beta = split_point.state().beta;
     let move_iter = split_point.state().move_iter.clone().unwrap();
 
@@ -513,7 +510,7 @@ pub fn search_sp<NT: NodeType>(
         ctx.update(mv.sq, mv.flipped);
 
         let alpha = split_point.state().alpha();
-        let mut score = -SCORE_INF;
+        let mut score = -ScaledScore::INF;
         if depth >= 2 && mv.reduction_depth > 0 {
             let d = (depth - 1).saturating_sub(mv.reduction_depth);
             score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, thread);
@@ -536,7 +533,7 @@ pub fn search_sp<NT: NodeType>(
         split_point.lock();
 
         if thread.is_search_aborted() || thread.cutoff_occurred() {
-            return 0;
+            return ScaledScore::ZERO;
         }
 
         let sp = split_point.state();
@@ -584,9 +581,9 @@ pub fn search_sp<NT: NodeType>(
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
-    mut alpha: Score,
-    beta: Score,
-) -> Score {
+    mut alpha: ScaledScore,
+    beta: ScaledScore,
+) -> ScaledScore {
     let mut move_list = MoveList::new(board);
     if move_list.count() == 0 {
         let next = board.switch_players();
@@ -600,7 +597,7 @@ pub fn evaluate_depth2(
         }
     }
 
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -ScaledScore::INF;
     if move_list.count() >= 3 {
         move_list.evaluate_moves_fast(ctx, board, Square::None);
         for mv in move_list.into_best_first_iter() {
@@ -655,7 +652,12 @@ pub fn evaluate_depth2(
 /// # Returns
 ///
 /// Best score found for the position
-pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, beta: Score) -> Score {
+pub fn evaluate_depth1(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: ScaledScore,
+    beta: ScaledScore,
+) -> ScaledScore {
     let moves = board.get_moves();
     if moves == 0 {
         let next = board.switch_players();
@@ -669,11 +671,11 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
         }
     }
 
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -ScaledScore::INF;
     for sq in BitboardIterator::new(moves) {
         let flipped = flip::flip(sq, board.player, board.opponent);
         if flipped == board.opponent {
-            return MID_SCORE_MAX;
+            return ScaledScore::MAX;
         }
         let next = board.make_move_with_flipped(flipped, sq);
 
@@ -703,9 +705,9 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
 ///
 /// Position score in internal units
 #[inline(always)]
-pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
+pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == 60 {
-        return scale_score(endgame::calculate_final_score(board));
+        return ScaledScore::from_disc_diff(endgame::calculate_final_score(board));
     }
 
     ctx.eval.evaluate(ctx, board)
@@ -721,8 +723,8 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
 /// # Returns
 ///
 /// The exact final score of the position, scaled to internal units.
-fn solve(board: &Board, n_empties: Depth) -> Score {
-    scale_score(endgame::solve(board, n_empties))
+fn solve(board: &Board, n_empties: Depth) -> ScaledScore {
+    ScaledScore::from_disc_diff(endgame::solve(board, n_empties))
 }
 
 /// Checks for stability-based cutoffs in the search.
@@ -737,6 +739,7 @@ fn solve(board: &Board, n_empties: Depth) -> Score {
 ///
 /// * `Some(score)` - If position can be pruned with this score
 /// * `None` - If no stability cutoff is possible
-fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
-    stability::stability_cutoff(board, n_empties, unscale_score(alpha)).map(scale_score)
+fn stability_cutoff(board: &Board, n_empties: Depth, alpha: ScaledScore) -> Option<ScaledScore> {
+    stability::stability_cutoff(board, n_empties, alpha.to_disc_diff())
+        .map(ScaledScore::from_disc_diff)
 }

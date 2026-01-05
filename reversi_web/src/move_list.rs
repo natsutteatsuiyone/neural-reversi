@@ -60,7 +60,7 @@ pub fn evaluate_moves(
             // Evaluate using shallow search
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update(mv.sq, mv.flipped);
-            mv.value = -search::evaluate(ctx, &next);
+            mv.value = (-search::evaluate(ctx, &next)).value();
             ctx.undo(mv.sq);
         };
     }

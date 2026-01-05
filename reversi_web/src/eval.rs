@@ -2,7 +2,7 @@ mod network;
 
 use std::{env, io};
 
-use reversi_core::{board::Board, eval::eval_cache::EvalCache, types::Score};
+use reversi_core::{board::Board, eval::eval_cache::EvalCache, types::ScaledScore};
 
 use crate::{eval::network::Network, search::search_context::SearchContext};
 
@@ -36,7 +36,7 @@ impl Eval {
         })
     }
 
-    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> Score {
+    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
         let key = board.hash();
         if let Some(score_cache) = self.cache.probe(key) {
             return score_cache;
