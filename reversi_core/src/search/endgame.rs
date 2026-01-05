@@ -49,7 +49,7 @@ const MIN_SPLIT_DEPTH: Depth = 7;
 const MIN_ETC_DEPTH: Depth = 6;
 
 /// Depth threshold for switching from midgame to endgame search.
-const DEPTH_TO_NWS: Depth = 14;
+const DEPTH_TO_NWS: Depth = 13;
 
 /// Depth threshold for endgame cache null window search.
 const DEPTH_TO_NWS_EC: Depth = 11;
@@ -667,20 +667,6 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
     {
         return tt_data.score().to_disc_diff();
-    }
-
-    if n_empties == DEPTH_TO_NWS
-        && let Some(score) = enhanced_transposition_cutoff(
-            ctx,
-            board,
-            &move_list,
-            n_empties,
-            ScaledScore::from_disc_diff(alpha),
-            tt_key,
-            tt_probe_result.index(),
-        )
-    {
-        return score.to_disc_diff();
     }
 
     let mut best_score = -SCORE_INF;

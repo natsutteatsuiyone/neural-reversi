@@ -5,7 +5,6 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::search::midgame;
 use crate::search::node_type::NonPV;
-use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
 use crate::search::threading::Thread;
 use crate::types::Depth;
@@ -182,39 +181,32 @@ pub fn probcut_midgame(
         return None;
     }
 
-    if ctx.game_phase == GamePhase::MidGame {
-        let ply = ctx.ply();
-        let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
-        let mean = get_mean(ply, pc_depth, depth);
-        let sigma = get_sigma(ply, pc_depth, depth);
-        let t = ctx.selectivity.t_value();
-        let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
-        if pc_beta >= ScaledScore::MAX {
-            return None;
-        }
-
-        let eval_score = midgame::evaluate(ctx, board);
-        let eval_mean = 0.5 * get_mean(ply, 0, depth) + mean;
-        let eval_sigma = t * 0.5 * get_sigma(ply, 0, depth) + sigma;
-
-        let eval_beta =
-            ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32);
-        if eval_score >= eval_beta {
-            let current_selectivity = ctx.selectivity;
-            ctx.selectivity = Selectivity::None; // Disable nested probcut
-            let score =
-                midgame::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
-            ctx.selectivity = current_selectivity;
-
-            if score >= pc_beta {
-                return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
-            }
-        }
-        None
-    } else {
-        // nested probcut for endgame positions
-        probcut_endgame_internal(ctx, board, depth, beta, thread, Selectivity::None)
+    let ply = ctx.ply();
+    let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
+    let mean = get_mean(ply, pc_depth, depth);
+    let sigma = get_sigma(ply, pc_depth, depth);
+    let t = ctx.selectivity.t_value();
+    let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
+    if pc_beta >= ScaledScore::MAX {
+        return None;
     }
+
+    let eval_score = midgame::evaluate(ctx, board);
+    let eval_mean = 0.5 * get_mean(ply, 0, depth) + mean;
+    let eval_sigma = t * 0.5 * get_sigma(ply, 0, depth) + sigma;
+
+    let eval_beta = ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32);
+    if eval_score >= eval_beta {
+        let current_selectivity = ctx.selectivity;
+        ctx.selectivity = Selectivity::None; // Disable nested probcut
+        let score = midgame::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
+        ctx.selectivity = current_selectivity;
+
+        if score >= pc_beta {
+            return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
+        }
+    }
+    None
 }
 
 /// Attempts ProbCut pruning for endgame positions
@@ -239,27 +231,11 @@ pub fn probcut_endgame(
     beta: ScaledScore,
     thread: &Arc<Thread>,
 ) -> Option<ScaledScore> {
-    if depth < 14 || !ctx.selectivity.is_enabled() {
+    if depth < 3 || !ctx.selectivity.is_enabled() {
         return None;
     }
 
-    if let Some(score) = probcut_endgame_internal(ctx, board, depth, beta, thread, ctx.selectivity)
-    {
-        return Some(score);
-    }
-    None
-}
-
-/// Internal implementation of endgame probcut with scaled score values
-fn probcut_endgame_internal(
-    ctx: &mut SearchContext,
-    board: &Board,
-    depth: Depth,
-    beta: ScaledScore,
-    thread: &Arc<Thread>,
-    selectivity: Selectivity,
-) -> Option<ScaledScore> {
-    let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.75).floor()) as Depth;
+    let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.30).floor()) as Depth;
     let mean: f64 = get_mean_end(pc_depth, depth);
     let sigma: f64 = get_sigma_end(pc_depth, depth);
     let t = ctx.selectivity.t_value();
@@ -275,7 +251,7 @@ fn probcut_endgame_internal(
 
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
-        ctx.selectivity = selectivity;
+        ctx.selectivity = Selectivity::None;
         let score = midgame::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
         ctx.selectivity = current_selectivity;
 
