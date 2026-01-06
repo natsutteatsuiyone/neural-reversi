@@ -1,15 +1,7 @@
 use std::sync::OnceLock;
 
-use std::sync::Arc;
-
-use crate::board::Board;
-use crate::search::midgame;
-use crate::search::node_type::NonPV;
-use crate::search::search_context::SearchContext;
-use crate::search::threading::Thread;
 use crate::types::Depth;
 use crate::types::ScaledScore;
-use crate::types::Selectivity;
 
 /// Statistical parameters for ProbCut prediction models
 /// - `mean = mean_intercept + mean_coef_shallow * shallow_depth + mean_coef_deep * deep_depth`
@@ -130,7 +122,7 @@ pub fn init() {
 
 /// Fast lookup of pre-computed mean value for midgame positions
 #[inline]
-fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
+pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = MEAN_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
@@ -144,123 +136,16 @@ pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 
 /// Fast lookup of pre-computed mean value for endgame positions
 #[inline]
-fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
+pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
     let tbl = MEAN_TABLE_END.get().expect("probcut not initialized");
     tbl[shallow as usize][deep as usize]
 }
 
 /// Fast lookup of pre-computed sigma value for endgame positions
 #[inline]
-fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
+pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
     let tbl = SIGMA_TABLE_END.get().expect("probcut not initialized");
     tbl[shallow as usize][deep as usize]
-}
-
-/// Attempts ProbCut pruning for midgame positions
-///
-/// # Arguments
-///
-/// * `ctx` - Search context containing selectivity settings and search state
-/// * `board` - Current board position to evaluate
-/// * `depth` - Depth of the deep search that would be performed
-/// * `beta` - Beta bound for the search window
-/// * `thread` - Search thread used to run the shallow verification search
-///
-/// # Returns
-///
-/// * `Some(score)` - If probcut triggers, returns the predicted bound (alpha or beta)
-/// * `None` - If probcut doesn't trigger, deep search should be performed
-pub fn probcut_midgame(
-    ctx: &mut SearchContext,
-    board: &Board,
-    depth: Depth,
-    beta: ScaledScore,
-    thread: &Arc<Thread>,
-) -> Option<ScaledScore> {
-    if depth < 3 || !ctx.selectivity.is_enabled() {
-        return None;
-    }
-
-    let ply = ctx.ply();
-    let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
-    let mean = get_mean(ply, pc_depth, depth);
-    let sigma = get_sigma(ply, pc_depth, depth);
-    let t = ctx.selectivity.t_value();
-    let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
-    if pc_beta >= ScaledScore::MAX {
-        return None;
-    }
-
-    let eval_score = midgame::evaluate(ctx, board);
-    let eval_mean = 0.5 * get_mean(ply, 0, depth) + mean;
-    let eval_sigma = t * 0.5 * get_sigma(ply, 0, depth) + sigma;
-
-    let eval_beta = ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32);
-    if eval_score >= eval_beta {
-        let current_selectivity = ctx.selectivity;
-        ctx.selectivity = Selectivity::None; // Disable nested probcut
-        let score = midgame::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
-        ctx.selectivity = current_selectivity;
-
-        if score >= pc_beta {
-            return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
-        }
-    }
-    None
-}
-
-/// Attempts ProbCut pruning for endgame positions
-///
-/// # Arguments
-///
-/// * `ctx` - Search context containing selectivity settings and search state
-/// * `board` - Current board position to evaluate
-/// * `depth` - Depth of the deep search that would be performed
-/// * `alpha` - Alpha bound for the search window (will be scaled internally)
-/// * `beta` - Beta bound for the search window (will be scaled internally)
-/// * `thread` - Search thread used to run the shallow verification search
-///
-/// # Returns
-///
-/// * `Some(score)` - If probcut triggers, returns the predicted bound
-/// * `None` - If probcut doesn't trigger, full endgame search should be performed
-pub fn probcut_endgame(
-    ctx: &mut SearchContext,
-    board: &Board,
-    depth: Depth,
-    beta: ScaledScore,
-    thread: &Arc<Thread>,
-) -> Option<ScaledScore> {
-    if depth < 3 || !ctx.selectivity.is_enabled() {
-        return None;
-    }
-
-    let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.30).floor()) as Depth;
-    let mean: f64 = get_mean_end(pc_depth, depth);
-    let sigma: f64 = get_sigma_end(pc_depth, depth);
-    let t = ctx.selectivity.t_value();
-    let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
-    if pc_beta >= ScaledScore::MAX {
-        return None;
-    }
-
-    let eval_score = midgame::evaluate(ctx, board);
-    let eval_mean = 0.5 * get_mean_end(0, depth) + mean;
-    let eval_sigma = t * 0.5 * get_sigma_end(0, depth) + sigma;
-    let eval_beta = ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).round() as i32);
-
-    if eval_score >= eval_beta {
-        let current_selectivity = ctx.selectivity;
-        ctx.selectivity = Selectivity::None;
-        let score = midgame::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
-        ctx.selectivity = current_selectivity;
-
-        if score >= pc_beta {
-            return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
-        }
-    }
-
-    None
 }
 
 /// Statistical parameters for endgame ProbCut

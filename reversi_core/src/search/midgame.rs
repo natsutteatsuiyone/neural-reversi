@@ -11,7 +11,7 @@ use crate::board::Board;
 use crate::flip;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::move_list::MoveList;
-use crate::probcut::probcut_midgame;
+use crate::probcut;
 use crate::search::SearchTask;
 use crate::search::endgame;
 use crate::search::enhanced_transposition_cutoff;
@@ -31,6 +31,9 @@ const MIN_SPLIT_DEPTH: Depth = 5;
 
 /// Minimum depth for enhanced transposition table cutoff.
 const MIN_ETC_DEPTH: Depth = 6;
+
+/// Minimum depth for probcut.
+const MIN_PROBCUT_DEPTH: Depth = 3;
 
 /// Initial aspiration window delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);
@@ -370,7 +373,9 @@ pub fn search<NT: NodeType>(
             return score;
         }
 
-        if let Some(score) = probcut_midgame(ctx, board, depth, beta, thread) {
+        if depth >= MIN_PROBCUT_DEPTH
+            && let Some(score) = probcut(ctx, board, depth, beta, thread)
+        {
             return score;
         }
     }
@@ -564,6 +569,59 @@ pub fn search_sp<NT: NodeType>(
     }
 
     split_point.state().best_score()
+}
+
+/// Attempts ProbCut pruning for midgame positions
+///
+/// # Arguments
+///
+/// * `ctx` - Search context containing selectivity settings and search state
+/// * `board` - Current board position to evaluate
+/// * `depth` - Depth of the deep search that would be performed
+/// * `beta` - Beta bound for the search window
+/// * `thread` - Search thread used to run the shallow verification search
+///
+/// # Returns
+///
+/// * `Some(score)` - If probcut triggers, returns the predicted bound (alpha or beta)
+/// * `None` - If probcut doesn't trigger, deep search should be performed
+pub fn probcut(
+    ctx: &mut SearchContext,
+    board: &Board,
+    depth: Depth,
+    beta: ScaledScore,
+    thread: &Arc<Thread>,
+) -> Option<ScaledScore> {
+    if !ctx.selectivity.is_enabled() {
+        return None;
+    }
+
+    let ply = ctx.ply();
+    let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
+    let mean = probcut::get_mean(ply, pc_depth, depth);
+    let sigma = probcut::get_sigma(ply, pc_depth, depth);
+    let t = ctx.selectivity.t_value();
+    let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
+    if pc_beta >= ScaledScore::MAX {
+        return None;
+    }
+
+    let eval_score = evaluate(ctx, board);
+    let eval_mean = 0.5 * probcut::get_mean(ply, 0, depth) + mean;
+    let eval_sigma = t * 0.5 * probcut::get_sigma(ply, 0, depth) + sigma;
+
+    let eval_beta = ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32);
+    if eval_score >= eval_beta {
+        let current_selectivity = ctx.selectivity;
+        ctx.selectivity = Selectivity::None; // Disable nested probcut
+        let score = search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
+        ctx.selectivity = current_selectivity;
+
+        if score >= pc_beta {
+            return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
+        }
+    }
+    None
 }
 
 /// Specialized evaluation function for positions at depth 2.
