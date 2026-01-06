@@ -1,15 +1,13 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
-use crate::move_list::MoveList;
 use crate::search::SearchProgress;
 use crate::search::SearchProgressCallback;
-use crate::search::root_move::RootMove;
+use crate::search::root_move::{RootMove, RootMoves};
 use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
@@ -44,11 +42,8 @@ pub struct SearchContext {
     pub empty_list: EmptyList,
     /// Shared transposition table for storing search results
     pub tt: Arc<TranspositionTable>,
-    /// Shared list of root moves being searched (sorted by score after each PV line)
-    pub root_moves: Arc<std::sync::Mutex<Vec<RootMove>>>,
-    /// Current PV index for Multi-PV search
-    /// Moves at indices < pv_idx are already part of earlier PV lines
-    pub pv_idx: Arc<AtomicUsize>,
+    /// Container for root moves and Multi-PV state
+    pub root_moves: RootMoves,
     /// Neural network evaluator for position assessment
     pub eval: Arc<Eval>,
     /// Pattern features for efficient neural network input
@@ -86,8 +81,7 @@ impl SearchContext {
             selectivity,
             empty_list,
             tt,
-            root_moves: Arc::new(std::sync::Mutex::new(Self::create_root_moves(board))),
-            pv_idx: Arc::new(AtomicUsize::new(0)),
+            root_moves: RootMoves::new(board),
             eval,
             pattern_features: PatternFeatures::new(board, ply),
             callback: None,
@@ -123,7 +117,6 @@ impl SearchContext {
             selectivity: task.selectivity,
             tt: task.tt.clone(),
             root_moves: task.root_moves.clone(),
-            pv_idx: task.pv_idx.clone(),
             eval: task.eval.clone(),
             pattern_features,
             callback: None,
@@ -247,27 +240,8 @@ impl SearchContext {
             self.update_pv(sq);
         }
 
-        let mut root_moves = self.root_moves.lock().unwrap();
-        let rm = root_moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
-        rm.average_score = if rm.average_score == -ScaledScore::INF {
-            score
-        } else {
-            (rm.average_score + score) / 2
-        };
-
-        if is_pv {
-            let ply = self.ply();
-            rm.score = score;
-            rm.pv.clear();
-            for sq in self.stack[ply].pv.iter() {
-                if *sq == Square::None {
-                    break;
-                }
-                rm.pv.push(*sq);
-            }
-        } else {
-            rm.score = -ScaledScore::INF;
-        }
+        let pv = self.stack[self.ply()].pv;
+        self.root_moves.update(sq, score, move_count, alpha, &pv);
     }
 
     /// Gets the root move at the current PV index.
@@ -278,8 +252,7 @@ impl SearchContext {
     /// # Returns
     /// The root move at the current PV index, or None if index is out of bounds
     pub fn get_current_pv_root_move(&self) -> Option<RootMove> {
-        let root_moves = self.root_moves.lock().unwrap();
-        root_moves.get(self.pv_idx()).cloned()
+        self.root_moves.get_current_pv()
     }
 
     /// Gets the best root move (the one at index 0 after sorting).
@@ -287,8 +260,7 @@ impl SearchContext {
     /// # Returns
     /// The best root move, or None if no moves exist
     pub fn get_best_root_move(&self) -> Option<RootMove> {
-        let root_moves = self.root_moves.lock().unwrap();
-        root_moves.first().cloned()
+        self.root_moves.get_best()
     }
 
     /// Sets the current PV index for Multi-PV search.
@@ -296,55 +268,31 @@ impl SearchContext {
     /// # Arguments
     /// * `idx` - The new PV index
     pub fn set_pv_idx(&self, idx: usize) {
-        self.pv_idx.store(idx, Ordering::Relaxed);
+        self.root_moves.set_pv_idx(idx);
     }
 
     /// Returns the current PV index.
     #[inline]
     pub fn pv_idx(&self) -> usize {
-        self.pv_idx.load(Ordering::Relaxed)
+        self.root_moves.pv_idx()
     }
 
     /// Saves current scores as previous scores before starting a new iteration.
     ///
     /// This is called at the beginning of each iterative deepening iteration
     /// to preserve scores for aspiration window calculation.
-    pub fn save_previous_scores(&mut self) {
-        let mut root_moves = self.root_moves.lock().unwrap();
-        for rm in root_moves.iter_mut() {
-            rm.previous_score = rm.score;
-        }
+    pub fn save_previous_scores(&self) {
+        self.root_moves.save_previous_scores();
     }
 
     /// Sorts root moves from pv_idx to end by score (stable sort).
     pub fn sort_root_moves_from_pv_idx(&self) {
-        let pv_idx = self.pv_idx();
-        let mut root_moves = self.root_moves.lock().unwrap();
-        if pv_idx < root_moves.len() {
-            root_moves[pv_idx..].sort_by(|a, b| b.score.cmp(&a.score));
-        }
+        self.root_moves.sort_from_pv_idx();
     }
 
     /// Sorts all root moves by score for final result ordering.
     pub fn sort_all_root_moves(&self) {
-        let mut root_moves = self.root_moves.lock().unwrap();
-        root_moves.sort_by(|a, b| b.score.cmp(&a.score));
-    }
-
-    /// Creates the initial list of root moves from the current board position.
-    ///
-    /// # Arguments
-    /// * `board` - The current board position
-    ///
-    /// # Returns
-    /// Vector of initialized root moves
-    fn create_root_moves(board: &Board) -> Vec<RootMove> {
-        let move_list = MoveList::new(board);
-        let mut root_moves = Vec::<RootMove>::with_capacity(move_list.count());
-        for m in move_list.iter() {
-            root_moves.push(RootMove::new(m.sq));
-        }
-        root_moves
+        self.root_moves.sort_all();
     }
 
     /// Updates the principal variation at the current ply.
@@ -429,6 +377,6 @@ impl SearchContext {
     /// # Returns
     /// The count of legal moves from the root position
     pub fn root_moves_count(&self) -> usize {
-        self.root_moves.lock().unwrap().len()
+        self.root_moves.count()
     }
 }

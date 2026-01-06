@@ -1,7 +1,7 @@
 //! Reference: https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{JoinHandle, sleep};
@@ -15,7 +15,7 @@ use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
-use crate::search::root_move::RootMove;
+use crate::search::root_move::RootMoves;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::search::search_result::SearchResult;
 use crate::search::side_to_move::SideToMove;
@@ -186,11 +186,8 @@ pub struct SplitPointTask {
     /// Shared transposition table for storing search results.
     pub tt: Arc<TranspositionTable>,
 
-    /// List of moves being searched at the root (for root node only).
-    pub root_moves: Arc<Mutex<Vec<RootMove>>>,
-
-    /// Current PV index for Multi-PV search.
-    pub pv_idx: Arc<AtomicUsize>,
+    /// Container for root moves and Multi-PV state.
+    pub root_moves: RootMoves,
 
     /// Neural network evaluator for position evaluation.
     pub eval: Arc<Eval>,
@@ -566,7 +563,6 @@ impl Thread {
             selectivity: ctx.selectivity,
             tt: ctx.tt.clone(),
             root_moves: ctx.root_moves.clone(),
-            pv_idx: ctx.pv_idx.clone(),
             eval: ctx.eval.clone(),
             game_phase: ctx.game_phase,
             empty_list: ctx.empty_list.clone(),

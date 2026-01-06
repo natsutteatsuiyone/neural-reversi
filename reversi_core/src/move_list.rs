@@ -375,14 +375,12 @@ impl MoveList {
     ///
     /// * `ctx` - Search context containing root_moves and pv_idx
     pub fn exclude_earlier_pv_moves(&mut self, ctx: &SearchContext) {
-        let pv_idx = ctx.pv_idx();
-        if pv_idx == 0 {
+        if ctx.pv_idx() == 0 {
             return; // No filtering needed for first PV line
         }
 
-        let root_moves = ctx.root_moves.lock().unwrap();
         self.moves
-            .retain(|mv| root_moves.iter().skip(pv_idx).any(|rm| rm.sq == mv.sq));
+            .retain(|mv| ctx.root_moves.contains_from_pv_idx(mv.sq));
     }
 }
 
