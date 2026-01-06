@@ -601,16 +601,17 @@ pub fn probcut(
     let mean = probcut::get_mean(ply, pc_depth, depth);
     let sigma = probcut::get_sigma(ply, pc_depth, depth);
     let t = ctx.selectivity.t_value();
-    let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
+
+    let pc_beta = probcut::compute_probcut_beta(beta, t, mean, sigma);
     if pc_beta >= ScaledScore::MAX {
         return None;
     }
 
     let eval_score = evaluate(ctx, board);
-    let eval_mean = 0.5 * probcut::get_mean(ply, 0, depth) + mean;
-    let eval_sigma = t * 0.5 * probcut::get_sigma(ply, 0, depth) + sigma;
+    let mean0 = probcut::get_mean(ply, 0, depth);
+    let sigma0 = probcut::get_sigma(ply, 0, depth);
+    let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0);
 
-    let eval_beta = ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32);
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None; // Disable nested probcut
@@ -621,6 +622,7 @@ pub fn probcut(
             return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
         }
     }
+
     None
 }
 

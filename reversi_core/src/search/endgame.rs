@@ -593,18 +593,19 @@ pub fn probcut(
     }
 
     let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.30).floor()) as Depth;
-    let mean: f64 = probcut::get_mean_end(pc_depth, depth);
-    let sigma: f64 = probcut::get_sigma_end(pc_depth, depth);
+    let mean = probcut::get_mean_end(pc_depth, depth);
+    let sigma = probcut::get_sigma_end(pc_depth, depth);
     let t = ctx.selectivity.t_value();
-    let pc_beta = ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32);
+
+    let pc_beta = probcut::compute_probcut_beta(beta, t, mean, sigma);
     if pc_beta >= ScaledScore::MAX {
         return None;
     }
 
     let eval_score = midgame::evaluate(ctx, board);
-    let eval_mean = 0.5 * probcut::get_mean_end(0, depth) + mean;
-    let eval_sigma = t * 0.5 * probcut::get_sigma_end(0, depth) + sigma;
-    let eval_beta = ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).round() as i32);
+    let mean0 = probcut::get_mean_end(0, depth);
+    let sigma0 = probcut::get_sigma_end(0, depth);
+    let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0);
 
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
