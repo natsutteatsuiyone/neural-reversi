@@ -1,9 +1,11 @@
+use std::sync::{Arc, Mutex};
+
 use crate::{
     square::Square,
     types::{Depth, Scoref, Selectivity},
 };
 
-use super::search_context::GamePhase;
+use super::{root_move::RootMove, search_context::GamePhase};
 
 /// Represents a single move with its evaluation score for Multi-PV results.
 #[derive(Clone, Debug)]
@@ -37,6 +39,47 @@ impl SearchResult {
             selectivity: Selectivity::None,
             game_phase: GamePhase::MidGame,
             pv_moves: vec![],
+        }
+    }
+
+    /// Creates a SearchResult from the search context state.
+    ///
+    /// # Arguments
+    ///
+    /// * `root_moves` - Mutex-protected list of evaluated root moves
+    /// * `best_move` - The best move found during search
+    /// * `n_nodes` - Total nodes searched
+    /// * `depth` - Search depth reached
+    /// * `selectivity` - Selectivity level used
+    /// * `game_phase` - Current game phase (MidGame or EndGame)
+    pub fn from_root_move(
+        root_moves: &Arc<Mutex<Vec<RootMove>>>,
+        best_move: &RootMove,
+        n_nodes: u64,
+        depth: Depth,
+        selectivity: Selectivity,
+        game_phase: GamePhase,
+    ) -> Self {
+        let pv_moves: Vec<PvMove> = root_moves
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|rm| PvMove {
+                sq: rm.sq,
+                score: rm.score.to_disc_diff_f32(),
+                pv_line: rm.pv.clone(),
+            })
+            .collect();
+
+        Self {
+            score: best_move.score.to_disc_diff_f32(),
+            best_move: Some(best_move.sq),
+            n_nodes,
+            pv_line: best_move.pv.clone(),
+            depth,
+            selectivity,
+            game_phase,
+            pv_moves,
         }
     }
 

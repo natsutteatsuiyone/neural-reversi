@@ -169,13 +169,27 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
             ctx.sort_all_root_moves();
             let best_move = ctx.get_best_root_move().unwrap();
-            return build_endgame_result(&ctx, &best_move, n_empties);
+            return SearchResult::from_root_move(
+                &ctx.root_moves,
+                &best_move,
+                ctx.n_nodes,
+                n_empties,
+                ctx.selectivity,
+                GamePhase::EndGame,
+            );
         }
     }
 
     ctx.sort_all_root_moves();
     let rm = ctx.get_best_root_move().unwrap();
-    build_endgame_result(&ctx, &rm, n_empties)
+    SearchResult::from_root_move(
+        &ctx.root_moves,
+        &rm,
+        ctx.n_nodes,
+        n_empties,
+        ctx.selectivity,
+        GamePhase::EndGame,
+    )
 }
 
 /// Performs aspiration window search for endgame at the current selectivity level.
@@ -207,39 +221,6 @@ fn aspiration_search(
         }
 
         delta += delta; // Exponential widening
-    }
-}
-
-/// Builds the search result for endgame.
-fn build_endgame_result(
-    ctx: &SearchContext,
-    best_move: &super::root_move::RootMove,
-    n_empties: Depth,
-) -> SearchResult {
-    use super::search_result::PvMove;
-
-    // Collect all root moves with their scores for Multi-PV results
-    let pv_moves: Vec<PvMove> = ctx
-        .root_moves
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|rm| PvMove {
-            sq: rm.sq,
-            score: rm.score.to_disc_diff_f32(),
-            pv_line: rm.pv.clone(),
-        })
-        .collect();
-
-    SearchResult {
-        score: best_move.score.to_disc_diff_f32(),
-        best_move: Some(best_move.sq),
-        n_nodes: ctx.n_nodes,
-        pv_line: best_move.pv.clone(),
-        depth: n_empties,
-        selectivity: ctx.selectivity,
-        game_phase: GamePhase::EndGame,
-        pv_moves,
     }
 }
 

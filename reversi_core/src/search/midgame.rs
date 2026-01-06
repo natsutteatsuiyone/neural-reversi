@@ -143,7 +143,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         // Check termination conditions
         if thread.is_search_aborted() || should_stop_iteration(&time_manager) {
-            return build_search_result(&ctx, &best_move, depth.min(n_empties));
+            return SearchResult::from_root_move(
+                &ctx.root_moves,
+                &best_move,
+                ctx.n_nodes,
+                depth.min(n_empties),
+                ctx.selectivity,
+                GamePhase::MidGame,
+            );
         }
 
         // Advance to next depth
@@ -154,7 +161,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 
     let rm = ctx.get_best_root_move().unwrap();
-    build_search_result(&ctx, &rm, max_depth.min(n_empties))
+    SearchResult::from_root_move(
+        &ctx.root_moves,
+        &rm,
+        ctx.n_nodes,
+        max_depth.min(n_empties),
+        ctx.selectivity,
+        GamePhase::MidGame,
+    )
 }
 
 /// Computes the starting depth for iterative deepening.
@@ -218,39 +232,6 @@ fn next_iteration_depth(
         current_depth + 2
     } else {
         current_depth + 1
-    }
-}
-
-/// Builds the final search result from the current state.
-fn build_search_result(
-    ctx: &SearchContext,
-    best_move: &super::root_move::RootMove,
-    reported_depth: Depth,
-) -> SearchResult {
-    use super::search_result::PvMove;
-
-    // Collect all root moves with their scores for Multi-PV results
-    let pv_moves: Vec<PvMove> = ctx
-        .root_moves
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|rm| PvMove {
-            sq: rm.sq,
-            score: rm.score.to_disc_diff_f32(),
-            pv_line: rm.pv.clone(),
-        })
-        .collect();
-
-    SearchResult {
-        score: best_move.score.to_disc_diff_f32(),
-        best_move: Some(best_move.sq),
-        n_nodes: ctx.n_nodes,
-        pv_line: best_move.pv.clone(),
-        depth: reported_depth,
-        selectivity: ctx.selectivity,
-        game_phase: GamePhase::MidGame,
-        pv_moves,
     }
 }
 
