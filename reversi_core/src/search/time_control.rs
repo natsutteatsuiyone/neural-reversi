@@ -567,6 +567,27 @@ impl TimeManager {
     }
 }
 
+/// Determines whether to stop the current search iteration based on time control.
+///
+/// Returns `true` if:
+/// - Time control indicates time is up (`check_time()` returns true), OR
+/// - Time control indicates we should not continue to the next iteration
+///
+/// Returns `false` if:
+/// - No time manager is provided (unlimited search), OR
+/// - There is still time remaining and we should continue
+///
+/// # Arguments
+///
+/// * `time_manager` - Optional reference to the time manager
+#[inline]
+pub fn should_stop_iteration(time_manager: &Option<Arc<TimeManager>>) -> bool {
+    match time_manager {
+        Some(tm) => tm.check_time() || !tm.should_continue_iteration(),
+        None => false,
+    }
+}
+
 fn is_debug_enabled() -> bool {
     static DEBUG: OnceLock<bool> = OnceLock::new();
     *DEBUG.get_or_init(|| {

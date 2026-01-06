@@ -21,6 +21,7 @@ use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::threading::SplitPoint;
 use crate::search::threading::Thread;
+use crate::search::time_control::should_stop_iteration;
 use crate::square::Square;
 use crate::stability;
 use crate::transposition_table::Bound;
@@ -190,14 +191,6 @@ fn aspiration_search(
         }
 
         delta += delta / 2;
-    }
-}
-
-/// Determines whether to stop the current iteration based on time control.
-fn should_stop_iteration(time_manager: &Option<Arc<super::time_control::TimeManager>>) -> bool {
-    match time_manager {
-        Some(tm) => tm.check_time() || !tm.should_continue_iteration(),
-        None => false,
     }
 }
 

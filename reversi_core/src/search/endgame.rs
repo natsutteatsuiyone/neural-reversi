@@ -16,6 +16,7 @@ use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::threading::{SplitPoint, Thread};
+use crate::search::time_control::should_stop_iteration;
 use crate::search::{GamePhase, SearchTask, enhanced_transposition_cutoff, midgame};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
@@ -206,14 +207,6 @@ fn aspiration_search(
         }
 
         delta += delta; // Exponential widening
-    }
-}
-
-/// Determines whether to stop the current selectivity iteration based on time control.
-fn should_stop_iteration(time_manager: &Option<Arc<super::time_control::TimeManager>>) -> bool {
-    match time_manager {
-        Some(tm) => tm.check_time() || !tm.should_continue_iteration(),
-        None => false,
     }
 }
 
