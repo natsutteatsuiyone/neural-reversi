@@ -19,7 +19,7 @@ use crate::search::root_move::RootMoves;
 use crate::search::search_context::{GamePhase, SearchContext};
 use crate::search::search_result::SearchResult;
 use crate::search::side_to_move::SideToMove;
-use crate::search::{self, SearchTask, endgame, midgame, time_control::TimeManager};
+use crate::search::{self, SearchTask, time_control::TimeManager};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, ScaledScore, Selectivity};
@@ -766,28 +766,33 @@ impl Thread {
         node_type: u32,
         sp: &Arc<SplitPoint>,
     ) {
-        let is_endgame = ctx.game_phase == GamePhase::EndGame && ctx.empty_list.count == depth;
+        use crate::search::{EndGamePhase, MidGamePhase, search_split_point};
 
-        match (is_endgame, node_type) {
+        // Use EndGamePhase only when doing true endgame search (depth == empties).
+        // Midgame probcut inside endgame still uses MidGamePhase.
+        let is_endgame_search =
+            ctx.game_phase == GamePhase::EndGame && ctx.empty_list.count == depth;
+
+        match (is_endgame_search, node_type) {
             // Endgame searches
             (true, NonPV::TYPE_ID) => {
-                endgame::search_sp::<NonPV>(ctx, board, self, sp);
+                search_split_point::<NonPV, EndGamePhase>(ctx, board, depth, self, sp);
             }
             (true, PV::TYPE_ID) => {
-                endgame::search_sp::<PV>(ctx, board, self, sp);
+                search_split_point::<PV, EndGamePhase>(ctx, board, depth, self, sp);
             }
             (true, Root::TYPE_ID) => {
-                endgame::search_sp::<Root>(ctx, board, self, sp);
+                search_split_point::<Root, EndGamePhase>(ctx, board, depth, self, sp);
             }
             // Midgame searches
             (false, NonPV::TYPE_ID) => {
-                midgame::search_sp::<NonPV>(ctx, board, depth, self, sp);
+                search_split_point::<NonPV, MidGamePhase>(ctx, board, depth, self, sp);
             }
             (false, PV::TYPE_ID) => {
-                midgame::search_sp::<PV>(ctx, board, depth, self, sp);
+                search_split_point::<PV, MidGamePhase>(ctx, board, depth, self, sp);
             }
             (false, Root::TYPE_ID) => {
-                midgame::search_sp::<Root>(ctx, board, depth, self, sp);
+                search_split_point::<Root, MidGamePhase>(ctx, board, depth, self, sp);
             }
             _ => unreachable!("Invalid node type: {}", node_type),
         }

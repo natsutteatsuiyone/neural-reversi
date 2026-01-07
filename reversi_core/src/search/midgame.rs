@@ -9,32 +9,17 @@ use rand::seq::IteratorRandom;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
 use crate::flip;
-use crate::move_list::ConcurrentMoveIterator;
 use crate::move_list::MoveList;
 use crate::probcut;
-use crate::search::SearchTask;
-use crate::search::endgame;
-use crate::search::enhanced_transposition_cutoff;
-use crate::search::node_type::{NodeType, NonPV, PV, Root};
+use crate::search::node_type::Root;
 use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
-use crate::search::threading::SplitPoint;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
+use crate::search::{MidGamePhase, SearchTask, endgame, search};
 use crate::square::Square;
-use crate::stability;
-use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore, Selectivity};
-
-/// Minimum depth required before considering parallel split.
-const MIN_SPLIT_DEPTH: Depth = 5;
-
-/// Minimum depth for enhanced transposition table cutoff.
-const MIN_ETC_DEPTH: Depth = 6;
-
-/// Minimum depth for probcut.
-const MIN_PROBCUT_DEPTH: Depth = 3;
 
 /// Initial aspiration window delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);
@@ -188,7 +173,7 @@ fn aspiration_search(
     let mut delta = ASPIRATION_DELTA;
 
     loop {
-        let score = search::<Root>(ctx, board, depth, *alpha, *beta, thread);
+        let score = search::<Root, MidGamePhase>(ctx, board, depth, *alpha, *beta, thread);
 
         if thread.is_search_aborted() {
             return score;
@@ -251,300 +236,6 @@ fn random_move(board: &Board) -> Square {
         .unwrap()
 }
 
-/// Alpha-beta search function for midgame positions.
-///
-/// # Type Parameters
-///
-/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context tracking game state and statistics.
-/// * `board` - Current board position to search.
-/// * `depth` - Remaining search depth.
-/// * `alpha` - Lower bound of the search window
-/// * `beta` - Upper bound of the search window
-/// * `thread` - Thread handle for parallel search coordination.
-///
-/// # Returns
-///
-/// The best score found for the position.
-pub fn search<NT: NodeType>(
-    ctx: &mut SearchContext,
-    board: &Board,
-    depth: Depth,
-    mut alpha: ScaledScore,
-    beta: ScaledScore,
-    thread: &Arc<Thread>,
-) -> ScaledScore {
-    let org_alpha = alpha;
-    let n_empties = ctx.empty_list.count;
-
-    if NT::PV_NODE {
-        if depth == 0 {
-            return evaluate(ctx, board);
-        }
-    } else {
-        match depth {
-            0 => return evaluate(ctx, board),
-            1 => return evaluate_depth1(ctx, board, alpha, beta),
-            2 => return evaluate_depth2(ctx, board, alpha, beta),
-            _ => {}
-        }
-
-        if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-            return score;
-        }
-    }
-
-    let tt_key = board.hash();
-    ctx.tt.prefetch(tt_key);
-
-    let mut move_list = MoveList::new(board);
-    if move_list.count() == 0 {
-        let next = board.switch_players();
-        if next.has_legal_moves() {
-            ctx.update_pass();
-            let score = -search::<NT>(ctx, &next, depth, -beta, -alpha, thread);
-            ctx.undo_pass();
-            return score;
-        } else {
-            return solve(board, n_empties);
-        }
-    } else if let Some(sq) = move_list.wipeout_move {
-        if NT::ROOT_NODE {
-            ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
-        } else if NT::PV_NODE {
-            ctx.update_pv(sq);
-        }
-        return ScaledScore::MAX;
-    }
-
-    // Look up position in transposition table
-    let tt_probe_result = ctx.tt.probe(tt_key);
-    let tt_move = tt_probe_result.best_move();
-
-    if !NT::PV_NODE {
-        if let Some(tt_data) = tt_probe_result.data()
-            && tt_data.depth() >= depth
-            && tt_data.selectivity() >= ctx.selectivity
-            && tt_data.can_cut(beta)
-        {
-            return tt_data.score();
-        }
-
-        if depth >= MIN_ETC_DEPTH
-            && let Some(score) = enhanced_transposition_cutoff(
-                ctx,
-                board,
-                &move_list,
-                depth,
-                alpha,
-                tt_key,
-                tt_probe_result.index(),
-            )
-        {
-            return score;
-        }
-
-        if depth >= MIN_PROBCUT_DEPTH
-            && let Some(score) = probcut(ctx, board, depth, beta, thread)
-        {
-            return score;
-        }
-    }
-
-    if NT::ROOT_NODE {
-        move_list.exclude_earlier_pv_moves(ctx);
-    }
-
-    if move_list.count() > 1 {
-        move_list.evaluate_moves(ctx, board, depth, tt_move);
-        move_list.sort();
-    }
-
-    let move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
-    let mut best_move = Square::None;
-    let mut best_score = -ScaledScore::INF;
-
-    while let Some((mv, move_count)) = move_iter.next() {
-        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update(mv.sq, mv.flipped);
-
-        let mut score = -ScaledScore::INF;
-        if depth >= 2 && mv.reduction_depth > 0 {
-            let d = (depth - 1).saturating_sub(mv.reduction_depth);
-            score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, thread);
-            if score > alpha {
-                score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
-            }
-        } else if !NT::PV_NODE || move_count > 1 {
-            score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
-        }
-
-        if NT::PV_NODE && (move_count == 1 || score > alpha) {
-            ctx.clear_pv();
-            score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha, thread);
-        }
-
-        ctx.undo(mv.sq);
-
-        if thread.is_search_aborted() || thread.cutoff_occurred() {
-            return ScaledScore::ZERO;
-        }
-
-        if NT::ROOT_NODE {
-            ctx.update_root_move(mv.sq, score, move_count, alpha);
-        }
-
-        if score > best_score {
-            best_score = score;
-
-            if score > alpha {
-                best_move = mv.sq;
-
-                if NT::PV_NODE && !NT::ROOT_NODE {
-                    ctx.update_pv(mv.sq);
-                }
-
-                if NT::PV_NODE && score < beta {
-                    alpha = score;
-                } else {
-                    break;
-                }
-            }
-        }
-
-        if depth >= MIN_SPLIT_DEPTH && move_iter.count() > 1 && thread.can_split() {
-            let (s, m, n) = thread.split(
-                ctx,
-                board,
-                alpha,
-                beta,
-                best_score,
-                best_move,
-                depth,
-                &move_iter,
-                NT::TYPE_ID,
-            );
-            best_score = s;
-            best_move = m;
-            ctx.n_nodes += n;
-
-            if thread.is_search_aborted() || thread.cutoff_occurred() {
-                return ScaledScore::ZERO;
-            }
-
-            if best_score >= beta {
-                break;
-            }
-        }
-    }
-
-    ctx.tt.store(
-        tt_probe_result.index(),
-        tt_key,
-        best_score,
-        Bound::determine_bound::<NT>(best_score.value(), org_alpha.value(), beta.value()),
-        depth,
-        best_move,
-        ctx.selectivity,
-        false, // midgame search
-    );
-
-    best_score
-}
-
-/// Alpha-beta search function for splitpoint nodes in parallel search.
-///
-/// # Type Parameters
-///
-/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context tracking game state and statistics.
-/// * `board` - Current board position to search.
-/// * `depth` - Remaining search depth.
-/// * `thread` - Thread handle for parallel search coordination.
-/// * `split_point` - Split point for parallel search coordination.
-///
-/// # Returns
-///
-/// The best score found for the position (raw i32 for threading compatibility).
-pub fn search_sp<NT: NodeType>(
-    ctx: &mut SearchContext,
-    board: &Board,
-    depth: Depth,
-    thread: &Arc<Thread>,
-    split_point: &Arc<SplitPoint>,
-) -> ScaledScore {
-    let beta = split_point.state().beta;
-    let move_iter = split_point.state().move_iter.clone().unwrap();
-
-    while let Some((mv, move_count)) = move_iter.next() {
-        split_point.unlock();
-
-        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update(mv.sq, mv.flipped);
-
-        let alpha = split_point.state().alpha();
-        let mut score = -ScaledScore::INF;
-        if depth >= 2 && mv.reduction_depth > 0 {
-            let d = (depth - 1).saturating_sub(mv.reduction_depth);
-            score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, thread);
-            if score > alpha {
-                let alpha = split_point.state().alpha();
-                score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
-            }
-        } else if !NT::PV_NODE || move_count > 1 {
-            score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
-        }
-
-        if NT::PV_NODE && score > alpha {
-            ctx.clear_pv();
-            let alpha = split_point.state().alpha();
-            score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha, thread);
-        }
-
-        ctx.undo(mv.sq);
-
-        split_point.lock();
-
-        if thread.is_search_aborted() || thread.cutoff_occurred() {
-            return ScaledScore::ZERO;
-        }
-
-        let sp = split_point.state();
-
-        if NT::ROOT_NODE {
-            ctx.update_root_move(mv.sq, score, move_count, sp.alpha());
-        }
-
-        if score > sp.best_score() {
-            sp.set_best_score(score);
-
-            if score > sp.alpha() {
-                sp.set_best_move(mv.sq);
-
-                if NT::PV_NODE && !NT::ROOT_NODE {
-                    ctx.update_pv(mv.sq);
-                    split_point.state_mut().copy_pv(ctx.get_pv());
-                }
-
-                if NT::PV_NODE && score < beta {
-                    sp.set_alpha(score);
-                } else {
-                    sp.set_cutoff(true);
-                    break;
-                }
-            }
-        }
-    }
-
-    split_point.state().best_score()
-}
-
 /// Attempts ProbCut pruning for midgame positions
 ///
 /// # Arguments
@@ -587,9 +278,12 @@ pub fn probcut(
     let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0);
 
     if eval_score >= eval_beta {
+        use crate::search::node_type::NonPV;
+
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None; // Disable nested probcut
-        let score = search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
+        let score =
+            search::<NonPV, MidGamePhase>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {
@@ -759,21 +453,4 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
 /// The exact final score of the position, scaled to internal units.
 fn solve(board: &Board, n_empties: Depth) -> ScaledScore {
     ScaledScore::from_disc_diff(endgame::solve(board, n_empties))
-}
-
-/// Checks for stability-based cutoffs in the search.
-///
-/// # Arguments
-///
-/// * `board` - Current board position
-/// * `n_empties` - Number of empty squares
-/// * `alpha` - Current alpha bound for pruning decision
-///
-/// # Returns
-///
-/// * `Some(score)` - If position can be pruned with this score
-/// * `None` - If no stability cutoff is possible
-fn stability_cutoff(board: &Board, n_empties: Depth, alpha: ScaledScore) -> Option<ScaledScore> {
-    stability::stability_cutoff(board, n_empties, alpha.to_disc_diff())
-        .map(ScaledScore::from_disc_diff)
 }
