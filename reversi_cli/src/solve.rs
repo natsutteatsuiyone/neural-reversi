@@ -3,11 +3,12 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::time::Duration;
 
+use reversi_core::search::options::SearchOptions;
 use reversi_core::{
     board::Board,
     level::{Level, get_level},
     piece::Piece,
-    search::{Search, SearchConstraint, SearchOptions},
+    search::{Search, SearchConstraint},
     types::Selectivity,
 };
 

@@ -17,7 +17,7 @@ use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     self,
     level::Level,
-    search::{self, SearchOptions, search_result::SearchResult},
+    search::{self, options::SearchOptions, search_result::SearchResult},
     square::Square,
     types::{Depth, Scoref, Selectivity},
 };
@@ -507,8 +507,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let search_options =
-        search::SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
+    let search_options = SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
 
     execute(
         &filtered,

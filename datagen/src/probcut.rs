@@ -19,7 +19,7 @@ use reversi_core::{
     board::Board,
     level::get_level,
     piece::Piece,
-    search::{Search, SearchOptions},
+    search::{Search, options::SearchOptions},
     square::Square,
     types::{Depth, Scoref, Selectivity},
 };

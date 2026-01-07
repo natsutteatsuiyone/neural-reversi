@@ -11,7 +11,7 @@
 use reversi_core::{
     level::get_level,
     piece::Piece,
-    search::{self, SearchConstraint, SearchOptions, time_control::TimeControlMode},
+    search::{self, SearchConstraint, options::SearchOptions, time_control::TimeControlMode},
     square::Square,
     types::Selectivity,
 };

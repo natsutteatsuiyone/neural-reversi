@@ -7,9 +7,10 @@ use colored::Colorize;
 
 use reversi_core::game_state::GameState;
 use reversi_core::piece::Piece;
+use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_context::GamePhase;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchConstraint, SearchOptions, SearchProgress};
+use reversi_core::search::{Search, SearchConstraint, SearchProgress};
 use reversi_core::types::Selectivity;
 
 /// Time control mode.
