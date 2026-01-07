@@ -15,10 +15,11 @@ use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCache
 use crate::search::node_type::Root;
 use crate::search::node_type::{NonPV, PV};
 use crate::search::search_context::SearchContext;
+use crate::search::search_phase::{EndGamePhase, MidGamePhase};
 use crate::search::search_result::SearchResult;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{EndGamePhase, GamePhase, MidGamePhase, SearchTask, midgame, search};
+use crate::search::{GamePhase, SearchTask, midgame, search};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
@@ -312,8 +313,6 @@ pub fn probcut(
     let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0);
 
     if eval_score >= eval_beta {
-        use crate::search::{MidGamePhase, node_type::NonPV};
-
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None;
         let score =

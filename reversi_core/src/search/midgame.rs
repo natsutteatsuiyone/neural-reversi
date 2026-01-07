@@ -11,13 +11,15 @@ use crate::board::Board;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
+use crate::search::node_type::NonPV;
 use crate::search::node_type::Root;
 use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
+use crate::search::search_phase::MidGamePhase;
 use crate::search::search_result::SearchResult;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{MidGamePhase, SearchTask, endgame, search};
+use crate::search::{SearchTask, endgame, search};
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore, Selectivity};
 
@@ -278,8 +280,6 @@ pub fn probcut(
     let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0);
 
     if eval_score >= eval_beta {
-        use crate::search::node_type::NonPV;
-
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None; // Disable nested probcut
         let score =

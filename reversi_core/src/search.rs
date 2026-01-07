@@ -20,7 +20,9 @@ use crate::level::Level;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 
 use crate::search::node_type::{NodeType, NonPV, PV};
-use crate::search::search_context::SearchContext;
+use crate::search::options::SearchOptions;
+use crate::search::search_context::{GamePhase, SearchContext};
+use crate::search::search_phase::SearchPhase;
 use crate::search::search_result::SearchResult;
 use crate::search::threading::{SplitPoint, Thread, ThreadPool};
 use crate::search::time_control::{TimeControlMode, TimeManager};
@@ -66,10 +68,6 @@ pub struct SearchProgress {
 
 /// Type alias for search progress callback
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
-
-pub use options::SearchOptions;
-pub use search_context::GamePhase;
-pub use search_phase::{EndGamePhase, MidGamePhase, SearchPhase};
 
 /// Search constraint definition
 pub enum SearchConstraint {

@@ -17,7 +17,9 @@ use crate::move_list::ConcurrentMoveIterator;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::root_move::RootMoves;
 use crate::search::search_context::{GamePhase, SearchContext};
+use crate::search::search_phase::{EndGamePhase, MidGamePhase};
 use crate::search::search_result::SearchResult;
+use crate::search::search_split_point;
 use crate::search::side_to_move::SideToMove;
 use crate::search::{self, SearchTask, time_control::TimeManager};
 use crate::square::Square;
@@ -766,10 +768,6 @@ impl Thread {
         node_type: u32,
         sp: &Arc<SplitPoint>,
     ) {
-        use crate::search::{EndGamePhase, MidGamePhase, search_split_point};
-
-        // Use EndGamePhase only when doing true endgame search (depth == empties).
-        // Midgame probcut inside endgame still uses MidGamePhase.
         let is_endgame_search =
             ctx.game_phase == GamePhase::EndGame && ctx.empty_list.count == depth;
 
