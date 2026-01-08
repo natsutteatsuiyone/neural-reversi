@@ -346,28 +346,27 @@ impl NetworkSmall {
                     let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
                     let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
 
-                    for j in 0..NUM_REGS {
-                        let w0 = _mm256_load_si256(weights_ptr.add(idx0 + j));
-                        let w1 = _mm256_load_si256(weights_ptr.add(idx1 + j));
-                        let w2 = _mm256_load_si256(weights_ptr.add(idx2 + j));
-                        let w3 = _mm256_load_si256(weights_ptr.add(idx3 + j));
-
-                        let sum01 = _mm256_add_epi16(w0, w1);
-                        let sum23 = _mm256_add_epi16(w2, w3);
-                        let sum = _mm256_add_epi16(sum01, sum23);
-
-                        match j {
-                            0 => acc0 = _mm256_add_epi16(acc0, sum),
-                            1 => acc1 = _mm256_add_epi16(acc1, sum),
-                            2 => acc2 = _mm256_add_epi16(acc2, sum),
-                            3 => acc3 = _mm256_add_epi16(acc3, sum),
-                            4 => acc4 = _mm256_add_epi16(acc4, sum),
-                            5 => acc5 = _mm256_add_epi16(acc5, sum),
-                            6 => acc6 = _mm256_add_epi16(acc6, sum),
-                            7 => acc7 = _mm256_add_epi16(acc7, sum),
-                            _ => unreachable!(),
-                        }
+                    macro_rules! accumulate_reg {
+                        ($j:expr, $acc:ident) => {{
+                            let w0 = _mm256_load_si256(weights_ptr.add(idx0 + $j));
+                            let w1 = _mm256_load_si256(weights_ptr.add(idx1 + $j));
+                            let w2 = _mm256_load_si256(weights_ptr.add(idx2 + $j));
+                            let w3 = _mm256_load_si256(weights_ptr.add(idx3 + $j));
+                            let sum01 = _mm256_add_epi16(w0, w1);
+                            let sum23 = _mm256_add_epi16(w2, w3);
+                            let sum = _mm256_add_epi16(sum01, sum23);
+                            $acc = _mm256_add_epi16($acc, sum);
+                        }};
                     }
+
+                    accumulate_reg!(0, acc0);
+                    accumulate_reg!(1, acc1);
+                    accumulate_reg!(2, acc2);
+                    accumulate_reg!(3, acc3);
+                    accumulate_reg!(4, acc4);
+                    accumulate_reg!(5, acc5);
+                    accumulate_reg!(6, acc6);
+                    accumulate_reg!(7, acc7);
                 }};
             }
 
