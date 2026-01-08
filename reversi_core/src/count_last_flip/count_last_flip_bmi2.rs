@@ -91,7 +91,7 @@ const COUNT_FLIP: [[u8; 256]; 8] = [
 ];
 
 #[rustfmt::skip]
-const MASK_X: [[u64; 4];64] = [
+const MASK_X: [[u64; 4]; 64] = [
 	[ 0x0000000000000001, 0x8040201008040201, 0x0101010101010101, 0x81412111090503ff ],
 	[ 0x0000000000000102, 0x0080402010080402, 0x0202020202020202, 0x02824222120a07ff ],
 	[ 0x0000000000010204, 0x0000804020100804, 0x0404040404040404, 0x0404844424150eff ],
@@ -179,5 +179,62 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
         n_flipped += *count_y.get_unchecked(_pext_u64(masked_p, *mask.get_unchecked(2)) as usize);
 
         n_flipped as i32
+    }
+}
+
+/// Counts flipped pieces for both players simultaneously using BMI2 PEXT.
+///
+/// # Arguments
+///
+/// * `player` - Current player's bitboard
+/// * `opponent` - Opponent's bitboard
+/// * `sq` - Square where the last move is played
+///
+/// # Returns
+///
+/// Tuple of (player_flipped, opponent_flipped) where values are 2x actual flip count
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+#[target_feature(enable = "bmi2")]
+#[inline]
+pub fn count_last_flip_double(player: u64, opponent: u64, sq: Square) -> (i32, i32) {
+    unsafe {
+        let sq_idx = sq.index();
+
+        let mask_ptr = MASK_X.as_ptr().add(sq_idx) as *const u64;
+        let mask0 = *mask_ptr;
+        let mask1 = *mask_ptr.add(1);
+        let mask2 = *mask_ptr.add(2);
+        let mask3 = *mask_ptr.add(3);
+
+        let masked_p = player & mask3;
+        let masked_o = opponent & mask3;
+
+        let count_x = COUNT_FLIP.as_ptr().add(sq_idx & 7) as *const u8;
+        let count_y = COUNT_FLIP.as_ptr().add(sq_idx >> 3) as *const u8;
+
+        let row_shift = sq_idx & 0x38;
+        let p_h = ((masked_p >> row_shift) & 0xFF) as usize;
+        let o_h = ((masked_o >> row_shift) & 0xFF) as usize;
+
+        let p_v = _pext_u64(masked_p, mask0) as usize;
+        let o_v = _pext_u64(masked_o, mask0) as usize;
+        let p_d7 = _pext_u64(masked_p, mask1) as usize;
+        let o_d7 = _pext_u64(masked_o, mask1) as usize;
+        let p_d9 = _pext_u64(masked_p, mask2) as usize;
+        let o_d9 = _pext_u64(masked_o, mask2) as usize;
+
+        // Player flips
+        let p_flipped = *count_x.add(p_h) as u32
+            + *count_y.add(p_v) as u32
+            + *count_y.add(p_d7) as u32
+            + *count_y.add(p_d9) as u32;
+
+        // Opponent flips
+        let o_flipped = *count_x.add(o_h) as u32
+            + *count_y.add(o_v) as u32
+            + *count_y.add(o_d7) as u32
+            + *count_y.add(o_d9) as u32;
+
+        (p_flipped as i32, o_flipped as i32)
     }
 }

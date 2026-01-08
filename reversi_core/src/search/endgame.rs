@@ -8,7 +8,10 @@ use std::sync::Arc;
 
 use crate::board::Board;
 use crate::constants::{SCORE_INF, SCORE_MAX};
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 use crate::count_last_flip::count_last_flip;
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+use crate::count_last_flip::count_last_flip_double;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
@@ -1086,12 +1089,39 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 ///
 /// * `ctx` - Search context for node counting
 /// * `player` - Current player's bitboard
-/// * `alpha` - Score threshold
-/// * `sq` - The single remaining empty square
+/// * `alpha` - Score threshold (unused in branchless version)
+/// * `sq` - Square where the last move is played
 ///
 /// # Returns
 ///
 /// Exact final score after optimal play
+///
+/// # References
+///
+/// Branchless optimization based on:
+/// <https://eukaryote.hateblo.jp/entry/2020/05/10/033228>
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+#[inline(always)]
+fn solve1(ctx: &mut SearchContext, player: u64, _alpha: Score, sq: Square) -> Score {
+    ctx.increment_nodes();
+    let opponent = !player;
+    let (p_flip, o_flip) = count_last_flip_double(player, opponent, sq);
+
+    let base = 2 * player.count_ones() as Score - 64;
+
+    let x1 = base + 2 + p_flip;
+    let x2 = base - o_flip;
+    let x3 = base + ((base >= 0) as Score) * 2;
+
+    let b1 = p_flip != 0;
+    let b2 = o_flip != 0;
+
+    let ax = if b2 { x2 } else { x3 };
+    if b1 { x1 } else { ax }
+}
+
+/// Specialized solver for positions with exactly 1 empty square (fallback version).
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, player: u64, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();

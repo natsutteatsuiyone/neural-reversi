@@ -13,8 +13,8 @@ use cfg_if::cfg_if;
 ///
 /// # Arguments
 ///
-/// * `player` - Bitboard representing the player's pieces
-/// * `sq` - The square where the move would be played
+/// * `player` - Current player's bitboard
+/// * `sq` - Square where the last move is played
 ///
 /// # Returns
 ///
@@ -28,4 +28,21 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
             count_last_flip_kindergarten::count_last_flip(player, sq)
         }
     }
+}
+
+/// Counts flipped pieces for both players simultaneously.
+///
+/// # Arguments
+///
+/// * `player` - Current player's bitboard
+/// * `opponent` - Opponent's bitboard
+/// * `sq` - Square where the last move is played
+///
+/// # Returns
+///
+/// Tuple of (player_flipped, opponent_flipped) where values are 2x actual flip count
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+#[inline(always)]
+pub fn count_last_flip_double(player: u64, opponent: u64, sq: Square) -> (i32, i32) {
+    unsafe { count_last_flip_bmi2::count_last_flip_double(player, opponent, sq) }
 }
