@@ -668,31 +668,6 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     #[inline(always)]
-    fn search_child(ctx: &mut SearchContext, next: &Board, beta: Score) -> Score {
-        if ctx.empty_list.count == 4 {
-            let key = next.hash();
-            let entry = probe_endgame_cache(key);
-            let next_beta = -beta + 1;
-            if let Some(entry_data) = &entry
-                && entry_data.can_cut(next_beta)
-            {
-                return -entry_data.score;
-            }
-
-            if let Some(score) = stability_cutoff(next, 4, -beta) {
-                -score
-            } else {
-                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
-                let score = solve4(ctx, next, -beta, sq1, sq2, sq3, sq4);
-                store_endgame_cache(key, next_beta, score, Square::None);
-                -score
-            }
-        } else {
-            -shallow_search(ctx, next, -beta)
-        }
-    }
-
-    #[inline(always)]
     fn search_move(
         ctx: &mut SearchContext,
         board: &Board,
@@ -703,7 +678,25 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     ) -> Option<Score> {
         let next = board.make_move(sq);
         ctx.update_endgame(sq);
-        let score = search_child(ctx, &next, beta);
+        let score = if ctx.empty_list.count == 4 {
+            let key = next.hash();
+            let entry = probe_endgame_cache(key);
+            let next_beta = -beta + 1;
+            if let Some(entry_data) = &entry
+                && entry_data.can_cut(next_beta)
+            {
+                -entry_data.score
+            } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
+                -score
+            } else {
+                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+                let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
+                store_endgame_cache(key, next_beta, score, Square::None);
+                -score
+            }
+        } else {
+            -shallow_search(ctx, &next, -beta)
+        };
         ctx.undo_endgame(sq);
 
         if score > *best_score {
