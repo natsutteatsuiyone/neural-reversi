@@ -14,7 +14,7 @@ use reversi_core::game_state::GameState;
 use reversi_core::level::{Level, get_level};
 use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
-use reversi_core::search::{self, SearchConstraint};
+use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 use reversi_core::types::{Scoref, Selectivity};
 use std::cmp::Ordering;
@@ -311,14 +311,8 @@ fn play_game(
         {
             cached_record.clone()
         } else {
-            let constraint = SearchConstraint::Level(lv);
-            let result = search.run(
-                &board,
-                constraint,
-                selectivity,
-                false,
-                None::<fn(search::SearchProgress)>,
-            );
+            let options = SearchRunOptions::with_level(lv, selectivity);
+            let result = search.run(&board, &options);
             let ply = 60 - board.get_empty_count() as u8;
 
             let record = GameRecord {
@@ -352,14 +346,8 @@ fn play_game(
 
         let board = *game.board();
         let side_to_move = game.side_to_move();
-        let constraint = SearchConstraint::Level(lv);
-        let result = search.run(
-            &board,
-            constraint,
-            selectivity,
-            false,
-            None::<fn(search::SearchProgress)>,
-        );
+        let options = SearchRunOptions::with_level(lv, selectivity);
+        let result = search.run(&board, &options);
 
         let ply = 60 - board.get_empty_count() as u8;
         let best_move = result.best_move.unwrap();

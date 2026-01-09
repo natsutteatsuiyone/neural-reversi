@@ -4,7 +4,7 @@ use reversi_core::level::get_level;
 use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_context::GamePhase;
-use reversi_core::search::{SearchConstraint, time_control::TimeControlMode};
+use reversi_core::search::{SearchRunOptions, time_control::TimeControlMode};
 use reversi_core::types::{Scoref, Selectivity};
 use reversi_core::{board, search};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -113,19 +113,27 @@ async fn ai_move_command(
         };
 
         let result = if let Some(remaining_ms) = remaining_time {
-            let constraint = SearchConstraint::Time(TimeControlMode::Fischer {
-                main_time_ms: remaining_ms,
-                increment_ms: 0,
-            });
-            search_guard.run(&board, constraint, SELECTIVITY, false, Some(callback))
+            let options = SearchRunOptions::with_time(
+                TimeControlMode::Fischer {
+                    main_time_ms: remaining_ms,
+                    increment_ms: 0,
+                },
+                SELECTIVITY,
+            )
+            .callback(callback);
+            search_guard.run(&board, &options)
         } else if let Some(limit_ms) = time_limit {
-            let constraint = SearchConstraint::Time(TimeControlMode::Byoyomi {
-                time_per_move_ms: limit_ms,
-            });
-            search_guard.run(&board, constraint, SELECTIVITY, false, Some(callback))
+            let options = SearchRunOptions::with_time(
+                TimeControlMode::Byoyomi {
+                    time_per_move_ms: limit_ms,
+                },
+                SELECTIVITY,
+            )
+            .callback(callback);
+            search_guard.run(&board, &options)
         } else {
-            let constraint = SearchConstraint::Level(lv);
-            search_guard.run(&board, constraint, SELECTIVITY, false, Some(callback))
+            let options = SearchRunOptions::with_level(lv, SELECTIVITY).callback(callback);
+            search_guard.run(&board, &options)
         };
 
         let time_taken_ms = start_time.elapsed().as_millis() as u64;
@@ -188,8 +196,10 @@ async fn analyze_command(
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
-        let constraint = SearchConstraint::Level(lv);
-        search_guard.run(&board, constraint, SELECTIVITY, true, Some(callback));
+        let options = SearchRunOptions::with_level(lv, SELECTIVITY)
+            .multi_pv(true)
+            .callback(callback);
+        search_guard.run(&board, &options);
     })
     .await
     .map_err(|e| e.to_string())?;

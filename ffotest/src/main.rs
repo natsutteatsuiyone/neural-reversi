@@ -17,7 +17,7 @@ use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     self,
     level::Level,
-    search::{self, options::SearchOptions, search_result::SearchResult},
+    search::{self, SearchRunOptions, options::SearchOptions, search_result::SearchResult},
     square::Square,
     types::{Depth, Scoref, Selectivity},
 };
@@ -344,7 +344,8 @@ fn execute_test_case(
     search.init();
 
     let start = Instant::now();
-    let result = search.test(&board, level, selectivity);
+    let options = SearchRunOptions::with_level(level, selectivity);
+    let result = search.run(&board, &options);
     let elapsed = start.elapsed();
 
     let score_difference = (result.score - test_case.expected_score as Scoref).abs();

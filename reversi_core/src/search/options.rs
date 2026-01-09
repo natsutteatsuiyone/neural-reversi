@@ -1,6 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::constants::MAX_THREADS;
+use crate::level::Level;
+use crate::types::Selectivity;
+
+use super::SearchProgressCallback;
+use super::time_control::TimeControlMode;
 
 pub struct SearchOptions {
     pub tt_mb_size: usize,
@@ -52,5 +58,60 @@ impl Default for SearchOptions {
             eval_path: None,
             eval_sm_path: None,
         }
+    }
+}
+
+/// Search constraint definition
+pub enum SearchConstraint {
+    Level(Level),
+    Time(TimeControlMode),
+}
+
+/// Options for a single search run
+pub struct SearchRunOptions {
+    pub constraint: SearchConstraint,
+    pub selectivity: Selectivity,
+    pub multi_pv: bool,
+    pub callback: Option<Arc<SearchProgressCallback>>,
+}
+
+impl SearchRunOptions {
+    /// Create search run options with a level constraint
+    #[must_use]
+    pub fn with_level(level: Level, selectivity: Selectivity) -> Self {
+        SearchRunOptions {
+            constraint: SearchConstraint::Level(level),
+            selectivity,
+            multi_pv: false,
+            callback: None,
+        }
+    }
+
+    /// Create search run options with a time constraint
+    #[must_use]
+    pub fn with_time(mode: TimeControlMode, selectivity: Selectivity) -> Self {
+        SearchRunOptions {
+            constraint: SearchConstraint::Time(mode),
+            selectivity,
+            multi_pv: false,
+            callback: None,
+        }
+    }
+
+    /// Enable multi-PV mode
+    #[must_use]
+    pub fn multi_pv(mut self, enabled: bool) -> Self {
+        self.multi_pv = enabled;
+        self
+    }
+
+    /// Set progress callback
+    #[must_use]
+    pub fn callback<F>(mut self, f: F) -> Self
+    where
+        F: Fn(super::SearchProgress) + Send + Sync + 'static,
+    {
+        self.callback = Some(Arc::new(f));
+        self
     }
 }

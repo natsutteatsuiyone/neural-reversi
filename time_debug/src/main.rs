@@ -10,7 +10,7 @@ use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_context::GamePhase;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchConstraint, SearchProgress};
+use reversi_core::search::{Search, SearchProgress, SearchRunOptions};
 use reversi_core::types::Selectivity;
 
 /// Time control mode.
@@ -416,8 +416,12 @@ fn play_game(
 
             // Run search with time control
             let start = Instant::now();
-            let constraint = SearchConstraint::Time(time_control);
-            let result = search.run(board, constraint, selectivity, false, callback);
+            let options = if let Some(cb) = callback {
+                SearchRunOptions::with_time(time_control, selectivity).callback(cb)
+            } else {
+                SearchRunOptions::with_time(time_control, selectivity)
+            };
+            let result = search.run(board, &options);
             let elapsed_ms = start.elapsed().as_millis() as u64;
             (result, elapsed_ms)
         };

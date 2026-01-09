@@ -11,7 +11,7 @@
 use reversi_core::{
     level::get_level,
     piece::Piece,
-    search::{self, SearchConstraint, options::SearchOptions, time_control::TimeControlMode},
+    search::{self, SearchRunOptions, options::SearchOptions, time_control::TimeControlMode},
     square::Square,
     types::Selectivity,
 };
@@ -600,20 +600,14 @@ impl GtpEngine {
         // fall back to depth-limited search based on the configured level so
         // `genmove` returns promptly instead of thinking indefinitely.
         let time_control = self.get_current_time_control();
-        let constraint = match time_control {
+        let options = match time_control {
             TimeControlMode::Infinite => {
                 let level_idx = self.level.min(24); // clamp to available levels
-                SearchConstraint::Level(get_level(level_idx))
+                SearchRunOptions::with_level(get_level(level_idx), self.selectivity)
             }
-            mode => SearchConstraint::Time(mode),
+            mode => SearchRunOptions::with_time(mode, self.selectivity),
         };
-        let result = self.search.run::<fn(search::SearchProgress)>(
-            self.game.board(),
-            constraint,
-            self.selectivity,
-            false,
-            None,
-        );
+        let result = self.search.run(self.game.board(), &options);
 
         if let Some(computer_move) = result.best_move {
             self.game.make_move(computer_move);

@@ -25,7 +25,7 @@ use crate::search::search_context::{GamePhase, SearchContext};
 use crate::search::search_phase::SearchPhase;
 use crate::search::search_result::SearchResult;
 use crate::search::threading::{SplitPoint, Thread, ThreadPool};
-use crate::search::time_control::{TimeControlMode, TimeManager};
+use crate::search::time_control::TimeManager;
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::{Bound, TranspositionTable};
@@ -69,11 +69,8 @@ pub struct SearchProgress {
 /// Type alias for search progress callback
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
-/// Search constraint definition
-pub enum SearchConstraint {
-    Level(Level),
-    Time(TimeControlMode),
-}
+// Re-export SearchConstraint and SearchRunOptions for external use
+pub use options::{SearchConstraint, SearchRunOptions};
 
 impl Search {
     pub fn new(options: &SearchOptions) -> Search {
@@ -103,25 +100,15 @@ impl Search {
         self.endgame_start_n_empties = None;
     }
 
-    pub fn run<F>(
-        &mut self,
-        board: &Board,
-        constraint: SearchConstraint,
-        selectivity: Selectivity,
-        multi_pv: bool,
-        callback: Option<F>,
-    ) -> SearchResult
-    where
-        F: Fn(SearchProgress) + Send + Sync + 'static,
-    {
-        let callback = callback.map(|f| Arc::new(f) as Arc<SearchProgressCallback>);
+    pub fn run(&mut self, board: &Board, options: &SearchRunOptions) -> SearchResult {
+        let callback = options.callback.clone();
 
         // Configure time manager and level based on constraint
-        let (time_manager, mut effective_level) = match constraint {
-            SearchConstraint::Level(level) => (None, level),
+        let (time_manager, mut effective_level) = match &options.constraint {
+            SearchConstraint::Level(level) => (None, *level),
             SearchConstraint::Time(mode) => {
                 let tm = Arc::new(TimeManager::new(
-                    mode,
+                    *mode,
                     self.threads.get_abort_flag(),
                     board.get_empty_count(),
                 ));
@@ -143,8 +130,8 @@ impl Search {
         let mut result = self.execute_search(
             board,
             effective_level,
-            selectivity,
-            multi_pv,
+            options.selectivity,
+            options.multi_pv,
             callback.clone(),
             time_manager,
         );
@@ -237,10 +224,6 @@ impl Search {
 
     pub fn get_thread_pool(&self) -> Arc<threading::ThreadPool> {
         self.threads.clone()
-    }
-
-    pub fn test(&mut self, board: &Board, level: Level, selectivity: Selectivity) -> SearchResult {
-        self.execute_search(board, level, selectivity, false, None, None)
     }
 
     /// Quick move selection for time-critical situations.

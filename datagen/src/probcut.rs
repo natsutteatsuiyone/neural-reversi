@@ -19,7 +19,7 @@ use reversi_core::{
     board::Board,
     level::get_level,
     piece::Piece,
-    search::{Search, options::SearchOptions},
+    search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
     types::{Depth, Scoref, Selectivity},
 };
@@ -154,7 +154,8 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                 .map(|depth| {
                     let mut level = get_level(depth);
                     level.end_depth = [depth as Depth; 7];
-                    let result = search.test(&board, level, SELECTIVITY);
+                    let options = SearchRunOptions::with_level(level, SELECTIVITY);
+                    let result = search.run(&board, &options);
                     (depth as Depth, result.score)
                 })
                 .collect();

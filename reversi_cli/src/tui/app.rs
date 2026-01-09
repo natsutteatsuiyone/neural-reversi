@@ -10,7 +10,7 @@ use reversi_core::level;
 use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_result::{PvMove, SearchResult};
-use reversi_core::search::{self, SearchConstraint};
+use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 use reversi_core::types::Selectivity;
 
@@ -542,14 +542,9 @@ impl App {
                 .with_threads(threads)
                 .with_eval_paths(eval_path.as_deref(), eval_sm_path.as_deref());
             let mut search = search::Search::new(&search_options);
-            let constraint = SearchConstraint::Level(level::get_level(level));
-            let result = search.run(
-                &board,
-                constraint,
-                selectivity,
-                true, // multi_pv
-                None::<fn(search::SearchProgress)>,
-            );
+            let options =
+                SearchRunOptions::with_level(level::get_level(level), selectivity).multi_pv(true);
+            let result = search.run(&board, &options);
 
             let _ = tx.send(HintResult {
                 pv_moves: result.pv_moves,
@@ -589,14 +584,8 @@ impl App {
                 .with_threads(threads)
                 .with_eval_paths(eval_path.as_deref(), eval_sm_path.as_deref());
             let mut search = search::Search::new(&search_options);
-            let constraint = SearchConstraint::Level(level::get_level(level));
-            let result = search.run(
-                &board,
-                constraint,
-                selectivity,
-                false,
-                None::<fn(search::SearchProgress)>,
-            );
+            let options = SearchRunOptions::with_level(level::get_level(level), selectivity);
+            let result = search.run(&board, &options);
 
             let best_move = result.best_move;
             let _ = tx.send(AiResult {

@@ -2,7 +2,7 @@ use reversi_core::board::Board;
 use reversi_core::level::Level;
 use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
-use reversi_core::search::Search;
+use reversi_core::search::{Search, SearchRunOptions};
 use reversi_core::types::Selectivity;
 
 #[test]
@@ -12,7 +12,8 @@ fn test_solve_5() {
         "--O--O----OOOOO-XOOOOOOOXXOOXOOOXXXXXOXXXOXXOOXXXXXXOXOXXOOOOOOX",
         Piece::Black,
     );
-    let result = search.test(&board, Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let result = search.run(&board, &options);
 
     assert_eq!(result.score as i32, 28);
 }
@@ -24,7 +25,8 @@ fn test_solve_15() {
         "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-",
         Piece::Black,
     );
-    let result = search.test(&board, Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let result = search.run(&board, &options);
 
     assert_eq!(result.score as i32, 8);
 }
