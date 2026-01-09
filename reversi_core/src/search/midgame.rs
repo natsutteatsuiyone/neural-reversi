@@ -19,7 +19,7 @@ use crate::search::search_phase::MidGamePhase;
 use crate::search::search_result::SearchResult;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{SearchTask, endgame, search};
+use crate::search::{SearchProgress, SearchTask, endgame, search};
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore, Selectivity};
 
@@ -49,10 +49,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     // Handle opening position with random move
     if n_empties == 60 && !task.multi_pv {
         return SearchResult::new_random_move(random_move(&board));
-    }
-
-    if let Some(ref callback) = task.callback {
-        ctx.set_callback(callback.clone());
     }
 
     // Search configuration
@@ -104,16 +100,19 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
-            if let Some(rm) = ctx.get_current_pv_root_move() {
-                ctx.notify_progress(
+            if let Some(ref callback) = task.callback
+                && let Some(rm) = ctx.get_current_pv_root_move()
+            {
+                callback(SearchProgress {
                     depth,
-                    max_depth,
-                    score.to_disc_diff_f32(),
-                    rm.sq,
-                    ctx.selectivity,
-                    ctx.n_nodes,
-                    rm.pv.clone(),
-                );
+                    target_depth: max_depth,
+                    score: score.to_disc_diff_f32(),
+                    best_move: rm.sq,
+                    probability: ctx.selectivity.probability(),
+                    nodes: ctx.n_nodes,
+                    pv_line: rm.pv.clone(),
+                    game_phase: ctx.game_phase,
+                });
             }
         }
 

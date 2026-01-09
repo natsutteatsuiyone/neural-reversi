@@ -22,7 +22,7 @@ use crate::search::search_phase::{EndGamePhase, MidGamePhase};
 use crate::search::search_result::SearchResult;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{GamePhase, SearchTask, midgame, search};
+use crate::search::{GamePhase, SearchProgress, SearchTask, midgame, search};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
@@ -89,10 +89,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         tm.set_endgame_mode(true);
     }
 
-    if let Some(ref callback) = task.callback {
-        ctx.set_callback(callback.clone());
-    }
-
     let n_empties = ctx.empty_list.count;
 
     // Estimate initial aspiration window center
@@ -149,16 +145,19 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             ctx.sort_root_moves_from_pv_idx();
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
-            if let Some(rm) = ctx.get_current_pv_root_move() {
-                ctx.notify_progress(
-                    n_empties,
-                    n_empties,
-                    score.to_disc_diff_f32(),
-                    rm.sq,
-                    ctx.selectivity,
-                    ctx.n_nodes,
-                    rm.pv.clone(),
-                );
+            if let Some(ref callback) = task.callback
+                && let Some(rm) = ctx.get_current_pv_root_move()
+            {
+                callback(SearchProgress {
+                    depth: n_empties,
+                    target_depth: n_empties,
+                    score: score.to_disc_diff_f32(),
+                    best_move: rm.sq,
+                    probability: ctx.selectivity.probability(),
+                    nodes: ctx.n_nodes,
+                    pv_line: rm.pv.clone(),
+                    game_phase: ctx.game_phase,
+                });
             }
 
             // Check time control

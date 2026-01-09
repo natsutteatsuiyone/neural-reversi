@@ -5,14 +5,12 @@ use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
-use crate::search::SearchProgress;
-use crate::search::SearchProgressCallback;
 use crate::search::root_move::{RootMove, RootMoves};
 use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, ScaledScore, Scoref, Selectivity};
+use crate::types::{ScaledScore, Selectivity};
 
 /// Represents the current phase of the game for search strategy selection.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -48,8 +46,6 @@ pub struct SearchContext {
     pub eval: Arc<Eval>,
     /// Pattern features for efficient neural network input
     pub pattern_features: PatternFeatures,
-    /// Optional callback for reporting search progress to UI
-    pub callback: Option<Arc<SearchProgressCallback>>,
     /// Search stack for maintaining PV and search state at each ply
     stack: [StackRecord; MAX_PLY],
     /// Current phase of the game (midgame vs endgame)
@@ -84,7 +80,6 @@ impl SearchContext {
             root_moves: RootMoves::new(board),
             eval,
             pattern_features: PatternFeatures::new(board, ply),
-            callback: None,
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
             }; MAX_PLY],
@@ -119,7 +114,6 @@ impl SearchContext {
             root_moves: task.root_moves.clone(),
             eval: task.eval.clone(),
             pattern_features,
-            callback: None,
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
             }; MAX_PLY],
@@ -326,50 +320,6 @@ impl SearchContext {
     /// Sets the principal variation at the current ply.
     pub fn set_pv(&mut self, pv: &[Square; MAX_PLY]) {
         self.stack[self.ply()].pv.copy_from_slice(pv);
-    }
-
-    /// The callback is invoked periodically during search to report progress
-    /// to the UI, including current depth, best move, and evaluation.
-    ///
-    /// # Arguments
-    /// * `callback` - The progress callback function
-    pub fn set_callback(&mut self, callback: Arc<SearchProgressCallback>) {
-        self.callback = Some(callback);
-    }
-
-    /// Notifies the UI of search progress through the registered callback.
-    ///
-    /// # Arguments
-    /// * `depth` - Current search depth
-    /// * `target_depth` - Target search depth (max_depth for midgame, n_empties for endgame)
-    /// * `score` - Current best score (from engine's perspective)
-    /// * `best_move` - Current best move
-    /// * `selectivity` - Current selectivity level
-    /// * `nodes` - Number of nodes searched
-    /// * `pv_line` - Principal variation line
-    #[allow(clippy::too_many_arguments)]
-    pub fn notify_progress(
-        &self,
-        depth: Depth,
-        target_depth: Depth,
-        score: Scoref,
-        best_move: Square,
-        selectivity: Selectivity,
-        nodes: u64,
-        pv_line: Vec<Square>,
-    ) {
-        if let Some(ref callback) = self.callback {
-            callback(SearchProgress {
-                depth,
-                target_depth,
-                score,
-                best_move,
-                probability: selectivity.probability(),
-                nodes,
-                pv_line,
-                game_phase: self.game_phase,
-            });
-        }
     }
 
     /// Returns the number of root moves available from the current position.
