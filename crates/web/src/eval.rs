@@ -26,7 +26,7 @@ impl Eval {
     pub fn with_weight_files() -> io::Result<Self> {
         let network = Network::from_bytes(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../",
+            "/../../",
             eval_weights_literal!()
         )))?;
 

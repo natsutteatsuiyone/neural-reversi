@@ -5,7 +5,7 @@ A tool for playing matches between two computer Reversi programs using the Go Te
 ## Usage
 
 ```bash
-match_runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <OPENING_FILE>
+match-runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <OPENING_FILE>
 ```
 
 ### Options
@@ -52,13 +52,13 @@ For each opening sequence in the file, two games will be played (with colors swa
 ### Basic Match (No Time Control)
 
 ```bash
-match-runner --engine1 "./reversi_cli gtp --level 10" --engine2 "./reversi_cli gtp --level 5" --opening-file openings.txt
+match-runner --engine1 "./cli gtp --level 10" --engine2 "./cli gtp --level 5" --opening-file openings.txt
 ```
 
 ### Match with Custom Working Directories
 
 ```bash
-match-runner --engine1 "./reversi_cli gtp --level 10" --engine1-working-dir "./engine1_dir" --engine2 "./reversi_cli gtp --level 5" --engine2-working-dir "./engine2_dir" --opening-file openings.txt
+match-runner --engine1 "./cli gtp --level 10" --engine1-working-dir "./engine1_dir" --engine2 "./cli gtp --level 5" --engine2-working-dir "./engine2_dir" --opening-file openings.txt
 ```
 
 ### Match with Time Control (Byoyomi)
@@ -66,7 +66,7 @@ match-runner --engine1 "./reversi_cli gtp --level 10" --engine1-working-dir "./e
 Play with 5 seconds per move:
 
 ```bash
-match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --opening-file openings.txt --byoyomi-time 5
+match-runner --engine1 "./cli gtp" --engine2 "./cli gtp" --opening-file openings.txt --byoyomi-time 5
 ```
 
 ### Match with Time Control (Fischer)
@@ -74,7 +74,7 @@ match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --openi
 Play with 60 seconds main time and 2 seconds increment per move:
 
 ```bash
-match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --opening-file openings.txt --main-time 60 --byoyomi-time 2
+match-runner --engine1 "./cli gtp" --engine2 "./cli gtp" --opening-file openings.txt --main-time 60 --byoyomi-time 2
 ```
 
 ### Match with Time Control (Japanese Byo-yomi)
@@ -82,7 +82,7 @@ match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --openi
 Play with 5 minutes main time, then 30 seconds per move:
 
 ```bash
-match-runner --engine1 "./reversi_cli gtp" --engine2 "./reversi_cli gtp" --opening-file openings.txt --main-time 300 --byoyomi-time 30 --byoyomi-stones 1
+match-runner --engine1 "./cli gtp" --engine2 "./cli gtp" --opening-file openings.txt --main-time 300 --byoyomi-time 30 --byoyomi-stones 1
 ```
 
 ## GTP Protocol

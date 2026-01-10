@@ -1,13 +1,13 @@
 [workspace]
 members = [
-    "reversi_cli",
-    "reversi_gui/src-tauri",
-    "reversi_core",
-    "datagen",
-    "ffotest",
-    "match_runner",
-    "reversi_web",
-    "time_debug",
+    "crates/cli",
+    "crates/datagen",
+    "crates/ffotest",
+    "crates/gui/src-tauri",
+    "crates/match-runner",
+    "crates/reversi-core",
+    "crates/time-debug",
+    "crates/web",
 ]
 resolver = "2"
 

@@ -6,11 +6,11 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 
 ## Crates
 
-- **reversi_core**: Core library implementing the AI search algorithms.
-- **reversi_cli**: Command-line interface for playing Reversi.
-- **reversi_gui**: Tauri-based graphical user interface for playing Reversi.
-- **reversi_web**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [https://neural-reversi.net](https://neural-reversi.net).
-- **match_runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
+- **reversi-core**: Core library implementing the AI search algorithms.
+- **cli**: Command-line interface for playing Reversi.
+- **gui**: Tauri-based graphical user interface for playing Reversi.
+- **web**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [https://neural-reversi.net](https://neural-reversi.net).
+- **match-runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
 - **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.
 - **ffotest**: FFO endgame test suite, including Edax problem sets.
 

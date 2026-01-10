@@ -26,12 +26,12 @@ You can enable detailed time control debug logs by setting the `REVERSI_DEBUG_TI
 
 ### PowerShell
 ```powershell
-$env:REVERSI_DEBUG_TIME=1; cargo run -p time_debug --release -- --main-time 10000
+$env:REVERSI_DEBUG_TIME=1; cargo run -p time-debug --release -- --main-time 10000
 ```
 
 ### Bash
 ```bash
-REVERSI_DEBUG_TIME=1 cargo run -p time_debug --release -- --main-time 10000
+REVERSI_DEBUG_TIME=1 cargo run -p time-debug --release -- --main-time 10000
 ```
 
 This will output logs for:
@@ -145,7 +145,7 @@ In endgame positions (roughly 30 or fewer empty squares), the engine switches to
 ## Building
 
 ```bash
-cargo build --release -p time_debug
+cargo build --release -p time-debug
 ```
 
 The binary will be available at `target/release/time-debug`.

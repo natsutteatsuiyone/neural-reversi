@@ -10,9 +10,9 @@ eval*.zst
 /.goosehints
 /.windsurfrules
 /.github/copilot-instructions.md
-/AGENTS.md
-/CLAUDE.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
 /llms.txt
-/GEMINI.md
 /.serena
 

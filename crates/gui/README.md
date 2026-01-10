@@ -19,7 +19,7 @@ A cross-platform desktop application for playing Reversi (Othello) against a str
 3. Install dependencies:
 
 ```bash
-cd reversi_gui
+cd crates/gui
 bun install
 # or with npm: npm install
 ```

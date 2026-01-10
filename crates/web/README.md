@@ -1,4 +1,4 @@
-# reversi_web
+# web
 
 WebAssembly version of Neural Reversi, running the Rust AI engine in the browser.
 

@@ -9,7 +9,7 @@ A command-line interface for playing Reversi (Othello) with an AI opponent power
 Run the CLI without arguments to start in interactive mode:
 
 ```bash
-neural-reversi-cli [options]
+cli [options]
 ```
 
 Options:
@@ -43,7 +43,7 @@ In interactive mode, you can use the following commands:
 Run the CLI in GTP mode for integration with other applications:
 
 ```bash
-neural-reversi-cli gtp [options]
+cli gtp [options]
 ```
 
 Options:
@@ -97,7 +97,7 @@ genmove black
 Run the CLI in solve mode to analyze positions from a file:
 
 ```bash
-neural-reversi-cli solve <file> [options]
+cli solve <file> [options]
 ```
 
 Options:

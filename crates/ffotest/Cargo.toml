@@ -8,4 +8,4 @@ clap = { version = "4.5.53", features = ["derive"] }
 colored = "3.0.0"
 num-format = "0.4.4"
 
-reversi_core = { path = "../reversi_core" }
+reversi-core = { path = "../reversi-core" }

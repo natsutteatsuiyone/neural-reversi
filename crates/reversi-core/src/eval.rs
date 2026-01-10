@@ -85,7 +85,7 @@ impl Eval {
             },
             None => Network::from_bytes(include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../",
+                "/../../",
                 eval_main_weights_literal!()
             ))),
         }?;
@@ -99,7 +99,7 @@ impl Eval {
             },
             None => NetworkSmall::from_bytes(include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../",
+                "/../../",
                 eval_small_weights_literal!()
             ))),
         }?;

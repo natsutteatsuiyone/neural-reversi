@@ -1,5 +1,5 @@
 [package]
-name = "reversi_core"
+name = "reversi-core"
 version.workspace = true
 edition.workspace = true
 

@@ -644,6 +644,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
+name = "cli"
+version = "1.1.0"
+dependencies = [
+ "clap",
+ "colored",
+ "crossterm",
+ "ratatui",
+ "reversi-core",
+ "rustyline",
+]
+
+[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1050,7 +1062,7 @@ dependencies = [
  "rand 0.9.2",
  "rayon",
  "regex",
- "reversi_core",
+ "reversi-core",
  "zstd",
 ]
 
@@ -1422,7 +1434,7 @@ dependencies = [
  "clap",
  "colored",
  "num-format",
- "reversi_core",
+ "reversi-core",
 ]
 
 [[package]]
@@ -1917,6 +1929,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "gui"
+version = "1.1.0"
+dependencies = [
+ "reversi-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tauri-plugin-store",
 ]
 
 [[package]]
@@ -2615,13 +2640,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "match_runner"
+name = "match-runner"
 version = "1.1.0"
 dependencies = [
  "clap",
  "colored",
  "indicatif",
- "reversi_core",
+ "reversi-core",
  "shlex",
  "windows-sys 0.61.2",
 ]
@@ -2747,19 +2772,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys",
-]
-
-[[package]]
-name = "neural-reversi"
-version = "1.1.0"
-dependencies = [
- "reversi_core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "tauri-plugin-store",
 ]
 
 [[package]]
@@ -3986,19 +3998,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "reversi_cli"
-version = "1.1.0"
-dependencies = [
- "clap",
- "colored",
- "crossterm",
- "ratatui",
- "reversi_core",
- "rustyline",
-]
-
-[[package]]
-name = "reversi_core"
+name = "reversi-core"
 version = "1.1.0"
 dependencies = [
  "aligned-vec",
@@ -4010,21 +4010,6 @@ dependencies = [
  "num_cpus",
  "rand 0.9.2",
  "rapidhash",
- "zstd",
-]
-
-[[package]]
-name = "reversi_web"
-version = "1.1.0"
-dependencies = [
- "byteorder",
- "console_error_panic_hook",
- "getrandom 0.3.4",
- "js-sys",
- "rand 0.9.2",
- "reversi_core",
- "wasm-bindgen",
- "web-sys",
  "zstd",
 ]
 
@@ -5091,6 +5076,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40868e7c1d2f0b8d73e4a8c7f0ff63af4f6d19be117e90bd73eb1d62cf831c6b"
 
 [[package]]
+name = "time-debug"
+version = "1.1.0"
+dependencies = [
+ "clap",
+ "colored",
+ "reversi-core",
+]
+
+[[package]]
 name = "time-macros"
 version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5098,15 +5092,6 @@ checksum = "30cfb0125f12d9c277f35663a0a33f8c30190f4e4574868a330595412d34ebf3"
 dependencies = [
  "num-conv",
  "time-core",
-]
-
-[[package]]
-name = "time_debug"
-version = "1.1.0"
-dependencies = [
- "clap",
- "colored",
- "reversi_core",
 ]
 
 [[package]]
@@ -5678,6 +5663,21 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "web"
+version = "1.1.0"
+dependencies = [
+ "byteorder",
+ "console_error_panic_hook",
+ "getrandom 0.3.4",
+ "js-sys",
+ "rand 0.9.2",
+ "reversi-core",
+ "wasm-bindgen",
+ "web-sys",
+ "zstd",
 ]
 
 [[package]]

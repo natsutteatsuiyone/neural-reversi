@@ -1,11 +1,11 @@
 [package]
-name = "match_runner"
+name = "match-runner"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
-reversi_core = { path = "../reversi_core" }
+reversi-core = { path = "../reversi-core" }
 indicatif = "0.18.3"
 colored = "3.0.0"
 

@@ -1,5 +1,5 @@
 [package]
-name = "neural-reversi"
+name = "gui"
 version.workspace = true
 description = "Neural Reversi"
 authors = ["natsutteatsuiyone"]
@@ -11,7 +11,7 @@ edition.workspace = true
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "reversi_gui_lib"
+name = "gui_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -22,5 +22,5 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reversi_core = { path = "../../reversi_core" }
+reversi-core = { path = "../../reversi-core" }
 tauri-plugin-store = "2"
