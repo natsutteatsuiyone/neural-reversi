@@ -2,8 +2,8 @@ use std::fmt;
 use std::hash::Hash;
 
 use crate::bitboard;
+use crate::disc::Disc;
 use crate::flip;
-use crate::piece::Piece;
 use crate::square::Square;
 
 /// Represents a Reversi board with bitboards for the player and opponent.
@@ -70,7 +70,7 @@ impl Board {
     ///
     /// # Returns
     /// A new `Board` instance.
-    pub fn from_string(board_string: &str, current_player: Piece) -> Board {
+    pub fn from_string(board_string: &str, current_player: Disc) -> Board {
         let mut player: u64 = 0;
         let mut opponent: u64 = 0;
         for (sq, c) in board_string.chars().enumerate() {
@@ -92,13 +92,13 @@ impl Board {
     /// # Returns
     /// The piece at the specified square (current player's piece, opponent's piece, or empty).
     #[inline]
-    pub fn get_piece_at(&self, sq: Square, side_to_move: Piece) -> Piece {
+    pub fn get_piece_at(&self, sq: Square, side_to_move: Disc) -> Disc {
         if bitboard::is_set(self.player, sq) {
             side_to_move
         } else if bitboard::is_set(self.opponent, sq) {
             side_to_move.opposite()
         } else {
-            Piece::Empty
+            Disc::Empty
         }
     }
 
@@ -402,7 +402,7 @@ impl Board {
     ///
     /// # Returns
     /// A string representation of the board with newlines between rows.
-    pub fn to_string_as_board(&self, current_player: Piece) -> String {
+    pub fn to_string_as_board(&self, current_player: Disc) -> String {
         let mut s = String::with_capacity(64 + 8);
         for (i, sq) in Square::iter().enumerate() {
             if i > 0 && i % 8 == 0 {
@@ -413,7 +413,7 @@ impl Board {
             } else if bitboard::is_set(self.opponent, sq) {
                 s.push(current_player.opposite().to_char());
             } else {
-                s.push(Piece::Empty.to_char());
+                s.push(Disc::Empty.to_char());
             }
         }
         s
@@ -423,7 +423,7 @@ impl Board {
 impl fmt::Display for Board {
     /// Formats the board for display, showing Black as the current player.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string_as_board(Piece::Black))
+        write!(f, "{}", self.to_string_as_board(Disc::Black))
     }
 }
 
@@ -465,7 +465,7 @@ mod tests {
                                   --------\
                                   --------\
                                   --------";
-        let board = Board::from_string(board_string, Piece::Black);
+        let board = Board::from_string(board_string, Disc::Black);
         assert!(bitboard::is_set(board.player, Square::D5));
         assert!(bitboard::is_set(board.player, Square::E4));
         assert!(bitboard::is_set(board.opponent, Square::D4));
@@ -482,7 +482,7 @@ mod tests {
                                   --------\
                                   --------\
                                   --------";
-        let board = Board::from_string(board_string, Piece::White);
+        let board = Board::from_string(board_string, Disc::White);
         // From White's perspective, O pieces are the player
         assert!(bitboard::is_set(board.player, Square::E4));
         assert!(bitboard::is_set(board.player, Square::D5));
@@ -495,29 +495,29 @@ mod tests {
         let board = Board::new();
 
         // Check pieces from Black's perspective (Black is the first player)
-        assert_eq!(board.get_piece_at(Square::D5, Piece::Black), Piece::Black);
-        assert_eq!(board.get_piece_at(Square::E4, Piece::Black), Piece::Black);
-        assert_eq!(board.get_piece_at(Square::D4, Piece::Black), Piece::White);
-        assert_eq!(board.get_piece_at(Square::E5, Piece::Black), Piece::White);
-        assert_eq!(board.get_piece_at(Square::A1, Piece::Black), Piece::Empty);
+        assert_eq!(board.get_piece_at(Square::D5, Disc::Black), Disc::Black);
+        assert_eq!(board.get_piece_at(Square::E4, Disc::Black), Disc::Black);
+        assert_eq!(board.get_piece_at(Square::D4, Disc::Black), Disc::White);
+        assert_eq!(board.get_piece_at(Square::E5, Disc::Black), Disc::White);
+        assert_eq!(board.get_piece_at(Square::A1, Disc::Black), Disc::Empty);
 
         // Switch to White's perspective
         let white_board = board.switch_players();
         assert_eq!(
-            white_board.get_piece_at(Square::D5, Piece::White),
-            Piece::Black
+            white_board.get_piece_at(Square::D5, Disc::White),
+            Disc::Black
         );
         assert_eq!(
-            white_board.get_piece_at(Square::E4, Piece::White),
-            Piece::Black
+            white_board.get_piece_at(Square::E4, Disc::White),
+            Disc::Black
         );
         assert_eq!(
-            white_board.get_piece_at(Square::D4, Piece::White),
-            Piece::White
+            white_board.get_piece_at(Square::D4, Disc::White),
+            Disc::White
         );
         assert_eq!(
-            white_board.get_piece_at(Square::E5, Piece::White),
-            Piece::White
+            white_board.get_piece_at(Square::E5, Disc::White),
+            Disc::White
         );
     }
 
@@ -801,12 +801,12 @@ mod tests {
         let board = Board::new();
 
         // As Black
-        let black_str = board.to_string_as_board(Piece::Black);
+        let black_str = board.to_string_as_board(Disc::Black);
         assert!(black_str.contains("OX"));
         assert!(black_str.contains("XO"));
 
         // As White
-        let white_str = board.to_string_as_board(Piece::White);
+        let white_str = board.to_string_as_board(Disc::White);
         assert!(white_str.contains("XO"));
         assert!(white_str.contains("OX"));
 

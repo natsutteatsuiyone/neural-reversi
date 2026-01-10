@@ -553,7 +553,7 @@ impl ExactSizeIterator for BestFirstMoveIterator {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::piece::Piece;
+    use crate::disc::Disc;
     use std::collections::HashSet;
 
     /// Tests move generation for the starting position.
@@ -584,7 +584,7 @@ mod tests {
              --------\
              --------\
              --------",
-            Piece::Black,
+            Disc::Black,
         );
 
         let move_list = MoveList::new(&board);
@@ -730,7 +730,7 @@ mod tests {
              XXXXXXXX\
              XXXXXXXO\
              XXXXXXO-",
-            Piece::Black,
+            Disc::Black,
         );
 
         let move_list = MoveList::new(&board);

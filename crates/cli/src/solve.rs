@@ -6,8 +6,8 @@ use std::time::Duration;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::{
     board::Board,
+    disc::Disc,
     level::{Level, get_level},
-    piece::Piece,
     search::{Search, SearchRunOptions},
     types::Selectivity,
 };
@@ -97,7 +97,7 @@ pub fn solve(
     Ok(())
 }
 
-fn parse_position_line(line: &str) -> Result<(Board, Piece), String> {
+fn parse_position_line(line: &str) -> Result<(Board, Disc), String> {
     let fields: Vec<&str> = line.split(';').collect();
 
     if fields.is_empty() {
@@ -113,8 +113,8 @@ fn parse_position_line(line: &str) -> Result<(Board, Piece), String> {
     let side_char = board_field.chars().nth(65).unwrap_or('X');
 
     let side_to_move = match side_char {
-        'X' => Piece::Black,
-        'O' => Piece::White,
+        'X' => Disc::Black,
+        'O' => Disc::White,
         _ => return Err(format!("Invalid side to move: {side_char}")),
     };
 
@@ -126,7 +126,7 @@ fn parse_position_line(line: &str) -> Result<(Board, Piece), String> {
 fn solve_position(
     search: &mut Search,
     board: Board,
-    _side_to_move: Piece,
+    _side_to_move: Disc,
     level: reversi_core::level::Level,
     selectivity: Selectivity,
     position_num: usize,

@@ -10,9 +10,9 @@ use rand::seq::IteratorRandom;
 use regex::Regex;
 use reversi_core::bitboard::BitboardIterator;
 use reversi_core::board::Board;
+use reversi_core::disc::Disc;
 use reversi_core::game_state::GameState;
 use reversi_core::level::{Level, get_level};
-use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
@@ -57,7 +57,7 @@ struct GameRecord {
     /// Final game score from this player's perspective
     game_score: i8,
     /// Current player to move
-    side_to_move: Piece,
+    side_to_move: Disc,
     /// Whether this position resulted from a random move
     is_random: bool,
     /// The move played from this position
@@ -374,14 +374,14 @@ fn play_game(
 
         for record in game_records.iter_mut() {
             let score = match record.side_to_move {
-                Piece::Black | Piece::White => {
+                Disc::Black | Disc::White => {
                     if record.side_to_move == final_side_to_move {
                         final_score
                     } else {
                         -final_score
                     }
                 }
-                Piece::Empty => unreachable!("record side_to_move should never be empty"),
+                Disc::Empty => unreachable!("record side_to_move should never be empty"),
             };
             record.game_score = score;
         }

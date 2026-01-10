@@ -6,8 +6,8 @@ use std::thread;
 use std::time::Duration;
 
 use ratatui::DefaultTerminal;
+use reversi_core::disc::Disc;
 use reversi_core::level;
-use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_result::{PvMove, SearchResult};
 use reversi_core::search::{self, SearchRunOptions};
@@ -34,11 +34,11 @@ pub enum GameMode {
 
 impl GameMode {
     /// Returns whether the AI should play for the given side.
-    pub fn is_ai_turn(&self, side: Piece) -> bool {
+    pub fn is_ai_turn(&self, side: Disc) -> bool {
         matches!(
             (self, side),
-            (GameMode::HumanVsAi, Piece::White)
-                | (GameMode::AiVsHuman, Piece::Black)
+            (GameMode::HumanVsAi, Disc::White)
+                | (GameMode::AiVsHuman, Disc::Black)
                 | (GameMode::AiVsAi, _)
         )
     }

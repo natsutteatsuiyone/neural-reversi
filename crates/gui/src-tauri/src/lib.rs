@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use reversi_core::disc::Disc;
 use reversi_core::level::get_level;
-use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_context::GamePhase;
 use reversi_core::search::{SearchRunOptions, time_control::TimeControlMode};
@@ -86,7 +86,7 @@ async fn ai_move_command(
     let level_clone = level;
 
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let board = board::Board::from_string(&board_string_clone, Piece::Black);
+        let board = board::Board::from_string(&board_string_clone, Disc::Black);
         let lv = get_level(level_clone);
         let start_time = std::time::Instant::now();
 
@@ -172,7 +172,7 @@ async fn analyze_command(
     let level_clone = level;
 
     tauri::async_runtime::spawn_blocking(move || {
-        let board = board::Board::from_string(&board_string_clone, Piece::Black);
+        let board = board::Board::from_string(&board_string_clone, Disc::Black);
         let lv = get_level(level_clone);
 
         let mut search_guard = search_arc.lock().unwrap();

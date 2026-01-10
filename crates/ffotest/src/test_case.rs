@@ -1,6 +1,6 @@
 //! FFO test case definitions and utilities
 
-use reversi_core::{board::Board, piece::Piece};
+use reversi_core::{board::Board, disc::Disc};
 use std::fmt;
 
 /// A single FFO test case containing position and expected results
@@ -8,7 +8,7 @@ use std::fmt;
 pub struct TestCase {
     pub no: usize,
     board_str: &'static str,
-    side_to_move: Piece,
+    side_to_move: Disc,
     pub expected_score: i32,
     best_moves: Vec<&'static str>,
     second_best_moves: Vec<&'static str>,
@@ -21,7 +21,7 @@ impl fmt::Display for TestCase {
             f,
             "FFO#{:02} ({} to move, score: {})",
             self.no,
-            if self.side_to_move == Piece::Black {
+            if self.side_to_move == Disc::Black {
                 "Black"
             } else {
                 "White"
@@ -52,8 +52,8 @@ impl TestCase {
         third_best_moves: &'static str,
     ) -> Self {
         let stm = match side_to_move {
-            "X" => Piece::Black,
-            "O" => Piece::White,
+            "X" => Disc::Black,
+            "O" => Disc::White,
             _ => panic!("Invalid side to move: {side_to_move}"),
         };
 

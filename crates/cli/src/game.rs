@@ -4,7 +4,7 @@
 //! game state and adds CLI-specific display capabilities.
 
 use colored::Colorize;
-use reversi_core::{board::Board, game_state, piece::Piece, square::Square};
+use reversi_core::{board::Board, disc::Disc, game_state, square::Square};
 
 /// Represents the state of a Reversi/Othello game with CLI-specific features.
 ///
@@ -47,7 +47,7 @@ impl GameState {
     /// # Returns
     /// A new `GameState` with the specified position
     #[allow(dead_code)]
-    pub fn from_board(board: Board, side_to_move: Piece) -> Self {
+    pub fn from_board(board: Board, side_to_move: Disc) -> Self {
         Self {
             core: game_state::GameState::from_board(board, side_to_move),
         }
@@ -82,8 +82,8 @@ impl GameState {
     /// Returns which player's turn it is to move.
     ///
     /// # Returns
-    /// The `Piece` representing the current player (Black or White)
-    pub fn get_side_to_move(&self) -> Piece {
+    /// The `Disc` representing the current player (Black or White)
+    pub fn get_side_to_move(&self) -> Disc {
         self.core.side_to_move()
     }
 
@@ -109,9 +109,9 @@ impl GameState {
                 let sq = Square::from_usize_unchecked(y * 8 + x);
                 let piece = board.get_piece_at(sq, side_to_move);
                 let symbol = match piece {
-                    Piece::Black => "X",
-                    Piece::White => "O",
-                    Piece::Empty => {
+                    Disc::Black => "X",
+                    Disc::White => "O",
+                    Disc::Empty => {
                         if board.is_legal_move(sq) {
                             "."
                         } else {
@@ -126,7 +126,7 @@ impl GameState {
             match y {
                 0 => result.push_str(&format!(
                     " {}'s turn",
-                    if side_to_move == Piece::Black {
+                    if side_to_move == Disc::Black {
                         "Black(X)"
                     } else {
                         "White(O)"
@@ -226,12 +226,12 @@ impl GameState {
                 let is_last_move = Some(sq) == last_move;
 
                 let symbol = match piece {
-                    Piece::Black if is_last_move => " X ".on_bright_black().bright_green(),
-                    Piece::White if is_last_move => " O ".on_bright_black().bright_yellow(),
-                    Piece::Black => " X ".bright_green(),
-                    Piece::White => " O ".bright_yellow(),
-                    Piece::Empty if is_legal => " · ".bright_cyan(),
-                    Piece::Empty => "   ".black(),
+                    Disc::Black if is_last_move => " X ".on_bright_black().bright_green(),
+                    Disc::White if is_last_move => " O ".on_bright_black().bright_yellow(),
+                    Disc::Black => " X ".bright_green(),
+                    Disc::White => " O ".bright_yellow(),
+                    Disc::Empty if is_legal => " · ".bright_cyan(),
+                    Disc::Empty => "   ".black(),
                 };
                 print!("{symbol}│");
             }
@@ -241,8 +241,8 @@ impl GameState {
             match y {
                 2 => {
                     let player_info = match side_to_move {
-                        Piece::Black => "Black's turn (X)".bright_green(),
-                        Piece::White => "White's turn (O)".bright_yellow(),
+                        Disc::Black => "Black's turn (X)".bright_green(),
+                        Disc::White => "White's turn (O)".bright_yellow(),
                         _ => unreachable!(),
                     };
                     println!("   {player_info}");

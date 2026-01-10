@@ -7,7 +7,7 @@ use crate::colors::ThemeColor;
 use crate::statistics::{MatchStatistics, MatchWinner};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
-use reversi_core::piece::Piece;
+use reversi_core::disc::Disc;
 use std::io::{self, Write};
 
 /// Display constants
@@ -328,11 +328,11 @@ impl DisplayManager {
         }
     }
 
-    fn format_vs_display(&self, engine1_color: Piece) -> String {
+    fn format_vs_display(&self, engine1_color: Disc) -> String {
         let (engine1_symbol, engine2_symbol) = match engine1_color {
-            Piece::Black => ("●", "○"),
-            Piece::White => ("○", "●"),
-            Piece::Empty => ("?", "?"), // This shouldn't happen in normal game flow
+            Disc::Black => ("●", "○"),
+            Disc::White => ("○", "●"),
+            Disc::Empty => ("?", "?"), // This shouldn't happen in normal game flow
         };
 
         format!("{engine1_symbol} Engine1 vs Engine2 {engine2_symbol}")

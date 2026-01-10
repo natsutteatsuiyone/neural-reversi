@@ -1,6 +1,6 @@
 use crate::colors::ThemeColor;
 use colored::*;
-use reversi_core::piece::Piece;
+use reversi_core::disc::Disc;
 use std::io;
 
 const ELO_K: f64 = 400.0;
@@ -21,7 +21,7 @@ pub struct GameHistory {
     pub winner: MatchWinner,
     pub score: i32,
     pub opening: String,
-    pub engine1_color: Piece,
+    pub engine1_color: Disc,
 }
 
 #[derive(Debug, Clone)]
@@ -65,9 +65,9 @@ impl MatchStatistics {
         self.games_played += 1;
 
         let engine1_color = if engine1_is_black {
-            Piece::Black
+            Disc::Black
         } else {
-            Piece::White
+            Disc::White
         };
 
         self.recent_results.push(GameHistory {

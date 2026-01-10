@@ -3,8 +3,8 @@
 //! This module provides the GameState struct which wraps the core
 //! game state for match play.
 
+use reversi_core::disc::Disc;
 use reversi_core::game_state;
-use reversi_core::piece::Piece;
 use reversi_core::square::Square;
 
 /// Represents the current state of a Reversi game for match play.
@@ -38,8 +38,8 @@ impl GameState {
     ///
     /// # Returns
     ///
-    /// The `Piece` (Black or White) representing the current player.
-    pub fn side_to_move(&self) -> Piece {
+    /// The `Disc` (Black or White) representing the current player.
+    pub fn side_to_move(&self) -> Disc {
         self.core.side_to_move()
     }
 

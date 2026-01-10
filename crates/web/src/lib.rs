@@ -12,9 +12,9 @@ use crate::{
 use js_sys::Function;
 use rand::Rng;
 use reversi_core::board::Board;
+use reversi_core::disc::Disc;
 use reversi_core::eval::pattern_feature::PatternFeatures;
 use reversi_core::move_list::MoveList;
-use reversi_core::piece::Piece;
 use reversi_core::search::side_to_move::SideToMove;
 use reversi_core::square::{Square, TOTAL_SQUARES};
 use reversi_core::transposition_table::TranspositionTable;
@@ -66,9 +66,9 @@ impl EngineState {
 #[wasm_bindgen]
 pub struct Game {
     board: Board,
-    current_player: Piece,
-    human_player: Piece,
-    ai_player: Piece,
+    current_player: Disc,
+    human_player: Disc,
+    ai_player: Disc,
     engine: EngineState,
     mid_depth: Depth,
     progress_callback: Option<Function>,
@@ -82,9 +82,9 @@ impl Game {
 
         let mut game = Game {
             board: Board::new(),
-            current_player: Piece::Black,
-            human_player: Piece::Black,
-            ai_player: Piece::White,
+            current_player: Disc::Black,
+            human_player: Disc::Black,
+            ai_player: Disc::White,
             engine: EngineState::new(),
             mid_depth: DEFAULT_MID_DEPTH,
             progress_callback: None,
@@ -233,21 +233,21 @@ impl Game {
     fn set_players(&mut self, human_is_black: bool) {
         self.engine.reset();
         self.human_player = if human_is_black {
-            Piece::Black
+            Disc::Black
         } else {
-            Piece::White
+            Disc::White
         };
         self.ai_player = self.human_player.opposite();
         self.board = Board::new();
-        self.current_player = Piece::Black;
+        self.current_player = Disc::Black;
         self.handle_forced_passes();
     }
 
     fn color_bitboards(&self) -> (u64, u64) {
         match self.current_player {
-            Piece::Black => (self.board.player, self.board.opponent),
-            Piece::White => (self.board.opponent, self.board.player),
-            Piece::Empty => (0, 0),
+            Disc::Black => (self.board.player, self.board.opponent),
+            Disc::White => (self.board.opponent, self.board.player),
+            Disc::Empty => (0, 0),
         }
     }
 
@@ -278,11 +278,11 @@ fn level_for_position(mid_depth: Depth) -> Level {
     }
 }
 
-fn piece_to_u8(piece: Piece) -> u8 {
+fn piece_to_u8(piece: Disc) -> u8 {
     match piece {
-        Piece::Empty => 0,
-        Piece::Black => 1,
-        Piece::White => 2,
+        Disc::Empty => 0,
+        Disc::Black => 1,
+        Disc::White => 2,
     }
 }
 
@@ -481,7 +481,7 @@ impl BenchmarkRunner {
         let mut search = Search::new(Rc::clone(&tt), Rc::clone(&self.eval));
 
         // FFO #40
-        let board_40 = Board::from_string(FFO_40_BOARD_STR, Piece::Black);
+        let board_40 = Board::from_string(FFO_40_BOARD_STR, Disc::Black);
         let empty_count_40 = board_40.get_empty_count();
         let level_40 = Level {
             mid_depth: empty_count_40 as Depth,
@@ -490,7 +490,7 @@ impl BenchmarkRunner {
         };
 
         // FFO #41
-        let board_41 = Board::from_string(FFO_41_BOARD_STR, Piece::Black);
+        let board_41 = Board::from_string(FFO_41_BOARD_STR, Disc::Black);
         let empty_count_41 = board_41.get_empty_count();
         let level_41 = Level {
             mid_depth: empty_count_41 as Depth,

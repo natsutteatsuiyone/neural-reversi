@@ -13,7 +13,7 @@ use crate::error::{MatchRunnerError, Result};
 use crate::game::GameState;
 use crate::statistics::{MatchStatistics, MatchWinner};
 use crate::time_tracker::TimeTracker;
-use reversi_core::piece::Piece;
+use reversi_core::disc::Disc;
 use reversi_core::square::Square;
 
 /// Possible outcomes of a single game.
@@ -189,7 +189,7 @@ impl MatchRunner {
         }
 
         while !game_state.is_game_over() {
-            let is_black = game_state.side_to_move() == Piece::Black;
+            let is_black = game_state.side_to_move() == Disc::Black;
             let current_color = if is_black { "black" } else { "white" };
 
             // Send time_left to both engines before move generation
@@ -261,7 +261,7 @@ impl MatchRunner {
             let mv = format!("{file}{rank}");
             let square = self.parse_move(&mv)?;
 
-            let color = if game_state.side_to_move() == Piece::Black {
+            let color = if game_state.side_to_move() == Disc::Black {
                 "black"
             } else {
                 "white"

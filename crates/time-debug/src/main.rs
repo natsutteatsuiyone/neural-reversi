@@ -5,8 +5,8 @@ use std::time::Instant;
 use clap::{Parser, ValueEnum};
 use colored::Colorize;
 
+use reversi_core::disc::Disc;
 use reversi_core::game_state::GameState;
-use reversi_core::piece::Piece;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_context::GamePhase;
 use reversi_core::search::time_control::TimeControlMode;
@@ -371,7 +371,7 @@ fn play_game(
         }
 
         move_num += 1;
-        let is_black = game.side_to_move() == Piece::Black;
+        let is_black = game.side_to_move() == Disc::Black;
         let side_str = if is_black { "Black" } else { "White" };
 
         // Get time control for this player

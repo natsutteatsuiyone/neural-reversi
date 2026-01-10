@@ -7,14 +7,14 @@ use ratatui::{
     text::{Line, Span},
     widgets::Widget,
 };
-use reversi_core::{board::Board, piece::Piece, square::Square};
+use reversi_core::{board::Board, disc::Disc, square::Square};
 
 /// Widget for rendering the Reversi game board.
 pub struct BoardWidget<'a> {
     /// The game board to render
     board: &'a Board,
     /// Current side to move
-    side_to_move: Piece,
+    side_to_move: Disc,
     /// Cursor position (row, col)
     cursor: (usize, usize),
     /// Last move played
@@ -25,7 +25,7 @@ pub struct BoardWidget<'a> {
 
 impl<'a> BoardWidget<'a> {
     /// Creates a new board widget.
-    pub fn new(board: &'a Board, side_to_move: Piece) -> Self {
+    pub fn new(board: &'a Board, side_to_move: Disc) -> Self {
         Self {
             board,
             side_to_move,
@@ -106,12 +106,12 @@ impl Widget for BoardWidget<'_> {
 
                 // Determine cell content and style
                 let (content, mut style) = match piece {
-                    Piece::Black => (" ● ", Style::default().fg(Color::Green)),
-                    Piece::White => (" ○ ", Style::default().fg(Color::Yellow)),
-                    Piece::Empty if is_legal && self.show_legal_moves => {
+                    Disc::Black => (" ● ", Style::default().fg(Color::Green)),
+                    Disc::White => (" ○ ", Style::default().fg(Color::Yellow)),
+                    Disc::Empty if is_legal && self.show_legal_moves => {
                         (" · ", Style::default().fg(Color::DarkGray))
                     }
-                    Piece::Empty => ("   ", Style::default()),
+                    Disc::Empty => ("   ", Style::default()),
                 };
 
                 // Apply cursor highlight

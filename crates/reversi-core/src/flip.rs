@@ -64,7 +64,7 @@ mod tests {
     fn test_flip_2() {
         let board = Board::from_string(
             "XXXXXXXOXOOXXXXOXOXXXOXOXOOXOXXOXOXOOOXOXOOOOOXOXOOOXXXO-X-OXOOO",
-            crate::piece::Piece::Black,
+            crate::disc::Disc::Black,
         );
         let flipped = flip(Square::A8, board.player, board.opponent);
         let expected = Square::B7.bitboard()

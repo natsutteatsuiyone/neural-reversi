@@ -9,8 +9,8 @@
 //! engine configuration, including moves, board setup, and engine information.
 
 use reversi_core::{
+    disc::Disc,
     level::get_level,
-    piece::Piece,
     search::{self, SearchRunOptions, options::SearchOptions, time_control::TimeControlMode},
     square::Square,
     types::Selectivity,
@@ -627,8 +627,8 @@ impl GtpEngine {
             TimeControlMode::Fischer { increment_ms, .. } => {
                 // Use remaining time for the current player
                 let remaining_time_ms = match self.game.get_side_to_move() {
-                    Piece::Black => self.black_time_ms,
-                    Piece::White => self.white_time_ms,
+                    Disc::Black => self.black_time_ms,
+                    Disc::White => self.white_time_ms,
                     _ => 0,
                 };
                 TimeControlMode::Fischer {
@@ -639,8 +639,8 @@ impl GtpEngine {
             TimeControlMode::MovesToGo { moves, .. } => {
                 // Use remaining time for the current player
                 let remaining_time_ms = match self.game.get_side_to_move() {
-                    Piece::Black => self.black_time_ms,
-                    Piece::White => self.white_time_ms,
+                    Disc::Black => self.black_time_ms,
+                    Disc::White => self.white_time_ms,
                     _ => 0,
                 };
                 TimeControlMode::MovesToGo {
@@ -653,8 +653,8 @@ impl GtpEngine {
             } => {
                 // Use remaining time for the current player
                 let remaining_time_ms = match self.game.get_side_to_move() {
-                    Piece::Black => self.black_time_ms,
-                    Piece::White => self.white_time_ms,
+                    Disc::Black => self.black_time_ms,
+                    Disc::White => self.white_time_ms,
                     _ => 0,
                 };
                 TimeControlMode::JapaneseByo {
@@ -717,8 +717,8 @@ impl GtpEngine {
     /// `Ok(())` if valid, `Err(message)` if invalid or wrong player
     fn validate_color(&self, color: &str) -> Result<(), String> {
         let expected_color = match self.game.get_side_to_move() {
-            Piece::Black => "b",
-            Piece::White => "w",
+            Disc::Black => "b",
+            Disc::White => "w",
             _ => unreachable!(),
         };
 

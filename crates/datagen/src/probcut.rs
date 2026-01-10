@@ -17,8 +17,8 @@ use std::{
 
 use reversi_core::{
     board::Board,
+    disc::Disc,
     level::get_level,
-    piece::Piece,
     search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
     types::{Depth, Scoref, Selectivity},
@@ -120,7 +120,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
 
         let mut samples = Vec::new();
         let mut board = Board::new();
-        let mut side_to_move = Piece::Black;
+        let mut side_to_move = Disc::Black;
 
         search.init();
         for token in line.as_bytes().chunks_exact(2) {

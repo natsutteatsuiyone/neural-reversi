@@ -7,7 +7,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
-use reversi_core::piece::Piece;
+use reversi_core::disc::Disc;
 
 use super::app::{App, GameMode, UiMode};
 use super::widgets::BoardWidget;
@@ -110,8 +110,8 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
 
     // Turn indicator
     let turn_text = match side_to_move {
-        Piece::Black => Span::styled("Black's turn (●)", Style::default().fg(Color::Green)),
-        Piece::White => Span::styled("White's turn (○)", Style::default().fg(Color::Yellow)),
+        Disc::Black => Span::styled("Black's turn (●)", Style::default().fg(Color::Green)),
+        Disc::White => Span::styled("White's turn (○)", Style::default().fg(Color::Yellow)),
         _ => Span::raw(""),
     };
     lines.push(Line::from(turn_text));

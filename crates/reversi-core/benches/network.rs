@@ -1,9 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use reversi_core::board::Board;
+use reversi_core::disc::Disc;
 use reversi_core::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use reversi_core::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME};
 use reversi_core::eval::{Network, NetworkSmall};
-use reversi_core::piece::Piece;
 use std::hint::black_box;
 
 struct BenchInput {
@@ -33,7 +33,7 @@ fn board_from_rows(rows: [&str; 8]) -> Board {
     for row in rows {
         board_string.push_str(row);
     }
-    Board::from_string(&board_string, Piece::Black)
+    Board::from_string(&board_string, Disc::Black)
 }
 
 fn load_main_network() -> Network {

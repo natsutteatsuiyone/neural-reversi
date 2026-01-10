@@ -5,7 +5,7 @@
 //! passing when no legal moves are available, and game termination detection.
 
 use crate::board::Board;
-use crate::piece::Piece;
+use crate::disc::Disc;
 use crate::square::Square;
 
 /// Represents the state of a Reversi/Othello game.
@@ -17,10 +17,10 @@ pub struct GameState {
     /// The current board position
     board: Board,
     /// Which player's turn it is to move
-    side_to_move: Piece,
+    side_to_move: Disc,
     /// Move history: (move, board_before_move, side_to_move_before)
     /// None for move indicates a pass
-    history: Vec<(Option<Square>, Board, Piece)>,
+    history: Vec<(Option<Square>, Board, Disc)>,
 }
 
 impl Default for GameState {
@@ -41,7 +41,7 @@ impl GameState {
     pub fn new() -> Self {
         Self {
             board: Board::new(),
-            side_to_move: Piece::Black,
+            side_to_move: Disc::Black,
             history: Vec::new(),
         }
     }
@@ -59,7 +59,7 @@ impl GameState {
     /// # Returns
     ///
     /// A new `GameState` with the specified position
-    pub fn from_board(board: Board, side_to_move: Piece) -> Self {
+    pub fn from_board(board: Board, side_to_move: Disc) -> Self {
         Self {
             board,
             side_to_move,
@@ -80,8 +80,8 @@ impl GameState {
     ///
     /// # Returns
     ///
-    /// The `Piece` representing the current player (Black or White)
-    pub fn side_to_move(&self) -> Piece {
+    /// The `Disc` representing the current player (Black or White)
+    pub fn side_to_move(&self) -> Disc {
         self.side_to_move
     }
 
@@ -174,7 +174,7 @@ impl GameState {
     /// A tuple `(black_count, white_count)` representing the number of
     /// discs each player has on the board
     pub fn get_score(&self) -> (u32, u32) {
-        let (black_count, white_count) = if self.side_to_move == Piece::Black {
+        let (black_count, white_count) = if self.side_to_move == Disc::Black {
             (
                 self.board.get_player_count(),
                 self.board.get_opponent_count(),
@@ -205,7 +205,7 @@ impl GameState {
     ///
     /// A slice of tuples containing (move, board_before_move, side_to_move_before).
     /// `None` for the move indicates a pass.
-    pub fn move_history(&self) -> &[(Option<Square>, Board, Piece)] {
+    pub fn move_history(&self) -> &[(Option<Square>, Board, Disc)] {
         &self.history
     }
 
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn test_new_game() {
         let game = GameState::new();
-        assert_eq!(game.side_to_move(), Piece::Black);
+        assert_eq!(game.side_to_move(), Disc::Black);
         assert!(!game.is_game_over());
         assert_eq!(game.get_score(), (2, 2));
     }
@@ -246,7 +246,7 @@ mod tests {
         let mut game = GameState::new();
         let result = game.make_move(Square::D3);
         assert!(result.is_ok());
-        assert_eq!(game.side_to_move(), Piece::White);
+        assert_eq!(game.side_to_move(), Disc::White);
     }
 
     #[test]
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn test_game_over() {
         let board = Board::new();
-        let mut game = GameState::from_board(board, Piece::Black);
+        let mut game = GameState::from_board(board, Disc::Black);
 
         // Play through a game until it's over
         while !game.is_game_over() {
@@ -309,7 +309,7 @@ mod tests {
         assert!(game.undo());
 
         // Should be back to initial state
-        assert_eq!(game.side_to_move(), Piece::Black);
+        assert_eq!(game.side_to_move(), Disc::Black);
         assert_eq!(game.get_score(), (2, 2));
     }
 
@@ -319,7 +319,7 @@ mod tests {
 
         // Cannot undo when no moves have been made
         assert!(!game.undo());
-        assert_eq!(game.side_to_move(), Piece::Black);
+        assert_eq!(game.side_to_move(), Disc::Black);
     }
 
     #[test]
@@ -341,9 +341,9 @@ mod tests {
     #[test]
     fn test_from_board() {
         let board = Board::new();
-        let game = GameState::from_board(board, Piece::White);
+        let game = GameState::from_board(board, Disc::White);
 
-        assert_eq!(game.side_to_move(), Piece::White);
+        assert_eq!(game.side_to_move(), Disc::White);
         assert_eq!(*game.board(), board);
         assert_eq!(game.move_history().len(), 0);
     }
@@ -362,15 +362,15 @@ mod tests {
 
         // Verify first move
         assert_eq!(history[0].0, Some(Square::D3));
-        assert_eq!(history[0].2, Piece::Black);
+        assert_eq!(history[0].2, Disc::Black);
 
         // Verify second move
         assert_eq!(history[1].0, Some(Square::C3));
-        assert_eq!(history[1].2, Piece::White);
+        assert_eq!(history[1].2, Disc::White);
 
         // Verify third move
         assert_eq!(history[2].0, Some(Square::C4));
-        assert_eq!(history[2].2, Piece::Black);
+        assert_eq!(history[2].2, Disc::Black);
     }
 
     #[test]
@@ -410,13 +410,13 @@ mod tests {
     #[test]
     fn test_side_to_move_alternates() {
         let mut game = GameState::new();
-        assert_eq!(game.side_to_move(), Piece::Black);
+        assert_eq!(game.side_to_move(), Disc::Black);
 
         game.make_move(Square::D3).unwrap();
-        assert_eq!(game.side_to_move(), Piece::White);
+        assert_eq!(game.side_to_move(), Disc::White);
 
         game.make_move(Square::C3).unwrap();
-        assert_eq!(game.side_to_move(), Piece::Black);
+        assert_eq!(game.side_to_move(), Disc::Black);
     }
 
     #[test]
@@ -465,13 +465,13 @@ mod tests {
 
         // Verify the first few moves in history
         assert_eq!(history[0].0, Some(Square::E6), "First move should be e6");
-        assert_eq!(history[0].2, Piece::Black, "First move by Black");
+        assert_eq!(history[0].2, Disc::Black, "First move by Black");
 
         assert_eq!(history[1].0, Some(Square::F4), "Second move should be f4");
-        assert_eq!(history[1].2, Piece::White, "Second move by White");
+        assert_eq!(history[1].2, Disc::White, "Second move by White");
 
         assert_eq!(history[2].0, Some(Square::C3), "Third move should be c3");
-        assert_eq!(history[2].2, Piece::Black, "Third move by Black");
+        assert_eq!(history[2].2, Disc::Black, "Third move by Black");
 
         // Verify last_move
         // Note: The last move in history might be a pass (automatic pass after b1)
