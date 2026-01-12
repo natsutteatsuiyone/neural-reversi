@@ -1,3 +1,5 @@
+//! Game tree search engine.
+
 mod endgame;
 pub mod endgame_cache;
 pub mod midgame;
@@ -32,7 +34,7 @@ use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, ScaledScore, Scoref, Selectivity};
 use crate::{probcut, stability};
 
-/// Main search engine structure
+/// Main search engine structure.
 pub struct Search {
     tt: Arc<TranspositionTable>,
     threads: Arc<ThreadPool>,
@@ -40,7 +42,7 @@ pub struct Search {
     endgame_start_n_empties: Option<Depth>,
 }
 
-/// Task structure passed to search threads
+/// Task structure passed to search threads.
 #[derive(Clone)]
 pub struct SearchTask {
     pub board: Board,
@@ -54,7 +56,7 @@ pub struct SearchTask {
     pub time_manager: Option<Arc<TimeManager>>,
 }
 
-/// Progress information during search
+/// Progress information during search.
 pub struct SearchProgress {
     pub depth: Depth,
     pub target_depth: Depth,
@@ -66,13 +68,14 @@ pub struct SearchProgress {
     pub game_phase: GamePhase,
 }
 
-/// Type alias for search progress callback
+/// Type alias for search progress callback.
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
 // Re-export SearchConstraint and SearchRunOptions for external use
 pub use options::{SearchConstraint, SearchRunOptions};
 
 impl Search {
+    /// Creates a new search engine with the given options.
     pub fn new(options: &SearchOptions) -> Search {
         let n_threads = options.n_threads.min(num_cpus::get()).clamp(1, MAX_THREADS);
         let eval = Eval::with_weight_files(
@@ -93,6 +96,7 @@ impl Search {
         }
     }
 
+    /// Resets the search state for a new game.
     pub fn init(&mut self) {
         self.tt.clear();
         self.tt.reset_generation();
@@ -100,6 +104,7 @@ impl Search {
         self.endgame_start_n_empties = None;
     }
 
+    /// Runs a search on the given board position.
     pub fn run(&mut self, board: &Board, options: &SearchRunOptions) -> SearchResult {
         let callback = options.callback.clone();
 
@@ -213,15 +218,18 @@ impl Search {
         result
     }
 
+    /// Aborts the current search.
     pub fn abort(&self) {
         self.threads.stop_timer();
         self.threads.abort_search();
     }
 
+    /// Returns whether the search has been aborted.
     pub fn is_aborted(&self) -> bool {
         self.threads.is_aborted()
     }
 
+    /// Returns the thread pool used by this search engine.
     pub fn get_thread_pool(&self) -> Arc<threading::ThreadPool> {
         self.threads.clone()
     }
@@ -238,7 +246,7 @@ impl Search {
     ///
     /// # Returns
     ///
-    /// SearchResult with the best move found by shallow evaluation
+    /// SearchResult with the best move found by shallow evaluation.
     pub fn quick_move(&self, board: &Board) -> SearchResult {
         use crate::bitboard::BitboardIterator;
         use crate::flip;
@@ -294,7 +302,7 @@ impl Drop for Search {
     }
 }
 
-/// Main search entry point that delegates to midgame or endgame search
+/// Dispatches to midgame or endgame search based on remaining empties.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let min_end_depth = task.level.get_end_depth(Selectivity::Level0);
     let n_empties = task.board.get_empty_count();
@@ -306,7 +314,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     midgame::search_root(task, thread)
 }
 
-/// Enhanced Transposition Cutoff
+/// Checks child positions in TT for potential cutoffs.
 fn enhanced_transposition_cutoff<SP: SearchPhase>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -358,16 +366,16 @@ fn enhanced_transposition_cutoff<SP: SearchPhase>(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context tracking game state and statistics.
-/// * `board` - Current board position to search.
-/// * `depth` - Remaining search depth (for endgame, this equals n_empties).
-/// * `alpha` - Lower bound of the search window.
-/// * `beta` - Upper bound of the search window.
-/// * `thread` - Thread handle for parallel search coordination.
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `depth` - Remaining search depth (for endgame, equals n_empties).
+/// * `alpha` - Alpha bound.
+/// * `beta` - Beta bound.
+/// * `thread` - Thread handle for parallel search.
 ///
 /// # Returns
 ///
-/// The best score found for the position.
+/// Best score found.
 pub fn search<NT: NodeType, SP: SearchPhase>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -575,15 +583,15 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context tracking game state and statistics.
-/// * `board` - Current board position to search.
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
 /// * `depth` - Remaining search depth.
-/// * `thread` - Thread handle for parallel search coordination.
-/// * `split_point` - Split point for parallel search coordination.
+/// * `thread` - Thread handle for parallel search.
+/// * `split_point` - Split point for work distribution.
 ///
 /// # Returns
 ///
-/// The best score found for the position.
+/// Best score found.
 pub fn search_split_point<NT: NodeType, SP: SearchPhase>(
     ctx: &mut SearchContext,
     board: &Board,

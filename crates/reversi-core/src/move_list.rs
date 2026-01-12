@@ -1,4 +1,6 @@
-//! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c
+//! Move generation, evaluation, and ordering for Reversi positions.
+//!
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c>
 
 use arrayvec::ArrayVec;
 use std::slice;
@@ -16,7 +18,7 @@ use crate::types::{Depth, ScaledScore};
 /// Maximum number of moves possible in a Reversi position.
 const MAX_MOVES: usize = 34;
 
-/// Value assigned to wipeout moves (capturing all opponent pieces).
+/// Value assigned to wipeout moves (capturing all opponent discs).
 const WIPEOUT_VALUE: i32 = 1 << 30;
 
 /// Value assigned to moves suggested by the transposition table.
@@ -25,9 +27,9 @@ const TT_MOVE_VALUE: i32 = 1 << 20;
 /// Represents a single move.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Move {
-    /// The square where the piece is placed.
+    /// The square where the disc is placed.
     pub sq: Square,
-    /// Bitboard representing all opponent pieces flipped by this move.
+    /// Bitboard representing all opponent discs flipped by this move.
     pub flipped: u64,
     /// Evaluation score for move ordering (higher = better).
     pub value: i32,
@@ -36,16 +38,16 @@ pub struct Move {
 }
 
 impl Move {
-    /// Creates a new move with the specified square and flipped pieces.
+    /// Creates a new move with the specified square and flipped discs.
     ///
     /// # Arguments
     ///
-    /// * `sq` - The square where the piece is placed
-    /// * `flipped` - Bitboard of opponent pieces flipped by this move
+    /// * `sq` - The square where the disc is placed
+    /// * `flipped` - Bitboard of opponent discs flipped by this move
     ///
     /// # Returns
     ///
-    /// A new Move instance with default evaluation data
+    /// A new Move instance with default evaluation data.
     #[inline]
     pub fn new(sq: Square, flipped: u64) -> Move {
         Move {
@@ -75,7 +77,7 @@ impl MoveList {
     ///
     /// # Returns
     ///
-    /// A new MoveList containing all legal moves for the current player
+    /// A new MoveList containing all legal moves for the current player.
     pub fn new(board: &Board) -> MoveList {
         let mut moves = ArrayVec::new();
         let mut wipeout_move = None;
@@ -100,7 +102,7 @@ impl MoveList {
     ///
     /// # Returns
     ///
-    /// The count of legal moves
+    /// The count of legal moves.
     #[inline]
     pub fn count(&self) -> usize {
         self.moves.len()
@@ -110,7 +112,7 @@ impl MoveList {
     ///
     /// # Returns
     ///
-    /// Reference to the first move, or None if no legal moves exist
+    /// Reference to the first move, or None if no legal moves exist.
     #[inline]
     pub fn first(&self) -> Option<&Move> {
         self.moves.first()
@@ -123,7 +125,7 @@ impl MoveList {
     ///
     /// # Returns
     ///
-    /// Iterator over moves in the list
+    /// Iterator over moves in the list.
     #[inline]
     pub fn iter(&self) -> slice::Iter<'_, Move> {
         self.moves.iter()
@@ -133,7 +135,7 @@ impl MoveList {
     ///
     /// # Returns
     ///
-    /// Mutable iterator over moves in the list
+    /// Mutable iterator over moves in the list.
     #[inline]
     pub fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
         self.moves.iter_mut()
@@ -143,7 +145,7 @@ impl MoveList {
     ///
     /// # Returns
     ///
-    /// Iterator that yields moves in best-first order
+    /// Iterator that yields moves in best-first order.
     #[inline]
     pub fn into_best_first_iter(self) -> BestFirstMoveIterator {
         BestFirstMoveIterator::new(self.moves)
@@ -306,10 +308,11 @@ impl MoveList {
         }
     }
 
-    /// Evaluates moves using heuristics
+    /// Evaluates moves using heuristics.
     ///
     /// # Arguments
     ///
+    /// * `ctx` - Search context for node counting
     /// * `board` - Current board position
     /// * `tt_move` - Move suggested by transposition table (if any)
     pub fn evaluate_moves_fast(&mut self, ctx: &mut SearchContext, board: &Board, tt_move: Square) {
@@ -326,14 +329,14 @@ impl MoveList {
             18,  4, 16, 12, 12, 16,  4, 18,
         ];
 
-        const SQAURE_VALUE_WEIGHT: i32 = 1 << 8;
+        const SQUARE_VALUE_WEIGHT: i32 = 1 << 8;
         const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
         const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
         const MOBILITY_WEIGHT: i32 = 1 << 14;
 
         for mv in self.iter_mut() {
             mv.value = if mv.flipped == board.opponent {
-                // Wipeout move (capture all opponent pieces)
+                // Wipeout move (capture all opponent discs)
                 WIPEOUT_VALUE
             } else if mv.sq == tt_move {
                 // Transposition table move
@@ -345,7 +348,7 @@ impl MoveList {
                 let potential_mobility = corner_weighted_count(potential) as i32;
                 let corner_stability = get_corner_stability(next.opponent) as i32;
                 let weighted_mobility = corner_weighted_count(moves) as i32;
-                let mut value = SQUARE_VALUE[mv.sq.index()] * SQAURE_VALUE_WEIGHT;
+                let mut value = SQUARE_VALUE[mv.sq.index()] * SQUARE_VALUE_WEIGHT;
                 value += corner_stability * CORNER_STABILITY_WEIGHT;
                 value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
                 value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
@@ -398,12 +401,13 @@ fn cas(moves: &mut [Move], i: usize, j: usize) {
     }
 }
 
+/// 2 elements: 1 comparison (optimal).
 #[inline]
 fn sort2(m: &mut [Move]) {
     cas(m, 0, 1);
 }
 
-/// 3 elements: 3 comparisons (optimal)
+/// 3 elements: 3 comparisons (optimal).
 #[inline]
 fn sort3(m: &mut [Move]) {
     cas(m, 0, 1);
@@ -413,9 +417,9 @@ fn sort3(m: &mut [Move]) {
 
 /// Thread-safe iterator for distributing moves across multiple search threads.
 pub struct ConcurrentMoveIterator {
-    /// The move list being iterated over
+    /// The move list being iterated over.
     move_list: MoveList,
-    /// Atomic counter tracking the next move index to return
+    /// Atomic counter tracking the next move index to return.
     current: atomic::AtomicUsize,
 }
 
@@ -428,7 +432,7 @@ impl ConcurrentMoveIterator {
     ///
     /// # Returns
     ///
-    /// A new concurrent iterator starting at the first move
+    /// A new concurrent iterator starting at the first move.
     pub fn new(move_list: MoveList) -> ConcurrentMoveIterator {
         ConcurrentMoveIterator {
             move_list,
@@ -458,7 +462,7 @@ impl ConcurrentMoveIterator {
     ///
     /// # Returns
     ///
-    /// Total count of moves (does not change as moves are consumed)
+    /// Total count of moves (does not change as moves are consumed).
     #[inline]
     pub fn count(&self) -> usize {
         self.move_list.count()
@@ -472,9 +476,9 @@ impl ConcurrentMoveIterator {
 /// only the first few moves are needed, which is common in alpha-beta search
 /// due to early cutoffs.
 pub struct BestFirstMoveIterator {
-    /// Owned moves array, partially sorted as iteration progresses
+    /// Owned moves array, partially sorted as iteration progresses.
     moves: ArrayVec<Move, MAX_MOVES>,
-    /// Current position in the iteration
+    /// Current position in the iteration.
     current: usize,
 }
 
@@ -590,7 +594,7 @@ mod tests {
         let move_list = MoveList::new(&board);
         assert!(move_list.count() > 0);
 
-        // Verify all moves have valid flipped pieces
+        // Verify all moves have valid flipped discs
         for mv in move_list.iter() {
             assert!(mv.flipped != 0);
             assert_eq!(mv.value, i32::MIN); // Initial value

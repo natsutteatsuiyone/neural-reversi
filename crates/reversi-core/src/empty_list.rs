@@ -1,14 +1,9 @@
 //! # Empty Square List Management
-//!
-//! This module provides an efficient data structure for managing empty squares
-//! during Reversi/Othello game search. The `EmptyList` maintains a doubly-linked
-//! list of empty squares in strategic order, enabling fast move generation and
-//! endgame parity calculations.
 
 use crate::board::Board;
 use crate::square::Square;
 
-/// Quadrant bit-mask for each square position
+/// Quadrant bit-mask for each square position.
 ///
 /// The board is divided into 4 quadrants for parity calculation:
 /// - Top-left (A1-D4): bit mask 1
@@ -30,52 +25,34 @@ const QUADRANT_ID: [u8; 64] = [
     4, 4, 4, 4, 8, 8, 8, 8,
 ];
 
-/// Strategic ordering of squares for optimal move generation
-///
-/// Squares are ordered by their strategic importance in Reversi:
-/// 1. Corners (most valuable)
-/// 2. Stable edge squares
-/// 3. Other edge squares
-/// 4. Inner squares (decreasing stability)
-///
-/// This ordering improves alpha-beta pruning efficiency by
-/// examining better moves first during search.
+/// Strategic ordering of squares for optimal move generation.
 #[rustfmt::skip]
 const PRESORTED: [Square; 64] = [
-    // Corners (highest strategic value)
     Square::A1, Square::H1, Square::A8, Square::H8,
 
-    // Edge squares near corners
     Square::C1, Square::F1, Square::A3, Square::H3,
     Square::A6, Square::H6, Square::C8, Square::F8,
 
-    // Remaining edge squares
     Square::C3, Square::F3, Square::C6, Square::F6,
     Square::D1, Square::E1, Square::A4, Square::H4,
 
-    // Inner ring squares
     Square::A5, Square::H5, Square::D8, Square::E8,
     Square::D3, Square::E3, Square::C4, Square::F4,
     Square::C5, Square::F5, Square::D6, Square::E6,
     Square::D2, Square::E2,
 
-    // Central squares
     Square::B4, Square::G4, Square::B5, Square::G5,
     Square::D7, Square::E7, Square::C2, Square::F2,
     Square::B3, Square::G3, Square::B6, Square::G6,
     Square::C7, Square::F7,
 
-    // Remaining squares
     Square::B1, Square::G1, Square::A2, Square::H2,
     Square::A7, Square::H7, Square::B8, Square::G8,
     Square::B2, Square::G2, Square::B7, Square::G7,
     Square::D4, Square::E4, Square::D5, Square::E5,
 ];
 
-/// Node in the doubly-linked list of empty squares
-///
-/// Each square maintains links to its neighbors in the list
-/// and its quadrant ID for parity calculations.
+/// Node in the doubly-linked list of empty squares.
 #[derive(Clone, Copy, Default)]
 #[repr(align(8))]
 struct EmptyNode {
@@ -85,15 +62,12 @@ struct EmptyNode {
     prev: Square,
 }
 
-/// Efficient linked list of empty squares for move generation
-///
-/// The `EmptyList` maintains a doubly-linked list of empty squares
-/// using an array-based implementation for cache efficiency.
+/// Efficient linked list of empty squares for move generation.
 #[derive(Clone)]
 pub struct EmptyList {
-    /// Array of linked list nodes indexed by square position
+    /// Array of linked list nodes indexed by square position.
     nodes: [EmptyNode; 65],
-    /// Number of empty squares currently in the list
+    /// Number of empty squares currently in the list.
     pub count: u32,
     /// XOR of all quadrant IDs (used for endgame parity optimization)
     pub parity: u8,
@@ -148,8 +122,8 @@ impl EmptyList {
     ///
     /// # Returns
     ///
-    /// A tuple containing the first `Square` and its `quad_id`,
-    /// or (`Square::None`, 0) if the list is empty.
+    /// A tuple containing the first `Square` and its `quad_id`.
+    /// If the list is empty, returns (`Square::None`, 0).
     #[inline(always)]
     pub fn first_with_quad_id(&self) -> (Square, u8) {
         let first_sq = unsafe { self.nodes.get_unchecked(Square::None.index()).next };
@@ -180,7 +154,7 @@ impl EmptyList {
     /// # Returns
     ///
     /// A tuple containing the next `Square` and its `quad_id`.
-    /// Returns (`Square::None`, 0) if `sq` is the last square in the list.
+    /// If `sq` is the last square, returns (`Square::None`, 0).
     #[inline(always)]
     pub fn next_with_quad_id(&self, sq: Square) -> (Square, u8) {
         let next_sq = unsafe { self.nodes.get_unchecked(sq.index()).next };
@@ -234,10 +208,10 @@ impl EmptyList {
         self.count += 1;
     }
 
-    /// Returns the current ply (number of moves played).
+    /// Returns the current ply (number of disc placements).
     ///
-    /// In Reversi, the game starts with 4 pieces placed and 60 empty squares.
-    /// Each move fills one empty square, so ply = 60 - empty_count.
+    /// In Reversi, the game starts with 4 discs placed and 60 empty squares.
+    /// Each non-pass move fills one empty square, so ply = 60 - empty_count.
     #[inline(always)]
     pub fn ply(&self) -> usize {
         (60 - self.count) as usize

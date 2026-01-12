@@ -8,7 +8,7 @@ use crate::{board::Board, constants::SCORE_MAX, types::Score};
 /// Size of the edge stability lookup table (256 * 256 for all possible edge configurations)
 const EDGE_STABILITY_SIZE: usize = 256 * 256;
 
-/// Global edge stability lookup table, initialized once at startup
+/// Global edge stability lookup table, initialized once at startup.
 static EDGE_STABILITY: OnceLock<[u8; EDGE_STABILITY_SIZE]> = OnceLock::new();
 
 /// Recursively finds stable discs along an edge by simulating all possible move sequences.
@@ -21,7 +21,7 @@ static EDGE_STABILITY: OnceLock<[u8; EDGE_STABILITY_SIZE]> = OnceLock::new();
 ///
 /// # Returns
 ///
-/// A bitmask of stable discs for the player on this edge
+/// A bitmask of stable discs for the player on this edge.
 fn find_edge_stable(old_p: i32, old_o: i32, mut stable: i32) -> i32 {
     // Calculate empty squares on the edge
     let e: i32 = !(old_p | old_o);
@@ -125,7 +125,7 @@ fn find_edge_stable(old_p: i32, old_o: i32, mut stable: i32) -> i32 {
 ///
 /// # Returns
 ///
-/// Bit mask with only the bit at position x set
+/// Bit mask with only the bit at position x set.
 fn x_to_bit(x: i32) -> i32 {
     1 << x
 }
@@ -134,7 +134,7 @@ fn x_to_bit(x: i32) -> i32 {
 ///
 /// # Returns
 ///
-/// A 65536-entry lookup table indexed by [player_edge * 256 + opponent_edge]
+/// A 65536-entry lookup table indexed by [player_edge * 256 + opponent_edge].
 fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
     let mut table: [u8; EDGE_STABILITY_SIZE] = [0; EDGE_STABILITY_SIZE];
     for p in 0..256 {
@@ -164,7 +164,7 @@ pub fn init() {
 ///
 /// # Returns
 ///
-/// 64-bit board with bits set at A2-A7 positions
+/// 64-bit board with bits set at A2-A7 positions.
 #[inline]
 fn unpack_a2a7(x: u8) -> u64 {
     let a = (x & 0x7e) as u64; // Extract bits 1-6
@@ -179,7 +179,7 @@ fn unpack_a2a7(x: u8) -> u64 {
 ///
 /// # Returns
 ///
-/// 64-bit board with bits set at H2-H7 positions
+/// 64-bit board with bits set at H2-H7 positions.
 #[inline]
 fn unpack_h2h7(x: u8) -> u64 {
     let a = (x & 0x7e) as u64; // Extract bits 1-6
@@ -194,7 +194,7 @@ fn unpack_h2h7(x: u8) -> u64 {
 ///
 /// # Returns
 ///
-/// 8-bit value with each bit representing a square in the A-file
+/// 8-bit value with each bit representing a square in the A-file.
 #[inline]
 fn pack_a1a8(x: u64) -> usize {
     let a = x & 0x0101_0101_0101_0101; // Mask A-file
@@ -209,7 +209,7 @@ fn pack_a1a8(x: u64) -> usize {
 ///
 /// # Returns
 ///
-/// 8-bit value with each bit representing a square in the H-file
+/// 8-bit value with each bit representing a square in the H-file.
 #[inline]
 fn pack_h1h8(x: u64) -> usize {
     let a = x & 0x8080_8080_8080_8080; // Mask H-file
@@ -220,8 +220,8 @@ fn pack_h1h8(x: u64) -> usize {
 ///
 /// This function uses the pre-computed edge stability table to quickly
 /// determine which edge discs are stable. It handles all four edges:
-/// - Top edge (rank 1)
-/// - Bottom edge (rank 8)
+/// - Bottom edge (rank 1)
+/// - Top edge (rank 8)
 /// - Left edge (A-file)
 /// - Right edge (H-file)
 ///
@@ -232,7 +232,7 @@ fn pack_h1h8(x: u64) -> usize {
 ///
 /// # Returns
 ///
-/// Bitboard with stable edge discs marked
+/// Bitboard with stable edge discs marked.
 #[inline]
 fn get_stable_edge(p: u64, o: u64) -> u64 {
     let table = EDGE_STABILITY.get().unwrap();
@@ -255,7 +255,7 @@ fn get_stable_edge(p: u64, o: u64) -> u64 {
 ///
 /// # Returns
 ///
-/// Bitboard with all squares that are on full lines in all four directions
+/// Bitboard with all squares that are on full lines in all four directions.
 fn get_full_lines(disc: u64, full: &mut [u64; 4]) -> u64 {
     let mut h = disc; // Horizontal
     let mut v = disc; // Vertical
@@ -293,7 +293,7 @@ fn get_full_lines(disc: u64, full: &mut [u64; 4]) -> u64 {
     full[0] & full[1] & full[2] & full[3]
 }
 
-/// Get stable discs by contact with other stable discs.
+/// Gets stable discs by contact with other stable discs.
 ///
 /// # Arguments
 ///
@@ -302,7 +302,8 @@ fn get_full_lines(disc: u64, full: &mut [u64; 4]) -> u64 {
 /// * `full` - Full lines in each direction (from `get_full_lines`)
 ///
 /// # Returns
-/// the number of stable discs.
+///
+/// Bitboard with stable discs marked.
 fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4]) -> u64 {
     let mut stable_h: u64; // Stable in horizontal direction
     let mut stable_v: u64; // Stable in vertical direction
@@ -327,7 +328,7 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
     stable
 }
 
-/// Estimate the stable discs.
+/// Estimates the stable discs.
 ///
 /// # Arguments
 ///
@@ -336,7 +337,7 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
 ///
 /// # Returns
 ///
-/// Bitboard with stable discs for the player
+/// Bitboard with stable discs for the player.
 pub fn get_stable_discs(p: u64, o: u64) -> u64 {
     let central_mask = p & 0x007e7e7e7e7e7e00;
     let mut full: [u64; 4] = [0; 4];
@@ -359,7 +360,7 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
     99, 99, 99, 99, 99, 99, 99, 99   // 56-63 empties (no stable squares)
 ];
 
-/// Attempts to prove a beta cutoff using stability analysis.
+/// Attempts to prove an alpha cutoff using stability analysis.
 ///
 /// This function implements a stability-based pruning technique. If we can prove
 /// that the opponent has enough stable discs to guarantee a score <= alpha,
@@ -373,7 +374,7 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
 ///
 /// # Returns
 ///
-/// Some(score) if a cutoff is possible, None otherwise
+/// Some(score) if a cutoff is possible, None otherwise.
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
     if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
         let score = SCORE_MAX - 2 * board.switch_players().get_stability();

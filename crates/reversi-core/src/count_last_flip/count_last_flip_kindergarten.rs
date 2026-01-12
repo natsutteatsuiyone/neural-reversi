@@ -94,7 +94,7 @@ fn lookup(table: usize, idx: usize) -> i32 {
     *uget!(COUNT_FLIP; table, idx) as i32
 }
 
-/// Count last flipped discs when playing on square A1.
+/// Counts last flipped discs when playing on square A1.
 ///
 /// # Arguments
 ///
@@ -114,7 +114,7 @@ pub fn count_last_flip_a1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B1.
+/// Counts last flipped discs when playing on square B1.
 ///
 /// # Arguments
 ///
@@ -134,7 +134,7 @@ pub fn count_last_flip_b1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C1.
+/// Counts last flipped discs when playing on square C1.
 ///
 /// # Arguments
 ///
@@ -154,7 +154,7 @@ pub fn count_last_flip_c1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D1.
+/// Counts last flipped discs when playing on square D1.
 ///
 /// # Arguments
 ///
@@ -174,7 +174,7 @@ pub fn count_last_flip_d1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E1.
+/// Counts last flipped discs when playing on square E1.
 ///
 /// # Arguments
 ///
@@ -194,7 +194,7 @@ pub fn count_last_flip_e1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F1.
+/// Counts last flipped discs when playing on square F1.
 ///
 /// # Arguments
 ///
@@ -214,7 +214,7 @@ pub fn count_last_flip_f1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G1.
+/// Counts last flipped discs when playing on square G1.
 ///
 /// # Arguments
 ///
@@ -234,7 +234,7 @@ pub fn count_last_flip_g1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H1.
+/// Counts last flipped discs when playing on square H1.
 ///
 /// # Arguments
 ///
@@ -254,7 +254,7 @@ pub fn count_last_flip_h1(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square A2.
+/// Counts last flipped discs when playing on square A2.
 ///
 /// # Arguments
 ///
@@ -274,7 +274,7 @@ pub fn count_last_flip_a2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B2.
+/// Counts last flipped discs when playing on square B2.
 ///
 /// # Arguments
 ///
@@ -294,7 +294,7 @@ pub fn count_last_flip_b2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C2.
+/// Counts last flipped discs when playing on square C2.
 ///
 /// # Arguments
 ///
@@ -314,7 +314,7 @@ pub fn count_last_flip_c2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D2.
+/// Counts last flipped discs when playing on square D2.
 ///
 /// # Arguments
 ///
@@ -334,7 +334,7 @@ pub fn count_last_flip_d2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E2.
+/// Counts last flipped discs when playing on square E2.
 ///
 /// # Arguments
 ///
@@ -354,7 +354,7 @@ pub fn count_last_flip_e2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F2.
+/// Counts last flipped discs when playing on square F2.
 ///
 /// # Arguments
 ///
@@ -374,7 +374,7 @@ pub fn count_last_flip_f2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G2.
+/// Counts last flipped discs when playing on square G2.
 ///
 /// # Arguments
 ///
@@ -394,7 +394,7 @@ pub fn count_last_flip_g2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H2.
+/// Counts last flipped discs when playing on square H2.
 ///
 /// # Arguments
 ///
@@ -414,7 +414,7 @@ pub fn count_last_flip_h2(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square A3.
+/// Counts last flipped discs when playing on square A3.
 ///
 /// # Arguments
 ///
@@ -434,7 +434,7 @@ pub fn count_last_flip_a3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B3.
+/// Counts last flipped discs when playing on square B3.
 ///
 /// # Arguments
 ///
@@ -454,7 +454,7 @@ pub fn count_last_flip_b3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C3.
+/// Counts last flipped discs when playing on square C3.
 ///
 /// # Arguments
 ///
@@ -476,7 +476,7 @@ pub fn count_last_flip_c3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D3.
+/// Counts last flipped discs when playing on square D3.
 ///
 /// # Arguments
 ///
@@ -498,7 +498,7 @@ pub fn count_last_flip_d3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E3.
+/// Counts last flipped discs when playing on square E3.
 ///
 /// # Arguments
 ///
@@ -520,7 +520,7 @@ pub fn count_last_flip_e3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F3.
+/// Counts last flipped discs when playing on square F3.
 ///
 /// # Arguments
 ///
@@ -542,7 +542,7 @@ pub fn count_last_flip_f3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G3.
+/// Counts last flipped discs when playing on square G3.
 ///
 /// # Arguments
 ///
@@ -562,7 +562,7 @@ pub fn count_last_flip_g3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H3.
+/// Counts last flipped discs when playing on square H3.
 ///
 /// # Arguments
 ///
@@ -582,7 +582,7 @@ pub fn count_last_flip_h3(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square A4.
+/// Counts last flipped discs when playing on square A4.
 ///
 /// # Arguments
 ///
@@ -602,7 +602,7 @@ pub fn count_last_flip_a4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B4.
+/// Counts last flipped discs when playing on square B4.
 ///
 /// # Arguments
 ///
@@ -622,7 +622,7 @@ pub fn count_last_flip_b4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C4.
+/// Counts last flipped discs when playing on square C4.
 ///
 /// # Arguments
 ///
@@ -644,7 +644,7 @@ pub fn count_last_flip_c4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D4.
+/// Counts last flipped discs when playing on square D4.
 ///
 /// # Arguments
 ///
@@ -666,7 +666,7 @@ pub fn count_last_flip_d4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E4.
+/// Counts last flipped discs when playing on square E4.
 ///
 /// # Arguments
 ///
@@ -688,7 +688,7 @@ pub fn count_last_flip_e4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F4.
+/// Counts last flipped discs when playing on square F4.
 ///
 /// # Arguments
 ///
@@ -710,7 +710,7 @@ pub fn count_last_flip_f4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G4.
+/// Counts last flipped discs when playing on square G4.
 ///
 /// # Arguments
 ///
@@ -730,7 +730,7 @@ pub fn count_last_flip_g4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H4.
+/// Counts last flipped discs when playing on square H4.
 ///
 /// # Arguments
 ///
@@ -750,7 +750,7 @@ pub fn count_last_flip_h4(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square A5.
+/// Counts last flipped discs when playing on square A5.
 ///
 /// # Arguments
 ///
@@ -770,7 +770,7 @@ pub fn count_last_flip_a5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B5.
+/// Counts last flipped discs when playing on square B5.
 ///
 /// # Arguments
 ///
@@ -790,7 +790,7 @@ pub fn count_last_flip_b5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C5.
+/// Counts last flipped discs when playing on square C5.
 ///
 /// # Arguments
 ///
@@ -812,7 +812,7 @@ pub fn count_last_flip_c5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D5.
+/// Counts last flipped discs when playing on square D5.
 ///
 /// # Arguments
 ///
@@ -834,7 +834,7 @@ pub fn count_last_flip_d5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E5.
+/// Counts last flipped discs when playing on square E5.
 ///
 /// # Arguments
 ///
@@ -856,7 +856,7 @@ pub fn count_last_flip_e5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F5.
+/// Counts last flipped discs when playing on square F5.
 ///
 /// # Arguments
 ///
@@ -878,7 +878,7 @@ pub fn count_last_flip_f5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G5.
+/// Counts last flipped discs when playing on square G5.
 ///
 /// # Arguments
 ///
@@ -898,7 +898,7 @@ pub fn count_last_flip_g5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H5.
+/// Counts last flipped discs when playing on square H5.
 ///
 /// # Arguments
 ///
@@ -918,7 +918,7 @@ pub fn count_last_flip_h5(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square A6.
+/// Counts last flipped discs when playing on square A6.
 ///
 /// # Arguments
 ///
@@ -938,7 +938,7 @@ pub fn count_last_flip_a6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B6.
+/// Counts last flipped discs when playing on square B6.
 ///
 /// # Arguments
 ///
@@ -958,7 +958,7 @@ pub fn count_last_flip_b6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C6.
+/// Counts last flipped discs when playing on square C6.
 ///
 /// # Arguments
 ///
@@ -980,7 +980,7 @@ pub fn count_last_flip_c6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D6.
+/// Counts last flipped discs when playing on square D6.
 ///
 /// # Arguments
 ///
@@ -1002,7 +1002,7 @@ pub fn count_last_flip_d6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E6.
+/// Counts last flipped discs when playing on square E6.
 ///
 /// # Arguments
 ///
@@ -1024,7 +1024,7 @@ pub fn count_last_flip_e6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F6.
+/// Counts last flipped discs when playing on square F6.
 ///
 /// # Arguments
 ///
@@ -1046,7 +1046,7 @@ pub fn count_last_flip_f6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G6.
+/// Counts last flipped discs when playing on square G6.
 ///
 /// # Arguments
 ///
@@ -1066,7 +1066,7 @@ pub fn count_last_flip_g6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H6.
+/// Counts last flipped discs when playing on square H6.
 ///
 /// # Arguments
 ///
@@ -1086,7 +1086,7 @@ pub fn count_last_flip_h6(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square A7.
+/// Counts last flipped discs when playing on square A7.
 ///
 /// # Arguments
 ///
@@ -1106,7 +1106,7 @@ pub fn count_last_flip_a7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B7.
+/// Counts last flipped discs when playing on square B7.
 ///
 /// # Arguments
 ///
@@ -1126,7 +1126,7 @@ pub fn count_last_flip_b7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C7.
+/// Counts last flipped discs when playing on square C7.
 ///
 /// # Arguments
 ///
@@ -1146,7 +1146,7 @@ pub fn count_last_flip_c7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D7.
+/// Counts last flipped discs when playing on square D7.
 ///
 /// # Arguments
 ///
@@ -1166,7 +1166,7 @@ pub fn count_last_flip_d7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E7.
+/// Counts last flipped discs when playing on square E7.
 ///
 /// # Arguments
 ///
@@ -1186,7 +1186,7 @@ pub fn count_last_flip_e7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F7.
+/// Counts last flipped discs when playing on square F7.
 ///
 /// # Arguments
 ///
@@ -1206,7 +1206,7 @@ pub fn count_last_flip_f7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G7.
+/// Counts last flipped discs when playing on square G7.
 ///
 /// # Arguments
 ///
@@ -1226,7 +1226,7 @@ pub fn count_last_flip_g7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H7.
+/// Counts last flipped discs when playing on square H7.
 ///
 /// # Arguments
 ///
@@ -1246,7 +1246,7 @@ pub fn count_last_flip_h7(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square A8.
+/// Counts last flipped discs when playing on square A8.
 ///
 /// # Arguments
 ///
@@ -1266,7 +1266,7 @@ pub fn count_last_flip_a8(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square B8.
+/// Counts last flipped discs when playing on square B8.
 ///
 /// # Arguments
 ///
@@ -1286,7 +1286,7 @@ pub fn count_last_flip_b8(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square C8.
+/// Counts last flipped discs when playing on square C8.
 ///
 /// # Arguments
 ///
@@ -1306,7 +1306,7 @@ pub fn count_last_flip_c8(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square D8.
+/// Counts last flipped discs when playing on square D8.
 ///
 /// # Arguments
 ///
@@ -1326,7 +1326,7 @@ pub fn count_last_flip_d8(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square E8.
+/// Counts last flipped discs when playing on square E8.
 ///
 /// # Arguments
 ///
@@ -1346,7 +1346,7 @@ pub fn count_last_flip_e8(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square F8.
+/// Counts last flipped discs when playing on square F8.
 ///
 /// # Arguments
 ///
@@ -1366,7 +1366,7 @@ pub fn count_last_flip_f8(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square G8.
+/// Counts last flipped discs when playing on square G8.
 ///
 /// # Arguments
 ///
@@ -1386,7 +1386,7 @@ pub fn count_last_flip_g8(p: u64) -> i32 {
     n_flipped
 }
 
-/// Count last flipped discs when playing on square H8.
+/// Counts last flipped discs when playing on square H8.
 ///
 /// # Arguments
 ///
@@ -1421,7 +1421,7 @@ pub static LAST_FLIP: [CountLastFlipFn; 64] = [
     count_last_flip_a8, count_last_flip_b8, count_last_flip_c8, count_last_flip_d8, count_last_flip_e8, count_last_flip_f8, count_last_flip_g8, count_last_flip_h8,
 ];
 
-/// Count last flipped discs.
+/// Counts last flipped discs.
 ///
 /// # Arguments
 ///

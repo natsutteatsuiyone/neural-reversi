@@ -1,3 +1,5 @@
+//! Performance testing (perft) for move generation verification.
+
 use crate::board::Board;
 use crate::eval::pattern_feature::PatternFeatures;
 use crate::move_list::MoveList;
@@ -13,7 +15,7 @@ use crate::search::side_to_move::SideToMove;
 ///
 /// # Returns
 ///
-/// The total node count the search visits from the initial position.
+/// The total number of nodes visited from the initial position.
 pub fn perft_root(depth: u32) -> u64 {
     let board = Board::new();
     let mut pattern_features = PatternFeatures::new(&board, 0);
@@ -21,6 +23,7 @@ pub fn perft_root(depth: u32) -> u64 {
     perft(&board, &mut pattern_features, 0, side_to_move, depth)
 }
 
+/// Recursively counts nodes in the game tree.
 fn perft(
     board: &Board,
     pattern_feature: &mut PatternFeatures,

@@ -1,3 +1,8 @@
+//! Bitboard operations for Reversi.
+//!
+//! A bitboard represents the 8x8 board as a 64-bit integer where each bit
+//! corresponds to a square (bit 0 = A1, bit 63 = H8).
+
 #[cfg(target_arch = "wasm32")]
 use std::arch::wasm32::*;
 
@@ -8,7 +13,7 @@ use crate::square::Square;
 /// Pre-computed masks for adjacent squares around each board position.
 ///
 /// Each entry corresponds to the 8 squares adjacent to a given position on the board.
-/// Used for checking if pieces have adjacent neighbors.
+/// Used for checking if discs have adjacent neighbors.
 /// Reference: https://eukaryote.hateblo.jp/entry/2020/04/26/031246
 #[rustfmt::skip]
 const NEIGHBOUR_MASK: [u64; 64] = [
@@ -38,7 +43,7 @@ pub const CORNER_MASK: u64 = 0x8100000000000081;
 /// # Arguments
 ///
 /// * `b` - The player's bitboard.
-/// * `flipped` - The bitboard representing the flipped pieces.
+/// * `flipped` - The bitboard representing the flipped discs.
 /// * `sq` - The index of the square (0-based).
 ///
 /// # Returns
@@ -54,7 +59,7 @@ pub fn player_flip(b: u64, flipped: u64, sq: Square) -> u64 {
 /// # Arguments
 ///
 /// * `b` - The opponent's bitboard.
-/// * `flipped` - The bitboard representing the flipped pieces.
+/// * `flipped` - The bitboard representing the flipped discs.
 ///
 /// # Returns
 ///
@@ -288,6 +293,7 @@ fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     moves & empty
 }
 
+/// Expands a ray in the left-shift direction using SIMD.
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
 fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128 {
@@ -302,6 +308,7 @@ fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128 {
     v128_or(x, v128_and(mask, u64x2_shl(x, shift * 4)))
 }
 
+/// Expands a ray in the right-shift direction using SIMD.
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
 fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
@@ -316,6 +323,7 @@ fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
     v128_or(x, v128_and(mask, u64x2_shr(x, shift * 4)))
 }
 
+/// WASM SIMD128-optimized implementation of `get_moves`.
 #[cfg(target_arch = "wasm32")]
 #[target_feature(enable = "simd128")]
 fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
@@ -580,7 +588,7 @@ pub fn get_corner_stability(p: u64) -> u32 {
 /// # Arguments
 ///
 /// * `b` - The bitboard.
-/// * `sq` - The index of the square (0-based).
+/// * `sq` - The square to check adjacency for.
 ///
 /// # Returns
 ///
@@ -590,7 +598,7 @@ pub fn has_adjacent_bit(b: u64, sq: Square) -> bool {
     (b & unsafe { NEIGHBOUR_MASK.get_unchecked(sq.index()) }) != 0
 }
 
-/// Clear least significant bit (BLSR).
+/// Clears the least significant bit (BLSR).
 ///
 /// # Arguments
 ///
@@ -737,6 +745,7 @@ fn delta_swap(bits: u64, mask: u64, delta: u32) -> u64 {
 
 /// An iterator that yields each set bit position in a bitboard as a `Square`.
 pub struct BitboardIterator {
+    /// The remaining bitboard to iterate over.
     bitboard: u64,
 }
 
@@ -775,7 +784,7 @@ mod tests {
         let flipped: u64 = Square::B1.bitboard() | Square::C1.bitboard();
         let result = player_flip(player_board, flipped, Square::D1);
 
-        // Should have original piece at A1, flipped pieces at B1 and C1, and new piece at D1
+        // Should have original disc at A1, flipped discs at B1 and C1, and new disc at D1
         assert!(is_set(result, Square::A1));
         assert!(is_set(result, Square::B1));
         assert!(is_set(result, Square::C1));
@@ -789,7 +798,7 @@ mod tests {
         let flipped: u64 = Square::B1.bitboard() | Square::C1.bitboard();
         let result = opponent_flip(opponent_board, flipped);
 
-        // Should only have piece at A1 (B1 and C1 were flipped away)
+        // Should only have disc at A1 (B1 and C1 were flipped away)
         assert!(is_set(result, Square::A1));
         assert!(!is_set(result, Square::B1));
         assert!(!is_set(result, Square::C1));
@@ -860,7 +869,7 @@ mod tests {
     #[test]
     fn test_get_moves_capture_all_directions() {
         // Position where a move captures in all 8 directions
-        // Center piece surrounded by opponent pieces
+        // Center disc surrounded by opponent discs
         let player: u64 = Square::A1.bitboard()
             | Square::H1.bitboard()
             | Square::A8.bitboard()
@@ -967,7 +976,7 @@ mod tests {
         let opponent: u64 = Square::D4.bitboard() | Square::E5.bitboard();
         let potential = get_potential_moves(player, opponent);
 
-        // Potential moves are empty squares adjacent to opponent pieces
+        // Potential moves are empty squares adjacent to opponent discs
         // Around D4: C3, C4, C5, D3, D5(occupied), E3, E4(occupied), E5(occupied)
         // Around E5: D4(occupied), D5(occupied), D6, E4(occupied), E6, F4, F5, F6
         // Union minus occupied: C3, C4, C5, D3, E3, D6, E6, F4, F5, F6
@@ -1072,7 +1081,7 @@ mod tests {
         let board: u64 = CORNER_MASK;
         assert_eq!(get_corner_stability(board), 4);
 
-        // Corner with adjacent pieces - A1 with A2 and B1
+        // Corner with adjacent discs - A1 with A2 and B1
         // The function counts corners that form stable groups
         let board: u64 = Square::A1.bitboard()
             | Square::A2.bitboard()

@@ -21,6 +21,7 @@ const NUM_OUTPUT_LAYERS: usize = 30;
 const ENDGAME_START_PLY: usize = 30;
 const INPUT_LAYER_SEGMENT_SIZE: usize = NUM_OUTPUT_LAYERS / NUM_INPUT_LAYERS;
 
+/// Input layer for the small network.
 #[derive(Debug)]
 struct InputLayer {
     biases: Align64<[i16; PA_OUTPUT_DIMS]>,
@@ -39,6 +40,7 @@ impl InputLayer {
     }
 }
 
+/// Output layer for the small network.
 #[derive(Debug)]
 struct OutputLayer {
     bias: i32,
@@ -56,7 +58,7 @@ impl OutputLayer {
     }
 }
 
-/// Small neural network optimized for endgame positions
+/// Small neural network optimized for endgame positions.
 pub struct NetworkSmall {
     input_layers: Vec<InputLayer>,
     output_layers: Vec<OutputLayer>,
@@ -64,14 +66,14 @@ pub struct NetworkSmall {
 }
 
 impl NetworkSmall {
-    /// Creates a new small network from compressed weights file
+    /// Creates a new small network from compressed weights file.
     pub fn new(file_path: &Path) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
         Self::from_reader(reader)
     }
 
-    /// Creates a new small network from an in-memory blob
+    /// Creates a new small network from an in-memory blob.
     pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
         let cursor = io::Cursor::new(bytes);
         Self::from_reader(cursor)
@@ -124,13 +126,14 @@ impl NetworkSmall {
         }
     }
 
-    /// Evaluates a position using the small network
+    /// Evaluates a position using the small network.
     ///
-    /// Faster but less accurate than the main network
+    /// Faster but less accurate than the main network.
     ///
     /// # Arguments
-    /// * `pattern_feature` - Extracted pattern features from the board
-    /// * `ply` - Current game ply (move number)
+    ///
+    /// * `pattern_feature` - Pattern features from the board.
+    /// * `ply` - Current game ply.
     pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
         debug_assert!(ply >= ENDGAME_START_PLY);
         debug_assert_eq!(NUM_OUTPUT_LAYERS % NUM_INPUT_LAYERS, 0);

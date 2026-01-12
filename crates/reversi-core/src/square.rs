@@ -1,9 +1,11 @@
+//! Square representation for Reversi board positions.
+
 use std::fmt;
 use std::str::FromStr;
 
-/// Represents a square on a reversi board, ranging from A1 to H8.
+/// Represents a square on a Reversi board, ranging from A1 to H8.
 ///
-/// The reversi board uses algebraic notation where files (columns) are labeled A-H
+/// The Reversi board uses algebraic notation where files (columns) are labeled A-H
 /// and ranks (rows) are labeled 1-8. The board is indexed as follows:
 ///
 /// ```text
@@ -35,7 +37,7 @@ pub enum Square {
     None,
 }
 
-/// Constants for board dimensions
+/// Constants for board dimensions.
 pub const BOARD_SIZE: usize = 8;
 pub const TOTAL_SQUARES: usize = BOARD_SIZE * BOARD_SIZE;
 
@@ -69,10 +71,16 @@ impl Square {
     /// Converts a `u8` value into a `Square` enum without bounds checking.
     ///
     /// # Arguments
+    ///
     /// * `index` - The `u8` value to convert (0-63 for valid squares, 64 for `None`).
     ///
     /// # Returns
+    ///
     /// The corresponding `Square` variant.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug mode if `index` > 64.
     #[inline]
     pub fn from_u8_unchecked(index: u8) -> Square {
         debug_assert!(
@@ -85,9 +93,11 @@ impl Square {
     /// Safely converts a `u8` value into a `Square` enum.
     ///
     /// # Arguments
+    ///
     /// * `index` - The `u8` value to convert.
     ///
     /// # Returns
+    ///
     /// `Some(Square)` if the index is valid (0-64), `None` otherwise.
     #[inline]
     pub fn from_u8(index: u8) -> Option<Square> {
@@ -101,10 +111,16 @@ impl Square {
     /// Converts a `u32` value into a `Square` enum without bounds checking.
     ///
     /// # Arguments
-    /// * `index` - The `u32` value to convert.
+    ///
+    /// * `index` - The `u32` value to convert (0-63 for valid squares, 64 for `None`).
     ///
     /// # Returns
+    ///
     /// The corresponding `Square` variant.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug mode if `index` > 64.
     #[inline]
     pub fn from_u32_unchecked(index: u32) -> Square {
         debug_assert!(
@@ -117,9 +133,11 @@ impl Square {
     /// Safely converts a `u32` value into a `Square` enum.
     ///
     /// # Arguments
+    ///
     /// * `index` - The `u32` value to convert.
     ///
     /// # Returns
+    ///
     /// `Some(Square)` if the index is valid (0-64), `None` otherwise.
     #[inline]
     pub fn from_u32(index: u32) -> Option<Square> {
@@ -134,7 +152,7 @@ impl Square {
     ///
     /// # Arguments
     ///
-    /// * `index` - The `usize` value to convert.
+    /// * `index` - The `usize` value to convert (0-63 for valid squares, 64 for `None`).
     ///
     /// # Returns
     ///
@@ -155,9 +173,11 @@ impl Square {
     /// Safely converts a `usize` value into a `Square` enum.
     ///
     /// # Arguments
+    ///
     /// * `index` - The `usize` value to convert.
     ///
     /// # Returns
+    ///
     /// `Some(Square)` if the index is valid (0-64), `None` otherwise.
     #[inline]
     pub fn from_usize(index: usize) -> Option<Square> {
@@ -224,6 +244,7 @@ impl Square {
     /// index order (0-63). This does not include `Square::None`.
     ///
     /// # Returns
+    ///
     /// An iterator that yields all 64 board squares.
     #[inline]
     pub fn iter() -> impl Iterator<Item = Square> {
@@ -266,7 +287,7 @@ impl fmt::Display for SquareError {
 
 impl std::error::Error for SquareError {}
 
-/// Alias for the old error type name for backward compatibility
+/// Alias for the old error type name for backward compatibility.
 pub type ParseSquareError = SquareError;
 
 impl FromStr for Square {

@@ -1,4 +1,4 @@
-//! Game state management for Reversi/Othello.
+//! Game state management for Reversi.
 //!
 //! This module provides the `GameState` struct which maintains the current
 //! game position and handles core game logic such as making moves, automatic
@@ -8,18 +8,18 @@ use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
 
-/// Represents the state of a Reversi/Othello game.
+/// Represents the state of a Reversi game.
 ///
 /// This is a core game state manager that handles move execution,
 /// automatic passing, move history tracking, and undo functionality.
 #[derive(Clone, Debug)]
 pub struct GameState {
-    /// The current board position
+    /// The current board position.
     board: Board,
-    /// Which player's turn it is to move
+    /// Which player's turn it is to move.
     side_to_move: Disc,
-    /// Move history: (move, board_before_move, side_to_move_before)
-    /// None for move indicates a pass
+    /// Move history: (move, board_before_move, side_to_move_before).
+    /// None for move indicates a pass.
     history: Vec<(Option<Square>, Board, Disc)>,
 }
 
@@ -32,12 +32,12 @@ impl Default for GameState {
 impl GameState {
     /// Creates a new game in the initial position.
     ///
-    /// The initial position has 4 pieces in the center (2 black, 2 white)
+    /// The initial position has 4 discs in the center (2 black, 2 white)
     /// with Black to move first, following standard Reversi rules.
     ///
     /// # Returns
     ///
-    /// A new `GameState` in the starting position
+    /// A new `GameState` in the starting position.
     pub fn new() -> Self {
         Self {
             board: Board::new(),
@@ -58,7 +58,7 @@ impl GameState {
     ///
     /// # Returns
     ///
-    /// A new `GameState` with the specified position
+    /// A new `GameState` with the specified position.
     pub fn from_board(board: Board, side_to_move: Disc) -> Self {
         Self {
             board,
@@ -92,7 +92,7 @@ impl GameState {
     ///
     /// # Arguments
     ///
-    /// * `sq` - The square to place a piece on
+    /// * `sq` - The square to place a disc on
     ///
     /// # Returns
     ///
@@ -120,7 +120,7 @@ impl GameState {
         Ok(())
     }
 
-    /// Executes a pass move (switching players without placing a piece).
+    /// Executes a pass move (switching players without placing a disc).
     ///
     /// # Returns
     ///
@@ -172,7 +172,7 @@ impl GameState {
     /// # Returns
     ///
     /// A tuple `(black_count, white_count)` representing the number of
-    /// discs each player has on the board
+    /// discs each player has on the board.
     pub fn get_score(&self) -> (u32, u32) {
         let (black_count, white_count) = if self.side_to_move == Disc::Black {
             (

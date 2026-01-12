@@ -1,4 +1,9 @@
-//! Reference: https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h
+//! Linear transformation layer for neural network.
+//!
+//! # Reference
+//!
+//! - <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h>
+
 use std::io::{self, Read};
 
 use aligned_vec::{AVec, ConstAlign, avec};
@@ -12,10 +17,10 @@ use crate::util::align::Align64;
 ///
 /// # Type Parameters
 ///
-/// * `INPUT_DIMS` - Actual number of input features
-/// * `OUTPUT_DIMS` - Actual number of output neurons
-/// * `PADDED_INPUT_DIMS` - Input dimensions padded to SIMD width (must be ≥ INPUT_DIMS)
-/// * `PADDED_OUTPUT_DIMS` - Output dimensions padded to SIMD width (must be ≥ OUTPUT_DIMS)
+/// * `INPUT_DIMS` - Number of input features.
+/// * `OUTPUT_DIMS` - Number of output neurons.
+/// * `PADDED_INPUT_DIMS` - Input dimensions padded to SIMD width.
+/// * `PADDED_OUTPUT_DIMS` - Output dimensions padded to SIMD width.
 pub struct LinearLayer<
     const INPUT_DIMS: usize,
     const OUTPUT_DIMS: usize,
@@ -50,15 +55,7 @@ impl<
     ///
     /// Format: `OUTPUT_DIMS` biases (little-endian `i32`) followed by row-major
     /// signed weights (`i8`) for each output neuron. The raw weights are
-    /// repacked into the SIMD-friendly layout while loading, and any padded
-    /// slots stay zero-initialised.
-    ///
-    /// # Arguments
-    /// * `reader` - Input stream to read from
-    ///
-    /// # Returns
-    /// * `Ok(LinearLayer)` on success
-    /// * `Err(io::Error)` on failure
+    /// repacked into the SIMD-friendly layout while loading.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i32; PADDED_OUTPUT_DIMS];
         let mut weights = avec![[CACHE_LINE_SIZE]|0i8; PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS];
@@ -136,10 +133,8 @@ impl<
     ///
     /// # Arguments
     ///
-    /// * `input` - Aligned activations (`u8`) of length `PADDED_INPUT_DIMS` (only the
-    ///   first `INPUT_DIMS` entries are consumed)
-    /// * `output` - Aligned accumulator buffer (`i32`) where the first `OUTPUT_DIMS`
-    ///   elements are overwritten; padded tail is left untouched
+    /// * `input` - Aligned input activations.
+    /// * `output` - Aligned output buffer.
     #[inline(always)]
     pub fn forward(
         &self,

@@ -1,14 +1,13 @@
+//! Disc representation for the Reversi board.
+
 /// Represents a disc in the game.
-///
-/// The `Disc` enum has three variants:
-///
-/// * `Empty` - Represents an empty spot on the board.
-/// * `Black` - Represents a black disc.
-/// * `White` - Represents a white disc.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Disc {
+    /// An empty spot on the board.
     Empty,
+    /// A black disc.
     Black,
+    /// A white disc.
     White,
 }
 

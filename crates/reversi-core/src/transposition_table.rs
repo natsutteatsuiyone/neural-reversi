@@ -1,3 +1,5 @@
+//! Hash table for caching previously searched positions to avoid redundant computation.
+
 use crate::search::node_type::NodeType;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore, Selectivity};
@@ -15,7 +17,7 @@ const CLUSTER_SIZE: usize = 4;
 ///
 /// Indicates the relationship between the stored score and the actual position value:
 /// - `None`: No valid entry
-/// - `Lower`: Score is a lower bound (fail-high occurred)
+/// - `Lower`: Score is a lower bound (fail-high)
 /// - `Upper`: Score is an upper bound (fail-low)
 /// - `Exact`: Score is the exact minimax value
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +172,7 @@ impl TTEntryData {
         ((self.raw >> TTEntry::IS_ENDGAME_SHIFT) & TTEntry::IS_ENDGAME_MASK) != 0
     }
 
-    /// Determines whether a cutoff should occur based on the bound and beta value.
+    /// Determines whether the entry provides a conclusive result for the given beta.
     #[inline(always)]
     pub fn can_cut(&self, beta: ScaledScore) -> bool {
         let score = self.score();
@@ -393,11 +395,11 @@ impl TTEntry {
 
 /// The main transposition table structure.
 pub struct TranspositionTable {
-    /// Array of table entries organized in clusters
+    /// Array of table entries organized in clusters.
     entries: AVec<TTEntry, ConstAlign<32>>,
-    /// Number of clusters in the table
+    /// Number of clusters in the table.
     cluster_count: u64,
-    /// Generation counter for entry aging (incremented each search)
+    /// Generation counter for entry aging (incremented each search).
     generation: AtomicU8,
 }
 
@@ -480,7 +482,7 @@ impl TranspositionTable {
     ///
     /// # Returns
     ///
-    /// A `ProbeResult` indicating whether a matching entry was found.
+    /// A `TTProbeResult` indicating whether a matching entry was found.
     #[inline(always)]
     pub fn probe(&self, key: u64) -> TTProbeResult {
         let generation = self.generation();
@@ -608,6 +610,7 @@ impl TranspositionTable {
 
         TTProbeResult::Miss { index: replace_idx }
     }
+
     /// Stores data in the transposition table at the specified entry index.
     ///
     /// # Arguments
@@ -654,7 +657,7 @@ impl TranspositionTable {
     ///
     /// # Returns
     ///
-    /// The starting index of the cluster in the entries vector
+    /// The starting index of the cluster in the entries vector.
     #[inline(always)]
     fn get_cluster_idx(&self, key: u64) -> usize {
         (Self::mul_hi64(key, self.cluster_count) as usize) * CLUSTER_SIZE
@@ -669,7 +672,7 @@ impl TranspositionTable {
     ///
     /// # Returns
     ///
-    /// The high 64 bits of the 128-bit product
+    /// The high 64 bits of the 128-bit product.
     #[inline(always)]
     fn mul_hi64(a: u64, b: u64) -> u64 {
         let product = (a as u128) * (b as u128);

@@ -1,3 +1,7 @@
+//! Activation functions for neural network evaluation.
+//!
+//! # References
+//!
 //! - [Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h)
 //! - [Squared Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h)
 
@@ -15,10 +19,17 @@ const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 
 /// Applies a clipped ReLU activation function to `input`.
 ///
+/// Values are right-shifted by `HIDDEN_WEIGHT_SCALE_BITS` (6) and clamped to [0, 255].
+///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values (length should be at least `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
+/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
+///
+/// # Type Parameters
+///
+/// * `SIZE` - The number of elements to process. Used at compile time to select the optimal
+///   SIMD path (AVX2 for multiples of 32, SSE2 otherwise).
 pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_if! {
         if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
@@ -33,12 +44,15 @@ pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers (length should be at least `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
+/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
+///
+/// # Safety
+///
+/// Both `input` and `output` must be 32-byte aligned for AVX2 loads/stores.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
-#[allow(dead_code)]
 fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     unsafe {
         if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
@@ -104,9 +118,9 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers (length should be at least `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
-/// * `start_idx` - Start index for processing (allows partial processing)
+/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
+/// * `start_idx` - Start index for processing (used after SIMD processes aligned portion)
 #[inline(always)]
 fn clipped_relu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
@@ -116,12 +130,18 @@ fn clipped_relu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], st
 }
 
 /// Applies the Stockfish-style square-clipped activation to `input`.
+///
 /// Negative inputs are squared just like positive ones (no rectification) before scaling and clipping.
+/// Output = min((input² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)), 255)
 ///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values (length should be at least `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
+/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
+///
+/// # Type Parameters
+///
+/// * `SIZE` - The number of elements to process. Used at compile time to determine SIMD chunk count.
 #[inline(always)]
 pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_if! {
@@ -135,10 +155,16 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 
 /// Square-clipped activation with AVX2 SIMD optimization.
 ///
+/// Uses SSE2 instructions (128-bit) for processing.
+///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers (length should be at least `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
+/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
+///
+/// # Safety
+///
+/// Both `input` and `output` must be 16-byte aligned for SSE2 loads/stores.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -174,9 +200,9 @@ fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers (length should be at least `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length should be at least `SIZE`)
-/// * `start_idx` - Start index for processing (allows partial processing)
+/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
+/// * `start_idx` - Start index for processing (used after SIMD processes aligned portion)
 #[inline(always)]
 fn sqr_clipped_relu_fallback<const SIZE: usize>(
     input: &[i32],
@@ -189,12 +215,20 @@ fn sqr_clipped_relu_fallback<const SIZE: usize>(
     }
 }
 
-/// Squared Clipped ReLU activation function.
+/// Squared Clipped ReLU (SCReLU) activation function.
+///
+/// Clamps input to [0, 255 << HIDDEN_WEIGHT_SCALE_BITS], squares, then scales down.
+/// Output = (clamp(input, 0, max)² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8))
 ///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values
-/// * `output` - A mutable slice for 8-bit unsigned integer results
+/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit unsigned integer results (length must equal `SIZE`)
+///
+/// # Type Parameters
+///
+/// * `SIZE` - The number of elements to process. Used at compile time to select the optimal
+///   SIMD path (AVX2 for multiples of 32, SSE2 otherwise).
 #[inline(always)]
 pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_if! {
@@ -210,7 +244,13 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values
+/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit unsigned integer results (length must equal `SIZE`)
+///
+/// # Safety
+///
+/// Both `input` and `output` must be 32-byte aligned for AVX2 loads/stores,
+/// or 16-byte aligned when falling back to SSE2.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
@@ -269,7 +309,7 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 
                 _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
             }
-            let start_idx = num_chunks * 16;
+            let start_idx = num_chunks * SSE2_SIMD_WIDTH;
             screlu_fallback::<SIZE>(input, output, start_idx);
         }
     }
@@ -279,9 +319,9 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// # Arguments
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values
-/// * `output` - A mutable slice for 8-bit unsigned integer results
-/// * `start_idx` - Start index for processing (allows partial processing)
+/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
+/// * `output` - A mutable slice for 8-bit unsigned integer results (length must equal `SIZE`)
+/// * `start_idx` - Start index for processing (used after SIMD processes aligned portion)
 fn screlu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let clamped = input[i].clamp(0, 255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;

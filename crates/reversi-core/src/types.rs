@@ -5,13 +5,13 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssi
 
 use crate::constants::{SCORE_INF, SCORE_MAX, SCORE_MIN};
 
-/// Search depth
+/// Search depth.
 pub type Depth = u32;
 
-/// Score (disc difference: -64 to +64)
+/// Score (disc difference: -64 to +64).
 pub type Score = i32;
 
-/// Floating-point score
+/// Floating-point score.
 pub type Scoref = f32;
 
 /// Scaled score - internal evaluation value (scaled by 256).
@@ -219,7 +219,7 @@ pub enum Selectivity {
     Level4 = 4,
     /// Most conservative: 99% confidence (t=3.3)
     Level5 = 5,
-    /// ProbCut disabled
+    /// ProbCut disabled.
     None = 6,
 }
 
@@ -235,32 +235,32 @@ impl Selectivity {
         (999.0, 100), // NoSelectivity: Effectively disabled
     ];
 
-    /// Get the statistical confidence multiplier (t-value)
+    /// Gets the statistical confidence multiplier (t-value)
     #[inline]
     pub fn t_value(self) -> f64 {
         Self::CONFIG[self as usize].0
     }
 
-    /// Get the expected success probability percentage
+    /// Gets the expected success probability percentage.
     #[inline]
     pub fn probability(self) -> i32 {
         Self::CONFIG[self as usize].1
     }
 
-    /// Convert to u8
+    /// Converts to u8.
     #[inline]
     pub fn as_u8(self) -> u8 {
         self as u8
     }
 
-    /// Create from u8 value
+    /// Creates a Selectivity from a u8 value.
     #[inline]
     pub fn from_u8(value: u8) -> Self {
         // SAFETY: Selectivity enum has repr(u8) with values 0-6
         unsafe { std::mem::transmute(value.min(6)) }
     }
 
-    /// Check if ProbCut is enabled for this selectivity level
+    /// Checks if ProbCut is enabled for this selectivity level.
     #[inline]
     pub fn is_enabled(self) -> bool {
         self != Selectivity::None

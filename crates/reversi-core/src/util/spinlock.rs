@@ -1,3 +1,5 @@
+//! Spinlock implementation.
+
 use std::{
     hint::spin_loop,
     sync::atomic::{AtomicBool, Ordering},

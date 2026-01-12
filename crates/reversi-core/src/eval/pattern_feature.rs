@@ -10,8 +10,8 @@
 //! # Encoding
 //!
 //! Each pattern is encoded as a base-3 number where:
-//! - 0 = current player's piece
-//! - 1 = opponent's piece
+//! - 0 = current player's disc
+//! - 1 = opponent's disc
 //! - 2 = empty square
 use std::ops::{Index, IndexMut};
 
@@ -20,6 +20,7 @@ use cfg_if::cfg_if;
 use crate::bitboard;
 use crate::bitboard::BitboardIterator;
 use crate::board::Board;
+use crate::constants::BOARD_SQUARES;
 use crate::search::side_to_move::SideToMove;
 use crate::square::Square;
 
@@ -37,9 +38,6 @@ const MAX_FEATURES_PER_SQUARE_U32: u32 = MAX_FEATURES_PER_SQUARE as u32;
 
 /// Size of the pattern feature vector (padded to 32 for SIMD alignment).
 const FEATURE_VECTOR_SIZE: usize = 32;
-
-/// Number of squares on the reversi board.
-const BOARD_SQUARES: usize = 64;
 
 /// Base for pattern encoding (ternary: empty=2, opponent=1, player=0).
 const PATTERN_BASE: u32 = 3;
@@ -390,13 +388,13 @@ impl PatternFeatures {
     /// Updates pattern features after a move is made.
     ///
     /// This method efficiently updates only the affected patterns rather than
-    /// recomputing all features from scratch. It handles both the placed piece
-    /// and all flipped pieces.
+    /// recomputing all features from scratch. It handles both the placed disc
+    /// and all flipped discs.
     ///
     /// # Arguments
     ///
     /// * `sq` - The square where the move was made
-    /// * `flipped` - Bitboard of pieces flipped by the move
+    /// * `flipped` - Bitboard of discs flipped by the move
     /// * `ply` - The current ply number
     /// * `side_to_move` - The side that made the move (Player or Opponent)
     #[inline(always)]
@@ -697,7 +695,7 @@ impl PatternFeatures {
 /// Computes pattern features for a board position.
 ///
 /// Each pattern is encoded as a base-3 number representing the
-/// configuration of pieces in that pattern.
+/// configuration of discs in that pattern.
 ///
 /// # Arguments
 ///
@@ -723,8 +721,8 @@ pub fn set_features(board: &Board, patterns: &mut [u16]) {
 ///
 /// # Returns
 ///
-/// * 0 - Current player's piece
-/// * 1 - Opponent's piece
+/// * 0 - Current player's disc
+/// * 1 - Opponent's disc
 /// * 2 - Empty square
 #[inline]
 fn get_square_color(board: &Board, sq: Square) -> u16 {

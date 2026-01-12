@@ -17,7 +17,7 @@ const MIN_STABILITY_CHECK_DEPTH: Depth = 10;
 /// Score drop (in discs) that triggers an emergency extension.
 const SCORE_DROP_THRESHOLD: f32 = 3.0;
 
-/// Additional time granted on instability (percentage of current maxi).
+/// Additional time granted on instability (percentage of baseline max time).
 const EXTENSION_RATIO: f64 = 0.5;
 
 /// Maximum number of incremental time extensions allowed per move.
@@ -36,11 +36,11 @@ const JP_BYO_MAIN_MIN_PERCENT_ENDGAME: u64 = 85;
 ///
 /// # Arguments
 ///
-/// * `n_empties` - Number of empty squares on the board
+/// * `n_empties` - Number of empty squares.
 ///
 /// # Returns
 ///
-/// A multiplier for time allocation (1.0 = base allocation)
+/// Time allocation multiplier (1.0 = base allocation).
 fn get_time_allocation_factor(n_empties: u32) -> f64 {
     match n_empties {
         51..=60 => 0.5,
@@ -140,9 +140,9 @@ impl TimeManager {
     ///
     /// # Arguments
     ///
-    /// * `mode` - The time control mode
-    /// * `abort_flag` - Shared abort flag for search termination
-    /// * `n_empties` - Number of empty squares on the board
+    /// * `mode` - Time control mode.
+    /// * `abort_flag` - Shared abort flag for search termination.
+    /// * `n_empties` - Number of empty squares.
     pub fn new(mode: TimeControlMode, abort_flag: Arc<AtomicBool>, n_empties: u32) -> Self {
         let (mini_time_ms, maxi_time_ms, hard_limit_ms) =
             Self::calculate_time_limits(mode, n_empties, false);
@@ -272,7 +272,7 @@ impl TimeManager {
         }
     }
 
-    /// Calculate budget based on time factor sum
+    /// Calculates budget based on time factor sum.
     fn allocate_budget(main_time_ms: u64, increment_ms: u64, n_empties: u32) -> u64 {
         let total_factor = calculate_remaining_factor_sum(n_empties);
         let current_factor = get_time_allocation_factor(n_empties);
@@ -287,7 +287,7 @@ impl TimeManager {
         base_budget + increment_ms
     }
 
-    /// Compute final limits with clamping
+    /// Computes final limits with clamping.
     fn compute_limits(
         budget_mini: u64,
         budget_maxi: u64,
@@ -528,14 +528,17 @@ impl TimeManager {
         self.mode
     }
 
+    /// Returns the minimum time in milliseconds.
     pub fn mini_time_ms(&self) -> u64 {
         self.min_time_ms.load(Ordering::Relaxed)
     }
 
+    /// Returns the maximum time in milliseconds.
     pub fn maxi_time_ms(&self) -> u64 {
         self.max_time_ms.load(Ordering::Relaxed)
     }
 
+    /// Returns the deadline instant, or None for infinite mode.
     pub fn deadline(&self) -> Option<Instant> {
         if self.mode == TimeControlMode::Infinite {
             None
@@ -544,6 +547,7 @@ impl TimeManager {
         }
     }
 
+    /// Returns the remaining time in milliseconds.
     #[inline]
     pub fn remaining_time_ms(&self) -> u64 {
         self.max_time_ms
@@ -551,6 +555,7 @@ impl TimeManager {
             .saturating_sub(self.elapsed_ms())
     }
 
+    /// Sets whether the search is in endgame mode.
     pub fn set_endgame_mode(&self, enabled: bool) {
         self.is_endgame_mode.store(enabled, Ordering::Relaxed);
         // Recalculate limits with new mode
@@ -579,7 +584,7 @@ impl TimeManager {
 ///
 /// # Arguments
 ///
-/// * `time_manager` - Optional reference to the time manager
+/// * `time_manager` - Optional reference to time manager.
 #[inline]
 pub fn should_stop_iteration(time_manager: &Option<Arc<TimeManager>>) -> bool {
     match time_manager {

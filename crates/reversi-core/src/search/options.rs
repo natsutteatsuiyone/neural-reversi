@@ -1,3 +1,5 @@
+//! Search options and configuration.
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,6 +10,7 @@ use crate::types::Selectivity;
 use super::SearchProgressCallback;
 use super::time_control::TimeControlMode;
 
+/// Configuration options for search initialization.
 pub struct SearchOptions {
     pub tt_mb_size: usize,
     pub n_threads: usize,
@@ -16,7 +19,7 @@ pub struct SearchOptions {
 }
 
 impl SearchOptions {
-    /// Create search options with the desired transposition-table size while
+    /// Creates search options with the desired transposition-table size while
     /// relying on defaults for other parameters (threads and weight paths).
     #[must_use]
     pub fn new(tt_mb_size: usize) -> Self {
@@ -61,13 +64,13 @@ impl Default for SearchOptions {
     }
 }
 
-/// Search constraint definition
+/// Search constraint definition.
 pub enum SearchConstraint {
     Level(Level),
     Time(TimeControlMode),
 }
 
-/// Options for a single search run
+/// Options for a single search run.
 pub struct SearchRunOptions {
     pub constraint: SearchConstraint,
     pub selectivity: Selectivity,
@@ -76,7 +79,7 @@ pub struct SearchRunOptions {
 }
 
 impl SearchRunOptions {
-    /// Create search run options with a level constraint
+    /// Creates search run options with a level constraint.
     #[must_use]
     pub fn with_level(level: Level, selectivity: Selectivity) -> Self {
         SearchRunOptions {
@@ -87,7 +90,7 @@ impl SearchRunOptions {
         }
     }
 
-    /// Create search run options with a time constraint
+    /// Creates search run options with a time constraint.
     #[must_use]
     pub fn with_time(mode: TimeControlMode, selectivity: Selectivity) -> Self {
         SearchRunOptions {
@@ -98,14 +101,14 @@ impl SearchRunOptions {
         }
     }
 
-    /// Enable multi-PV mode
+    /// Enables multi-PV mode.
     #[must_use]
     pub fn multi_pv(mut self, enabled: bool) -> Self {
         self.multi_pv = enabled;
         self
     }
 
-    /// Set progress callback
+    /// Sets progress callback.
     #[must_use]
     pub fn callback<F>(mut self, f: F) -> Self
     where

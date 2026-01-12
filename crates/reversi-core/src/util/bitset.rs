@@ -1,6 +1,8 @@
+//! Thread-safe bitset implementation using atomic operations.
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A thread-safe bitset implementation using atomic operations.
+/// Thread-safe 64-bit bitset using atomic operations.
 #[derive(Default)]
 pub struct AtomicBitSet {
     data: AtomicU64,
@@ -25,7 +27,7 @@ impl AtomicBitSet {
     ///
     /// # Arguments
     ///
-    /// * `index` - The index of the bit to set (0-based).
+    /// * `index` - Bit index (0-based).
     #[inline(always)]
     pub fn set(&self, index: usize) {
         debug_assert!(index < 64);
@@ -36,7 +38,7 @@ impl AtomicBitSet {
     ///
     /// # Arguments
     ///
-    /// * `index` - The index of the bit to clear (0-based).
+    /// * `index` - Bit index (0-based).
     #[inline(always)]
     pub fn reset(&self, index: usize) {
         debug_assert!(index < 64);
@@ -47,9 +49,11 @@ impl AtomicBitSet {
     ///
     /// # Arguments
     ///
-    /// * `index` - The index of the bit to test (0-based).
+    /// * `index` - Bit index (0-based).
     ///
-    /// Returns `true` if the bit is set, `false` otherwise.
+    /// # Returns
+    ///
+    /// `true` if the bit is set.
     #[inline(always)]
     pub fn test(&self, index: usize) -> bool {
         (self.data.load(Ordering::Relaxed) >> index) & 1 != 0
@@ -57,7 +61,9 @@ impl AtomicBitSet {
 
     /// Checks if all bits are clear.
     ///
-    /// Returns `true` if no bits are set, `false` otherwise.
+    /// # Returns
+    ///
+    /// `true` if no bits are set.
     #[inline(always)]
     pub fn none(&self) -> bool {
         self.data.load(Ordering::Relaxed) == 0

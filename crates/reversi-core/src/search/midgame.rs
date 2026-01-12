@@ -1,6 +1,8 @@
-//! # References:
-//! - https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/midgame.c
-//! - https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/search.cpp
+//! Midgame search algorithms.
+//!
+//! # References
+//!
+//! - <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/midgame.c>
 
 use std::sync::Arc;
 
@@ -35,7 +37,7 @@ const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);
 ///
 /// # Returns
 ///
-/// SearchResult containing the best move, score, and search statistics
+/// SearchResult containing the best move, score, and search statistics.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let time_manager = task.time_manager.clone();
@@ -225,11 +227,11 @@ fn next_iteration_depth(
 ///
 /// # Arguments
 ///
-/// * `board` - Current board position
+/// * `board` - Current board position.
 ///
 /// # Returns
 ///
-/// A randomly selected legal move square
+/// Randomly selected legal move.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     BitboardIterator::new(board.get_moves())
@@ -241,16 +243,16 @@ fn random_move(board: &Board) -> Square {
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing selectivity settings and search state
-/// * `board` - Current board position to evaluate
-/// * `depth` - Depth of the deep search that would be performed
-/// * `beta` - Beta bound for the search window
-/// * `thread` - Search thread used to run the shallow verification search
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `depth` - Depth of the deep search.
+/// * `beta` - Beta bound.
+/// * `thread` - Thread handle for parallel search.
 ///
 /// # Returns
 ///
-/// * `Some(score)` - If probcut triggers, returns the predicted bound (alpha or beta)
-/// * `None` - If probcut doesn't trigger, deep search should be performed
+/// * `Some(score)` - If probcut triggers, returns the predicted bound.
+/// * `None` - If probcut doesn't trigger, deep search should be performed.
 pub fn probcut(
     ctx: &mut SearchContext,
     board: &Board,
@@ -297,14 +299,14 @@ pub fn probcut(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context tracking game state
-/// * `board` - Current board position to search
-/// * `alpha` - Lower bound of search window
-/// * `beta` - Upper bound of search window
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Alpha bound.
+/// * `beta` - Beta bound.
 ///
 /// # Returns
 ///
-/// Best score found for the position
+/// Best score found.
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
@@ -371,14 +373,14 @@ pub fn evaluate_depth2(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context tracking game state
-/// * `board` - Current board position to search
-/// * `alpha` - Lower bound of search window
-/// * `beta` - Upper bound of search window
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Alpha bound.
+/// * `beta` - Beta bound.
 ///
 /// # Returns
 ///
-/// Best score found for the position
+/// Best score found.
 pub fn evaluate_depth1(
     ctx: &mut SearchContext,
     board: &Board,
@@ -425,12 +427,12 @@ pub fn evaluate_depth1(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context tracking game state
-/// * `board` - Current board position
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
 ///
 /// # Returns
 ///
-/// Position score in internal units
+/// Position score.
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == 60 {
@@ -444,12 +446,12 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
 ///
 /// # Arguments
 ///
-/// * `board` - The terminal board position to be evaluated.
-/// * `n_empties` - The number of empty squares remaining on the board.
+/// * `board` - Terminal board position.
+/// * `n_empties` - Number of empty squares.
 ///
 /// # Returns
 ///
-/// The exact final score of the position, scaled to internal units.
+/// Exact final score.
 fn solve(board: &Board, n_empties: Depth) -> ScaledScore {
     ScaledScore::from_disc_diff(endgame::solve(board, n_empties))
 }

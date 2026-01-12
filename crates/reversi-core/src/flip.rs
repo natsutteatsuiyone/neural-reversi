@@ -1,3 +1,8 @@
+//! Disc flip calculation for move execution.
+
+use crate::square::Square;
+use cfg_if::cfg_if;
+
 cfg_if! {
     if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
         mod flip_avx512;
@@ -10,21 +15,18 @@ cfg_if! {
     }
 }
 
-use crate::square::Square;
-use cfg_if::cfg_if;
-
-/// Calculates which opponent pieces would be flipped by placing a piece at the given square.
+/// Calculates which opponent discs would be flipped by placing a disc at the given square.
 ///
 /// # Arguments
 ///
-/// * `sq` - The square where the piece is being placed
-/// * `p` - Bitboard representing the current player's pieces
-/// * `o` - Bitboard representing the opponent's pieces
+/// * `sq` - The square where the disc is being placed
+/// * `p` - Bitboard representing the current player's discs
+/// * `o` - Bitboard representing the opponent's discs
 ///
 /// # Returns
 ///
-/// A bitboard representing all opponent pieces that would be flipped by this move.
-/// Returns 0 if no pieces would be flipped (invalid move).
+/// A bitboard representing all opponent discs that would be flipped by this move.
+/// Returns 0 if no discs would be flipped (invalid move).
 #[inline(always)]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     cfg_if! {

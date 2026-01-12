@@ -16,8 +16,8 @@ pub struct Level {
     /// Endgame search depths indexed by selectivity level.
     ///
     /// The array has 7 elements, where:
-    /// - Index 0: Highest selectivity (most aggressive pruning)
-    /// - Index 6: Lowest selectivity (least pruning, most thorough)
+    /// - Index 0: Most aggressive pruning (Selectivity::Level0)
+    /// - Index 6: ProbCut disabled (Selectivity::None)
     pub end_depth: [Depth; 7],
 }
 
@@ -30,7 +30,7 @@ impl Level {
         }
     }
 
-    /// Creates a Level for perfect endgame solving (read to the end).
+    /// Creates a Level for perfect endgame solving.
     pub const fn perfect() -> Self {
         Level {
             mid_depth: 60,
@@ -77,7 +77,7 @@ pub fn get_level(lv: usize) -> Level {
     LEVELS[lv]
 }
 
-/// Pre-configured difficulty levels ranging from 0 (easiest) to 21 (hardest).
+/// Pre-configured difficulty levels ranging from 0 (easiest) to 24 (hardest).
 #[rustfmt::skip]
 const LEVELS: [Level; 25] = [
     Level { mid_depth:  1, end_depth: [ 1, 1, 1, 1, 1, 1, 1] },

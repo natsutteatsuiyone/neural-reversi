@@ -1,4 +1,4 @@
-//! BMI2 version of counting flipped pieces for the last move.
+//! BMI2 version of counting flipped discs for the last move.
 //! Based on count_last_flip_bmi2.c from edax-reversi.
 //! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c
 
@@ -158,6 +158,16 @@ const MASK_X: [[u64; 4]; 64] = [
 	[ 0x800000000000017e, 0x8040201008040201, 0x8080808080808080, 0xffc0a09088848281 ]
 ];
 
+/// Counts the number of discs that would be flipped by the last move.
+///
+/// # Arguments
+///
+/// * `player` - Current player's bitboard.
+/// * `sq` - Square where the last move is played.
+///
+/// # Returns
+///
+/// Returns twice the actual number of flipped discs for optimization purposes.
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[target_feature(enable = "bmi2")]
 #[inline]
@@ -182,7 +192,7 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
     }
 }
 
-/// Counts flipped pieces for both players simultaneously using BMI2 PEXT.
+/// Counts flipped discs for both players simultaneously using BMI2 PEXT.
 ///
 /// # Arguments
 ///

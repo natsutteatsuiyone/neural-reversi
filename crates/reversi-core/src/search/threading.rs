@@ -1,4 +1,8 @@
-//! Reference: https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp
+//! Parallel search infrastructure using YBWC (Young Brothers Wait Concept).
+//!
+//! # Reference
+//!
+//! - <https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp>
 
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
@@ -182,7 +186,7 @@ pub struct SplitPointTask {
     /// Search selectivity level (affects pruning aggressiveness).
     pub selectivity: Selectivity,
 
-    /// Current game phase (opening, midgame, endgame).
+    /// Current game phase (midgame or endgame).
     pub game_phase: GamePhase,
 
     /// Shared transposition table for storing search results.
@@ -210,7 +214,7 @@ pub struct SplitPoint {
 unsafe impl Sync for SplitPoint {}
 
 impl Default for SplitPoint {
-    /// Create a new split point with default values.
+    /// Creates a new split point with default values.
     fn default() -> Self {
         SplitPoint {
             mutex: spinlock::RawSpinLock::INIT,
@@ -236,13 +240,13 @@ impl Default for SplitPoint {
 }
 
 impl SplitPoint {
-    /// Get an immutable reference to the split point state.
+    /// Gets an immutable reference to the split point state.
     #[inline]
     pub fn state(&self) -> &SplitPointState {
         unsafe { &*self.state.get() }
     }
 
-    /// Get a mutable reference to the split point state.
+    /// Gets a mutable reference to the split point state.
     #[inline]
     #[allow(clippy::mut_from_ref)]
     pub fn state_mut(&self) -> &mut SplitPointState {
@@ -310,7 +314,7 @@ pub struct Thread {
 unsafe impl Sync for Thread {}
 
 impl Thread {
-    /// Create a new thread with the given index.
+    /// Creates a new thread with the given index.
     ///
     /// # Arguments
     ///
@@ -320,7 +324,7 @@ impl Thread {
     ///
     /// # Returns
     ///
-    /// A new thread in the initial idle state
+    /// A new thread in the initial idle state.
     fn new(idx: usize, thinking: Arc<AtomicBool>, pool: Weak<ThreadPool>) -> Thread {
         let split_points = std::array::from_fn(|_| Arc::new(SplitPoint::default()));
 
@@ -352,7 +356,7 @@ impl Thread {
         unsafe { self.mutex_for_state.unlock() };
     }
 
-    /// Check if this thread can create a new split point.
+    /// Checks if this thread can create a new split point.
     ///
     /// A thread can split if:
     /// 1. Multiple threads are available (pool size > 1)
@@ -385,13 +389,13 @@ impl Thread {
         cond && (th_state.split_points_size < MAX_SPLITPOINTS_PER_THREAD)
     }
 
-    /// Get an immutable reference to the thread state.
+    /// Gets an immutable reference to the thread state.
     #[inline]
     pub fn state(&self) -> &ThreadState {
         unsafe { &*self.state.get() }
     }
 
-    /// Get a mutable reference to the thread state.
+    /// Gets a mutable reference to the thread state.
     #[inline]
     #[allow(clippy::mut_from_ref)]
     fn state_mut(&self) -> &mut ThreadState {
@@ -404,11 +408,11 @@ impl Thread {
         self.sleep_condition.notify_one();
     }
 
-    /// Check if a beta cutoff has occurred in the current or ancestor split points.
+    /// Checks if a beta cutoff has occurred in the current or ancestor split points.
     ///
     /// # Returns
     ///
-    /// `true` if a beta cutoff has occurred in this thread's split point hierarchy
+    /// `true` if a beta cutoff has occurred in this thread's split point hierarchy.
     pub fn cutoff_occurred(&self) -> bool {
         let mut current_sp = self.state().active_split_point.as_ref();
         while let Some(sp) = current_sp {
@@ -421,7 +425,7 @@ impl Thread {
         false
     }
 
-    /// Check if this thread can join the given split point.
+    /// Checks if this thread can join the given split point.
     ///
     /// A thread can join a split point if:
     /// 1. The thread is not currently searching (is idle)
@@ -434,7 +438,7 @@ impl Thread {
     ///
     /// # Returns
     ///
-    /// `true` if the thread can safely join the split point
+    /// `true` if the thread can safely join the split point.
     fn can_join(&self, sp: &Arc<SplitPoint>) -> bool {
         if self.searching.load(Ordering::Acquire) {
             return false;
@@ -456,7 +460,7 @@ impl Thread {
         sp_state.helpers_mask.test(owner_idx)
     }
 
-    /// Create a split point and distribute work among available threads.
+    /// Creates a split point and distributes work among available threads.
     ///
     /// This is the main entry point for parallel search. When a thread has multiple
     /// moves to search at a node, it can call this method to get help from other
@@ -750,16 +754,7 @@ impl Thread {
         }
     }
 
-    /// Dispatch to the appropriate search function based on game phase and node type.
-    ///
-    /// # Arguments
-    ///
-    /// * `self` - A reference to the thread.
-    /// * `ctx` - A mutable reference to the search context.
-    /// * `board` - A reference to the board.
-    /// * `depth` - The search depth.
-    /// * `node_type` - The node type.
-    /// * `sp` - A reference to the split point.
+    /// Dispatches to the appropriate search function based on game phase and node type.
     fn dispatch_search(
         self: &Arc<Self>,
         ctx: &mut SearchContext,
@@ -905,10 +900,9 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
-    /// Create a new thread pool with the specified number of threads.
+    /// Creates a new thread pool with the specified number of threads.
     ///
-    /// This only creates the ThreadPool structure. Call init() to actually
-    /// create and start the threads.
+    /// This allocates the ThreadPool structure and starts all threads immediately.
     ///
     /// # Arguments
     ///
@@ -916,7 +910,7 @@ impl ThreadPool {
     ///
     /// # Returns
     ///
-    /// A new uninitialized thread pool
+    /// A new uninitialized thread pool.
     pub fn new(n_threads: usize) -> Arc<ThreadPool> {
         Arc::new_cyclic(|weak| {
             let (sender, receiver) = std::sync::mpsc::channel();
@@ -945,7 +939,7 @@ impl ThreadPool {
         self.wait_for_threads_ready();
     }
 
-    /// Create and start the main thread that handles control messages.
+    /// Creates and starts the main thread that handles control messages.
     fn create_main_thread(&mut self, pool: &std::sync::Weak<ThreadPool>) {
         let main_thread = Arc::new(Thread::new(0, self.thinking.clone(), pool.clone()));
         let main_thread_clone = main_thread.clone();
@@ -957,7 +951,7 @@ impl ThreadPool {
         self.thread_handles.push(handle);
     }
 
-    /// Create and start worker threads that wait in idle loops.
+    /// Creates and starts worker threads that wait in idle loops.
     fn create_worker_threads(&mut self, pool: &std::sync::Weak<ThreadPool>) {
         for i in 1..self.size {
             let thread = Arc::new(Thread::new(i, self.thinking.clone(), pool.clone()));
@@ -979,7 +973,7 @@ impl ThreadPool {
         }
     }
 
-    /// Check if all threads have signaled they are ready.
+    /// Checks if all threads have signaled they are ready.
     fn all_threads_ready(&self) -> bool {
         self.threads
             .iter()
@@ -1047,7 +1041,7 @@ impl ThreadPool {
         }
     }
 
-    /// Find an available thread that can join the given split point.
+    /// Finds an available thread that can join the given split point.
     ///
     /// # Arguments
     ///
@@ -1055,7 +1049,7 @@ impl ThreadPool {
     ///
     /// # Returns
     ///
-    /// The first available thread that can join, or None if none available
+    /// The first available thread that can join, or None if none available.
     fn find_available_thread(&self, sp: &Arc<SplitPoint>) -> Option<Arc<Thread>> {
         self.threads
             .iter()
@@ -1098,11 +1092,11 @@ impl ThreadPool {
         result_receiver
     }
 
-    /// Get a reference to the main thread (thread 0).
+    /// Gets a reference to the main thread (thread 0).
     ///
     /// # Returns
     ///
-    /// Reference to the main thread
+    /// Reference to the main thread.
     pub fn main(&self) -> &Arc<Thread> {
         &self.threads[0]
     }
@@ -1128,26 +1122,26 @@ impl ThreadPool {
         self.abort_flag.store(true, Ordering::Release);
     }
 
-    /// Reset the abort flag for a new search.
+    /// Resets the abort flag for a new search.
     fn reset_abort_flag(&self) {
         self.abort_flag.store(false, Ordering::Release);
     }
 
-    /// Check if the current search has been aborted.
+    /// Checks if the current search has been aborted.
     ///
     /// # Returns
     ///
-    /// `true` if the search should be aborted
+    /// `true` if the search should be aborted.
     #[inline]
     pub fn is_aborted(&self) -> bool {
         self.abort_flag.load(Ordering::Acquire)
     }
 
-    /// Get a clone of the abort flag for external use (e.g., time management).
+    /// Gets a clone of the abort flag for external use (e.g., time management).
     ///
     /// # Returns
     ///
-    /// Arc reference to the abort flag
+    /// Arc reference to the abort flag.
     pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
         self.abort_flag.clone()
     }

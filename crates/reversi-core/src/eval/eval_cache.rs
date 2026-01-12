@@ -1,3 +1,5 @@
+//! Hash table for caching neural network evaluation results.
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::types::ScaledScore;
@@ -5,25 +7,22 @@ use crate::types::ScaledScore;
 const KEY_MASK: u64 = 0xFFFFFFFFFFFF;
 const SCORE_BITS: u32 = 16;
 
-/// Hash table for caching neural network evaluation results
-/// Bit layout of each entry (AtomicU64):
-/// - key:        48 bits (bit position 16-63)
-/// - score:      16 bits (bit position 0-15) 2's complement signed integer
+/// Hash table for caching neural network evaluation results.
+///
+/// Bit layout of each entry (`AtomicU64`):
+/// - Bits 16-63 (48 bits): Truncated position hash key
+/// - Bits 0-15 (16 bits): Evaluation score (2's complement signed integer)
 pub struct EvalCache {
     table: Box<[AtomicU64]>,
     mask: u64,
 }
 
 impl EvalCache {
-    /// Initialize cache with specified size (must be power of 2)
+    /// Creates a new cache with `2^size_log2` entries.
     ///
     /// # Arguments
     ///
-    /// * `size_log2` - Size of the cache (log2 of the number of entries)
-    ///
-    /// # Returns
-    ///
-    /// A new EvalCache instance
+    /// * `size_log2` - Log2 of the number of entries (e.g., 20 for ~1M entries)
     pub fn new(size_log2: u32) -> Self {
         let size = 1usize << size_log2;
         let mask = size as u64 - 1;
@@ -39,12 +38,12 @@ impl EvalCache {
         }
     }
 
-    /// Store an entry in the cache
+    /// Stores an evaluation score in the cache.
     ///
     /// # Arguments
     ///
-    /// * `key` - The hash key
-    /// * `score` - The evaluation score
+    /// * `key` - Position hash key
+    /// * `score` - Evaluation score to store
     #[inline(always)]
     pub fn store(&self, key: u64, score: ScaledScore) {
         let index = self.index(key);
@@ -57,16 +56,16 @@ impl EvalCache {
         }
     }
 
-    /// Retrieve an entry from the cache
-    /// Returns Some(score) if the key matches exactly, None otherwise
+    /// Retrieves an evaluation score from the cache.
     ///
     /// # Arguments
     ///
-    /// * `key` - The hash key
+    /// * `key` - Position hash key to look up
     ///
     /// # Returns
     ///
-    /// The evaluation score if the key matches, None otherwise
+    /// * `Some(score)` - If the key matches exactly
+    /// * `None` - If no entry exists or key doesn't match
     #[inline(always)]
     pub fn probe(&self, key: u64) -> Option<ScaledScore> {
         let index = self.index(key);
@@ -86,36 +85,19 @@ impl EvalCache {
         Some(score)
     }
 
-    /// Calculate index by rotating the key so high bits influence the bucket
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key
-    ///
-    /// # Returns
-    ///
-    /// The index in the cache table
+    /// Calculates table index by rotating the key so high bits influence the bucket.
     #[inline(always)]
     fn index(&self, key: u64) -> usize {
         (key.rotate_left(SCORE_BITS) & self.mask) as usize
     }
 
-    /// Pack key and score into a single u64
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key
-    /// * `score` - The evaluation score
-    ///
-    /// # Returns
-    ///
-    /// The packed u64 value
+    /// Packs key and score into a single `u64`.
     #[inline(always)]
     fn pack(key: u64, score: i32) -> u64 {
         ((key & KEY_MASK) << SCORE_BITS) | (score as u16 as u64)
     }
 
-    /// Clear all entries in the cache
+    /// Clears all entries in the cache.
     pub fn clear(&self) {
         for entry in self.table.iter() {
             entry.store(0, Ordering::Relaxed);

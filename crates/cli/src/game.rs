@@ -107,7 +107,7 @@ impl GameState {
             // Board squares
             for x in 0..8 {
                 let sq = Square::from_usize_unchecked(y * 8 + x);
-                let piece = board.get_piece_at(sq, side_to_move);
+                let piece = board.get_disc_at(sq, side_to_move);
                 let symbol = match piece {
                     Disc::Black => "X",
                     Disc::White => "O",
@@ -221,7 +221,7 @@ impl GameState {
             // Board squares
             for x in 0..8 {
                 let sq = Square::from_usize_unchecked(y * 8 + x);
-                let piece = board.get_piece_at(sq, side_to_move);
+                let piece = board.get_disc_at(sq, side_to_move);
                 let is_legal = board.is_legal_move(sq);
                 let is_last_move = Some(sq) == last_move;
 

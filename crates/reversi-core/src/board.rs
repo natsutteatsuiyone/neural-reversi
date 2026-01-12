@@ -1,3 +1,5 @@
+//! Reversi board representation using bitboards.
+
 use std::fmt;
 use std::hash::Hash;
 
@@ -9,15 +11,13 @@ use crate::square::Square;
 /// Represents a Reversi board with bitboards for the player and opponent.
 ///
 /// The `Board` struct contains two 64-bit integers representing the positions of the player's
-/// and opponent's pieces on the board. Each bit in the integer corresponds to a square on the
+/// and opponent's discs on the board. Each bit in the integer corresponds to a square on the
 /// board.
-///
-/// # Fields
-/// * `player` - Bitboard representing the player's pieces.
-/// * `opponent` - Bitboard representing the opponent's pieces.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Board {
+    /// Bitboard representing the player's discs.
     pub player: u64,
+    /// Bitboard representing the opponent's discs.
     pub opponent: u64,
 }
 
@@ -25,8 +25,8 @@ impl Default for Board {
     /// Creates a board with the standard Reversi starting position.
     ///
     /// The initial position has:
-    /// - Black pieces on D5 and E4
-    /// - White pieces on D4 and E5
+    /// - Black discs on D5 and E4
+    /// - White discs on D4 and E5
     fn default() -> Self {
         Board {
             player: Square::D5.bitboard() | Square::E4.bitboard(),
@@ -47,8 +47,8 @@ impl Board {
     /// Creates a `Board` from given bitboards.
     ///
     /// # Arguments
-    /// * `player` - Bitboard representing the player's pieces.
-    /// * `opponent` - Bitboard representing the opponent's pieces.
+    /// * `player` - Bitboard representing the player's discs.
+    /// * `opponent` - Bitboard representing the opponent's discs.
     ///
     /// # Returns
     /// A new `Board` instance.
@@ -60,8 +60,8 @@ impl Board {
     ///
     /// The string should contain 64 characters representing the board squares from A1 to H8.
     /// Characters are interpreted as:
-    /// - The current player's piece character (e.g., 'X' for Black)
-    /// - The opponent's piece character (e.g., 'O' for White)
+    /// - The current player's disc character (e.g., 'X' for Black)
+    /// - The opponent's disc character (e.g., 'O' for White)
     /// - '-' for empty squares
     ///
     /// # Arguments
@@ -83,16 +83,16 @@ impl Board {
         Board::from_bitboards(player, opponent)
     }
 
-    /// Gets the piece at a specific square from the perspective of the current player.
+    /// Gets the disc at a specific square from the perspective of the current player.
     ///
     /// # Arguments
     /// * `sq` - The square to check.
-    /// * `side_to_move` - The current player's color.
+    /// * `side_to_move` - The current player's disc.
     ///
     /// # Returns
-    /// The piece at the specified square (current player's piece, opponent's piece, or empty).
+    /// The disc at the specified square (current player's disc, opponent's disc, or empty).
     #[inline]
-    pub fn get_piece_at(&self, sq: Square, side_to_move: Disc) -> Disc {
+    pub fn get_disc_at(&self, sq: Square, side_to_move: Disc) -> Disc {
         if bitboard::is_set(self.player, sq) {
             side_to_move
         } else if bitboard::is_set(self.opponent, sq) {
@@ -125,21 +125,21 @@ impl Board {
         bitboard::empty_board(self.player, self.opponent)
     }
 
-    /// Returns the number of pieces the current player has on the board.
+    /// Returns the number of discs the current player has on the board.
     ///
     /// # Returns
     ///
-    /// The number of pieces the current player has on the board.
+    /// The number of discs the current player has on the board.
     #[inline]
     pub fn get_player_count(&self) -> u32 {
         self.player.count_ones()
     }
 
-    /// Returns the number of pieces the opponent has on the board.
+    /// Returns the number of discs the opponent has on the board.
     ///
     /// # Returns
     ///
-    /// The number of pieces the opponent has on the board.
+    /// The number of discs the opponent has on the board.
     #[inline]
     pub fn get_opponent_count(&self) -> u32 {
         self.opponent.count_ones()
@@ -170,7 +170,7 @@ impl Board {
     /// Attempts to make a move for the current player.
     ///
     /// # Arguments
-    /// * `sq` - The square where the player is attempting to place a piece.
+    /// * `sq` - The square where the player is attempting to place a disc.
     ///
     /// # Returns
     /// `Some(Board)` with the updated board if the move is valid, `None` otherwise.
@@ -194,7 +194,7 @@ impl Board {
     /// Makes a move for the current player.
     ///
     /// # Arguments
-    /// * `sq` - The square where the player is placing a piece.
+    /// * `sq` - The square where the player is placing a disc.
     ///
     /// # Returns
     /// A new `Board` instance with the updated board state after the move.
@@ -212,11 +212,11 @@ impl Board {
         }
     }
 
-    /// Makes a move for the current player, given the already calculated flipped pieces.
+    /// Makes a move for the current player, given the already calculated flipped discs.
     ///
     /// # Arguments
-    /// * `flipped` - The bitboard representing the pieces flipped by the move.
-    /// * `sq` - The square where the player is placing a piece.
+    /// * `flipped` - The bitboard representing the discs flipped by the move.
+    /// * `sq` - The square where the player is placing a disc.
     ///
     /// # Returns
     /// A new `Board` instance with the updated board state after the move.
@@ -393,12 +393,12 @@ impl Board {
     /// Converts the board to a string representation.
     ///
     /// The output format shows the board as an 8x8 grid with:
-    /// - 'X' for Black pieces
-    /// - 'O' for White pieces
+    /// - 'X' for Black discs
+    /// - 'O' for White discs
     /// - '-' for empty squares
     ///
     /// # Arguments
-    /// * `current_player` - The current player (determines which pieces are shown as 'X' or 'O').
+    /// * `current_player` - The current player (determines which discs are shown as 'X' or 'O').
     ///
     /// # Returns
     /// A string representation of the board with newlines between rows.
@@ -483,7 +483,7 @@ mod tests {
                                   --------\
                                   --------";
         let board = Board::from_string(board_string, Disc::White);
-        // From White's perspective, O pieces are the player
+        // From White's perspective, O discs are the player
         assert!(bitboard::is_set(board.player, Square::E4));
         assert!(bitboard::is_set(board.player, Square::D5));
         assert!(bitboard::is_set(board.opponent, Square::D4));
@@ -491,32 +491,32 @@ mod tests {
     }
 
     #[test]
-    fn test_get_piece_at() {
+    fn test_get_disc_at() {
         let board = Board::new();
 
-        // Check pieces from Black's perspective (Black is the first player)
-        assert_eq!(board.get_piece_at(Square::D5, Disc::Black), Disc::Black);
-        assert_eq!(board.get_piece_at(Square::E4, Disc::Black), Disc::Black);
-        assert_eq!(board.get_piece_at(Square::D4, Disc::Black), Disc::White);
-        assert_eq!(board.get_piece_at(Square::E5, Disc::Black), Disc::White);
-        assert_eq!(board.get_piece_at(Square::A1, Disc::Black), Disc::Empty);
+        // Check discs from Black's perspective (Black is the first player)
+        assert_eq!(board.get_disc_at(Square::D5, Disc::Black), Disc::Black);
+        assert_eq!(board.get_disc_at(Square::E4, Disc::Black), Disc::Black);
+        assert_eq!(board.get_disc_at(Square::D4, Disc::Black), Disc::White);
+        assert_eq!(board.get_disc_at(Square::E5, Disc::Black), Disc::White);
+        assert_eq!(board.get_disc_at(Square::A1, Disc::Black), Disc::Empty);
 
         // Switch to White's perspective
         let white_board = board.switch_players();
         assert_eq!(
-            white_board.get_piece_at(Square::D5, Disc::White),
+            white_board.get_disc_at(Square::D5, Disc::White),
             Disc::Black
         );
         assert_eq!(
-            white_board.get_piece_at(Square::E4, Disc::White),
+            white_board.get_disc_at(Square::E4, Disc::White),
             Disc::Black
         );
         assert_eq!(
-            white_board.get_piece_at(Square::D4, Disc::White),
+            white_board.get_disc_at(Square::D4, Disc::White),
             Disc::White
         );
         assert_eq!(
-            white_board.get_piece_at(Square::E5, Disc::White),
+            white_board.get_disc_at(Square::E5, Disc::White),
             Disc::White
         );
     }
@@ -591,7 +591,7 @@ mod tests {
         assert!(bitboard::is_set(new_board.opponent, Square::D3));
         assert!(bitboard::is_set(new_board.opponent, Square::D4));
 
-        // Invalid move - no adjacent opponent pieces
+        // Invalid move - no adjacent opponent discs
         let result = board.try_make_move(Square::A1);
         assert!(result.is_none());
 

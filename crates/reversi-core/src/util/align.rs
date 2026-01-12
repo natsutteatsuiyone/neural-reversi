@@ -1,26 +1,20 @@
+//! 64-byte aligned wrapper for SIMD and cache optimization.
+
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
-/// A wrapper type that ensures 64-byte alignment for optimal SIMD performance.
-///
-/// This type is used throughout the neural network evaluation code to ensure
-/// that arrays and buffers are properly aligned for AVX2 instructions and
-/// cache line optimization.
+/// Wrapper type ensuring 64-byte alignment for SIMD performance.
 #[repr(C, align(64))]
 pub struct Align64<T>(pub T);
 
 impl<T> Align64<T> {
     /// Returns a raw pointer to the wrapped value.
-    ///
-    /// This is commonly used for SIMD operations that require aligned pointers.
     #[allow(dead_code)]
     pub fn as_ptr(&self) -> *const T {
         &self.0 as *const T
     }
 
     /// Returns a mutable raw pointer to the wrapped value.
-    ///
-    /// This is commonly used for SIMD operations that require aligned pointers.
     pub fn as_mut_ptr(&mut self) -> *mut T {
         &mut self.0 as *mut T
     }

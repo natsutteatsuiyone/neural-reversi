@@ -1,3 +1,8 @@
+//! Thread-local cache for endgame search.
+//!
+//! Provides a lightweight hash table for storing endgame search results,
+//! separate from the main transposition table.
+
 use crate::{square::Square, types::Score};
 
 const SCORE_BITS: u32 = 8;
@@ -12,13 +17,17 @@ const BEST_MOVE_SHIFT: u32 = SCORE_BITS + BOUND_BITS;
 const META_BITS: u32 = BEST_MOVE_SHIFT + BEST_MOVE_BITS;
 const KEY_MASK: u64 = !((1u64 << META_BITS) - 1);
 
+/// Bound type for endgame cache entries.
 #[derive(Clone, Copy)]
 pub enum EndGameCacheBound {
+    /// Score is a lower bound (score >= true value).
     Lower = 0,
+    /// Score is an upper bound (score <= true value).
     Upper = 1,
 }
 
 impl EndGameCacheBound {
+    /// Determines bound type based on score and beta.
     #[inline(always)]
     pub fn determine_bound(score: Score, beta: Score) -> Self {
         if score < beta {
@@ -29,7 +38,7 @@ impl EndGameCacheBound {
     }
 }
 
-/// Entry structure for endgame cache
+/// Entry structure for endgame cache.
 #[derive(Clone, Copy)]
 pub struct EndGameCacheEntry {
     pub score: Score,
@@ -38,6 +47,7 @@ pub struct EndGameCacheEntry {
 }
 
 impl EndGameCacheEntry {
+    /// Returns whether this entry can produce a cutoff.
     #[inline(always)]
     pub fn can_cut(&self, beta: Score) -> bool {
         match self.bound {
@@ -47,14 +57,14 @@ impl EndGameCacheEntry {
     }
 }
 
-/// Endgame cache structure
+/// Endgame cache structure.
 pub struct EndGameCache {
     table: Box<[u64]>,
     mask: usize,
 }
 
 impl EndGameCache {
-    /// Create a new endgame cache with the specified size
+    /// Creates a new endgame cache with the specified size.
     ///
     /// # Arguments
     ///
@@ -80,7 +90,7 @@ impl EndGameCache {
             | ((value as i8 as u8) as u64)
     }
 
-    /// Probe the cache for an entry
+    /// Probes the cache for an entry.
     #[inline(always)]
     pub fn probe(&self, key: u64) -> Option<EndGameCacheEntry> {
         let idx = self.index(key);
@@ -103,7 +113,7 @@ impl EndGameCache {
         })
     }
 
-    /// Store an entry
+    /// Stores an entry.
     #[inline(always)]
     pub fn store(&mut self, key: u64, value: Score, bound: EndGameCacheBound, best_move: Square) {
         let idx = self.index(key);
@@ -112,7 +122,7 @@ impl EndGameCache {
         }
     }
 
-    /// Clear the cache
+    /// Clears the cache.
     pub fn clear(&mut self) {
         self.table.fill(0);
     }

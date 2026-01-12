@@ -1,4 +1,4 @@
-//! Specialized output layer processing 16-bit weights for a single neuron.
+//! Output layer with 16-bit weights for neural network evaluation.
 
 use std::io::{self, Read};
 
@@ -9,15 +9,18 @@ use crate::constants::CACHE_LINE_SIZE;
 
 /// Output layer backed by 16-bit weights with a single accumulator.
 pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> {
+    /// Bias term for the output neuron.
     bias: i32,
+    /// Weight vector aligned for SIMD access.
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
+    /// Function pointer to the optimal forward implementation.
     forward_fn: unsafe fn(&Self, [&[u8]; 3]) -> i32,
 }
 
 impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     OutputLayer<INPUT_DIMS, PADDED_INPUT_DIMS>
 {
-    /// Loads bias and weights (little endian) for the output layer.
+    /// Loads bias and weights from a reader (little endian format).
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let bias = reader.read_i32::<LittleEndian>()?;
 
@@ -67,8 +70,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         }
     }
 
-    /// Computes the dot product between 8-bit inputs and 16-bit weights without
-    /// requiring a dedicated contiguous staging buffer.
+    /// Computes the dot product between 8-bit inputs and 16-bit weights.
     #[inline(always)]
     pub fn forward(&self, segments: [&[u8]; 3]) -> i32 {
         debug_assert_eq!(

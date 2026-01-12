@@ -1,3 +1,5 @@
+//! Search context for maintaining state during game tree search.
+
 use std::sync::Arc;
 
 use crate::board::Board;
@@ -15,16 +17,16 @@ use crate::types::{ScaledScore, Selectivity};
 /// Represents the current phase of the game for search strategy selection.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum GamePhase {
-    /// Middle game phase using the regular neural network model
+    /// Midgame phase using the regular neural network model.
     MidGame,
-    /// End game phase using the smaller neural network model and perfect search
+    /// Endgame phase using the smaller neural network model.
     EndGame,
 }
 
 /// A record stored for each ply in the search stack.
 #[derive(Clone, Copy)]
 pub struct StackRecord {
-    /// Principal variation line from this ply to the end of search
+    /// Principal variation line from this ply to the end of search.
     pub pv: [Square; MAX_PLY],
 }
 
@@ -56,13 +58,10 @@ impl SearchContext {
     /// Creates a new search context for the given board position.
     ///
     /// # Arguments
-    /// * `board` - The current board position
-    /// * `selectivity` - Selectivity level
-    /// * `tt` - Shared transposition table
-    /// * `eval` - Neural network evaluator
-    ///
-    /// # Returns
-    /// A new SearchContext ready for search operations
+    /// * `board` - Current board position.
+    /// * `selectivity` - Selectivity level.
+    /// * `tt` - Transposition table.
+    /// * `eval` - Neural network evaluator.
     pub fn new(
         board: &Board,
         selectivity: Selectivity,
@@ -90,10 +89,7 @@ impl SearchContext {
     /// Creates a new search context from a parallel search split point.
     ///
     /// # Arguments
-    /// * `sp` - The split point containing the search task to inherit from
-    ///
-    /// # Returns
-    /// A new SearchContext configured for parallel search from the split point
+    /// * `sp` - Split point reference.
     #[inline]
     pub fn from_split_point(sp: &Arc<SplitPoint>) -> SearchContext {
         let state = sp.state();
@@ -130,8 +126,8 @@ impl SearchContext {
     /// Updates the search context after making a move in midgame search.
     ///
     /// # Arguments
-    /// * `sq` - The square where the move is played
-    /// * `flipped` - The flipped pieces as a bitboard
+    /// * `sq` - Move square.
+    /// * `flipped` - Flipped discs bitboard.
     #[inline]
     pub fn update(&mut self, sq: Square, flipped: u64) {
         self.increment_nodes();
@@ -144,17 +140,17 @@ impl SearchContext {
     /// Undoes a move in the search context.
     ///
     /// # Arguments
-    /// * `sq` - The square to undo
+    /// * `sq` - Move square to restore.
     #[inline]
     pub fn undo(&mut self, sq: Square) {
         self.empty_list.restore(sq);
         self.switch_players();
     }
 
-    /// Updates the context for an endgame move where pattern features aren't used.
+    /// Updates the context for an endgame move (no pattern feature update).
     ///
     /// # Arguments
-    /// * `sq` - The square where the move is played
+    /// * `sq` - Move square.
     #[inline]
     pub fn update_endgame(&mut self, sq: Square) {
         self.increment_nodes();
@@ -164,7 +160,7 @@ impl SearchContext {
     /// Undoes an endgame move by restoring the played square.
     ///
     /// # Arguments
-    /// * `sq` - The square to restore to the empty list
+    /// * `sq` - Move square to restore.
     #[inline]
     pub fn undo_endgame(&mut self, sq: Square) {
         self.empty_list.restore(sq);
@@ -189,7 +185,7 @@ impl SearchContext {
     /// representing how far we are from the start of the game.
     ///
     /// # Returns
-    /// Current search depth/ply
+    /// Current search depth/ply.
     #[inline]
     pub fn ply(&self) -> usize {
         self.empty_list.ply()
@@ -204,7 +200,7 @@ impl SearchContext {
     /// Gets the current pattern feature for neural network evaluation.
     ///
     /// # Returns
-    /// Reference to the current pattern feature for the position
+    /// Reference to the current pattern feature.
     #[inline]
     pub fn get_pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
@@ -218,10 +214,10 @@ impl SearchContext {
     /// Updates a root move with its search results.
     ///
     /// # Arguments
-    /// * `sq` - The square of the root move being updated
-    /// * `score` - The score returned from searching this move
-    /// * `move_count` - Which move this is in the search order (1-based)
-    /// * `alpha` - The current alpha bound
+    /// * `sq` - Root move square.
+    /// * `score` - Search score.
+    /// * `move_count` - Move index in search order (1-based).
+    /// * `alpha` - Alpha bound.
     pub fn update_root_move(
         &mut self,
         sq: Square,
@@ -244,7 +240,7 @@ impl SearchContext {
     /// which should be searched next.
     ///
     /// # Returns
-    /// The root move at the current PV index, or None if index is out of bounds
+    /// Root move at current PV index, or None if out of bounds.
     pub fn get_current_pv_root_move(&self) -> Option<RootMove> {
         self.root_moves.get_current_pv()
     }
@@ -252,7 +248,7 @@ impl SearchContext {
     /// Gets the best root move (the one at index 0 after sorting).
     ///
     /// # Returns
-    /// The best root move, or None if no moves exist
+    /// Best root move, or None if no moves exist.
     pub fn get_best_root_move(&self) -> Option<RootMove> {
         self.root_moves.get_best()
     }
@@ -260,7 +256,7 @@ impl SearchContext {
     /// Sets the current PV index for Multi-PV search.
     ///
     /// # Arguments
-    /// * `idx` - The new PV index
+    /// * `idx` - PV index.
     pub fn set_pv_idx(&self, idx: usize) {
         self.root_moves.set_pv_idx(idx);
     }
@@ -292,7 +288,7 @@ impl SearchContext {
     /// Updates the principal variation at the current ply.
     ///
     /// # Arguments
-    /// * `sq` - The best move at the current ply
+    /// * `sq` - Best move at current ply.
     pub fn update_pv(&mut self, sq: Square) {
         let ply = self.ply();
         self.stack[ply].pv[0] = sq;
@@ -325,7 +321,7 @@ impl SearchContext {
     /// Returns the number of root moves available from the current position.
     ///
     /// # Returns
-    /// The count of legal moves from the root position
+    /// Count of legal moves from root position.
     pub fn root_moves_count(&self) -> usize {
         self.root_moves.count()
     }

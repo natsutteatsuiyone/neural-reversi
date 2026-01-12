@@ -1,3 +1,5 @@
+//! Root move management.
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -10,20 +12,24 @@ use crate::types::ScaledScore;
 /// Represents a root move with its search results and statistics.
 #[derive(Clone, Debug)]
 pub struct RootMove {
-    /// The move square
+    /// The move square.
     pub sq: Square,
-    /// Current best score for this move in the current iteration
+    /// Current best score for this move in the current iteration.
     pub score: ScaledScore,
-    /// Score from the previous iteration, used for aspiration windows
+    /// Score from the previous iteration, used for aspiration windows.
     pub previous_score: ScaledScore,
-    /// Running average score across iterations (for stability analysis)
+    /// Running average score across iterations (for stability analysis).
     pub average_score: ScaledScore,
-    /// Principal variation line starting from this move
+    /// Principal variation line starting from this move.
     pub pv: Vec<Square>,
 }
 
 impl RootMove {
     /// Creates a new RootMove for the given square.
+    ///
+    /// # Arguments
+    ///
+    /// * `sq` - Move square.
     pub fn new(sq: Square) -> Self {
         Self {
             sq,
@@ -41,7 +47,7 @@ impl RootMove {
 /// along with Multi-PV state. It can be cloned to share across threads via Arc.
 #[derive(Clone)]
 pub struct RootMoves {
-    /// Shared list of root moves being searched (sorted by score after each PV line)
+    /// Shared list of root moves being searched (sorted by score after each PV line).
     moves: Arc<Mutex<Vec<RootMove>>>,
     /// Current PV index for Multi-PV search.
     /// Moves at indices < pv_idx are already part of earlier PV lines.
@@ -52,10 +58,8 @@ impl RootMoves {
     /// Creates a new RootMoves container from the current board position.
     ///
     /// # Arguments
-    /// * `board` - The current board position
     ///
-    /// # Returns
-    /// A new RootMoves with all legal moves initialized
+    /// * `board` - Current board position.
     pub fn new(board: &Board) -> Self {
         let move_list = MoveList::new(board);
         let mut moves = Vec::<RootMove>::with_capacity(move_list.count());
@@ -71,11 +75,12 @@ impl RootMoves {
     /// Updates a root move with its search results.
     ///
     /// # Arguments
-    /// * `sq` - The square of the root move being updated
-    /// * `score` - The score returned from searching this move
-    /// * `move_count` - Which move this is in the search order (1-based)
-    /// * `alpha` - The current alpha bound
-    /// * `pv` - The principal variation from the search stack
+    ///
+    /// * `sq` - Root move square.
+    /// * `score` - Search score.
+    /// * `move_count` - Move index in search order (1-based).
+    /// * `alpha` - Alpha bound.
+    /// * `pv` - Principal variation from search stack.
     pub fn update(
         &self,
         sq: Square,
@@ -114,7 +119,8 @@ impl RootMoves {
     /// which should be searched next.
     ///
     /// # Returns
-    /// The root move at the current PV index, or None if index is out of bounds
+    ///
+    /// Root move at current PV index, or None if out of bounds.
     pub fn get_current_pv(&self) -> Option<RootMove> {
         let moves = self.moves.lock().unwrap();
         moves.get(self.pv_idx()).cloned()
@@ -123,7 +129,8 @@ impl RootMoves {
     /// Gets the best root move (the one at index 0 after sorting).
     ///
     /// # Returns
-    /// The best root move, or None if no moves exist
+    ///
+    /// Best root move, or None if no moves exist.
     pub fn get_best(&self) -> Option<RootMove> {
         let moves = self.moves.lock().unwrap();
         moves.first().cloned()
@@ -132,7 +139,8 @@ impl RootMoves {
     /// Sets the current PV index for Multi-PV search.
     ///
     /// # Arguments
-    /// * `idx` - The new PV index
+    ///
+    /// * `idx` - PV index.
     pub fn set_pv_idx(&self, idx: usize) {
         self.pv_idx.store(idx, Ordering::Relaxed);
     }
@@ -172,7 +180,7 @@ impl RootMoves {
     /// Returns the number of root moves available.
     ///
     /// # Returns
-    /// The count of legal moves from the root position
+    /// Count of legal moves from root position.
     pub fn count(&self) -> usize {
         self.moves.lock().unwrap().len()
     }
@@ -180,10 +188,12 @@ impl RootMoves {
     /// Applies a function to all root moves and collects the results.
     ///
     /// # Arguments
-    /// * `f` - A function to apply to each RootMove
+    ///
+    /// * `f` - Function to apply to each RootMove.
     ///
     /// # Returns
-    /// A vector containing the results of applying f to each move
+    ///
+    /// Vector of results.
     pub fn map<T, F>(&self, f: F) -> Vec<T>
     where
         F: FnMut(&RootMove) -> T,
@@ -195,10 +205,12 @@ impl RootMoves {
     /// Checks if a move square exists in the remaining moves (from pv_idx onwards).
     ///
     /// # Arguments
-    /// * `sq` - The square to check
+    ///
+    /// * `sq` - Move square to check.
     ///
     /// # Returns
-    /// true if the move exists in moves[pv_idx..], false otherwise
+    ///
+    /// True if move exists in moves[pv_idx..], false otherwise.
     pub fn contains_from_pv_idx(&self, sq: Square) -> bool {
         let pv_idx = self.pv_idx();
         let moves = self.moves.lock().unwrap();

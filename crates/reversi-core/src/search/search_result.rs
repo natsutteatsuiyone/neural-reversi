@@ -1,3 +1,5 @@
+//! Search result types.
+
 use crate::{
     search::{
         GamePhase,
@@ -15,6 +17,7 @@ pub struct PvMove {
     pub pv_line: Vec<Square>,
 }
 
+/// Result of a search operation.
 pub struct SearchResult {
     pub score: Scoref,
     pub best_move: Option<Square>,
@@ -46,12 +49,12 @@ impl SearchResult {
     ///
     /// # Arguments
     ///
-    /// * `root_moves` - Container for root moves
-    /// * `best_move` - The best move found during search
-    /// * `n_nodes` - Total nodes searched
-    /// * `depth` - Search depth reached
-    /// * `selectivity` - Selectivity level used
-    /// * `game_phase` - Current game phase (MidGame or EndGame)
+    /// * `root_moves` - Container for root moves.
+    /// * `best_move` - Best move found during search.
+    /// * `n_nodes` - Total nodes searched.
+    /// * `depth` - Search depth reached.
+    /// * `selectivity` - Selectivity level used.
+    /// * `game_phase` - Current game phase.
     pub fn from_root_move(
         root_moves: &RootMoves,
         best_move: &RootMove,
@@ -78,6 +81,7 @@ impl SearchResult {
         }
     }
 
+    /// Returns the probability percentage based on selectivity.
     pub fn get_probability(&self) -> i32 {
         self.selectivity.probability()
     }

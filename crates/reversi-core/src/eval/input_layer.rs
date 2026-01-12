@@ -184,14 +184,17 @@ macro_rules! impl_phase_input_apply_activation {
     };
 }
 
-/// Neural network base input layer
+/// Neural network base input layer.
 ///
-/// Reference: https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h
+/// # Reference
+///
+/// - <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h>
 ///
 /// # Type Parameters
-/// - `INPUT_DIMS`: Number of input features (sparse)
-/// - `OUTPUT_DIMS`: Number of output dimensions (dense)
-/// - `HIDDEN_DIMS`: Number of hidden units (must be 2 * OUTPUT_DIMS)
+///
+/// * `INPUT_DIMS` - Number of input features (sparse).
+/// * `OUTPUT_DIMS` - Number of output dimensions (dense).
+/// * `HIDDEN_DIMS` - Number of hidden units (must be 2 * OUTPUT_DIMS).
 pub struct BaseInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
@@ -203,11 +206,8 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     /// Loads network weights and biases from a binary reader.
     ///
     /// # Arguments
-    /// * `reader` - Binary data reader containing network parameters
     ///
-    /// # Returns
-    /// * `Ok(BaseInput)` - Successfully loaded network layer
-    /// * `Err(io::Error)` - I/O error during loading
+    /// * `reader` - Binary data reader containing network parameters.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS];
         let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * HIDDEN_DIMS];
@@ -230,8 +230,9 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     /// Performs forward pass through the base input layer.
     ///
     /// # Arguments
-    /// * `pattern_feature` - Sparse feature values encoded by pattern index
-    /// * `output` - Output buffer to write results (length must be OUTPUT_DIMS)
+    ///
+    /// * `pattern_feature` - Sparse feature values encoded by pattern index.
+    /// * `output` - Output buffer to write results.
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         cfg_if! {
@@ -316,8 +317,8 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
 ///
 /// # Type Parameters
 ///
-/// - `INPUT_DIMS`: Number of input features (sparse)
-/// - `OUTPUT_DIMS`: Number of output dimensions (dense)
+/// * `INPUT_DIMS` - Number of input features (sparse).
+/// * `OUTPUT_DIMS` - Number of output dimensions (dense).
 #[derive(Debug)]
 pub struct PhaseAdaptiveInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
@@ -331,12 +332,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     ///
     /// # Arguments
     ///
-    /// * `reader` - Input stream containing serialized network parameters
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(PhaseAdaptiveInput)` - Successfully loaded network layer
-    /// * `Err(io::Error)` - If reading from the stream fails
+    /// * `reader` - Binary data reader containing network parameters.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS];
         let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * OUTPUT_DIMS];
@@ -358,8 +354,9 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     /// Performs forward pass through the phase-adaptive input layer.
     ///
     /// # Arguments
-    /// * `pattern_feature` - Sparse feature values encoded by pattern index
-    /// * `output` - Output buffer to write results (length must be OUTPUT_DIMS)
+    ///
+    /// * `pattern_feature` - Sparse feature values encoded by pattern index.
+    /// * `output` - Output buffer to write results.
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         cfg_if! {
@@ -578,14 +575,13 @@ impl_accumulate!(
     add = _mm256_add_epi16
 );
 
-/// Accumulates the weights of all active sparse features into a dense accumulator.
+/// Accumulates weights of active sparse features into accumulator (scalar fallback).
 ///
-/// This scalar variant is used by the fallback code paths where SIMD is unavailable.
+/// # Arguments
 ///
-/// # Parameters
 /// * `pattern_feature` - Sparse feature values indexed by pattern identifier.
-/// * `weights` - Flat weight matrix laid out in feature-major order.
-/// * `acc` - Dense accumulation buffer that will be incremented in-place.
+/// * `weights` - Flat weight matrix in feature-major order.
+/// * `acc` - Dense accumulation buffer.
 #[inline(always)]
 fn accumulate_scalar<const DIMS: usize>(
     pattern_feature: &PatternFeature,

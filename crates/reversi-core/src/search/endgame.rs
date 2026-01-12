@@ -1,6 +1,8 @@
+//! Endgame search and solving algorithms.
+//!
 //! # References:
-//! - https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c
-//! - https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/search.cpp
+//!
+//! - <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c
 
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -38,7 +40,7 @@ const QUADRANT_MASK: [u64; 16] = [
     0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
 ];
 
-/// Selectivity sequence for endgame search
+/// Selectivity sequence for endgame search.
 const SELECTIVITY_SEQUENCE: [Selectivity; 6] = [
     Selectivity::Level1,
     Selectivity::Level2,
@@ -71,12 +73,12 @@ unsafe fn cache() -> &'static mut EndGameCache {
 ///
 /// # Arguments
 ///
-/// * `task` - Search task containing board position, search parameters, and callbacks
-/// * `thread` - Thread handle for parallel search coordination
+/// * `task` - Search task.
+/// * `thread` - Thread handle for parallel search.
 ///
 /// # Returns
 ///
-/// SearchResult containing the best move, score, and search statistics
+/// Search result with best move and score.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let time_manager = task.time_manager.clone();
@@ -230,10 +232,10 @@ fn aspiration_search(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context
-/// * `board` - Current board position
-/// * `n_empties` - Number of empty squares on the board
-/// * `thread` - Thread handle for parallel search coordination
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `n_empties` - Number of empty squares.
+/// * `thread` - Thread handle for parallel search.
 ///
 /// # Returns
 ///
@@ -277,17 +279,16 @@ fn estimate_aspiration_base_score(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing selectivity settings and search state
-/// * `board` - Current board position to evaluate
-/// * `depth` - Depth of the deep search that would be performed
-/// * `alpha` - Alpha bound for the search window (will be scaled internally)
-/// * `beta` - Beta bound for the search window (will be scaled internally)
-/// * `thread` - Search thread used to run the shallow verification search
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `depth` - Depth of the deep search.
+/// * `beta` - Beta bound.
+/// * `thread` - Thread handle for parallel search.
 ///
 /// # Returns
 ///
-/// * `Some(score)` - If probcut triggers, returns the predicted bound
-/// * `None` - If probcut doesn't trigger, full endgame search should be performed
+/// * `Some(score)` - If probcut triggers, returns the predicted bound.
+/// * `None` - If probcut doesn't trigger, deep search should be performed.
 pub fn probcut(
     ctx: &mut SearchContext,
     board: &Board,
@@ -334,13 +335,13 @@ pub fn probcut(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for null window search
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Score threshold.
 ///
 /// # Returns
 ///
-/// Best score found
+/// Best score found.
 #[inline(always)]
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
@@ -382,13 +383,13 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context for tracking statistics and TT access
-/// * `board` - Current board position to evaluate
-/// * `alpha` - Score threshold to beat
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Score threshold.
 ///
 /// # Returns
 ///
-/// Best score found
+/// Best score found.
 pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
@@ -512,31 +513,28 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
     best_score
 }
 
-/// Probe the endgame cache for a given position
+/// Probes the endgame cache for a given position.
 ///
 /// # Arguments
 ///
-/// * `key` - The hash key of the board position
-///
-/// * `n_empties` - The number of empty squares on the board
+/// * `key` - The hash key of the board position.
 ///
 /// # Returns
 ///
-/// * `Option<EndGameCacheEntry>` - The cached entry if found
+/// The cached entry if found.
 #[inline(always)]
 fn probe_endgame_cache(key: u64) -> Option<EndGameCacheEntry> {
     unsafe { cache().probe(key) }
 }
 
-/// Store an entry in the endgame cache
+/// Stores an entry in the endgame cache.
 ///
 /// # Arguments
 ///
-/// * `key` - The hash key of the board position
-/// * `n_empties` - The number of empty squares on the board
-/// * `beta` - The beta value for determining the bound
-/// * `score` - The score to store
-/// * `best_move` - The best move found in this position
+/// * `key` - The hash key of the board position.
+/// * `beta` - The beta value for determining the bound.
+/// * `score` - The score to store.
+/// * `best_move` - The best move found in this position.
 #[inline(always)]
 fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
     let bound = EndGameCacheBound::determine_bound(score, beta);
@@ -549,13 +547,13 @@ fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context for node counting and empty square tracking
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for null window search
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Score threshold.
 ///
 /// # Returns
 ///
-/// Best score found
+/// Best score found.
 fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
@@ -652,13 +650,13 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context for node counting and empty square tracking
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for null window search
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Score threshold.
 ///
 /// # Returns
 ///
-/// Best score found
+/// Best score found.
 pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count;
     let beta = alpha + 1;
@@ -811,11 +809,11 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context containing empty square list and parity
+/// * `ctx` - Search context.
 ///
 /// # Returns
 ///
-/// Tuple of four squares in optimized search order
+/// Four squares in optimized search order.
 #[inline(always)]
 fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
     let (sq1, quad_id1) = ctx.empty_list.first_with_quad_id();
@@ -851,14 +849,14 @@ fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for pruning
-/// * `sq1..sq4` - The four empty squares in search order
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Score threshold.
+/// * `sq1..sq4` - Four empty squares in search order.
 ///
 /// # Returns
 ///
-/// Best score achievable with perfect play
+/// Best score with perfect play.
 fn solve4(
     ctx: &mut SearchContext,
     board: &Board,
@@ -915,14 +913,14 @@ fn solve4(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for pruning
-/// * `sq1..sq3` - The three empty squares
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Score threshold.
+/// * `sq1..sq3` - Three empty squares.
 ///
 /// # Returns
 ///
-/// Best score achievable with perfect play
+/// Best score with perfect play.
 fn solve3(
     ctx: &mut SearchContext,
     board: &Board,
@@ -996,14 +994,14 @@ fn solve3(
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for pruning
-/// * `sq1, sq2` - The two remaining empty squares
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `alpha` - Score threshold.
+/// * `sq1, sq2` - Two empty squares.
 ///
 /// # Returns
 ///
-/// Exact score with perfect play
+/// Exact score with perfect play.
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
     let player = board.player;
@@ -1079,14 +1077,14 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 ///
 /// # Arguments
 ///
-/// * `ctx` - Search context for node counting
-/// * `player` - Current player's bitboard
-/// * `alpha` - Score threshold (unused in branchless version)
-/// * `sq` - Square where the last move is played
+/// * `ctx` - Search context.
+/// * `player` - Current player's bitboard.
+/// * `alpha` - Score threshold (unused in branchless version).
+/// * `sq` - Last empty square.
 ///
 /// # Returns
 ///
-/// Exact final score after optimal play
+/// Exact final score after optimal play.
 ///
 /// # References
 ///
@@ -1148,12 +1146,12 @@ fn solve1(ctx: &mut SearchContext, player: u64, alpha: Score, sq: Square) -> Sco
 ///
 /// # Arguments
 ///
-/// * `board` - Final board position
-/// * `n_empties` - Number of remaining empty squares
+/// * `board` - Final board position.
+/// * `n_empties` - Number of empty squares.
 ///
 /// # Returns
 ///
-/// Final score in disc difference
+/// Final score in disc difference.
 #[inline(always)]
 pub fn solve(board: &Board, n_empties: u32) -> Score {
     let score = board.get_player_count() as Score * 2 - 64;
@@ -1170,11 +1168,11 @@ pub fn solve(board: &Board, n_empties: u32) -> Score {
 ///
 /// # Arguments
 ///
-/// * `board` - Board position with all 64 squares filled
+/// * `board` - Board position with all squares filled.
 ///
 /// # Returns
 ///
-/// Score as disc difference (positive = current player won)
+/// Score as disc difference.
 #[inline(always)]
 pub fn calculate_final_score(board: &Board) -> Score {
     board.get_player_count() as Score * 2 - 64

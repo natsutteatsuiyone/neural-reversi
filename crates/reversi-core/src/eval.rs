@@ -1,3 +1,9 @@
+//! Neural network-based position evaluation.
+//!
+//! This module provides phase-adaptive evaluation using two neural networks:
+//! - Main network: Used for midgame and early positions (ply < 30)
+//! - Small network: Used for endgame positions
+
 mod activations;
 pub mod eval_cache;
 mod input_layer;
@@ -38,9 +44,13 @@ pub const EVAL_FILE_NAME: &str = eval_main_weights_literal!();
 /// Filename for the small neural network weights (zstd compressed).
 pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
 
+/// Neural network evaluator.
 pub struct Eval {
+    /// Main neural network for midgame evaluation.
     network: Network,
+    /// Small neural network for endgame evaluation.
     network_sm: NetworkSmall,
+    /// Evaluation cache to avoid redundant computation.
     pub cache: EvalCache,
 }
 
@@ -59,6 +69,10 @@ fn missing_weights_error(path: &Path) -> io::Error {
 }
 
 impl Eval {
+    /// Creates a new `Eval` with default or override weight files.
+    ///
+    /// Looks for weight files in the executable's directory. If not found,
+    /// uses embedded weights.
     pub fn new() -> io::Result<Self> {
         let exe_path = env::current_exe()?;
         let exe_dir = exe_path.parent().unwrap();
@@ -72,6 +86,12 @@ impl Eval {
         Self::with_weight_files(eval_override.as_deref(), eval_sm_override.as_deref())
     }
 
+    /// Creates a new `Eval` with specified weight files.
+    ///
+    /// # Arguments
+    ///
+    /// * `eval_path` - Path to main network weights, or `None` for embedded.
+    /// * `eval_sm_path` - Path to small network weights, or `None` for embedded.
     pub fn with_weight_files(
         eval_path: Option<&Path>,
         eval_sm_path: Option<&Path>,
@@ -155,8 +175,6 @@ impl Eval {
     pub fn evaluate_simple(&self, board: &Board) -> ScaledScore {
         let n_empties = board.get_empty_count() as usize;
         if n_empties == 0 {
-            // Game is over - calculate final disc difference
-            // Formula: player_count * 2 - 64 (same as calculate_final_score)
             let final_score = board.get_player_count() as Score * 2 - 64;
             return ScaledScore::from_disc_diff(final_score);
         }

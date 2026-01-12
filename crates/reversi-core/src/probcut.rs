@@ -1,11 +1,14 @@
+//! ProbCut forward pruning implementation for search optimization.
+
 use std::sync::OnceLock;
 
 use crate::types::Depth;
 use crate::types::ScaledScore;
 
-/// Statistical parameters for ProbCut prediction models
-/// - `mean = mean_intercept + mean_coef_shallow * shallow_depth + mean_coef_deep * deep_depth`
-/// - `sigma = exp(std_intercept + std_coef_shallow * shallow_depth + std_coef_deep * deep_depth)`
+/// Statistical parameters for ProbCut prediction models.
+///
+/// - `mean = mean_intercept + mean_coef_shallow * shallow + mean_coef_deep * deep`
+/// - `sigma = exp(std_intercept + std_coef_shallow * shallow + std_coef_deep * deep)`
 struct ProbcutParams {
     mean_intercept: f64,
     mean_coef_shallow: f64,
@@ -38,19 +41,19 @@ static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
 static MEAN_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
 static SIGMA_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
 
-/// Safely allocate a 3D table on the heap to avoid stack overflow
+/// Safely allocates a 3D table on the heap to avoid stack overflow.
 fn alloc_3d_table() -> Box<MeanTable> {
     let tbl = vec![[0.0f64; MAX_DEPTH]; MAX_PLY * MAX_DEPTH].into_boxed_slice();
     unsafe { Box::from_raw(Box::into_raw(tbl) as *mut MeanTable) }
 }
 
-/// Safely allocate a 2D table on the heap to avoid stack overflow
+/// Safely allocates a 2D table on the heap to avoid stack overflow.
 fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     let tbl = vec![0.0f64; MAX_DEPTH * MAX_DEPTH].into_boxed_slice();
     unsafe { Box::from_raw(Box::into_raw(tbl) as *mut [[f64; MAX_DEPTH]; MAX_DEPTH]) }
 }
 
-/// Build the pre-computed mean table for midgame positions
+/// Builds the pre-computed mean table for midgame positions.
 fn build_mean_table() -> Box<MeanTable> {
     let mut tbl = alloc_3d_table();
 
@@ -67,7 +70,7 @@ fn build_mean_table() -> Box<MeanTable> {
     tbl
 }
 
-/// Build the pre-computed sigma table for midgame positions
+/// Builds the pre-computed sigma table for midgame positions.
 fn build_sigma_table() -> Box<SigmaTable> {
     let mut tbl = unsafe { Box::from_raw(Box::into_raw(alloc_3d_table()) as *mut SigmaTable) };
 
@@ -84,7 +87,7 @@ fn build_sigma_table() -> Box<SigmaTable> {
     tbl
 }
 
-/// Build the pre-computed mean table for endgame positions
+/// Builds the pre-computed mean table for endgame positions.
 fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     let mut tbl = alloc_2d_table();
 
@@ -98,7 +101,7 @@ fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     tbl
 }
 
-/// Build the pre-computed sigma table for endgame positions
+/// Builds the pre-computed sigma table for endgame positions.
 fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     let mut tbl = alloc_2d_table();
 
@@ -112,7 +115,7 @@ fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     tbl
 }
 
-/// Initialize probcut tables. Called from lib.rs init().
+/// Initializes probcut tables. Called from Search::new().
 pub fn init() {
     MEAN_TABLE.set(build_mean_table()).ok();
     SIGMA_TABLE.set(build_sigma_table()).ok();
@@ -120,28 +123,28 @@ pub fn init() {
     SIGMA_TABLE_END.set(build_sigma_table_end()).ok();
 }
 
-/// Fast lookup of pre-computed mean value for midgame positions
+/// Returns the pre-computed mean value for midgame positions.
 #[inline]
 pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = MEAN_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
 
-/// Fast lookup of pre-computed sigma value for midgame positions
+/// Returns the pre-computed sigma value for midgame positions.
 #[inline]
 pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = SIGMA_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
 
-/// Fast lookup of pre-computed mean value for endgame positions
+/// Returns the pre-computed mean value for endgame positions.
 #[inline]
 pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
     let tbl = MEAN_TABLE_END.get().expect("probcut not initialized");
     tbl[shallow as usize][deep as usize]
 }
 
-/// Fast lookup of pre-computed sigma value for endgame positions
+/// Returns the pre-computed sigma value for endgame positions.
 #[inline]
 pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
     let tbl = SIGMA_TABLE_END.get().expect("probcut not initialized");
@@ -169,7 +172,7 @@ pub fn compute_eval_beta(
     ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32)
 }
 
-/// Statistical parameters for endgame ProbCut
+/// Statistical parameters for endgame ProbCut.
 #[rustfmt::skip]
 const PROBCUT_ENDGAME_PARAMS: ProbcutParams = ProbcutParams {
     mean_intercept: -0.1491234189,
@@ -180,7 +183,7 @@ const PROBCUT_ENDGAME_PARAMS: ProbcutParams = ProbcutParams {
     std_coef_deep: 0.0426371540,
 };
 
-/// Statistical parameters for midgame ProbCut indexed by ply
+/// Statistical parameters for midgame ProbCut indexed by ply.
 #[rustfmt::skip]
 const PROBCUT_PARAMS: [ProbcutParams; 60] = [
     ProbcutParams {

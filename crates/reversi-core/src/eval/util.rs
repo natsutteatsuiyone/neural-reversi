@@ -1,3 +1,5 @@
+//! Utility functions for neural network evaluation.
+
 use crate::{
     eval::pattern_feature::{PATTERN_FEATURE_OFFSETS, PatternFeature},
     util::align::Align64,
@@ -6,15 +8,16 @@ use crate::{
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use std::arch::x86_64::*;
 
-/// Clone an evaluation bias vector into a 64-byte aligned array.
+/// Clones a bias vector into a 64-byte aligned array.
 ///
 /// # Type Parameters
-/// - `T`: bias element type (e.g., `i16`, `f32`).
-/// - `N`: number of bias elements to copy.
+///
+/// * `T` - Bias element type (e.g., `i16`, `f32`).
+/// * `N` - Number of bias elements to copy.
 ///
 /// # Arguments
 ///
-/// - `biases`: slice of bias elements to copy from. Must have at least `N` elements.
+/// * `biases` - Slice of bias elements. Must have at least `N` elements.
 #[inline(always)]
 pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
     let mut acc = std::mem::MaybeUninit::<Align64<[T; N]>>::uninit();
@@ -28,16 +31,16 @@ pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
     }
 }
 
-/// Compute the feature offset for a given pattern feature index.
+/// Computes the feature offset for a given pattern feature index.
 ///
 /// # Arguments
 ///
-/// * `pattern_feature` - Extracted pattern features from the board
-/// * `idx` - Index of the pattern feature
+/// * `pattern_feature` - Pattern features from the board.
+/// * `idx` - Pattern feature index.
 ///
 /// # Returns
 ///
-/// The computed feature offset as usize.
+/// Feature offset.
 #[inline(always)]
 pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
     *unsafe { PATTERN_FEATURE_OFFSETS.get_unchecked(idx) }
@@ -118,6 +121,7 @@ pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
     }
 }
 
+/// Horizontal add of all 32-bit lanes in a 256-bit vector.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]

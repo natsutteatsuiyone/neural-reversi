@@ -42,6 +42,7 @@ const NUM_LAYER_STACKS: usize = 60;
 const NUM_PA_INPUTS: usize = 6;
 const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
 
+/// Layer stack for a specific game ply.
 struct LayerStack {
     pub l1_base: LinearLayer<
         L1_BASE_INPUT_DIMS,
@@ -59,7 +60,7 @@ struct LayerStack {
     pub lo: OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>,
 }
 
-/// Thread-local working buffers for network computation
+/// Thread-local working buffers for network computation.
 struct NetworkBuffers {
     base_out: Align64<[u8; L1_BASE_PADDED_INPUT_DIMS]>,
     pa_out: Align64<[u8; L1_PA_PADDED_INPUT_DIMS]>,
@@ -92,7 +93,7 @@ thread_local! {
         std::cell::RefCell::new(NetworkBuffers::new());
 }
 
-/// Main neural network structure for position evaluation
+/// Main neural network structure for position evaluation.
 pub struct Network {
     base_input: BaseInput<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>,
     pa_inputs: Vec<PhaseAdaptiveInput<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>>,
@@ -100,14 +101,14 @@ pub struct Network {
 }
 
 impl Network {
-    /// Creates a new network by loading weights from a compressed file
+    /// Creates a new network by loading weights from a compressed file.
     pub fn new(file_path: &Path) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
         Self::from_reader(reader)
     }
 
-    /// Creates a new network by loading weights from an in-memory blob
+    /// Creates a new network by loading weights from an in-memory blob.
     pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
         let cursor = io::Cursor::new(bytes);
         Self::from_reader(cursor)
@@ -149,12 +150,13 @@ impl Network {
         })
     }
 
-    /// Evaluates a board position using the neural network
+    /// Evaluates a board position using the neural network.
     ///
     /// # Arguments
-    /// * `board` - The current board state
-    /// * `pattern_feature` - Extracted pattern features from the board
-    /// * `ply` - Current game ply (move number)
+    ///
+    /// * `board` - Current board position.
+    /// * `pattern_feature` - Pattern features from the board.
+    /// * `ply` - Current game ply.
     pub fn evaluate(
         &self,
         board: &Board,
