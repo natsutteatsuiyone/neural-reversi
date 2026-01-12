@@ -467,6 +467,17 @@ impl ConcurrentMoveIterator {
     pub fn count(&self) -> usize {
         self.move_list.count()
     }
+
+    /// Returns the number of moves remaining to be consumed.
+    ///
+    /// # Returns
+    ///
+    /// Remaining move count.
+    #[inline]
+    pub fn remaining(&self) -> usize {
+        let current = self.current.load(atomic::Ordering::Relaxed);
+        self.move_list.count() - current
+    }
 }
 
 /// Lazy-sorting iterator that yields moves in order of decreasing evaluation value.
@@ -775,6 +786,7 @@ mod tests {
         let concurrent_iter = ConcurrentMoveIterator::new(move_list);
 
         assert_eq!(concurrent_iter.count(), 4);
+        assert_eq!(concurrent_iter.remaining(), 4);
 
         // Get all moves
         let mut moves = Vec::new();
@@ -783,6 +795,7 @@ mod tests {
         }
 
         assert_eq!(moves.len(), 4);
+        assert_eq!(concurrent_iter.remaining(), 0);
         // Verify indices are 1-based and sequential
         for (i, (_, idx)) in moves.iter().enumerate() {
             assert_eq!(*idx, i + 1);
