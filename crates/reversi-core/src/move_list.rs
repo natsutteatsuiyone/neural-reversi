@@ -476,7 +476,7 @@ impl ConcurrentMoveIterator {
     #[inline]
     pub fn remaining(&self) -> usize {
         let current = self.current.load(atomic::Ordering::Relaxed);
-        self.move_list.count() - current
+        self.move_list.count().saturating_sub(current)
     }
 }
 
