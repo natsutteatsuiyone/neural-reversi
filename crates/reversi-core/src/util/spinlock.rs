@@ -1,4 +1,4 @@
-//! Spinlock implementation.
+//! Spinlock implementation with TTAS pattern and adaptive backoff.
 
 use std::{
     hint::spin_loop,
@@ -7,7 +7,13 @@ use std::{
 
 use lock_api::{GuardSend, RawMutex};
 
-/// RawSpinLock
+/// Maximum spin iterations before yielding to the OS scheduler.
+const SPIN_LIMIT: u32 = 100;
+
+/// Maximum exponent for exponential backoff (2^6 = 64 spins).
+const MAX_BACKOFF_EXP: u32 = 6;
+
+/// Raw spinlock with cache-line alignment to prevent false sharing.
 #[repr(align(64))]
 pub struct RawSpinLock {
     state: AtomicBool,
@@ -23,18 +29,18 @@ unsafe impl RawMutex for RawSpinLock {
 
     #[inline]
     fn lock(&self) {
-        if self.try_lock() {
-            return;
+        if !self.try_lock() {
+            self.lock_slow();
         }
-
-        self.lock_slow();
     }
 
     #[inline]
     fn try_lock(&self) -> bool {
-        self.state
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
+        !self.state.load(Ordering::Relaxed)
+            && self
+                .state
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
     }
 
     #[inline]
@@ -49,40 +55,37 @@ unsafe impl RawMutex for RawSpinLock {
 }
 
 impl RawSpinLock {
-    #[inline]
-    fn try_acquire_weak(&self) -> bool {
-        self.state
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
-    }
-
     #[cold]
     fn lock_slow(&self) {
-        let mut yield_counter: u32 = 0;
+        let mut spin_count: u32 = 0;
         let mut backoff_exp: u32 = 0;
 
         loop {
             while self.state.load(Ordering::Relaxed) {
                 spin_loop();
+                spin_count += 1;
 
-                yield_counter = yield_counter.wrapping_add(1);
-                if yield_counter >= 1_000 {
+                if spin_count >= SPIN_LIMIT {
                     std::thread::yield_now();
-                    yield_counter = 0;
+                    spin_count = 0;
                     backoff_exp = 0;
                 }
             }
 
-            if self.try_acquire_weak() {
+            if !self.state.load(Ordering::Relaxed)
+                && self
+                    .state
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+            {
                 return;
             }
 
-            let limit = 1u32 << backoff_exp.min(6);
-            for _ in 0..limit {
+            for _ in 0..(1u32 << backoff_exp) {
                 spin_loop();
             }
 
-            if backoff_exp < 10 {
+            if backoff_exp < MAX_BACKOFF_EXP {
                 backoff_exp += 1;
             }
         }

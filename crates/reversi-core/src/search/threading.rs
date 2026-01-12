@@ -413,6 +413,7 @@ impl Thread {
     /// # Returns
     ///
     /// `true` if a beta cutoff has occurred in this thread's split point hierarchy.
+    #[inline]
     pub fn cutoff_occurred(&self) -> bool {
         let mut current_sp = self.state().active_split_point.as_ref();
         while let Some(sp) = current_sp {
@@ -440,6 +441,7 @@ impl Thread {
     ///
     /// `true` if the thread can safely join the split point.
     fn can_join(&self, sp: &Arc<SplitPoint>) -> bool {
+        // Acquire pairs with Release store after updating thread state
         if self.searching.load(Ordering::Acquire) {
             return false;
         }
@@ -449,15 +451,14 @@ impl Thread {
         let th_state = self.state();
         let size = th_state.split_points_size;
 
-        // No split points means that the thread is available as a helper for any
-        // other thread otherwise apply the "helpful owner" concept if possible.
+        // No split points means available as helper for any thread
         if size == 0 {
             return true;
         }
 
+        // Apply "helpful owner" concept
         let sp_state = th_state.split_points[size - 1].state();
-        let owner_idx = sp.state().owner_thread_idx;
-        sp_state.helpers_mask.test(owner_idx)
+        sp_state.helpers_mask.test(sp.state().owner_thread_idx)
     }
 
     /// Creates a split point and distributes work among available threads.
@@ -646,13 +647,11 @@ impl Thread {
             }
 
             // If this thread has been assigned work, launch a search
-            // This inner loop handles the actual search work
             while self.searching.load(Ordering::Acquire) {
                 self.lock();
                 let sp = self.state().active_split_point.clone().unwrap();
                 self.unlock();
 
-                // Extract search parameters from split point
                 let (board, depth, node_type) = {
                     sp.lock();
                     let task = sp.state().task.as_ref().unwrap();
@@ -694,7 +693,6 @@ impl Thread {
                     })
                     .unwrap();
             } else {
-                // Wait for a new job or for our helpers to finish
                 std::thread::yield_now();
             }
         }
@@ -802,9 +800,13 @@ impl Thread {
     /// 3. The thread must be able to join (helpful owner rules)
     /// 4. Prefer split points higher in the tree (lower level)
     fn try_late_join(&self) {
+        let Some(pool) = self.pool.upgrade() else {
+            return;
+        };
+
         let mut best_sp = None;
         let mut min_level = i32::MAX;
-        let pool = self.pool.upgrade().unwrap();
+
         for th in &pool.threads {
             let size = th.state().split_points_size;
             if size == 0 {
@@ -813,46 +815,53 @@ impl Thread {
 
             let sp = &th.state().split_points[size - 1];
             let sp_state = sp.state();
-            if sp_state.all_helpers_searching()
-                && sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT
-                && self.can_join(sp)
-            {
-                let mut level = 0;
-                let mut active_sp = &th.state().active_split_point;
-                while let Some(p) = active_sp {
-                    level += 1;
-                    active_sp = &p.state().parent_split_point;
-                }
 
-                if level < min_level {
-                    min_level = level;
-                    best_sp = Some(sp);
+            if sp_state.helpers_mask.count() >= MAX_HELPERS_PER_SPLITPOINT
+                || !sp_state.all_helpers_searching()
+                || !self.can_join(sp)
+            {
+                continue;
+            }
+
+            // Calculate level (depth in split point tree)
+            let mut level = 0;
+            let mut active_sp = &th.state().active_split_point;
+            while let Some(p) = active_sp {
+                level += 1;
+                active_sp = &p.state().parent_split_point;
+            }
+
+            if level < min_level {
+                min_level = level;
+                best_sp = Some(sp);
+                if level <= 1 {
+                    break;
                 }
             }
         }
 
-        if let Some(sp) = best_sp {
-            // Recheck the conditions under lock protection
-            sp.lock();
+        let Some(sp) = best_sp else {
+            return;
+        };
 
-            let sp_state = sp.state_mut();
-            if sp_state.all_helpers_searching()
-                && sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT
-            {
-                self.lock();
+        sp.lock();
 
-                if self.can_join(sp) {
-                    sp_state.helpers_mask.set(self.idx);
-                    let th_state = self.state_mut();
-                    th_state.active_split_point = Some(sp.clone());
-                    self.searching.store(true, Ordering::Release);
-                }
+        let sp_state = sp.state_mut();
+        if sp_state.all_helpers_searching()
+            && sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT
+        {
+            self.lock();
 
-                self.unlock();
+            if self.can_join(sp) {
+                sp_state.helpers_mask.set(self.idx);
+                self.state_mut().active_split_point = Some(sp.clone());
+                self.searching.store(true, Ordering::Release);
             }
 
-            sp.unlock();
+            self.unlock();
         }
+
+        sp.unlock();
     }
 
     pub fn is_search_aborted(&self) -> bool {
@@ -1024,37 +1033,25 @@ impl ThreadPool {
     /// * `sp` - The split point that needs workers
     fn assign_helpers_to_split_point(&self, sp: &Arc<SplitPoint>) {
         let sp_state = sp.state_mut();
-        while sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT {
-            if let Some(helper) = self.find_available_thread(sp) {
-                helper.lock();
 
-                if helper.can_join(sp) {
-                    sp_state.helpers_mask.set(helper.idx);
-                    let helper_state = helper.state_mut();
-                    helper_state.active_split_point = Some(sp.clone());
-                    helper.searching.store(true, Ordering::Release);
-                }
-                helper.unlock();
-            } else {
+        for thread in &self.threads {
+            if sp_state.helpers_mask.count() >= MAX_HELPERS_PER_SPLITPOINT {
                 break;
             }
-        }
-    }
 
-    /// Finds an available thread that can join the given split point.
-    ///
-    /// # Arguments
-    ///
-    /// * `sp` - The split point to find a worker for
-    ///
-    /// # Returns
-    ///
-    /// The first available thread that can join, or None if none available.
-    fn find_available_thread(&self, sp: &Arc<SplitPoint>) -> Option<Arc<Thread>> {
-        self.threads
-            .iter()
-            .find(|thread| thread.can_join(sp))
-            .cloned()
+            // Quick check before acquiring thread lock
+            if !thread.can_join(sp) {
+                continue;
+            }
+
+            thread.lock();
+            if thread.can_join(sp) {
+                sp_state.helpers_mask.set(thread.idx);
+                thread.state_mut().active_split_point = Some(sp.clone());
+                thread.searching.store(true, Ordering::Release);
+            }
+            thread.unlock();
+        }
     }
 
     /// Start a new search task on the thread pool.
@@ -1112,6 +1109,7 @@ impl ThreadPool {
     pub fn wait_for_think_finished(&self) {
         const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
+        // Use Relaxed ordering for polling - we just need eventual visibility
         while self.thinking.load(Ordering::Acquire) {
             sleep(POLL_INTERVAL);
         }
