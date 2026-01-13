@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use rand::seq::IteratorRandom;
 
-use crate::bitboard::BitboardIterator;
+use crate::bitboard::{self, BitboardIterator};
 use crate::board::Board;
 use crate::flip;
 use crate::move_list::MoveList;
@@ -405,11 +405,17 @@ pub fn evaluate_depth1(
         }
     }
 
-    let mut best_score = -ScaledScore::INF;
-    for sq in BitboardIterator::new(moves) {
+    #[inline(always)]
+    fn search_move(
+        ctx: &mut SearchContext,
+        board: &Board,
+        sq: Square,
+        beta: ScaledScore,
+        best_score: &mut ScaledScore,
+    ) -> Option<ScaledScore> {
         let flipped = flip::flip(sq, board.player, board.opponent);
         if flipped == board.opponent {
-            return ScaledScore::MAX;
+            return Some(ScaledScore::MAX);
         }
         let next = board.make_move_with_flipped(flipped, sq);
 
@@ -417,11 +423,36 @@ pub fn evaluate_depth1(
         let score = -evaluate(ctx, &next);
         ctx.undo(sq);
 
-        if score > best_score {
-            best_score = score;
+        if score > *best_score {
+            *best_score = score;
             if score >= beta {
-                break;
+                return Some(score);
             }
+        }
+        None
+    }
+
+    let mut best_score = -ScaledScore::INF;
+
+    // Process corner moves first
+    let mut current = moves & bitboard::CORNER_MASK;
+    while current != 0 {
+        let sq = Square::from_u32_unchecked(current.trailing_zeros());
+        current &= current - 1;
+
+        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score) {
+            return score;
+        }
+    }
+
+    // Process non-corner moves
+    current = moves & !bitboard::CORNER_MASK;
+    while current != 0 {
+        let sq = Square::from_u32_unchecked(current.trailing_zeros());
+        current &= current - 1;
+
+        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score) {
+            return score;
         }
     }
 
