@@ -78,10 +78,26 @@ impl MoveList {
     /// # Returns
     ///
     /// A new MoveList containing all legal moves for the current player.
+    #[inline]
     pub fn new(board: &Board) -> MoveList {
+        Self::with_moves(board, board.get_moves())
+    }
+
+    /// Creates a MoveList from precomputed legal moves bitboard.
+    ///
+    /// # Arguments
+    ///
+    /// * `board` - Current game state.
+    /// * `moves_bb` - Precomputed bitboard of legal moves (from `board.get_moves()`).
+    ///
+    /// # Returns
+    ///
+    /// A new MoveList containing all legal moves.
+    #[inline]
+    pub fn with_moves(board: &Board, moves_bb: u64) -> MoveList {
         let mut moves = ArrayVec::new();
         let mut wipeout_move = None;
-        for sq in BitboardIterator::new(board.get_moves()) {
+        for sq in BitboardIterator::new(moves_bb) {
             let flipped = flip::flip(sq, board.player, board.opponent);
             let mut mv = Move::new(sq, flipped);
             mv.value = i32::MIN;

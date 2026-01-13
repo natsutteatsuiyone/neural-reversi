@@ -401,10 +401,8 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
     let tt_key = board.hash();
     ctx.tt.prefetch(tt_key);
 
-    let mut move_list = MoveList::new(board);
-    if move_list.wipeout_move.is_some() {
-        return SCORE_MAX;
-    } else if move_list.count() == 0 {
+    let moves = board.get_moves();
+    if moves == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -426,6 +424,11 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
     {
         return tt_data.score().to_disc_diff();
+    }
+
+    let mut move_list = MoveList::with_moves(board, moves);
+    if move_list.wipeout_move.is_some() {
+        return SCORE_MAX;
     }
 
     let mut best_score = -SCORE_INF;
@@ -562,10 +565,8 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         return score;
     }
 
-    let mut move_list = MoveList::new(board);
-    if move_list.wipeout_move.is_some() {
-        return SCORE_MAX;
-    } else if move_list.count() == 0 {
+    let moves = board.get_moves();
+    if moves == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
             return -null_window_search_with_ec(ctx, &next, -beta);
@@ -582,6 +583,11 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
             return entry_data.score;
         }
         tt_move = entry_data.best_move;
+    }
+
+    let mut move_list = MoveList::with_moves(board, moves);
+    if move_list.wipeout_move.is_some() {
+        return SCORE_MAX;
     }
 
     let mut best_score = -SCORE_INF;

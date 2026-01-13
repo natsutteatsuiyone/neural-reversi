@@ -313,8 +313,8 @@ pub fn evaluate_depth2(
     mut alpha: ScaledScore,
     beta: ScaledScore,
 ) -> ScaledScore {
-    let mut move_list = MoveList::new(board);
-    if move_list.count() == 0 {
+    let moves = board.get_moves();
+    if moves == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -324,6 +324,11 @@ pub fn evaluate_depth2(
         } else {
             return solve(board, ctx.empty_list.count);
         }
+    }
+
+    let mut move_list = MoveList::with_moves(board, moves);
+    if move_list.wipeout_move.is_some() {
+        return ScaledScore::MAX;
     }
 
     let mut best_score = -ScaledScore::INF;
