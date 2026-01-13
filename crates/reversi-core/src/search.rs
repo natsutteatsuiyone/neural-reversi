@@ -533,7 +533,7 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
         }
 
         // Parallel search split
-        if depth >= SP::MIN_SPLIT_DEPTH && move_iter.remaining() > 1 && thread.can_split() {
+        if depth >= SP::MIN_SPLIT_DEPTH && move_iter.remaining() >= 2 && thread.can_split() {
             let (s, m, n) = thread.split(
                 ctx,
                 board,
