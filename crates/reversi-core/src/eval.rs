@@ -4,6 +4,18 @@
 //! - Main network: Used for midgame and early positions (ply < 30)
 //! - Small network: Used for endgame positions
 
+use std::env;
+use std::io;
+use std::path::Path;
+
+use eval_cache::EvalCache;
+pub use network::Network;
+pub use network_small::NetworkSmall;
+
+use crate::board::Board;
+use crate::search::search_context::SearchContext;
+use crate::types::{ScaledScore, Score};
+
 mod activations;
 pub mod eval_cache;
 mod input_layer;
@@ -14,17 +26,14 @@ mod output_layer;
 pub mod pattern_feature;
 mod util;
 
-use std::env;
-use std::io;
-use std::path::Path;
-
-use eval_cache::EvalCache;
-pub use network::Network;
-pub use network_small::NetworkSmall;
-
-use crate::board::Board;
-use crate::search::search_context::{GamePhase, SearchContext};
-use crate::types::{ScaledScore, Score};
+/// Represents the evaluation mode for neural network selection.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EvalMode {
+    // Large network
+    Large,
+    // Small network
+    Small,
+}
 
 macro_rules! eval_main_weights_literal {
     () => {
@@ -142,7 +151,7 @@ impl Eval {
     ///
     /// The evaluation score of the current position.
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
-        if ctx.game_phase == GamePhase::MidGame || ctx.ply() < 30 {
+        if ctx.eval_mode == EvalMode::Large || ctx.ply() < 30 {
             let key = board.hash();
             if let Some(score_cache) = self.cache.probe(key) {
                 return score_cache;

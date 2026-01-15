@@ -15,6 +15,7 @@ use crate::constants::{SCORE_INF, SCORE_MAX};
 use crate::count_last_flip::count_last_flip;
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 use crate::count_last_flip::count_last_flip_double;
+use crate::eval::EvalMode;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
@@ -27,7 +28,7 @@ use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{GamePhase, SearchProgress, SearchTask, midgame, search};
+use crate::search::{SearchProgress, SearchTask, midgame, search};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
@@ -100,7 +101,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     // Configure for endgame search
     ctx.selectivity = Selectivity::None;
-    ctx.game_phase = GamePhase::EndGame;
+    ctx.eval_mode = EvalMode::Small;
 
     let pv_count = if task.multi_pv {
         ctx.root_moves_count()
@@ -160,7 +161,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                     probability: ctx.selectivity.probability(),
                     nodes: ctx.n_nodes,
                     pv_line: rm.pv.clone(),
-                    game_phase: ctx.game_phase,
+                    eval_mode: ctx.eval_mode,
                 });
             }
 
@@ -180,7 +181,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 ctx.n_nodes,
                 n_empties,
                 ctx.selectivity,
-                GamePhase::EndGame,
+                EvalMode::Small,
             );
         }
     }
@@ -193,7 +194,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         ctx.n_nodes,
         n_empties,
         ctx.selectivity,
-        GamePhase::EndGame,
+        EvalMode::Small,
     )
 }
 
@@ -248,7 +249,7 @@ fn estimate_aspiration_base_score(
     n_empties: u32,
     thread: &Arc<Thread>,
 ) -> ScaledScore {
-    ctx.game_phase = GamePhase::MidGame;
+    ctx.eval_mode = EvalMode::Large;
     ctx.selectivity = Selectivity::Level1;
     let midgame_depth = n_empties / 4;
 

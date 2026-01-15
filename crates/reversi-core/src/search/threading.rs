@@ -17,11 +17,12 @@ use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
+use crate::eval::EvalMode;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::root_move::RootMoves;
-use crate::search::search_context::{GamePhase, SearchContext};
+use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::search_split_point;
 use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
@@ -187,8 +188,8 @@ pub struct SplitPointTask {
     /// Search selectivity level (affects pruning aggressiveness).
     pub selectivity: Selectivity,
 
-    /// Current game phase (midgame or endgame).
-    pub game_phase: GamePhase,
+    /// Current evaluation mode (midgame or endgame).
+    pub eval_mode: EvalMode,
 
     /// Shared transposition table for storing search results.
     pub tt: Arc<TranspositionTable>,
@@ -572,7 +573,7 @@ impl Thread {
             tt: ctx.tt.clone(),
             root_moves: ctx.root_moves.clone(),
             eval: ctx.eval.clone(),
-            game_phase: ctx.game_phase,
+            eval_mode: ctx.eval_mode,
             empty_list: ctx.empty_list.clone(),
         });
         sp_state.n_nodes.store(0, Ordering::Relaxed);
@@ -762,8 +763,7 @@ impl Thread {
         node_type: u32,
         sp: &Arc<SplitPoint>,
     ) {
-        let is_endgame_search =
-            ctx.game_phase == GamePhase::EndGame && ctx.empty_list.count == depth;
+        let is_endgame_search = ctx.eval_mode == EvalMode::Small && ctx.empty_list.count == depth;
 
         match (is_endgame_search, node_type) {
             // Endgame searches

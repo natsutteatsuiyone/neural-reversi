@@ -1,11 +1,9 @@
 //! Search result types.
 
 use crate::{
+    eval::EvalMode,
     probcut::Selectivity,
-    search::{
-        GamePhase,
-        root_move::{RootMove, RootMoves},
-    },
+    search::root_move::{RootMove, RootMoves},
     square::Square,
     types::{Depth, Scoref},
 };
@@ -26,7 +24,7 @@ pub struct SearchResult {
     pub pv_line: Vec<Square>,
     pub depth: Depth,
     pub selectivity: Selectivity,
-    pub game_phase: GamePhase,
+    pub eval_mode: EvalMode,
     /// All evaluated moves with scores (populated in Multi-PV mode).
     pub pv_moves: Vec<PvMove>,
 }
@@ -41,7 +39,7 @@ impl SearchResult {
             pv_line: vec![],
             depth: 0,
             selectivity: Selectivity::None,
-            game_phase: GamePhase::MidGame,
+            eval_mode: EvalMode::Large,
             pv_moves: vec![],
         }
     }
@@ -55,14 +53,14 @@ impl SearchResult {
     /// * `n_nodes` - Total nodes searched.
     /// * `depth` - Search depth reached.
     /// * `selectivity` - Selectivity level used.
-    /// * `game_phase` - Current game phase.
+    /// * `eval_mode` - Current evaluation mode.
     pub fn from_root_move(
         root_moves: &RootMoves,
         best_move: &RootMove,
         n_nodes: u64,
         depth: Depth,
         selectivity: Selectivity,
-        game_phase: GamePhase,
+        eval_mode: EvalMode,
     ) -> Self {
         let pv_moves: Vec<PvMove> = root_moves.map(|rm| PvMove {
             sq: rm.sq,
@@ -77,7 +75,7 @@ impl SearchResult {
             pv_line: best_move.pv.clone(),
             depth,
             selectivity,
-            game_phase,
+            eval_mode,
             pv_moves,
         }
     }

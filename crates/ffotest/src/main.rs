@@ -388,7 +388,7 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
         pv_moves: vec![],
         depth: result.depth,
         selectivity: result.selectivity,
-        game_phase: reversi_core::search::search_context::GamePhase::EndGame,
+        eval_mode: reversi_core::eval::EvalMode::Small,
     };
     let depth_str = format_depth(&temp_result);
 
@@ -442,7 +442,7 @@ fn execute(
             pv_moves: vec![],
             depth: result.depth,
             selectivity: result.selectivity,
-            game_phase: reversi_core::search::search_context::GamePhase::EndGame,
+            eval_mode: reversi_core::eval::EvalMode::Small,
         };
         stats.update(result.elapsed, &search_result, test_case);
         print_test_result(test_case, &result);

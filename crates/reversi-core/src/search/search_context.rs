@@ -7,6 +7,7 @@ use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
+use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
 use crate::search::root_move::{RootMove, RootMoves};
@@ -15,15 +16,6 @@ use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::ScaledScore;
-
-/// Represents the current phase of the game for search strategy selection.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum GamePhase {
-    /// Midgame phase using the regular neural network model.
-    MidGame,
-    /// Endgame phase using the smaller neural network model.
-    EndGame,
-}
 
 /// A record stored for each ply in the search stack.
 #[derive(Clone, Copy)]
@@ -52,8 +44,8 @@ pub struct SearchContext {
     pub pattern_features: PatternFeatures,
     /// Search stack for maintaining PV and search state at each ply
     stack: [StackRecord; MAX_PLY],
-    /// Current phase of the game (midgame vs endgame)
-    pub game_phase: GamePhase,
+    /// Current evaluation mode (midgame vs endgame).
+    pub eval_mode: EvalMode,
 }
 
 impl SearchContext {
@@ -84,7 +76,7 @@ impl SearchContext {
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
             }; MAX_PLY],
-            game_phase: GamePhase::MidGame,
+            eval_mode: EvalMode::Large,
         }
     }
 
@@ -115,7 +107,7 @@ impl SearchContext {
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
             }; MAX_PLY],
-            game_phase: task.game_phase,
+            eval_mode: task.eval_mode,
         }
     }
 

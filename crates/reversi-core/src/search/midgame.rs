@@ -9,13 +9,13 @@ use std::sync::Arc;
 use rand::seq::IteratorRandom;
 
 use crate::board::Board;
+use crate::eval::EvalMode;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::node_type::NonPV;
 use crate::search::node_type::Root;
-use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::MidGameStrategy;
@@ -44,7 +44,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let use_time_control = time_manager.is_some();
 
     let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
-    ctx.game_phase = GamePhase::MidGame;
+    ctx.eval_mode = EvalMode::Large;
 
     let n_empties = ctx.empty_list.count;
 
@@ -113,7 +113,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                     probability: ctx.selectivity.probability(),
                     nodes: ctx.n_nodes,
                     pv_line: rm.pv.clone(),
-                    game_phase: ctx.game_phase,
+                    eval_mode: ctx.eval_mode,
                 });
             }
         }
@@ -137,7 +137,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 ctx.n_nodes,
                 depth.min(n_empties),
                 ctx.selectivity,
-                GamePhase::MidGame,
+                EvalMode::Large,
             );
         }
 
@@ -155,7 +155,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         ctx.n_nodes,
         max_depth.min(n_empties),
         ctx.selectivity,
-        GamePhase::MidGame,
+        EvalMode::Large,
     )
 }
 

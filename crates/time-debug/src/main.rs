@@ -6,10 +6,10 @@ use clap::{Parser, ValueEnum};
 use colored::Colorize;
 
 use reversi_core::disc::Disc;
+use reversi_core::eval::EvalMode;
 use reversi_core::game_state::GameState;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
-use reversi_core::search::search_context::GamePhase;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{Search, SearchProgress, SearchRunOptions};
 
@@ -429,9 +429,9 @@ fn play_game(
         // Check for timeout
         let has_time = player_time.use_time(elapsed_ms);
         if !has_time {
-            let phase_str = match result.game_phase {
-                GamePhase::MidGame => "Mid",
-                GamePhase::EndGame => "End",
+            let phase_str = match result.eval_mode {
+                EvalMode::Large => "Mid",
+                EvalMode::Small => "End",
             };
             let nps = if elapsed_ms > 0 {
                 result.n_nodes * 1000 / elapsed_ms
@@ -482,9 +482,9 @@ fn play_game(
                 format!("{elapsed_ms}").green()
             };
 
-            let phase_str = match result.game_phase {
-                GamePhase::MidGame => "Mid".cyan(),
-                GamePhase::EndGame => "End".magenta(),
+            let phase_str = match result.eval_mode {
+                EvalMode::Large => "Mid".cyan(),
+                EvalMode::Small => "End".magenta(),
             };
 
             let (nps, nodes_str) = if elapsed_ms > 0 {

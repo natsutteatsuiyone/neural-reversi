@@ -21,10 +21,11 @@ use crate::eval::Eval;
 use crate::level::Level;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 
+use crate::eval::EvalMode;
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::options::SearchOptions;
-use crate::search::search_context::{GamePhase, SearchContext};
+use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::SearchStrategy;
 use crate::search::threading::{SplitPoint, Thread, ThreadPool};
@@ -66,7 +67,7 @@ pub struct SearchProgress {
     pub probability: i32,
     pub nodes: u64,
     pub pv_line: Vec<Square>,
-    pub game_phase: GamePhase,
+    pub eval_mode: EvalMode,
 }
 
 /// Type alias for search progress callback.
@@ -162,7 +163,7 @@ impl Search {
                 best_move: result.best_move.unwrap_or(Square::None),
                 nodes: result.n_nodes,
                 pv_line: result.pv_line.clone(),
-                game_phase: result.game_phase,
+                eval_mode: result.eval_mode,
             });
         }
 
@@ -261,7 +262,7 @@ impl Search {
                 pv_line: vec![],
                 depth: 0,
                 selectivity: Selectivity::None,
-                game_phase: GamePhase::MidGame,
+                eval_mode: EvalMode::Large,
                 pv_moves: vec![],
             };
         }
@@ -290,7 +291,7 @@ impl Search {
             pv_line: vec![best_move],
             depth: 1,
             selectivity: Selectivity::None,
-            game_phase: GamePhase::MidGame,
+            eval_mode: EvalMode::Large,
             pv_moves: vec![],
         }
     }

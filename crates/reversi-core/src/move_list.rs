@@ -8,10 +8,11 @@ use std::sync::atomic;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
+use crate::eval::EvalMode;
 use crate::flip;
 use crate::probcut;
 use crate::search::midgame;
-use crate::search::search_context::{GamePhase, SearchContext};
+use crate::search::search_context::SearchContext;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 
@@ -201,11 +202,11 @@ impl MoveList {
             return;
         }
 
-        match ctx.game_phase {
-            GamePhase::MidGame => {
+        match ctx.eval_mode {
+            EvalMode::Large => {
                 self.evaluate_moves_midgame(ctx, board, depth, tt_move);
             }
-            GamePhase::EndGame => {
+            EvalMode::Small => {
                 self.evaluate_moves_endgame(ctx, board, depth, tt_move);
             }
         }

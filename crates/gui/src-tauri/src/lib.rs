@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use reversi_core::disc::Disc;
+use reversi_core::eval::EvalMode;
 use reversi_core::level::get_level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
-use reversi_core::search::search_context::GamePhase;
 use reversi_core::search::{SearchRunOptions, time_control::TimeControlMode};
 use reversi_core::types::Scoref;
 use reversi_core::{board, search};
@@ -108,7 +108,7 @@ async fn ai_move_command(
                     .map(|sq| format!("{}", sq))
                     .collect::<Vec<_>>()
                     .join(" "),
-                is_endgame: progress.game_phase == GamePhase::EndGame,
+                is_endgame: progress.eval_mode == EvalMode::Small,
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
@@ -193,7 +193,7 @@ async fn analyze_command(
                     .map(|sq| format!("{}", sq))
                     .collect::<Vec<_>>()
                     .join(" "),
-                is_endgame: progress.game_phase == GamePhase::EndGame,
+                is_endgame: progress.eval_mode == EvalMode::Small,
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
