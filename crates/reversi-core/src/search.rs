@@ -31,8 +31,9 @@ use crate::search::time_control::TimeManager;
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::{Bound, TranspositionTable};
-use crate::types::{Depth, ScaledScore, Scoref, Selectivity};
+use crate::types::{Depth, ScaledScore, Scoref};
 use crate::{probcut, stability};
+use crate::probcut::Selectivity;
 
 /// Main search engine structure.
 pub struct Search {

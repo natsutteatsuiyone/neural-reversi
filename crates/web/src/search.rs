@@ -11,11 +11,12 @@ use rand::seq::IteratorRandom;
 use reversi_core::{
     board::Board,
     flip,
+    probcut::Selectivity,
     search::node_type::{NodeType, NonPV, PV, Root},
     square::Square,
     stability,
     transposition_table::{Bound, TranspositionTable},
-    types::{Depth, ScaledScore, Selectivity},
+    types::{Depth, ScaledScore},
 };
 
 use crate::{

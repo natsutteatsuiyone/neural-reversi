@@ -8,8 +8,8 @@ use reversi_core::{
     board::Board,
     disc::Disc,
     level::{Level, get_level},
+    probcut::Selectivity,
     search::{Search, SearchRunOptions},
-    types::Selectivity,
 };
 
 #[allow(clippy::too_many_arguments)]

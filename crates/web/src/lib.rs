@@ -18,7 +18,8 @@ use reversi_core::move_list::MoveList;
 use reversi_core::search::side_to_move::SideToMove;
 use reversi_core::square::{Square, TOTAL_SQUARES};
 use reversi_core::transposition_table::TranspositionTable;
-use reversi_core::types::{Depth, Selectivity};
+use reversi_core::probcut::Selectivity;
+use reversi_core::types::Depth;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 

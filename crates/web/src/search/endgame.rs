@@ -8,8 +8,8 @@ use reversi_core::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGa
 use reversi_core::search::node_type::NonPV;
 use reversi_core::square::Square;
 use reversi_core::transposition_table::Bound;
-use reversi_core::types::ScaledScore;
-use reversi_core::types::{Depth, Score, Selectivity};
+use reversi_core::probcut::Selectivity;
+use reversi_core::types::{Depth, ScaledScore, Score};
 use reversi_core::{bitboard, stability};
 
 use crate::move_list::{MoveList, evaluate_moves_fast};

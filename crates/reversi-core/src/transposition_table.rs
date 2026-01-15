@@ -2,7 +2,8 @@
 
 use crate::search::node_type::NodeType;
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore, Selectivity};
+use crate::probcut::Selectivity;
+use crate::types::{Depth, ScaledScore};
 use aligned_vec::{AVec, ConstAlign};
 use cfg_if::cfg_if;
 use std::{

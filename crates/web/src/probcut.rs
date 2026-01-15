@@ -2,8 +2,9 @@ use std::sync::OnceLock;
 
 use reversi_core::{
     board::Board,
+    probcut::Selectivity,
     search::node_type::NonPV,
-    types::{Depth, ScaledScore, Selectivity},
+    types::{Depth, ScaledScore},
 };
 
 use crate::search::{self, search_context::SearchContext};

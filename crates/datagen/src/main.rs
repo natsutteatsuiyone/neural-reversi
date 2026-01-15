@@ -5,7 +5,8 @@ mod selfplay;
 mod shuffle;
 
 use clap::{Parser, Subcommand};
-use reversi_core::types::{Depth, Selectivity};
+use reversi_core::probcut::Selectivity;
+use reversi_core::types::Depth;
 
 #[derive(Parser, Debug)]
 struct Cli {

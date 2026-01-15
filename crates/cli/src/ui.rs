@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use reversi_core::types::Selectivity;
+use reversi_core::probcut::Selectivity;
 
 use crate::tui;
 

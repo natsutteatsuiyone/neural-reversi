@@ -17,9 +17,10 @@ use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     self,
     level::Level,
+    probcut::Selectivity,
     search::{self, SearchRunOptions, options::SearchOptions, search_result::SearchResult},
     square::Square,
-    types::{Depth, Scoref, Selectivity},
+    types::{Depth, Scoref},
 };
 use std::time::Instant;
 use test_case::TestCase;

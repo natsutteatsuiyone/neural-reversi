@@ -30,7 +30,8 @@ use crate::search::{GamePhase, SearchProgress, SearchTask, midgame, search};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, ScaledScore, Score, Selectivity};
+use crate::probcut::Selectivity;
+use crate::types::{Depth, ScaledScore, Score};
 
 /// Quadrant masks for move ordering in shallow search.
 #[rustfmt::skip]

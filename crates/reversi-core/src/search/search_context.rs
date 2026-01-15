@@ -13,7 +13,8 @@ use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{ScaledScore, Selectivity};
+use crate::probcut::Selectivity;
+use crate::types::ScaledScore;
 
 /// Represents the current phase of the game for search strategy selection.
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -7,10 +7,11 @@ use reversi_core::{
     constants::MAX_PLY,
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
+    probcut::Selectivity,
     search::{root_move::RootMove, search_context::StackRecord, side_to_move::SideToMove},
     square::Square,
     transposition_table::TranspositionTable,
-    types::{Depth, ScaledScore, Scoref, Selectivity},
+    types::{Depth, ScaledScore, Scoref},
 };
 
 use crate::{eval::Eval, move_list::MoveList};

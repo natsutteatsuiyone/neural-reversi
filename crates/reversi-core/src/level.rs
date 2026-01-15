@@ -1,6 +1,7 @@
 //! Game difficulty levels and search depth configuration.
 
-use crate::types::{Depth, Selectivity};
+use crate::probcut::Selectivity;
+use crate::types::Depth;
 
 /// Represents a difficulty level with associated search depths.
 ///

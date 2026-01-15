@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::constants::MAX_THREADS;
 use crate::level::Level;
-use crate::types::Selectivity;
+use crate::probcut::Selectivity;
 
 use super::SearchProgressCallback;
 use super::time_control::TimeControlMode;

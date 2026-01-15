@@ -1,6 +1,7 @@
 use reversi_core::{
+    probcut::Selectivity,
     square::Square,
-    types::{Depth, Scoref, Selectivity},
+    types::{Depth, Scoref},
 };
 
 pub struct SearchResult {

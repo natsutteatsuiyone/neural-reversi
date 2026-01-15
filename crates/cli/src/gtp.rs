@@ -11,9 +11,9 @@
 use reversi_core::{
     disc::Disc,
     level::get_level,
+    probcut::Selectivity,
     search::{self, SearchRunOptions, options::SearchOptions, time_control::TimeControlMode},
     square::Square,
-    types::Selectivity,
 };
 
 use crate::game::GameState;

@@ -7,7 +7,7 @@ mod ui;
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use reversi_core::types::Selectivity;
+use reversi_core::probcut::Selectivity;
 
 #[derive(Parser, Debug, Clone)]
 struct EngineParams {

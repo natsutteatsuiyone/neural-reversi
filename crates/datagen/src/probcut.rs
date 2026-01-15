@@ -19,9 +19,10 @@ use reversi_core::{
     board::Board,
     disc::Disc,
     level::get_level,
+    probcut::Selectivity,
     search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
-    types::{Depth, Scoref, Selectivity},
+    types::{Depth, Scoref},
 };
 
 /// Transposition table size in MB for search

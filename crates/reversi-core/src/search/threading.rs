@@ -28,7 +28,8 @@ use crate::search::side_to_move::SideToMove;
 use crate::search::{self, SearchTask, time_control::TimeManager};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, ScaledScore, Selectivity};
+use crate::probcut::Selectivity;
+use crate::types::{Depth, ScaledScore};
 use crate::util::bitset::AtomicBitSet;
 use crate::util::spinlock;
 

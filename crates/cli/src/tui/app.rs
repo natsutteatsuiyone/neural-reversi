@@ -12,7 +12,7 @@ use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_result::{PvMove, SearchResult};
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
-use reversi_core::types::Selectivity;
+use reversi_core::probcut::Selectivity;
 
 use crate::game::GameState;
 

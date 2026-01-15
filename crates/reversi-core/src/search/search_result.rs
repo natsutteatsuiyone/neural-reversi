@@ -1,12 +1,13 @@
 //! Search result types.
 
 use crate::{
+    probcut::Selectivity,
     search::{
         GamePhase,
         root_move::{RootMove, RootMoves},
     },
     square::Square,
-    types::{Depth, Scoref, Selectivity},
+    types::{Depth, Scoref},
 };
 
 /// Represents a single move with its evaluation score for Multi-PV results.

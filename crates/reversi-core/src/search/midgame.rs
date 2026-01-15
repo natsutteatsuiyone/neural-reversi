@@ -22,7 +22,8 @@ use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
 use crate::search::{SearchProgress, SearchTask, endgame, search};
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore, Selectivity};
+use crate::probcut::Selectivity;
+use crate::types::{Depth, ScaledScore};
 
 /// Initial aspiration window delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);

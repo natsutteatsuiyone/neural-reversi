@@ -5,7 +5,8 @@ use reversi_core::level::get_level;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_context::GamePhase;
 use reversi_core::search::{SearchRunOptions, time_control::TimeControlMode};
-use reversi_core::types::{Scoref, Selectivity};
+use reversi_core::probcut::Selectivity;
+use reversi_core::types::Scoref;
 use reversi_core::{board, search};
 use tauri::{AppHandle, Emitter, Manager, State};
 
