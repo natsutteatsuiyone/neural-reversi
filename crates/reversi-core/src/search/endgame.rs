@@ -702,28 +702,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     if tt_move != Square::None && moves.contains(tt_move) {
         moves &= !tt_move.bitboard();
 
-        let next = board.make_move(tt_move);
-        ctx.update_endgame(tt_move);
-        let score = if ctx.empty_list.count == 4 {
-            let next_key = next.hash();
-            let entry = probe_endgame_cache(next_key);
-            let next_beta = -beta + 1;
-            if let Some(entry_data) = &entry
-                && entry_data.can_cut(next_beta)
-            {
-                -entry_data.score
-            } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
-                -score
-            } else {
-                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
-                let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
-                store_endgame_cache(next_key, next_beta, score, Square::None);
-                -score
-            }
-        } else {
-            -shallow_search(ctx, &next, -beta)
-        };
-        ctx.undo_endgame(tt_move);
+        let score = shallow_search_move(ctx, board, tt_move, beta);
 
         if score >= beta {
             store_endgame_cache(key, beta, score, tt_move);
@@ -800,6 +779,45 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     best_score
 }
 
+/// Evaluates a single move in shallow search.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `sq` - Square to move to.
+/// * `beta` - Beta bound.
+///
+/// # Returns
+///
+/// Score after making move.
+#[inline(always)]
+fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta: Score) -> Score {
+    let next = board.make_move(sq);
+    ctx.update_endgame(sq);
+    let score = if ctx.empty_list.count == 4 {
+        let next_key = next.hash();
+        let entry = probe_endgame_cache(next_key);
+        let next_beta = -beta + 1;
+        if let Some(entry_data) = &entry
+            && entry_data.can_cut(next_beta)
+        {
+            -entry_data.score
+        } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
+            -score
+        } else {
+            let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+            let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
+            store_endgame_cache(next_key, next_beta, score, Square::None);
+            -score
+        }
+    } else {
+        -shallow_search(ctx, &next, -beta)
+    };
+    ctx.undo_endgame(sq);
+    score
+}
+
 /// Searches all moves in a bitboard for shallow search.
 ///
 /// # Arguments
@@ -829,28 +847,7 @@ fn shallow_search_moves(
         let (sq, rest) = moves.pop_lsb();
         moves = rest;
 
-        let next = board.make_move(sq);
-        ctx.update_endgame(sq);
-        let score = if ctx.empty_list.count == 4 {
-            let next_key = next.hash();
-            let entry = probe_endgame_cache(next_key);
-            let next_beta = -beta + 1;
-            if let Some(entry_data) = &entry
-                && entry_data.can_cut(next_beta)
-            {
-                -entry_data.score
-            } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
-                -score
-            } else {
-                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
-                let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
-                store_endgame_cache(next_key, next_beta, score, Square::None);
-                -score
-            }
-        } else {
-            -shallow_search(ctx, &next, -beta)
-        };
-        ctx.undo_endgame(sq);
+        let score = shallow_search_move(ctx, board, sq, beta);
 
         if score > *best_score {
             if score >= beta {
