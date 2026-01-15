@@ -674,48 +674,6 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         return score;
     }
 
-    #[inline(always)]
-    fn search_move(
-        ctx: &mut SearchContext,
-        board: &Board,
-        sq: Square,
-        beta: Score,
-        best_score: &mut Score,
-        best_move: &mut Square,
-    ) -> Option<Score> {
-        let next = board.make_move(sq);
-        ctx.update_endgame(sq);
-        let score = if ctx.empty_list.count == 4 {
-            let key = next.hash();
-            let entry = probe_endgame_cache(key);
-            let next_beta = -beta + 1;
-            if let Some(entry_data) = &entry
-                && entry_data.can_cut(next_beta)
-            {
-                -entry_data.score
-            } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
-                -score
-            } else {
-                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
-                let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
-                store_endgame_cache(key, next_beta, score, Square::None);
-                -score
-            }
-        } else {
-            -shallow_search(ctx, &next, -beta)
-        };
-        ctx.undo_endgame(sq);
-
-        if score > *best_score {
-            if score >= beta {
-                return Some(score);
-            }
-            *best_move = sq;
-            *best_score = score;
-        }
-        None
-    }
-
     let mut moves = board.get_moves();
     if moves.is_empty() {
         let next = board.switch_players();
@@ -743,11 +701,35 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     // Search tt_move first if valid (now validated against moves bitboard)
     if tt_move != Square::None && moves.contains(tt_move) {
         moves &= !tt_move.bitboard();
-        if let Some(score) = search_move(ctx, board, tt_move, beta, &mut best_score, &mut best_move)
-        {
+
+        let next = board.make_move(tt_move);
+        ctx.update_endgame(tt_move);
+        let score = if ctx.empty_list.count == 4 {
+            let next_key = next.hash();
+            let entry = probe_endgame_cache(next_key);
+            let next_beta = -beta + 1;
+            if let Some(entry_data) = &entry
+                && entry_data.can_cut(next_beta)
+            {
+                -entry_data.score
+            } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
+                -score
+            } else {
+                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+                let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
+                store_endgame_cache(next_key, next_beta, score, Square::None);
+                -score
+            }
+        } else {
+            -shallow_search(ctx, &next, -beta)
+        };
+        ctx.undo_endgame(tt_move);
+
+        if score >= beta {
             store_endgame_cache(key, beta, score, tt_move);
             return score;
         }
+        best_score = score;
         best_move = tt_move;
     }
 
@@ -762,56 +744,100 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     let remaining_moves = moves & !quadrant_mask;
 
     // Process corners first within priority moves
-    let mut current = priority_moves.corners();
-    while !current.is_empty() {
-        let (sq, rest) = current.pop_lsb();
-        current = rest;
-
-        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
-            store_endgame_cache(key, beta, score, sq);
-            return score;
-        }
+    if let Some(score) = shallow_search_moves(
+        ctx, board, priority_moves.corners(), key, beta, &mut best_score, &mut best_move,
+    ) {
+        return score;
     }
 
     // Process non-corner priority moves
-    current = priority_moves.non_corners();
-    while !current.is_empty() {
-        let (sq, rest) = current.pop_lsb();
-        current = rest;
-
-        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
-            store_endgame_cache(key, beta, score, sq);
-            return score;
-        }
+    if let Some(score) = shallow_search_moves(
+        ctx, board, priority_moves.non_corners(), key, beta, &mut best_score, &mut best_move,
+    ) {
+        return score;
     }
 
     // Process corners first within remaining moves
-    current = remaining_moves.corners();
-    while !current.is_empty() {
-        let (sq, rest) = current.pop_lsb();
-        current = rest;
-
-        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
-            store_endgame_cache(key, beta, score, sq);
-            return score;
-        }
+    if let Some(score) = shallow_search_moves(
+        ctx, board, remaining_moves.corners(), key, beta, &mut best_score, &mut best_move,
+    ) {
+        return score;
     }
 
     // Process non-corner remaining moves
-    current = remaining_moves.non_corners();
-    while !current.is_empty() {
-        let (sq, rest) = current.pop_lsb();
-        current = rest;
-
-        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
-            store_endgame_cache(key, beta, score, sq);
-            return score;
-        }
+    if let Some(score) = shallow_search_moves(
+        ctx, board, remaining_moves.non_corners(), key, beta, &mut best_score, &mut best_move,
+    ) {
+        return score;
     }
 
     store_endgame_cache(key, beta, best_score, best_move);
 
     best_score
+}
+
+/// Searches all moves in a bitboard for shallow search.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `moves` - Bitboard of moves to search.
+/// * `key` - Hash key for endgame cache.
+/// * `beta` - Beta bound.
+/// * `best_score` - Current best score (updated if better move found).
+/// * `best_move` - Current best move (updated if better move found).
+///
+/// # Returns
+///
+/// `Some(score)` if beta cutoff occurs, `None` otherwise.
+#[inline(always)]
+fn shallow_search_moves(
+    ctx: &mut SearchContext,
+    board: &Board,
+    mut moves: Bitboard,
+    key: u64,
+    beta: Score,
+    best_score: &mut Score,
+    best_move: &mut Square,
+) -> Option<Score> {
+    while !moves.is_empty() {
+        let (sq, rest) = moves.pop_lsb();
+        moves = rest;
+
+        let next = board.make_move(sq);
+        ctx.update_endgame(sq);
+        let score = if ctx.empty_list.count == 4 {
+            let next_key = next.hash();
+            let entry = probe_endgame_cache(next_key);
+            let next_beta = -beta + 1;
+            if let Some(entry_data) = &entry
+                && entry_data.can_cut(next_beta)
+            {
+                -entry_data.score
+            } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
+                -score
+            } else {
+                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+                let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
+                store_endgame_cache(next_key, next_beta, score, Square::None);
+                -score
+            }
+        } else {
+            -shallow_search(ctx, &next, -beta)
+        };
+        ctx.undo_endgame(sq);
+
+        if score > *best_score {
+            if score >= beta {
+                store_endgame_cache(key, beta, score, sq);
+                return Some(score);
+            }
+            *best_move = sq;
+            *best_score = score;
+        }
+    }
+    None
 }
 
 /// Sorts the four remaining empty squares based on quadrant parity.
