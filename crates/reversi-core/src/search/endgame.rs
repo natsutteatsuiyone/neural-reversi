@@ -745,28 +745,52 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 
     // Process corners first within priority moves
     if let Some(score) = shallow_search_moves(
-        ctx, board, priority_moves.corners(), key, beta, &mut best_score, &mut best_move,
+        ctx,
+        board,
+        priority_moves.corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
     ) {
         return score;
     }
 
     // Process non-corner priority moves
     if let Some(score) = shallow_search_moves(
-        ctx, board, priority_moves.non_corners(), key, beta, &mut best_score, &mut best_move,
+        ctx,
+        board,
+        priority_moves.non_corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
     ) {
         return score;
     }
 
     // Process corners first within remaining moves
     if let Some(score) = shallow_search_moves(
-        ctx, board, remaining_moves.corners(), key, beta, &mut best_score, &mut best_move,
+        ctx,
+        board,
+        remaining_moves.corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
     ) {
         return score;
     }
 
     // Process non-corner remaining moves
     if let Some(score) = shallow_search_moves(
-        ctx, board, remaining_moves.non_corners(), key, beta, &mut best_score, &mut best_move,
+        ctx,
+        board,
+        remaining_moves.non_corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
     ) {
         return score;
     }
