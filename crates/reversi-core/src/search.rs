@@ -545,6 +545,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 depth,
                 &move_iter,
                 NT::TYPE_ID,
+                SS::IS_ENDGAME,
             );
             best_score = s;
             best_move = m;

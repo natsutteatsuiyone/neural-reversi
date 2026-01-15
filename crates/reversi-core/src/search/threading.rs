@@ -89,6 +89,9 @@ pub struct SplitPointState {
 
     /// Principal variation line from the best move found at this split point.
     pv: [Square; MAX_PLY],
+
+    /// Whether this split point uses endgame search strategy.
+    is_endgame: bool,
 }
 
 impl SplitPointState {
@@ -236,6 +239,7 @@ impl Default for SplitPoint {
                 task: None,
                 parent_split_point: None,
                 pv: [Square::None; MAX_PLY],
+                is_endgame: false,
             }),
         }
     }
@@ -502,6 +506,7 @@ impl Thread {
         depth: Depth,
         move_iter: &Arc<ConcurrentMoveIterator>,
         node_type: u32,
+        is_endgame: bool,
     ) -> (ScaledScore, Square, u64) {
         let th_state = self.state();
         // Pick the next available split point
@@ -510,6 +515,7 @@ impl Thread {
         // Initialize the split point with search parameters
         self.initialize_split_point(
             sp, ctx, depth, best_score, best_move, alpha, beta, node_type, move_iter, board,
+            is_endgame,
         );
 
         // Enter idle loop as owner thread - will return when all helpers finish
@@ -546,6 +552,7 @@ impl Thread {
         node_type: u32,
         move_iter: &Arc<ConcurrentMoveIterator>,
         board: &Board,
+        is_endgame: bool,
     ) {
         let th_state = self.state_mut();
         debug_assert!(self.searching.load(Ordering::Acquire));
@@ -580,6 +587,7 @@ impl Thread {
         sp_state.set_cutoff(false);
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
         sp_state.copy_pv(ctx.get_pv()); // Initialize PV from coordinator's current PV
+        sp_state.is_endgame = is_endgame;
 
         th_state.split_points_size += 1;
         th_state.active_split_point = Some(sp.clone());
@@ -754,7 +762,7 @@ impl Thread {
         }
     }
 
-    /// Dispatches to the appropriate search function based on game phase and node type.
+    /// Dispatches to the appropriate search function based on search strategy and node type.
     fn dispatch_search(
         self: &Arc<Self>,
         ctx: &mut SearchContext,
@@ -763,9 +771,7 @@ impl Thread {
         node_type: u32,
         sp: &Arc<SplitPoint>,
     ) {
-        let is_endgame_search = ctx.eval_mode == EvalMode::Small && ctx.empty_list.count == depth;
-
-        match (is_endgame_search, node_type) {
+        match (sp.state().is_endgame, node_type) {
             // Endgame searches
             (true, NonPV::TYPE_ID) => {
                 search_split_point::<NonPV, EndGameStrategy>(ctx, board, depth, self, sp);
