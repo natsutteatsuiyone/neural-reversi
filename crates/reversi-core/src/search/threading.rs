@@ -737,14 +737,18 @@ impl Thread {
                     // Mark thread as actively searching
                     thread.searching.store(true, Ordering::Release);
 
+                    // Keep a reference to the pool before task is consumed
+                    let pool = task.pool.clone();
+
                     // Wake up worker threads to participate in parallel search
-                    task.pool.notify_all();
+                    pool.notify_all();
 
                     // Execute root search - this is where the main work happens
                     let result = search::search_root(task, &thread);
 
                     // Search complete - update state and send result
                     thread.searching.store(false, Ordering::Release);
+                    pool.thinking.store(false, Ordering::Release);
 
                     // Send result back to caller
                     // Ignore error if receiver was dropped (caller gave up waiting)
