@@ -2,6 +2,7 @@
 
 use cfg_if::cfg_if;
 
+use crate::bitboard::Bitboard;
 use crate::square::Square;
 
 cfg_if! {
@@ -23,12 +24,12 @@ cfg_if! {
 ///
 /// Returns twice the actual number of flipped discs for optimization purposes.
 #[inline(always)]
-pub fn count_last_flip(player: u64, sq: Square) -> i32 {
+pub fn count_last_flip(player: Bitboard, sq: Square) -> i32 {
     cfg_if! {
         if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
-            unsafe { count_last_flip_bmi2::count_last_flip(player, sq) }
+            unsafe { count_last_flip_bmi2::count_last_flip(player.0, sq) }
         } else {
-            count_last_flip_kindergarten::count_last_flip(player, sq)
+            count_last_flip_kindergarten::count_last_flip(player.0, sq)
         }
     }
 }
@@ -46,6 +47,6 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
 /// A tuple of `(player_flipped, opponent_flipped)` where values are twice the actual flip count.
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[inline(always)]
-pub fn count_last_flip_double(player: u64, opponent: u64, sq: Square) -> (i32, i32) {
-    unsafe { count_last_flip_bmi2::count_last_flip_double(player, opponent, sq) }
+pub fn count_last_flip_double(player: Bitboard, opponent: Bitboard, sq: Square) -> (i32, i32) {
+    unsafe { count_last_flip_bmi2::count_last_flip_double(player.0, opponent.0, sq) }
 }

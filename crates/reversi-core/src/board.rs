@@ -3,7 +3,7 @@
 use std::fmt;
 use std::hash::Hash;
 
-use crate::bitboard;
+use crate::bitboard::Bitboard;
 use crate::disc::Disc;
 use crate::flip;
 use crate::square::Square;
@@ -16,9 +16,9 @@ use crate::square::Square;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Board {
     /// Bitboard representing the player's discs.
-    pub player: u64,
+    pub player: Bitboard,
     /// Bitboard representing the opponent's discs.
-    pub opponent: u64,
+    pub opponent: Bitboard,
 }
 
 impl Default for Board {
@@ -52,8 +52,11 @@ impl Board {
     ///
     /// # Returns
     /// A new `Board` instance.
-    pub fn from_bitboards(player: u64, opponent: u64) -> Board {
-        Board { player, opponent }
+    pub fn from_bitboards(player: impl Into<Bitboard>, opponent: impl Into<Bitboard>) -> Board {
+        Board {
+            player: player.into(),
+            opponent: opponent.into(),
+        }
     }
 
     /// Creates a `Board` from a string representation.
@@ -71,16 +74,17 @@ impl Board {
     /// # Returns
     /// A new `Board` instance.
     pub fn from_string(board_string: &str, current_player: Disc) -> Board {
-        let mut player: u64 = 0;
-        let mut opponent: u64 = 0;
+        let mut player = Bitboard::new(0);
+        let mut opponent = Bitboard::new(0);
         for (sq, c) in board_string.chars().enumerate() {
+            let square = Square::from_usize_unchecked(sq);
             if c == current_player.to_char() {
-                player = bitboard::set(player, Square::from_usize_unchecked(sq));
+                player = player.set(square);
             } else if c != '-' {
-                opponent = bitboard::set(opponent, Square::from_usize_unchecked(sq));
+                opponent = opponent.set(square);
             }
         }
-        Board::from_bitboards(player, opponent)
+        Board { player, opponent }
     }
 
     /// Gets the disc at a specific square from the perspective of the current player.
@@ -93,9 +97,9 @@ impl Board {
     /// The disc at the specified square (current player's disc, opponent's disc, or empty).
     #[inline]
     pub fn get_disc_at(&self, sq: Square, side_to_move: Disc) -> Disc {
-        if bitboard::is_set(self.player, sq) {
+        if self.player.contains(sq) {
             side_to_move
-        } else if bitboard::is_set(self.opponent, sq) {
+        } else if self.opponent.contains(sq) {
             side_to_move.opposite()
         } else {
             Disc::Empty
@@ -119,10 +123,10 @@ impl Board {
     /// Gets the empty squares.
     ///
     /// # Returns
-    /// A `u64` value representing the empty squares.
-    #[inline]
-    pub fn get_empty(&self) -> u64 {
-        bitboard::empty_board(self.player, self.opponent)
+    /// A `Bitboard` value representing the empty squares.
+    #[inline(always)]
+    pub fn get_empty(&self) -> Bitboard {
+        !(self.player | self.opponent)
     }
 
     /// Returns the number of discs the current player has on the board.
@@ -130,9 +134,9 @@ impl Board {
     /// # Returns
     ///
     /// The number of discs the current player has on the board.
-    #[inline]
+    #[inline(always)]
     pub fn get_player_count(&self) -> u32 {
-        self.player.count_ones()
+        self.player.count()
     }
 
     /// Returns the number of discs the opponent has on the board.
@@ -140,9 +144,9 @@ impl Board {
     /// # Returns
     ///
     /// The number of discs the opponent has on the board.
-    #[inline]
+    #[inline(always)]
     pub fn get_opponent_count(&self) -> u32 {
-        self.opponent.count_ones()
+        self.opponent.count()
     }
 
     /// Returns the number of empty squares on the board.
@@ -150,16 +154,16 @@ impl Board {
     /// # Returns
     ///
     /// The number of empty squares on the board.
-    #[inline]
+    #[inline(always)]
     pub fn get_empty_count(&self) -> u32 {
-        self.get_empty().count_ones()
+        self.get_empty().count()
     }
 
     /// Switches the players.
     ///
     /// # Returns
     /// A new `Board` instance with the players switched.
-    #[inline]
+    #[inline(always)]
     pub fn switch_players(&self) -> Board {
         Board {
             player: self.opponent,
@@ -176,18 +180,18 @@ impl Board {
     /// `Some(Board)` with the updated board if the move is valid, `None` otherwise.
     #[inline]
     pub fn try_make_move(&self, sq: Square) -> Option<Board> {
-        if !bitboard::has_adjacent_bit(self.opponent, sq) {
+        if !self.opponent.has_adjacent_bit(sq) {
             return None;
         }
 
         let flipped = flip::flip(sq, self.player, self.opponent);
-        if flipped == 0 {
+        if flipped.is_empty() {
             return None;
         }
 
         Some(Board {
-            player: bitboard::opponent_flip(self.opponent, flipped),
-            opponent: bitboard::player_flip(self.player, flipped, sq),
+            player: self.opponent.apply_flip(flipped),
+            opponent: self.player.apply_move(flipped, sq),
         })
     }
 
@@ -202,13 +206,13 @@ impl Board {
     /// # Panics
     ///
     /// Panics if the move is invalid.
-    #[inline]
+    #[inline(always)]
     pub fn make_move(&self, sq: Square) -> Board {
         let flipped = flip::flip(sq, self.player, self.opponent);
-        debug_assert!(flipped != 0);
+        debug_assert!(!flipped.is_empty());
         Board {
-            player: bitboard::opponent_flip(self.opponent, flipped),
-            opponent: bitboard::player_flip(self.player, flipped, sq),
+            player: self.opponent.apply_flip(flipped),
+            opponent: self.player.apply_move(flipped, sq),
         }
     }
 
@@ -220,11 +224,11 @@ impl Board {
     ///
     /// # Returns
     /// A new `Board` instance with the updated board state after the move.
-    #[inline]
-    pub fn make_move_with_flipped(&self, flipped: u64, sq: Square) -> Board {
+    #[inline(always)]
+    pub fn make_move_with_flipped(&self, flipped: Bitboard, sq: Square) -> Board {
         Board {
-            player: bitboard::opponent_flip(self.opponent, flipped),
-            opponent: bitboard::player_flip(self.player, flipped, sq),
+            player: self.opponent.apply_flip(flipped),
+            opponent: self.player.apply_move(flipped, sq),
         }
     }
 
@@ -232,18 +236,18 @@ impl Board {
     ///
     /// # Returns
     /// A bitboard where each set bit represents a valid move for the current player.
-    #[inline]
-    pub fn get_moves(&self) -> u64 {
-        bitboard::get_moves(self.player, self.opponent)
+    #[inline(always)]
+    pub fn get_moves(&self) -> Bitboard {
+        self.player.get_moves(self.opponent)
     }
 
     /// Checks if the current player has any legal moves.
     ///
     /// # Returns
     /// `true` if the current player has legal moves, `false` otherwise.
-    #[inline]
+    #[inline(always)]
     pub fn has_legal_moves(&self) -> bool {
-        self.get_moves() != 0
+        !self.get_moves().is_empty()
     }
 
     /// Checks if a move to a specific square is legal for the current player.
@@ -253,8 +257,9 @@ impl Board {
     ///
     /// # Returns
     /// `true` if the move is legal, `false` otherwise.
+    #[inline(always)]
     pub fn is_legal_move(&self, sq: Square) -> bool {
-        self.get_moves() & sq.bitboard() != 0
+        self.get_moves().contains(sq)
     }
 
     /// Gets the number of stable discs for the current player.
@@ -262,28 +267,28 @@ impl Board {
     /// # Returns
     /// The number of stable discs for the current player.
     #[inline]
-    pub fn get_stability(&self) -> i32 {
-        crate::stability::get_stable_discs(self.player, self.opponent).count_ones() as i32
+    pub fn get_stability(&self) -> u32 {
+        crate::stability::get_stable_discs(self.player, self.opponent).count()
     }
 
     /// Gets the potential moves for the current player.
     ///
     /// # Returns
-    /// A `u64` value representing the potential moves for the current player.
-    #[inline]
-    pub fn get_potential_moves(&self) -> u64 {
-        crate::bitboard::get_potential_moves(self.player, self.opponent)
+    /// A `Bitboard` value representing the potential moves for the current player.
+    #[inline(always)]
+    pub fn get_potential_moves(&self) -> Bitboard {
+        self.player.get_potential_moves(self.opponent)
     }
 
     /// Gets both the legal moves and potential moves for the current player.
     ///
     /// # Returns
-    /// A tuple containing two `u64` values:
+    /// A tuple containing two `Bitboard` values:
     /// - The first value represents the legal moves.
     /// - The second value represents the potential moves.
-    #[inline]
-    pub fn get_moves_and_potential(&self) -> (u64, u64) {
-        crate::bitboard::get_moves_and_potential(self.player, self.opponent)
+    #[inline(always)]
+    pub fn get_moves_and_potential(&self) -> (Bitboard, Bitboard) {
+        self.player.get_moves_and_potential(self.opponent)
     }
 
     /// Checks if a given square is empty.
@@ -295,7 +300,7 @@ impl Board {
     /// `true` if the square is empty, `false` otherwise.
     #[inline]
     pub fn is_square_empty(&self, sq: Square) -> bool {
-        bitboard::is_set(self.get_empty(), sq)
+        self.get_empty().contains(sq)
     }
 
     /// Calculates a hash of the current board position.
@@ -305,7 +310,7 @@ impl Board {
     #[inline]
     pub fn hash(&self) -> u64 {
         use rapidhash::v3;
-        let words = [self.player, self.opponent];
+        let words = [self.player.0, self.opponent.0];
         let bytes: &[u8] = unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, 16) };
         v3::rapidhash_v3_nano_inline::<true, false>(bytes, &v3::DEFAULT_RAPID_SECRETS)
     }
@@ -316,10 +321,10 @@ impl Board {
     /// A new `Board` instance with the board rotated 90 degrees clockwise.
     #[inline]
     pub fn rotate_90_clockwise(&self) -> Board {
-        Board::from_bitboards(
-            bitboard::rotate_90_clockwise(self.player),
-            bitboard::rotate_90_clockwise(self.opponent),
-        )
+        Board {
+            player: self.player.rotate_90_clockwise(),
+            opponent: self.opponent.rotate_90_clockwise(),
+        }
     }
 
     /// Rotates the board 180 degrees.
@@ -328,10 +333,10 @@ impl Board {
     /// A new `Board` instance with the board rotated 180 degrees.
     #[inline]
     pub fn rotate_180_clockwise(&self) -> Board {
-        Board::from_bitboards(
-            bitboard::rotate_180_clockwise(self.player),
-            bitboard::rotate_180_clockwise(self.opponent),
-        )
+        Board {
+            player: self.player.rotate_180_clockwise(),
+            opponent: self.opponent.rotate_180_clockwise(),
+        }
     }
 
     /// Rotates the board 270 degrees clockwise.
@@ -340,10 +345,10 @@ impl Board {
     /// A new `Board` instance with the board rotated 270 degrees clockwise.
     #[inline]
     pub fn rotate_270_clockwise(&self) -> Board {
-        Board::from_bitboards(
-            bitboard::rotate_270_clockwise(self.player),
-            bitboard::rotate_270_clockwise(self.opponent),
-        )
+        Board {
+            player: self.player.rotate_270_clockwise(),
+            opponent: self.opponent.rotate_270_clockwise(),
+        }
     }
 
     /// Flips the board vertically (top to bottom).
@@ -351,10 +356,10 @@ impl Board {
     /// # Returns
     /// A new `Board` instance with the board flipped vertically.
     pub fn flip_vertical(&self) -> Board {
-        Board::from_bitboards(
-            bitboard::flip_vertical(self.player),
-            bitboard::flip_vertical(self.opponent),
-        )
+        Board {
+            player: self.player.flip_vertical(),
+            opponent: self.opponent.flip_vertical(),
+        }
     }
 
     /// Flips the board horizontally (left to right).
@@ -362,10 +367,10 @@ impl Board {
     /// # Returns
     /// A new `Board` instance with the board flipped horizontally.
     pub fn flip_horizontal(&self) -> Board {
-        Board::from_bitboards(
-            bitboard::flip_horizontal(self.player),
-            bitboard::flip_horizontal(self.opponent),
-        )
+        Board {
+            player: self.player.flip_horizontal(),
+            opponent: self.opponent.flip_horizontal(),
+        }
     }
 
     /// Flips the board along the main diagonal (A1-H8).
@@ -373,10 +378,10 @@ impl Board {
     /// # Returns
     /// A new `Board` instance with the board flipped along the main diagonal.
     pub fn flip_diag_a1h8(&self) -> Board {
-        Board::from_bitboards(
-            bitboard::flip_diag_a1h8(self.player),
-            bitboard::flip_diag_a1h8(self.opponent),
-        )
+        Board {
+            player: self.player.flip_diag_a1h8(),
+            opponent: self.opponent.flip_diag_a1h8(),
+        }
     }
 
     /// Flips the board along the anti-diagonal (A8-H1).
@@ -384,10 +389,10 @@ impl Board {
     /// # Returns
     /// A new `Board` instance with the board flipped along the anti-diagonal.
     pub fn flip_diag_a8h1(&self) -> Board {
-        Board::from_bitboards(
-            bitboard::flip_diag_a8h1(self.player),
-            bitboard::flip_diag_a8h1(self.opponent),
-        )
+        Board {
+            player: self.player.flip_diag_a8h1(),
+            opponent: self.opponent.flip_diag_a8h1(),
+        }
     }
 
     /// Converts the board to a string representation.
@@ -408,9 +413,9 @@ impl Board {
             if i > 0 && i % 8 == 0 {
                 s.push('\n');
             }
-            if bitboard::is_set(self.player, sq) {
+            if self.player.contains(sq) {
                 s.push(current_player.to_char());
-            } else if bitboard::is_set(self.opponent, sq) {
+            } else if self.opponent.contains(sq) {
                 s.push(current_player.opposite().to_char());
             } else {
                 s.push(Disc::Empty.to_char());
@@ -451,8 +456,8 @@ mod tests {
         let player = Square::A1.bitboard();
         let opponent = Square::H8.bitboard();
         let board = Board::from_bitboards(player, opponent);
-        assert!(bitboard::is_set(board.player, Square::A1));
-        assert!(bitboard::is_set(board.opponent, Square::H8));
+        assert!(board.player.contains(Square::A1));
+        assert!(board.opponent.contains(Square::H8));
     }
 
     #[test]
@@ -466,10 +471,10 @@ mod tests {
                                   --------\
                                   --------";
         let board = Board::from_string(board_string, Disc::Black);
-        assert!(bitboard::is_set(board.player, Square::D5));
-        assert!(bitboard::is_set(board.player, Square::E4));
-        assert!(bitboard::is_set(board.opponent, Square::D4));
-        assert!(bitboard::is_set(board.opponent, Square::E5));
+        assert!(board.player.contains(Square::D5));
+        assert!(board.player.contains(Square::E4));
+        assert!(board.opponent.contains(Square::D4));
+        assert!(board.opponent.contains(Square::E5));
     }
 
     #[test]
@@ -484,10 +489,10 @@ mod tests {
                                   --------";
         let board = Board::from_string(board_string, Disc::White);
         // From White's perspective, O discs are the player
-        assert!(bitboard::is_set(board.player, Square::E4));
-        assert!(bitboard::is_set(board.player, Square::D5));
-        assert!(bitboard::is_set(board.opponent, Square::D4));
-        assert!(bitboard::is_set(board.opponent, Square::E5));
+        assert!(board.player.contains(Square::E4));
+        assert!(board.player.contains(Square::D5));
+        assert!(board.opponent.contains(Square::D4));
+        assert!(board.opponent.contains(Square::E5));
     }
 
     #[test]
@@ -541,11 +546,11 @@ mod tests {
         let board = Board::new();
         let empty = board.get_empty();
 
-        assert!(!bitboard::is_set(empty, Square::D4));
-        assert!(!bitboard::is_set(empty, Square::E5));
-        assert!(!bitboard::is_set(empty, Square::D5));
-        assert!(!bitboard::is_set(empty, Square::E4));
-        assert!(bitboard::is_set(empty, Square::A1));
+        assert!(!empty.contains(Square::D4));
+        assert!(!empty.contains(Square::E5));
+        assert!(!empty.contains(Square::D5));
+        assert!(!empty.contains(Square::E4));
+        assert!(empty.contains(Square::A1));
     }
 
     #[test]
@@ -570,10 +575,10 @@ mod tests {
         let board = Board::new();
         let switched_board = board.switch_players();
 
-        assert!(bitboard::is_set(switched_board.player, Square::D4));
-        assert!(bitboard::is_set(switched_board.player, Square::E5));
-        assert!(bitboard::is_set(switched_board.opponent, Square::D5));
-        assert!(bitboard::is_set(switched_board.opponent, Square::E4));
+        assert!(switched_board.player.contains(Square::D4));
+        assert!(switched_board.player.contains(Square::E5));
+        assert!(switched_board.opponent.contains(Square::D5));
+        assert!(switched_board.opponent.contains(Square::E4));
 
         // Double switch should return to original
         let double_switched = switched_board.switch_players();
@@ -588,8 +593,8 @@ mod tests {
         let result = board.try_make_move(Square::D3);
         assert!(result.is_some());
         let new_board = result.unwrap();
-        assert!(bitboard::is_set(new_board.opponent, Square::D3));
-        assert!(bitboard::is_set(new_board.opponent, Square::D4));
+        assert!(new_board.opponent.contains(Square::D3));
+        assert!(new_board.opponent.contains(Square::D4));
 
         // Invalid move - no adjacent opponent discs
         let result = board.try_make_move(Square::A1);
@@ -606,8 +611,8 @@ mod tests {
 
         // Make a valid move
         let new_board = board.make_move(Square::D3);
-        assert!(bitboard::is_set(new_board.opponent, Square::D3));
-        assert!(bitboard::is_set(new_board.opponent, Square::D4));
+        assert!(new_board.opponent.contains(Square::D3));
+        assert!(new_board.opponent.contains(Square::D4));
         assert_eq!(new_board.get_opponent_count(), 4); // 2 original + 1 new + 1 flipped
         assert_eq!(new_board.get_player_count(), 1); // 2 original - 1 flipped
     }
@@ -618,8 +623,8 @@ mod tests {
         let flipped = Square::D4.bitboard();
         let new_board = board.make_move_with_flipped(flipped, Square::D3);
 
-        assert!(bitboard::is_set(new_board.opponent, Square::D3));
-        assert!(bitboard::is_set(new_board.opponent, Square::D4));
+        assert!(new_board.opponent.contains(Square::D3));
+        assert!(new_board.opponent.contains(Square::D4));
     }
 
     #[test]
@@ -628,11 +633,11 @@ mod tests {
         let moves = board.get_moves();
 
         // Initial position has 4 legal moves
-        assert_eq!(moves.count_ones(), 4);
-        assert!(bitboard::is_set(moves, Square::D3));
-        assert!(bitboard::is_set(moves, Square::C4));
-        assert!(bitboard::is_set(moves, Square::F5));
-        assert!(bitboard::is_set(moves, Square::E6));
+        assert_eq!(moves.count(), 4);
+        assert!(moves.contains(Square::D3));
+        assert!(moves.contains(Square::C4));
+        assert!(moves.contains(Square::F5));
+        assert!(moves.contains(Square::E6));
     }
 
     #[test]
@@ -696,8 +701,8 @@ mod tests {
         let rotated = board.rotate_90_clockwise();
 
         // A1 -> H1, H8 -> A8
-        assert!(bitboard::is_set(rotated.player, Square::H1));
-        assert!(bitboard::is_set(rotated.opponent, Square::A8));
+        assert!(rotated.player.contains(Square::H1));
+        assert!(rotated.opponent.contains(Square::A8));
 
         // Four rotations should return to original
         let rotated4 = board
@@ -714,8 +719,8 @@ mod tests {
         let rotated = board.rotate_180_clockwise();
 
         // A1 -> H8, H8 -> A1
-        assert!(bitboard::is_set(rotated.player, Square::H8));
-        assert!(bitboard::is_set(rotated.opponent, Square::A1));
+        assert!(rotated.player.contains(Square::H8));
+        assert!(rotated.opponent.contains(Square::A1));
 
         // Two rotations should return to original
         let rotated2 = board.rotate_180_clockwise().rotate_180_clockwise();
@@ -728,8 +733,8 @@ mod tests {
         let rotated = board.rotate_270_clockwise();
 
         // A1 -> A8, H8 -> H1
-        assert!(bitboard::is_set(rotated.player, Square::A8));
-        assert!(bitboard::is_set(rotated.opponent, Square::H1));
+        assert!(rotated.player.contains(Square::A8));
+        assert!(rotated.opponent.contains(Square::H1));
 
         // Four rotations should return to original
         let rotated4 = board
@@ -746,8 +751,8 @@ mod tests {
         let flipped = board.flip_vertical();
 
         // A1 -> A8, H8 -> H1
-        assert!(bitboard::is_set(flipped.player, Square::A8));
-        assert!(bitboard::is_set(flipped.opponent, Square::H1));
+        assert!(flipped.player.contains(Square::A8));
+        assert!(flipped.opponent.contains(Square::H1));
 
         // Double flip returns to original
         let double_flipped = flipped.flip_vertical();
@@ -760,8 +765,8 @@ mod tests {
         let flipped = board.flip_horizontal();
 
         // A1 -> H1, H8 -> A8
-        assert!(bitboard::is_set(flipped.player, Square::H1));
-        assert!(bitboard::is_set(flipped.opponent, Square::A8));
+        assert!(flipped.player.contains(Square::H1));
+        assert!(flipped.opponent.contains(Square::A8));
 
         // Double flip returns to original
         let double_flipped = flipped.flip_horizontal();
@@ -774,8 +779,8 @@ mod tests {
         let flipped = board.flip_diag_a1h8();
 
         // A2 -> B1, B1 -> A2
-        assert!(bitboard::is_set(flipped.player, Square::B1));
-        assert!(bitboard::is_set(flipped.opponent, Square::A2));
+        assert!(flipped.player.contains(Square::B1));
+        assert!(flipped.opponent.contains(Square::A2));
 
         // Double flip returns to original
         let double_flipped = flipped.flip_diag_a1h8();
@@ -788,8 +793,8 @@ mod tests {
         let flipped = board.flip_diag_a8h1();
 
         // A7 -> B8, B8 -> A7
-        assert!(bitboard::is_set(flipped.player, Square::B8));
-        assert!(bitboard::is_set(flipped.opponent, Square::A7));
+        assert!(flipped.player.contains(Square::B8));
+        assert!(flipped.opponent.contains(Square::A7));
 
         // Double flip returns to original
         let double_flipped = flipped.flip_diag_a8h1();

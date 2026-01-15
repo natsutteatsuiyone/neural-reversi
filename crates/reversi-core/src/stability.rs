@@ -3,7 +3,7 @@
 //! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c
 use std::sync::OnceLock;
 
-use crate::{board::Board, constants::SCORE_MAX, types::Score};
+use crate::{bitboard::Bitboard, board::Board, constants::SCORE_MAX, types::Score};
 
 /// Size of the edge stability lookup table (256 * 256 for all possible edge configurations)
 const EDGE_STABILITY_SIZE: usize = 256 * 256;
@@ -338,13 +338,13 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
 /// # Returns
 ///
 /// Bitboard with stable discs for the player.
-pub fn get_stable_discs(p: u64, o: u64) -> u64 {
-    let central_mask = p & 0x007e7e7e7e7e7e00;
+pub fn get_stable_discs(player: Bitboard, opponent: Bitboard) -> Bitboard {
+    let central_mask = player.0 & 0x007e7e7e7e7e7e00;
     let mut full: [u64; 4] = [0; 4];
 
-    let mut stable = get_stable_edge(p, o);
-    stable |= get_full_lines(p | o, &mut full) & central_mask;
-    get_stable_by_contact(central_mask, stable, &full)
+    let mut stable = get_stable_edge(player.0, opponent.0);
+    stable |= get_full_lines(player.0 | opponent.0, &mut full) & central_mask;
+    Bitboard(get_stable_by_contact(central_mask, stable, &full))
 }
 
 /// Threshold values for null window search (NWS) stability cutoff.
@@ -377,7 +377,7 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
 /// Some(score) if a cutoff is possible, None otherwise.
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
     if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
-        let score = SCORE_MAX - 2 * board.switch_players().get_stability();
+        let score = SCORE_MAX - 2 * board.switch_players().get_stability() as Score;
         if score <= alpha {
             return Some(score);
         }

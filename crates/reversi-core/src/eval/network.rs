@@ -163,7 +163,7 @@ impl Network {
         pattern_feature: &PatternFeature,
         ply: usize,
     ) -> ScaledScore {
-        let mobility = board.get_moves().count_ones();
+        let mobility = board.get_moves().count();
 
         NETWORK_BUFFERS.with(|buffers| {
             let mut buffers = buffers.borrow_mut();

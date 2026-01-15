@@ -307,7 +307,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         }
     }
 
-    let mut moves = board.get_moves();
+    let mut moves = board.get_moves().0;
     if moves == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -316,7 +316,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
             return solve(board, n_empties);
         }
     } else if best_move != Square::None {
-        moves &= !best_move.bitboard();
+        moves &= !best_move.bitboard().0;
         if moves == 0 {
             store_endgame_cache(key, beta, best_score, best_move);
             return best_score;
@@ -331,11 +331,11 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         moves ^= priority_moves;
         let mut sq = ctx.empty_list.first();
         loop {
-            while !bitboard::is_set(priority_moves, sq) {
+            while !bitboard::Bitboard(priority_moves).contains(sq) {
                 sq = ctx.empty_list.next(sq);
             }
 
-            priority_moves &= !sq.bitboard();
+            priority_moves &= !sq.bitboard().0;
             let next = board.make_move(sq);
 
             ctx.update_endgame(sq);

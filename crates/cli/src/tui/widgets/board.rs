@@ -100,7 +100,7 @@ impl Widget for BoardWidget<'_> {
             for col in 0..8 {
                 let sq = Square::from_usize_unchecked(row * 8 + col);
                 let piece = self.board.get_disc_at(sq, self.side_to_move);
-                let is_legal = (legal_moves & sq.bitboard()) != 0;
+                let is_legal = legal_moves.contains(sq);
                 let is_cursor = self.cursor == (row, col);
                 let is_last_move = self.last_move == Some(sq);
 

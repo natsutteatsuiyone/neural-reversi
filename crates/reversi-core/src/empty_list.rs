@@ -91,7 +91,7 @@ impl EmptyList {
         let mut prev_sq = Square::None;
         let empty_board = board.get_empty();
         for &sq in PRESORTED.iter() {
-            if sq.bitboard() & empty_board != 0 {
+            if empty_board.contains(sq) {
                 let sq_idx = sq.index();
                 nodes[prev_sq.index()].next = sq;
                 nodes[sq_idx].prev = prev_sq;

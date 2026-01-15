@@ -248,11 +248,10 @@ impl Search {
     ///
     /// SearchResult with the best move found by shallow evaluation.
     pub fn quick_move(&self, board: &Board) -> SearchResult {
-        use crate::bitboard::BitboardIterator;
         use crate::flip;
 
         let moves = board.get_moves();
-        if moves == 0 {
+        if moves.is_empty() {
             // No legal moves - return pass
             return SearchResult {
                 score: 0.0,
@@ -270,7 +269,7 @@ impl Search {
         let mut best_score = -ScaledScore::INF;
 
         // Evaluate each move with depth-1 search
-        for sq in BitboardIterator::new(moves) {
+        for sq in moves.iter() {
             let flipped = flip::flip(sq, board.player, board.opponent);
             let next = board.make_move_with_flipped(flipped, sq);
 
@@ -286,7 +285,7 @@ impl Search {
         SearchResult {
             score: best_score.to_disc_diff_f32(),
             best_move: Some(best_move),
-            n_nodes: BitboardIterator::new(moves).count() as u64,
+            n_nodes: moves.count() as u64,
             pv_line: vec![best_move],
             depth: 1,
             selectivity: Selectivity::None,

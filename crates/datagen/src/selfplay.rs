@@ -8,7 +8,6 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use rand::Rng;
 use rand::seq::IteratorRandom;
 use regex::Regex;
-use reversi_core::bitboard::BitboardIterator;
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::game_state::GameState;
@@ -419,9 +418,7 @@ fn calculate_final_score(board: &Board) -> i8 {
 /// Selects a random legal move from the current board position.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
-    BitboardIterator::new(board.get_moves())
-        .choose(&mut rng)
-        .unwrap()
+    board.get_moves().iter().choose(&mut rng).unwrap()
 }
 
 /// Writes game records to a binary file.
@@ -435,8 +432,8 @@ fn write_records_to_file(path_str: &str, records: &[GameRecord]) -> io::Result<(
     let mut writer = BufWriter::new(file);
 
     for record in records {
-        writer.write_u64::<LittleEndian>(record.board.player)?;
-        writer.write_u64::<LittleEndian>(record.board.opponent)?;
+        writer.write_u64::<LittleEndian>(record.board.player.0)?;
+        writer.write_u64::<LittleEndian>(record.board.opponent.0)?;
         writer.write_f32::<LittleEndian>(record.score)?;
         writer.write_i8(record.game_score)?;
         writer.write_u8(record.ply)?;

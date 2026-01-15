@@ -6,11 +6,7 @@
 // Re-export core move list types
 pub use reversi_core::move_list::MoveList;
 
-use reversi_core::{
-    bitboard::{corner_weighted_count, get_corner_stability},
-    board::Board,
-    square::Square,
-};
+use reversi_core::{board::Board, square::Square};
 
 use crate::search::{self, search_context::SearchContext};
 
@@ -59,7 +55,7 @@ pub fn evaluate_moves(
         } else {
             // Evaluate using shallow search
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update(mv.sq, mv.flipped);
+            ctx.update(mv.sq, mv.flipped.0);
             mv.value = (-search::evaluate(ctx, &next)).value();
             ctx.undo(mv.sq);
         };
@@ -87,9 +83,9 @@ pub fn evaluate_moves_fast(
             ctx.increment_nodes();
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             let (moves, potential) = next.get_moves_and_potential();
-            let potential_mobility = corner_weighted_count(potential) as i32;
-            let corner_stability = get_corner_stability(next.opponent) as i32;
-            let weighted_mobility = corner_weighted_count(moves) as i32;
+            let potential_mobility = potential.corner_weighted_count() as i32;
+            let corner_stability = next.opponent.corner_stability() as i32;
+            let weighted_mobility = moves.corner_weighted_count() as i32;
             let mut value = corner_stability * CORNER_STABILITY_WEIGHT;
             value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
             value += (36 - weighted_mobility) * MOBILITY_WEIGHT;

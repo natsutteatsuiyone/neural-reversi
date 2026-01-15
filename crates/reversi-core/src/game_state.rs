@@ -102,7 +102,7 @@ impl GameState {
     ///
     /// Returns an error string if the move is not legal on the current board.
     pub fn make_move(&mut self, sq: Square) -> Result<(), String> {
-        if self.board.get_moves() & sq.bitboard() == 0 {
+        if !self.board.is_legal_move(sq) {
             return Err(format!("Illegal move: {sq:?}"));
         }
 
@@ -265,9 +265,7 @@ mod tests {
         while !game.is_game_over() {
             if game.board().has_legal_moves() {
                 let moves = game.board().get_moves();
-                let first_move = crate::bitboard::BitboardIterator::new(moves)
-                    .next()
-                    .unwrap();
+                let first_move = moves.into_iter().next().unwrap();
                 let _ = game.make_move(first_move);
             } else {
                 let _ = game.make_pass();

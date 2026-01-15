@@ -2,6 +2,7 @@ use js_sys::{Function, Object, Reflect};
 use std::rc::Rc;
 
 use reversi_core::{
+    bitboard::Bitboard,
     board::Board,
     constants::MAX_PLY,
     empty_list::EmptyList,
@@ -92,7 +93,7 @@ impl SearchContext {
     pub fn update(&mut self, sq: Square, flipped: u64) {
         self.increment_nodes();
         self.pattern_features
-            .update(sq, flipped, self.ply(), self.side_to_move);
+            .update(sq, Bitboard(flipped), self.ply(), self.side_to_move);
         self.switch_players();
         self.empty_list.remove(sq);
     }

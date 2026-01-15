@@ -365,7 +365,7 @@ fn play_game(
         let board = game.board();
         let legal_moves = board.get_moves();
 
-        if legal_moves == 0 {
+        if legal_moves.is_empty() {
             let _ = game.make_pass();
             continue;
         }

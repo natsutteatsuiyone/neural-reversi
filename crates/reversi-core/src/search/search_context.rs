@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
@@ -129,7 +130,7 @@ impl SearchContext {
     /// * `sq` - Move square.
     /// * `flipped` - Flipped discs bitboard.
     #[inline]
-    pub fn update(&mut self, sq: Square, flipped: u64) {
+    pub fn update(&mut self, sq: Square, flipped: Bitboard) {
         self.increment_nodes();
         self.pattern_features
             .update(sq, flipped, self.ply(), self.side_to_move);

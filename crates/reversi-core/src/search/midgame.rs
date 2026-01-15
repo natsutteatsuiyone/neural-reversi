@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use rand::seq::IteratorRandom;
 
-use crate::bitboard::{self, BitboardIterator};
 use crate::board::Board;
 use crate::flip;
 use crate::move_list::MoveList;
@@ -234,9 +233,7 @@ fn next_iteration_depth(
 /// Randomly selected legal move.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
-    BitboardIterator::new(board.get_moves())
-        .choose(&mut rng)
-        .unwrap()
+    board.get_moves().iter().choose(&mut rng).unwrap()
 }
 
 /// Attempts ProbCut pruning for midgame positions
@@ -314,7 +311,7 @@ pub fn evaluate_depth2(
     beta: ScaledScore,
 ) -> ScaledScore {
     let moves = board.get_moves();
-    if moves == 0 {
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -393,7 +390,7 @@ pub fn evaluate_depth1(
     beta: ScaledScore,
 ) -> ScaledScore {
     let moves = board.get_moves();
-    if moves == 0 {
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -435,10 +432,10 @@ pub fn evaluate_depth1(
     let mut best_score = -ScaledScore::INF;
 
     // Process corner moves first
-    let mut current = moves & bitboard::CORNER_MASK;
-    while current != 0 {
-        let sq = Square::from_u32_unchecked(current.trailing_zeros());
-        current &= current - 1;
+    let mut current = moves.corners();
+    while !current.is_empty() {
+        let (sq, rest) = current.pop_lsb();
+        current = rest;
 
         if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score) {
             return score;
@@ -446,10 +443,10 @@ pub fn evaluate_depth1(
     }
 
     // Process non-corner moves
-    current = moves & !bitboard::CORNER_MASK;
-    while current != 0 {
-        let sq = Square::from_u32_unchecked(current.trailing_zeros());
-        current &= current - 1;
+    current = moves.non_corners();
+    while !current.is_empty() {
+        let (sq, rest) = current.pop_lsb();
+        current = rest;
 
         if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score) {
             return score;

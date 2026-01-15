@@ -270,14 +270,14 @@ fn process_file(
         for (i, board) in symmetrical_boards.iter().enumerate() {
             // Check for duplicates if dedup is enabled
             if dedup {
-                let board_key = (board.player, board.opponent);
+                let board_key = (board.player.0, board.opponent.0);
                 if !seen_boards[i].insert(board_key) {
                     // This board has already been seen, skip it
                     continue;
                 }
             }
 
-            let mobility = board.get_moves().count_ones() as u8;
+            let mobility = board.get_moves().count() as u8;
             let mut features = [0; pattern_feature::NUM_PATTERN_FEATURES];
             pattern_feature::set_features(board, &mut features);
 

@@ -9,7 +9,6 @@ use std::rc::Rc;
 use rand::seq::IteratorRandom;
 
 use reversi_core::{
-    bitboard::BitboardIterator,
     board::Board,
     flip,
     search::node_type::{NodeType, NonPV, PV, Root},
@@ -299,9 +298,7 @@ fn estimate_aspiration_base_score(
 /// A randomly selected legal move square
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
-    BitboardIterator::new(board.get_moves())
-        .choose(&mut rng)
-        .unwrap()
+    board.get_moves().iter().choose(&mut rng).unwrap()
 }
 
 /// Alpha-beta search function for midgame positions.
@@ -418,7 +415,7 @@ pub fn search<NT: NodeType>(
         move_count += 1;
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update(mv.sq, mv.flipped);
+        ctx.update(mv.sq, mv.flipped.0);
 
         let mut score = -ScaledScore::INF;
         if depth >= 2 && mv.reduction_depth > 0 {
@@ -514,7 +511,7 @@ pub fn evaluate_depth2(
     for mv in move_list.into_best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-        ctx.update(mv.sq, mv.flipped);
+        ctx.update(mv.sq, mv.flipped.0);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
         ctx.undo(mv.sq);
 
@@ -551,7 +548,7 @@ pub fn evaluate_depth1(
     beta: ScaledScore,
 ) -> ScaledScore {
     let moves = board.get_moves();
-    if moves == 0 {
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -564,14 +561,14 @@ pub fn evaluate_depth1(
     }
 
     let mut best_score = -ScaledScore::INF;
-    for sq in BitboardIterator::new(moves) {
+    for sq in moves.iter() {
         let flipped = flip::flip(sq, board.player, board.opponent);
         if flipped == board.opponent {
             return ScaledScore::MAX;
         }
         let next = board.make_move_with_flipped(flipped, sq);
 
-        ctx.update(sq, flipped);
+        ctx.update(sq, flipped.0);
         let score = -evaluate(ctx, &next);
         ctx.undo(sq);
 

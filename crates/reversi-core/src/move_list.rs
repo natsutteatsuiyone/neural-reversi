@@ -6,7 +6,7 @@ use arrayvec::ArrayVec;
 use std::slice;
 use std::sync::atomic;
 
-use crate::bitboard::{BitboardIterator, corner_weighted_count, get_corner_stability};
+use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
 use crate::probcut;
@@ -30,7 +30,7 @@ pub struct Move {
     /// The square where the disc is placed.
     pub sq: Square,
     /// Bitboard representing all opponent discs flipped by this move.
-    pub flipped: u64,
+    pub flipped: Bitboard,
     /// Evaluation score for move ordering (higher = better).
     pub value: i32,
     /// Suggested depth reduction for this move in search.
@@ -49,7 +49,7 @@ impl Move {
     ///
     /// A new Move instance with default evaluation data.
     #[inline]
-    pub fn new(sq: Square, flipped: u64) -> Move {
+    pub fn new(sq: Square, flipped: Bitboard) -> Move {
         Move {
             sq,
             flipped,
@@ -94,10 +94,10 @@ impl MoveList {
     ///
     /// A new MoveList containing all legal moves.
     #[inline]
-    pub fn with_moves(board: &Board, moves_bb: u64) -> MoveList {
+    pub fn with_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
         let mut moves = ArrayVec::new();
         let mut wipeout_move = None;
-        for sq in BitboardIterator::new(moves_bb) {
+        for sq in moves_bb.iter() {
             let flipped = flip::flip(sq, board.player, board.opponent);
             let mut mv = Move::new(sq, flipped);
             mv.value = i32::MIN;
@@ -314,8 +314,8 @@ impl MoveList {
                 const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
 
                 let (moves, potential) = next.get_moves_and_potential();
-                let mobility = corner_weighted_count(moves) as i32;
-                let potential_mobility = corner_weighted_count(potential) as i32;
+                let mobility = moves.corner_weighted_count() as i32;
+                let potential_mobility = potential.corner_weighted_count() as i32;
                 mv.value -= mobility * MOBILITY_SCALE;
                 mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
 
@@ -361,9 +361,9 @@ impl MoveList {
                 ctx.increment_nodes();
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 let (moves, potential) = next.get_moves_and_potential();
-                let potential_mobility = corner_weighted_count(potential) as i32;
-                let corner_stability = get_corner_stability(next.opponent) as i32;
-                let weighted_mobility = corner_weighted_count(moves) as i32;
+                let potential_mobility = potential.corner_weighted_count() as i32;
+                let corner_stability = next.opponent.corner_stability() as i32;
+                let weighted_mobility = moves.corner_weighted_count() as i32;
                 let mut value = SQUARE_VALUE[mv.sq.index()] * SQUARE_VALUE_WEIGHT;
                 value += corner_stability * CORNER_STABILITY_WEIGHT;
                 value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
@@ -623,7 +623,7 @@ mod tests {
 
         // Verify all moves have valid flipped discs
         for mv in move_list.iter() {
-            assert!(mv.flipped != 0);
+            assert!(!mv.flipped.is_empty());
             assert_eq!(mv.value, i32::MIN); // Initial value
             assert_eq!(mv.reduction_depth, 0);
         }
@@ -643,7 +643,7 @@ mod tests {
     #[test]
     fn test_move_new() {
         let sq = Square::E4;
-        let flipped = 0x0000001000000000u64;
+        let flipped = Bitboard(0x0000001000000000u64);
         let mv = Move::new(sq, flipped);
 
         assert_eq!(mv.sq, sq);

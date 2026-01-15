@@ -3,6 +3,8 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::bitboard::Bitboard;
+
 /// Represents a square on a Reversi board, ranging from A1 to H8.
 ///
 /// The Reversi board uses algebraic notation where files (columns) are labeled A-H
@@ -48,13 +50,13 @@ impl Square {
     ///
     /// A `u64` value with a single bit set at the position corresponding to this square.
     /// For example, A1 returns 0x1, B1 returns 0x2, H8 returns 0x8000000000000000.
-    #[inline]
-    pub fn bitboard(self) -> u64 {
+    #[inline(always)]
+    pub fn bitboard(self) -> Bitboard {
         debug_assert!(
             (self as usize) < 64,
             "Index out of bounds for Square enum. self: {self:?}"
         );
-        1 << self as u8
+        Bitboard::from_square(self)
     }
 
     /// Converts the `Square` into a `usize` index.
@@ -351,8 +353,8 @@ mod tests {
 
     #[test]
     fn test_to_bitboard() {
-        assert_eq!(Square::A1.bitboard(), 1);
-        assert_eq!(Square::H8.bitboard(), 0x8000000000000000);
+        assert_eq!(Square::A1.bitboard(), Bitboard(1));
+        assert_eq!(Square::H8.bitboard(), Bitboard(0x8000000000000000));
     }
 
     #[test]

@@ -17,8 +17,7 @@ use std::ops::{Index, IndexMut};
 
 use cfg_if::cfg_if;
 
-use crate::bitboard;
-use crate::bitboard::BitboardIterator;
+use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::BOARD_SQUARES;
 use crate::search::side_to_move::SideToMove;
@@ -398,14 +397,14 @@ impl PatternFeatures {
     /// * `ply` - The current ply number
     /// * `side_to_move` - The side that made the move (Player or Opponent)
     #[inline(always)]
-    pub fn update(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
+    pub fn update(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
         cfg_if! {
             if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
-                unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
+                unsafe { self.update_avx2(sq, flipped.0, ply, side_to_move) }
             } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
-                self.update_wasm_simd(sq, flipped, ply, side_to_move)
+                self.update_wasm_simd(sq, flipped.0, ply, side_to_move)
             } else {
-                self.update_fallback(sq, flipped, ply, side_to_move);
+                self.update_fallback(sq, flipped.0, ply, side_to_move);
             }
         }
     }
@@ -661,7 +660,7 @@ impl PatternFeatures {
                     *o_data.get_unchecked_mut(idx) -= delta;
                 }
 
-                for x in BitboardIterator::new(flipped) {
+                for x in Bitboard(flipped).iter() {
                     let s_bit = EVAL_X2F.get_unchecked(x as usize);
                     for &[feature_idx, power] in s_bit.features_slice() {
                         let idx = feature_idx as usize;
@@ -678,7 +677,7 @@ impl PatternFeatures {
                     *o_data.get_unchecked_mut(idx) -= delta << 1;
                 }
 
-                for x in BitboardIterator::new(flipped) {
+                for x in Bitboard(flipped).iter() {
                     let s_bit = EVAL_X2F.get_unchecked(x as usize);
                     for &[feature_idx, power] in s_bit.features_slice() {
                         let idx = feature_idx as usize;
@@ -726,9 +725,9 @@ pub fn set_features(board: &Board, patterns: &mut [u16]) {
 /// * 2 - Empty square
 #[inline]
 fn get_square_color(board: &Board, sq: Square) -> u16 {
-    if bitboard::is_set(board.player, sq) {
+    if board.player.contains(sq) {
         0
-    } else if bitboard::is_set(board.opponent, sq) {
+    } else if board.opponent.contains(sq) {
         1
     } else {
         2

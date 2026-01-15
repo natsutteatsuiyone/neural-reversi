@@ -8,12 +8,14 @@ use std::cell::UnsafeCell;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::{SCORE_INF, SCORE_MAX};
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 use crate::count_last_flip::count_last_flip;
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 use crate::count_last_flip::count_last_flip_double;
+use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
@@ -29,7 +31,6 @@ use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore, Score, Selectivity};
-use crate::{bitboard, flip};
 
 /// Quadrant masks for move ordering in shallow search.
 #[rustfmt::skip]
@@ -402,7 +403,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
     ctx.tt.prefetch(tt_key);
 
     let moves = board.get_moves();
-    if moves == 0 {
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -566,7 +567,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     }
 
     let moves = board.get_moves();
-    if moves == 0 {
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             return -null_window_search_with_ec(ctx, &next, -beta);
@@ -714,7 +715,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     let mut moves = board.get_moves();
-    if moves == 0 {
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             return -shallow_search(ctx, &next, -beta);
@@ -738,7 +739,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     let mut best_score = -SCORE_INF;
 
     // Search tt_move first if valid (now validated against moves bitboard)
-    if tt_move != Square::None && bitboard::is_set(moves, tt_move) {
+    if tt_move != Square::None && moves.contains(tt_move) {
         moves &= !tt_move.bitboard();
         if let Some(score) = search_move(ctx, board, tt_move, beta, &mut best_score, &mut best_move)
         {
@@ -748,21 +749,21 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         best_move = tt_move;
     }
 
-    if moves == 0 {
+    if moves.is_empty() {
         store_endgame_cache(key, beta, best_score, best_move);
         return best_score;
     }
 
     // Split moves into priority (matching parity) and remaining
-    let quadrant_mask = QUADRANT_MASK[ctx.empty_list.parity as usize];
+    let quadrant_mask = Bitboard(QUADRANT_MASK[ctx.empty_list.parity as usize]);
     let priority_moves = moves & quadrant_mask;
     let remaining_moves = moves & !quadrant_mask;
 
     // Process corners first within priority moves
-    let mut current = priority_moves & bitboard::CORNER_MASK;
-    while current != 0 {
-        let sq = Square::from_u32_unchecked(current.trailing_zeros());
-        current &= current - 1;
+    let mut current = priority_moves.corners();
+    while !current.is_empty() {
+        let (sq, rest) = current.pop_lsb();
+        current = rest;
 
         if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
             store_endgame_cache(key, beta, score, sq);
@@ -771,10 +772,10 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     // Process non-corner priority moves
-    current = priority_moves & !bitboard::CORNER_MASK;
-    while current != 0 {
-        let sq = Square::from_u32_unchecked(current.trailing_zeros());
-        current &= current - 1;
+    current = priority_moves.non_corners();
+    while !current.is_empty() {
+        let (sq, rest) = current.pop_lsb();
+        current = rest;
 
         if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
             store_endgame_cache(key, beta, score, sq);
@@ -783,10 +784,10 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     // Process corners first within remaining moves
-    current = remaining_moves & bitboard::CORNER_MASK;
-    while current != 0 {
-        let sq = Square::from_u32_unchecked(current.trailing_zeros());
-        current &= current - 1;
+    current = remaining_moves.corners();
+    while !current.is_empty() {
+        let (sq, rest) = current.pop_lsb();
+        current = rest;
 
         if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
             store_endgame_cache(key, beta, score, sq);
@@ -795,10 +796,10 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     // Process non-corner remaining moves
-    current = remaining_moves & !bitboard::CORNER_MASK;
-    while current != 0 {
-        let sq = Square::from_u32_unchecked(current.trailing_zeros());
-        current &= current - 1;
+    current = remaining_moves.non_corners();
+    while !current.is_empty() {
+        let (sq, rest) = current.pop_lsb();
+        current = rest;
 
         if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score, &mut best_move) {
             store_endgame_cache(key, beta, score, sq);
@@ -1013,22 +1014,22 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     let player = board.player;
     let opponent = board.opponent;
     let beta = alpha + 1;
-    let mut flipped: u64;
+    let mut flipped: Bitboard;
     let best_score: Score;
 
-    if bitboard::has_adjacent_bit(opponent, sq1) {
+    if opponent.has_adjacent_bit(sq1) {
         flipped = flip::flip(sq1, player, opponent);
-        if flipped != 0 {
-            let next_player = bitboard::opponent_flip(opponent, flipped);
+        if !flipped.is_empty() {
+            let next_player = opponent.apply_flip(flipped);
             best_score = -solve1(ctx, next_player, -beta, sq2);
             if best_score >= beta {
                 return best_score;
             }
 
-            if bitboard::has_adjacent_bit(opponent, sq2) {
+            if opponent.has_adjacent_bit(sq2) {
                 flipped = flip::flip(sq2, player, opponent);
-                if flipped != 0 {
-                    let next_player = bitboard::opponent_flip(opponent, flipped);
+                if !flipped.is_empty() {
+                    let next_player = opponent.apply_flip(flipped);
                     let score = -solve1(ctx, next_player, -beta, sq1);
                     return score.max(best_score);
                 }
@@ -1037,28 +1038,28 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
         }
     }
 
-    if bitboard::has_adjacent_bit(opponent, sq2) {
+    if opponent.has_adjacent_bit(sq2) {
         flipped = flip::flip(sq2, player, opponent);
-        if flipped != 0 {
-            let next_player = bitboard::opponent_flip(opponent, flipped);
+        if !flipped.is_empty() {
+            let next_player = opponent.apply_flip(flipped);
             return -solve1(ctx, next_player, -beta, sq1);
         }
     }
 
     ctx.increment_nodes();
-    if bitboard::has_adjacent_bit(player, sq1) {
+    if player.has_adjacent_bit(sq1) {
         flipped = flip::flip(sq1, opponent, player);
-        if flipped != 0 {
-            let next_player = bitboard::opponent_flip(player, flipped);
+        if !flipped.is_empty() {
+            let next_player = player.apply_flip(flipped);
             best_score = solve1(ctx, next_player, alpha, sq2);
             if best_score <= alpha {
                 return best_score;
             }
 
-            if bitboard::has_adjacent_bit(player, sq2) {
+            if player.has_adjacent_bit(sq2) {
                 flipped = flip::flip(sq2, opponent, player);
-                if flipped != 0 {
-                    let next_player = bitboard::opponent_flip(player, flipped);
+                if !flipped.is_empty() {
+                    let next_player = player.apply_flip(flipped);
                     let score = solve1(ctx, next_player, alpha, sq1);
                     return score.min(best_score);
                 }
@@ -1067,10 +1068,10 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
         }
     }
 
-    if bitboard::has_adjacent_bit(player, sq2) {
+    if player.has_adjacent_bit(sq2) {
         flipped = flip::flip(sq2, opponent, player);
-        if flipped != 0 {
-            let next_player = bitboard::opponent_flip(player, flipped);
+        if !flipped.is_empty() {
+            let next_player = player.apply_flip(flipped);
             return solve1(ctx, next_player, alpha, sq1);
         }
     }
@@ -1098,12 +1099,12 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 /// <https://eukaryote.hateblo.jp/entry/2020/05/10/033228>
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[inline(always)]
-fn solve1(ctx: &mut SearchContext, player: u64, _alpha: Score, sq: Square) -> Score {
+fn solve1(ctx: &mut SearchContext, player: Bitboard, _alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
     let opponent = !player;
     let (p_flip, o_flip) = count_last_flip_double(player, opponent, sq);
 
-    let base = 2 * player.count_ones() as Score - 64;
+    let base = 2 * player.count() as Score - 64;
 
     let x1 = base + 2 + p_flip;
     let x2 = base - o_flip;
@@ -1119,10 +1120,10 @@ fn solve1(ctx: &mut SearchContext, player: u64, _alpha: Score, sq: Square) -> Sc
 /// Specialized solver for positions with exactly 1 empty square (fallback version).
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 #[inline(always)]
-fn solve1(ctx: &mut SearchContext, player: u64, alpha: Score, sq: Square) -> Score {
+fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
     let mut n_flipped = count_last_flip(player, sq);
-    let mut score = 2 * player.count_ones() as Score - 64 + 2 + n_flipped;
+    let mut score = 2 * player.count() as Score - 64 + 2 + n_flipped;
 
     if n_flipped == 0 {
         if score <= 0 {
