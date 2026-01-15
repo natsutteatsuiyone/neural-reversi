@@ -7,8 +7,8 @@ pub mod node_type;
 pub mod options;
 pub mod root_move;
 pub mod search_context;
-pub mod search_phase;
 pub mod search_result;
+pub mod search_strategy;
 pub mod side_to_move;
 pub mod threading;
 pub mod time_control;
@@ -21,11 +21,12 @@ use crate::eval::Eval;
 use crate::level::Level;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 
+use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::options::SearchOptions;
 use crate::search::search_context::{GamePhase, SearchContext};
-use crate::search::search_phase::SearchPhase;
 use crate::search::search_result::SearchResult;
+use crate::search::search_strategy::SearchStrategy;
 use crate::search::threading::{SplitPoint, Thread, ThreadPool};
 use crate::search::time_control::TimeManager;
 use crate::square::Square;
@@ -33,7 +34,6 @@ use crate::stability::stability_cutoff;
 use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, ScaledScore, Scoref};
 use crate::{probcut, stability};
-use crate::probcut::Selectivity;
 
 /// Main search engine structure.
 pub struct Search {
@@ -315,7 +315,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 }
 
 /// Checks child positions in TT for potential cutoffs.
-fn enhanced_transposition_cutoff<SP: SearchPhase>(
+fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     move_list: &MoveList,
@@ -332,7 +332,7 @@ fn enhanced_transposition_cutoff<SP: SearchPhase>(
         let etc_tt_key = next.hash();
         let etc_tt_probe_result = ctx.tt.probe(etc_tt_key);
         if let Some(etc_tt_data) = etc_tt_probe_result.data()
-            && (!SP::IS_ENDGAME || etc_tt_data.is_endgame())
+            && (!SS::IS_ENDGAME || etc_tt_data.is_endgame())
             && etc_tt_data.depth() >= etc_depth
             && etc_tt_data.selectivity() >= ctx.selectivity
         {
@@ -348,7 +348,7 @@ fn enhanced_transposition_cutoff<SP: SearchPhase>(
                     depth,
                     mv.sq,
                     ctx.selectivity,
-                    SP::IS_ENDGAME,
+                    SS::IS_ENDGAME,
                 );
                 return Some(score);
             }
@@ -362,7 +362,7 @@ fn enhanced_transposition_cutoff<SP: SearchPhase>(
 /// # Type Parameters
 ///
 /// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-/// * `SP` - Search phase (MidGamePhase or EndGamePhase) determining phase-specific logic.
+/// * `SS` - Search strategy (MidGamePhase or EndGamePhase) determining phase-specific logic.
 ///
 /// # Arguments
 ///
@@ -376,7 +376,7 @@ fn enhanced_transposition_cutoff<SP: SearchPhase>(
 /// # Returns
 ///
 /// Best score found.
-pub fn search<NT: NodeType, SP: SearchPhase>(
+pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
@@ -388,11 +388,11 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
 
     if NT::PV_NODE {
         if depth == 0 {
-            return SP::evaluate(ctx, board);
+            return SS::evaluate(ctx, board);
         }
     } else {
-        if depth <= SP::DEPTH_TO_SHALLOW {
-            return SP::shallow_search(ctx, board, depth, alpha, beta);
+        if depth <= SS::DEPTH_TO_SHALLOW {
+            return SS::shallow_search(ctx, board, depth, alpha, beta);
         }
 
         if let Some(score) = stability_cutoff(board, ctx.empty_list.count, alpha.to_disc_diff()) {
@@ -409,7 +409,7 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -search::<NT, SP>(ctx, &next, depth, -beta, -alpha, thread);
+            let score = -search::<NT, SS>(ctx, &next, depth, -beta, -alpha, thread);
             ctx.undo_pass();
             return score;
         } else {
@@ -431,7 +431,7 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
     // NonPV cutoffs
     if !NT::PV_NODE {
         if let Some(tt_data) = tt_probe_result.data()
-            && (!SP::IS_ENDGAME || tt_data.is_endgame())
+            && (!SS::IS_ENDGAME || tt_data.is_endgame())
             && tt_data.depth() >= depth
             && tt_data.selectivity() >= ctx.selectivity
             && tt_data.can_cut(beta)
@@ -440,8 +440,8 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
         }
 
         // Enhanced Transposition Cutoff
-        if depth >= SP::MIN_ETC_DEPTH
-            && let Some(score) = enhanced_transposition_cutoff::<SP>(
+        if depth >= SS::MIN_ETC_DEPTH
+            && let Some(score) = enhanced_transposition_cutoff::<SS>(
                 ctx,
                 board,
                 &move_list,
@@ -455,8 +455,8 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
         }
 
         // ProbCut
-        if depth >= SP::MIN_PROBCUT_DEPTH
-            && let Some(score) = SP::probcut(ctx, board, depth, beta, thread)
+        if depth >= SS::MIN_PROBCUT_DEPTH
+            && let Some(score) = SS::probcut(ctx, board, depth, beta, thread)
         {
             return score;
         }
@@ -485,20 +485,20 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
         let mut score = -ScaledScore::INF;
 
         // Score-based Reduction (midgame only)
-        if SP::USE_SBR && depth >= 2 && mv.reduction_depth > 0 {
+        if SS::USE_SBR && depth >= 2 && mv.reduction_depth > 0 {
             let d = (depth - 1).saturating_sub(mv.reduction_depth);
-            score = -search::<NonPV, SP>(ctx, &next, d, -(alpha + 1), -alpha, thread);
+            score = -search::<NonPV, SS>(ctx, &next, d, -(alpha + 1), -alpha, thread);
             if score > alpha {
-                score = -search::<NonPV, SP>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
             }
         } else if !NT::PV_NODE || move_count > 1 {
-            score = -search::<NonPV, SP>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+            score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
         }
 
         // PV re-search
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
             ctx.clear_pv();
-            score = -search::<PV, SP>(ctx, &next, depth - 1, -beta, -alpha, thread);
+            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread);
         }
 
         ctx.undo(mv.sq);
@@ -533,7 +533,7 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
         }
 
         // Parallel search split
-        if depth >= SP::MIN_SPLIT_DEPTH && move_iter.remaining() >= 2 && thread.can_split() {
+        if depth >= SS::MIN_SPLIT_DEPTH && move_iter.remaining() >= 2 && thread.can_split() {
             let (s, m, n) = thread.split(
                 ctx,
                 board,
@@ -568,7 +568,7 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
         depth,
         best_move,
         ctx.selectivity,
-        SP::IS_ENDGAME,
+        SS::IS_ENDGAME,
     );
 
     best_score
@@ -579,7 +579,7 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
 /// # Type Parameters
 ///
 /// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-/// * `SP` - Search phase (MidGamePhase or EndGamePhase) determining phase-specific logic.
+/// * `SS` - Search strategy (MidGamePhase or EndGamePhase) determining phase-specific logic.
 ///
 /// # Arguments
 ///
@@ -592,7 +592,7 @@ pub fn search<NT: NodeType, SP: SearchPhase>(
 /// # Returns
 ///
 /// Best score found.
-pub fn search_split_point<NT: NodeType, SP: SearchPhase>(
+pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
@@ -612,22 +612,22 @@ pub fn search_split_point<NT: NodeType, SP: SearchPhase>(
         let mut score = -ScaledScore::INF;
 
         // Score-based Reduction (midgame only)
-        if SP::USE_SBR && depth >= 2 && mv.reduction_depth > 0 {
+        if SS::USE_SBR && depth >= 2 && mv.reduction_depth > 0 {
             let d = (depth - 1).saturating_sub(mv.reduction_depth);
-            score = -search::<NonPV, SP>(ctx, &next, d, -(alpha + 1), -alpha, thread);
+            score = -search::<NonPV, SS>(ctx, &next, d, -(alpha + 1), -alpha, thread);
             if score > alpha {
                 let alpha = split_point.state().alpha();
-                score = -search::<NonPV, SP>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
             }
         } else if !NT::PV_NODE || move_count > 1 {
-            score = -search::<NonPV, SP>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+            score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
         }
 
         // PV re-search
         if NT::PV_NODE && score > alpha {
             ctx.clear_pv();
             let alpha = split_point.state().alpha();
-            score = -search::<PV, SP>(ctx, &next, depth - 1, -beta, -alpha, thread);
+            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread);
         }
 
         ctx.undo(mv.sq);

@@ -1,4 +1,4 @@
-//! Search phase trait and implementations for midgame and endgame specialization.
+//! Search strategy trait and implementations for midgame and endgame specialization.
 
 use std::sync::Arc;
 
@@ -9,8 +9,8 @@ use crate::search::search_context::SearchContext;
 use crate::search::threading::Thread;
 use crate::types::{Depth, ScaledScore};
 
-/// Marker trait for game phase specialization in search.
-pub trait SearchPhase: Copy + Clone + 'static {
+/// Marker trait for search strategy specialization.
+pub trait SearchStrategy: Copy + Clone + 'static {
     /// Whether this is an endgame search (used for TT storage flag).
     const IS_ENDGAME: bool;
 
@@ -53,15 +53,15 @@ pub trait SearchPhase: Copy + Clone + 'static {
     ) -> Option<ScaledScore>;
 }
 
-/// Midgame search phase marker.
+/// Midgame search strategy marker.
 #[derive(Copy, Clone)]
-pub struct MidGamePhase;
+pub struct MidGameStrategy;
 
-/// Endgame search phase marker.
+/// Endgame search strategy marker.
 #[derive(Copy, Clone)]
-pub struct EndGamePhase;
+pub struct EndGameStrategy;
 
-impl SearchPhase for MidGamePhase {
+impl SearchStrategy for MidGameStrategy {
     const IS_ENDGAME: bool = false;
     const USE_SBR: bool = true;
     const MIN_ETC_DEPTH: Depth = 6;
@@ -101,7 +101,7 @@ impl SearchPhase for MidGamePhase {
     }
 }
 
-impl SearchPhase for EndGamePhase {
+impl SearchStrategy for EndGameStrategy {
     const IS_ENDGAME: bool = true;
     const USE_SBR: bool = false;
     const MIN_ETC_DEPTH: Depth = 0;

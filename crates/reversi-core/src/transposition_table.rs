@@ -1,8 +1,8 @@
 //! Hash table for caching previously searched positions to avoid redundant computation.
 
+use crate::probcut::Selectivity;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
-use crate::probcut::Selectivity;
 use crate::types::{Depth, ScaledScore};
 use aligned_vec::{AVec, ConstAlign};
 use cfg_if::cfg_if;

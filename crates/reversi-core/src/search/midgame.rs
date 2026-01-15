@@ -12,17 +12,17 @@ use crate::board::Board;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
+use crate::probcut::Selectivity;
 use crate::search::node_type::NonPV;
 use crate::search::node_type::Root;
 use crate::search::search_context::GamePhase;
 use crate::search::search_context::SearchContext;
-use crate::search::search_phase::MidGamePhase;
 use crate::search::search_result::SearchResult;
+use crate::search::search_strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
 use crate::search::{SearchProgress, SearchTask, endgame, search};
 use crate::square::Square;
-use crate::probcut::Selectivity;
 use crate::types::{Depth, ScaledScore};
 
 /// Initial aspiration window delta.
@@ -176,7 +176,7 @@ fn aspiration_search(
     let mut delta = ASPIRATION_DELTA;
 
     loop {
-        let score = search::<Root, MidGamePhase>(ctx, board, depth, *alpha, *beta, thread);
+        let score = search::<Root, MidGameStrategy>(ctx, board, depth, *alpha, *beta, thread);
 
         if thread.is_search_aborted() {
             return score;
@@ -282,7 +282,7 @@ pub fn probcut(
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None; // Disable nested probcut
         let score =
-            search::<NonPV, MidGamePhase>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
+            search::<NonPV, MidGameStrategy>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {

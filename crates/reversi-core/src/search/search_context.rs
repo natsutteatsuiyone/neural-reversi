@@ -8,12 +8,12 @@ use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
+use crate::probcut::Selectivity;
 use crate::search::root_move::{RootMove, RootMoves};
 use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::probcut::Selectivity;
 use crate::types::ScaledScore;
 
 /// Represents the current phase of the game for search strategy selection.

@@ -4,11 +4,11 @@ use std::cmp::Ordering;
 use reversi_core::board::Board;
 use reversi_core::constants::{SCORE_INF, SCORE_MAX};
 use reversi_core::count_last_flip::count_last_flip;
+use reversi_core::probcut::Selectivity;
 use reversi_core::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
 use reversi_core::search::node_type::NonPV;
 use reversi_core::square::Square;
 use reversi_core::transposition_table::Bound;
-use reversi_core::probcut::Selectivity;
 use reversi_core::types::{Depth, ScaledScore, Score};
 use reversi_core::{bitboard, stability};
 

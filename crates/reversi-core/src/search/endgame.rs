@@ -18,19 +18,19 @@ use crate::count_last_flip::count_last_flip_double;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
+use crate::probcut::Selectivity;
 use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
 use crate::search::node_type::Root;
 use crate::search::node_type::{NonPV, PV};
 use crate::search::search_context::SearchContext;
-use crate::search::search_phase::{EndGamePhase, MidGamePhase};
 use crate::search::search_result::SearchResult;
+use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
 use crate::search::{GamePhase, SearchProgress, SearchTask, midgame, search};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
-use crate::probcut::Selectivity;
 use crate::types::{Depth, ScaledScore, Score};
 
 /// Quadrant masks for move ordering in shallow search.
@@ -209,7 +209,7 @@ fn aspiration_search(
     let n_empties = ctx.empty_list.count;
 
     loop {
-        let score = search::<Root, EndGamePhase>(ctx, board, n_empties, *alpha, *beta, thread);
+        let score = search::<Root, EndGameStrategy>(ctx, board, n_empties, *alpha, *beta, thread);
 
         if thread.is_search_aborted() {
             return score;
@@ -262,7 +262,7 @@ fn estimate_aspiration_base_score(
     }
 
     if n_empties >= 24 {
-        search::<PV, MidGamePhase>(
+        search::<PV, MidGameStrategy>(
             ctx,
             board,
             midgame_depth,
@@ -321,7 +321,7 @@ pub fn probcut(
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None;
         let score =
-            search::<NonPV, MidGamePhase>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
+            search::<NonPV, MidGameStrategy>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {

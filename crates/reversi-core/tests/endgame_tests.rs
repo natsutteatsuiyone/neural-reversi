@@ -1,9 +1,9 @@
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level::Level;
+use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{Search, SearchRunOptions};
-use reversi_core::probcut::Selectivity;
 
 #[test]
 fn test_solve_5() {
