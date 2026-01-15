@@ -34,9 +34,9 @@ impl Bitboard {
         Bitboard(self.0 | sq.bitboard().0)
     }
 
-    /// Returns a new bitboard with the bit at the given square cleared.
+    /// Returns a new bitboard with the bit at the given square removed.
     #[inline(always)]
-    pub fn clear(self, sq: Square) -> Self {
+    pub fn remove(self, sq: Square) -> Self {
         Bitboard(self.0 & !sq.bitboard().0)
     }
 
@@ -1639,7 +1639,7 @@ mod tests {
     // Tests for Bitboard struct
 
     #[test]
-    fn test_bitboard_struct_set_clear() {
+    fn test_bitboard_struct_set_remove() {
         let bb = Bitboard::new(0);
 
         // set()
@@ -1651,8 +1651,7 @@ mod tests {
         assert!(bb.contains(Square::A1));
         assert!(bb.contains(Square::H8));
 
-        // clear()
-        let bb = bb.clear(Square::A1);
+        let bb = bb.remove(Square::A1);
         assert!(!bb.contains(Square::A1));
         assert!(bb.contains(Square::H8));
     }

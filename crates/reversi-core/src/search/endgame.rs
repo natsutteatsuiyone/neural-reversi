@@ -568,7 +568,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         return score;
     }
 
-    let moves = board.get_moves();
+    let mut moves = board.get_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -588,15 +588,34 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         tt_move = entry_data.best_move;
     }
 
+    let mut best_score = -SCORE_INF;
+    if tt_move != Square::None && moves.contains(tt_move) {
+        let next = board.make_move(tt_move);
+        ctx.update_endgame(tt_move);
+        let score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
+            -shallow_search(ctx, &next, -beta)
+        } else {
+            -null_window_search_with_ec(ctx, &next, -beta)
+        };
+        ctx.undo_endgame(tt_move);
+
+        moves = moves.remove(tt_move);
+        if score >= beta || moves.is_empty() {
+            store_endgame_cache(key, beta, score, tt_move);
+            return score;
+        }
+
+        best_score = score;
+    }
+
     let mut move_list = MoveList::with_moves(board, moves);
     if move_list.wipeout_move.is_some() {
         return SCORE_MAX;
     }
 
-    let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
     if move_list.count() >= 4 {
-        move_list.evaluate_moves_fast(ctx, board, tt_move);
+        move_list.evaluate_moves_fast(ctx, board, Square::None);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update_endgame(mv.sq);
@@ -616,7 +635,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
             }
         }
     } else if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(ctx, board, tt_move);
+        move_list.evaluate_moves_fast(ctx, board, Square::None);
         move_list.sort();
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -698,18 +717,16 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     let mut best_move = Square::None;
     let mut best_score = -SCORE_INF;
 
-    // Search tt_move first if valid (now validated against moves bitboard)
+    // Search tt_move first if valid
     if tt_move != Square::None && moves.contains(tt_move) {
-        moves &= !tt_move.bitboard();
-
         let score = shallow_search_move(ctx, board, tt_move, beta);
-
         if score >= beta {
             store_endgame_cache(key, beta, score, tt_move);
             return score;
         }
         best_score = score;
         best_move = tt_move;
+        moves = moves.remove(tt_move);
     }
 
     if moves.is_empty() {
