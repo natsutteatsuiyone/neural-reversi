@@ -206,7 +206,7 @@ fn aspiration_search(
     beta: &mut ScaledScore,
     thread: &Arc<Thread>,
 ) -> ScaledScore {
-    let mut delta = 2;
+    let mut delta = ScaledScore::from_disc_diff(2);
     let n_empties = ctx.empty_list.count;
 
     loop {
