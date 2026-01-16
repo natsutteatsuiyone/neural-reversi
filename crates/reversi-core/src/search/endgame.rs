@@ -375,7 +375,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             solve3(ctx, board, alpha, sq1, sq2, sq3)
         }
         4 => {
-            let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+            let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
             solve4(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
         _ => shallow_search(ctx, board, alpha),
@@ -820,7 +820,7 @@ fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta:
         } else if let Some(score) = stability_cutoff(&next, 4, -beta) {
             -score
         } else {
-            let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+            let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
             let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
             store_endgame_cache(next_key, next_beta, score, Square::None);
             -score
@@ -873,7 +873,7 @@ fn shallow_search_moves(
     None
 }
 
-/// Sorts the four remaining empty squares based on quadrant parity.
+/// Sorts the last four empty squares based on quadrant parity.
 ///
 /// # Arguments
 ///
@@ -881,9 +881,9 @@ fn shallow_search_moves(
 ///
 /// # Returns
 ///
-/// Four squares in optimized search order.
+/// Tuple of four squares sorted by quadrant parity.
 #[inline(always)]
-fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
+fn sort_last4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
     let (sq1, quad_id1) = ctx.empty_list.first_and_quad_id();
     let (sq2, quad_id2) = ctx.empty_list.next_and_quad_id(sq1);
     let (sq3, quad_id3) = ctx.empty_list.next_and_quad_id(sq2);
