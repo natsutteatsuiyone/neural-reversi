@@ -403,58 +403,63 @@ pub fn evaluate_depth1(
         }
     }
 
-    #[inline(always)]
-    fn search_move(
-        ctx: &mut SearchContext,
-        board: &Board,
-        sq: Square,
-        beta: ScaledScore,
-        best_score: &mut ScaledScore,
-    ) -> Option<ScaledScore> {
-        let flipped = flip::flip(sq, board.player, board.opponent);
-        if flipped == board.opponent {
-            return Some(ScaledScore::MAX);
-        }
-        let next = board.make_move_with_flipped(flipped, sq);
-
-        ctx.update(sq, flipped);
-        let score = -evaluate(ctx, &next);
-        ctx.undo(sq);
-
-        if score > *best_score {
-            *best_score = score;
-            if score >= beta {
-                return Some(score);
-            }
-        }
-        None
-    }
-
     let mut best_score = -ScaledScore::INF;
 
     // Process corner moves first
-    let mut current = moves.corners();
-    while !current.is_empty() {
-        let (sq, rest) = current.pop_lsb();
-        current = rest;
-
-        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score) {
+    for sq in moves.corners().iter() {
+        if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
             return score;
         }
     }
 
     // Process non-corner moves
-    current = moves.non_corners();
-    while !current.is_empty() {
-        let (sq, rest) = current.pop_lsb();
-        current = rest;
-
-        if let Some(score) = search_move(ctx, board, sq, beta, &mut best_score) {
+    for sq in moves.non_corners().iter() {
+        if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
             return score;
         }
     }
 
     best_score
+}
+
+/// Searches a move and updates the best score if it's better.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `sq` - Square to search.
+/// * `beta` - Beta bound.
+/// * `best_score` - Best score found so far.
+///
+/// # Returns
+///
+/// Best score found.
+#[inline(always)]
+fn search_move_in_evaluate_depth1(
+    ctx: &mut SearchContext,
+    board: &Board,
+    sq: Square,
+    beta: ScaledScore,
+    best_score: &mut ScaledScore,
+) -> Option<ScaledScore> {
+    let flipped = flip::flip(sq, board.player, board.opponent);
+    if flipped == board.opponent {
+        return Some(ScaledScore::MAX);
+    }
+    let next = board.make_move_with_flipped(flipped, sq);
+
+    ctx.update(sq, flipped);
+    let score = -evaluate(ctx, &next);
+    ctx.undo(sq);
+
+    if score > *best_score {
+        *best_score = score;
+        if score >= beta {
+            return Some(score);
+        }
+    }
+    None
 }
 
 /// Evaluates a leaf node position using the neural network evaluator.

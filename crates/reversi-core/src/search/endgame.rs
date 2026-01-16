@@ -851,16 +851,13 @@ fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta:
 fn shallow_search_moves(
     ctx: &mut SearchContext,
     board: &Board,
-    mut moves: Bitboard,
+    moves: Bitboard,
     key: u64,
     beta: Score,
     best_score: &mut Score,
     best_move: &mut Square,
 ) -> Option<Score> {
-    while !moves.is_empty() {
-        let (sq, rest) = moves.pop_lsb();
-        moves = rest;
-
+    for sq in moves.iter() {
         let score = shallow_search_move(ctx, board, sq, beta);
 
         if score > *best_score {
@@ -872,6 +869,7 @@ fn shallow_search_moves(
             *best_score = score;
         }
     }
+
     None
 }
 

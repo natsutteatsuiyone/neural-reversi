@@ -211,7 +211,7 @@ impl Bitboard {
     /// Returns an iterator over all set squares in the bitboard.
     #[inline(always)]
     pub fn iter(self) -> BitboardIterator {
-        BitboardIterator::new(self.0)
+        BitboardIterator::new(self)
     }
 
     /// Returns a new bitboard after applying a player's move.
@@ -399,7 +399,7 @@ impl IntoIterator for Bitboard {
 
     #[inline(always)]
     fn into_iter(self) -> Self::IntoIter {
-        BitboardIterator::new(self.0)
+        BitboardIterator::new(self)
     }
 }
 
@@ -868,20 +868,6 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     (moves & empty, potential & empty)
 }
 
-/// Clears the least significant bit (BLSR).
-///
-/// # Arguments
-///
-/// * `a` - The value to clear the least significant bit from.
-///
-/// # Returns
-///
-/// A `u64` value with the least significant set bit cleared. If `a` is 0, returns 0.
-#[inline(always)]
-pub fn clear_lsb_u64(a: u64) -> u64 {
-    a & a.wrapping_sub(1)
-}
-
 /// Flips the bitboard vertically.
 ///
 /// # Arguments
@@ -1015,8 +1001,7 @@ fn delta_swap(bits: u64, mask: u64, delta: u32) -> u64 {
 
 /// An iterator that yields each set bit position in a bitboard as a `Square`.
 pub struct BitboardIterator {
-    /// The remaining bitboard to iterate over.
-    bitboard: u64,
+    bitboard: Bitboard,
 }
 
 impl BitboardIterator {
@@ -1025,7 +1010,8 @@ impl BitboardIterator {
     /// # Arguments
     ///
     /// * `bitboard` - The bitboard to iterate over.
-    pub fn new(bitboard: u64) -> BitboardIterator {
+    #[inline(always)]
+    pub fn new(bitboard: Bitboard) -> BitboardIterator {
         BitboardIterator { bitboard }
     }
 }
@@ -1033,13 +1019,14 @@ impl BitboardIterator {
 impl Iterator for BitboardIterator {
     type Item = Square;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bitboard == 0 {
+        if self.bitboard.is_empty() {
             return None;
         }
 
-        let square = Square::from_u32_unchecked(self.bitboard.trailing_zeros());
-        self.bitboard = clear_lsb_u64(self.bitboard);
+        let (square, rest) = self.bitboard.pop_lsb();
+        self.bitboard = rest;
         Some(square)
     }
 }
@@ -1364,7 +1351,7 @@ mod tests {
     fn test_bitboard_iterator() {
         // Example bitboard: bits 0, 1, and 63 are set
         let bitboard = Square::A1.bitboard().0 | Square::B1.bitboard().0 | Square::H8.bitboard().0;
-        let mut iterator = BitboardIterator::new(bitboard);
+        let mut iterator = BitboardIterator::new(Bitboard(bitboard));
 
         assert_eq!(iterator.next(), Some(Square::A1));
         assert_eq!(iterator.next(), Some(Square::B1));
@@ -1375,7 +1362,7 @@ mod tests {
     #[test]
     fn test_bitboard_iterator_empty() {
         let bitboard: u64 = 0;
-        let mut iterator = BitboardIterator::new(bitboard);
+        let mut iterator = BitboardIterator::new(Bitboard(bitboard));
         assert_eq!(iterator.next(), None);
     }
 
@@ -1383,7 +1370,7 @@ mod tests {
     fn test_bitboard_iterator_full() {
         let bitboard: u64 = u64::MAX;
         let count = bitboard.count_ones();
-        let mut iterator = BitboardIterator::new(bitboard);
+        let mut iterator = BitboardIterator::new(Bitboard(bitboard));
         for i in 0..count {
             assert_eq!(iterator.next(), Some(Square::from_u32_unchecked(i)));
         }
@@ -1393,7 +1380,7 @@ mod tests {
     #[test]
     fn test_bitboard_iterator_single_bit() {
         let bitboard = Square::E4.bitboard().0;
-        let mut iterator = BitboardIterator::new(bitboard);
+        let mut iterator = BitboardIterator::new(Bitboard(bitboard));
         assert_eq!(iterator.next(), Some(Square::E4));
         assert_eq!(iterator.next(), None);
     }
@@ -1402,7 +1389,7 @@ mod tests {
     fn test_bitboard_iterator_diagonal() {
         // Main diagonal A1-H8
         let bitboard: u64 = 0x8040201008040201;
-        let squares: Vec<Square> = BitboardIterator::new(bitboard).collect();
+        let squares: Vec<Square> = BitboardIterator::new(Bitboard(bitboard)).collect();
         assert_eq!(squares.len(), 8);
         assert_eq!(squares[0], Square::A1);
         assert_eq!(squares[7], Square::H8);
@@ -1441,24 +1428,6 @@ mod tests {
         // Test edge square adjacency
         let bitboard = Square::C1.bitboard() | Square::D2.bitboard() | Square::E1.bitboard();
         assert!(bitboard.has_adjacent_bit(Square::D1));
-    }
-
-    #[test]
-    fn test_clear_lsb_u64() {
-        // Single bit
-        assert_eq!(clear_lsb_u64(0b1000), 0b0000);
-
-        // Multiple bits
-        assert_eq!(clear_lsb_u64(0b11010100), 0b11010000);
-
-        // All 1s
-        assert_eq!(clear_lsb_u64(0b1111), 0b1110);
-
-        // Zero
-        assert_eq!(clear_lsb_u64(0), 0);
-
-        // 64-bit
-        assert_eq!(clear_lsb_u64(0xABCDEF0123456780), 0xABCDEF0123456700);
     }
 
     #[test]
