@@ -487,9 +487,8 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
                 }
             }
         }
-    } else {
+    } else if let Some(mv) = move_list.first() {
         // only one move available
-        let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         best_score = if (ctx.empty_list.count - 1) <= DEPTH_TO_NWS_EC {
             ctx.update_endgame(mv.sq);
@@ -655,9 +654,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
                 }
             }
         }
-    } else {
-        // only one move available
-        let mv = move_list.first().unwrap();
+    } else if let Some(mv) = move_list.first() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update_endgame(mv.sq);
         best_score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
