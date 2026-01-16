@@ -362,7 +362,7 @@ pub fn search<NT: NodeType>(
             ctx.undo_pass();
             return score;
         } else {
-            return solve(board, n_empties);
+            return board.solve_scaled(n_empties);
         }
     } else if let Some(sq) = move_list.wipeout_move {
         if NT::ROOT_NODE {
@@ -500,7 +500,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return solve(board, ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count);
         }
     }
 
@@ -557,7 +557,7 @@ pub fn evaluate_depth1(
             ctx.undo_pass();
             return score;
         } else {
-            return solve(board, ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count);
         }
     }
 
@@ -584,20 +584,6 @@ pub fn evaluate_depth1(
     best_score
 }
 
-/// Calls the endgame solver for terminal nodes where both players must pass.
-///
-/// # Arguments
-///
-/// * `board` - The terminal board position to be evaluated.
-/// * `n_empties` - The number of empty squares remaining on the board.
-///
-/// # Returns
-///
-/// The exact final score of the position, scaled to internal units.
-fn solve(board: &Board, n_empties: Depth) -> ScaledScore {
-    ScaledScore::from_disc_diff(endgame::solve(board, n_empties))
-}
-
 /// Evaluates a leaf node position using the neural network evaluator.
 ///
 /// # Arguments
@@ -611,7 +597,7 @@ fn solve(board: &Board, n_empties: Depth) -> ScaledScore {
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == 60 {
-        return ScaledScore::from_disc_diff(endgame::calculate_final_score(board));
+        return board.final_score_scaled();
     }
 
     ctx.eval.evaluate(ctx, board)

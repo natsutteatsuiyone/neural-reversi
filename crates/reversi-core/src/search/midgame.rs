@@ -21,7 +21,7 @@ use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{SearchProgress, SearchTask, endgame, search};
+use crate::search::{SearchProgress, SearchTask, search};
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 
@@ -320,7 +320,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return solve(board, ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count);
         }
     }
 
@@ -399,7 +399,7 @@ pub fn evaluate_depth1(
             ctx.undo_pass();
             return score;
         } else {
-            return solve(board, ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count);
         }
     }
 
@@ -475,22 +475,8 @@ fn search_move_in_evaluate_depth1(
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == 60 {
-        return ScaledScore::from_disc_diff(endgame::calculate_final_score(board));
+        return board.final_score_scaled();
     }
 
     ctx.eval.evaluate(ctx, board)
-}
-
-/// Calls the endgame solver for terminal nodes where both players must pass.
-///
-/// # Arguments
-///
-/// * `board` - Terminal board position.
-/// * `n_empties` - Number of empty squares.
-///
-/// # Returns
-///
-/// Exact final score.
-fn solve(board: &Board, n_empties: Depth) -> ScaledScore {
-    ScaledScore::from_disc_diff(endgame::solve(board, n_empties))
 }

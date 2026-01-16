@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cmp::Ordering;
 
 use reversi_core::board::Board;
 use reversi_core::constants::{SCORE_INF, SCORE_MAX};
@@ -62,7 +61,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         if next.has_legal_moves() {
             return -null_window_search(ctx, &next, -beta);
         } else {
-            return solve(board, n_empties);
+            return board.solve(n_empties);
         }
     }
 
@@ -201,7 +200,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         if next.has_legal_moves() {
             return -null_window_search_with_ec(ctx, &next, -beta);
         } else {
-            return solve(board, n_empties);
+            return board.solve(n_empties);
         }
     }
 
@@ -313,7 +312,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         if next.has_legal_moves() {
             return -shallow_search(ctx, &next, -beta);
         } else {
-            return solve(board, n_empties);
+            return board.solve(n_empties);
         }
     } else if best_move != Square::None {
         moves &= !best_move.bitboard().0;
@@ -464,7 +463,7 @@ fn solve4(
         if pass.has_legal_moves() {
             best_score = -solve4(ctx, &pass, -beta, sq1, sq2, sq3, sq4);
         } else {
-            best_score = solve(board, 4);
+            best_score = board.solve(4);
         }
     }
 
@@ -549,7 +548,7 @@ fn solve3(
         return best_score;
     }
 
-    solve(board, 3)
+    board.solve(3)
 }
 
 /// Specialized solver for positions with exactly 2 empty squares.
@@ -604,7 +603,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     }
 
     // both players pass
-    solve(board, 2)
+    board.solve(2)
 }
 
 /// Specialized solver for positions with exactly 1 empty square.
@@ -644,44 +643,3 @@ fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> S
     score
 }
 
-/// Calculates the final score when no moves remain for either player.
-///
-/// # Scoring Rules
-///
-/// - If scores are tied: Empty squares are split (returns 0)
-/// - If current player ahead: Gets all empty squares
-/// - If current player behind: Gets no empty squares
-///
-/// # Arguments
-///
-/// * `board` - Final board position
-/// * `n_empties` - Number of remaining empty squares
-///
-/// # Returns
-///
-/// Final score in disc difference
-#[inline(always)]
-pub fn solve(board: &Board, n_empties: u32) -> Score {
-    let score = board.get_player_count() as Score * 2 - 64;
-    let diff = score + n_empties as Score;
-
-    match diff.cmp(&0) {
-        Ordering::Equal => diff,
-        Ordering::Greater => diff + n_empties as Score,
-        Ordering::Less => score,
-    }
-}
-
-/// Calculates the final score of a completed game (0 empty squares).
-///
-/// # Arguments
-///
-/// * `board` - Board position with all 64 squares filled
-///
-/// # Returns
-///
-/// Score as disc difference (positive = current player won)
-#[inline(always)]
-pub fn calculate_final_score(board: &Board) -> Score {
-    board.get_player_count() as Score * 2 - 64
-}

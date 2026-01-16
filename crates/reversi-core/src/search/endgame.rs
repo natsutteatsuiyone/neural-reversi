@@ -5,7 +5,6 @@
 //! - <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c
 
 use std::cell::UnsafeCell;
-use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::bitboard::Bitboard;
@@ -358,7 +357,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 
     match n_empties {
-        0 => calculate_final_score(board),
+        0 => board.final_score(),
         1 => {
             let sq = ctx.empty_list.first();
             solve1(ctx, board.player, alpha, sq)
@@ -413,7 +412,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
             ctx.undo_pass();
             return score;
         } else {
-            return solve(board, n_empties);
+            return board.solve(n_empties);
         }
     }
 
@@ -573,7 +572,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         if next.has_legal_moves() {
             return -null_window_search_with_ec(ctx, &next, -beta);
         } else {
-            return solve(board, n_empties);
+            return board.solve(n_empties);
         }
     }
 
@@ -696,7 +695,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         if next.has_legal_moves() {
             return -shallow_search(ctx, &next, -beta);
         } else {
-            return solve(board, n_empties);
+            return board.solve(n_empties);
         }
     }
 
@@ -970,7 +969,7 @@ fn solve4(
         if pass.has_legal_moves() {
             best_score = -solve4(ctx, &pass, -beta, sq1, sq2, sq3, sq4);
         } else {
-            best_score = solve(board, 4);
+            best_score = board.solve(4);
         }
     }
 
@@ -1055,7 +1054,7 @@ fn solve3(
         return best_score;
     }
 
-    solve(board, 3)
+    board.solve(3)
 }
 
 /// Specialized solver for positions with exactly 2 empty squares.
@@ -1138,7 +1137,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     }
 
     // both players pass
-    solve(board, 2)
+    board.solve(2)
 }
 
 /// Specialized solver for positions with exactly 1 empty square.
@@ -1204,44 +1203,3 @@ fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -
     score
 }
 
-/// Calculates the final score when no moves remain for either player.
-///
-/// # Scoring Rules
-///
-/// - If scores are tied: Empty squares are split (returns 0)
-/// - If current player ahead: Gets all empty squares
-/// - If current player behind: Gets no empty squares
-///
-/// # Arguments
-///
-/// * `board` - Final board position.
-/// * `n_empties` - Number of empty squares.
-///
-/// # Returns
-///
-/// Final score in disc difference.
-#[inline(always)]
-pub fn solve(board: &Board, n_empties: u32) -> Score {
-    let score = board.get_player_count() as Score * 2 - 64;
-    let diff = score + n_empties as Score;
-
-    match diff.cmp(&0) {
-        Ordering::Equal => diff,
-        Ordering::Greater => diff + n_empties as Score,
-        Ordering::Less => score,
-    }
-}
-
-/// Calculates the final score of a completed game (0 empty squares).
-///
-/// # Arguments
-///
-/// * `board` - Board position with all squares filled.
-///
-/// # Returns
-///
-/// Score as disc difference.
-#[inline(always)]
-pub fn calculate_final_score(board: &Board) -> Score {
-    board.get_player_count() as Score * 2 - 64
-}

@@ -1,12 +1,15 @@
 //! Reversi board representation using bitboards.
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
 
 use crate::bitboard::Bitboard;
+use crate::constants::SCORE_MAX;
 use crate::disc::Disc;
 use crate::flip;
 use crate::square::Square;
+use crate::types::{ScaledScore, Score};
 
 /// Represents a Reversi board with bitboards for the player and opponent.
 ///
@@ -157,6 +160,66 @@ impl Board {
     #[inline(always)]
     pub fn get_empty_count(&self) -> u32 {
         self.get_empty().count()
+    }
+
+    /// Returns the final score from the current player's perspective.
+    ///
+    /// The board must have no empty squares.
+    ///
+    /// # Returns
+    ///
+    /// Disc difference (positive if player has more discs).
+    #[inline(always)]
+    pub fn final_score(&self) -> Score {
+        self.get_player_count() as Score * 2 - SCORE_MAX
+    }
+
+    /// Returns the final score as a [`ScaledScore`].
+    ///
+    /// This is equivalent to `ScaledScore::from_disc_diff(self.final_score())`.
+    #[inline(always)]
+    pub fn final_score_scaled(&self) -> ScaledScore {
+        ScaledScore::from_disc_diff(self.final_score())
+    }
+
+    /// Calculates the final score when both players have passed.
+    ///
+    /// Unlike [`final_score`](Self::final_score) which assumes no empty squares,
+    /// this method handles positions with remaining empties by awarding them
+    /// to the player with more discs.
+    ///
+    /// # Scoring Rules
+    ///
+    /// Let `diff = disc_difference + n_empties`:
+    /// - `diff > 0`: Player ahead, gets all empties → returns `diff + n_empties`
+    /// - `diff < 0`: Opponent ahead, gets all empties → returns `disc_difference`
+    /// - `diff == 0`: Empties split evenly → returns `0`
+    ///
+    /// # Arguments
+    ///
+    /// * `n_empties` - Number of empty squares on the board.
+    ///
+    /// # Returns
+    ///
+    /// Final score as disc difference (positive = player wins).
+    #[inline(always)]
+    pub fn solve(&self, n_empties: u32) -> Score {
+        let score = self.get_player_count() as Score * 2 - SCORE_MAX;
+        let diff = score + n_empties as Score;
+
+        match diff.cmp(&0) {
+            Ordering::Equal => diff,
+            Ordering::Greater => diff + n_empties as Score,
+            Ordering::Less => score,
+        }
+    }
+
+    /// Calculates the final score as a [`ScaledScore`] when both players have passed.
+    ///
+    /// This is equivalent to `ScaledScore::from_disc_diff(self.solve(n_empties))`.
+    #[inline(always)]
+    pub fn solve_scaled(&self, n_empties: u32) -> ScaledScore {
+        ScaledScore::from_disc_diff(self.solve(n_empties))
     }
 
     /// Switches the players.
@@ -861,5 +924,94 @@ mod tests {
         assert!(board.get_opponent_count() > 0);
         assert!(!board.is_game_over());
         assert!(board.has_legal_moves());
+    }
+
+    #[test]
+    fn test_final_score() {
+        // Player wins 64-0
+        let board = Board::from_bitboards(u64::MAX, 0);
+        assert_eq!(board.final_score(), 64);
+
+        // Opponent wins 0-64
+        let board = Board::from_bitboards(0, u64::MAX);
+        assert_eq!(board.final_score(), -64);
+
+        // Draw 32-32
+        let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
+        assert_eq!(board.final_score(), 0);
+    }
+
+    #[test]
+    fn test_solve_player_ahead() {
+        // Player has 40 discs, opponent has 20 discs, 4 empties
+        // Score = 40 * 2 - 64 = 16
+        // diff = 16 + 4 = 20 > 0, so player gets all empties
+        // Result = 20 + 4 = 24
+        let board = Board::from_bitboards(0x00000000FFFFFFFFFF, 0x0000FFFFF000000000);
+        let player_count = board.get_player_count();
+        let opponent_count = board.get_opponent_count();
+        let n_empties = 64 - player_count - opponent_count;
+        assert!(n_empties > 0);
+        let score = board.solve(n_empties);
+        // Player ahead: gets all empty squares
+        assert!(score > 0);
+    }
+
+    #[test]
+    fn test_solve_opponent_ahead() {
+        // Player has 20 discs, opponent has 40 discs, 4 empties
+        // Score = 20 * 2 - 64 = -24
+        // diff = -24 + 4 = -20 < 0, so player gets no empties
+        // Result = -24
+        let board = Board::from_bitboards(0x0000FFFFF000000000, 0x00000000FFFFFFFFFF);
+        let player_count = board.get_player_count();
+        let opponent_count = board.get_opponent_count();
+        let n_empties = 64 - player_count - opponent_count;
+        assert!(n_empties > 0);
+        let score = board.solve(n_empties);
+        // Opponent ahead: player gets no empty squares
+        assert!(score < 0);
+    }
+
+    #[test]
+    fn test_solve_tied() {
+        // For diff == 0, we need: score + n_empties == 0
+        // score = player_count * 2 - 64
+        // So: player_count * 2 - 64 + n_empties == 0
+        // Example: player_count = 30, n_empties = 4
+        // 30 * 2 - 64 + 4 = 0
+
+        // Create board with 30 player discs, 30 opponent discs, 4 empties
+        // Player: bits 0-29 (30 bits)
+        let player = 0x000000003FFFFFFFu64;
+        // Opponent: bits 30-59 (30 bits)
+        let opponent = 0x0FFFFFFFC0000000u64;
+
+        let board = Board::from_bitboards(player, opponent);
+        assert_eq!(board.get_player_count(), 30);
+        assert_eq!(board.get_opponent_count(), 30);
+
+        let n_empties = 64 - 30 - 30;
+        assert_eq!(n_empties, 4);
+
+        // When diff == 0, empties are split, score is 0
+        let score = board.solve(n_empties);
+        assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn test_solve_no_empties() {
+        // Full board, no empties
+        // Player wins 64-0
+        let board = Board::from_bitboards(u64::MAX, 0);
+        assert_eq!(board.solve(0), 64);
+
+        // Opponent wins 0-64
+        let board = Board::from_bitboards(0, u64::MAX);
+        assert_eq!(board.solve(0), -64);
+
+        // Draw 32-32
+        let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
+        assert_eq!(board.solve(0), 0);
     }
 }

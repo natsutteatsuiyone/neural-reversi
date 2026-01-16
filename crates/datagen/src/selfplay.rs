@@ -17,7 +17,6 @@ use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 use reversi_core::types::Scoref;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
@@ -370,7 +369,7 @@ fn play_game(
     if !game_records.is_empty() {
         let final_board = *game.board();
         let final_side_to_move = game.side_to_move();
-        let final_score = calculate_final_score(&final_board);
+        let final_score = final_board.solve(final_board.get_empty_count()) as i8;
 
         for record in game_records.iter_mut() {
             let score = match record.side_to_move {
@@ -395,25 +394,6 @@ fn play_game(
     );
 
     game_records
-}
-
-/// Calculates the final score of the game from the board state.
-///
-/// Arguments
-/// * `board` - The final board state of the game
-///
-/// Returns
-/// The final score from the perspective of the player to move.
-fn calculate_final_score(board: &Board) -> i8 {
-    let n_empties = board.get_empty_count();
-    let score = board.get_player_count() as i8 * 2 - 64;
-    let diff = score + n_empties as i8;
-
-    match diff.cmp(&0) {
-        Ordering::Equal => diff,
-        Ordering::Greater => diff + n_empties as i8,
-        Ordering::Less => score,
-    }
 }
 
 /// Selects a random legal move from the current board position.

@@ -111,7 +111,7 @@ impl SearchStrategy for EndGameStrategy {
 
     #[inline(always)]
     fn evaluate(_ctx: &SearchContext, board: &Board) -> ScaledScore {
-        ScaledScore::from_disc_diff(endgame::calculate_final_score(board))
+        board.final_score_scaled()
     }
 
     #[inline(always)]

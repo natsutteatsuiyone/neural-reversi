@@ -414,7 +414,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.undo_pass();
             return score;
         } else {
-            return ScaledScore::from_disc_diff(endgame::solve(board, ctx.empty_list.count));
+            return board.solve_scaled(ctx.empty_list.count);
         }
     } else if let Some(sq) = move_list.wipeout_move {
         if NT::ROOT_NODE {
