@@ -25,6 +25,20 @@ const QUADRANT_ID: [u8; 64] = [
     4, 4, 4, 4, 8, 8, 8, 8,
 ];
 
+/// Retrieves the quadrant ID for a given square.
+///
+/// # Arguments
+///
+/// * `sq` - The square to retrieve the quadrant ID for.
+///
+/// # Returns
+///
+/// The quadrant ID for the given square.
+#[inline(always)]
+fn get_quadrant_id(sq: Square) -> u8 {
+    unsafe { *QUADRANT_ID.get_unchecked(sq.index()) }
+}
+
 /// Strategic ordering of squares for optimal move generation.
 #[rustfmt::skip]
 const PRESORTED: [Square; 64] = [
@@ -125,9 +139,9 @@ impl EmptyList {
     /// A tuple containing the first `Square` and its `quad_id`.
     /// If the list is empty, returns (`Square::None`, 0).
     #[inline(always)]
-    pub fn first_with_quad_id(&self) -> (Square, u8) {
-        let first_sq = unsafe { self.nodes.get_unchecked(Square::None.index()).next };
-        let quad_id = unsafe { *QUADRANT_ID.get_unchecked(first_sq.index()) };
+    pub fn first_and_quad_id(&self) -> (Square, u8) {
+        let first_sq = self.first();
+        let quad_id = get_quadrant_id(first_sq);
         (first_sq, quad_id)
     }
 
@@ -156,9 +170,9 @@ impl EmptyList {
     /// A tuple containing the next `Square` and its `quad_id`.
     /// If `sq` is the last square, returns (`Square::None`, 0).
     #[inline(always)]
-    pub fn next_with_quad_id(&self, sq: Square) -> (Square, u8) {
-        let next_sq = unsafe { self.nodes.get_unchecked(sq.index()).next };
-        let quad_id = unsafe { *QUADRANT_ID.get_unchecked(next_sq.index()) };
+    pub fn next_and_quad_id(&self, sq: Square) -> (Square, u8) {
+        let next_sq = self.next(sq);
+        let quad_id = get_quadrant_id(next_sq);
         (next_sq, quad_id)
     }
 
@@ -181,7 +195,7 @@ impl EmptyList {
             self.nodes.get_unchecked_mut(prev_idx).next = next;
             self.nodes.get_unchecked_mut(next_idx).prev = prev;
 
-            self.parity ^= *QUADRANT_ID.get_unchecked(sq_idx);
+            self.parity ^= get_quadrant_id(sq);
         }
         self.count -= 1;
     }
@@ -202,8 +216,7 @@ impl EmptyList {
             self.nodes.get_unchecked_mut(prev_idx).next = sq;
             self.nodes.get_unchecked_mut(next_idx).prev = sq;
 
-            // `get_unchecked` returns `&u8`; parity stores the value, so XOR the byte
-            self.parity ^= *QUADRANT_ID.get_unchecked(idx);
+            self.parity ^= get_quadrant_id(sq);
         }
         self.count += 1;
     }
@@ -308,7 +321,7 @@ mod tests {
         let board = Board::new();
         let empty_list = EmptyList::new(&board);
 
-        let (first_sq, quad_id) = empty_list.first_with_quad_id();
+        let (first_sq, quad_id) = empty_list.first_and_quad_id();
         assert_eq!(first_sq, Square::A1);
         assert_eq!(quad_id, 1); // A1 is in quadrant 1
     }
@@ -318,11 +331,11 @@ mod tests {
         let board = Board::new();
         let empty_list = EmptyList::new(&board);
 
-        let (next_sq, quad_id) = empty_list.next_with_quad_id(Square::A1);
+        let (next_sq, quad_id) = empty_list.next_and_quad_id(Square::A1);
         assert_eq!(next_sq, Square::H1);
         assert_eq!(quad_id, 2); // H1 is in quadrant 2
 
-        let (next_sq, quad_id) = empty_list.next_with_quad_id(Square::H1);
+        let (next_sq, quad_id) = empty_list.next_and_quad_id(Square::H1);
         assert_eq!(next_sq, Square::A8);
         assert_eq!(quad_id, 4); // A8 is in quadrant 4
     }

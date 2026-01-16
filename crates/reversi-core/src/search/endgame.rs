@@ -884,9 +884,9 @@ fn shallow_search_moves(
 /// Four squares in optimized search order.
 #[inline(always)]
 fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
-    let (sq1, quad_id1) = ctx.empty_list.first_with_quad_id();
-    let (sq2, quad_id2) = ctx.empty_list.next_with_quad_id(sq1);
-    let (sq3, quad_id3) = ctx.empty_list.next_with_quad_id(sq2);
+    let (sq1, quad_id1) = ctx.empty_list.first_and_quad_id();
+    let (sq2, quad_id2) = ctx.empty_list.next_and_quad_id(sq1);
+    let (sq3, quad_id3) = ctx.empty_list.next_and_quad_id(sq2);
     let sq4 = ctx.empty_list.next(sq3);
     let parity = ctx.empty_list.parity;
 
