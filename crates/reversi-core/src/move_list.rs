@@ -389,10 +389,11 @@ impl MoveList {
         }
     }
 
-    /// Excludes moves that belong to earlier PV lines in Multi-PV search.
+    /// Excludes moves that were selected as best moves for earlier PV lines in Multi-PV search.
     ///
-    /// In Multi-PV mode, moves at indices < pv_idx in root_moves have already been
-    /// searched as part of earlier PV lines and should be excluded from the current search.
+    /// In Multi-PV mode, each PV line explores a different best move at the root. This method
+    /// retains only moves that appear in `root_moves` from `pv_idx` onwards, excluding moves
+    /// that were already selected as the best move for earlier PV lines (indices 0..pv_idx).
     ///
     /// # Arguments
     ///
