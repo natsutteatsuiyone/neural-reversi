@@ -44,7 +44,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let use_time_control = time_manager.is_some();
 
     let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
-    ctx.eval_mode = EvalMode::Large;
+    ctx.eval_mode = EvalMode::Main;
 
     let n_empties = ctx.empty_list.count;
 
@@ -137,7 +137,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 ctx.n_nodes,
                 depth.min(n_empties),
                 ctx.selectivity,
-                EvalMode::Large,
+                EvalMode::Main,
             );
         }
 
@@ -155,7 +155,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         ctx.n_nodes,
         max_depth.min(n_empties),
         ctx.selectivity,
-        EvalMode::Large,
+        EvalMode::Main,
     )
 }
 

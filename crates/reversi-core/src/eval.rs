@@ -1,8 +1,8 @@
 //! Neural network-based position evaluation.
 //!
 //! This module provides phase-adaptive evaluation using two neural networks:
-//! - Main network: Used for midgame and early positions (ply < 30)
-//! - Small network: Used for endgame positions
+//! - Main network: General-purpose network for all positions
+//! - Small network: Optimized for endgame (ply >= 30 only)
 
 use std::env;
 use std::io;
@@ -14,7 +14,7 @@ pub use network_small::NetworkSmall;
 
 use crate::board::Board;
 use crate::search::search_context::SearchContext;
-use crate::types::{ScaledScore, Score};
+use crate::types::ScaledScore;
 
 mod activations;
 pub mod eval_cache;
@@ -27,11 +27,11 @@ pub mod pattern_feature;
 mod util;
 
 /// Represents the evaluation mode for neural network selection.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvalMode {
-    // Large network
-    Large,
-    // Small network
+    /// Use the main network for evaluation.
+    Main,
+    /// Use the small network for endgame (ply >= 30 only).
     Small,
 }
 
@@ -55,12 +55,12 @@ pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
 
 /// Neural network evaluator.
 pub struct Eval {
-    /// Main neural network for midgame evaluation.
+    /// Main neural network for early and midgame evaluation.
     network: Network,
-    /// Small neural network for endgame evaluation.
+    /// Small network optimized for endgame evaluation.
     network_sm: NetworkSmall,
-    /// Evaluation cache to avoid redundant computation.
-    pub cache: EvalCache,
+    /// Evaluation cache to avoid redundant neural network computation.
+    cache: EvalCache,
 }
 
 fn missing_weights_error(path: &Path) -> io::Error {
@@ -84,7 +84,12 @@ impl Eval {
     /// uses embedded weights.
     pub fn new() -> io::Result<Self> {
         let exe_path = env::current_exe()?;
-        let exe_dir = exe_path.parent().unwrap();
+        let exe_dir = exe_path.parent().ok_or_else(|| {
+            io::Error::other(format!(
+                "Cannot determine executable directory: path '{}' has no parent",
+                exe_path.display()
+            ))
+        })?;
 
         let eval_file_path = exe_dir.join(EVAL_FILE_NAME);
         let eval_sm_file_path = exe_dir.join(EVAL_SM_FILE_NAME);
@@ -150,8 +155,17 @@ impl Eval {
     /// # Returns
     ///
     /// The evaluation score of the current position.
+    ///
+    /// # Network Selection
+    ///
+    /// - `ply < 30`: Always uses main network (small network does not support early/midgame)
+    /// - `ply >= 30`: Uses small network when [`EvalMode::Small`], otherwise main network
+    ///
+    /// # Caching
+    ///
+    /// Only main network evaluations are cached. Small network is fast enough without caching.
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
-        if ctx.eval_mode == EvalMode::Large || ctx.ply() < 30 {
+        if ctx.eval_mode == EvalMode::Main || ctx.ply() < 30 {
             let key = board.hash();
             if let Some(score_cache) = self.cache.probe(key) {
                 return score_cache;
@@ -168,15 +182,14 @@ impl Eval {
         }
     }
 
-    /// Simple evaluation without SearchContext.
+    /// Simple evaluation without [`SearchContext`].
     ///
-    /// This is a convenience method for quick move selection when
-    /// there's no SearchContext available. It creates pattern features
-    /// on the fly, so it's slower than the cached version.
+    /// Always uses the main network regardless of ply. Creates pattern features
+    /// on the fly, so it's slower than [`evaluate`](Self::evaluate).
     ///
     /// # Arguments
     ///
-    /// * `board` - The current board position.
+    /// * `board` - The current board.
     ///
     /// # Returns
     ///
@@ -184,8 +197,7 @@ impl Eval {
     pub fn evaluate_simple(&self, board: &Board) -> ScaledScore {
         let n_empties = board.get_empty_count() as usize;
         if n_empties == 0 {
-            let final_score = board.get_player_count() as Score * 2 - 64;
-            return ScaledScore::from_disc_diff(final_score);
+            return board.final_score_scaled();
         }
 
         let ply = 60 - n_empties;
@@ -193,5 +205,10 @@ impl Eval {
 
         self.network
             .evaluate(board, &pattern_features.p_features[ply], ply)
+    }
+
+    /// Clears the evaluation cache.
+    pub fn clear_cache(&self) {
+        self.cache.clear();
     }
 }

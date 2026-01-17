@@ -76,7 +76,7 @@ impl SearchContext {
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],
             }; MAX_PLY],
-            eval_mode: EvalMode::Large,
+            eval_mode: EvalMode::Main,
         }
     }
 

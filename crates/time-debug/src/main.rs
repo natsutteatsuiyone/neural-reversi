@@ -430,7 +430,7 @@ fn play_game(
         let has_time = player_time.use_time(elapsed_ms);
         if !has_time {
             let phase_str = match result.eval_mode {
-                EvalMode::Large => "Mid",
+                EvalMode::Main => "Mid",
                 EvalMode::Small => "End",
             };
             let nps = if elapsed_ms > 0 {
@@ -483,7 +483,7 @@ fn play_game(
             };
 
             let phase_str = match result.eval_mode {
-                EvalMode::Large => "Mid".cyan(),
+                EvalMode::Main => "Mid".cyan(),
                 EvalMode::Small => "End".magenta(),
             };
 

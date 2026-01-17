@@ -39,7 +39,7 @@ impl SearchResult {
             pv_line: vec![],
             depth: 0,
             selectivity: Selectivity::None,
-            eval_mode: EvalMode::Large,
+            eval_mode: EvalMode::Main,
             pv_moves: vec![],
         }
     }

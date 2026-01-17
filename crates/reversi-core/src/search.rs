@@ -102,7 +102,7 @@ impl Search {
     pub fn init(&mut self) {
         self.tt.clear();
         self.tt.reset_generation();
-        self.eval.cache.clear();
+        self.eval.clear_cache();
         self.endgame_start_n_empties = None;
     }
 
@@ -262,7 +262,7 @@ impl Search {
                 pv_line: vec![],
                 depth: 0,
                 selectivity: Selectivity::None,
-                eval_mode: EvalMode::Large,
+                eval_mode: EvalMode::Main,
                 pv_moves: vec![],
             };
         }
@@ -291,7 +291,7 @@ impl Search {
             pv_line: vec![best_move],
             depth: 1,
             selectivity: Selectivity::None,
-            eval_mode: EvalMode::Large,
+            eval_mode: EvalMode::Main,
             pv_moves: vec![],
         }
     }
