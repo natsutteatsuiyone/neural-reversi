@@ -297,12 +297,6 @@ impl Search {
     }
 }
 
-impl Drop for Search {
-    fn drop(&mut self) {
-        assert!(Arc::strong_count(&self.threads) == 1);
-    }
-}
-
 /// Dispatches to midgame or endgame search based on remaining empties.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let min_end_depth = task.level.get_end_depth(Selectivity::Level0);
