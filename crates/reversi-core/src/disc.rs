@@ -1,7 +1,7 @@
 //! Disc representation for the Reversi board.
 
 /// Represents a disc in the game.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Disc {
     /// An empty spot on the board.
     Empty,
@@ -34,7 +34,7 @@ impl Disc {
     /// * `Disc::White` for `Disc::Black`
     /// * `Disc::Black` for `Disc::White`
     /// * `Disc::Empty` for `Disc::Empty`
-    pub fn opposite(&self) -> Disc {
+    pub fn opposite(self) -> Disc {
         match self {
             Disc::Black => Disc::White,
             Disc::White => Disc::Black,
