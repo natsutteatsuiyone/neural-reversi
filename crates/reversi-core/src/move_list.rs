@@ -510,10 +510,12 @@ impl ConcurrentMoveIterator {
     ///
     /// # Returns
     ///
-    /// Remaining move count.
+    /// Remaining move count (0 if all moves have been consumed).
     #[inline]
     pub fn remaining(&self) -> usize {
         let current = self.current.load(atomic::Ordering::Relaxed);
+        // Uses `saturating_sub` because concurrent `fetch_add` calls can cause
+        // `current` to exceed `count` when multiple threads race past the last move.
         self.move_list.count().saturating_sub(current)
     }
 }
