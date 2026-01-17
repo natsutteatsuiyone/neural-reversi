@@ -1,6 +1,7 @@
 //! Search result types.
 
 use crate::{
+    constants::SCORE_INF,
     probcut::Selectivity,
     search::root_move::{RootMove, RootMoves},
     square::Square,
@@ -39,6 +40,20 @@ impl SearchResult {
             depth: 0,
             selectivity: Selectivity::None,
             is_endgame: false,
+            pv_moves: vec![],
+        }
+    }
+
+    /// Creates a result when no legal moves are available.
+    pub fn new_no_moves(is_endgame: bool) -> Self {
+        Self {
+            score: -SCORE_INF as Scoref,
+            best_move: None,
+            n_nodes: 0,
+            pv_line: vec![],
+            depth: 0,
+            selectivity: Selectivity::None,
+            is_endgame,
             pv_moves: vec![],
         }
     }

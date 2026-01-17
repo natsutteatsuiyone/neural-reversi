@@ -94,9 +94,20 @@ pub fn search_root(task: SearchTask) -> SearchResult {
         task.eval.clone(),
         task.progress_callback,
     );
+    if ctx.root_moves.is_empty() {
+        // Handle no legal moves
+        return SearchResult {
+            score: 0.0,
+            best_move: None,
+            n_nodes: 0,
+            depth: 0,
+            selectivity: Selectivity::None,
+        };
+    }
 
     let n_empties = ctx.empty_list.count;
     if n_empties == 60 {
+        // Handle opening position with random move
         let mv = random_move(&board);
         return SearchResult {
             score: 0.0,

@@ -9,7 +9,6 @@ use std::sync::Arc;
 use rand::seq::IteratorRandom;
 
 use crate::board::Board;
-use crate::eval::EvalMode;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
@@ -44,12 +43,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let use_time_control = time_manager.is_some();
 
     let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
-    ctx.eval_mode = EvalMode::Main;
+    if ctx.root_moves_count() == 0 {
+        // Handle no legal moves
+        return SearchResult::new_no_moves(false);
+    }
 
     let n_empties = ctx.empty_list.count;
-
-    // Handle opening position with random move
     if n_empties == 60 && !task.multi_pv {
+        // Handle opening position with random move
         return SearchResult::new_random_move(random_move(&board));
     }
 
