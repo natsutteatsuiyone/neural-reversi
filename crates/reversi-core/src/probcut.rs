@@ -59,10 +59,12 @@ impl Selectivity {
         self as u8
     }
 
-    /// Creates a Selectivity from a u8 value.
+    /// Creates a Selectivity from a u8 value, clamping to valid range.
+    ///
+    /// Values > 6 are clamped to `Selectivity::None` (6).
     #[inline]
     pub fn from_u8(value: u8) -> Self {
-        // SAFETY: Selectivity enum has repr(u8) with values 0-6
+        // SAFETY: Selectivity enum has repr(u8) with contiguous values 0-6.
         unsafe { std::mem::transmute(value.min(6)) }
     }
 
@@ -131,7 +133,7 @@ fn build_mean_table() -> Box<MeanTable> {
             for deep in shallow..MAX_DEPTH {
                 let v = params.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
                 tbl[ply][shallow][deep] = v;
-                tbl[ply][deep][shallow] = v; // Symmetric: mean(a,b) = mean(b,a)
+                tbl[ply][deep][shallow] = v; // Mirror for symmetric table access
             }
         }
     }
@@ -148,7 +150,7 @@ fn build_sigma_table() -> Box<SigmaTable> {
             for deep in shallow..MAX_DEPTH {
                 let v = params.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
                 tbl[ply][shallow][deep] = v;
-                tbl[ply][deep][shallow] = v; // Symmetric: sigma(a,b) = sigma(b,a)
+                tbl[ply][deep][shallow] = v; // Mirror for symmetric table access
             }
         }
     }
@@ -185,15 +187,18 @@ fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 
 /// Initializes probcut tables. Called from Search::new().
 pub fn init() {
-    MEAN_TABLE.set(build_mean_table()).ok();
-    SIGMA_TABLE.set(build_sigma_table()).ok();
-    MEAN_TABLE_END.set(build_mean_table_end()).ok();
-    SIGMA_TABLE_END.set(build_sigma_table_end()).ok();
+    MEAN_TABLE.get_or_init(build_mean_table);
+    SIGMA_TABLE.get_or_init(build_sigma_table);
+    MEAN_TABLE_END.get_or_init(build_mean_table_end);
+    SIGMA_TABLE_END.get_or_init(build_sigma_table_end);
 }
 
 /// Returns the pre-computed mean value for midgame positions.
 #[inline]
 pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
+    debug_assert!(ply < MAX_PLY);
+    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((deep as usize) < MAX_DEPTH);
     let tbl = MEAN_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
@@ -201,6 +206,9 @@ pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 /// Returns the pre-computed sigma value for midgame positions.
 #[inline]
 pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
+    debug_assert!(ply < MAX_PLY);
+    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((deep as usize) < MAX_DEPTH);
     let tbl = SIGMA_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
@@ -208,6 +216,8 @@ pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 /// Returns the pre-computed mean value for endgame positions.
 #[inline]
 pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
+    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((deep as usize) < MAX_DEPTH);
     let tbl = MEAN_TABLE_END.get().expect("probcut not initialized");
     tbl[shallow as usize][deep as usize]
 }
@@ -215,6 +225,8 @@ pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
 /// Returns the pre-computed sigma value for endgame positions.
 #[inline]
 pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
+    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((deep as usize) < MAX_DEPTH);
     let tbl = SIGMA_TABLE_END.get().expect("probcut not initialized");
     tbl[shallow as usize][deep as usize]
 }
@@ -735,3 +747,5 @@ const PROBCUT_PARAMS: [ProbcutParams; 60] = [
         std_coef_deep: 0.0000000000,
     },
 ];
+
+const _: () = assert!(PROBCUT_PARAMS.len() == MAX_PLY);
