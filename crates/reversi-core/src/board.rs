@@ -354,10 +354,7 @@ impl Board {
     #[inline(always)]
     pub fn make_move_with_flipped(&self, flipped: Bitboard, sq: Square) -> Board {
         debug_assert!(!flipped.is_empty(), "flipped must not be empty");
-        debug_assert!(
-            self.get_empty().contains(sq),
-            "sq must be an empty square"
-        );
+        debug_assert!(self.get_empty().contains(sq), "sq must be an empty square");
         debug_assert!(
             (flipped & !self.opponent).is_empty(),
             "flipped must be a subset of opponent's discs"

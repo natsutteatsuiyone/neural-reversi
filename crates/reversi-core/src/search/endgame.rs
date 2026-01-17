@@ -1202,4 +1202,3 @@ fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -
 
     score
 }
-

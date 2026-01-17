@@ -642,4 +642,3 @@ fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> S
 
     score
 }
-
