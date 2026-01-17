@@ -55,11 +55,19 @@ impl Board {
     ///
     /// # Returns
     /// A new `Board` instance.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds only, panics if `player` and `opponent` overlap.
+    /// In release builds, overlapping bitboards produce an invalid board state without panicking.
     pub fn from_bitboards(player: impl Into<Bitboard>, opponent: impl Into<Bitboard>) -> Board {
-        Board {
-            player: player.into(),
-            opponent: opponent.into(),
-        }
+        let player = player.into();
+        let opponent = opponent.into();
+        debug_assert!(
+            (player & opponent).is_empty(),
+            "player and opponent bitboards must not overlap"
+        );
+        Board { player, opponent }
     }
 
     /// Creates a `Board` from a string representation.
@@ -78,10 +86,15 @@ impl Board {
     /// `Ok(Board)` if the string is valid, `Err(BoardError)` otherwise.
     ///
     /// # Errors
+    /// - [`BoardError::InvalidPlayer`] if `current_player` is [`Disc::Empty`].
     /// - [`BoardError::TooShort`] if the string has fewer than 64 characters.
     /// - [`BoardError::TooLong`] if the string has more than 64 characters.
     /// - [`BoardError::InvalidChar`] if the string contains an invalid character.
     pub fn from_string(board_string: &str, current_player: Disc) -> Result<Board, BoardError> {
+        if current_player == Disc::Empty {
+            return Err(BoardError::InvalidPlayer);
+        }
+
         let chars: Vec<char> = board_string.chars().collect();
 
         if chars.len() < 64 {
@@ -104,7 +117,7 @@ impl Board {
         let mut opponent = Bitboard::new(0);
 
         for (sq, &c) in chars.iter().enumerate() {
-            // Safety: sq is guaranteed to be < 64 because chars.len() == 64
+            // Note: sq is guaranteed to be < 64 because chars.len() == 64
             let square = Square::from_usize_unchecked(sq);
             if c == player_char {
                 player = player.set(square);
@@ -195,13 +208,21 @@ impl Board {
 
     /// Returns the final score from the current player's perspective.
     ///
-    /// The board must have no empty squares.
-    ///
     /// # Returns
     ///
     /// Disc difference (positive if player has more discs).
+    ///
+    /// # Panics
+    ///
+    /// In debug builds only, panics if the board has empty squares.
+    /// In release builds, empty squares produce an incorrect score without panicking.
+    /// Use [`solve`](Self::solve) if the board may have empty squares.
     #[inline(always)]
     pub fn final_score(&self) -> Score {
+        debug_assert!(
+            self.get_empty().is_empty(),
+            "final_score requires no empty squares; use solve() for boards with empties"
+        );
         self.get_player_count() as Score * 2 - SCORE_MAX
     }
 
@@ -217,14 +238,14 @@ impl Board {
     ///
     /// Unlike [`final_score`](Self::final_score) which assumes no empty squares,
     /// this method handles positions with remaining empties by awarding them
-    /// to the player with more discs.
+    /// to the player with more discs (standard Reversi endgame rules).
     ///
     /// # Scoring Rules
     ///
-    /// Let `diff = disc_difference + n_empties`:
-    /// - `diff > 0`: Player ahead, gets all empties → returns `diff + n_empties`
-    /// - `diff < 0`: Opponent ahead, gets all empties → returns `disc_difference`
-    /// - `diff == 0`: Empties split evenly → returns `0`
+    /// Let `P` = player's disc count, `O` = opponent's disc count:
+    /// - `P > O`: Player gets all empties → returns `(P - O) + n_empties`
+    /// - `P < O`: Opponent gets all empties → returns `(P - O) - n_empties`
+    /// - `P == O`: Empties split evenly → returns `0`
     ///
     /// # Arguments
     ///
@@ -299,7 +320,10 @@ impl Board {
     ///
     /// # Panics
     ///
-    /// Panics if the move is invalid.
+    /// In debug builds only, panics if `sq` is not a valid move.
+    /// In release builds, invalid moves produce an incorrect board state without panicking.
+    /// Use [`is_legal_move`](Self::is_legal_move) or [`try_make_move`](Self::try_make_move)
+    /// if validity is uncertain.
     #[inline(always)]
     pub fn make_move(&self, sq: Square) -> Board {
         let flipped = flip::flip(sq, self.player, self.opponent);
@@ -318,8 +342,26 @@ impl Board {
     ///
     /// # Returns
     /// A new `Board` instance with the updated board state after the move.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds only, panics if:
+    /// - `flipped` is empty
+    /// - `sq` is not empty
+    /// - `flipped` contains discs not belonging to the opponent
+    ///
+    /// In release builds, invalid inputs produce an incorrect board state without panicking.
     #[inline(always)]
     pub fn make_move_with_flipped(&self, flipped: Bitboard, sq: Square) -> Board {
+        debug_assert!(!flipped.is_empty(), "flipped must not be empty");
+        debug_assert!(
+            self.get_empty().contains(sq),
+            "sq must be an empty square"
+        );
+        debug_assert!(
+            (flipped & !self.opponent).is_empty(),
+            "flipped must be a subset of opponent's discs"
+        );
         Board {
             player: self.opponent.apply_flip(flipped),
             opponent: self.player.apply_move(flipped, sq),
@@ -529,6 +571,8 @@ impl fmt::Display for Board {
 /// Error type for board parsing operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoardError {
+    /// Current player is `Disc::Empty`
+    InvalidPlayer,
     /// String is too short (less than 64 characters)
     TooShort {
         /// Expected number of characters
@@ -555,6 +599,9 @@ pub enum BoardError {
 impl fmt::Display for BoardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            BoardError::InvalidPlayer => {
+                write!(f, "Invalid player: current_player must be Black or White")
+            }
             BoardError::TooShort { expected, actual } => {
                 write!(
                     f,
@@ -1027,15 +1074,17 @@ mod tests {
 
     #[test]
     fn test_solve_player_ahead() {
-        // Player has 40 discs, opponent has 20 discs, 4 empties
+        // Player has 40 discs (bits 0-39), opponent has 20 discs (bits 40-59), 4 empties (bits 60-63)
         // Score = 40 * 2 - 64 = 16
         // diff = 16 + 4 = 20 > 0, so player gets all empties
         // Result = 20 + 4 = 24
-        let board = Board::from_bitboards(0x00000000FFFFFFFFFF, 0x0000FFFFF000000000);
+        let board = Board::from_bitboards(0x000000FFFFFFFFFFu64, 0x0FFFFF0000000000u64);
         let player_count = board.get_player_count();
         let opponent_count = board.get_opponent_count();
+        assert_eq!(player_count, 40);
+        assert_eq!(opponent_count, 20);
         let n_empties = 64 - player_count - opponent_count;
-        assert!(n_empties > 0);
+        assert_eq!(n_empties, 4);
         let score = board.solve(n_empties);
         // Player ahead: gets all empty squares
         assert!(score > 0);
@@ -1043,15 +1092,17 @@ mod tests {
 
     #[test]
     fn test_solve_opponent_ahead() {
-        // Player has 20 discs, opponent has 40 discs, 4 empties
+        // Player has 20 discs (bits 0-19), opponent has 40 discs (bits 20-59), 4 empties (bits 60-63)
         // Score = 20 * 2 - 64 = -24
         // diff = -24 + 4 = -20 < 0, so player gets no empties
         // Result = -24
-        let board = Board::from_bitboards(0x0000FFFFF000000000, 0x00000000FFFFFFFFFF);
+        let board = Board::from_bitboards(0x00000000000FFFFFu64, 0x0FFFFFFFFFF00000u64);
         let player_count = board.get_player_count();
         let opponent_count = board.get_opponent_count();
+        assert_eq!(player_count, 20);
+        assert_eq!(opponent_count, 40);
         let n_empties = 64 - player_count - opponent_count;
-        assert!(n_empties > 0);
+        assert_eq!(n_empties, 4);
         let score = board.solve(n_empties);
         // Opponent ahead: player gets no empty squares
         assert!(score < 0);
