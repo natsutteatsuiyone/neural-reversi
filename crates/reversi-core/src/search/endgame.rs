@@ -66,6 +66,11 @@ thread_local! {
         UnsafeCell::new(EndGameCache::new(14));
 }
 
+/// Returns a mutable reference to the thread-local endgame cache.
+///
+/// # Safety
+/// Thread-local ensures no cross-thread aliasing. Caller must not hold
+/// overlapping references within the same thread.
 #[inline(always)]
 unsafe fn cache() -> &'static mut EndGameCache {
     ENDGAME_CACHE.with(|cell| unsafe { &mut *cell.get() })
