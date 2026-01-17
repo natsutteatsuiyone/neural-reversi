@@ -147,6 +147,10 @@ impl EmptyList {
     /// The `Square` representing the next empty square, or `Square::None` if `sq` is the last square.
     #[inline(always)]
     pub fn next(&self, sq: Square) -> Square {
+        debug_assert!(
+            sq == Square::None || self.nodes[self.nodes[sq.index()].prev.index()].next == sq,
+            "Square {sq:?} is not in the empty list"
+        );
         unsafe { self.nodes.get_unchecked(sq.index()).next }
     }
 
@@ -174,6 +178,13 @@ impl EmptyList {
     /// * `sq` - The `Square` to remove. Must currently be in the list.
     #[inline(always)]
     pub fn remove(&mut self, sq: Square) {
+        debug_assert!(sq != Square::None, "Cannot remove Square::None");
+        debug_assert!(self.count > 0, "Cannot remove from an empty list");
+        debug_assert!(
+            self.nodes[self.nodes[sq.index()].prev.index()].next == sq,
+            "Square {sq:?} is not in the empty list"
+        );
+
         let sq_idx = sq.index();
         unsafe {
             let node = self.nodes.get_unchecked(sq_idx);
@@ -198,6 +209,13 @@ impl EmptyList {
     /// * `sq` - The `Square` to restore. Must have been previously removed.
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
+        debug_assert!(sq != Square::None, "Cannot restore Square::None");
+        debug_assert!(self.count < 60, "Cannot restore: list is already full");
+        debug_assert!(
+            self.nodes[self.nodes[sq.index()].prev.index()].next != sq,
+            "Square {sq:?} is already in the empty list"
+        );
+
         let idx = sq.index();
         unsafe {
             let node = self.nodes.get_unchecked(idx);
@@ -362,8 +380,8 @@ mod tests {
         let initial_count = empty_list.count;
         let initial_first = empty_list.first();
 
-        // Test removing and restoring multiple squares
-        let squares_to_test = [Square::A1, Square::H8, Square::D4, Square::E5];
+        // Test removing and restoring multiple squares (all must be empty squares)
+        let squares_to_test = [Square::A1, Square::H8, Square::C1, Square::F1];
 
         for &sq in &squares_to_test {
             empty_list.remove(sq);
@@ -392,13 +410,13 @@ mod tests {
         let mut empty_list1 = EmptyList::new(&board);
         let mut empty_list2 = EmptyList::new(&board);
 
-        // Remove squares in different orders
+        // Remove squares in different orders (all must be empty squares)
         empty_list1.remove(Square::A1);
         empty_list1.remove(Square::H8);
-        empty_list1.remove(Square::D4);
+        empty_list1.remove(Square::C1);
 
         empty_list2.remove(Square::H8);
-        empty_list2.remove(Square::D4);
+        empty_list2.remove(Square::C1);
         empty_list2.remove(Square::A1);
 
         // Both should have the same count and parity
@@ -421,8 +439,8 @@ mod tests {
         assert_eq!(empty_list.first(), Square::C1);
         assert_eq!(empty_list.count, 56);
 
-        // Restore corners and verify order is maintained
-        for &corner in &corners {
+        // Restore corners in reverse order (LIFO) and verify order is maintained
+        for &corner in corners.iter().rev() {
             empty_list.restore(corner);
         }
         assert_eq!(empty_list.first(), Square::A1);
