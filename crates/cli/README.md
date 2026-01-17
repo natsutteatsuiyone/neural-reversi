@@ -16,7 +16,7 @@ Options:
 
 - `--hash-size <size>` - Set the transposition table size in MB (default: 64)
 - `-l, --level <level>` - Set the AI difficulty level (default: 21)
-- `--selectivity <value>` - Set the search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
+- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
 
 In interactive mode, you can use the following commands:
@@ -50,7 +50,7 @@ Options:
 
 - `--hash-size <size>` - Set the transposition table size in MB (default: 64)
 - `--level <level>` - Set the AI search level (default: 21)
-- `--selectivity <value>` - Set the search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
+- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
 
 In GTP mode, the program accepts standard GTP commands plus some Reversi-specific extensions:
@@ -106,7 +106,7 @@ Options:
 - `--exact` - Solve for exact score with perfect play (ignores level setting)
 - `--hash-size <size>` - Set the transposition table size in MB (default: 64)
 - `-l, --level <level>` - Set the AI search level (default: 21)
-- `--selectivity <value>` - Set the search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
+- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
 
 The position file should contain one position per line in the following format:

@@ -130,7 +130,7 @@ impl Search {
             if n_empties > endgame_start_n_empties {
                 self.endgame_start_n_empties = None;
             } else {
-                effective_level.end_depth = [60; 7];
+                effective_level.end_depth = [60; 6];
             }
         }
 
@@ -299,7 +299,7 @@ impl Search {
 
 /// Dispatches to midgame or endgame search based on remaining empties.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
-    let min_end_depth = task.level.get_end_depth(Selectivity::Level0);
+    let min_end_depth = task.level.get_end_depth(Selectivity::Level1);
     let n_empties = task.board.get_empty_count();
 
     if min_end_depth >= n_empties {

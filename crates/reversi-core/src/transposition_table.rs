@@ -902,7 +902,7 @@ mod tests {
             Bound::Lower,
             0,
             Square::None,
-            Selectivity::Level0,
+            Selectivity::Level1,
             0,
             false,
         );
@@ -914,7 +914,7 @@ mod tests {
             Bound::Upper,
             0,
             Square::None,
-            Selectivity::Level0,
+            Selectivity::Level1,
             0,
             false,
         );
@@ -926,7 +926,7 @@ mod tests {
             Bound::Exact,
             0,
             Square::None,
-            Selectivity::Level0,
+            Selectivity::Level1,
             0,
             false,
         );
@@ -942,7 +942,7 @@ mod tests {
             Bound::Lower,
             0,
             Square::None,
-            Selectivity::Level0,
+            Selectivity::Level1,
             0,
             false,
         );
@@ -955,7 +955,7 @@ mod tests {
             Bound::Upper,
             0,
             Square::None,
-            Selectivity::Level0,
+            Selectivity::Level1,
             0,
             false,
         );
@@ -968,7 +968,7 @@ mod tests {
             Bound::Exact,
             0,
             Square::None,
-            Selectivity::Level0,
+            Selectivity::Level1,
             0,
             false,
         );
@@ -982,7 +982,7 @@ mod tests {
             Bound::Exact,
             0,
             Square::None,
-            Selectivity::Level0,
+            Selectivity::Level1,
             5,
             false,
         );

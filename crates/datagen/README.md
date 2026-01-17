@@ -13,13 +13,13 @@ Generates game data through AI self-play for neural network training. The self-p
 - Each position is recorded with evaluation scores and game outcome information
 
 ```bash
-datagen selfplay --games 100000 --hash-size 128 --level 12 --selectivity 1 --prefix game --output-dir ./data
+datagen selfplay --games 100000 --hash-size 128 --level 12 --selectivity 0 --prefix game --output-dir ./data
 ```
 
 To use predefined openings:
 
 ```bash
-datagen selfplay --openings openings.txt --resume --hash-size 128 --level 12 --selectivity 1 --prefix game --output-dir ./data
+datagen selfplay --openings openings.txt --resume --hash-size 128 --level 12 --selectivity 0 --prefix game --output-dir ./data
 ```
 
 #### Options
@@ -28,7 +28,7 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --level 12 --s
 - `--records_per_file`: Number of records to store in each output file (default: 1,000,000)
 - `--hash-size`: Transposition table size in MB for the search algorithm (default: 128)
 - `--level`: Search depth level - higher values result in stronger play but slower generation (default: 12)
-- `--selectivity`: Search selectivity parameter controlling move pruning (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%) (default: 1)
+- `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--prefix`: Output file prefix for generated data files (default: "game")
 - `--output-dir`: Output directory where game data will be stored
 - `--openings`: Optional path to a file containing opening sequences. If provided, selfplay will iterate through these openings instead of generating a set number of games.

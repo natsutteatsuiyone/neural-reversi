@@ -428,7 +428,7 @@ fn execute(
     let mut stats = SearchStats::default();
     let level = Level {
         mid_depth: depth,
-        end_depth: [depth; 7],
+        end_depth: [depth; 6],
     };
 
     for test_case in test_cases {
@@ -459,8 +459,8 @@ struct Args {
     #[arg(short, long, default_value = "60")]
     depth: Depth,
 
-    /// Search selectivity (1: 73%, 2: 87%, 3: 95%, 4: 98%, 5: 99%, 6: 100%)
-    #[arg(long, default_value = "1", value_parser = clap::value_parser!(u8).range(0..=6))]
+    /// Search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%)
+    #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=5))]
     selectivity: u8,
 
     /// Transposition table size in MB

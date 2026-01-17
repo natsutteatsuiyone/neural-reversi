@@ -7,7 +7,7 @@ FFO Test is a standard test suite for evaluating the endgame search performance 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--depth` or `-d` | Maximum search depth in plies | 60 |
-| `--selectivity` | Search selectivity level: 1: 73% (fastest, less accurate) 2: 87% 3: 95% 4: 98% 5: 99% 6: 100% (complete search) | 1 |
+| `--selectivity` | Search selectivity level: 0: 73% (fastest, less accurate) 1: 87% 2: 95% 3: 98% 4: 99% 5: 100% (complete search) | 0 |
 | `--hash-size` | Transposition table size in MB | 256 |
 | `--threads` | Number of parallel search threads | System default |
 | `--case` | Run only a specific test case (1-79) | All cases |
@@ -31,7 +31,7 @@ cargo run --release -- --depth 20 --hash-size 2048
 ### Run with complete search (no selectivity)
 
 ```bash
-cargo run --release -- --selectivity 6
+cargo run --release -- --selectivity 5
 ```
 
 ### Run a specific test case
@@ -49,7 +49,7 @@ cargo run --release -- --from 20 --to 30
 ### Quick test with shallow search
 
 ```bash
-cargo run --release -- --depth 8 --selectivity 1
+cargo run --release -- --depth 8 --selectivity 0
 ```
 
 ## Output Format

@@ -16,7 +16,7 @@ time-debug [OPTIONS]
 - `--byoyomi <BYOYOMI>`: Time per move (byoyomi) or increment (Fischer) in milliseconds (default: 5000)
 - `-l, --level <LEVEL>`: Search level (default: 24, use high value to exercise time control)
 - `--hash-size <HASH_SIZE>`: Hash table size in MB (default: 256)
-- `--selectivity <SELECTIVITY>`: Search selectivity 1-6 (default: 1)
+- `--selectivity <SELECTIVITY>`: Search selectivity 0-5 (default: 0)
 - `-o, --opening <OPENING>`: Opening moves (e.g., "f5d6c3")
 - `-v, --verbose`: Show search progress for each move
 

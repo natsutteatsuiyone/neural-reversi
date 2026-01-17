@@ -273,7 +273,7 @@ fn estimate_aspiration_base_score(
     }
 
     if n_empties >= 16 {
-        ctx.selectivity = Selectivity::Level0;
+        ctx.selectivity = Selectivity::Level1;
         search::<PV>(
             ctx,
             board,

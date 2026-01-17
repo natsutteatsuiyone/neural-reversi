@@ -12,28 +12,25 @@ use crate::types::ScaledScore;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {
-    /// Most aggressive: 68% confidence (t=1.0)
+    /// Most aggressive: 73% confidence (t=1.1)
     #[default]
-    Level0 = 0,
-    /// 73% confidence (t=1.1)
-    Level1 = 1,
+    Level1 = 0,
     /// 87% confidence (t=1.5)
-    Level2 = 2,
+    Level2 = 1,
     /// 95% confidence (t=2.0)
-    Level3 = 3,
+    Level3 = 2,
     /// 98% confidence (t=2.6)
-    Level4 = 4,
+    Level4 = 3,
     /// Most conservative: 99% confidence (t=3.3)
-    Level5 = 5,
+    Level5 = 4,
     /// ProbCut disabled.
-    None = 6,
+    None = 5,
 }
 
 impl Selectivity {
     /// Selectivity configuration: (t_multiplier, probability_percent)
-    const CONFIG: [(f64, i32); 7] = [
-        (1.0, 68),    // Level0: Most aggressive
-        (1.1, 73),    // Level1
+    const CONFIG: [(f64, i32); 6] = [
+        (1.1, 73),    // Level1: Most aggressive
         (1.5, 87),    // Level2
         (2.0, 95),    // Level3
         (2.6, 98),    // Level4
@@ -61,11 +58,11 @@ impl Selectivity {
 
     /// Creates a Selectivity from a u8 value, clamping to valid range.
     ///
-    /// Values > 6 are clamped to `Selectivity::None` (6).
+    /// Values > 5 are clamped to `Selectivity::None` (5).
     #[inline]
     pub fn from_u8(value: u8) -> Self {
-        // SAFETY: Selectivity enum has repr(u8) with contiguous values 0-6.
-        unsafe { std::mem::transmute(value.min(6)) }
+        // SAFETY: Selectivity enum has repr(u8) with contiguous values 0-5.
+        unsafe { std::mem::transmute(value.min(5)) }
     }
 
     /// Checks if ProbCut is enabled for this selectivity level.

@@ -51,7 +51,7 @@ enum SubCommands {
         #[arg(long, default_value = "12")]
         level: usize,
 
-        #[arg(long, default_value = "1", value_parser = clap::value_parser!(u8).range(0..=6))]
+        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=5))]
         selectivity: u8,
 
         #[arg(long, default_value = "game")]

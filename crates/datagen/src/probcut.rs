@@ -154,7 +154,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
             let depth_scores: Vec<(Depth, Scoref)> = (0..=num_depth)
                 .map(|depth| {
                     let mut level = get_level(depth);
-                    level.end_depth = [depth as Depth; 7];
+                    level.end_depth = [depth as Depth; 6];
                     let options = SearchRunOptions::with_level(level, SELECTIVITY);
                     let result = search.run(&board, &options);
                     (depth as Depth, result.score)
