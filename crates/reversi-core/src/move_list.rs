@@ -51,6 +51,9 @@ impl Move {
     /// A new Move instance with default evaluation data.
     #[inline]
     pub fn new(sq: Square, flipped: Bitboard) -> Move {
+        debug_assert!(sq != Square::None, "Move cannot have Square::None");
+        debug_assert!(!flipped.is_empty(), "Move must flip at least one disc");
+
         Move {
             sq,
             flipped,
