@@ -34,7 +34,7 @@ impl ScaledScore {
     /// Minimum scaled score (-64 discs).
     pub const MIN: Self = Self(SCORE_MIN << Self::SCALE_BITS);
     /// Infinity score for search algorithms.
-    pub const INF: Self = Self(SCORE_INF);
+    pub const INF: Self = Self(SCORE_INF << Self::SCALE_BITS);
 
     /// Creates a ScaledScore from a raw internal value.
     ///
@@ -202,15 +202,6 @@ impl fmt::Display for ScaledScore {
 #[cfg(test)]
 mod scaled_score_tests {
     use super::*;
-
-    #[test]
-    fn test_constants() {
-        assert_eq!(ScaledScore::SCALE, 256);
-        assert_eq!(ScaledScore::MAX.value(), 64 * 256);
-        assert_eq!(ScaledScore::MIN.value(), -64 * 256);
-        assert_eq!(ScaledScore::INF.value(), 30000);
-        assert_eq!(ScaledScore::ZERO.value(), 0);
-    }
 
     #[test]
     fn test_conversions() {

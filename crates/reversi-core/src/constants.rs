@@ -21,4 +21,4 @@ pub const SCORE_MIN: Score = -64;
 pub const MAX_THREADS: usize = 64;
 
 /// Infinity score for search algorithms.
-pub const SCORE_INF: Score = 30000;
+pub const SCORE_INF: Score = i8::MAX as i32;
