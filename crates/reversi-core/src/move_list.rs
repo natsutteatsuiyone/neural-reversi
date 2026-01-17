@@ -8,11 +8,11 @@ use std::sync::atomic;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
-use crate::eval::EvalMode;
 use crate::flip;
 use crate::probcut;
 use crate::search::midgame;
 use crate::search::search_context::SearchContext;
+use crate::search::search_strategy::SearchStrategy;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 
@@ -172,13 +172,17 @@ impl MoveList {
 
     /// Evaluates all moves to assign ordering values and reduction depths.
     ///
+    /// # Type Parameters
+    ///
+    /// * `SS` - Search strategy determining midgame vs endgame evaluation
+    ///
     /// # Arguments
     ///
     /// * `ctx` - Search context with transposition table and statistics
     /// * `board` - Current position before making any move
     /// * `depth` - Remaining search depth at this node
     /// * `tt_move` - Best move from transposition table (if any)
-    pub fn evaluate_moves(
+    pub fn evaluate_moves<SS: SearchStrategy>(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,
@@ -204,13 +208,10 @@ impl MoveList {
             return;
         }
 
-        match ctx.eval_mode {
-            EvalMode::Large => {
-                self.evaluate_moves_midgame(ctx, board, depth, tt_move);
-            }
-            EvalMode::Small => {
-                self.evaluate_moves_endgame(ctx, board, depth, tt_move);
-            }
+        if SS::IS_ENDGAME {
+            self.evaluate_moves_endgame(ctx, board, depth, tt_move);
+        } else {
+            self.evaluate_moves_midgame(ctx, board, depth, tt_move);
         }
     }
 

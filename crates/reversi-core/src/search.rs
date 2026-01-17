@@ -464,7 +464,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // Move ordering
     if move_list.count() > 1 {
-        move_list.evaluate_moves(ctx, board, depth, tt_move);
+        move_list.evaluate_moves::<SS>(ctx, board, depth, tt_move);
         move_list.sort();
     }
 

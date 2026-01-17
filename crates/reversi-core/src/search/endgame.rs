@@ -436,7 +436,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
     let mut best_score = -SCORE_INF;
     let mut best_move = tt_move;
     if move_list.count() >= 4 {
-        move_list.evaluate_moves(ctx, board, n_empties, tt_move);
+        move_list.evaluate_moves::<EndGameStrategy>(ctx, board, n_empties, tt_move);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -461,7 +461,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
             }
         }
     } else if move_list.count() >= 2 {
-        move_list.evaluate_moves(ctx, board, n_empties, tt_move);
+        move_list.evaluate_moves::<EndGameStrategy>(ctx, board, n_empties, tt_move);
         move_list.sort();
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
