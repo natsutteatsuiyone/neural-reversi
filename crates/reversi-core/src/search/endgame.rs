@@ -2,7 +2,7 @@
 //!
 //! # References:
 //!
-//! - <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c
+//! - <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c>
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
