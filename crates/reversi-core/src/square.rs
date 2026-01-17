@@ -24,7 +24,7 @@ use crate::bitboard::Bitboard;
 ///
 /// Each variant corresponds to a specific square on the board, with an additional
 /// `None` variant representing an invalid or unspecified square.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[rustfmt::skip]
 pub enum Square {
@@ -44,12 +44,13 @@ pub const BOARD_SIZE: usize = 8;
 pub const TOTAL_SQUARES: usize = BOARD_SIZE * BOARD_SIZE;
 
 impl Square {
-    /// Converts the `Square` into a u64 representation.
+    /// Converts this square into a `Bitboard` with a single bit set.
     ///
     /// # Returns
     ///
-    /// A `u64` value with a single bit set at the position corresponding to this square.
-    /// For example, A1 returns 0x1, B1 returns 0x2, H8 returns 0x8000000000000000.
+    /// A `Bitboard` with exactly one bit set at the position corresponding to this square.
+    /// For example, `A1` returns `Bitboard(0x1)`, `B1` returns `Bitboard(0x2)`,
+    /// `H8` returns `Bitboard(0x8000000000000000)`.
     #[inline(always)]
     pub fn bitboard(self) -> Bitboard {
         debug_assert!(
@@ -100,7 +101,9 @@ impl Square {
     ///
     /// # Returns
     ///
-    /// `Some(Square)` if the index is valid (0-64), `None` otherwise.
+    /// * `Some(Square)` if the index is in the range 0-64 inclusive
+    ///   (where 64 maps to `Square::None`)
+    /// * `None` (the `Option` variant) if the index is out of range (> 64)
     #[inline]
     pub fn from_u8(index: u8) -> Option<Square> {
         if index <= 64 {
@@ -140,7 +143,9 @@ impl Square {
     ///
     /// # Returns
     ///
-    /// `Some(Square)` if the index is valid (0-64), `None` otherwise.
+    /// * `Some(Square)` if the index is in the range 0-64 inclusive
+    ///   (where 64 maps to `Square::None`)
+    /// * `None` (the `Option` variant) if the index is out of range (> 64)
     #[inline]
     pub fn from_u32(index: u32) -> Option<Square> {
         if index <= 64 {
@@ -180,7 +185,9 @@ impl Square {
     ///
     /// # Returns
     ///
-    /// `Some(Square)` if the index is valid (0-64), `None` otherwise.
+    /// * `Some(Square)` if the index is in the range 0-64 inclusive
+    ///   (where 64 maps to `Square::None`)
+    /// * `None` (the `Option` variant) if the index is out of range (> 64)
     #[inline]
     pub fn from_usize(index: usize) -> Option<Square> {
         if index <= 64 {
