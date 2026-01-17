@@ -102,6 +102,8 @@ impl MoveList {
             let flipped = flip::flip(sq, board.player, board.opponent);
             let mut mv = Move::new(sq, flipped);
             mv.value = i32::MIN;
+
+            debug_assert!(moves.len() < moves.capacity());
             unsafe { moves.push_unchecked(mv) };
 
             if flipped == board.opponent {
@@ -406,6 +408,9 @@ impl MoveList {
 
 #[inline(always)]
 fn cas(moves: &mut [Move], i: usize, j: usize) {
+    debug_assert!(i < moves.len());
+    debug_assert!(j < moves.len());
+
     unsafe {
         let base_ptr = moves.as_mut_ptr();
 
