@@ -54,7 +54,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 
     let mut move_list = MoveList::new(board);
-    if move_list.wipeout_move.is_some() {
+    if move_list.wipeout_move().is_some() {
         return SCORE_MAX;
     } else if move_list.count() == 0 {
         let next = board.switch_players();
@@ -193,7 +193,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     }
 
     let mut move_list = MoveList::new(board);
-    if move_list.wipeout_move.is_some() {
+    if move_list.wipeout_move().is_some() {
         return SCORE_MAX;
     } else if move_list.count() == 0 {
         let next = board.switch_players();

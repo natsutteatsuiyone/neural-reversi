@@ -66,7 +66,7 @@ pub struct MoveList {
     /// List of moves.
     moves: ArrayVec<Move, MAX_MOVES>,
     /// The square of the wipeout move, if found.
-    pub wipeout_move: Option<Square>,
+    wipeout_move: Option<Square>,
 }
 
 impl MoveList {
@@ -115,6 +115,17 @@ impl MoveList {
             moves,
             wipeout_move,
         }
+    }
+
+    /// Returns the wipeout move square if one exists.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(sq)` if a wipeout move exists
+    /// - `None` if no wipeout move exists
+    #[inline(always)]
+    pub fn wipeout_move(&self) -> Option<Square> {
+        self.wipeout_move
     }
 
     /// Returns the number of legal moves in this position.

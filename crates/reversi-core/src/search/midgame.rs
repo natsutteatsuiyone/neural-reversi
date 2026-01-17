@@ -325,7 +325,7 @@ pub fn evaluate_depth2(
     }
 
     let mut move_list = MoveList::with_moves(board, moves);
-    if move_list.wipeout_move.is_some() {
+    if move_list.wipeout_move().is_some() {
         return ScaledScore::MAX;
     }
 

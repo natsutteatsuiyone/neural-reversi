@@ -429,7 +429,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
     }
 
     let mut move_list = MoveList::with_moves(board, moves);
-    if move_list.wipeout_move.is_some() {
+    if move_list.wipeout_move().is_some() {
         return SCORE_MAX;
     }
 
@@ -607,7 +607,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     }
 
     let mut move_list = MoveList::with_moves(board, moves);
-    if move_list.wipeout_move.is_some() {
+    if move_list.wipeout_move().is_some() {
         return SCORE_MAX;
     }
 

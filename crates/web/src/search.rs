@@ -364,7 +364,7 @@ pub fn search<NT: NodeType>(
         } else {
             return board.solve_scaled(n_empties);
         }
-    } else if let Some(sq) = move_list.wipeout_move {
+    } else if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {
             ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
         } else if NT::PV_NODE {

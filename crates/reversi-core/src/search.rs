@@ -410,7 +410,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         } else {
             return board.solve_scaled(ctx.empty_list.count);
         }
-    } else if let Some(sq) = move_list.wipeout_move {
+    } else if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {
             ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
         } else if NT::PV_NODE {
