@@ -146,7 +146,7 @@ impl NetworkSmall {
 
         let sum = unsafe { (self.forward_fn)(pattern_feature, input_layer, output_layer) };
         let total = sum + output_layer.bias;
-        let score = ScaledScore::new(total >> OUTPUT_WEIGHT_SCALE_BITS);
+        let score = ScaledScore::from_raw(total >> OUTPUT_WEIGHT_SCALE_BITS);
 
         score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }

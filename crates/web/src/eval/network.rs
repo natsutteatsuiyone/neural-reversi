@@ -145,7 +145,7 @@ impl Network {
             score = self.forward_scalar(pattern_feature, &self.input_layer, output_layer);
         }
 
-        let score = ScaledScore::new(score >> OUTPUT_WEIGHT_SCALE_BITS);
+        let score = ScaledScore::from_raw(score >> OUTPUT_WEIGHT_SCALE_BITS);
         score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 

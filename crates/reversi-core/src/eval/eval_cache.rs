@@ -81,7 +81,7 @@ impl EvalCache {
             return None;
         }
 
-        let score = ScaledScore::new(entry as i16 as i32);
+        let score = ScaledScore::from_raw(entry as i16 as i32);
         Some(score)
     }
 
@@ -120,7 +120,7 @@ mod tests {
     fn test_store_and_probe() {
         let cache = EvalCache::new(4);
         let key = 0x123456789ABCDEF0;
-        let score = ScaledScore::new(42);
+        let score = ScaledScore::from_raw(42);
 
         cache.store(key, score);
         assert_eq!(cache.probe(key), Some(score));
@@ -137,9 +137,9 @@ mod tests {
         let cache = EvalCache::new(4);
         let key = 0x123456789ABCDEF0;
 
-        cache.store(key, ScaledScore::new(42));
-        cache.store(key, ScaledScore::new(84));
-        assert_eq!(cache.probe(key), Some(ScaledScore::new(84)));
+        cache.store(key, ScaledScore::from_raw(42));
+        cache.store(key, ScaledScore::from_raw(84));
+        assert_eq!(cache.probe(key), Some(ScaledScore::from_raw(84)));
     }
 
     #[test]
@@ -148,11 +148,11 @@ mod tests {
         let key1 = 0x123456789ABCDEF0;
         let key2 = 0xDEF0123456789ABC;
 
-        cache.store(key1, ScaledScore::new(42));
-        cache.store(key2, ScaledScore::new(84));
+        cache.store(key1, ScaledScore::from_raw(42));
+        cache.store(key2, ScaledScore::from_raw(84));
 
-        assert_eq!(cache.probe(key1), Some(ScaledScore::new(42)));
-        assert_eq!(cache.probe(key2), Some(ScaledScore::new(84)));
+        assert_eq!(cache.probe(key1), Some(ScaledScore::from_raw(42)));
+        assert_eq!(cache.probe(key2), Some(ScaledScore::from_raw(84)));
     }
 
     #[test]
@@ -161,11 +161,17 @@ mod tests {
         let key1 = 0x123456789ABCDEF0;
         let key2 = 0xDEF0123456789ABC;
 
-        cache.store(key1, ScaledScore::new(i16::MAX as i32));
-        cache.store(key2, ScaledScore::new(i16::MIN as i32));
+        cache.store(key1, ScaledScore::from_raw(i16::MAX as i32));
+        cache.store(key2, ScaledScore::from_raw(i16::MIN as i32));
 
-        assert_eq!(cache.probe(key1), Some(ScaledScore::new(i16::MAX as i32)));
-        assert_eq!(cache.probe(key2), Some(ScaledScore::new(i16::MIN as i32)));
+        assert_eq!(
+            cache.probe(key1),
+            Some(ScaledScore::from_raw(i16::MAX as i32))
+        );
+        assert_eq!(
+            cache.probe(key2),
+            Some(ScaledScore::from_raw(i16::MIN as i32))
+        );
     }
 
     #[test]
@@ -174,8 +180,8 @@ mod tests {
         let key1 = 0x123456789ABCDEF0;
         let key2 = 0xDEF0123456789ABC;
 
-        cache.store(key1, ScaledScore::new(42));
-        cache.store(key2, ScaledScore::new(84));
+        cache.store(key1, ScaledScore::from_raw(42));
+        cache.store(key2, ScaledScore::from_raw(84));
 
         cache.clear();
 

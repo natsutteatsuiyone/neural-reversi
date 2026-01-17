@@ -116,7 +116,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
 
 /// Performs the root search for midgame positions using iterative deepening
 fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
-    const INITIAL_DELTA: ScaledScore = ScaledScore::new(3 * ScaledScore::SCALE);
+    const INITIAL_DELTA: ScaledScore = ScaledScore::from_raw(3 * ScaledScore::SCALE);
     let mut best_score = ScaledScore::ZERO;
     let mut alpha = -ScaledScore::INF;
     let mut beta = ScaledScore::INF;

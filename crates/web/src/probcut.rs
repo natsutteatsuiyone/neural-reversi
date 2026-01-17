@@ -154,8 +154,8 @@ pub fn probcut_midgame(
         let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
 
         let beta_raw = beta.value() as f64;
-        let eval_beta = ScaledScore::new((beta_raw - eval_sigma - eval_mean).floor() as i32);
-        let pc_beta = ScaledScore::new((beta_raw + t * sigma - mean).ceil() as i32);
+        let eval_beta = ScaledScore::from_raw((beta_raw - eval_sigma - eval_mean).floor() as i32);
+        let pc_beta = ScaledScore::from_raw((beta_raw + t * sigma - mean).ceil() as i32);
         if eval_score >= eval_beta && pc_beta < ScaledScore::MAX {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested ProbCut

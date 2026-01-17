@@ -252,6 +252,6 @@ impl Network {
             &buffers.pa_out[..PA_OUTPUT_DIMS],
         ];
 
-        ScaledScore::new(ls.lo.forward(segments) >> OUTPUT_WEIGHT_SCALE_BITS)
+        ScaledScore::from_raw(ls.lo.forward(segments) >> OUTPUT_WEIGHT_SCALE_BITS)
     }
 }

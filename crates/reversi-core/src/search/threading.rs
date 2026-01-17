@@ -98,7 +98,7 @@ impl SplitPointState {
     /// Gets the current alpha value atomically.
     #[inline]
     pub fn alpha(&self) -> ScaledScore {
-        ScaledScore::new(self.alpha.load(Ordering::Relaxed))
+        ScaledScore::from_raw(self.alpha.load(Ordering::Relaxed))
     }
 
     /// Sets the alpha value atomically.
@@ -134,7 +134,7 @@ impl SplitPointState {
     /// Gets the best score.
     #[inline]
     pub fn best_score(&self) -> ScaledScore {
-        ScaledScore::new(self.best_score.load(Ordering::Relaxed))
+        ScaledScore::from_raw(self.best_score.load(Ordering::Relaxed))
     }
 
     /// Sets the best score.
@@ -226,7 +226,7 @@ impl Default for SplitPoint {
             state: UnsafeCell::new(SplitPointState {
                 all_helpers_searching: AtomicBool::new(false),
                 alpha: AtomicI32::new(0),
-                beta: ScaledScore::new(0),
+                beta: ScaledScore::from_raw(0),
                 best_score: AtomicI32::new(0),
                 best_move: std::sync::atomic::AtomicU8::new(Square::None as u8),
                 move_iter: None,

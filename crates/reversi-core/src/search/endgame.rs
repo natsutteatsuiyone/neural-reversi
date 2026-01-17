@@ -325,7 +325,7 @@ pub fn probcut(
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {
-            return Some(ScaledScore::new((beta.value() + pc_beta.value()) / 2));
+            return Some(ScaledScore::from_raw((beta.value() + pc_beta.value()) / 2));
         }
     }
 

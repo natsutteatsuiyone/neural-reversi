@@ -222,7 +222,7 @@ pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
 /// Computes the ProbCut beta threshold for verification search.
 #[inline]
 pub fn compute_probcut_beta(beta: ScaledScore, t: f64, mean: f64, sigma: f64) -> ScaledScore {
-    ScaledScore::new((beta.value() as f64 + t * sigma - mean).ceil() as i32)
+    ScaledScore::from_raw((beta.value() as f64 + t * sigma - mean).ceil() as i32)
 }
 
 /// Computes the evaluation threshold for ProbCut pre-screening.
@@ -237,7 +237,7 @@ pub fn compute_eval_beta(
 ) -> ScaledScore {
     let eval_mean = 0.5 * mean0 + mean;
     let eval_sigma = t * 0.5 * sigma0 + sigma;
-    ScaledScore::new((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32)
+    ScaledScore::from_raw((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32)
 }
 
 /// Statistical parameters for endgame ProbCut.

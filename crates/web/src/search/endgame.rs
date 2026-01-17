@@ -118,7 +118,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     ctx.tt.store(
         tt_probe_result.index(),
         tt_key,
-        ScaledScore::new(best_score),
+        ScaledScore::from_raw(best_score),
         Bound::classify::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,

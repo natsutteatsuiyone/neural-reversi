@@ -40,9 +40,9 @@ impl ScaledScore {
     ///
     /// # Arguments
     ///
-    /// * `raw_value` - Raw internal value
+    /// * `raw_value` - Raw internal value (already scaled)
     #[inline(always)]
-    pub const fn new(raw_value: i32) -> Self {
+    pub const fn from_raw(raw_value: i32) -> Self {
         Self(raw_value)
     }
 
@@ -216,7 +216,7 @@ mod scaled_score_tests {
 
     #[test]
     fn test_from_raw() {
-        let score = ScaledScore::new(1000);
+        let score = ScaledScore::from_raw(1000);
         assert_eq!(score.value(), 1000);
         assert_eq!(score.to_disc_diff(), 3); // 1000 >> 8 = 3
     }
@@ -297,7 +297,7 @@ mod scaled_score_tests {
         let score = ScaledScore::from_disc_diff(10);
         assert_eq!(format!("{}", score), "10.00");
 
-        let score = ScaledScore::new(256 + 128); // 1.5
+        let score = ScaledScore::from_raw(256 + 128); // 1.5
         assert_eq!(format!("{}", score), "1.50");
     }
 

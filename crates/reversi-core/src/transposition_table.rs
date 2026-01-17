@@ -139,7 +139,7 @@ impl TTEntryData {
     #[inline(always)]
     pub fn score(&self) -> ScaledScore {
         let raw = ((self.raw >> TTEntry::SCORE_SHIFT) & TTEntry::SCORE_MASK) as i16 as i32;
-        ScaledScore::new(raw)
+        ScaledScore::from_raw(raw)
     }
 
     #[inline(always)]
@@ -782,8 +782,8 @@ mod tests {
 
         // Test maximum values for each field
         let max_key: u64 = 0x3FFFFF; // 22 bits
-        let max_score = ScaledScore::new(32767); // Max i16
-        let min_score = ScaledScore::new(-32768); // Min i16
+        let max_score = ScaledScore::from_raw(32767); // Max i16
+        let min_score = ScaledScore::from_raw(-32768); // Min i16
         let max_depth: Depth = 63; // 6 bits
         let max_best_move = sq(63); // 7 bits (0-63 squares)
         let max_generation: u8 = 127; // 7 bits
@@ -839,7 +839,7 @@ mod tests {
         // Initial save
         entry.save(
             100,
-            ScaledScore::new(50),
+            ScaledScore::from_raw(50),
             Bound::Lower,
             10,
             sq(5),
@@ -854,7 +854,7 @@ mod tests {
         // Try to replace with slightly shallower depth (within 2 plies) - should replace
         entry.save(
             100,
-            ScaledScore::new(60),
+            ScaledScore::from_raw(60),
             Bound::Lower,
             8,
             sq(6),
@@ -869,7 +869,7 @@ mod tests {
         // Replace with deeper depth - should replace
         entry.save(
             100,
-            ScaledScore::new(70),
+            ScaledScore::from_raw(70),
             Bound::Lower,
             12,
             sq(7),
@@ -884,7 +884,7 @@ mod tests {
         // Replace with exact bound - should always replace
         entry.save(
             100,
-            ScaledScore::new(80),
+            ScaledScore::from_raw(80),
             Bound::Exact,
             5,
             sq(8),
@@ -900,7 +900,7 @@ mod tests {
         // Different key - should replace
         entry.save(
             200,
-            ScaledScore::new(90),
+            ScaledScore::from_raw(90),
             Bound::Upper,
             3,
             sq(9),
@@ -915,7 +915,7 @@ mod tests {
         // Newer generation - should replace
         entry.save(
             200,
-            ScaledScore::new(100),
+            ScaledScore::from_raw(100),
             Bound::Lower,
             2,
             sq(10),
@@ -945,7 +945,7 @@ mod tests {
     /// Tests TTEntryData methods.
     #[test]
     fn test_ttentry_data_methods() {
-        let s = |v| ScaledScore::new(v);
+        let s = |v| ScaledScore::from_raw(v);
         // Construct a TTEntry to test TTEntryData via unpack
         let entry = TTEntry::default();
 
@@ -1077,7 +1077,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::new(100),
+            ScaledScore::from_raw(100),
             Bound::Exact,
             20,
             sq(10),
@@ -1114,7 +1114,7 @@ mod tests {
             tt.store(
                 target_cluster + i,
                 *key,
-                ScaledScore::new(i as i32 * 10),
+                ScaledScore::from_raw(i as i32 * 10),
                 Bound::Lower,
                 depth,
                 sq(i),
@@ -1132,7 +1132,7 @@ mod tests {
         tt.store(
             replace_idx,
             new_key,
-            ScaledScore::new(999),
+            ScaledScore::from_raw(999),
             Bound::Exact,
             50,
             sq(20),
@@ -1158,7 +1158,7 @@ mod tests {
             tt.store(
                 target_cluster + i,
                 *key,
-                ScaledScore::new(100 + i as i32),
+                ScaledScore::from_raw(100 + i as i32),
                 Bound::Lower,
                 depth,
                 sq(i),
@@ -1181,7 +1181,7 @@ mod tests {
         tt.store(
             replace_idx,
             new_key,
-            ScaledScore::new(200),
+            ScaledScore::from_raw(200),
             Bound::Exact,
             10,
             sq(20),
@@ -1206,7 +1206,7 @@ mod tests {
             store_entry(
                 &tt,
                 key,
-                ScaledScore::new(i as i32 * 10),
+                ScaledScore::from_raw(i as i32 * 10),
                 Bound::Exact,
                 20,
                 i as usize,
