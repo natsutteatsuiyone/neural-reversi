@@ -1,4 +1,7 @@
 //! Bitboard operations and types.
+//!
+//! This module provides a [`Bitboard`] type that represents a 64-square Reversi board
+//! using a single `u64`, where each bit corresponds to a square (bit 0 = A1, bit 63 = H8).
 
 #[cfg(target_arch = "wasm32")]
 use std::arch::wasm32::*;
@@ -17,48 +20,100 @@ pub struct Bitboard(pub u64);
 
 impl Bitboard {
     /// Creates a new bitboard from raw bits.
+    ///
+    /// # Arguments
+    ///
+    /// * `bits` - Raw 64-bit value where each bit represents a square.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` wrapping the given bits.
     #[inline(always)]
     pub const fn new(bits: u64) -> Self {
         Bitboard(bits)
     }
 
     /// Creates a bitboard with a single bit set at the given square.
+    ///
+    /// # Arguments
+    ///
+    /// * `sq` - The square to set.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with only the specified square's bit set.
     #[inline(always)]
     pub const fn from_square(sq: Square) -> Self {
         Bitboard(1 << sq as u8)
     }
 
     /// Returns a new bitboard with the bit at the given square set.
+    ///
+    /// # Arguments
+    ///
+    /// * `sq` - The square to set.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with the specified square's bit set.
     #[inline(always)]
     pub fn set(self, sq: Square) -> Self {
         Bitboard(self.0 | sq.bitboard().0)
     }
 
     /// Returns a new bitboard with the bit at the given square removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `sq` - The square to clear.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with the specified square's bit cleared.
     #[inline(always)]
     pub fn remove(self, sq: Square) -> Self {
         Bitboard(self.0 & !sq.bitboard().0)
     }
 
     /// Checks if the bitboard contains the bit at the given square.
+    ///
+    /// # Arguments
+    ///
+    /// * `sq` - The square to check.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the specified square's bit is set, `false` otherwise.
     #[inline(always)]
     pub fn contains(self, sq: Square) -> bool {
         self.0 & sq.bitboard().0 != 0
     }
 
     /// Checks if the bitboard has no bits set.
+    ///
+    /// # Returns
+    ///
+    /// `true` if no bits are set, `false` otherwise.
     #[inline(always)]
     pub const fn is_empty(self) -> bool {
         self.0 == 0
     }
 
     /// Returns the number of set bits (population count).
+    ///
+    /// # Returns
+    ///
+    /// The number of bits set in the bitboard (0-64).
     #[inline(always)]
     pub const fn count(self) -> u32 {
         self.0.count_ones()
     }
 
     /// Returns a new bitboard with the least significant bit cleared.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with the LSB cleared.
     #[inline(always)]
     pub const fn clear_lsb(self) -> Self {
         Bitboard(self.0 & self.0.wrapping_sub(1))
@@ -66,7 +121,9 @@ impl Bitboard {
 
     /// Returns the square corresponding to the least significant set bit.
     ///
-    /// Returns `None` if the bitboard is empty.
+    /// # Returns
+    ///
+    /// `Some(Square)` for the LSB position, or `None` if the bitboard is empty.
     #[inline(always)]
     pub fn lsb_square(self) -> Option<Square> {
         if self.0 == 0 {
@@ -78,70 +135,131 @@ impl Bitboard {
 
     /// Returns the square corresponding to the least significant set bit.
     ///
-    /// # Safety
+    /// # Returns
     ///
-    /// The bitboard must not be empty. Calling this on an empty bitboard
-    /// will return an invalid square.
+    /// The `Square` corresponding to the LSB position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bitboard is empty in debug mode.
     #[inline(always)]
     pub fn lsb_square_unchecked(self) -> Square {
+        debug_assert!(
+            !self.is_empty(),
+            "lsb_square_unchecked called on empty bitboard"
+        );
         Square::from_u32_unchecked(self.0.trailing_zeros())
     }
 
     /// Removes and returns the least significant set bit as a square,
     /// along with the updated bitboard.
     ///
-    /// This is equivalent to calling `lsb_square_unchecked()` followed by `clear_lsb()`,
-    /// but performs both operations together.
+    /// # Returns
     ///
-    /// # Safety
+    /// A tuple of `(Square, Bitboard)` where the square is the LSB position
+    /// and the bitboard has that bit cleared.
     ///
-    /// The bitboard must not be empty. Calling this on an empty bitboard
-    /// will return an invalid square.
+    /// # Panics
+    ///
+    /// Panics if the bitboard is empty in debug mode.
     #[inline(always)]
     pub fn pop_lsb(self) -> (Square, Self) {
+        debug_assert!(!self.is_empty(), "pop_lsb called on empty bitboard");
         (self.lsb_square_unchecked(), self.clear_lsb())
     }
 
     /// Flips the bitboard vertically (swaps ranks 1-8).
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with ranks mirrored (rank 1 ↔ rank 8, etc.).
     #[inline(always)]
     pub fn flip_vertical(self) -> Self {
-        Bitboard(flip_vertical(self.0))
+        Bitboard(self.0.swap_bytes())
     }
 
     /// Flips the bitboard horizontally (swaps files A-H).
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with files mirrored (file A ↔ file H, etc.).
     #[inline(always)]
     pub fn flip_horizontal(self) -> Self {
-        Bitboard(flip_horizontal(self.0))
+        const MASK1: u64 = 0x5555555555555555;
+        const MASK2: u64 = 0x3333333333333333;
+        const MASK3: u64 = 0x0f0f0f0f0f0f0f0f;
+
+        let mut b = self.0;
+        b = ((b >> 1) & MASK1) | ((b & MASK1) << 1);
+        b = ((b >> 2) & MASK2) | ((b & MASK2) << 2);
+        b = ((b >> 4) & MASK3) | ((b & MASK3) << 4);
+        Bitboard(b)
     }
 
     /// Flips the bitboard along the A1-H8 diagonal.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` transposed along the main diagonal.
     #[inline(always)]
     pub fn flip_diag_a1h8(self) -> Self {
-        Bitboard(flip_diag_a1h8(self.0))
+        const MASK1: u64 = 0x5500550055005500;
+        const MASK2: u64 = 0x3333000033330000;
+        const MASK3: u64 = 0x0f0f0f0f00000000;
+
+        let mut bits = self.0;
+        bits = delta_swap(bits, MASK3, 28);
+        bits = delta_swap(bits, MASK2, 14);
+        bits = delta_swap(bits, MASK1, 7);
+        Bitboard(bits)
     }
 
     /// Flips the bitboard along the A8-H1 diagonal.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` transposed along the anti-diagonal.
     #[inline(always)]
     pub fn flip_diag_a8h1(self) -> Self {
-        Bitboard(flip_diag_a8h1(self.0))
+        const MASK1: u64 = 0xaa00aa00aa00aa00;
+        const MASK2: u64 = 0xcccc0000cccc0000;
+        const MASK3: u64 = 0xf0f0f0f000000000;
+
+        let mut bits = self.0;
+        bits = delta_swap(bits, MASK3, 36);
+        bits = delta_swap(bits, MASK2, 18);
+        bits = delta_swap(bits, MASK1, 9);
+        Bitboard(bits)
     }
 
     /// Rotates the bitboard 90 degrees clockwise.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` rotated 90° clockwise.
     #[inline(always)]
     pub fn rotate_90_clockwise(self) -> Self {
-        Bitboard(rotate_90_clockwise(self.0))
+        self.flip_diag_a8h1().flip_vertical()
     }
 
     /// Rotates the bitboard 180 degrees.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` rotated 180°.
     #[inline(always)]
     pub fn rotate_180_clockwise(self) -> Self {
-        Bitboard(rotate_180_clockwise(self.0))
+        Bitboard(self.0.reverse_bits())
     }
 
     /// Rotates the bitboard 270 degrees clockwise (90 degrees counter-clockwise).
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` rotated 270° clockwise (or 90° counter-clockwise).
     #[inline(always)]
     pub fn rotate_270_clockwise(self) -> Self {
-        Bitboard(rotate_270_clockwise(self.0))
+        self.flip_diag_a1h8().flip_vertical()
     }
 
     /// Checks if there is an adjacent bit set in the bitboard.
@@ -158,7 +276,7 @@ impl Bitboard {
         /// Pre-computed masks for adjacent squares around each board position.
         /// Reference: <https://eukaryote.hateblo.jp/entry/2020/04/26/031246>
         #[rustfmt::skip]
-        const NEIGHBOUR_MASK: [u64; 64] = [
+        const NEIGHBOUR_MASK: [u64; 65] = [
             0x0000000000000302, 0x0000000000000604, 0x0000000000000e0a, 0x0000000000001c14,
             0x0000000000003828, 0x0000000000007050, 0x0000000000006020, 0x000000000000c040,
             0x0000000000030200, 0x0000000000060400, 0x00000000000e0a00, 0x00000000001c1400,
@@ -175,14 +293,15 @@ impl Bitboard {
             0x0028380000000000, 0x0050700000000000, 0x0020600000000000, 0x0040c00000000000,
             0x0203000000000000, 0x0406000000000000, 0x0a0e000000000000, 0x141c000000000000,
             0x2838000000000000, 0x5070000000000000, 0x2060000000000000, 0x40c0000000000000,
+            0 // Square::None
         ];
 
-        (self.0 & unsafe { NEIGHBOUR_MASK.get_unchecked(sq.index()) }) != 0
+        (self.0 & unsafe { *NEIGHBOUR_MASK.get_unchecked(sq.index()) }) != 0
     }
 
     /// Counts the number of set bits in the bitboard, giving double weight to corner squares.
     ///
-    /// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L918C5-L918C26
+    /// Reference: <https://github.com/abulmo/edax-reversi/blob/master/src/bit.c#L237>
     ///
     /// # Returns
     ///
@@ -195,6 +314,10 @@ impl Bitboard {
     /// Returns a new bitboard with only the corner squares (A1, H1, A8, H8).
     ///
     /// This applies the [`CORNER_MASK`] to extract only the corner bits.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` containing only the corner bits from the original.
     #[inline(always)]
     pub const fn corners(self) -> Self {
         Bitboard(self.0 & CORNER_MASK)
@@ -203,12 +326,20 @@ impl Bitboard {
     /// Returns a new bitboard with only the non-corner squares.
     ///
     /// This applies the inverse of [`CORNER_MASK`] to exclude corner bits.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with the corner bits cleared.
     #[inline(always)]
     pub const fn non_corners(self) -> Self {
         Bitboard(self.0 & !CORNER_MASK)
     }
 
     /// Returns an iterator over all set squares in the bitboard.
+    ///
+    /// # Returns
+    ///
+    /// A [`BitboardIterator`] that yields each set square in LSB-first order.
     #[inline(always)]
     pub fn iter(self) -> BitboardIterator {
         BitboardIterator::new(self)
@@ -222,6 +353,10 @@ impl Bitboard {
     ///
     /// * `flipped` - Bitboard of opponent discs flipped by this move.
     /// * `sq` - Square where the disc was placed.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` representing the player's discs after the move.
     #[inline(always)]
     pub fn apply_move(self, flipped: Bitboard, sq: Square) -> Bitboard {
         self ^ flipped ^ sq.bitboard()
@@ -234,6 +369,10 @@ impl Bitboard {
     /// # Arguments
     ///
     /// * `flipped` - Bitboard of discs flipped by the move.
+    ///
+    /// # Returns
+    ///
+    /// A new `Bitboard` with the flipped discs toggled.
     #[inline(always)]
     pub fn apply_flip(self, flipped: Bitboard) -> Bitboard {
         self ^ flipped
@@ -244,7 +383,11 @@ impl Bitboard {
     /// A corner is stable if it's occupied. Adjacent edge squares are stable
     /// if the corner next to them is also occupied by the same player.
     ///
-    /// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L1453
+    /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L1453>
+    ///
+    /// # Returns
+    ///
+    /// The number of stable corners in this bitboard.
     #[inline(always)]
     pub fn corner_stability(self) -> u32 {
         let p = self.0;
@@ -257,19 +400,49 @@ impl Bitboard {
         stable.count_ones()
     }
 
-    /// Gets the possible moves for the player.
+    /// Gets the legal moves for the player.
+    ///
+    /// # Arguments
+    ///
+    /// * `opponent` - The opponent's bitboard.
+    ///
+    /// # Returns
+    ///
+    /// A `Bitboard` with bits set for each legal move position.
     #[inline(always)]
     pub fn get_moves(self, opponent: Bitboard) -> Bitboard {
         Bitboard(get_moves(self.0, opponent.0))
     }
 
     /// Gets the potential moves for the player.
+    ///
+    /// Potential moves are empty squares that are adjacent (including diagonally) to at least
+    /// one opponent disc.
+    ///
+    /// # Arguments
+    ///
+    /// * `opponent` - The opponent's bitboard.
+    ///
+    /// # Returns
+    ///
+    /// A `Bitboard` with bits set for each potential move position.
     #[inline(always)]
     pub fn get_potential_moves(self, opponent: Bitboard) -> Bitboard {
         Bitboard(get_potential_moves(self.0, opponent.0))
     }
 
     /// Gets both the legal moves and potential moves for the current player.
+    ///
+    /// This is more efficient than calling [`get_moves`](Self::get_moves) and
+    /// [`get_potential_moves`](Self::get_potential_moves) separately.
+    ///
+    /// # Arguments
+    ///
+    /// * `opponent` - The opponent's bitboard.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of `(legal_moves, potential_moves)`.
     #[inline(always)]
     pub fn get_moves_and_potential(self, opponent: Bitboard) -> (Bitboard, Bitboard) {
         let (m, p) = get_moves_and_potential(self.0, opponent.0);
@@ -422,7 +595,9 @@ impl std::fmt::Display for Bitboard {
     }
 }
 
-/// Creates a bitboard representing the empty squares.
+/// Gets the legal moves for the player.
+///
+/// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L822>
 ///
 /// # Arguments
 ///
@@ -431,24 +606,7 @@ impl std::fmt::Display for Bitboard {
 ///
 /// # Returns
 ///
-/// A `u64` value representing the empty squares on the board.
-#[inline(always)]
-pub fn empty_board(player: u64, opponent: u64) -> u64 {
-    !(player | opponent)
-}
-
-/// Gets the possible moves for the player.
-///
-/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L822
-///
-/// # Arguments
-///
-/// * `player` - The player's bitboard.
-/// * `opponent` - The opponent's bitboard.
-///
-/// # Returns
-///
-/// A `u64` value representing the possible moves for the player.
+/// A `u64` value representing the legal moves for the player.
 #[inline(always)]
 fn get_moves(player: u64, opponent: u64) -> u64 {
     cfg_if! {
@@ -464,7 +622,7 @@ fn get_moves(player: u64, opponent: u64) -> u64 {
     }
 }
 
-/// Fallback implementation of `get_moves` for architectures without AVX2 support.
+/// Fallback implementation of `get_moves` for architectures without SIMD support.
 ///
 /// # Arguments
 ///
@@ -473,28 +631,31 @@ fn get_moves(player: u64, opponent: u64) -> u64 {
 ///
 /// # Returns
 ///
-/// A `u64` value representing the possible moves for the player.
+/// A `u64` value representing the legal moves for the player.
 #[inline(always)]
 #[allow(dead_code)]
 fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
-    let empty = empty_board(player, opponent);
+    let empty = !(player | opponent);
     (get_some_moves(player, opponent & 0x007E7E7E7E7E7E00, 7) & empty)
         | (get_some_moves(player, opponent & 0x007E7E7E7E7E7E00, 9) & empty)
         | (get_some_moves(player, opponent & 0x7E7E7E7E7E7E7E7E, 1) & empty)
         | (get_some_moves(player, opponent & 0x00FFFFFFFFFFFF00, 8) & empty)
 }
 
-/// Gets the possible moves in a specific direction.
+/// Propagates flipped discs in a specific direction.
+///
+/// This is a helper function for move generation that calculates the flip propagation
+/// along a ray direction. The result is then used to determine where legal moves exist.
 ///
 /// # Arguments
 ///
-/// * `b` - The bitboard.
-/// * `mask` - The mask for the direction.
+/// * `b` - The player's bitboard.
+/// * `mask` - The mask for the direction (opponent's discs with edge masking).
 /// * `dir` - The direction (in bits).
 ///
 /// # Returns
 ///
-/// A `u64` value representing the possible moves in the specified direction.
+/// A `u64` value representing the flip propagation in the specified direction.
 #[inline(always)]
 #[allow(dead_code)]
 fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
@@ -516,7 +677,7 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 ///
 /// # Returns
 ///
-/// A `u64` value representing the possible moves for the player.
+/// A `u64` value representing the legal moves for the player.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
 #[allow(dead_code)]
@@ -571,7 +732,7 @@ fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
 ///
 /// # Returns
 ///
-/// A `u64` value representing the possible moves for the player.
+/// A `u64` value representing the legal moves for the player.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(dead_code)]
@@ -617,6 +778,16 @@ fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
 }
 
 /// Expands a ray in the left-shift direction using SIMD.
+///
+/// Uses the "parallel prefix" (doubling) algorithm to propagate bits along a ray in O(log n)
+/// iterations instead of O(n). For a 6-square maximum ray length in Reversi:
+///
+/// 1. Shift by 1 and OR with masked bits → covers distances 1-2
+/// 2. Shift by 2 and OR with masked bits → covers distances 1-4
+/// 3. Shift by 4 and OR with masked bits → covers distances 1-7 (sufficient for 6-max)
+///
+/// The mask is also doubled at each step to track valid continuation squares, preventing
+/// ray expansion from wrapping around board edges.
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
 fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128 {
@@ -632,6 +803,9 @@ fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128 {
 }
 
 /// Expands a ray in the right-shift direction using SIMD.
+///
+/// Mirror of [`expand_ray_double_shl`] for the opposite direction. See that function
+/// for algorithm details.
 #[cfg(target_arch = "wasm32")]
 #[inline(always)]
 fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
@@ -647,6 +821,15 @@ fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
 }
 
 /// WASM SIMD128-optimized implementation of `get_moves`.
+///
+/// # Arguments
+///
+/// * `player` - The player's bitboard.
+/// * `opponent` - The opponent's bitboard.
+///
+/// # Returns
+///
+/// A `u64` value representing the legal moves for the player.
 #[cfg(target_arch = "wasm32")]
 #[target_feature(enable = "simd128")]
 fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
@@ -868,120 +1051,6 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     (moves & empty, potential & empty)
 }
 
-/// Flips the bitboard vertically.
-///
-/// # Arguments
-///
-/// * `b` - The bitboard to flip.
-///
-/// # Returns
-///
-/// A `u64` value representing the vertically flipped bitboard.
-#[inline(always)]
-pub fn flip_vertical(b: u64) -> u64 {
-    b.swap_bytes()
-}
-
-/// Flips the bitboard horizontally.
-///
-/// # Arguments
-///
-/// * `b` - The bitboard to flip.
-///
-/// # Returns
-///
-/// A `u64` value representing the horizontally flipped bitboard.
-#[inline(always)]
-pub fn flip_horizontal(mut b: u64) -> u64 {
-    let mask1: u64 = 0x5555555555555555;
-    let mask2: u64 = 0x3333333333333333;
-    let mask3: u64 = 0x0f0f0f0f0f0f0f0f;
-
-    b = ((b >> 1) & mask1) | ((b & mask1) << 1);
-    b = ((b >> 2) & mask2) | ((b & mask2) << 2);
-    b = ((b >> 4) & mask3) | ((b & mask3) << 4);
-
-    b
-}
-
-/// Rotates the bitboard 90 degrees clockwise.
-///
-/// # Arguments
-/// * `b` - The bitboard to rotate.
-///
-/// # Returns
-/// A `u64` value representing the rotated bitboard.
-#[inline(always)]
-pub fn rotate_90_clockwise(b: u64) -> u64 {
-    flip_vertical(flip_diag_a8h1(b))
-}
-
-/// Rotates the bitboard 180 degrees clockwise.
-///
-/// # Arguments
-/// * `b` - The bitboard to rotate.
-///
-/// # Returns
-/// A `u64` value representing the rotated bitboard.
-#[inline(always)]
-pub fn rotate_180_clockwise(b: u64) -> u64 {
-    b.reverse_bits()
-}
-
-/// Rotates the bitboard 270 degrees clockwise (or 90 degrees counter-clockwise).
-///
-/// # Arguments
-/// * `b` - The bitboard to rotate.
-///
-/// # Returns
-/// A `u64` value representing the rotated bitboard.
-#[inline(always)]
-pub fn rotate_270_clockwise(b: u64) -> u64 {
-    flip_vertical(flip_diag_a1h8(b))
-}
-
-/// Flips the bitboard along the A1-H8 diagonal.
-///
-/// # Arguments
-///
-/// * `bits` - The bitboard to flip.
-///
-/// # Returns
-///
-/// A `u64` value representing the diagonally flipped bitboard.
-#[inline(always)]
-pub fn flip_diag_a1h8(mut bits: u64) -> u64 {
-    let mask1: u64 = 0x5500550055005500;
-    let mask2: u64 = 0x3333000033330000;
-    let mask3: u64 = 0x0f0f0f0f00000000;
-
-    bits = delta_swap(bits, mask3, 28);
-    bits = delta_swap(bits, mask2, 14);
-    bits = delta_swap(bits, mask1, 7);
-    bits
-}
-
-/// Flips the bitboard along the A8-H1 diagonal.
-///
-/// # Arguments
-///
-/// * `bits` - The bitboard to flip.
-///
-/// # Returns
-///
-/// A `u64` value representing the diagonally flipped bitboard.
-#[inline(always)]
-pub fn flip_diag_a8h1(mut bits: u64) -> u64 {
-    let mask1: u64 = 0xaa00aa00aa00aa00;
-    let mask2: u64 = 0xcccc0000cccc0000;
-    let mask3: u64 = 0xf0f0f0f000000000;
-
-    bits = delta_swap(bits, mask3, 36);
-    bits = delta_swap(bits, mask2, 18);
-    bits = delta_swap(bits, mask1, 9);
-    bits
-}
-
 /// Delta swap - a fundamental bit manipulation operation.
 ///
 /// # Arguments
@@ -1077,24 +1146,6 @@ mod tests {
         // Test setting already set bit
         board = board.set(Square::A1);
         assert!(board.contains(Square::A1));
-    }
-
-    #[test]
-    fn test_empty_board() {
-        let player = Square::A1.bitboard().0 | Square::B2.bitboard().0;
-        let opponent = Square::C3.bitboard().0 | Square::D4.bitboard().0;
-        let empty = empty_board(player, opponent);
-
-        // Should have all squares except A1, B2, C3, D4
-        assert!(!Bitboard(empty).contains(Square::A1));
-        assert!(!Bitboard(empty).contains(Square::B2));
-        assert!(!Bitboard(empty).contains(Square::C3));
-        assert!(!Bitboard(empty).contains(Square::D4));
-        assert!(Bitboard(empty).contains(Square::E5));
-        assert!(Bitboard(empty).contains(Square::H8));
-
-        // Total should be 60 empty squares
-        assert_eq!(empty.count_ones(), 60);
     }
 
     #[test]
@@ -1433,133 +1484,224 @@ mod tests {
     #[test]
     fn test_flip_vertical() {
         // Simple pattern
-        let board = 0x0102030405060708u64;
-        let flipped = flip_vertical(board);
-        assert_eq!(flipped, 0x0807060504030201u64);
+        let board = Bitboard::new(0x0102030405060708);
+        let flipped = board.flip_vertical();
+        assert_eq!(flipped.0, 0x0807060504030201);
 
         // Symmetric pattern should be unchanged
-        let symmetric = 0x1818181818181818u64;
-        assert_eq!(flip_vertical(flip_vertical(symmetric)), symmetric);
+        let symmetric = Bitboard::new(0x1818181818181818);
+        assert_eq!(symmetric.flip_vertical().flip_vertical(), symmetric);
 
         // Empty
-        assert_eq!(flip_vertical(0), 0);
+        assert_eq!(Bitboard::new(0).flip_vertical().0, 0);
 
         // Full
-        assert_eq!(flip_vertical(0xFFFFFFFFFFFFFFFF), 0xFFFFFFFFFFFFFFFF);
+        assert_eq!(
+            Bitboard::new(0xFFFFFFFFFFFFFFFF).flip_vertical().0,
+            0xFFFFFFFFFFFFFFFF
+        );
     }
 
     #[test]
     fn test_flip_horizontal() {
         // Edge columns
-        assert_eq!(flip_horizontal(0x0101010101010101), 0x8080808080808080);
-        assert_eq!(flip_horizontal(0x8080808080808080), 0x0101010101010101);
+        assert_eq!(
+            Bitboard::new(0x0101010101010101).flip_horizontal().0,
+            0x8080808080808080
+        );
+        assert_eq!(
+            Bitboard::new(0x8080808080808080).flip_horizontal().0,
+            0x0101010101010101
+        );
 
         // Nibble pattern
-        assert_eq!(flip_horizontal(0x0F0F0F0F0F0F0F0F), 0xF0F0F0F0F0F0F0F0);
+        assert_eq!(
+            Bitboard::new(0x0F0F0F0F0F0F0F0F).flip_horizontal().0,
+            0xF0F0F0F0F0F0F0F0
+        );
 
         // Double flip identity
-        let original = 0x123456789ABCDEF0u64;
-        assert_eq!(flip_horizontal(flip_horizontal(original)), original);
+        let original = Bitboard::new(0x123456789ABCDEF0);
+        assert_eq!(original.flip_horizontal().flip_horizontal(), original);
 
         // Single rank
-        assert_eq!(flip_horizontal(0xFF), 0xFF);
+        assert_eq!(Bitboard::new(0xFF).flip_horizontal().0, 0xFF);
     }
 
     #[test]
     fn test_rotate_90_clockwise() {
         // Corners
-        assert_eq!(rotate_90_clockwise(0x0000000000000001), 0x0000000000000080);
-        assert_eq!(rotate_90_clockwise(0x0000000000000080), 0x8000000000000000);
-        assert_eq!(rotate_90_clockwise(0x8000000000000000), 0x0100000000000000);
-        assert_eq!(rotate_90_clockwise(0x0100000000000000), 0x0000000000000001);
+        assert_eq!(
+            Bitboard::new(0x0000000000000001).rotate_90_clockwise().0,
+            0x0000000000000080
+        );
+        assert_eq!(
+            Bitboard::new(0x0000000000000080).rotate_90_clockwise().0,
+            0x8000000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x8000000000000000).rotate_90_clockwise().0,
+            0x0100000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x0100000000000000).rotate_90_clockwise().0,
+            0x0000000000000001
+        );
 
         // 4x rotation identity
-        let original = 0x123456789ABCDEF0u64;
-        let rotated = rotate_90_clockwise(rotate_90_clockwise(rotate_90_clockwise(
-            rotate_90_clockwise(original),
-        )));
+        let original = Bitboard::new(0x123456789ABCDEF0);
+        let rotated = original
+            .rotate_90_clockwise()
+            .rotate_90_clockwise()
+            .rotate_90_clockwise()
+            .rotate_90_clockwise();
         assert_eq!(rotated, original);
     }
 
     #[test]
     fn test_rotate_180_clockwise() {
         // Test corners
-        assert_eq!(rotate_180_clockwise(0x0000000000000001), 0x8000000000000000);
-        assert_eq!(rotate_180_clockwise(0x8000000000000000), 0x0000000000000001);
-        assert_eq!(rotate_180_clockwise(0x0000000000000080), 0x0100000000000000);
-        assert_eq!(rotate_180_clockwise(0x0100000000000000), 0x0000000000000080);
+        assert_eq!(
+            Bitboard::new(0x0000000000000001).rotate_180_clockwise().0,
+            0x8000000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x8000000000000000).rotate_180_clockwise().0,
+            0x0000000000000001
+        );
+        assert_eq!(
+            Bitboard::new(0x0000000000000080).rotate_180_clockwise().0,
+            0x0100000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x0100000000000000).rotate_180_clockwise().0,
+            0x0000000000000080
+        );
 
         // Test a full row
-        assert_eq!(rotate_180_clockwise(0x00000000000000FF), 0xFF00000000000000);
-        assert_eq!(rotate_180_clockwise(0xFF00000000000000), 0x00000000000000FF);
+        assert_eq!(
+            Bitboard::new(0x00000000000000FF).rotate_180_clockwise().0,
+            0xFF00000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0xFF00000000000000).rotate_180_clockwise().0,
+            0x00000000000000FF
+        );
 
         // Test a pattern
-        let original = 0x0F0F0F0F00000000;
-        let rotated = 0x00000000F0F0F0F0;
-        assert_eq!(rotate_180_clockwise(original), rotated);
+        let original = Bitboard::new(0x0F0F0F0F00000000);
+        let rotated = Bitboard::new(0x00000000F0F0F0F0);
+        assert_eq!(original.rotate_180_clockwise(), rotated);
 
         // Double rotation identity
-        let test_board = 0x123456789ABCDEF0u64;
+        let test_board = Bitboard::new(0x123456789ABCDEF0);
         assert_eq!(
-            rotate_180_clockwise(rotate_180_clockwise(test_board)),
+            test_board.rotate_180_clockwise().rotate_180_clockwise(),
             test_board
         );
 
         // Empty and full boards
-        assert_eq!(rotate_180_clockwise(0), 0);
-        assert_eq!(rotate_180_clockwise(u64::MAX), u64::MAX);
+        assert_eq!(Bitboard::new(0).rotate_180_clockwise().0, 0);
+        assert_eq!(Bitboard::new(u64::MAX).rotate_180_clockwise().0, u64::MAX);
     }
 
     #[test]
     fn test_rotate_270_clockwise() {
         // Test corners
-        assert_eq!(rotate_270_clockwise(0x0000000000000001), 0x0100000000000000);
-        assert_eq!(rotate_270_clockwise(0x0100000000000000), 0x8000000000000000);
-        assert_eq!(rotate_270_clockwise(0x8000000000000000), 0x0000000000000080);
-        assert_eq!(rotate_270_clockwise(0x0000000000000080), 0x0000000000000001);
+        assert_eq!(
+            Bitboard::new(0x0000000000000001).rotate_270_clockwise().0,
+            0x0100000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x0100000000000000).rotate_270_clockwise().0,
+            0x8000000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x8000000000000000).rotate_270_clockwise().0,
+            0x0000000000000080
+        );
+        assert_eq!(
+            Bitboard::new(0x0000000000000080).rotate_270_clockwise().0,
+            0x0000000000000001
+        );
 
         // 4x rotation identity
-        let original = 0x123456789ABCDEF0u64;
-        let rotated = rotate_270_clockwise(rotate_270_clockwise(rotate_270_clockwise(
-            rotate_270_clockwise(original),
-        )));
+        let original = Bitboard::new(0x123456789ABCDEF0);
+        let rotated = original
+            .rotate_270_clockwise()
+            .rotate_270_clockwise()
+            .rotate_270_clockwise()
+            .rotate_270_clockwise();
         assert_eq!(rotated, original);
 
         // Equivalence to 3x 90-degree rotation
-        let rotated_90_3x = rotate_90_clockwise(rotate_90_clockwise(rotate_90_clockwise(original)));
-        assert_eq!(rotate_270_clockwise(original), rotated_90_3x);
+        let rotated_90_3x = original
+            .rotate_90_clockwise()
+            .rotate_90_clockwise()
+            .rotate_90_clockwise();
+        assert_eq!(original.rotate_270_clockwise(), rotated_90_3x);
     }
 
     #[test]
     fn test_flip_diag_a1h8() {
         // Diagonal invariant
-        assert_eq!(flip_diag_a1h8(0x8040201008040201), 0x8040201008040201);
+        assert_eq!(
+            Bitboard::new(0x8040201008040201).flip_diag_a1h8().0,
+            0x8040201008040201
+        );
 
         // Corners
-        assert_eq!(flip_diag_a1h8(0x0000000000000001), 0x0000000000000001);
-        assert_eq!(flip_diag_a1h8(0x8000000000000000), 0x8000000000000000);
-        assert_eq!(flip_diag_a1h8(0x0000000000000080), 0x0100000000000000);
-        assert_eq!(flip_diag_a1h8(0x0100000000000000), 0x0000000000000080);
+        assert_eq!(
+            Bitboard::new(0x0000000000000001).flip_diag_a1h8().0,
+            0x0000000000000001
+        );
+        assert_eq!(
+            Bitboard::new(0x8000000000000000).flip_diag_a1h8().0,
+            0x8000000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x0000000000000080).flip_diag_a1h8().0,
+            0x0100000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x0100000000000000).flip_diag_a1h8().0,
+            0x0000000000000080
+        );
 
         // Double flip identity
-        let original = 0x123456789ABCDEF0u64;
-        assert_eq!(flip_diag_a1h8(flip_diag_a1h8(original)), original);
+        let original = Bitboard::new(0x123456789ABCDEF0);
+        assert_eq!(original.flip_diag_a1h8().flip_diag_a1h8(), original);
     }
 
     #[test]
     fn test_flip_diag_a8h1() {
         // Anti-diagonal invariant
-        assert_eq!(flip_diag_a8h1(0x0102040810204080), 0x0102040810204080);
+        assert_eq!(
+            Bitboard::new(0x0102040810204080).flip_diag_a8h1().0,
+            0x0102040810204080
+        );
 
         // Corners
-        assert_eq!(flip_diag_a8h1(0x0100000000000000), 0x0100000000000000);
-        assert_eq!(flip_diag_a8h1(0x0000000000000080), 0x0000000000000080);
-        assert_eq!(flip_diag_a8h1(0x0000000000000001), 0x8000000000000000);
-        assert_eq!(flip_diag_a8h1(0x8000000000000000), 0x0000000000000001);
+        assert_eq!(
+            Bitboard::new(0x0100000000000000).flip_diag_a8h1().0,
+            0x0100000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x0000000000000080).flip_diag_a8h1().0,
+            0x0000000000000080
+        );
+        assert_eq!(
+            Bitboard::new(0x0000000000000001).flip_diag_a8h1().0,
+            0x8000000000000000
+        );
+        assert_eq!(
+            Bitboard::new(0x8000000000000000).flip_diag_a8h1().0,
+            0x0000000000000001
+        );
 
         // Double flip identity
-        let original = 0x123456789ABCDEF0u64;
-        assert_eq!(flip_diag_a8h1(flip_diag_a8h1(original)), original);
+        let original = Bitboard::new(0x123456789ABCDEF0);
+        assert_eq!(original.flip_diag_a8h1().flip_diag_a8h1(), original);
     }
 
     #[test]
@@ -1585,23 +1727,23 @@ mod tests {
 
     #[test]
     fn test_bitboard_transformations_consistency() {
-        let test_board = 0x123456789ABCDEF0u64;
+        let test_board = Bitboard::new(0x123456789ABCDEF0);
 
         // Identity tests
-        assert_eq!(flip_vertical(flip_vertical(test_board)), test_board);
-        assert_eq!(flip_horizontal(flip_horizontal(test_board)), test_board);
-        assert_eq!(flip_diag_a1h8(flip_diag_a1h8(test_board)), test_board);
-        assert_eq!(flip_diag_a8h1(flip_diag_a8h1(test_board)), test_board);
+        assert_eq!(test_board.flip_vertical().flip_vertical(), test_board);
+        assert_eq!(test_board.flip_horizontal().flip_horizontal(), test_board);
+        assert_eq!(test_board.flip_diag_a1h8().flip_diag_a1h8(), test_board);
+        assert_eq!(test_board.flip_diag_a8h1().flip_diag_a8h1(), test_board);
 
         let mut rotated = test_board;
         for _ in 0..4 {
-            rotated = rotate_90_clockwise(rotated);
+            rotated = rotated.rotate_90_clockwise();
         }
         assert_eq!(rotated, test_board);
 
         // 180° rotation equivalence
-        let rotate_180_v1 = flip_horizontal(flip_vertical(test_board));
-        let rotate_180_v2 = rotate_90_clockwise(rotate_90_clockwise(test_board));
+        let rotate_180_v1 = test_board.flip_horizontal().flip_vertical();
+        let rotate_180_v2 = test_board.rotate_90_clockwise().rotate_90_clockwise();
         assert_eq!(rotate_180_v1, rotate_180_v2);
     }
 
@@ -1643,32 +1785,6 @@ mod tests {
             Bitboard::new(0x8000000000000000).lsb_square(),
             Some(Square::H8)
         );
-    }
-
-    #[test]
-    fn test_bitboard_struct_transformations() {
-        let bb = Bitboard::new(0x0102030405060708);
-
-        // flip_vertical
-        assert_eq!(bb.flip_vertical().0, flip_vertical(bb.0));
-
-        // flip_horizontal
-        assert_eq!(bb.flip_horizontal().0, flip_horizontal(bb.0));
-
-        // flip_diag_a1h8
-        assert_eq!(bb.flip_diag_a1h8().0, flip_diag_a1h8(bb.0));
-
-        // flip_diag_a8h1
-        assert_eq!(bb.flip_diag_a8h1().0, flip_diag_a8h1(bb.0));
-
-        // rotate_90_clockwise
-        assert_eq!(bb.rotate_90_clockwise().0, rotate_90_clockwise(bb.0));
-
-        // rotate_180_clockwise
-        assert_eq!(bb.rotate_180_clockwise().0, rotate_180_clockwise(bb.0));
-
-        // rotate_270_clockwise
-        assert_eq!(bb.rotate_270_clockwise().0, rotate_270_clockwise(bb.0));
     }
 
     #[test]
@@ -1778,5 +1894,274 @@ mod tests {
             | Square::D4.bitboard()
             | Square::E5.bitboard();
         assert_eq!(bb.corner_weighted_count(), 6);
+    }
+
+    #[test]
+    fn test_pop_lsb() {
+        // Single bit
+        let bb = Square::E4.bitboard();
+        let (sq, rest) = bb.pop_lsb();
+        assert_eq!(sq, Square::E4);
+        assert!(rest.is_empty());
+
+        // Multiple bits - should pop in LSB order
+        let bb = Square::A1.bitboard() | Square::C3.bitboard() | Square::H8.bitboard();
+        let (sq1, rest1) = bb.pop_lsb();
+        assert_eq!(sq1, Square::A1);
+        assert!(!rest1.is_empty());
+
+        let (sq2, rest2) = rest1.pop_lsb();
+        assert_eq!(sq2, Square::C3);
+        assert!(!rest2.is_empty());
+
+        let (sq3, rest3) = rest2.pop_lsb();
+        assert_eq!(sq3, Square::H8);
+        assert!(rest3.is_empty());
+
+        // All corners
+        let mut bb = Bitboard::new(CORNER_MASK);
+        let mut popped = Vec::new();
+        while !bb.is_empty() {
+            let (sq, rest) = bb.pop_lsb();
+            popped.push(sq);
+            bb = rest;
+        }
+        assert_eq!(popped.len(), 4);
+        assert_eq!(popped[0], Square::A1);
+        assert_eq!(popped[1], Square::H1);
+        assert_eq!(popped[2], Square::A8);
+        assert_eq!(popped[3], Square::H8);
+    }
+
+    #[test]
+    fn test_from_square() {
+        // Test all corners
+        assert_eq!(Bitboard::from_square(Square::A1).0, 1);
+        assert_eq!(Bitboard::from_square(Square::H1).0, 0x80);
+        assert_eq!(Bitboard::from_square(Square::A8).0, 0x0100000000000000);
+        assert_eq!(Bitboard::from_square(Square::H8).0, 0x8000000000000000);
+
+        // Test center squares
+        assert_eq!(Bitboard::from_square(Square::D4).0, 1 << 27);
+        assert_eq!(Bitboard::from_square(Square::E5).0, 1 << 36);
+
+        // Verify equivalence with Square::bitboard()
+        for i in 0..64 {
+            let sq = Square::from_u32_unchecked(i);
+            assert_eq!(Bitboard::from_square(sq), sq.bitboard());
+        }
+    }
+
+    #[test]
+    fn test_is_empty() {
+        assert!(Bitboard::new(0).is_empty());
+        assert!(!Bitboard::new(1).is_empty());
+        assert!(!Bitboard::new(u64::MAX).is_empty());
+        assert!(!Square::A1.bitboard().is_empty());
+
+        // After clearing all bits
+        let bb = Square::A1.bitboard();
+        let bb = bb.remove(Square::A1);
+        assert!(bb.is_empty());
+    }
+
+    #[test]
+    fn test_count() {
+        assert_eq!(Bitboard::new(0).count(), 0);
+        assert_eq!(Bitboard::new(1).count(), 1);
+        assert_eq!(Bitboard::new(u64::MAX).count(), 64);
+        assert_eq!(Bitboard::new(CORNER_MASK).count(), 4);
+
+        // Sparse pattern
+        let bb = Square::A1.bitboard() | Square::D4.bitboard() | Square::H8.bitboard();
+        assert_eq!(bb.count(), 3);
+
+        // Full rank
+        assert_eq!(Bitboard::new(0xFF).count(), 8);
+
+        // Checkerboard pattern
+        assert_eq!(Bitboard::new(0x5555555555555555).count(), 32);
+        assert_eq!(Bitboard::new(0xAAAAAAAAAAAAAAAA).count(), 32);
+    }
+
+    #[test]
+    fn test_corners() {
+        // All corners from full board
+        assert_eq!(Bitboard::new(u64::MAX).corners().0, CORNER_MASK);
+
+        // No corners from center squares
+        let center = Square::D4.bitboard()
+            | Square::D5.bitboard()
+            | Square::E4.bitboard()
+            | Square::E5.bitboard();
+        assert_eq!(center.corners().0, 0);
+
+        // Partial corners
+        let bb = Square::A1.bitboard() | Square::H8.bitboard() | Square::D4.bitboard();
+        let corners = bb.corners();
+        assert!(corners.contains(Square::A1));
+        assert!(corners.contains(Square::H8));
+        assert!(!corners.contains(Square::D4));
+        assert!(!corners.contains(Square::H1));
+        assert!(!corners.contains(Square::A8));
+        assert_eq!(corners.count(), 2);
+
+        // Empty board
+        assert_eq!(Bitboard::new(0).corners().0, 0);
+    }
+
+    #[test]
+    fn test_non_corners() {
+        // Full board minus corners
+        let full = Bitboard::new(u64::MAX);
+        let non_corners = full.non_corners();
+        assert_eq!(non_corners.count(), 60);
+        assert!(!non_corners.contains(Square::A1));
+        assert!(!non_corners.contains(Square::H1));
+        assert!(!non_corners.contains(Square::A8));
+        assert!(!non_corners.contains(Square::H8));
+        assert!(non_corners.contains(Square::D4));
+
+        // Only corners gives empty
+        assert_eq!(Bitboard::new(CORNER_MASK).non_corners().0, 0);
+
+        // Mixed board
+        let bb = Square::A1.bitboard() | Square::D4.bitboard() | Square::E5.bitboard();
+        let non_corners = bb.non_corners();
+        assert!(!non_corners.contains(Square::A1));
+        assert!(non_corners.contains(Square::D4));
+        assert!(non_corners.contains(Square::E5));
+        assert_eq!(non_corners.count(), 2);
+
+        // Empty board
+        assert_eq!(Bitboard::new(0).non_corners().0, 0);
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_get_moves_consistency_extended() {
+        let has_avx2 = is_x86_feature_detected!("avx2");
+        let has_avx512 =
+            is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl");
+
+        if !(has_avx2 || has_avx512) {
+            return;
+        }
+
+        // Extended test positions covering edge cases
+        let test_positions: [(u64, u64); 10] = [
+            // Initial position
+            (
+                Square::D5.bitboard().0 | Square::E4.bitboard().0,
+                Square::D4.bitboard().0 | Square::E5.bitboard().0,
+            ),
+            // Edge-heavy positions
+            (0xFF000000000000FF, 0x00FFFFFFFFFFFF00), // ranks 1 and 8
+            (0x8181818181818181, 0x7E7E7E7E7E7E7E7E), // files A and H
+            // Diagonal positions
+            (0x8040201008040201, 0x0102040810204080), // both diagonals
+            // Corner-heavy
+            (CORNER_MASK, 0x4281000000008142), // corners vs X-squares
+            // Sparse positions
+            (0x0000001000000000, 0x0000002800000000), // single disc each side
+            // Dense center
+            (0x00003C3C00000000, 0x0000C3C300000000), // 4x4 blocks
+            // One side dominating
+            (0xFFFFFFFF00000000, 0x00000000FFFFFFFF), // split board
+            // Near-endgame (few empties)
+            (0xAAAAAAAAAAAAAAAA, 0x5555555555555554), // checkerboard with 1 empty
+            // Asymmetric
+            (0x0F0F0F0F00000000, 0x00000000F0F0F0F0),
+        ];
+
+        for (player, opponent) in test_positions {
+            // Skip invalid positions (overlapping bits)
+            if player & opponent != 0 {
+                continue;
+            }
+
+            let moves_fallback = get_moves_fallback(player, opponent);
+
+            if has_avx2 {
+                let moves_avx2 = unsafe { get_moves_avx2(player, opponent) };
+                assert_eq!(
+                    moves_fallback, moves_avx2,
+                    "Extended: Fallback vs AVX2 differ for player={player:016x}, opponent={opponent:016x}"
+                );
+            }
+
+            if has_avx512 {
+                let moves_avx512 = unsafe { get_moves_avx512(player, opponent) };
+                assert_eq!(
+                    moves_fallback, moves_avx512,
+                    "Extended: Fallback vs AVX-512 differ for player={player:016x}, opponent={opponent:016x}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_get_moves_and_potential_consistency_extended() {
+        let has_avx2 = is_x86_feature_detected!("avx2");
+        let has_avx512 =
+            is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl");
+
+        if !(has_avx2 || has_avx512) {
+            return;
+        }
+
+        // Extended test positions
+        let test_positions: [(u64, u64); 8] = [
+            // Initial position
+            (
+                Square::D5.bitboard().0 | Square::E4.bitboard().0,
+                Square::D4.bitboard().0 | Square::E5.bitboard().0,
+            ),
+            // Edge cases
+            (0xFF000000000000FF, 0x00FFFFFFFFFFFF00),
+            (0x8181818181818181, 0x7E7E7E7E7E7E7E7E),
+            (CORNER_MASK, 0x4281000000008142),
+            // Various game states
+            (0x00003C3C00000000, 0x0000C3C300000000),
+            (0x0000001000000000, 0x0000002800000000),
+            (0x0F0F0F0F00000000, 0x00000000F0F0F0F0),
+            (0x8040201008040201, 0x0102040810204080),
+        ];
+
+        for (player, opponent) in test_positions {
+            if player & opponent != 0 {
+                continue;
+            }
+
+            let moves_scalar = get_moves_fallback(player, opponent);
+            let potential_scalar = get_potential_moves(player, opponent);
+
+            if has_avx2 {
+                let (moves_avx2, pot_avx2) =
+                    unsafe { get_moves_and_potential_avx2(player, opponent) };
+                assert_eq!(
+                    moves_scalar, moves_avx2,
+                    "Extended: Moves mismatch AVX2 for player={player:016x}, opponent={opponent:016x}"
+                );
+                assert_eq!(
+                    potential_scalar, pot_avx2,
+                    "Extended: Potential mismatch AVX2 for player={player:016x}, opponent={opponent:016x}"
+                );
+            }
+
+            if has_avx512 {
+                let (moves_avx512, pot_avx512) =
+                    unsafe { get_moves_and_potential_avx512(player, opponent) };
+                assert_eq!(
+                    moves_scalar, moves_avx512,
+                    "Extended: Moves mismatch AVX512 for player={player:016x}, opponent={opponent:016x}"
+                );
+                assert_eq!(
+                    potential_scalar, pot_avx512,
+                    "Extended: Potential mismatch AVX512 for player={player:016x}, opponent={opponent:016x}"
+                );
+            }
+        }
     }
 }
