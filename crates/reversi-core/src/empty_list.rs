@@ -3,7 +3,7 @@
 use crate::board::Board;
 use crate::square::Square;
 
-/// Quadrant bit-mask for each square position.
+/// Retrieves the quadrant ID for a given square.
 ///
 /// The board is divided into 4 quadrants for parity calculation:
 /// - Top-left (A1-D4): bit mask 1
@@ -13,29 +13,20 @@ use crate::square::Square;
 ///
 /// Used for endgame parity optimization where different quadrant
 /// combinations affect move ordering efficiency.
-#[rustfmt::skip]
-const QUADRANT_ID: [u8; 64] = [
-    1, 1, 1, 1, 2, 2, 2, 2,
-    1, 1, 1, 1, 2, 2, 2, 2,
-    1, 1, 1, 1, 2, 2, 2, 2,
-    1, 1, 1, 1, 2, 2, 2, 2,
-    4, 4, 4, 4, 8, 8, 8, 8,
-    4, 4, 4, 4, 8, 8, 8, 8,
-    4, 4, 4, 4, 8, 8, 8, 8,
-    4, 4, 4, 4, 8, 8, 8, 8,
-];
-
-/// Retrieves the quadrant ID for a given square.
-///
-/// # Arguments
-///
-/// * `sq` - The square to retrieve the quadrant ID for.
-///
-/// # Returns
-///
-/// The quadrant ID for the given square.
 #[inline(always)]
 fn get_quadrant_id(sq: Square) -> u8 {
+    #[rustfmt::skip]
+    const QUADRANT_ID: [u8; 65] = [
+        1, 1, 1, 1, 2, 2, 2, 2,
+        1, 1, 1, 1, 2, 2, 2, 2,
+        1, 1, 1, 1, 2, 2, 2, 2,
+        1, 1, 1, 1, 2, 2, 2, 2,
+        4, 4, 4, 4, 8, 8, 8, 8,
+        4, 4, 4, 4, 8, 8, 8, 8,
+        4, 4, 4, 4, 8, 8, 8, 8,
+        4, 4, 4, 4, 8, 8, 8, 8,
+        0, // Square::None
+    ];
     unsafe { *QUADRANT_ID.get_unchecked(sq.index()) }
 }
 
@@ -109,7 +100,7 @@ impl EmptyList {
                 let sq_idx = sq.index();
                 nodes[prev_sq.index()].next = sq;
                 nodes[sq_idx].prev = prev_sq;
-                parity ^= QUADRANT_ID[sq_idx];
+                parity ^= get_quadrant_id(sq);
                 prev_sq = sq;
                 count += 1;
             }
@@ -304,16 +295,17 @@ mod tests {
     }
 
     #[test]
-    fn test_quadrant_id_constants() {
-        // Test that QUADRANT_ID correctly maps squares to quadrants
-        assert_eq!(QUADRANT_ID[Square::A1.index()], 1); // Top-left
-        assert_eq!(QUADRANT_ID[Square::D4.index()], 1); // Top-left
-        assert_eq!(QUADRANT_ID[Square::E1.index()], 2); // Top-right
-        assert_eq!(QUADRANT_ID[Square::H4.index()], 2); // Top-right
-        assert_eq!(QUADRANT_ID[Square::A5.index()], 4); // Bottom-left
-        assert_eq!(QUADRANT_ID[Square::D8.index()], 4); // Bottom-left
-        assert_eq!(QUADRANT_ID[Square::E5.index()], 8); // Bottom-right
-        assert_eq!(QUADRANT_ID[Square::H8.index()], 8); // Bottom-right
+    fn test_quadrant_id() {
+        // Test that get_quadrant_id correctly maps squares to quadrants
+        assert_eq!(get_quadrant_id(Square::A1), 1); // Top-left
+        assert_eq!(get_quadrant_id(Square::D4), 1); // Top-left
+        assert_eq!(get_quadrant_id(Square::E1), 2); // Top-right
+        assert_eq!(get_quadrant_id(Square::H4), 2); // Top-right
+        assert_eq!(get_quadrant_id(Square::A5), 4); // Bottom-left
+        assert_eq!(get_quadrant_id(Square::D8), 4); // Bottom-left
+        assert_eq!(get_quadrant_id(Square::E5), 8); // Bottom-right
+        assert_eq!(get_quadrant_id(Square::H8), 8); // Bottom-right
+        assert_eq!(get_quadrant_id(Square::None), 0); // None
     }
 
     #[test]
