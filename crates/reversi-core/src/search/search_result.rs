@@ -1,7 +1,6 @@
 //! Search result types.
 
 use crate::{
-    eval::EvalMode,
     probcut::Selectivity,
     search::root_move::{RootMove, RootMoves},
     square::Square,
@@ -24,7 +23,7 @@ pub struct SearchResult {
     pub pv_line: Vec<Square>,
     pub depth: Depth,
     pub selectivity: Selectivity,
-    pub eval_mode: EvalMode,
+    pub is_endgame: bool,
     /// All evaluated moves with scores (populated in Multi-PV mode).
     pub pv_moves: Vec<PvMove>,
 }
@@ -39,7 +38,7 @@ impl SearchResult {
             pv_line: vec![],
             depth: 0,
             selectivity: Selectivity::None,
-            eval_mode: EvalMode::Main,
+            is_endgame: false,
             pv_moves: vec![],
         }
     }
@@ -53,14 +52,14 @@ impl SearchResult {
     /// * `n_nodes` - Total nodes searched.
     /// * `depth` - Search depth reached.
     /// * `selectivity` - Selectivity level used.
-    /// * `eval_mode` - Current evaluation mode.
+    /// * `is_endgame` - Whether this is an endgame search.
     pub fn from_root_move(
         root_moves: &RootMoves,
         best_move: &RootMove,
         n_nodes: u64,
         depth: Depth,
         selectivity: Selectivity,
-        eval_mode: EvalMode,
+        is_endgame: bool,
     ) -> Self {
         let pv_moves: Vec<PvMove> = root_moves.map(|rm| PvMove {
             sq: rm.sq,
@@ -75,7 +74,7 @@ impl SearchResult {
             pv_line: best_move.pv.clone(),
             depth,
             selectivity,
-            eval_mode,
+            is_endgame,
             pv_moves,
         }
     }

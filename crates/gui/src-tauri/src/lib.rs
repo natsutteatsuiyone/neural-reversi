@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use reversi_core::disc::Disc;
-use reversi_core::eval::EvalMode;
 use reversi_core::level::get_level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
@@ -109,7 +108,7 @@ async fn ai_move_command(
                     .map(|sq| format!("{}", sq))
                     .collect::<Vec<_>>()
                     .join(" "),
-                is_endgame: progress.eval_mode == EvalMode::Small,
+                is_endgame: progress.is_endgame,
             };
             app.emit("ai-move-progress", payload).unwrap();
         };
@@ -193,7 +192,7 @@ async fn analyze_command(
                     .map(|sq| format!("{}", sq))
                     .collect::<Vec<_>>()
                     .join(" "),
-                is_endgame: progress.eval_mode == EvalMode::Small,
+                is_endgame: progress.is_endgame,
             };
             app.emit("ai-move-progress", payload).unwrap();
         };

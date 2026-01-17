@@ -113,7 +113,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                     probability: ctx.selectivity.probability(),
                     nodes: ctx.n_nodes,
                     pv_line: rm.pv.clone(),
-                    eval_mode: ctx.eval_mode,
+                    is_endgame: false,
                 });
             }
         }
@@ -137,7 +137,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 ctx.n_nodes,
                 depth.min(n_empties),
                 ctx.selectivity,
-                EvalMode::Main,
+                false,
             );
         }
 
@@ -155,7 +155,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         ctx.n_nodes,
         max_depth.min(n_empties),
         ctx.selectivity,
-        EvalMode::Main,
+        false,
     )
 }
 
