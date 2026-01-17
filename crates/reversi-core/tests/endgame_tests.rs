@@ -11,7 +11,8 @@ fn test_solve_5() {
     let board = Board::from_string(
         "--O--O----OOOOO-XOOOOOOOXXOOXOOOXXXXXOXXXOXXOOXXXXXXOXOXXOOOOOOX",
         Disc::Black,
-    );
+    )
+    .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
@@ -24,7 +25,8 @@ fn test_solve_15() {
     let board = Board::from_string(
         "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-",
         Disc::Black,
-    );
+    )
+    .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 

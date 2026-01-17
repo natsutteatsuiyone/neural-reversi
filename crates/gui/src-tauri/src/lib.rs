@@ -86,8 +86,9 @@ async fn ai_move_command(
     let board_string_clone = board_string.clone();
     let level_clone = level;
 
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        let board = board::Board::from_string(&board_string_clone, Disc::Black);
+    tauri::async_runtime::spawn_blocking(move || -> Result<AIMoveResult, String> {
+        let board = board::Board::from_string(&board_string_clone, Disc::Black)
+            .map_err(|e| format!("Invalid board string: {e}"))?;
         let lv = get_level(level_clone);
         let start_time = std::time::Instant::now();
 
@@ -139,7 +140,7 @@ async fn ai_move_command(
 
         let time_taken_ms = start_time.elapsed().as_millis() as u64;
 
-        AIMoveResult {
+        Ok(AIMoveResult {
             best_move: result.best_move.map(|square| square.index()),
             row: result
                 .best_move
@@ -153,12 +154,10 @@ async fn ai_move_command(
             depth: result.depth,
             acc: result.get_probability(),
             time_taken: time_taken_ms,
-        }
+        })
     })
     .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(result)
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -172,8 +171,9 @@ async fn analyze_command(
     let board_string_clone = board_string.clone();
     let level_clone = level;
 
-    tauri::async_runtime::spawn_blocking(move || {
-        let board = board::Board::from_string(&board_string_clone, Disc::Black);
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let board = board::Board::from_string(&board_string_clone, Disc::Black)
+            .map_err(|e| format!("Invalid board string: {e}"))?;
         let lv = get_level(level_clone);
 
         let mut search_guard = search_arc.lock().unwrap();
@@ -201,11 +201,10 @@ async fn analyze_command(
             .multi_pv(true)
             .callback(callback);
         search_guard.run(&board, &options);
+        Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(())
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

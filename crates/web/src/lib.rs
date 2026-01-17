@@ -482,7 +482,7 @@ impl BenchmarkRunner {
         let mut search = Search::new(Rc::clone(&tt), Rc::clone(&self.eval));
 
         // FFO #40
-        let board_40 = Board::from_string(FFO_40_BOARD_STR, Disc::Black);
+        let board_40 = Board::from_string(FFO_40_BOARD_STR, Disc::Black).unwrap();
         let empty_count_40 = board_40.get_empty_count();
         let level_40 = Level {
             mid_depth: empty_count_40 as Depth,
@@ -491,7 +491,7 @@ impl BenchmarkRunner {
         };
 
         // FFO #41
-        let board_41 = Board::from_string(FFO_41_BOARD_STR, Disc::Black);
+        let board_41 = Board::from_string(FFO_41_BOARD_STR, Disc::Black).unwrap();
         let empty_count_41 = board_41.get_empty_count();
         let level_41 = Level {
             mid_depth: empty_count_41 as Depth,

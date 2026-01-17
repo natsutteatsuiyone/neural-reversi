@@ -64,7 +64,7 @@ impl Board {
 
     /// Creates a `Board` from a string representation.
     ///
-    /// The string should contain 64 characters representing the board squares from A1 to H8.
+    /// The string must contain exactly 64 characters representing the board squares from A1 to H8.
     /// Characters are interpreted as:
     /// - The current player's disc character (e.g., 'X' for Black)
     /// - The opponent's disc character (e.g., 'O' for White)
@@ -75,19 +75,50 @@ impl Board {
     /// * `current_player` - The current player.
     ///
     /// # Returns
-    /// A new `Board` instance.
-    pub fn from_string(board_string: &str, current_player: Disc) -> Board {
+    /// `Ok(Board)` if the string is valid, `Err(BoardError)` otherwise.
+    ///
+    /// # Errors
+    /// - [`BoardError::TooShort`] if the string has fewer than 64 characters.
+    /// - [`BoardError::TooLong`] if the string has more than 64 characters.
+    /// - [`BoardError::InvalidChar`] if the string contains an invalid character.
+    pub fn from_string(board_string: &str, current_player: Disc) -> Result<Board, BoardError> {
+        let chars: Vec<char> = board_string.chars().collect();
+
+        if chars.len() < 64 {
+            return Err(BoardError::TooShort {
+                expected: 64,
+                actual: chars.len(),
+            });
+        }
+        if chars.len() > 64 {
+            return Err(BoardError::TooLong {
+                expected: 64,
+                actual: chars.len(),
+            });
+        }
+
+        let player_char = current_player.to_char();
+        let opponent_char = current_player.opposite().to_char();
+
         let mut player = Bitboard::new(0);
         let mut opponent = Bitboard::new(0);
-        for (sq, c) in board_string.chars().enumerate() {
+
+        for (sq, &c) in chars.iter().enumerate() {
+            // Safety: sq is guaranteed to be < 64 because chars.len() == 64
             let square = Square::from_usize_unchecked(sq);
-            if c == current_player.to_char() {
+            if c == player_char {
                 player = player.set(square);
-            } else if c != '-' {
+            } else if c == opponent_char {
                 opponent = opponent.set(square);
+            } else if c != '-' {
+                return Err(BoardError::InvalidChar {
+                    char: c,
+                    position: sq,
+                });
             }
         }
-        Board { player, opponent }
+
+        Ok(Board { player, opponent })
     }
 
     /// Gets the disc at a specific square from the perspective of the current player.
@@ -495,6 +526,59 @@ impl fmt::Display for Board {
     }
 }
 
+/// Error type for board parsing operations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoardError {
+    /// String is too short (less than 64 characters)
+    TooShort {
+        /// Expected number of characters
+        expected: usize,
+        /// Actual number of characters
+        actual: usize,
+    },
+    /// String is too long (more than 64 characters)
+    TooLong {
+        /// Expected number of characters
+        expected: usize,
+        /// Actual number of characters
+        actual: usize,
+    },
+    /// Invalid character at position
+    InvalidChar {
+        /// The invalid character
+        char: char,
+        /// Position in the string (0-indexed)
+        position: usize,
+    },
+}
+
+impl fmt::Display for BoardError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BoardError::TooShort { expected, actual } => {
+                write!(
+                    f,
+                    "Board string too short: expected {expected} characters, got {actual}"
+                )
+            }
+            BoardError::TooLong { expected, actual } => {
+                write!(
+                    f,
+                    "Board string too long: expected {expected} characters, got {actual}"
+                )
+            }
+            BoardError::InvalidChar { char, position } => {
+                write!(
+                    f,
+                    "Invalid character '{char}' at position {position}: must be 'X', 'O', or '-'"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for BoardError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,14 +610,14 @@ mod tests {
     #[test]
     fn test_from_string() {
         let board_string = "--------\
-                                  --------\
-                                  --------\
-                                  ---OX---\
-                                  ---XO---\
-                                  --------\
-                                  --------\
-                                  --------";
-        let board = Board::from_string(board_string, Disc::Black);
+                            --------\
+                            --------\
+                            ---OX---\
+                            ---XO---\
+                            --------\
+                            --------\
+                            --------";
+        let board = Board::from_string(board_string, Disc::Black).unwrap();
         assert!(board.player.contains(Square::D5));
         assert!(board.player.contains(Square::E4));
         assert!(board.opponent.contains(Square::D4));
@@ -543,14 +627,14 @@ mod tests {
     #[test]
     fn test_from_string_white_perspective() {
         let board_string = "--------\
-                                  --------\
-                                  --------\
-                                  ---XO---\
-                                  ---OX---\
-                                  --------\
-                                  --------\
-                                  --------";
-        let board = Board::from_string(board_string, Disc::White);
+                            --------\
+                            --------\
+                            ---XO---\
+                            ---OX---\
+                            --------\
+                            --------\
+                            --------";
+        let board = Board::from_string(board_string, Disc::White).unwrap();
         // From White's perspective, O discs are the player
         assert!(board.player.contains(Square::E4));
         assert!(board.player.contains(Square::D5));
@@ -1013,5 +1097,88 @@ mod tests {
         // Draw 32-32
         let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
         assert_eq!(board.solve(0), 0);
+    }
+
+    #[test]
+    fn test_from_string_too_short() {
+        let result = Board::from_string("XXXXXXXX", Disc::Black);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BoardError::TooShort { expected, actual } => {
+                assert_eq!(expected, 64);
+                assert_eq!(actual, 8);
+            }
+            _ => panic!("Expected TooShort error"),
+        }
+    }
+
+    #[test]
+    fn test_from_string_too_long() {
+        let board_string = "-".repeat(65);
+        let result = Board::from_string(&board_string, Disc::Black);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BoardError::TooLong { expected, actual } => {
+                assert_eq!(expected, 64);
+                assert_eq!(actual, 65);
+            }
+            _ => panic!("Expected TooLong error"),
+        }
+    }
+
+    #[test]
+    fn test_from_string_invalid_char() {
+        // Valid start but invalid character 'Z' at position 10
+        let board_string = "----------Z".to_string() + &"-".repeat(53);
+        let result = Board::from_string(&board_string, Disc::Black);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BoardError::InvalidChar { char, position } => {
+                assert_eq!(char, 'Z');
+                assert_eq!(position, 10);
+            }
+            _ => panic!("Expected InvalidChar error"),
+        }
+    }
+
+    #[test]
+    fn test_from_string_empty() {
+        let result = Board::from_string("", Disc::Black);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            BoardError::TooShort { expected, actual } => {
+                assert_eq!(expected, 64);
+                assert_eq!(actual, 0);
+            }
+            _ => panic!("Expected TooShort error"),
+        }
+    }
+
+    #[test]
+    fn test_board_error_display() {
+        assert_eq!(
+            BoardError::TooShort {
+                expected: 64,
+                actual: 10
+            }
+            .to_string(),
+            "Board string too short: expected 64 characters, got 10"
+        );
+        assert_eq!(
+            BoardError::TooLong {
+                expected: 64,
+                actual: 100
+            }
+            .to_string(),
+            "Board string too long: expected 64 characters, got 100"
+        );
+        assert_eq!(
+            BoardError::InvalidChar {
+                char: 'Z',
+                position: 5
+            }
+            .to_string(),
+            "Invalid character 'Z' at position 5: must be 'X', 'O', or '-'"
+        );
     }
 }

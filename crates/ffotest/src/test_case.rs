@@ -80,6 +80,7 @@ impl TestCase {
     /// Convert the test case into a playable Board instance
     pub fn get_board(&self) -> Board {
         Board::from_string(self.board_str, self.side_to_move)
+            .expect("FFO test case should have valid board string")
     }
 
     /// Check if the given move is one of the best moves

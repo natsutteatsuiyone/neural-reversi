@@ -33,7 +33,7 @@ fn board_from_rows(rows: [&str; 8]) -> Board {
     for row in rows {
         board_string.push_str(row);
     }
-    Board::from_string(&board_string, Disc::Black)
+    Board::from_string(&board_string, Disc::Black).unwrap()
 }
 
 fn load_main_network() -> Network {

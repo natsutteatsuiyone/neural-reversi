@@ -617,7 +617,8 @@ mod tests {
              --------\
              --------",
             Disc::Black,
-        );
+        )
+        .unwrap();
 
         let move_list = MoveList::new(&board);
         assert!(move_list.count() > 0);
@@ -763,7 +764,8 @@ mod tests {
              XXXXXXXO\
              XXXXXXO-",
             Disc::Black,
-        );
+        )
+        .unwrap();
 
         let move_list = MoveList::new(&board);
         assert_eq!(move_list.count(), 1);

@@ -118,7 +118,8 @@ fn parse_position_line(line: &str) -> Result<(Board, Disc), String> {
         _ => return Err(format!("Invalid side to move: {side_char}")),
     };
 
-    let board = Board::from_string(board_str, side_to_move);
+    let board = Board::from_string(board_str, side_to_move)
+        .map_err(|e| format!("Invalid board string: {e}"))?;
 
     Ok((board, side_to_move))
 }
