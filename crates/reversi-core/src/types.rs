@@ -14,84 +14,111 @@ pub type Score = i32;
 /// Floating-point score.
 pub type Scoref = f32;
 
-/// Scaled score - internal evaluation value (scaled by 256).
+/// Scaled score for internal evaluation with sub-disc precision.
 ///
-/// Disc difference scores are scaled by 256 to preserve precision.
+/// In Reversi, the final score is a disc difference ranging from -64 to +64.
+/// However, during evaluation, the engine needs finer granularity to distinguish
+/// between positions that would otherwise appear equal. `ScaledScore` achieves this
+/// by scaling values by 256 (2^8), providing 8 bits of fractional precision.
+///
+/// # Value Representation
+///
+/// - **Raw value**: The internal i32 representation (scaled)
+/// - **Disc difference**: The human-readable score (raw_value >> 8)
+///
+/// # Special Values
+///
+/// - [`ScaledScore::MIN`] / [`ScaledScore::MAX`]: Bounds for actual game outcomes (-64/+64 discs)
+/// - [`ScaledScore::INF`]: Sentinel value for search algorithm bounds (larger than any real score)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct ScaledScore(i32);
 
 impl ScaledScore {
-    /// Number of bits used for scaling.
+    /// Number of bits used for scaling (8 bits = 256x).
     pub const SCALE_BITS: i32 = 8;
-    /// Scale factor (256).
+
+    /// Scale factor: 256.
     pub const SCALE: i32 = 1 << Self::SCALE_BITS;
 
     /// Zero score.
     pub const ZERO: Self = Self(0);
-    /// Maximum scaled score (+64 discs).
+
+    /// Maximum achievable score: +64 discs.
     pub const MAX: Self = Self(SCORE_MAX << Self::SCALE_BITS);
-    /// Minimum scaled score (-64 discs).
+
+    /// Minimum achievable score: -64 discs.
     pub const MIN: Self = Self(SCORE_MIN << Self::SCALE_BITS);
-    /// Infinity score for search algorithms.
+
+    /// Infinity sentinel for alpha-beta search bounds.
     pub const INF: Self = Self(SCORE_INF << Self::SCALE_BITS);
 
-    /// Creates a ScaledScore from a raw internal value.
+    /// Creates a `ScaledScore` from a raw internal value.
     ///
     /// # Arguments
     ///
-    /// * `raw_value` - Raw internal value (already scaled)
+    /// * `raw_value` - The raw internal value to convert to a `ScaledScore`.
+    ///
+    /// # Returns
+    ///
+    /// A `ScaledScore` with the given raw value.
     #[inline(always)]
     pub const fn from_raw(raw_value: i32) -> Self {
+        debug_assert!(
+            raw_value == -Self::INF.0
+                || raw_value == Self::INF.0
+                || raw_value >= Self::MIN.0 && raw_value <= Self::MAX.0
+        );
         Self(raw_value)
     }
 
-    /// Returns the raw internal value.
+    /// Creates a `ScaledScore` from a disc difference.
+    ///
+    /// # Arguments
+    ///
+    /// * `disc_diff` - The disc difference to convert to a `ScaledScore`.
+    ///
+    /// # Returns
+    ///
+    /// A `ScaledScore` with the given disc difference.
+    #[inline(always)]
+    pub const fn from_disc_diff(disc_diff: Score) -> Self {
+        debug_assert!(
+            disc_diff == -SCORE_INF
+                || disc_diff == SCORE_INF
+                || disc_diff >= SCORE_MIN && disc_diff <= SCORE_MAX
+        );
+        Self(disc_diff << Self::SCALE_BITS)
+    }
+
+    /// Returns the raw internal value (scaled by 256).
+    ///
+    /// # Returns
+    ///
+    /// The raw internal value.
     #[inline(always)]
     pub const fn value(self) -> i32 {
         self.0
     }
 
-    /// Creates a ScaledScore from a disc difference score.
-    #[inline(always)]
-    pub const fn from_disc_diff(disc_diff: Score) -> Self {
-        Self(disc_diff << Self::SCALE_BITS)
-    }
-
-    /// Converts to a disc difference score (truncated).
+    /// Converts to a disc difference score (truncated toward zero).
+    ///
+    /// # Returns
+    ///
+    /// The disc difference score.
     #[inline(always)]
     pub const fn to_disc_diff(self) -> Score {
         self.0 >> Self::SCALE_BITS
     }
 
-    /// Converts to a floating-point score.
+    /// Converts to a floating-point disc difference with full precision.
+    ///
+    /// # Returns
+    ///
+    /// The disc difference score as a floating-point number.
     #[inline(always)]
     pub fn to_disc_diff_f32(self) -> Scoref {
         (self.0 as f32) / (Self::SCALE as f32)
-    }
-
-    /// Clamps the value to the given range.
-    #[inline(always)]
-    pub fn clamp(self, min: Self, max: Self) -> Self {
-        Self(self.0.clamp(min.0, max.0))
-    }
-
-    /// Returns the absolute value.
-    #[inline(always)]
-    pub const fn abs(self) -> Self {
-        Self(self.0.abs())
-    }
-
-    /// Returns the maximum of two values.
-    #[inline(always)]
-    pub fn max(self, other: Self) -> Self {
-        Self(self.0.max(other.0))
-    }
-
-    /// Returns the minimum of two values.
-    #[inline(always)]
-    pub fn min(self, other: Self) -> Self {
-        Self(self.0.min(other.0))
     }
 }
 
@@ -146,20 +173,6 @@ impl Sub<i32> for ScaledScore {
     #[inline(always)]
     fn sub(self, rhs: i32) -> Self {
         Self(self.0 - rhs)
-    }
-}
-
-impl AddAssign<i32> for ScaledScore {
-    #[inline(always)]
-    fn add_assign(&mut self, rhs: i32) {
-        self.0 += rhs;
-    }
-}
-
-impl SubAssign<i32> for ScaledScore {
-    #[inline(always)]
-    fn sub_assign(&mut self, rhs: i32) {
-        self.0 -= rhs;
     }
 }
 
@@ -267,29 +280,12 @@ mod scaled_score_tests {
     }
 
     #[test]
-    fn test_abs() {
-        assert_eq!(ScaledScore::from_disc_diff(10).abs().to_disc_diff(), 10);
-        assert_eq!(ScaledScore::from_disc_diff(-10).abs().to_disc_diff(), 10);
-    }
-
-    #[test]
     fn test_min_max() {
         let a = ScaledScore::from_disc_diff(10);
         let b = ScaledScore::from_disc_diff(5);
 
         assert_eq!(a.max(b), a);
         assert_eq!(a.min(b), b);
-    }
-
-    #[test]
-    fn test_clamp() {
-        let score = ScaledScore::from_disc_diff(100);
-        let clamped = score.clamp(ScaledScore::MIN, ScaledScore::MAX);
-        assert_eq!(clamped, ScaledScore::MAX);
-
-        let score = ScaledScore::from_disc_diff(-100);
-        let clamped = score.clamp(ScaledScore::MIN, ScaledScore::MAX);
-        assert_eq!(clamped, ScaledScore::MIN);
     }
 
     #[test]
@@ -305,5 +301,21 @@ mod scaled_score_tests {
     fn test_default() {
         let score: ScaledScore = Default::default();
         assert_eq!(score, ScaledScore::ZERO);
+    }
+
+    #[test]
+    fn test_boundary_values() {
+        // Test that boundary values work correctly
+        let max = ScaledScore::from_disc_diff(SCORE_MAX);
+        assert_eq!(max, ScaledScore::MAX);
+
+        let min = ScaledScore::from_disc_diff(SCORE_MIN);
+        assert_eq!(min, ScaledScore::MIN);
+
+        let inf = ScaledScore::from_disc_diff(SCORE_INF);
+        assert_eq!(inf, ScaledScore::INF);
+
+        let neg_inf = ScaledScore::from_disc_diff(-SCORE_INF);
+        assert_eq!(neg_inf, -ScaledScore::INF);
     }
 }

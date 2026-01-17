@@ -156,25 +156,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extreme_scores() {
-        let cache = EvalCache::new(10);
-        let key1 = 0x123456789ABCDEF0;
-        let key2 = 0xDEF0123456789ABC;
-
-        cache.store(key1, ScaledScore::from_raw(i16::MAX as i32));
-        cache.store(key2, ScaledScore::from_raw(i16::MIN as i32));
-
-        assert_eq!(
-            cache.probe(key1),
-            Some(ScaledScore::from_raw(i16::MAX as i32))
-        );
-        assert_eq!(
-            cache.probe(key2),
-            Some(ScaledScore::from_raw(i16::MIN as i32))
-        );
-    }
-
-    #[test]
     fn test_clear() {
         let cache = EvalCache::new(4);
         let key1 = 0x123456789ABCDEF0;

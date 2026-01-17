@@ -775,62 +775,6 @@ mod tests {
         assert_eq!(data.generation(), test_generation);
     }
 
-    /// Tests boundary values for packed fields.
-    #[test]
-    fn test_ttentry_boundary_values() {
-        let entry = TTEntry::default();
-
-        // Test maximum values for each field
-        let max_key: u64 = 0x3FFFFF; // 22 bits
-        let max_score = ScaledScore::from_raw(32767); // Max i16
-        let min_score = ScaledScore::from_raw(-32768); // Min i16
-        let max_depth: Depth = 63; // 6 bits
-        let max_best_move = sq(63); // 7 bits (0-63 squares)
-        let max_generation: u8 = 127; // 7 bits
-
-        // Test with maximum positive score
-        entry.save(
-            max_key,
-            max_score,
-            Bound::Lower,
-            max_depth,
-            max_best_move,
-            Selectivity::None,
-            max_generation,
-            false,
-        );
-
-        let data = entry.unpack();
-        assert_eq!(data.key(), (max_key & TTEntry::KEY_MASK) as u32);
-        assert_eq!(data.score(), max_score);
-        assert_eq!(data.bound(), Bound::Lower);
-        assert_eq!(data.depth(), max_depth);
-        assert_eq!(data.best_move(), max_best_move);
-        assert_eq!(data.selectivity(), Selectivity::None);
-        assert_eq!(data.generation(), max_generation);
-
-        // Test with minimum negative score
-        entry.save(
-            0,
-            min_score,
-            Bound::Upper,
-            0,
-            Square::None,
-            Selectivity::Level0,
-            0,
-            false,
-        );
-
-        let data = entry.unpack();
-        assert_eq!(data.key(), 0);
-        assert_eq!(data.score(), min_score);
-        assert_eq!(data.bound(), Bound::Upper);
-        assert_eq!(data.depth(), 0);
-        assert_eq!(data.best_move(), Square::None);
-        assert_eq!(data.selectivity(), Selectivity::Level0);
-        assert_eq!(data.generation(), 0);
-    }
-
     /// Tests the replacement policy in TTEntry::save.
     #[test]
     fn test_ttentry_replacement_policy() {
