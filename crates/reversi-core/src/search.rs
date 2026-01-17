@@ -560,7 +560,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         tt_probe_result.index(),
         tt_key,
         best_score,
-        Bound::determine_bound::<NT>(best_score.value(), org_alpha.value(), beta.value()),
+        Bound::classify::<NT>(best_score.value(), org_alpha.value(), beta.value()),
         depth,
         best_move,
         ctx.selectivity,

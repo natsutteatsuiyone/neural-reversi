@@ -27,9 +27,9 @@ pub enum EndGameCacheBound {
 }
 
 impl EndGameCacheBound {
-    /// Determines bound type based on score and beta.
+    /// Classifies the score into a bound type.
     #[inline(always)]
-    pub fn determine_bound(score: Score, beta: Score) -> Self {
+    pub fn classify(score: Score, beta: Score) -> Self {
         if score < beta {
             EndGameCacheBound::Upper
         } else {

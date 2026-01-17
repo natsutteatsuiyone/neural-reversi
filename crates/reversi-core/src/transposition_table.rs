@@ -15,35 +15,39 @@ use std::{
 const CLUSTER_SIZE: usize = 4;
 
 /// Bound type for transposition table entries.
-///
-/// Indicates the relationship between the stored score and the actual position value:
-/// - `None`: No valid entry
-/// - `Lower`: Score is a lower bound (fail-high)
-/// - `Upper`: Score is an upper bound (fail-low)
-/// - `Exact`: Score is the exact minimax value
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Bound {
+    /// No valid entry
     None = 0,
+    /// Score is a lower bound (fail-high)
     Lower = 1,
+    /// Score is an upper bound (fail-low)
     Upper = 2,
+    /// Score is the exact minimax value
     Exact = 3,
 }
 
 impl Bound {
-    /// Determines the appropriate bound type based on search results.
-    ///
-    /// # Arguments
-    ///
-    /// * `best_score` - The best score found during search
-    /// * `alpha` - The alpha cutoff value
-    /// * `beta` - The beta cutoff value
+    /// Classifies the search result into a bound type.
     ///
     /// # Type Parameters
     ///
-    /// * `NT` - Node type (PV or non-PV) that affects bound determination
+    /// * `NT` - Node type (PV or non-PV) that affects bound classification
+    ///
+    /// # Arguments
+    ///
+    /// * `best_score` - The best score found so far
+    /// * `alpha` - The alpha value
+    /// * `beta` - The beta value
+    ///
+    /// # Returns
+    ///
+    /// * `Bound::Lower` if `best_score >= beta`
+    /// * `Bound::Exact` if `NT::PV_NODE && best_score > alpha`
+    /// * `Bound::Upper` otherwise
     #[inline]
-    pub fn determine_bound<NT: NodeType>(best_score: i32, alpha: i32, beta: i32) -> Bound {
+    pub fn classify<NT: NodeType>(best_score: i32, alpha: i32, beta: i32) -> Bound {
         if best_score >= beta {
             return Bound::Lower;
         }
@@ -59,19 +63,17 @@ impl Bound {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the value is a valid `Bound` variant.
+    /// The caller must ensure that `value` is in the range 0..=3, corresponding
+    /// to `Bound::None`, `Bound::Lower`, `Bound::Upper`, or `Bound::Exact`.
+    /// Values outside this range result in undefined behavior.
     #[inline]
     pub unsafe fn from_u8_unchecked(value: u8) -> Bound {
+        debug_assert!(value <= 3, "Invalid Bound value: {}", value);
         unsafe { std::mem::transmute(value) }
     }
 }
 
 /// Result of a transposition table probe operation.
-///
-/// This enum provides a type-safe representation of probe results,
-/// distinguishing between cache hits and misses while avoiding
-/// unnecessary `TTEntryData` initialization on misses.
-#[derive(Debug)]
 pub enum TTProbeResult {
     /// Found an entry with a matching key.
     Hit {
@@ -174,6 +176,10 @@ impl TTEntryData {
     }
 
     /// Determines whether the entry provides a conclusive result for the given beta.
+    ///
+    /// Returns true if:
+    /// - Score >= beta AND bound is Lower or Exact (fail-high cutoff), OR
+    /// - Score < beta AND bound is Upper or Exact (fail-low proves score is low enough)
     #[inline(always)]
     pub fn can_cut(&self, beta: ScaledScore) -> bool {
         let score = self.score();
@@ -368,6 +374,10 @@ impl TTEntry {
         let stored_generation =
             ((raw_data >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
 
+        // Replace if ANY of these conditions hold:
+        // 1. New depth is within 2 plies of stored depth (allows slight depth regression)
+        // 2. New selectivity is higher (more conservative search is more valuable)
+        // 3. Different generation (prioritize current search's entries)
         let should_replace = (depth as i8) >= stored_depth.saturating_sub(2)
             || selectivity.as_u8() > stored_selectivity
             || generation != stored_generation;
@@ -503,6 +513,8 @@ impl TranspositionTable {
     fn probe_avx2(&self, key: u64, generation: u8) -> TTProbeResult {
         use std::arch::x86_64::*;
 
+        const _: () = assert!(mem::size_of::<TTEntry>() * CLUSTER_SIZE == 32);
+
         let key22 = (key & TTEntry::KEY_MASK) as u32;
         let base = self.get_cluster_idx(key);
         let ptr = unsafe { self.entries.as_ptr().add(base) } as *const __m256i;
@@ -528,7 +540,6 @@ impl TranspositionTable {
         if hits != 0 {
             let tz = hits.trailing_zeros();
             let lane_idx = (tz / 8) as usize;
-
             let entries_ptr = ptr as *const u64;
             let raw_data = unsafe { *entries_ptr.add(lane_idx) };
             let tt_data = TTEntryData { raw: raw_data };
@@ -565,7 +576,8 @@ impl TranspositionTable {
         }
     }
 
-    /// Fallback probe implementation.
+    /// Fallback probe implementation for non-AVX2 platforms.
+    #[inline]
     #[allow(dead_code)]
     fn probe_fallback(&self, key: u64, generation: u8) -> TTProbeResult {
         let key22 = (key & TTEntry::KEY_MASK) as u32;
@@ -590,8 +602,6 @@ impl TranspositionTable {
         }
 
         // find best replacement candidate
-        // Score formula: depth - (age * 8)
-        // Lower score = better replacement candidate
         let mut replace_idx = cluster_idx;
         let replace_data = unsafe { self.entries.get_unchecked(cluster_idx).unpack() };
         let mut replace_score =
@@ -624,7 +634,7 @@ impl TranspositionTable {
     /// * `best_move` - The best move found for the position
     /// * `selectivity` - The selectivity level used in search
     /// * `is_endgame` - Whether this entry is from endgame search
-    #[inline]
+    #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     pub fn store(
         &self,
@@ -637,6 +647,11 @@ impl TranspositionTable {
         selectivity: Selectivity,
         is_endgame: bool,
     ) {
+        debug_assert!(
+            entry_index < self.entries.len(),
+            "TT store index {} out of bounds",
+            entry_index
+        );
         let entry = unsafe { self.entries.get_unchecked(entry_index) };
         entry.save(
             key,
@@ -913,18 +928,18 @@ mod tests {
         assert_eq!(data.score().value(), 100);
     }
 
-    /// Tests Bound::determine_bound for different node types.
+    /// Tests Bound::classify for different node types.
     #[test]
-    fn test_bound_determine() {
+    fn test_bound_classify() {
         // Test PV node
-        assert_eq!(Bound::determine_bound::<PV>(100, 30, 50), Bound::Lower); // score >= beta
-        assert_eq!(Bound::determine_bound::<PV>(40, 30, 50), Bound::Exact); // alpha < score < beta in PV
-        assert_eq!(Bound::determine_bound::<PV>(20, 30, 50), Bound::Upper); // score <= alpha in PV
+        assert_eq!(Bound::classify::<PV>(100, 30, 50), Bound::Lower); // score >= beta
+        assert_eq!(Bound::classify::<PV>(40, 30, 50), Bound::Exact); // alpha < score < beta in PV
+        assert_eq!(Bound::classify::<PV>(20, 30, 50), Bound::Upper); // score <= alpha in PV
 
         // Test non-PV node
-        assert_eq!(Bound::determine_bound::<NonPV>(100, 30, 50), Bound::Lower); // score >= beta
-        assert_eq!(Bound::determine_bound::<NonPV>(40, 30, 50), Bound::Upper); // score < beta in non-PV
-        assert_eq!(Bound::determine_bound::<NonPV>(20, 30, 50), Bound::Upper); // score <= alpha in non-PV
+        assert_eq!(Bound::classify::<NonPV>(100, 30, 50), Bound::Lower); // score >= beta
+        assert_eq!(Bound::classify::<NonPV>(40, 30, 50), Bound::Upper); // score < beta in non-PV
+        assert_eq!(Bound::classify::<NonPV>(20, 30, 50), Bound::Upper); // score <= alpha in non-PV
     }
 
     /// Tests TTEntryData methods.

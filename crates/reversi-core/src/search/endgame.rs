@@ -507,7 +507,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         tt_probe_result.index(),
         tt_key,
         ScaledScore::from_disc_diff(best_score),
-        Bound::determine_bound::<NonPV>(best_score, alpha, beta),
+        Bound::classify::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,
         Selectivity::None,
@@ -541,7 +541,7 @@ fn probe_endgame_cache(key: u64) -> Option<EndGameCacheEntry> {
 /// * `best_move` - The best move found in this position.
 #[inline(always)]
 fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
-    let bound = EndGameCacheBound::determine_bound(score, beta);
+    let bound = EndGameCacheBound::classify(score, beta);
     unsafe {
         cache().store(key, score, bound, best_move);
     }
