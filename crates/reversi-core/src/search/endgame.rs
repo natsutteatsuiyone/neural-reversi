@@ -33,15 +33,6 @@ use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore, Score};
 
-/// Quadrant masks for move ordering in shallow search.
-#[rustfmt::skip]
-const QUADRANT_MASK: [u64; 16] = [
-    0x0000000000000000, 0x000000000F0F0F0F, 0x00000000F0F0F0F0, 0x00000000FFFFFFFF,
-    0x0F0F0F0F00000000, 0x0F0F0F0F0F0F0F0F, 0x0F0F0F0FF0F0F0F0, 0x0F0F0F0FFFFFFFFF,
-    0xF0F0F0F000000000, 0xF0F0F0F00F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0xF0F0F0F0FFFFFFFF,
-    0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
-];
-
 /// Selectivity sequence for endgame search.
 const SELECTIVITY_SEQUENCE: [Selectivity; 6] = [
     Selectivity::Level1,
@@ -740,6 +731,13 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     // Split moves into priority (matching parity) and remaining
+    #[rustfmt::skip]
+    const QUADRANT_MASK: [u64; 16] = [
+        0x0000000000000000, 0x000000000F0F0F0F, 0x00000000F0F0F0F0, 0x00000000FFFFFFFF,
+        0x0F0F0F0F00000000, 0x0F0F0F0F0F0F0F0F, 0x0F0F0F0FF0F0F0F0, 0x0F0F0F0FFFFFFFFF,
+        0xF0F0F0F000000000, 0xF0F0F0F00F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0xF0F0F0F0FFFFFFFF,
+        0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
+    ];
     let quadrant_mask = Bitboard(QUADRANT_MASK[ctx.empty_list.parity as usize]);
     let priority_moves = moves & quadrant_mask;
     let remaining_moves = moves & !quadrant_mask;
