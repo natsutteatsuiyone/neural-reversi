@@ -127,7 +127,7 @@ export function Board() {
           </div>
 
           {/* Board */}
-          <div className="flex-1 bg-board-surface p-1.5 rounded-xl shadow-xl">
+          <div className="flex-1 bg-board-surface p-3 rounded-lg shadow-xl">
             <div className="grid grid-cols-8 grid-rows-8 gap-0.5 h-full w-full">
               {board.map((row, rowIndex) =>
                 row.map((cell, colIndex) => (

@@ -64,18 +64,17 @@ export const BoardCell = memo(function BoardCell({
     !isAITurn() &&
     !(analyzeResults && analyzeResults.has(`${rowIndex},${colIndex}`));
 
-  const cellAriaLabel = `${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]} - ${
-    cell.color
+  const cellAriaLabel = `${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]} - ${cell.color
       ? `${cell.color} piece`
       : isValidMoveCell && !isAITurn()
         ? "valid move"
         : "empty"
-  }`;
+    }`;
 
   return (
     <motion.button
       className={cn(
-        "w-full pt-[100%] relative rounded-sm cell-shadow",
+        "w-full pt-[100%] relative cell-shadow",
         "bg-board-cell transition-colors duration-150",
         "hover:bg-board-cell-hover",
         "focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/30",
