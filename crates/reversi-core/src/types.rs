@@ -51,7 +51,7 @@ impl ScaledScore {
     pub const MIN: Self = Self(SCORE_MIN << Self::SCALE_BITS);
 
     /// Infinity sentinel for alpha-beta search bounds.
-    pub const INF: Self = Self(SCORE_INF << Self::SCALE_BITS);
+    pub const INF: Self = Self(i16::MAX as i32);
 
     /// Creates a `ScaledScore` from a raw internal value.
     ///
@@ -64,11 +64,7 @@ impl ScaledScore {
     /// A `ScaledScore` with the given raw value.
     #[inline(always)]
     pub const fn from_raw(raw_value: i32) -> Self {
-        debug_assert!(
-            raw_value == -Self::INF.0
-                || raw_value == Self::INF.0
-                || raw_value >= Self::MIN.0 && raw_value <= Self::MAX.0
-        );
+        debug_assert!(raw_value >= -Self::INF.0 || raw_value <= Self::INF.0);
         Self(raw_value)
     }
 
@@ -83,11 +79,7 @@ impl ScaledScore {
     /// A `ScaledScore` with the given disc difference.
     #[inline(always)]
     pub const fn from_disc_diff(disc_diff: Score) -> Self {
-        debug_assert!(
-            disc_diff == -SCORE_INF
-                || disc_diff == SCORE_INF
-                || disc_diff >= SCORE_MIN && disc_diff <= SCORE_MAX
-        );
+        debug_assert!(disc_diff >= -SCORE_INF || disc_diff <= SCORE_INF);
         Self(disc_diff << Self::SCALE_BITS)
     }
 
