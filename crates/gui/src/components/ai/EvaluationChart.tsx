@@ -11,6 +11,7 @@ import {
   type TooltipProps,
 } from "recharts";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { useTranslation } from "react-i18next";
 
 interface ChartDataItem {
   move: number;
@@ -21,6 +22,7 @@ interface ChartDataItem {
 }
 
 export function EvaluationChart() {
+  const { t } = useTranslation();
   const moves = useReversiStore((state) => state.moves);
   const gameMode = useReversiStore((state) => state.gameMode);
 
@@ -100,7 +102,7 @@ export function EvaluationChart() {
       const dataPoint = payload[0].payload;
       return (
         <div className="bg-popover text-popover-foreground px-3 py-2 rounded-lg shadow-lg border border-white/20 text-sm">
-          <p className="text-xs text-foreground-muted mb-1">Move {dataPoint.move}</p>
+          <p className="text-xs text-foreground-muted mb-1">{t('analysis.move')} {dataPoint.move}</p>
           {typeof dataPoint.score === "number" && (
             <p className="font-semibold text-foreground">
               {dataPoint.notation}: {dataPoint.scoreDisplay}

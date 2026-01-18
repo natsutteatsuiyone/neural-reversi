@@ -5,8 +5,10 @@ import { useReversiStore } from "@/stores/use-reversi-store";
 import { AIThinkingLog } from "./AIThinkingLog";
 import { EvaluationChart } from "./EvaluationChart";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useTranslation } from "react-i18next";
 
 export function AIAnalysisPanel() {
+  const { t } = useTranslation();
   const gameMode = useReversiStore((state) => state.gameMode);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const aiThinkingHistory = useReversiStore((state) => state.aiThinkingHistory);
@@ -36,15 +38,15 @@ export function AIAnalysisPanel() {
             "w-4 h-4",
             isAIThinking ? "text-accent-blue animate-pulse" : "text-foreground-muted"
           )} />
-          <span className="text-sm font-medium text-foreground">AI Analysis</span>
+          <span className="text-sm font-medium text-foreground">{t('analysis.title')}</span>
           {isAIThinking && (
             <span className="text-xs bg-accent-blue/20 text-accent-blue px-2 py-0.5 rounded-full">
-              Thinking...
+              {t('ai.thinking')}
             </span>
           )}
           {!isAIThinking && latestEntry && (
             <span className="text-xs text-primary font-mono font-semibold">
-              Best: {latestEntry.bestMove} ({latestEntry.score > 0 ? "+" : ""}{latestEntry.score}) {latestEntry.acc === 100 ? latestEntry.depth : `${latestEntry.depth}@${latestEntry.acc}%`}
+              {t('analysis.best')} {latestEntry.bestMove} ({latestEntry.score > 0 ? "+" : ""}{latestEntry.score}) {latestEntry.acc === 100 ? latestEntry.depth : `${latestEntry.depth}@${latestEntry.acc}%`}
             </span>
           )}
         </div>
@@ -68,19 +70,19 @@ export function AIAnalysisPanel() {
             <div className="p-4 pb-6">
               <Tabs defaultValue="log" className="h-[240px]">
                 <TabsList className="bg-white/10">
-                  <TabsTrigger 
-                    value="log" 
+                  <TabsTrigger
+                    value="log"
                     className="gap-1.5 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary"
                   >
                     <Activity className="w-3.5 h-3.5" />
-                    Thinking Log
+                    {t('analysis.thinkingLog')}
                   </TabsTrigger>
-                  <TabsTrigger 
-                    value="chart" 
+                  <TabsTrigger
+                    value="chart"
                     className="gap-1.5 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary"
                   >
                     <BarChart3 className="w-3.5 h-3.5" />
-                    Evaluation
+                    {t('analysis.evaluation')}
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="log" className="h-[200px] mt-2">

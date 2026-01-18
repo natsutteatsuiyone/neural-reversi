@@ -3,8 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { useTranslation } from "react-i18next";
 
 export function GameControls() {
+  const { t } = useTranslation();
   const isHintMode = useReversiStore((state) => state.isHintMode);
   const setHintMode = useReversiStore((state) => state.setHintMode);
   const gameStatus = useReversiStore((state) => state.gameStatus);
@@ -20,7 +22,7 @@ export function GameControls() {
         className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
       >
         <Play className="w-4 h-4" />
-        New Game
+        {t('game.newGame')}
       </Button>
 
       {isAIThinking && (
@@ -31,7 +33,7 @@ export function GameControls() {
           className="gap-2 text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10"
         >
           <StopCircle className="w-4 h-4" />
-          Stop
+          {t('game.stop')}
         </Button>
       )}
 
@@ -49,7 +51,7 @@ export function GameControls() {
           htmlFor="hint-mode"
           className="text-sm font-medium text-foreground-secondary cursor-pointer"
         >
-          Hint
+          {t('hint.hint')}
         </Label>
       </div>
     </div>

@@ -15,8 +15,10 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { AIMode, GameMode } from "@/types";
 import { Stone } from "@/components/board/Stone";
+import { useTranslation } from "react-i18next";
 
 export function NewGameModal() {
+  const { t } = useTranslation();
   const gameMode = useReversiStore((state) => state.gameMode);
   const aiLevel = useReversiStore((state) => state.aiLevel);
   const aiMode = useReversiStore((state) => state.aiMode);
@@ -68,35 +70,37 @@ export function NewGameModal() {
 
   return (
     <Dialog open={isNewGameModalOpen} onOpenChange={setNewGameModalOpen}>
-      <DialogContent 
-        className="sm:max-w-md bg-card border-white/10" 
+      <DialogContent
+        className="sm:max-w-md bg-card border-white/10"
         showCloseButton={false}
       >
         <DialogHeader>
-          <DialogTitle className="text-xl text-foreground">New Game</DialogTitle>
+          <DialogTitle className="text-xl text-foreground">{t('game.newGame')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
           {/* Game Mode Selection */}
           <div className="space-y-3">
-            <Label className="text-sm font-medium text-foreground-secondary">You play</Label>
+            <Label className="text-sm font-medium text-foreground-secondary">{t('game.youPlay')}</Label>
             <div className="grid grid-cols-2 gap-3">
               <GameModeOption
                 selected={localGameMode === "ai-white"}
                 onClick={() => setLocalGameMode("ai-white")}
                 playerColor="black"
+                label={t('colors.black')}
               />
               <GameModeOption
                 selected={localGameMode === "ai-black"}
                 onClick={() => setLocalGameMode("ai-black")}
                 playerColor="white"
+                label={t('colors.white')}
               />
             </div>
           </div>
 
           {/* AI Mode Tabs */}
           <div className="space-y-3">
-            <Label className="text-sm font-medium text-foreground-secondary">AI Mode</Label>
+            <Label className="text-sm font-medium text-foreground-secondary">{t('ai.mode')}</Label>
             <Tabs
               value={localAIMode}
               onValueChange={(v) => setLocalAIMode(v as AIMode)}
@@ -104,11 +108,11 @@ export function NewGameModal() {
               <TabsList className="w-full bg-white/10">
                 <TabsTrigger value="game-time" className="flex-1 gap-2 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary">
                   <Timer className="w-4 h-4" />
-                  Timed
+                  {t('ai.timed')}
                 </TabsTrigger>
                 <TabsTrigger value="level" className="flex-1 gap-2 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary">
                   <Zap className="w-4 h-4" />
-                  Level
+                  {t('ai.level')}
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -118,7 +122,7 @@ export function NewGameModal() {
           {localAIMode === "level" ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-foreground-secondary">AI Level</Label>
+                <Label className="text-sm font-medium text-foreground-secondary">{t('ai.level')}</Label>
                 <span className="text-sm font-mono font-semibold text-primary">
                   {localAILevel}
                 </span>
@@ -131,14 +135,14 @@ export function NewGameModal() {
                 onValueChange={([value]) => setLocalAILevel(value)}
               />
               <div className="flex justify-between text-xs text-foreground-muted">
-                <span>Easy</span>
-                <span>Hard</span>
+                <span>{t('ai.easy')}</span>
+                <span>{t('ai.hard')}</span>
               </div>
             </div>
           ) : (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-foreground-secondary">Time per game</Label>
+                <Label className="text-sm font-medium text-foreground-secondary">{t('ai.timePerGame')}</Label>
                 <span className="text-sm font-mono font-semibold text-primary">
                   {formatTime(localGameTimeLimit)}
                 </span>
@@ -164,14 +168,14 @@ export function NewGameModal() {
             onClick={() => setNewGameModalOpen(false)}
             className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
           >
-            Cancel
+            {t('game.cancel')}
           </Button>
-          <Button 
-            onClick={() => void handleStartGame()} 
+          <Button
+            onClick={() => void handleStartGame()}
             className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
           >
             <Play className="w-4 h-4" />
-            Start Game
+            {t('game.startGame')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -183,13 +187,13 @@ function GameModeOption({
   selected,
   onClick,
   playerColor,
+  label,
 }: {
   selected: boolean;
   onClick: () => void;
   playerColor: "black" | "white";
+  label: string;
 }) {
-  const label = playerColor === "black" ? "Black" : "White";
-
   return (
     <button
       type="button"

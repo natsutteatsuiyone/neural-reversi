@@ -1,6 +1,7 @@
 import { useRef, useLayoutEffect } from "react";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 function formatScore(score: number): string {
   return score > 0 ? `+${score}` : String(score);
@@ -26,6 +27,7 @@ function formatNodes(nodes: number): string {
 }
 
 export function AIThinkingLog() {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const aiThinkingHistory = useReversiStore((state) => state.aiThinkingHistory);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
@@ -50,15 +52,15 @@ export function AIThinkingLog() {
       {hasData && (
         <div className="flex gap-4 px-3 py-2 text-xs border-b border-white/10 bg-white/5 shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground-muted">Best:</span>
+            <span className="text-foreground-muted">{t('analysis.best')}</span>
             <span className="font-mono font-semibold text-foreground">{latestEntry.bestMove}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground-muted">Nodes:</span>
+            <span className="text-foreground-muted">{t('analysis.nodes')}</span>
             <span className="font-mono text-foreground">{formatNodes(latestEntry.nodes)}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground-muted">NPS:</span>
+            <span className="text-foreground-muted">{t('analysis.nps')}</span>
             <span className="font-mono text-foreground">{formatNps(latestEntry.nps)}</span>
           </div>
         </div>
@@ -69,9 +71,9 @@ export function AIThinkingLog() {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background-secondary border-b border-white/10">
             <tr>
-              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">Depth</th>
-              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">Score</th>
-              <th className="text-left px-3 py-2 font-medium text-foreground-muted">PV Line</th>
+              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">{t('analysis.depth')}</th>
+              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">{t('analysis.score')}</th>
+              <th className="text-left px-3 py-2 font-medium text-foreground-muted">{t('analysis.pvLine')}</th>
             </tr>
           </thead>
           <tbody>
@@ -101,7 +103,7 @@ export function AIThinkingLog() {
             ) : (
               <tr>
                 <td colSpan={3} className="text-center py-8 text-foreground-muted">
-                  {isAIThinking ? "Thinking..." : "Waiting for AI turn"}
+                  {isAIThinking ? t('ai.thinking') : t('analysis.waitingForAI')}
                 </td>
               </tr>
             )}

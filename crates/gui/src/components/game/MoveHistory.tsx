@@ -4,8 +4,10 @@ import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Stone } from "@/components/board/Stone";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 
 export function MoveHistory() {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const moves = useReversiStore((state) => state.moves);
   const allMoves = useReversiStore((state) => state.allMoves);
@@ -31,14 +33,14 @@ export function MoveHistory() {
   return (
     <div className="h-full flex flex-col">
       <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">Move History</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t('history.title')}</h3>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={undoMove}
             disabled={!canUndo}
-            aria-label="Undo"
+            aria-label={t('history.undo')}
             className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
           >
             <RotateCcw className="w-4 h-4" />
@@ -48,7 +50,7 @@ export function MoveHistory() {
             size="icon-sm"
             onClick={redoMove}
             disabled={!canRedo}
-            aria-label="Redo"
+            aria-label={t('history.redo')}
             className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
           >
             <RotateCw className="w-4 h-4" />
@@ -62,7 +64,7 @@ export function MoveHistory() {
       >
         {moves.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-foreground-muted">No moves yet</p>
+            <p className="text-sm text-foreground-muted">{t('history.noMoves')}</p>
           </div>
         ) : (
           <div className="space-y-0.5">

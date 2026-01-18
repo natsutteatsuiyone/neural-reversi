@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { Bot, Loader2, User, Clock, StopCircle } from "lucide-react";
 import { Stone } from "@/components/board/Stone";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 
 interface PlayerCardProps {
   color: "black" | "white";
@@ -33,6 +34,7 @@ export function PlayerCard({
   aiRemainingTime,
   onStop,
 }: PlayerCardProps) {
+  const { t } = useTranslation();
   const showTimer = isAIControlled && aiMode === "game-time";
 
   return (
@@ -60,14 +62,14 @@ export function PlayerCard({
             <>
               <Bot className="w-4 h-4 text-accent-blue" />
               <span className="text-sm font-medium text-foreground-secondary">
-                AI {aiMode === "level" && `Lv.${aiLevel}`}
+                {t('player.ai')} {aiMode === "level" && `${t('player.level')}${aiLevel}`}
               </span>
             </>
           ) : (
             <>
               <User className="w-4 h-4 text-foreground-secondary" />
               <span className="text-sm font-medium text-foreground-secondary">
-                Player
+                {t('player.you')}
               </span>
             </>
           )}
@@ -94,7 +96,7 @@ export function PlayerCard({
         <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/10">
           <div className="flex items-center gap-1.5 text-cyan-400">
             <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm font-medium">Thinking...</span>
+            <span className="text-sm font-medium">{t('ai.thinking')}</span>
           </div>
           {onStop && (
             <Button
@@ -104,7 +106,7 @@ export function PlayerCard({
               className="gap-1.5 h-7 px-2.5 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
             >
               <StopCircle className="w-3.5 h-3.5" />
-              Stop
+              {t('game.stop')}
             </Button>
           )}
         </div>

@@ -1,0 +1,57 @@
+{
+  "game": {
+    "newGame": "新規ゲーム",
+    "startGame": "開始",
+    "cancel": "キャンセル",
+    "stop": "中止",
+    "youPlay": "あなたの色",
+    "pass": "パス"
+  },
+  "colors": {
+    "black": "黒",
+    "white": "白"
+  },
+  "player": {
+    "ai": "AI",
+    "you": "あなた",
+    "level": "Lv."
+  },
+  "ai": {
+    "mode": "AIモード",
+    "level": "AIレベル",
+    "timed": "持ち時間",
+    "timePerGame": "持ち時間",
+    "easy": "易しい",
+    "hard": "難しい",
+    "thinking": "思考中..."
+  },
+  "hint": {
+    "hint": "ヒント",
+    "hintLevel": "ヒントレベル"
+  },
+  "history": {
+    "title": "棋譜",
+    "undo": "戻る",
+    "redo": "進む",
+    "noMoves": "まだ着手がありません"
+  },
+  "analysis": {
+    "title": "AI分析",
+    "thinkingLog": "思考ログ",
+    "evaluation": "評価値",
+    "best": "最善:",
+    "nodes": "ノード:",
+    "nps": "NPS:",
+    "depth": "深さ",
+    "score": "評価",
+    "pvLine": "読み筋",
+    "waitingForAI": "AIの手番を待っています",
+    "move": "手"
+  },
+  "settings": {
+    "language": "言語",
+    "auto": "自動",
+    "english": "English",
+    "japanese": "日本語"
+  }
+}

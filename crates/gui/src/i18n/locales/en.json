@@ -1,0 +1,57 @@
+{
+  "game": {
+    "newGame": "New Game",
+    "startGame": "Start Game",
+    "cancel": "Cancel",
+    "stop": "Stop",
+    "youPlay": "You play",
+    "pass": "Pass"
+  },
+  "colors": {
+    "black": "Black",
+    "white": "White"
+  },
+  "player": {
+    "ai": "AI",
+    "you": "You",
+    "level": "Lv."
+  },
+  "ai": {
+    "mode": "AI Mode",
+    "level": "AI Level",
+    "timed": "Timed",
+    "timePerGame": "Time per game",
+    "easy": "Easy",
+    "hard": "Hard",
+    "thinking": "Thinking..."
+  },
+  "hint": {
+    "hint": "Hint",
+    "hintLevel": "Hint Level"
+  },
+  "history": {
+    "title": "Move History",
+    "undo": "Undo",
+    "redo": "Redo",
+    "noMoves": "No moves yet"
+  },
+  "analysis": {
+    "title": "AI Analysis",
+    "thinkingLog": "Thinking Log",
+    "evaluation": "Evaluation",
+    "best": "Best:",
+    "nodes": "Nodes:",
+    "nps": "NPS:",
+    "depth": "Depth",
+    "score": "Score",
+    "pvLine": "PV Line",
+    "waitingForAI": "Waiting for AI turn",
+    "move": "Move"
+  },
+  "settings": {
+    "language": "Language",
+    "auto": "Auto",
+    "english": "English",
+    "japanese": "日本語"
+  }
+}
