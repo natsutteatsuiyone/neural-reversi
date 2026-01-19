@@ -5,15 +5,13 @@
 //! the training data and outputs compressed feature files.
 
 use std::{
-    collections::HashSet,
     fs::{self, File},
-    io::{self},
+    io::{self, BufWriter, Write},
     path::Path,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
-use byteorder::{LittleEndian, WriteBytesExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rayon::prelude::*;
 
@@ -47,10 +45,8 @@ struct GameRecord {
 /// * `input_dir` - Directory containing binary game record files
 /// * `output_dir` - Directory where compressed feature files will be written
 /// * `threads` - Number of parallel threads to use for processing
-/// * `score_correction` - Whether to apply endgame score correction
 /// * `ply_min` - Minimum ply value to include (0-59)
 /// * `ply_max` - Maximum ply value to include (0-59)
-/// * `dedup` - Whether to remove duplicate boards within each output file
 ///
 /// # Returns
 ///
@@ -59,10 +55,8 @@ pub fn execute(
     input_dir: &str,
     output_dir: &str,
     threads: usize,
-    score_correction: bool,
     ply_min: u8,
     ply_max: u8,
-    dedup: bool,
 ) -> io::Result<()> {
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
@@ -153,15 +147,7 @@ pub fn execute(
 
             let start = std::time::Instant::now();
 
-            if let Err(e) = process_file(
-                file_idx,
-                entry_path,
-                output_dir,
-                score_correction,
-                ply_min,
-                ply_max,
-                dedup,
-            ) {
+            if let Err(e) = process_file(file_idx, entry_path, output_dir, ply_min, ply_max) {
                 eprintln!("Failed to process file {file_idx}: {e}");
                 thread_pb.set_message(format!("Error: {file_name}"));
             } else {
@@ -197,39 +183,39 @@ pub fn execute(
 /// This function reads a game file, extracts positions with their 8 symmetrical variations,
 /// and writes each symmetry pattern to a separate compressed feature file.
 /// Each symmetry pattern gets its own output file for better parallel processing.
-///
+const ZSTD_COMPRESSION_LEVEL: i32 = 1;
+
 /// # Arguments
 ///
 /// * `file_idx` - Index of this file (used for output filename)
 /// * `entry_path` - Path to the game file to process
 /// * `output_dir` - Directory where the feature files will be written
-/// * `score_correction` - Whether to apply endgame score correction
 /// * `ply_min` - Minimum ply value to include (0-59)
 /// * `ply_max` - Maximum ply value to include (0-59)
-/// * `dedup` - Whether to remove duplicate boards within each output file
 fn process_file(
     file_idx: usize,
     entry_path: &Path,
     output_dir: &Path,
-    score_correction: bool,
     ply_min: u8,
     ply_max: u8,
-    dedup: bool,
 ) -> io::Result<()> {
     let input_path_str = entry_path
         .to_str()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Path is not valid UTF-8"))?;
 
-    let game_records = load_game_records(input_path_str, score_correction, ply_min, ply_max)
-        .map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("Failed to load game records from {input_path_str}: {e}"),
-            )
-        })?;
+    let game_records = load_game_records(input_path_str, ply_min, ply_max).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to load game records from {input_path_str}: {e}"),
+        )
+    })?;
+
+    if game_records.is_empty() {
+        return Ok(());
+    }
 
     // Create 8 separate data vectors for each symmetry pattern
-    let mut symmetry_data = vec![Vec::new(); 8];
+    let mut symmetry_data: [Vec<u8>; 8] = Default::default();
     let symmetry_names = [
         "base",
         "rot90",
@@ -241,18 +227,20 @@ fn process_file(
         "flip_diag_a8h1",
     ];
 
-    // Create HashSets to track seen boards for each symmetry if dedup is enabled
-    let mut seen_boards: Vec<HashSet<(u64, u64)>> = if dedup {
-        vec![HashSet::new(); 8]
-    } else {
-        vec![]
-    };
+    // Pre-allocate buffers based on expected size
+    let estimated_size = game_records.len() * RECORD_SIZE;
+    for data in &mut symmetry_data {
+        data.reserve(estimated_size);
+    }
 
     // Process each game record and generate all 8 symmetries
     for record in game_records {
         let base_board = Board::from_bitboards(record.player, record.opponent);
         let score = record.score;
         let ply = record.ply;
+
+        // Mobility is invariant under symmetry transformations, compute once
+        let mobility = base_board.get_moves().count() as u8;
 
         // Generate all 8 symmetrical boards
         let symmetrical_boards = [
@@ -268,16 +256,6 @@ fn process_file(
 
         // Process each symmetry and add to corresponding data vector
         for (i, board) in symmetrical_boards.iter().enumerate() {
-            // Check for duplicates if dedup is enabled
-            if dedup {
-                let board_key = (board.player.0, board.opponent.0);
-                if !seen_boards[i].insert(board_key) {
-                    // This board has already been seen, skip it
-                    continue;
-                }
-            }
-
-            let mobility = board.get_moves().count() as u8;
             let mut features = [0; pattern_feature::NUM_PATTERN_FEATURES];
             pattern_feature::set_features(board, &mut features);
 
@@ -285,16 +263,16 @@ fn process_file(
         }
     }
 
-    // Write each symmetry pattern to a separate file
+    // Write each symmetry pattern to a separate compressed file
     for (i, data) in symmetry_data.into_iter().enumerate() {
         if !data.is_empty() {
             let file_path =
                 output_dir.join(format!("features_{}_{}.zst", file_idx, symmetry_names[i]));
             let file = File::create(file_path)?;
 
-            // Compress and write data
-            let compressed = zstd::bulk::compress(&data, 1)?;
-            std::io::Write::write_all(&mut std::io::BufWriter::new(file), &compressed)?;
+            // Bulk compress and write data
+            let compressed = zstd::bulk::compress(&data, ZSTD_COMPRESSION_LEVEL)?;
+            BufWriter::new(file).write_all(&compressed)?;
         }
     }
 
@@ -315,19 +293,13 @@ fn process_file(
 /// # Arguments
 ///
 /// * `file_path` - Path to the binary game file
-/// * `score_correction` - Whether to blend evaluation scores with game outcomes
 /// * `ply_min` - Minimum ply value to include (0-59)
 /// * `ply_max` - Maximum ply value to include (0-59)
 ///
 /// # Returns
 ///
 /// Returns a vector of `GameRecord` structs on success.
-fn load_game_records(
-    file_path: &str,
-    score_correction: bool,
-    ply_min: u8,
-    ply_max: u8,
-) -> io::Result<Vec<GameRecord>> {
+fn load_game_records(file_path: &str, ply_min: u8, ply_max: u8) -> io::Result<Vec<GameRecord>> {
     let metadata = fs::metadata(file_path)?;
     let file_size = metadata.len() as usize;
     let entry_size = 24;
@@ -353,8 +325,8 @@ fn load_game_records(
 
         if ply <= 1 {
             score = 0.0;
-        } else if !is_random && score_correction {
-            score = ((ply as f32 * game_score as f32) + (59.0 - ply as f32) * score) / 59.0;
+        } else if !is_random {
+            score = game_score as f32;
         }
 
         debug_assert!(
@@ -385,7 +357,11 @@ fn load_game_records(
     Ok(records)
 }
 
-/// Writes a single feature record to the compressed output file.
+/// Size of a single feature record in bytes.
+/// 4 (f32 score) + NUM_PATTERN_FEATURES * 2 (u16 features) + 1 (mobility) + 1 (ply)
+const RECORD_SIZE: usize = 4 + pattern_feature::NUM_PATTERN_FEATURES * 2 + 2;
+
+/// Writes a single feature record to the output writer.
 ///
 /// The output format for each record is:
 /// - 4 bytes: Evaluation score (f32, little-endian)
@@ -395,23 +371,34 @@ fn load_game_records(
 ///
 /// # Arguments
 ///
-/// * `data` - Vector to write binary data to
+/// * `writer` - Writer to output binary data
 /// * `score` - Evaluation score for this position
 /// * `features` - Array of pattern feature indices
 /// * `mobility` - Number of legal moves in this position
 /// * `ply` - Move number in the game
-fn write_feature_record(
-    data: &mut Vec<u8>,
+#[inline]
+fn write_feature_record<W: Write>(
+    writer: &mut W,
     score: f32,
     features: &[u16],
     mobility: u8,
     ply: u8,
 ) -> io::Result<()> {
-    data.write_f32::<LittleEndian>(score)?;
-    for &feature in features {
-        data.write_u16::<LittleEndian>(feature)?;
+    let mut buf = [0u8; RECORD_SIZE];
+
+    // Write score (f32)
+    buf[0..4].copy_from_slice(&score.to_le_bytes());
+
+    // Write features (u16 array)
+    for (i, &feature) in features.iter().enumerate() {
+        let offset = 4 + i * 2;
+        buf[offset..offset + 2].copy_from_slice(&feature.to_le_bytes());
     }
-    data.write_u8(mobility)?;
-    data.write_u8(ply)?;
-    Ok(())
+
+    // Write mobility and ply
+    let features_end = 4 + features.len() * 2;
+    buf[features_end] = mobility;
+    buf[features_end + 1] = ply;
+
+    writer.write_all(&buf)
 }
