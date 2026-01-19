@@ -303,6 +303,5 @@ mod scaled_score_tests {
 
         let min = ScaledScore::from_disc_diff(SCORE_MIN);
         assert_eq!(min, ScaledScore::MIN);
-
     }
 }
