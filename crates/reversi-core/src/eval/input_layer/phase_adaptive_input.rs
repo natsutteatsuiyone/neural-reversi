@@ -19,6 +19,9 @@ use super::accumulate_avx512;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use super::accumulate_avx2;
 
+const NUM_PA_INPUTS: usize = 6;
+const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
+
 #[allow(unused_macros)]
 macro_rules! impl_phase_input_apply_activation {
     (
@@ -77,13 +80,13 @@ macro_rules! impl_phase_input_apply_activation {
 /// * `INPUT_DIMS` - Number of input features (sparse).
 /// * `OUTPUT_DIMS` - Number of output dimensions (dense).
 #[derive(Debug)]
-pub struct PhaseAdaptiveInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
+pub struct PhaseAdaptiveInputLayer<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
 impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
-    PhaseAdaptiveInput<INPUT_DIMS, OUTPUT_DIMS>
+    PhaseAdaptiveInputLayer<INPUT_DIMS, OUTPUT_DIMS>
 {
     /// Loads network weights and biases from a binary reader.
     ///
@@ -105,7 +108,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
             permute_rows(weights.as_mut_slice(), OUTPUT_DIMS);
         }
 
-        Ok(PhaseAdaptiveInput { biases, weights })
+        Ok(PhaseAdaptiveInputLayer { biases, weights })
     }
 
     /// Performs forward pass through the phase-adaptive input layer.
@@ -193,5 +196,52 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_scalar::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
         apply_phase_activation_scalar::<OUTPUT_DIMS>(&acc, output);
+    }
+}
+
+/// A set of phase-adaptive input layers for different game phases.
+///
+/// This struct encapsulates the phase selection logic, choosing the appropriate
+/// input layer based on the current ply.
+///
+/// # Type Parameters
+///
+/// * `INPUT_DIMS` - Number of input features (sparse).
+/// * `OUTPUT_DIMS` - Number of output dimensions (dense).
+#[derive(Debug)]
+pub struct PhaseAdaptiveInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
+    inputs: Vec<PhaseAdaptiveInputLayer<INPUT_DIMS, OUTPUT_DIMS>>,
+}
+
+impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
+    PhaseAdaptiveInput<INPUT_DIMS, OUTPUT_DIMS>
+{
+    /// Loads all phase-adaptive input layers from a binary reader.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - Binary data reader containing network parameters.
+    pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let inputs = (0..NUM_PA_INPUTS)
+            .map(|_| PhaseAdaptiveInputLayer::<INPUT_DIMS, OUTPUT_DIMS>::load(reader))
+            .collect::<io::Result<Vec<_>>>()?;
+        Ok(PhaseAdaptiveInput { inputs })
+    }
+
+    /// Performs forward pass through the appropriate phase-adaptive input layer.
+    ///
+    /// Selects the input layer based on the current ply and performs the forward pass.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern_feature` - Sparse feature values encoded by pattern index.
+    /// * `ply` - Current game ply (must be < 60).
+    /// * `output` - Output buffer to write results.
+    #[inline(always)]
+    pub fn forward(&self, pattern_feature: &PatternFeature, ply: usize, output: &mut [u8]) {
+        debug_assert!(ply < 60, "ply {} out of valid range 0-59", ply);
+        let pa_index = ply / PA_INPUT_BUCKET_SIZE;
+        let pa_input = &self.inputs[pa_index];
+        pa_input.forward(pattern_feature, output);
     }
 }

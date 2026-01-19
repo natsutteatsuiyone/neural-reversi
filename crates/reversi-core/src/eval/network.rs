@@ -39,8 +39,6 @@ const LO_PADDED_INPUT_DIMS: usize = ceil_to_multiple(LO_INPUT_DIMS, 32);
 const MOBILITY_SCALE: u8 = 7;
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 6;
 const NUM_LAYER_STACKS: usize = 60;
-const NUM_PA_INPUTS: usize = 6;
-const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
 
 /// Layer stack for a specific game ply.
 struct LayerStack {
@@ -96,7 +94,7 @@ thread_local! {
 /// Main neural network structure for position evaluation.
 pub struct Network {
     base_input: BaseInput<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>,
-    pa_inputs: Vec<PhaseAdaptiveInput<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>>,
+    pa_input: PhaseAdaptiveInput<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>,
     layer_stacks: Vec<LayerStack>,
 }
 
@@ -122,12 +120,8 @@ impl Network {
                 &mut decoder,
             )?;
 
-        let mut pa_inputs = Vec::with_capacity(NUM_PA_INPUTS);
-        for _ in 0..NUM_PA_INPUTS {
-            let pa_input =
-                PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
-            pa_inputs.push(pa_input);
-        }
+        let pa_input =
+            PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
 
         let mut layer_stacks = Vec::with_capacity(NUM_LAYER_STACKS);
         for _ in 0..NUM_LAYER_STACKS {
@@ -145,7 +139,7 @@ impl Network {
 
         Ok(Network {
             base_input,
-            pa_inputs,
+            pa_input,
             layer_stacks,
         })
     }
@@ -180,8 +174,11 @@ impl Network {
         mobility: u8,
         ply: usize,
     ) -> ScaledScore {
-        self.forward_input_base(buffers, pattern_feature);
-        self.forward_input_pa(buffers, pattern_feature, ply);
+        self.base_input
+            .forward(pattern_feature, &mut buffers.base_out[..BASE_OUTPUT_DIMS]);
+        self.pa_input
+            .forward(pattern_feature, ply, &mut buffers.pa_out[..PA_OUTPUT_DIMS]);
+
         let mobility_scaled = mobility.saturating_mul(MOBILITY_SCALE);
         buffers.base_out[L1_BASE_INPUT_DIMS - 1] = mobility_scaled;
         buffers.pa_out[L1_PA_INPUT_DIMS - 1] = mobility_scaled;
@@ -190,26 +187,6 @@ impl Network {
         self.forward_l1(ls, buffers);
         self.forward_l2(ls, buffers);
         self.forward_output(ls, buffers)
-    }
-
-    #[inline(always)]
-    fn forward_input_base(&self, buffers: &mut NetworkBuffers, pattern_feature: &PatternFeature) {
-        let output = &mut buffers.base_out[0..BASE_OUTPUT_DIMS];
-        self.base_input.forward(pattern_feature, output);
-    }
-
-    #[inline(always)]
-    fn forward_input_pa(
-        &self,
-        buffers: &mut NetworkBuffers,
-        pattern_feature: &PatternFeature,
-        ply: usize,
-    ) {
-        let output = &mut buffers.pa_out[0..PA_OUTPUT_DIMS];
-
-        let pa_index = ply / PA_INPUT_BUCKET_SIZE;
-        let pa_input = &self.pa_inputs[pa_index];
-        pa_input.forward(pattern_feature, output);
     }
 
     #[inline(always)]
