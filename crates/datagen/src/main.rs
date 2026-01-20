@@ -70,6 +70,9 @@ enum SubCommands {
 
         #[arg(short, long)]
         output: String,
+
+        #[arg(long, default_value = "false")]
+        endgame: bool,
     },
     Shuffle {
         #[arg(short, long)]
@@ -140,8 +143,17 @@ fn main() {
         SubCommands::Opening { depth } => {
             opening::generate(depth);
         }
-        SubCommands::Probcut { input, output } => {
-            probcut::execute(&input, &output).expect("Failed to execute probcut");
+        SubCommands::Probcut {
+            input,
+            output,
+            endgame,
+        } => {
+            if endgame {
+                probcut::execute_endgame(&input, &output)
+                    .expect("Failed to execute probcut endgame");
+            } else {
+                probcut::execute(&input, &output).expect("Failed to execute probcut");
+            }
         }
         SubCommands::Shuffle {
             input_dir,

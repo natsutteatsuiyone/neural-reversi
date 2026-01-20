@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use crate::board::Board;
 use crate::constants::MAX_THREADS;
-use crate::eval::Eval;
+use crate::eval::{Eval, EvalMode};
 use crate::level::Level;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 
@@ -55,6 +55,7 @@ pub struct SearchTask {
     pub multi_pv: bool,
     pub callback: Option<Arc<SearchProgressCallback>>,
     pub time_manager: Option<Arc<TimeManager>>,
+    pub eval_mode: Option<EvalMode>,
 }
 
 /// Progress information during search.
@@ -140,6 +141,7 @@ impl Search {
             options.multi_pv,
             callback.clone(),
             time_manager,
+            options.eval_mode,
         );
 
         // Fallback to quick_move if score is invalid
@@ -177,6 +179,7 @@ impl Search {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execute_search(
         &mut self,
         board: &Board,
@@ -185,6 +188,7 @@ impl Search {
         multi_pv: bool,
         callback: Option<Arc<SearchProgressCallback>>,
         time_manager: Option<Arc<TimeManager>>,
+        eval_mode: Option<EvalMode>,
     ) -> SearchResult {
         self.tt.increment_generation();
 
@@ -201,6 +205,7 @@ impl Search {
             multi_pv,
             callback,
             time_manager,
+            eval_mode,
         };
 
         // Start timer thread if we have a deadline

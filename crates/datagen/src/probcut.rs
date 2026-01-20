@@ -18,6 +18,7 @@ use std::{
 use reversi_core::{
     board::Board,
     disc::Disc,
+    eval::EvalMode,
     level::get_level,
     probcut::Selectivity,
     search::{Search, SearchRunOptions, options::SearchOptions},
@@ -39,6 +40,9 @@ const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
 /// Search selectivity level
 const SELECTIVITY: Selectivity = Selectivity::None;
+
+/// Starting ply for endgame ProbCut analysis
+const ENDGAME_START_PLY: u32 = 30;
 
 /// Command line arguments for ProbCut training data generation.
 #[derive(Parser)]
@@ -69,6 +73,9 @@ struct ProbCutSample {
     deep_depth: Depth,
     /// Score from deep search
     deep_score: Scoref,
+    /// Side to move
+    #[allow(dead_code)]
+    side_to_move: Disc,
 }
 
 /// Generates ProbCut training data.
@@ -174,6 +181,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                             shallow_score: *shallow_score,
                             deep_depth: *deep_depth,
                             deep_score: *deep_score,
+                            side_to_move,
                         }),
                 );
             }
@@ -201,5 +209,143 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
     }
 
     println!("ProbCut training data generation completed successfully");
+    Ok(())
+}
+
+/// Generates endgame ProbCut training data.
+///
+/// Reads game sequences from the input file, analyzes each position with multiple
+/// search depths, and outputs training data as CSV. Only positions with ply >= 30
+/// are processed. The deep score is the final game score (disc difference).
+///
+/// # Arguments
+///
+/// * `input` - Path to input file containing game sequences (one per line)
+/// * `output` - Path to output CSV file for training data
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an error if file operations fail.
+pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
+    let options = SearchOptions {
+        tt_mb_size: TT_SIZE_MB,
+        ..Default::default()
+    };
+    let mut search = Search::new(&options);
+
+    let input_file = File::open(input).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to open input file '{input}': {e}"),
+        )
+    })?;
+    let reader = BufReader::new(input_file);
+
+    let output_file = File::create(output).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to create output file '{output}': {e}"),
+        )
+    })?;
+    let mut writer = BufWriter::new(output_file);
+    writer.write_all(b"ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n")?;
+
+    for (line_no, line_result) in reader.lines().enumerate() {
+        let line = line_result.map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("Failed to read line {}: {}", line_no + 1, e),
+            )
+        })?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let mut samples = Vec::new();
+        let mut board = Board::new();
+        let mut side_to_move = Disc::Black;
+
+        for token in line.as_bytes().chunks_exact(2) {
+            let move_str = std::str::from_utf8(token).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid UTF-8 in move token: {e}"),
+                )
+            })?;
+            let sq = move_str.parse::<Square>().map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid move '{move_str}': {e}"),
+                )
+            })?;
+
+            if !board.has_legal_moves() {
+                board = board.switch_players();
+                side_to_move = side_to_move.opposite();
+                if !board.has_legal_moves() {
+                    break;
+                }
+            }
+
+            let num_depth = 12;
+            let n_empties = board.get_empty_count();
+            let ply = 60 - n_empties;
+            if ply >= ENDGAME_START_PLY {
+                search.init();
+                let depth_scores: Vec<(Depth, Scoref)> = (0..=num_depth)
+                    .filter(|depth| *depth < n_empties as usize)
+                    .map(|depth| {
+                        let mut level = get_level(depth);
+                        level.end_depth = [depth as Depth; 6];
+                        let run_options = SearchRunOptions::with_level(level, Selectivity::None)
+                            .with_eval_mode(EvalMode::Small);
+                        let result = search.run(&board, &run_options);
+                        (depth as Depth, result.score)
+                    })
+                    .collect();
+
+                for (shallow_depth, shallow_score) in depth_scores.iter() {
+                    samples.push(ProbCutSample {
+                        ply,
+                        shallow_depth: *shallow_depth,
+                        shallow_score: *shallow_score,
+                        deep_depth: n_empties,
+                        deep_score: 0f32,
+                        side_to_move,
+                    });
+                }
+            }
+
+            board = board.make_move(sq);
+            side_to_move = side_to_move.opposite();
+        }
+
+        let score = board.solve(board.get_empty_count()) as f32;
+
+        for sample in samples.iter() {
+            let deep_score = if sample.side_to_move == side_to_move {
+                score
+            } else {
+                -score
+            };
+
+            let line = format!(
+                "{},{},{},{},{},{}\n",
+                sample.ply,
+                sample.shallow_depth,
+                sample.shallow_score,
+                sample.deep_depth,
+                deep_score,
+                deep_score - sample.shallow_score
+            );
+            writer.write_all(line.as_bytes())?;
+        }
+        writer.flush()?;
+
+        println!("Processed {} lines", line_no + 1);
+    }
+
+    println!("Endgame ProbCut training data generation completed successfully");
     Ok(())
 }

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::constants::MAX_THREADS;
+use crate::eval::EvalMode;
 use crate::level::Level;
 use crate::probcut::Selectivity;
 
@@ -76,6 +77,7 @@ pub struct SearchRunOptions {
     pub selectivity: Selectivity,
     pub multi_pv: bool,
     pub callback: Option<Arc<SearchProgressCallback>>,
+    pub eval_mode: Option<EvalMode>,
 }
 
 impl SearchRunOptions {
@@ -87,6 +89,7 @@ impl SearchRunOptions {
             selectivity,
             multi_pv: false,
             callback: None,
+            eval_mode: None,
         }
     }
 
@@ -98,6 +101,7 @@ impl SearchRunOptions {
             selectivity,
             multi_pv: false,
             callback: None,
+            eval_mode: None,
         }
     }
 
@@ -115,6 +119,13 @@ impl SearchRunOptions {
         F: Fn(super::SearchProgress) + Send + Sync + 'static,
     {
         self.callback = Some(Arc::new(f));
+        self
+    }
+
+    /// Forces a specific evaluation mode.
+    #[must_use]
+    pub fn with_eval_mode(mut self, mode: EvalMode) -> Self {
+        self.eval_mode = Some(mode);
         self
     }
 }

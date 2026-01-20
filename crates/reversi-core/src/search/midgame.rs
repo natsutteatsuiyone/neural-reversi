@@ -43,6 +43,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let use_time_control = time_manager.is_some();
 
     let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
+
+    // Apply forced eval mode if specified
+    if let Some(mode) = task.eval_mode {
+        ctx.eval_mode = mode;
+    }
+
     if ctx.root_moves_count() == 0 {
         // Handle no legal moves
         return SearchResult::new_no_moves(false);
@@ -55,7 +61,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 
     // Search configuration
-    let org_selectivity = ctx.selectivity;
     let pv_count = if task.multi_pv {
         ctx.root_moves_count()
     } else {
@@ -65,15 +70,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let mut prev_best_move: Option<Square> = None;
 
     let mut depth = compute_start_depth(max_depth);
-
     while depth <= max_depth {
-        // Adjust selectivity based on remaining depth (only without time control)
-        if !use_time_control {
-            let depth_diff = (max_depth - depth) as u8;
-            ctx.selectivity =
-                Selectivity::from_u8(org_selectivity.as_u8().saturating_sub(depth_diff));
-        }
-
         // Save previous iteration scores for aspiration windows
         ctx.save_previous_scores();
 
