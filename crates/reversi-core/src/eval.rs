@@ -43,7 +43,7 @@ macro_rules! eval_main_weights_literal {
 
 macro_rules! eval_small_weights_literal {
     () => {
-        "eval_sm-8d62dc63.zst"
+        "eval_sm-549b18e6.zst"
     };
 }
 
