@@ -48,7 +48,7 @@ pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
 }
 
 /// Multiply signed 16-bit lanes by signed 16-bit lanes and accumulate into 32-bit results.
-/// Matches the semantics of `VPMDPWSSD`, using a portable fallback when VNNI is unavailable.
+/// Matches the semantics of `VPDPWSSD`, using a portable fallback when VNNI is unavailable.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 #[target_feature(enable = "avx512bw")]
 #[inline]
@@ -63,7 +63,7 @@ pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
 }
 
 /// Multiply signed 16-bit lanes by signed 16-bit lanes and accumulate into 32-bit results.
-/// Matches the semantics of `VPMDPWSSD`, using a portable fallback when VNNI is unavailable.
+/// Matches the semantics of `VPDPWSSD`, using a portable fallback when VNNI is unavailable.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
