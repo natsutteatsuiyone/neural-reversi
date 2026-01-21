@@ -19,10 +19,11 @@ const KEY_MASK: u64 = !((1u64 << META_BITS) - 1);
 
 /// Bound type for endgame cache entries.
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum EndGameCacheBound {
-    /// Score is a lower bound (score >= true value).
+    /// Score is a lower bound (true value >= score, from fail-high).
     Lower = 0,
-    /// Score is an upper bound (score <= true value).
+    /// Score is an upper bound (true value <= score, from fail-low).
     Upper = 1,
 }
 
