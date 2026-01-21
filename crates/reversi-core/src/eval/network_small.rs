@@ -1,4 +1,7 @@
 //! Small neural network for endgame evaluation.
+//!
+//! This module implements a lightweight neural network optimized for evaluating
+//! positions in the endgame phase (ply 30-59).
 
 use std::fs::File;
 use std::io::{self, BufReader, Read};
@@ -13,13 +16,26 @@ use crate::eval::util::feature_offset;
 use crate::types::ScaledScore;
 use crate::util::align::Align64;
 
+/// Hidden layer dimension.
 const PA_OUTPUT_DIMS: usize = 128;
 
+/// Fixed-point scaling factor for output weights (divide by 2^8).
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 8;
+
+/// Number of input layers, each covering a segment of endgame plies.
 const NUM_INPUT_LAYERS: usize = 3;
+
+/// Number of output layers (one per endgame ply from 30 to 59).
 const NUM_OUTPUT_LAYERS: usize = 30;
+
+/// The ply at which the endgame phase begins.
 const ENDGAME_START_PLY: usize = 30;
+
+/// Number of plies each input layer covers (30 / 3 = 10 plies per layer).
 const INPUT_LAYER_SEGMENT_SIZE: usize = NUM_OUTPUT_LAYERS / NUM_INPUT_LAYERS;
+
+/// Maximum value for clamped ReLU activation (10-bit precision, 2^10 - 1).
+const ACTIVATION_CLAMP_MAX: i16 = 1023;
 
 /// Input layer for the small network.
 #[derive(Debug)]
@@ -66,14 +82,14 @@ pub struct NetworkSmall {
 }
 
 impl NetworkSmall {
-    /// Creates a new small network from compressed weights file.
+    /// Creates a new small network from a zstd-compressed weights file.
     pub fn new(file_path: &Path) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
         Self::from_reader(reader)
     }
 
-    /// Creates a new small network from an in-memory blob.
+    /// Creates a new small network from a zstd-compressed in-memory blob.
     pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
         let cursor = io::Cursor::new(bytes);
         Self::from_reader(cursor)
@@ -128,15 +144,19 @@ impl NetworkSmall {
 
     /// Evaluates a position using the small network.
     ///
-    /// Faster but less accurate than the main network.
+    /// Faster but less accurate than the main [`Network`](super::Network).
     ///
     /// # Arguments
     ///
     /// * `pattern_feature` - Pattern features from the board.
-    /// * `ply` - Current game ply.
+    /// * `ply` - Current game ply. Must be in the range `[30, 60)`.
+    ///
+    /// # Returns
+    ///
+    /// A position evaluation score clamped to the valid range.
     pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
         debug_assert!(ply >= ENDGAME_START_PLY);
-        debug_assert_eq!(NUM_OUTPUT_LAYERS % NUM_INPUT_LAYERS, 0);
+        debug_assert!(ply < ENDGAME_START_PLY + NUM_OUTPUT_LAYERS);
 
         let ply_offset = ply - ENDGAME_START_PLY;
         let input_layer_index = ply_offset / INPUT_LAYER_SEGMENT_SIZE;
@@ -151,7 +171,7 @@ impl NetworkSmall {
         score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 
-    /// AVX-512 accelerated forward pass optionally using VNNI.
+    /// AVX-512 forward pass using VNNI instructions (`VPDPWSSD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
     fn forward_avx512_vnni(
@@ -162,7 +182,7 @@ impl NetworkSmall {
         Self::forward_avx512::<true>(pattern_feature, input_layer, output_layer)
     }
 
-    // AVX-512 accelerated forward pass without VNNI.
+    /// AVX-512 forward pass without VNNI (emulated via `VPMADDWD` + `VPADDD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     fn forward_avx512_no_vnni(
@@ -173,7 +193,7 @@ impl NetworkSmall {
         Self::forward_avx512::<false>(pattern_feature, input_layer, output_layer)
     }
 
-    // AVX2 accelerated forward pass optionally using VNNI.
+    /// AVX2 forward pass with VNNI. Selected at runtime if CPU supports AVXVNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2,avxvnni")]
     #[allow(dead_code)]
@@ -185,7 +205,7 @@ impl NetworkSmall {
         Self::forward_avx2::<true>(pattern_feature, input_layer, output_layer)
     }
 
-    // AVX2 accelerated forward pass without VNNI.
+    /// AVX2 forward pass without VNNI. Selected at runtime as fallback.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[allow(dead_code)]
@@ -197,7 +217,7 @@ impl NetworkSmall {
         Self::forward_avx2::<false>(pattern_feature, input_layer, output_layer)
     }
 
-    /// Wrapper for forward_scalar to match the unsafe fn signature.
+    /// Scalar fallback wrapper.
     #[allow(dead_code)]
     unsafe fn forward_scalar_wrapper(
         pattern_feature: &PatternFeature,
@@ -207,6 +227,14 @@ impl NetworkSmall {
         Self::forward_scalar(pattern_feature, input_layer, output_layer)
     }
 
+    /// AVX-512 implementation of the forward pass.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Accumulate input weights based on pattern features
+    /// 2. Clamp values to [0, 1023] (10-bit range)
+    /// 3. Apply squared activation: `(v << 6) * v >> 16` = `v^2 >> 10`
+    /// 4. Compute dot product with output weights
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[inline]
@@ -218,8 +246,9 @@ impl NetworkSmall {
         use crate::eval::util::mm512_dpwssd_epi32;
         use std::arch::x86_64::*;
 
+        // Compile-time assertion: AVX-512 uses 4 registers (512-bit each) for 128 dimensions
         const NUM_REGS: usize = PA_OUTPUT_DIMS / 32;
-        debug_assert_eq!(NUM_REGS, 4);
+        const _: () = assert!(NUM_REGS == 4, "AVX-512 implementation assumes 4 registers");
 
         let weights_ptr = input_layer.weights.as_ptr() as *const __m512i;
         let bias_ptr = input_layer.biases.as_ptr() as *const __m512i;
@@ -282,14 +311,16 @@ impl NetworkSmall {
             accumulate_4!(16);
             accumulate_4!(20);
 
+            // Clamp values to [0, ACTIVATION_CLAMP_MAX] for squared clipped ReLU
             let zero = _mm512_setzero_si512();
-            let one = _mm512_set1_epi16(1023);
+            let clamp_max = _mm512_set1_epi16(ACTIVATION_CLAMP_MAX);
 
-            let v0 = _mm512_min_epi16(_mm512_max_epi16(acc0, zero), one);
-            let v1 = _mm512_min_epi16(_mm512_max_epi16(acc1, zero), one);
-            let v2 = _mm512_min_epi16(_mm512_max_epi16(acc2, zero), one);
-            let v3 = _mm512_min_epi16(_mm512_max_epi16(acc3, zero), one);
+            let v0 = _mm512_min_epi16(_mm512_max_epi16(acc0, zero), clamp_max);
+            let v1 = _mm512_min_epi16(_mm512_max_epi16(acc1, zero), clamp_max);
+            let v2 = _mm512_min_epi16(_mm512_max_epi16(acc2, zero), clamp_max);
+            let v3 = _mm512_min_epi16(_mm512_max_epi16(acc3, zero), clamp_max);
 
+            // Squared activation: (v << SHIFT) * v >> 16 = v^2 >> 10
             const SHIFT: u32 = 6;
             let act0 = _mm512_mulhi_epu16(_mm512_slli_epi16(v0, SHIFT), v0);
             let act1 = _mm512_mulhi_epu16(_mm512_slli_epi16(v1, SHIFT), v1);
@@ -313,6 +344,14 @@ impl NetworkSmall {
         }
     }
 
+    /// AVX2 implementation of the forward pass.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Accumulate input weights based on pattern features
+    /// 2. Clamp values to [0, 1023] (10-bit range)
+    /// 3. Apply squared activation: `(v << 6) * v >> 16` = `v^2 >> 10`
+    /// 4. Compute dot product with output weights
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[inline]
@@ -324,8 +363,9 @@ impl NetworkSmall {
         use crate::eval::util::mm256_dpwssd_epi32;
         use std::arch::x86_64::*;
 
+        // Compile-time assertion: AVX2 uses 8 registers (256-bit each) for 128 dimensions
         const NUM_REGS: usize = PA_OUTPUT_DIMS / 16;
-        debug_assert_eq!(NUM_REGS, 8);
+        const _: () = assert!(NUM_REGS == 8, "AVX2 implementation assumes 8 registers");
 
         let weights_ptr = input_layer.weights.as_ptr() as *const __m256i;
         let bias_ptr = input_layer.biases.as_ptr() as *const __m256i;
@@ -380,18 +420,20 @@ impl NetworkSmall {
             accumulate_4!(16);
             accumulate_4!(20);
 
+            // Clamp values to [0, ACTIVATION_CLAMP_MAX] for squared clipped ReLU
             let zero = _mm256_setzero_si256();
-            let one = _mm256_set1_epi16(1023);
+            let clamp_max = _mm256_set1_epi16(ACTIVATION_CLAMP_MAX);
 
-            let v0 = _mm256_min_epi16(_mm256_max_epi16(acc0, zero), one);
-            let v1 = _mm256_min_epi16(_mm256_max_epi16(acc1, zero), one);
-            let v2 = _mm256_min_epi16(_mm256_max_epi16(acc2, zero), one);
-            let v3 = _mm256_min_epi16(_mm256_max_epi16(acc3, zero), one);
-            let v4 = _mm256_min_epi16(_mm256_max_epi16(acc4, zero), one);
-            let v5 = _mm256_min_epi16(_mm256_max_epi16(acc5, zero), one);
-            let v6 = _mm256_min_epi16(_mm256_max_epi16(acc6, zero), one);
-            let v7 = _mm256_min_epi16(_mm256_max_epi16(acc7, zero), one);
+            let v0 = _mm256_min_epi16(_mm256_max_epi16(acc0, zero), clamp_max);
+            let v1 = _mm256_min_epi16(_mm256_max_epi16(acc1, zero), clamp_max);
+            let v2 = _mm256_min_epi16(_mm256_max_epi16(acc2, zero), clamp_max);
+            let v3 = _mm256_min_epi16(_mm256_max_epi16(acc3, zero), clamp_max);
+            let v4 = _mm256_min_epi16(_mm256_max_epi16(acc4, zero), clamp_max);
+            let v5 = _mm256_min_epi16(_mm256_max_epi16(acc5, zero), clamp_max);
+            let v6 = _mm256_min_epi16(_mm256_max_epi16(acc6, zero), clamp_max);
+            let v7 = _mm256_min_epi16(_mm256_max_epi16(acc7, zero), clamp_max);
 
+            // Squared activation: (v << SHIFT) * v >> 16 = v^2 >> 10
             const SHIFT: i32 = 6;
             let act0 = _mm256_mulhi_epu16(_mm256_slli_epi16(v0, SHIFT), v0);
             let act1 = _mm256_mulhi_epu16(_mm256_slli_epi16(v1, SHIFT), v1);
@@ -458,6 +500,7 @@ impl NetworkSmall {
         }
     }
 
+    /// Scalar fallback implementation for non-SIMD architectures or testing.
     fn forward_scalar(
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,
@@ -465,10 +508,12 @@ impl NetworkSmall {
     ) -> i32 {
         let mut acc = [0i32; PA_OUTPUT_DIMS];
 
+        // Initialize with biases
         for (dst, &bias) in acc.iter_mut().zip(input_layer.biases.iter()) {
             *dst = bias as i32;
         }
 
+        // Accumulate weights based on pattern features
         let weights = input_layer.weights.as_slice();
         for feature_idx in 0..NUM_FEATURES {
             let offset = feature_offset(pattern_feature, feature_idx);
@@ -478,10 +523,11 @@ impl NetworkSmall {
             }
         }
 
+        // Apply squared clipped ReLU and compute dot product with output weights
         let mut output = 0i32;
         for (value, &weight) in acc.iter().zip(output_layer.weights.iter()) {
             if *value > 0 {
-                let clamped = (*value).min(1023);
+                let clamped = (*value).min(ACTIVATION_CLAMP_MAX as i32);
                 let activation = (clamped * clamped) >> 10;
                 output += activation * (weight as i32);
             }
