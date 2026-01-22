@@ -303,8 +303,8 @@ impl MoveList {
         tt_move: Square,
     ) {
         let sort_depth = match depth {
-            0..=17 => 0,
-            18..=25 => 1,
+            0..=18 => 0,
+            19..=26 => 1,
             _ => 2,
         };
 
