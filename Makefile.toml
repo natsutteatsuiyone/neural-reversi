@@ -3,7 +3,7 @@
 # ───────────────────────────────────────────────────────────────
 
 [env]
-VERSION = "1.1.0"
+VERSION = "2.0.0"
 
 # ───────────────────────────────────────────────────────────────
 #  Development Tasks
@@ -20,12 +20,12 @@ args = ["test", "--workspace"]
 [tasks.clippy]
 command = "cargo"
 args = [
-  "clippy",
-  "--workspace",
-  "--all-targets",
-  "--all-features",
-  "-D",
-  "warnings",
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "-D",
+    "warnings",
 ]
 
 [tasks.fmt]
@@ -41,10 +41,10 @@ workspace = false
 description = "Initialize distribution directory"
 script_runner = "@duckscript"
 script = [
-  "dist_exists = is_path_exists dist",
-  "if not ${dist_exists}",
-  "    mkdir dist",
-  "end",
+    "dist_exists = is_path_exists dist",
+    "if not ${dist_exists}",
+    "    mkdir dist",
+    "end",
 ]
 
 # ═══════════════════════════════════════════════════════════════
@@ -56,42 +56,42 @@ workspace = false
 description = "Build CLI binary for specified CPU tier"
 script_runner = "@duckscript"
 script = [
-  "tier = get_env CPU_TIER",
-  "rust_tier = get_env RUST_CPU_TIER",
-  "target_triple = get_env TARGET_TRIPLE",
-  "binary_basename = get_env BINARY_BASENAME",
-  "source_file = get_env SOURCE_FILE",
-  "dest_ext = get_env DEST_EXT",
-  "filename_suffix = get_env FILENAME_SUFFIX",
-  "suffix_missing = is_empty ${filename_suffix}",
-  "if ${suffix_missing}",
-  "    prefix = get_env FILENAME_PREFIX",
-  "    prefix_missing = is_empty ${prefix}",
-  "    sanitized_tier = concat ${tier} \"\"",
-  "    if not ${prefix_missing}",
-  "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
-  "        tier_delimiter_missing = is_empty ${tier_delimiter}",
-  "        if not ${tier_delimiter_missing}",
-  "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
-  "        end",
-  "        filename_suffix = concat ${prefix} ${sanitized_tier}",
-  "    else",
-  "        filename_suffix = concat ${sanitized_tier} \"\"",
-  "    end",
-  "end",
-  "",
-  "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
-  "set_env RUSTFLAGS ${rustflags}",
-  "exec --fail-on-error cargo build --release -p cli --target ${target_triple}",
-  "unset_env RUSTFLAGS",
-  "",
-  "version = get_env VERSION",
-  "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
-  "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-  "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
-  "dest = join_path ${workspace_root} dist ${dest_name}",
-  "cp ${source} ${dest}",
-  "echo ✓ Built: ${dest_name}",
+    "tier = get_env CPU_TIER",
+    "rust_tier = get_env RUST_CPU_TIER",
+    "target_triple = get_env TARGET_TRIPLE",
+    "binary_basename = get_env BINARY_BASENAME",
+    "source_file = get_env SOURCE_FILE",
+    "dest_ext = get_env DEST_EXT",
+    "filename_suffix = get_env FILENAME_SUFFIX",
+    "suffix_missing = is_empty ${filename_suffix}",
+    "if ${suffix_missing}",
+    "    prefix = get_env FILENAME_PREFIX",
+    "    prefix_missing = is_empty ${prefix}",
+    "    sanitized_tier = concat ${tier} \"\"",
+    "    if not ${prefix_missing}",
+    "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
+    "        tier_delimiter_missing = is_empty ${tier_delimiter}",
+    "        if not ${tier_delimiter_missing}",
+    "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
+    "        end",
+    "        filename_suffix = concat ${prefix} ${sanitized_tier}",
+    "    else",
+    "        filename_suffix = concat ${sanitized_tier} \"\"",
+    "    end",
+    "end",
+    "",
+    "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
+    "set_env RUSTFLAGS ${rustflags}",
+    "exec --fail-on-error cargo build --release -p cli --target ${target_triple}",
+    "unset_env RUSTFLAGS",
+    "",
+    "version = get_env VERSION",
+    "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
+    "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+    "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
+    "dest = join_path ${workspace_root} dist ${dest_name}",
+    "cp ${source} ${dest}",
+    "echo ✓ Built: ${dest_name}",
 ]
 
 [tasks.build-cli-base]
@@ -128,9 +128,9 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-p
 workspace = false
 description = "Build all Windows CLI binaries"
 run_task = { name = [
-  "build-cli-windows-v2",
-  "build-cli-windows-v3",
-  "build-cli-windows-v4",
+    "build-cli-windows-v2",
+    "build-cli-windows-v3",
+    "build-cli-windows-v4",
 ] }
 
 # ───────────────────────────────────────────────────────────────
@@ -161,9 +161,9 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-u
 workspace = false
 description = "Build all Linux CLI binaries"
 run_task = { name = [
-  "build-cli-linux-v2",
-  "build-cli-linux-v3",
-  "build-cli-linux-v4",
+    "build-cli-linux-v2",
+    "build-cli-linux-v3",
+    "build-cli-linux-v4",
 ] }
 
 # ═══════════════════════════════════════════════════════════════
@@ -176,42 +176,42 @@ description = "Build GUI application for specified CPU tier"
 cwd = "crates/gui"
 script_runner = "@duckscript"
 script = [
-  "tier = get_env CPU_TIER",
-  "rust_tier = get_env RUST_CPU_TIER",
-  "target_triple = get_env TARGET_TRIPLE",
-  "binary_basename = get_env BINARY_BASENAME",
-  "source_file = get_env SOURCE_FILE",
-  "dest_ext = get_env DEST_EXT",
-  "filename_suffix = get_env FILENAME_SUFFIX",
-  "suffix_missing = is_empty ${filename_suffix}",
-  "if ${suffix_missing}",
-  "    prefix = get_env FILENAME_PREFIX",
-  "    prefix_missing = is_empty ${prefix}",
-  "    sanitized_tier = concat ${tier} \"\"",
-  "    if not ${prefix_missing}",
-  "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
-  "        tier_delimiter_missing = is_empty ${tier_delimiter}",
-  "        if not ${tier_delimiter_missing}",
-  "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
-  "        end",
-  "        filename_suffix = concat ${prefix} ${sanitized_tier}",
-  "    else",
-  "        filename_suffix = concat ${sanitized_tier} \"\"",
-  "    end",
-  "end",
-  "",
-  "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
-  "set_env RUSTFLAGS ${rustflags}",
-  "exec --fail-on-error bun run tauri build --target ${target_triple}",
-  "unset_env RUSTFLAGS",
-  "",
-  "version = get_env VERSION",
-  "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
-  "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-  "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
-  "dest = join_path ${workspace_root} dist ${dest_name}",
-  "cp ${source} ${dest}",
-  "echo ✓ Built: ${dest_name}",
+    "tier = get_env CPU_TIER",
+    "rust_tier = get_env RUST_CPU_TIER",
+    "target_triple = get_env TARGET_TRIPLE",
+    "binary_basename = get_env BINARY_BASENAME",
+    "source_file = get_env SOURCE_FILE",
+    "dest_ext = get_env DEST_EXT",
+    "filename_suffix = get_env FILENAME_SUFFIX",
+    "suffix_missing = is_empty ${filename_suffix}",
+    "if ${suffix_missing}",
+    "    prefix = get_env FILENAME_PREFIX",
+    "    prefix_missing = is_empty ${prefix}",
+    "    sanitized_tier = concat ${tier} \"\"",
+    "    if not ${prefix_missing}",
+    "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
+    "        tier_delimiter_missing = is_empty ${tier_delimiter}",
+    "        if not ${tier_delimiter_missing}",
+    "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
+    "        end",
+    "        filename_suffix = concat ${prefix} ${sanitized_tier}",
+    "    else",
+    "        filename_suffix = concat ${sanitized_tier} \"\"",
+    "    end",
+    "end",
+    "",
+    "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
+    "set_env RUSTFLAGS ${rustflags}",
+    "exec --fail-on-error bun run tauri build --target ${target_triple}",
+    "unset_env RUSTFLAGS",
+    "",
+    "version = get_env VERSION",
+    "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
+    "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+    "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
+    "dest = join_path ${workspace_root} dist ${dest_name}",
+    "cp ${source} ${dest}",
+    "echo ✓ Built: ${dest_name}",
 ]
 
 [tasks.build-gui-base]
@@ -248,9 +248,9 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-p
 workspace = false
 description = "Build all Windows GUI binaries"
 run_task = { name = [
-  "build-gui-windows-v2",
-  "build-gui-windows-v3",
-  "build-gui-windows-v4",
+    "build-gui-windows-v2",
+    "build-gui-windows-v3",
+    "build-gui-windows-v4",
 ] }
 
 # ───────────────────────────────────────────────────────────────
@@ -281,9 +281,9 @@ env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-u
 workspace = false
 description = "Build all Linux GUI binaries"
 run_task = { name = [
-  "build-gui-linux-v2",
-  "build-gui-linux-v3",
-  "build-gui-linux-v4",
+    "build-gui-linux-v2",
+    "build-gui-linux-v3",
+    "build-gui-linux-v4",
 ] }
 
 # ═══════════════════════════════════════════════════════════════
@@ -294,8 +294,8 @@ run_task = { name = [
 workspace = false
 description = "Build native CLI and GUI for all platforms"
 run_task = { name = [
-  "build-cli-windows-native",
-  "build-cli-linux-native",
-  "build-gui-windows-native",
-  "build-gui-linux-native",
+    "build-cli-windows-native",
+    "build-cli-linux-native",
+    "build-gui-windows-native",
+    "build-gui-linux-native",
 ] }
