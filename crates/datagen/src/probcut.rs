@@ -10,6 +10,7 @@
 
 use clap::Parser;
 use std::{
+    collections::HashMap,
     fs::File,
     io::{self, BufRead, BufReader, BufWriter, Write},
     path::PathBuf,
@@ -30,7 +31,7 @@ use reversi_core::{
 const TT_SIZE_MB: usize = 256;
 
 /// Total number of search depths to test
-const NUM_SEARCH_DEPTHS: usize = 14;
+const NUM_SEARCH_DEPTHS: usize = 15;
 
 /// Maximum shallow depth for ProbCut analysis
 const MAX_SHALLOW_DEPTH: usize = 7;
@@ -97,6 +98,12 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
     let options = SearchOptions::new(TT_SIZE_MB);
     let mut search = Search::new(&options);
 
+    // Cache for (board, depth) -> score to avoid redundant searches
+    // This is especially effective for opening positions that are common across games
+    let mut score_cache: HashMap<(Board, Depth), Scoref> = HashMap::new();
+    let mut cache_hits: usize = 0;
+    let mut cache_misses: usize = 0;
+
     let input_file = File::open(input).map_err(|e| {
         io::Error::new(
             e.kind(),
@@ -130,7 +137,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         let mut board = Board::new();
         let mut side_to_move = Disc::Black;
 
-        search.init();
+        // Note: We don't reset TT between games to allow TT reuse for common positions
         for token in line.as_bytes().chunks_exact(2) {
             let move_str = std::str::from_utf8(token).map_err(|e| {
                 io::Error::new(
@@ -160,11 +167,19 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
 
             let depth_scores: Vec<(Depth, Scoref)> = (0..=num_depth)
                 .map(|depth| {
-                    let mut level = get_level(depth);
-                    level.end_depth = [depth as Depth; 6];
-                    let options = SearchRunOptions::with_level(level, SELECTIVITY);
-                    let result = search.run(&board, &options);
-                    (depth as Depth, result.score)
+                    let cache_key = (board.unique(), depth as Depth);
+                    if let Some(&cached_score) = score_cache.get(&cache_key) {
+                        cache_hits += 1;
+                        (depth as Depth, cached_score)
+                    } else {
+                        cache_misses += 1;
+                        let mut level = get_level(depth);
+                        level.end_depth = [depth as Depth; 6];
+                        let run_options = SearchRunOptions::with_level(level, SELECTIVITY);
+                        let result = search.run(&board, &run_options);
+                        score_cache.insert(cache_key, result.score);
+                        (depth as Depth, result.score)
+                    }
                 })
                 .collect();
 
@@ -186,9 +201,8 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                 );
             }
 
-            println!("Line {}, Ply {}: Analyzed move {}", line_no + 1, ply, sq);
-
             board = board.make_move(sq);
+            side_to_move = side_to_move.opposite();
         }
 
         for sample in samples.iter() {
@@ -206,6 +220,15 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         writer.flush()?;
 
         println!("Processed {} lines", line_no + 1);
+        let hit_rate = if cache_hits + cache_misses > 0 {
+            cache_hits as f64 / (cache_hits + cache_misses) as f64 * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "Cache stats: {} hits, {} misses ({:.1}% hit rate)",
+            cache_hits, cache_misses, hit_rate
+        );
     }
 
     println!("ProbCut training data generation completed successfully");

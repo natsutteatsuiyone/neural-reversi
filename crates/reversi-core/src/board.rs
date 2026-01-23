@@ -528,6 +528,33 @@ impl Board {
         }
     }
 
+    /// Returns the canonical (unique) form of this board.
+    ///
+    /// # Returns
+    ///
+    /// The canonical `Board` among all 8 symmetric variants.
+    #[inline]
+    pub fn unique(&self) -> Board {
+        let candidates = [
+            self.rotate_90_clockwise(),
+            self.rotate_180_clockwise(),
+            self.rotate_270_clockwise(),
+            self.flip_horizontal(),
+            self.flip_vertical(),
+            self.flip_diag_a1h8(),
+            self.flip_diag_a8h1(),
+        ];
+
+        let mut result = *self;
+        for candidate in candidates {
+            if (candidate.player.0, candidate.opponent.0) < (result.player.0, result.opponent.0) {
+                result = candidate;
+            }
+        }
+
+        result
+    }
+
     /// Converts the board to a string representation.
     ///
     /// The output format shows the board as an 8x8 grid with:
@@ -1228,5 +1255,93 @@ mod tests {
             .to_string(),
             "Invalid character 'Z' at position 5: must be 'X', 'O', or '-'"
         );
+    }
+
+    #[test]
+    fn test_unique_identity() {
+        // A board that is already canonical should return itself
+        let board = Board::from_bitboards(1u64, 2u64);
+        let unique = board.unique();
+        // The unique board should be one of the 8 symmetric variants
+        assert!(
+            unique == board
+                || unique == board.rotate_90_clockwise()
+                || unique == board.rotate_180_clockwise()
+                || unique == board.rotate_270_clockwise()
+                || unique == board.flip_horizontal()
+                || unique == board.flip_vertical()
+                || unique == board.flip_diag_a1h8()
+                || unique == board.flip_diag_a8h1()
+        );
+    }
+
+    #[test]
+    fn test_unique_symmetric_boards_same_result() {
+        // All symmetric variants should produce the same unique board
+        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
+
+        let unique_original = board.unique();
+        let unique_rot90 = board.rotate_90_clockwise().unique();
+        let unique_rot180 = board.rotate_180_clockwise().unique();
+        let unique_rot270 = board.rotate_270_clockwise().unique();
+        let unique_flip_h = board.flip_horizontal().unique();
+        let unique_flip_v = board.flip_vertical().unique();
+        let unique_diag1 = board.flip_diag_a1h8().unique();
+        let unique_diag2 = board.flip_diag_a8h1().unique();
+
+        assert_eq!(unique_original, unique_rot90);
+        assert_eq!(unique_original, unique_rot180);
+        assert_eq!(unique_original, unique_rot270);
+        assert_eq!(unique_original, unique_flip_h);
+        assert_eq!(unique_original, unique_flip_v);
+        assert_eq!(unique_original, unique_diag1);
+        assert_eq!(unique_original, unique_diag2);
+    }
+
+    #[test]
+    fn test_unique_selects_smallest() {
+        // Create a board where we can verify the smallest is selected
+        let board = Board::from_bitboards(Square::A1.bitboard(), Square::B2.bitboard());
+
+        let unique = board.unique();
+
+        // Verify that unique has the smallest (player, opponent) tuple
+        let candidates = [
+            board,
+            board.rotate_90_clockwise(),
+            board.rotate_180_clockwise(),
+            board.rotate_270_clockwise(),
+            board.flip_horizontal(),
+            board.flip_vertical(),
+            board.flip_diag_a1h8(),
+            board.flip_diag_a8h1(),
+        ];
+
+        for candidate in candidates {
+            assert!(
+                (unique.player.0, unique.opponent.0) <= (candidate.player.0, candidate.opponent.0)
+            );
+        }
+    }
+
+    #[test]
+    fn test_unique_initial_position() {
+        // Initial position is symmetric, so unique should return itself or equivalent
+        let board = Board::new();
+        let unique = board.unique();
+
+        // All 8 variants should give the same unique result
+        assert_eq!(unique, board.rotate_90_clockwise().unique());
+        assert_eq!(unique, board.flip_horizontal().unique());
+    }
+
+    #[test]
+    fn test_unique_idempotent() {
+        // Applying unique twice should give the same result
+        // Use non-overlapping bitboards
+        let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
+        let unique1 = board.unique();
+        let unique2 = unique1.unique();
+        assert_eq!(unique1, unique2);
     }
 }
