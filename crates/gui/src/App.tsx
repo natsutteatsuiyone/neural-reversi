@@ -6,9 +6,11 @@ import { toast } from "sonner";
 import { Trophy, Info } from "lucide-react";
 import { getWinner } from "@/lib/game-logic";
 import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation";
+import { useTranslation } from "react-i18next";
 import "./App.css";
 
 function App() {
+  const { t } = useTranslation();
   const [isInitialized, setIsInitialized] = useState(false);
 
   const showPassNotification = useReversiStore((state) => state.showPassNotification);
@@ -54,10 +56,10 @@ function App() {
     if (gameOver && winner) {
       const message =
         winner === "draw"
-          ? "Game ended in a draw!"
-          : `${winner === "black" ? "Black" : "White"} wins!`;
+          ? t("notification.draw")
+          : t("notification.wins", { color: t(`colors.${winner}`) });
 
-      const description = `Black: ${scores.black} - White: ${scores.white}`;
+      const description = t("notification.score", { black: scores.black, white: scores.white });
 
       toast(message, {
         description: description,
@@ -65,20 +67,19 @@ function App() {
         duration: 5000,
       });
     }
-  }, [gameOver, winner, scores.black, scores.white]);
+  }, [gameOver, winner, scores.black, scores.white, t]);
 
   // Pass notification
   useEffect(() => {
     if (showPassNotification) {
-      toast("No valid moves available", {
-        description: "Passing turn...",
+      toast(t("notification.passingTurn", { color: t(`colors.${showPassNotification}`) }), {
         icon: <Info className="w-4 h-4 text-accent-blue" />,
         duration: 1500,
         onDismiss: hidePassNotification,
         onAutoClose: hidePassNotification,
       });
     }
-  }, [showPassNotification, hidePassNotification]);
+  }, [showPassNotification, hidePassNotification, t]);
 
   // Loading screen
   if (!isInitialized) {
@@ -86,7 +87,7 @@ function App() {
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-foreground-muted">Loading...</p>
+          <p className="text-foreground-muted">{t("game.loading")}</p>
         </div>
       </div>
     );

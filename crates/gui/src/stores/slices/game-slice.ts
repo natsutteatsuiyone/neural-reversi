@@ -139,7 +139,7 @@ export const createGameSlice: StateCreator<
         }
 
         if (shouldPass) {
-            set({ showPassNotification: true });
+            set({ showPassNotification: updatedState.currentPlayer });
             return;
         }
 
@@ -240,7 +240,7 @@ export const createGameSlice: StateCreator<
             isPass: false,
             lastMove: null,
             lastAIMove: null,
-            showPassNotification: false,
+            showPassNotification: null,
             isAIThinking: false,
             isAnalyzing: false,
             analyzeResults: null,
@@ -268,7 +268,7 @@ export const createGameSlice: StateCreator<
                 lastMove: null,
                 lastAIMove: null,
                 validMoves: getValidMoves(board, currentPlayer),
-                showPassNotification: false,
+                showPassNotification: null,
                 analyzeResults: null,
                 aiRemainingTime: get().gameTimeLimit * 1000,
             };

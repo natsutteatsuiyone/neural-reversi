@@ -5,7 +5,8 @@
     "cancel": "Cancel",
     "stop": "Stop",
     "youPlay": "You play",
-    "pass": "Pass"
+    "pass": "Pass",
+    "loading": "Loading..."
   },
   "colors": {
     "black": "Black",
@@ -53,5 +54,12 @@
     "auto": "Auto",
     "english": "English",
     "japanese": "日本語"
+  },
+  "notification": {
+    "draw": "Game ended in a draw!",
+    "wins": "{{color}} wins!",
+    "score": "Black: {{black}} - White: {{white}}",
+    "noValidMoves": "No valid moves available",
+    "passingTurn": "{{color}}: Pass"
   }
 }

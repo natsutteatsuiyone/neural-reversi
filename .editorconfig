@@ -20,5 +20,5 @@ max_line_length = 120
 # denotes a line break in Markdown
 trim_trailing_whitespace = false
 
-[*.{ts,tsx,js,jsx}]
+[*.{ts,tsx,js,jsx,json}]
 indent_size = 2

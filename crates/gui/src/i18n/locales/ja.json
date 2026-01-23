@@ -3,9 +3,10 @@
     "newGame": "新規ゲーム",
     "startGame": "開始",
     "cancel": "キャンセル",
-    "stop": "中止",
+    "stop": "停止",
     "youPlay": "あなたの色",
-    "pass": "パス"
+    "pass": "パス",
+    "loading": "読み込み中..."
   },
   "colors": {
     "black": "黒",
@@ -45,7 +46,7 @@
     "depth": "深さ",
     "score": "評価",
     "pvLine": "読み筋",
-    "waitingForAI": "AIの手番を待っています",
+    "waitingForAI": "AIの手番です",
     "move": "手"
   },
   "settings": {
@@ -53,5 +54,12 @@
     "auto": "自動",
     "english": "English",
     "japanese": "日本語"
+  },
+  "notification": {
+    "draw": "引き分けです！",
+    "wins": "{{color}}の勝ちです！",
+    "score": "黒: {{black}} - 白: {{white}}",
+    "noValidMoves": "打てる場所がありません",
+    "passingTurn": "{{color}}：パス"
   }
 }

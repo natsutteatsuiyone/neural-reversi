@@ -46,7 +46,7 @@ export interface AISlice {
 }
 
 export interface UISlice {
-    showPassNotification: boolean;
+    showPassNotification: "black" | "white" | null;
     isAnalyzing: boolean;
     analyzeResults: Map<string, AIMoveProgress> | null;
     isNewGameModalOpen: boolean;

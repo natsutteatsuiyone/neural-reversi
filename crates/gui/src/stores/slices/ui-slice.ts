@@ -9,7 +9,7 @@ export const createUISlice: StateCreator<
     [],
     UISlice
 > = (set, get) => ({
-    showPassNotification: false,
+    showPassNotification: null,
     isAnalyzing: false,
     analyzeResults: null,
     isNewGameModalOpen: false,
@@ -27,7 +27,7 @@ export const createUISlice: StateCreator<
     },
 
     hidePassNotification: () => {
-        set({ showPassNotification: false });
+        set({ showPassNotification: null });
         const { makePass } = get();
         makePass();
         triggerAutomation(get);
