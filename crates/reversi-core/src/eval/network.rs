@@ -195,10 +195,18 @@ impl Network {
             .forward(&buffers.base_out, &mut buffers.l1_base_out);
         ls.l1_pa.forward(&buffers.pa_out, &mut buffers.l1_pa_out);
 
-        buffers.l1_li_out[..L1_BASE_OUTPUT_DIMS]
-            .copy_from_slice(&buffers.l1_base_out[..L1_BASE_OUTPUT_DIMS]);
-        buffers.l1_li_out[L1_BASE_OUTPUT_DIMS..L1_OUTPUT_DIMS]
-            .copy_from_slice(&buffers.l1_pa_out[..L1_PA_OUTPUT_DIMS]);
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                buffers.l1_base_out.0.as_ptr(),
+                buffers.l1_li_out.0.as_mut_ptr(),
+                L1_BASE_OUTPUT_DIMS,
+            );
+            std::ptr::copy_nonoverlapping(
+                buffers.l1_pa_out.0.as_ptr(),
+                buffers.l1_li_out.0.as_mut_ptr().add(L1_BASE_OUTPUT_DIMS),
+                L1_PA_OUTPUT_DIMS,
+            );
+        }
 
         const L2_INPUT_DIMS_HALF: usize = L2_INPUT_DIMS / 2;
         sqr_clipped_relu::<L1_OUTPUT_DIMS>(
