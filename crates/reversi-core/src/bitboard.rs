@@ -378,16 +378,17 @@ impl Bitboard {
         self ^ flipped
     }
 
-    /// Returns the number of stable corners in this bitboard.
+    /// Returns the number of stable discs around corners in this bitboard.
     ///
-    /// A corner is stable if it's occupied. Adjacent edge squares are stable
-    /// if the corner next to them is also occupied by the same player.
+    /// Counts corners plus adjacent edge squares that form stable groups.
+    /// A corner is stable if occupied. An edge square adjacent to a corner
+    /// is stable if both it and the corner are occupied by the same player.
     ///
     /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L1453>
     ///
     /// # Returns
     ///
-    /// The number of stable corners in this bitboard.
+    /// The count of stable discs (0-12: up to 4 corners + 8 adjacent edge squares).
     #[inline(always)]
     pub fn corner_stability(self) -> u32 {
         let p = self.0;
