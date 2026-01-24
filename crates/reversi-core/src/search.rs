@@ -394,7 +394,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             return SS::shallow_search(ctx, board, depth, alpha, beta);
         }
 
-        if let Some(score) = stability_cutoff(board, ctx.empty_list.count, alpha.to_disc_diff()) {
+        if let Some(score) = stability_cutoff(board, ctx.empty_list.count(), alpha.to_disc_diff()) {
             return ScaledScore::from_disc_diff(score);
         }
     }
@@ -412,7 +412,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count());
         }
     } else if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {

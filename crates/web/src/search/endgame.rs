@@ -46,7 +46,7 @@ thread_local! {
 ///
 /// Best score found
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
-    let n_empties = ctx.empty_list.count;
+    let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
@@ -86,7 +86,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
             ctx.update_endgame(mv.sq);
-            let score = if ctx.empty_list.count <= EC_NWS_DEPTH {
+            let score = if ctx.empty_list.count() <= EC_NWS_DEPTH {
                 -null_window_search_with_ec(ctx, &next, -beta)
             } else {
                 -null_window_search(ctx, &next, -beta)
@@ -106,7 +106,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update_endgame(mv.sq);
-        best_score = if ctx.empty_list.count <= EC_NWS_DEPTH {
+        best_score = if ctx.empty_list.count() <= EC_NWS_DEPTH {
             -null_window_search_with_ec(ctx, &next, -beta)
         } else {
             -null_window_search(ctx, &next, -beta)
@@ -175,7 +175,7 @@ fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
 ///
 /// Best score found
 fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
-    let n_empties = ctx.empty_list.count;
+    let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
@@ -211,7 +211,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update_endgame(mv.sq);
-            let score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
+            let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
                 -shallow_search(ctx, &next, -beta)
             } else {
                 -null_window_search_with_ec(ctx, &next, -beta)
@@ -231,7 +231,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         let mv = move_list.first().unwrap();
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update_endgame(mv.sq);
-        best_score = if ctx.empty_list.count <= DEPTH_TO_SHALLOW_SEARCH {
+        best_score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
             -shallow_search(ctx, &next, -beta)
         } else {
             -null_window_search_with_ec(ctx, &next, -beta)
@@ -257,7 +257,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
 ///
 /// Best score found
 pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
-    let n_empties = ctx.empty_list.count;
+    let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
@@ -265,7 +265,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     fn search_child(ctx: &mut SearchContext, next: &Board, beta: Score) -> Score {
-        if ctx.empty_list.count == 4 {
+        if ctx.empty_list.count() == 4 {
             if let Some(score) = stability::stability_cutoff(next, 4, -beta) {
                 -score
             } else {
@@ -322,7 +322,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         }
     }
 
-    let mut priority_moves = moves & QUADRANT_MASK[ctx.empty_list.parity as usize];
+    let mut priority_moves = moves & QUADRANT_MASK[ctx.empty_list.parity() as usize];
     if priority_moves == 0 {
         priority_moves = moves;
     }
@@ -381,7 +381,7 @@ fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square
     let (sq2, quad_id2) = ctx.empty_list.next_and_quad_id(sq1);
     let (sq3, quad_id3) = ctx.empty_list.next_and_quad_id(sq2);
     let sq4 = ctx.empty_list.next(sq3);
-    let parity = ctx.empty_list.parity;
+    let parity = ctx.empty_list.parity();
 
     if parity & quad_id1 == 0 {
         if parity & quad_id2 != 0 {

@@ -105,7 +105,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
         };
     }
 
-    let n_empties = ctx.empty_list.count;
+    let n_empties = ctx.empty_list.count();
     if n_empties == 60 {
         // Handle opening position with random move
         let mv = random_move(&board);
@@ -202,7 +202,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 
 /// Performs the root search for endgame positions
 fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
-    let n_empties = ctx.empty_list.count;
+    let n_empties = ctx.empty_list.count();
     let score = estimate_aspiration_base_score(ctx, board, n_empties);
     let final_selectivity = if n_empties > level.perfect_depth {
         Selectivity::Level4
@@ -340,7 +340,7 @@ pub fn search<NT: NodeType>(
     let org_alpha = alpha;
     let mut best_move = Square::None;
     let mut best_score = -ScaledScore::INF;
-    let n_empties = ctx.empty_list.count;
+    let n_empties = ctx.empty_list.count();
 
     if NT::PV_NODE {
         if depth == 0 {
@@ -511,7 +511,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count());
         }
     }
 
@@ -568,7 +568,7 @@ pub fn evaluate_depth1(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count());
         }
     }
 
@@ -666,7 +666,7 @@ fn enhanced_transposition_cutoff(
                     depth,
                     mv.sq,
                     ctx.selectivity,
-                    ctx.empty_list.count == depth,
+                    ctx.empty_list.count() == depth,
                 );
                 return Some(score);
             }

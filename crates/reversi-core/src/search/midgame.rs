@@ -54,7 +54,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         return SearchResult::new_no_moves(false);
     }
 
-    let n_empties = ctx.empty_list.count;
+    let n_empties = ctx.empty_list.count();
     if n_empties == 60 && !task.multi_pv {
         // Handle opening position with random move
         return SearchResult::new_random_move(random_move(&board));
@@ -318,7 +318,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count());
         }
     }
 
@@ -397,7 +397,7 @@ pub fn evaluate_depth1(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count);
+            return board.solve_scaled(ctx.empty_list.count());
         }
     }
 

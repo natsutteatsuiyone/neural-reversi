@@ -38,7 +38,7 @@ pub fn evaluate_moves(
     board: &Board,
     tt_move: Square,
 ) {
-    if ctx.empty_list.count <= 18 {
+    if ctx.empty_list.count() <= 18 {
         evaluate_moves_fast(move_list, ctx, board, tt_move);
         return;
     }

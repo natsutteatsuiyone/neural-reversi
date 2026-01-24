@@ -73,9 +73,28 @@ pub struct EmptyList {
     /// Array of linked list nodes indexed by square position.
     nodes: [EmptyNode; 65],
     /// Number of empty squares currently in the list.
-    pub count: u32,
+    count: u32,
     /// XOR of all quadrant IDs (used for endgame parity optimization)
-    pub parity: u8,
+    parity: u8,
+}
+
+impl EmptyList {
+    /// Returns the number of empty squares currently in the list.
+    #[inline(always)]
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+
+    /// Returns the parity value (XOR of all quadrant IDs).
+    ///
+    /// Each bit (1, 2, 4, 8) represents a quadrant with an odd number of empties.
+    /// When parity is 0, all quadrants have even empty counts. A non-zero bit
+    /// indicates the corresponding quadrant has an odd number of empties, which
+    /// affects move ordering heuristics in endgame search.
+    #[inline(always)]
+    pub fn parity(&self) -> u8 {
+        self.parity
+    }
 }
 
 impl EmptyList {
@@ -206,7 +225,7 @@ impl EmptyList {
     ///
     /// # Arguments
     ///
-    /// * `sq` - The `Square` to restore. Must have been previously removed.
+    /// * `sq` - The `Square` to restore.refactor(core): encapsulate EmptyList count and parity fields
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
         debug_assert!(sq != Square::None, "Cannot restore Square::None");
@@ -249,7 +268,7 @@ mod tests {
         let board = Board::new();
         let empty_list = EmptyList::new(&board);
 
-        assert_eq!(empty_list.count, 60);
+        assert_eq!(empty_list.count(), 60);
         assert_eq!(empty_list.first(), Square::A1);
         assert_eq!(empty_list.next(Square::A1), Square::H1);
         assert_eq!(empty_list.next(Square::G7), Square::None);
@@ -261,12 +280,12 @@ mod tests {
         let mut empty_list = EmptyList::new(&board);
 
         empty_list.remove(Square::A1);
-        assert_eq!(empty_list.count, 59);
+        assert_eq!(empty_list.count(), 59);
         assert_eq!(empty_list.first(), Square::H1);
         assert_eq!(empty_list.next(Square::H1), Square::A8);
 
         empty_list.restore(Square::A1);
-        assert_eq!(empty_list.count, 60);
+        assert_eq!(empty_list.count(), 60);
         assert_eq!(empty_list.first(), Square::A1);
         assert_eq!(empty_list.next(Square::A1), Square::H1);
     }
@@ -291,25 +310,25 @@ mod tests {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
 
-        assert_eq!(empty_list.parity, 15);
+        assert_eq!(empty_list.parity(), 15);
 
         empty_list.remove(Square::A1);
-        assert_eq!(empty_list.parity, 14);
+        assert_eq!(empty_list.parity(), 14);
 
         empty_list.restore(Square::A1);
-        assert_eq!(empty_list.parity, 15);
+        assert_eq!(empty_list.parity(), 15);
 
         empty_list.remove(Square::H8);
-        assert_eq!(empty_list.parity, 7);
+        assert_eq!(empty_list.parity(), 7);
 
         empty_list.remove(Square::A8);
-        assert_eq!(empty_list.parity, 3);
+        assert_eq!(empty_list.parity(), 3);
 
         empty_list.remove(Square::H1);
-        assert_eq!(empty_list.parity, 1);
+        assert_eq!(empty_list.parity(), 1);
 
         empty_list.remove(Square::A1);
-        assert_eq!(empty_list.parity, 0);
+        assert_eq!(empty_list.parity(), 0);
     }
 
     #[test]
@@ -376,8 +395,8 @@ mod tests {
     fn test_multiple_remove_restore_cycles() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
-        let initial_parity = empty_list.parity;
-        let initial_count = empty_list.count;
+        let initial_parity = empty_list.parity();
+        let initial_count = empty_list.count();
         let initial_first = empty_list.first();
 
         // Test removing and restoring multiple squares (all must be empty squares)
@@ -389,7 +408,7 @@ mod tests {
 
         // Verify count decreased
         assert_eq!(
-            empty_list.count,
+            empty_list.count(),
             initial_count - squares_to_test.len() as u32
         );
 
@@ -399,8 +418,8 @@ mod tests {
         }
 
         // Verify we're back to original state
-        assert_eq!(empty_list.count, initial_count);
-        assert_eq!(empty_list.parity, initial_parity);
+        assert_eq!(empty_list.count(), initial_count);
+        assert_eq!(empty_list.parity(), initial_parity);
         assert_eq!(empty_list.first(), initial_first);
     }
 
@@ -437,40 +456,40 @@ mod tests {
 
         // Verify first square is now the next in presorted order
         assert_eq!(empty_list.first(), Square::C1);
-        assert_eq!(empty_list.count, 56);
+        assert_eq!(empty_list.count(), 56);
 
         // Restore corners in reverse order (LIFO) and verify order is maintained
         for &corner in corners.iter().rev() {
             empty_list.restore(corner);
         }
         assert_eq!(empty_list.first(), Square::A1);
-        assert_eq!(empty_list.count, 60);
+        assert_eq!(empty_list.count(), 60);
     }
 
     #[test]
     fn test_parity_specific_quadrants() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
-        let initial_parity = empty_list.parity;
+        let initial_parity = empty_list.parity();
 
         // Test removing a few squares from quadrant 1 (top-left)
         empty_list.remove(Square::A1); // quadrant 1
         empty_list.remove(Square::B1); // quadrant 1
 
         // Removing 2 squares from quadrant 1: parity changes by 1^1 = 0
-        assert_eq!(empty_list.parity, initial_parity);
+        assert_eq!(empty_list.parity(), initial_parity);
 
         // Remove one more from quadrant 1
         empty_list.remove(Square::C1); // quadrant 1
 
         // Now we've removed 3 squares: 1^1^1 = 1, so parity should change by 1
-        assert_eq!(empty_list.parity, initial_parity ^ 1);
+        assert_eq!(empty_list.parity(), initial_parity ^ 1);
 
         // Test removing from different quadrants
         empty_list.remove(Square::E1); // quadrant 2
 
         // Parity change: (1^1^1) ^ 2 = 1^2 = 3
-        assert_eq!(empty_list.parity, initial_parity ^ 3);
+        assert_eq!(empty_list.parity(), initial_parity ^ 3);
     }
 
     #[test]
@@ -559,15 +578,15 @@ mod tests {
         let cloned_list = empty_list.clone();
 
         // Verify clone has same properties
-        assert_eq!(cloned_list.count, empty_list.count);
-        assert_eq!(cloned_list.parity, empty_list.parity);
+        assert_eq!(cloned_list.count, empty_list.count());
+        assert_eq!(cloned_list.parity, empty_list.parity());
         assert_eq!(cloned_list.first(), empty_list.first());
 
         // Verify independence - modify original
         empty_list.remove(Square::C1);
 
         // Clone should be unchanged
-        assert_ne!(cloned_list.count, empty_list.count);
+        assert_ne!(cloned_list.count, empty_list.count());
     }
 
     #[test]
