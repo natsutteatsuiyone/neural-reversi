@@ -105,6 +105,13 @@ fn calc_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     tbl[ply][shallow as usize][deep as usize]
 }
 
+/// Returns the pre-computed sigma value for midgame positions.
+/// Public API for Score-Based Reduction in move ordering.
+#[inline]
+pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
+    calc_sigma(ply, shallow, deep)
+}
+
 /// Determines the depth of the shallow search in probcut.
 ///
 /// # Arguments
@@ -159,7 +166,7 @@ pub fn probcut_midgame(
         if eval_score >= eval_beta && pc_beta < ScaledScore::MAX {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested ProbCut
-            let score = search::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta);
+            let score = search::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, false);
             ctx.selectivity = current_selectivity; // Restore selectivity
             if score >= pc_beta {
                 return Some((beta + pc_beta) / 2);

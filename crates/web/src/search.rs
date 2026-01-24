@@ -134,7 +134,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 
     let max_depth = level.mid_depth;
     if max_depth == 0 {
-        let score = search::<Root>(ctx, &board, max_depth, alpha, beta);
+        let score = search::<Root>(ctx, &board, max_depth, alpha, beta, false);
         return SearchResult {
             score: score.to_disc_diff_f32(),
             best_move: None,
@@ -158,7 +158,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
         }
 
         loop {
-            best_score = search::<Root>(ctx, &board, depth, alpha, beta);
+            best_score = search::<Root>(ctx, &board, depth, alpha, beta, false);
 
             if best_score <= alpha {
                 beta = alpha;
@@ -219,7 +219,7 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
         let mut delta = ScaledScore::from_disc_diff(3);
 
         loop {
-            best_score = search::<Root>(ctx, board, n_empties, alpha, beta);
+            best_score = search::<Root>(ctx, board, n_empties, alpha, beta, true);
 
             if best_score <= alpha {
                 beta = alpha;
@@ -291,6 +291,7 @@ fn estimate_aspiration_base_score(
             midgame_depth,
             -ScaledScore::INF,
             ScaledScore::INF,
+            false,
         )
     } else if n_empties >= 6 {
         evaluate_depth2(ctx, board, -ScaledScore::INF, ScaledScore::INF)
@@ -326,6 +327,7 @@ fn random_move(board: &Board) -> Square {
 /// * `depth` - Remaining search depth.
 /// * `alpha` - Lower bound of the search window
 /// * `beta` - Upper bound of the search window
+/// * `is_endgame` - Whether we are in endgame search mode
 ///
 /// # Returns
 ///
@@ -336,6 +338,7 @@ pub fn search<NT: NodeType>(
     depth: Depth,
     mut alpha: ScaledScore,
     beta: ScaledScore,
+    is_endgame: bool,
 ) -> ScaledScore {
     let org_alpha = alpha;
     let mut best_move = Square::None;
@@ -369,7 +372,7 @@ pub fn search<NT: NodeType>(
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -search::<NT>(ctx, &next, depth, -beta, -alpha);
+            let score = -search::<NT>(ctx, &next, depth, -beta, -alpha, is_endgame);
             ctx.undo_pass();
             return score;
         } else {
@@ -391,6 +394,7 @@ pub fn search<NT: NodeType>(
 
     if !NT::PV_NODE {
         if let Some(tt_data) = tt_probe_result.data()
+            && (!is_endgame || tt_data.is_endgame())
             && tt_data.depth() >= depth
             && tt_data.selectivity() >= ctx.selectivity
             && tt_data.can_cut(beta)
@@ -407,6 +411,7 @@ pub fn search<NT: NodeType>(
                 alpha,
                 tt_key,
                 tt_probe_result.index(),
+                is_endgame,
             )
         {
             return score;
@@ -418,7 +423,7 @@ pub fn search<NT: NodeType>(
     }
 
     if move_list.count() > 1 {
-        crate::move_list::evaluate_moves(&mut move_list, ctx, board, tt_move);
+        crate::move_list::evaluate_moves(&mut move_list, ctx, board, depth, tt_move, is_endgame);
         move_list.sort();
     }
 
@@ -432,17 +437,17 @@ pub fn search<NT: NodeType>(
         let mut score = -ScaledScore::INF;
         if depth >= 2 && mv.reduction_depth > 0 {
             let d = depth - 1 - mv.reduction_depth.min(depth - 1);
-            score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha);
+            score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, is_endgame);
             if score > alpha {
-                score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha);
+                score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, is_endgame);
             }
         } else if !NT::PV_NODE || move_count > 1 {
-            score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha);
+            score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, is_endgame);
         }
 
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
             ctx.clear_pv();
-            score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha);
+            score = -search::<PV>(ctx, &next, depth - 1, -beta, -alpha, is_endgame);
         }
 
         ctx.undo(mv.sq);
@@ -478,7 +483,7 @@ pub fn search<NT: NodeType>(
         depth,
         best_move,
         ctx.selectivity,
-        n_empties == depth,
+        is_endgame,
     );
 
     best_score
@@ -634,6 +639,7 @@ fn stability_cutoff(board: &Board, n_empties: Depth, alpha: ScaledScore) -> Opti
 }
 
 /// Enhanced Transposition Cutoff
+#[allow(clippy::too_many_arguments)]
 fn enhanced_transposition_cutoff(
     ctx: &mut SearchContext,
     board: &Board,
@@ -642,6 +648,7 @@ fn enhanced_transposition_cutoff(
     alpha: ScaledScore,
     tt_key: u64,
     tt_entry_index: usize,
+    is_endgame: bool,
 ) -> Option<ScaledScore> {
     let etc_depth = depth - 1;
     for mv in move_list.iter() {
@@ -651,6 +658,7 @@ fn enhanced_transposition_cutoff(
         let etc_tt_key = next.hash();
         let etc_tt_probe_result = ctx.tt.probe(etc_tt_key);
         if let Some(etc_tt_data) = etc_tt_probe_result.data()
+            && (!is_endgame || etc_tt_data.is_endgame())
             && etc_tt_data.depth() >= etc_depth
             && etc_tt_data.selectivity() >= ctx.selectivity
         {
@@ -666,7 +674,7 @@ fn enhanced_transposition_cutoff(
                     depth,
                     mv.sq,
                     ctx.selectivity,
-                    ctx.empty_list.count() == depth,
+                    is_endgame,
                 );
                 return Some(score);
             }

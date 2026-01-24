@@ -11,13 +11,13 @@ use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::clone_biases;
 use crate::util::align::Align64;
 
-use super::{ACTIVATION_MAX, accumulate_scalar, apply_phase_activation_scalar};
+use super::{accumulate_scalar, apply_phase_activation_scalar};
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 use super::accumulate_avx512;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-use super::accumulate_avx2;
+use super::{ACTIVATION_MAX, accumulate_avx2};
 
 const NUM_PA_INPUTS: usize = 6;
 const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;

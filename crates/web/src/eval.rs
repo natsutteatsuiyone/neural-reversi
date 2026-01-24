@@ -9,7 +9,7 @@ use crate::{eval::network::Network, search::search_context::SearchContext};
 /// Macro for the WASM-specific evaluation weight file name.
 macro_rules! eval_weights_literal {
     () => {
-        "eval_wasm-882dcae6.zst"
+        "eval_wasm-549b18e6.zst"
     };
 }
 

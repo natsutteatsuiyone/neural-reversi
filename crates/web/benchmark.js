@@ -1,4 +1,4 @@
-import init, { BenchmarkRunner } from './dist/pkg/reversi_web.js';
+import init, { BenchmarkRunner } from './dist/pkg/web.js';
 
 // Constants
 const UI_UPDATE_DELAY = 100;

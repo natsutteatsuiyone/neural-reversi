@@ -71,6 +71,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     let tt_move = tt_probe_result.best_move();
 
     if let Some(tt_data) = tt_probe_result.data()
+        && tt_data.is_endgame()
         && tt_data.depth() >= n_empties
         && tt_data.selectivity() >= ctx.selectivity
         && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
@@ -264,106 +265,189 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         return score;
     }
 
-    fn search_child(ctx: &mut SearchContext, next: &Board, beta: Score) -> Score {
-        if ctx.empty_list.count() == 4 {
-            if let Some(score) = stability::stability_cutoff(next, 4, -beta) {
-                -score
-            } else {
-                let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
-                -solve4(ctx, next, -beta, sq1, sq2, sq3, sq4)
-            }
-        } else {
-            -shallow_search(ctx, next, -beta)
-        }
-    }
-
-    let key = board.hash();
-    let entry = probe_endgame_cache(key);
-    let mut tt_move = Square::None;
-    if let Some(entry_data) = &entry {
-        if entry_data.can_cut(beta) {
-            return entry_data.score;
-        }
-        tt_move = entry_data.best_move;
-    }
-
-    let mut best_move = Square::None;
-    let mut best_score = -SCORE_INF;
-    if tt_move != Square::None
-        && let Some(next) = board.try_make_move(tt_move)
-    {
-        ctx.update_endgame(tt_move);
-        let score = search_child(ctx, &next, beta);
-        ctx.undo_endgame(tt_move);
-
-        if score > best_score {
-            if score >= beta {
-                store_endgame_cache(key, beta, score, tt_move);
-                return score;
-            }
-            best_move = tt_move;
-            best_score = score;
-        }
-    }
-
-    let mut moves = board.get_moves().0;
-    if moves == 0 {
+    let mut moves = board.get_moves();
+    if moves.is_empty() {
+        ctx.update_pass();
         let next = board.switch_players();
+        ctx.undo_pass();
         if next.has_legal_moves() {
             return -shallow_search(ctx, &next, -beta);
         } else {
             return board.solve(n_empties);
         }
-    } else if best_move != Square::None {
-        moves &= !best_move.bitboard().0;
-        if moves == 0 {
-            store_endgame_cache(key, beta, best_score, best_move);
-            return best_score;
-        }
     }
 
-    let mut priority_moves = moves & QUADRANT_MASK[ctx.empty_list.parity() as usize];
-    if priority_moves == 0 {
-        priority_moves = moves;
+    let key = board.hash();
+    let entry = probe_endgame_cache(key);
+    let tt_move = if let Some(entry_data) = &entry {
+        if entry_data.can_cut(beta) {
+            return entry_data.score;
+        }
+        entry_data.best_move
+    } else {
+        Square::None
+    };
+
+    let mut best_move = Square::None;
+    let mut best_score = -SCORE_INF;
+
+    // Search tt_move first if valid
+    if tt_move != Square::None && moves.contains(tt_move) {
+        let score = shallow_search_move(ctx, board, tt_move, beta);
+        if score >= beta {
+            store_endgame_cache(key, beta, score, tt_move);
+            return score;
+        }
+        best_score = score;
+        best_move = tt_move;
+        moves = moves.remove(tt_move);
     }
-    loop {
-        moves ^= priority_moves;
-        let mut sq = ctx.empty_list.first();
-        loop {
-            while !bitboard::Bitboard(priority_moves).contains(sq) {
-                sq = ctx.empty_list.next(sq);
-            }
 
-            priority_moves &= !sq.bitboard().0;
-            let next = board.make_move(sq);
+    if moves.is_empty() {
+        store_endgame_cache(key, beta, best_score, best_move);
+        return best_score;
+    }
 
-            ctx.update_endgame(sq);
-            let score = search_child(ctx, &next, beta);
-            ctx.undo_endgame(sq);
+    // Split moves into priority (matching parity) and remaining
+    let quadrant_mask = bitboard::Bitboard(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
+    let priority_moves = moves & quadrant_mask;
+    let remaining_moves = moves & !quadrant_mask;
 
-            if score > best_score {
-                if score >= beta {
-                    store_endgame_cache(key, beta, score, sq);
-                    return score;
-                }
-                best_move = sq;
-                best_score = score;
-            }
+    // Process corners first within priority moves
+    if let Some(score) = shallow_search_moves(
+        ctx,
+        board,
+        priority_moves.corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
+    ) {
+        return score;
+    }
 
-            if priority_moves == 0 {
-                break;
-            }
-        }
+    // Process non-corner priority moves
+    if let Some(score) = shallow_search_moves(
+        ctx,
+        board,
+        priority_moves.non_corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
+    ) {
+        return score;
+    }
 
-        priority_moves = moves;
-        if priority_moves == 0 {
-            break;
-        }
+    // Process corners first within remaining moves
+    if let Some(score) = shallow_search_moves(
+        ctx,
+        board,
+        remaining_moves.corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
+    ) {
+        return score;
+    }
+
+    // Process non-corner remaining moves
+    if let Some(score) = shallow_search_moves(
+        ctx,
+        board,
+        remaining_moves.non_corners(),
+        key,
+        beta,
+        &mut best_score,
+        &mut best_move,
+    ) {
+        return score;
     }
 
     store_endgame_cache(key, beta, best_score, best_move);
 
     best_score
+}
+
+/// Evaluates a single move in shallow search.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `sq` - Square to move to.
+/// * `beta` - Beta bound.
+///
+/// # Returns
+///
+/// Score after making move.
+#[inline(always)]
+fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta: Score) -> Score {
+    let next = board.make_move(sq);
+    ctx.update_endgame(sq);
+    let score = if ctx.empty_list.count() == 4 {
+        let next_key = next.hash();
+        let entry = probe_endgame_cache(next_key);
+        let next_beta = -beta + 1;
+        if let Some(entry_data) = &entry
+            && entry_data.can_cut(next_beta)
+        {
+            -entry_data.score
+        } else if let Some(score) = stability::stability_cutoff(&next, 4, -beta) {
+            -score
+        } else {
+            let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
+            let score = solve4(ctx, &next, -beta, sq1, sq2, sq3, sq4);
+            store_endgame_cache(next_key, next_beta, score, Square::None);
+            -score
+        }
+    } else {
+        -shallow_search(ctx, &next, -beta)
+    };
+    ctx.undo_endgame(sq);
+    score
+}
+
+/// Searches all moves in a bitboard for shallow search.
+///
+/// # Arguments
+///
+/// * `ctx` - Search context.
+/// * `board` - Current board position.
+/// * `moves` - Bitboard of moves to search.
+/// * `key` - Hash key for endgame cache.
+/// * `beta` - Beta bound.
+/// * `best_score` - Current best score (updated if better move found).
+/// * `best_move` - Current best move (updated if better move found).
+///
+/// # Returns
+///
+/// `Some(score)` if beta cutoff occurs, `None` otherwise.
+#[inline(always)]
+fn shallow_search_moves(
+    ctx: &mut SearchContext,
+    board: &Board,
+    moves: bitboard::Bitboard,
+    key: u64,
+    beta: Score,
+    best_score: &mut Score,
+    best_move: &mut Square,
+) -> Option<Score> {
+    for sq in moves.iter() {
+        let score = shallow_search_move(ctx, board, sq, beta);
+
+        if score > *best_score {
+            if score >= beta {
+                store_endgame_cache(key, beta, score, sq);
+                return Some(score);
+            }
+            *best_move = sq;
+            *best_score = score;
+        }
+    }
+
+    None
 }
 
 /// Sorts the four remaining empty squares based on quadrant parity.

@@ -8,6 +8,11 @@ export default defineConfig({
     wasm(),
     topLevelAwait()
   ],
+  resolve: {
+    alias: {
+      '/dist/pkg': resolve(__dirname, 'dist/pkg')
+    }
+  },
   build: {
     target: 'esnext',
     rollupOptions: {
