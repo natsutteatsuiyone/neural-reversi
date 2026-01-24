@@ -265,7 +265,7 @@ impl MoveList {
 
                 ctx.undo(mv.sq);
                 best_sort_value = best_sort_value.max(mv.value);
-            };
+            }
         }
 
         if best_sort_value == i32::MIN || !ctx.selectivity.is_enabled() {
