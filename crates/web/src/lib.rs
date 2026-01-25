@@ -246,8 +246,8 @@ impl Game {
 
     fn color_bitboards(&self) -> (u64, u64) {
         match self.current_player {
-            Disc::Black => (self.board.player.0, self.board.opponent.0),
-            Disc::White => (self.board.opponent.0, self.board.player.0),
+            Disc::Black => (self.board.player.bits(), self.board.opponent.bits()),
+            Disc::White => (self.board.opponent.bits(), self.board.player.bits()),
             Disc::Empty => (0, 0),
         }
     }

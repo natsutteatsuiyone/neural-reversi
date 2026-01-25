@@ -32,13 +32,13 @@ cfg_if! {
 pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
     cfg_if! {
         if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
-            Bitboard(unsafe { flip_avx512::flip(sq, p.0, o.0) })
+            Bitboard::new(unsafe { flip_avx512::flip(sq, p.bits(), o.bits()) })
         } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
-            Bitboard(unsafe { flip_avx2::flip(sq, p.0, o.0) })
+            Bitboard::new(unsafe { flip_avx2::flip(sq, p.bits(), o.bits()) })
         } else if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
-            Bitboard(flip_bmi2::flip(sq, p.0, o.0))
+            Bitboard::new(flip_bmi2::flip(sq, p.bits(), o.bits()))
         } else {
-            Bitboard(flip_kindergarten::flip(sq, p.0, o.0))
+            Bitboard::new(flip_kindergarten::flip(sq, p.bits(), o.bits()))
         }
     }
 }

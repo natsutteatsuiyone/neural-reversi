@@ -443,7 +443,7 @@ impl Board {
     #[inline]
     pub fn hash(&self) -> u64 {
         use rapidhash::v3;
-        let words = [self.player.0, self.opponent.0];
+        let words = [self.player.bits(), self.opponent.bits()];
         let bytes: &[u8] = unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, 16) };
         v3::rapidhash_v3_nano_inline::<true, false>(bytes, &v3::DEFAULT_RAPID_SECRETS)
     }
@@ -547,7 +547,9 @@ impl Board {
 
         let mut result = *self;
         for candidate in candidates {
-            if (candidate.player.0, candidate.opponent.0) < (result.player.0, result.opponent.0) {
+            if (candidate.player.bits(), candidate.opponent.bits())
+                < (result.player.bits(), result.opponent.bits())
+            {
                 result = candidate;
             }
         }
@@ -1319,7 +1321,8 @@ mod tests {
 
         for candidate in candidates {
             assert!(
-                (unique.player.0, unique.opponent.0) <= (candidate.player.0, candidate.opponent.0)
+                (unique.player.bits(), unique.opponent.bits())
+                    <= (candidate.player.bits(), candidate.opponent.bits())
             );
         }
     }

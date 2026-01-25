@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn test_move_new() {
         let sq = Square::E4;
-        let flipped = Bitboard(0x0000001000000000u64);
+        let flipped = Bitboard::new(0x0000001000000000u64);
         let mv = Move::new(sq, flipped);
 
         assert_eq!(mv.sq, sq);

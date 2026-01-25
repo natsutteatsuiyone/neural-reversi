@@ -89,12 +89,12 @@ impl SearchContext {
     ///
     /// # Arguments
     /// * `sq` - The square where the move is played
-    /// * `flipped` - The number of pieces flipped by the move
+    /// * `flipped` - The bitboard of flipped discs
     #[inline]
-    pub fn update(&mut self, sq: Square, flipped: u64) {
+    pub fn update(&mut self, sq: Square, flipped: Bitboard) {
         self.increment_nodes();
         self.pattern_features
-            .update(sq, Bitboard(flipped), self.ply(), self.side_to_move);
+            .update(sq, flipped, self.ply(), self.side_to_move);
         self.switch_players();
         self.empty_list.remove(sq);
     }

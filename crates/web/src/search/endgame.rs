@@ -309,7 +309,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     // Split moves into priority (matching parity) and remaining
-    let quadrant_mask = bitboard::Bitboard(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
+    let quadrant_mask = bitboard::Bitboard::new(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
     let priority_moves = moves & quadrant_mask;
     let remaining_moves = moves & !quadrant_mask;
 

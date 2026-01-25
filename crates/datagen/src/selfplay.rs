@@ -413,8 +413,8 @@ fn write_records_to_file(path_str: &str, records: &[GameRecord]) -> io::Result<(
     let mut writer = BufWriter::new(file);
 
     for record in records {
-        writer.write_u64::<LittleEndian>(record.board.player.0)?;
-        writer.write_u64::<LittleEndian>(record.board.opponent.0)?;
+        writer.write_u64::<LittleEndian>(record.board.player.bits())?;
+        writer.write_u64::<LittleEndian>(record.board.opponent.bits())?;
         writer.write_f32::<LittleEndian>(record.score)?;
         writer.write_i8(record.game_score)?;
         writer.write_u8(record.ply)?;

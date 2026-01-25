@@ -432,7 +432,7 @@ pub fn search<NT: NodeType>(
         move_count += 1;
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update(mv.sq, mv.flipped.0);
+        ctx.update(mv.sq, mv.flipped);
 
         let mut score = -ScaledScore::INF;
         if depth >= 2 && mv.reduction_depth > 0 {
@@ -528,7 +528,7 @@ pub fn evaluate_depth2(
     for mv in move_list.into_best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-        ctx.update(mv.sq, mv.flipped.0);
+        ctx.update(mv.sq, mv.flipped);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
         ctx.undo(mv.sq);
 
@@ -585,7 +585,7 @@ pub fn evaluate_depth1(
         }
         let next = board.make_move_with_flipped(flipped, sq);
 
-        ctx.update(sq, flipped.0);
+        ctx.update(sq, flipped);
         let score = -evaluate(ctx, &next);
         ctx.undo(sq);
 

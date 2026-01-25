@@ -414,11 +414,11 @@ impl PatternFeatures {
 
         cfg_if! {
             if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
-                unsafe { self.update_avx2(sq, flipped.0, ply, side_to_move) }
+                unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
             } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
-                self.update_wasm_simd(sq, flipped.0, ply, side_to_move)
+                self.update_wasm_simd(sq, flipped, ply, side_to_move)
             } else {
-                self.update_fallback(sq, flipped.0, ply, side_to_move);
+                self.update_fallback(sq, flipped, ply, side_to_move);
             }
         }
     }
@@ -426,7 +426,7 @@ impl PatternFeatures {
     /// AVX2-optimized implementation of pattern feature update.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
-    fn update_avx2(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
+    fn update_avx2(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
         use std::arch::x86_64::*;
 
         unsafe {
@@ -436,8 +436,8 @@ impl PatternFeatures {
             let f0 = _mm256_load_si256(f_ptr);
             let f1 = _mm256_load_si256(f_ptr.add(1));
 
-            let first_idx = flipped.trailing_zeros() as usize;
-            let mut bits = _blsr_u64(flipped);
+            let first_idx = flipped.bits().trailing_zeros() as usize;
+            let mut bits = _blsr_u64(flipped.bits());
 
             let first_fp = ef.get_unchecked(first_idx).as_m256_ptr();
             let mut sum0 = _mm256_load_si256(first_fp);
@@ -517,7 +517,13 @@ impl PatternFeatures {
     /// WebAssembly SIMD-optimized implementation of pattern feature update.
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
     #[target_feature(enable = "simd128")]
-    fn update_wasm_simd(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
+    fn update_wasm_simd(
+        &mut self,
+        sq: Square,
+        flipped: Bitboard,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
         use core::arch::wasm32::*;
 
         unsafe {
@@ -533,10 +539,10 @@ impl PatternFeatures {
             let mut sum2 = i16x8_splat(0);
             let mut sum3 = i16x8_splat(0);
 
-            let first_idx = flipped.trailing_zeros() as usize;
-            let mut bits = flipped & (flipped - 1);
+            let first_idx = flipped.bits().trailing_zeros() as usize;
+            let mut bits = flipped.bits() & (flipped.bits() - 1);
 
-            if bits != 0 || flipped != 0 {
+            if bits != 0 || flipped.bits() != 0 {
                 let first_fp = ef.get_unchecked(first_idx).as_v128_ptr();
                 sum0 = v128_load(first_fp);
                 sum1 = v128_load(first_fp.add(1));
@@ -654,7 +660,13 @@ impl PatternFeatures {
 
     /// Fallback implementation of pattern feature update for architectures without AVX2 support.
     #[allow(dead_code)]
-    fn update_fallback(&mut self, sq: Square, flipped: u64, ply: usize, side_to_move: SideToMove) {
+    fn update_fallback(
+        &mut self,
+        sq: Square,
+        flipped: Bitboard,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
         self.p_features.copy_within(ply..ply + 1, ply + 1);
         self.o_features.copy_within(ply..ply + 1, ply + 1);
         let p_out = &mut self.p_features[ply + 1];
@@ -670,7 +682,7 @@ impl PatternFeatures {
                 o_out[idx] -= delta;
             }
 
-            for x in Bitboard(flipped).iter() {
+            for x in flipped.iter() {
                 let flipped_sq = &EVAL_X2F[x as usize];
                 for &[feature_idx, power] in flipped_sq.features() {
                     let idx = feature_idx as usize;
@@ -687,7 +699,7 @@ impl PatternFeatures {
                 o_out[idx] -= delta << 1;
             }
 
-            for x in Bitboard(flipped).iter() {
+            for x in flipped.iter() {
                 let flipped_sq = &EVAL_X2F[x as usize];
                 for &[feature_idx, power] in flipped_sq.features() {
                     let idx = feature_idx as usize;
@@ -1202,7 +1214,7 @@ mod tests {
         let mut pf = PatternFeatures::new(&board, ply);
 
         let sq = Square::E1;
-        let flipped = Bitboard(
+        let flipped = Bitboard::new(
             (1u64 << Square::B1.index())
                 | (1u64 << Square::C1.index())
                 | (1u64 << Square::D1.index()),
@@ -1233,7 +1245,7 @@ mod tests {
         let mut pf = PatternFeatures::new(&board, ply);
 
         let sq = Square::E5;
-        let flipped = Bitboard(
+        let flipped = Bitboard::new(
             (1u64 << Square::B2.index())
                 | (1u64 << Square::C3.index())
                 | (1u64 << Square::D4.index()),
@@ -1273,7 +1285,7 @@ mod tests {
 
         // Move to D4 flips in multiple directions
         let sq = Square::D4;
-        let flipped = Bitboard(
+        let flipped = Bitboard::new(
             (1u64 << Square::D2.index())
                 | (1u64 << Square::D3.index())
                 | (1u64 << Square::B4.index())
@@ -1303,7 +1315,7 @@ mod tests {
         let mut pf = PatternFeatures::new(&board, ply);
 
         let sq = Square::D3;
-        let flipped = Bitboard(1u64 << Square::D4.index());
+        let flipped = Bitboard::new(1u64 << Square::D4.index());
 
         let mut new_board = board;
         new_board.player |= sq.bitboard() | flipped;
@@ -1325,7 +1337,7 @@ mod tests {
         let mut pf = PatternFeatures::new(&board, ply);
 
         let sq = Square::D3;
-        let flipped = Bitboard(1u64 << Square::D4.index());
+        let flipped = Bitboard::new(1u64 << Square::D4.index());
 
         let mut new_board = board;
         new_board.player |= sq.bitboard() | flipped;
@@ -1353,7 +1365,7 @@ mod tests {
 
         // Move to A1, flipping B1
         let sq = Square::A1;
-        let flipped = Bitboard(1u64 << Square::B1.index());
+        let flipped = Bitboard::new(1u64 << Square::B1.index());
 
         let mut new_board = board;
         new_board.player |= sq.bitboard() | flipped;
@@ -1380,7 +1392,7 @@ mod tests {
 
         // Move to H8, flipping G8
         let sq = Square::H8;
-        let flipped = Bitboard(1u64 << Square::G8.index());
+        let flipped = Bitboard::new(1u64 << Square::G8.index());
 
         let mut new_board = board;
         new_board.player |= sq.bitboard() | flipped;
@@ -1404,7 +1416,7 @@ mod tests {
 
         // From opponent's perspective: opponent places at D3, flips D5 (player's disc)
         let sq = Square::D3;
-        let flipped = Bitboard(1u64 << Square::D5.index());
+        let flipped = Bitboard::new(1u64 << Square::D5.index());
 
         // Compute expected board state after opponent's move
         // Opponent places disc, player's disc gets flipped
@@ -1435,7 +1447,7 @@ mod tests {
 
         // Opponent moves to E1, flipping B1-D1
         let sq = Square::E1;
-        let flipped = Bitboard(
+        let flipped = Bitboard::new(
             (1u64 << Square::B1.index())
                 | (1u64 << Square::C1.index())
                 | (1u64 << Square::D1.index()),
@@ -1486,7 +1498,7 @@ mod tests {
         ] {
             flipped_bits |= 1u64 << sq.index();
         }
-        let flipped = Bitboard(flipped_bits);
+        let flipped = Bitboard::new(flipped_bits);
 
         let mut new_board = board;
         new_board.player |= sq.bitboard() | flipped;
@@ -1508,10 +1520,10 @@ mod tests {
         let mut pf = PatternFeatures::new(&board, ply);
 
         let sq = Square::D3;
-        let flipped = Bitboard(1u64 << Square::D4.index());
+        let flipped = Bitboard::new(1u64 << Square::D4.index());
 
         // Call fallback directly
-        pf.update_fallback(sq, flipped.0, ply, SideToMove::Player);
+        pf.update_fallback(sq, flipped, ply, SideToMove::Player);
 
         // Compute expected result
         let mut new_board = board;
@@ -1531,9 +1543,9 @@ mod tests {
         let mut pf = PatternFeatures::new(&board, ply);
 
         let sq = Square::D3;
-        let flipped = Bitboard(1u64 << Square::D5.index());
+        let flipped = Bitboard::new(1u64 << Square::D5.index());
 
-        pf.update_fallback(sq, flipped.0, ply, SideToMove::Opponent);
+        pf.update_fallback(sq, flipped, ply, SideToMove::Opponent);
 
         let mut new_board = board;
         new_board.opponent |= sq.bitboard() | flipped;
@@ -1551,16 +1563,16 @@ mod tests {
         let ply = 0;
 
         let sq = Square::D3;
-        let flipped = Bitboard(1u64 << Square::D4.index());
+        let flipped = Bitboard::new(1u64 << Square::D4.index());
 
         // Compute with fallback
         let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped.0, ply, SideToMove::Player);
+        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Player);
 
         // Compute with AVX2
         let mut pf_avx2 = PatternFeatures::new(&board, ply);
         unsafe {
-            pf_avx2.update_avx2(sq, flipped.0, ply, SideToMove::Player);
+            pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Player);
         }
 
         // Compare results
@@ -1620,14 +1632,14 @@ mod tests {
 
             let board = Board::from_bitboards(player, opponent);
             let ply = 5;
-            let flipped = Bitboard(flipped_bits);
+            let flipped = Bitboard::new(flipped_bits);
 
             let mut pf_fallback = PatternFeatures::new(&board, ply);
-            pf_fallback.update_fallback(move_sq, flipped.0, ply, SideToMove::Player);
+            pf_fallback.update_fallback(move_sq, flipped, ply, SideToMove::Player);
 
             let mut pf_avx2 = PatternFeatures::new(&board, ply);
             unsafe {
-                pf_avx2.update_avx2(move_sq, flipped.0, ply, SideToMove::Player);
+                pf_avx2.update_avx2(move_sq, flipped, ply, SideToMove::Player);
             }
 
             for i in 0..NUM_PATTERN_FEATURES {
@@ -1657,16 +1669,16 @@ mod tests {
         let ply = 0;
 
         let sq = Square::D3;
-        let flipped = Bitboard(1u64 << Square::D5.index());
+        let flipped = Bitboard::new(1u64 << Square::D5.index());
 
         // Compute with fallback
         let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped.0, ply, SideToMove::Opponent);
+        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
 
         // Compute with AVX2
         let mut pf_avx2 = PatternFeatures::new(&board, ply);
         unsafe {
-            pf_avx2.update_avx2(sq, flipped.0, ply, SideToMove::Opponent);
+            pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Opponent);
         }
 
         // Compare results
@@ -1702,18 +1714,18 @@ mod tests {
         let ply = 5;
 
         let sq = Square::E1;
-        let flipped = Bitboard(
+        let flipped = Bitboard::new(
             (1u64 << Square::B1.index())
                 | (1u64 << Square::C1.index())
                 | (1u64 << Square::D1.index()),
         );
 
         let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped.0, ply, SideToMove::Opponent);
+        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
 
         let mut pf_avx2 = PatternFeatures::new(&board, ply);
         unsafe {
-            pf_avx2.update_avx2(sq, flipped.0, ply, SideToMove::Opponent);
+            pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Opponent);
         }
 
         for i in 0..NUM_PATTERN_FEATURES {

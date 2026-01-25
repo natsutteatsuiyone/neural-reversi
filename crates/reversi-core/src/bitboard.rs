@@ -16,7 +16,7 @@ const CORNER_MASK: u64 = 0x8100000000000081;
 /// Newtype wrapper for a 64-bit bitboard (bit 0 = A1, bit 63 = H8).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 #[repr(transparent)]
-pub struct Bitboard(pub u64);
+pub struct Bitboard(u64);
 
 impl Bitboard {
     /// Creates a new bitboard from raw bits.
@@ -31,6 +31,12 @@ impl Bitboard {
     #[inline(always)]
     pub const fn new(bits: u64) -> Self {
         Bitboard(bits)
+    }
+
+    /// Returns the raw 64-bit value.
+    #[inline(always)]
+    pub const fn bits(self) -> u64 {
+        self.0
     }
 
     /// Creates a bitboard with a single bit set at the given square.

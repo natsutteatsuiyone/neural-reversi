@@ -360,8 +360,8 @@ mod tests {
 
     #[test]
     fn test_to_bitboard() {
-        assert_eq!(Square::A1.bitboard(), Bitboard(1));
-        assert_eq!(Square::H8.bitboard(), Bitboard(0x8000000000000000));
+        assert_eq!(Square::A1.bitboard(), Bitboard::new(1));
+        assert_eq!(Square::H8.bitboard(), Bitboard::new(0x8000000000000000));
     }
 
     #[test]

@@ -339,12 +339,12 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
 ///
 /// Bitboard with stable discs for the player.
 pub fn get_stable_discs(player: Bitboard, opponent: Bitboard) -> Bitboard {
-    let central_mask = player.0 & 0x007e7e7e7e7e7e00;
+    let central_mask = player.bits() & 0x007e7e7e7e7e7e00;
     let mut full: [u64; 4] = [0; 4];
 
-    let mut stable = get_stable_edge(player.0, opponent.0);
-    stable |= get_full_lines(player.0 | opponent.0, &mut full) & central_mask;
-    Bitboard(get_stable_by_contact(central_mask, stable, &full))
+    let mut stable = get_stable_edge(player.bits(), opponent.bits());
+    stable |= get_full_lines(player.bits() | opponent.bits(), &mut full) & central_mask;
+    Bitboard::new(get_stable_by_contact(central_mask, stable, &full))
 }
 
 /// Threshold values for null window search (NWS) stability cutoff.

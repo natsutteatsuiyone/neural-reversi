@@ -753,7 +753,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         0xF0F0F0F000000000, 0xF0F0F0F00F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0xF0F0F0F0FFFFFFFF,
         0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
     ];
-    let quadrant_mask = Bitboard(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
+    let quadrant_mask = Bitboard::new(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
     let priority_moves = moves & quadrant_mask;
     let remaining_moves = moves & !quadrant_mask;
 

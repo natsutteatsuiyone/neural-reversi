@@ -92,7 +92,7 @@ fn evaluate_moves_midgame(
         } else {
             // Evaluate using shallow search
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update(mv.sq, mv.flipped.0);
+            ctx.update(mv.sq, mv.flipped);
 
             let score = match sort_depth {
                 0 => -search::evaluate(ctx, &next),
@@ -159,7 +159,7 @@ fn evaluate_moves_endgame(
         } else {
             // Evaluate using shallow search
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update(mv.sq, mv.flipped.0);
+            ctx.update(mv.sq, mv.flipped);
 
             let score = match sort_depth {
                 0 => -search::evaluate(ctx, &next),
