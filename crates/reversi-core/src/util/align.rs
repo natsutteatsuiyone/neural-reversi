@@ -3,18 +3,22 @@
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
-/// Wrapper type ensuring 64-byte alignment for SIMD performance.
+/// Wrapper type ensuring 64-byte alignment for SIMD operations and cache line optimization.
 #[repr(C, align(64))]
 pub struct Align64<T>(pub T);
 
 impl<T> Align64<T> {
     /// Returns a raw pointer to the wrapped value.
+    ///
+    /// The returned pointer is guaranteed to be 64-byte aligned.
     #[allow(dead_code)]
     pub fn as_ptr(&self) -> *const T {
         &self.0 as *const T
     }
 
     /// Returns a mutable raw pointer to the wrapped value.
+    ///
+    /// The returned pointer is guaranteed to be 64-byte aligned.
     pub fn as_mut_ptr(&mut self) -> *mut T {
         &mut self.0 as *mut T
     }
@@ -23,21 +27,18 @@ impl<T> Align64<T> {
 impl<T> Deref for Align64<T> {
     type Target = T;
 
-    /// Dereferences the aligned wrapper to access the inner value.
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T> DerefMut for Align64<T> {
-    /// Mutably dereferences the aligned wrapper to access the inner value.
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
 impl<T: Clone> Clone for Align64<T> {
-    /// Creates a copy of the aligned wrapper by cloning the inner value.
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
@@ -51,7 +52,6 @@ where
 {
     type Output = T::Output;
 
-    /// Provides indexed access to the wrapped value.
     fn index(&self, index: I) -> &Self::Output {
         &self.0[index]
     }
@@ -61,7 +61,6 @@ impl<T, I> IndexMut<I> for Align64<T>
 where
     T: IndexMut<I>,
 {
-    /// Provides mutable indexed access to the wrapped value.
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         &mut self.0[index]
     }
@@ -80,14 +79,12 @@ impl<T, const N: usize> Align64<[T; N]> {
 }
 
 impl<T: Default> Default for Align64<T> {
-    /// Creates an aligned wrapper with the default value of the inner type.
     fn default() -> Self {
         Self(T::default())
     }
 }
 
 impl<T: fmt::Debug> fmt::Debug for Align64<T> {
-    /// Formats the aligned wrapper by delegating to the inner value's Debug implementation.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
