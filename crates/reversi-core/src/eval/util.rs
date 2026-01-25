@@ -1,7 +1,7 @@
 //! Utility functions for neural network evaluation.
 
 use crate::{
-    eval::pattern_feature::{PATTERN_FEATURE_OFFSETS, PatternFeature},
+    eval::pattern_feature::{NUM_PATTERN_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature},
     util::align::Align64,
 };
 
@@ -36,13 +36,19 @@ pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
 /// # Arguments
 ///
 /// * `pattern_feature` - Pattern features from the board.
-/// * `idx` - Pattern feature index.
+/// * `idx` - Pattern feature index. Must be less than `NUM_PATTERN_FEATURES`.
 ///
 /// # Returns
 ///
 /// Feature offset.
 #[inline(always)]
 pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
+    debug_assert!(
+        idx < NUM_PATTERN_FEATURES,
+        "feature index {} out of bounds (max {})",
+        idx,
+        NUM_PATTERN_FEATURES - 1
+    );
     *unsafe { PATTERN_FEATURE_OFFSETS.get_unchecked(idx) }
         + unsafe { pattern_feature.get_unchecked(idx) } as usize
 }

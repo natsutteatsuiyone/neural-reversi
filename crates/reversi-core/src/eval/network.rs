@@ -33,6 +33,8 @@ const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
 const L2_OUTPUT_DIMS: usize = 64;
 const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
 
+const _: () = assert!(L1_OUTPUT_DIMS == L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS);
+
 const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS + BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS;
 const LO_PADDED_INPUT_DIMS: usize = ceil_to_multiple(LO_INPUT_DIMS, 32);
 
@@ -174,6 +176,13 @@ impl Network {
         mobility: u8,
         ply: usize,
     ) -> ScaledScore {
+        debug_assert!(
+            ply < NUM_LAYER_STACKS,
+            "ply {} out of valid range 0-{}",
+            ply,
+            NUM_LAYER_STACKS - 1
+        );
+
         self.base_input
             .forward(pattern_feature, &mut buffers.base_out[..BASE_OUTPUT_DIMS]);
         self.pa_input
