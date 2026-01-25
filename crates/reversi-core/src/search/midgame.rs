@@ -118,7 +118,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         // Sort all root moves by score for consistent ordering
         ctx.sort_all_root_moves();
-        let best_move = ctx.get_best_root_move().unwrap();
+        let best_move = ctx
+            .get_best_root_move()
+            .expect("internal error: no root moves after search");
 
         // Notify time manager about search progress
         if let Some(ref tm) = time_manager {
@@ -146,7 +148,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
     }
 
-    let rm = ctx.get_best_root_move().unwrap();
+    let rm = ctx
+        .get_best_root_move()
+        .expect("internal error: no root moves after search");
     SearchResult::from_root_move(
         &ctx.root_moves,
         &rm,

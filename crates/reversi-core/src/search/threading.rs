@@ -593,10 +593,9 @@ impl Thread {
         th_state.active_split_point = Some(sp.clone());
 
         // Try to allocate available threads
-        self.pool
-            .upgrade()
-            .unwrap()
-            .assign_helpers_to_split_point(sp);
+        if let Some(pool) = self.pool.upgrade() {
+            pool.assign_helpers_to_split_point(sp);
+        }
 
         // Everything is set up. The owner thread enters the idle loop, from which
         // it will instantly launch a search, because its 'searching' flag is set.

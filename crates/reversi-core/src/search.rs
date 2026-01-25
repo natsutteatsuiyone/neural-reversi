@@ -216,7 +216,10 @@ impl Search {
         }
 
         let result_receiver = self.threads.start_thinking(task);
-        let result = result_receiver.recv().unwrap();
+        let result = result_receiver.recv().unwrap_or_else(|_| {
+            // Channel closed - search thread may have panicked. Return fallback.
+            self.quick_move(board)
+        });
 
         // Stop timer thread
         self.threads.stop_timer();

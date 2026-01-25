@@ -14,7 +14,7 @@ pub trait SearchStrategy: Copy + Clone + 'static {
     /// Whether this is an endgame search (used for TT storage flag).
     const IS_ENDGAME: bool;
 
-    /// Whether to use Late Move Reduction (LMR).
+    /// Whether to use Score-Based Reduction (SBR).
     const USE_SBR: bool;
 
     /// Minimum depth for Enhanced Transposition Cutoff (0 = always apply).

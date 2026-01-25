@@ -173,7 +173,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         // Check abort or time limit
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
             ctx.sort_all_root_moves();
-            let best_move = ctx.get_best_root_move().unwrap();
+            let best_move = ctx
+                .get_best_root_move()
+                .expect("internal error: no root moves after search");
             return SearchResult::from_root_move(
                 &ctx.root_moves,
                 &best_move,
@@ -186,7 +188,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 
     ctx.sort_all_root_moves();
-    let rm = ctx.get_best_root_move().unwrap();
+    let rm = ctx
+        .get_best_root_move()
+        .expect("internal error: no root moves after search");
     SearchResult::from_root_move(
         &ctx.root_moves,
         &rm,
