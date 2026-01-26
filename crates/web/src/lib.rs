@@ -2,7 +2,10 @@ mod eval;
 mod level;
 mod move_list;
 mod probcut;
+mod probcut_datagen;
 mod search;
+
+pub use probcut_datagen::{ProbCutDatagen, ProbCutDatagenResult};
 
 use crate::{
     eval::Eval,
