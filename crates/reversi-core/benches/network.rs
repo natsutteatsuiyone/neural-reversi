@@ -38,7 +38,7 @@ fn board_from_rows(rows: [&str; 8]) -> Board {
 
 fn load_main_network() -> Network {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let eval_path = format!("{}/../{}", manifest_dir, EVAL_FILE_NAME);
+    let eval_path = format!("{}/../../{}", manifest_dir, EVAL_FILE_NAME);
     let bytes =
         std::fs::read(&eval_path).expect("failed to read main evaluation network weights file");
     Network::from_bytes(&bytes).expect("failed to load main evaluation network weights")
@@ -46,7 +46,7 @@ fn load_main_network() -> Network {
 
 fn load_small_network() -> NetworkSmall {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let eval_path = format!("{}/../{}", manifest_dir, EVAL_SM_FILE_NAME);
+    let eval_path = format!("{}/../../{}", manifest_dir, EVAL_SM_FILE_NAME);
     let bytes =
         std::fs::read(&eval_path).expect("failed to read small evaluation network weights file");
     NetworkSmall::from_bytes(&bytes).expect("failed to load small evaluation network weights")
