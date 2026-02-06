@@ -11,13 +11,16 @@ use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::clone_biases;
 use crate::util::align::Align64;
 
-use super::{accumulate_scalar, apply_base_activation_scalar};
+use super::accumulate_scalar;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 use super::accumulate_avx512;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-use super::{ACTIVATION_MAX, accumulate_avx2};
+use super::accumulate_avx2;
+
+const ACTIVATION_MAX: i16 = 255 * 2;
+const ACTIVATION_SHIFT: u32 = 10;
 
 #[allow(unused_macros)]
 macro_rules! impl_base_input_apply_activation {
@@ -198,6 +201,19 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
 
         accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
-        apply_base_activation_scalar::<OUTPUT_DIMS, HIDDEN_DIMS>(&acc, output);
+
+        const { assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS) }
+        debug_assert!(output.len() >= OUTPUT_DIMS);
+        let acc_ptr = acc.0.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        unsafe {
+            for i in 0..OUTPUT_DIMS {
+                let v0 = *acc_ptr.add(i);
+                let v1 = *acc_ptr.add(i + OUTPUT_DIMS);
+                let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
+                let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
+                *out_ptr.add(i) = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
+            }
+        }
     }
 }

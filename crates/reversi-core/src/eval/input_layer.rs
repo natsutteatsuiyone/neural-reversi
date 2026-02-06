@@ -9,9 +9,6 @@ pub use phase_adaptive_input::PhaseAdaptiveInput;
 use crate::eval::pattern_feature::{NUM_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
 
-const ACTIVATION_MAX: i16 = 255 * 2;
-const ACTIVATION_SHIFT: u32 = 10;
-
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod simd_layout {
     use std::mem::size_of;
@@ -248,51 +245,6 @@ fn accumulate_scalar<const DIMS: usize>(
                 *acc_j += *row_ptr.add(j);
                 j += 1;
             }
-        }
-    }
-}
-
-#[inline(always)]
-fn clamp_activation(value: i16) -> u16 {
-    if value <= 0 {
-        0
-    } else if value >= ACTIVATION_MAX {
-        ACTIVATION_MAX as u16
-    } else {
-        value as u16
-    }
-}
-
-#[inline(always)]
-fn apply_base_activation_scalar<const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize>(
-    acc: &[i16; HIDDEN_DIMS],
-    output: &mut [u8],
-) {
-    debug_assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
-    debug_assert!(output.len() >= OUTPUT_DIMS);
-    let acc_ptr = acc.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    unsafe {
-        for i in 0..OUTPUT_DIMS {
-            let sum0 = clamp_activation(*acc_ptr.add(i)) as u32;
-            let sum1 = clamp_activation(*acc_ptr.add(i + OUTPUT_DIMS)) as u32;
-            *out_ptr.add(i) = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
-        }
-    }
-}
-
-#[inline(always)]
-fn apply_phase_activation_scalar<const OUTPUT_DIMS: usize>(
-    acc: &[i16; OUTPUT_DIMS],
-    output: &mut [u8],
-) {
-    debug_assert!(output.len() >= OUTPUT_DIMS);
-    let acc_ptr = acc.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    unsafe {
-        for i in 0..OUTPUT_DIMS {
-            let v = clamp_activation(*acc_ptr.add(i)) as u32;
-            *out_ptr.add(i) = ((v * v) >> ACTIVATION_SHIFT) as u8;
         }
     }
 }

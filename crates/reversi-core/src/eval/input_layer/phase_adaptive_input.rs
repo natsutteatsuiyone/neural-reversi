@@ -11,13 +11,16 @@ use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::clone_biases;
 use crate::util::align::Align64;
 
-use super::{accumulate_scalar, apply_phase_activation_scalar};
+use super::accumulate_scalar;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 use super::accumulate_avx512;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-use super::{ACTIVATION_MAX, accumulate_avx2};
+use super::accumulate_avx2;
+
+const ACTIVATION_MAX: i16 = 255 * 2;
+const ACTIVATION_SHIFT: u32 = 10;
 
 const NUM_PA_INPUTS: usize = 6;
 const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
@@ -195,7 +198,16 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_scalar::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
-        apply_phase_activation_scalar::<OUTPUT_DIMS>(&acc, output);
+
+        debug_assert!(output.len() >= OUTPUT_DIMS);
+        let acc_ptr = acc.0.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        unsafe {
+            for i in 0..OUTPUT_DIMS {
+                let v = (*acc_ptr.add(i)).clamp(0, ACTIVATION_MAX) as u32;
+                *out_ptr.add(i) = ((v * v) >> ACTIVATION_SHIFT) as u8;
+            }
+        }
     }
 }
 
