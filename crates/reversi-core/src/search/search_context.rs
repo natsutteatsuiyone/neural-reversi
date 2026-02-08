@@ -199,9 +199,9 @@ impl SearchContext {
     pub fn get_pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
         if self.side_to_move == SideToMove::Player {
-            &self.pattern_features.p_features[ply]
+            self.pattern_features.p_feature(ply)
         } else {
-            &self.pattern_features.o_features[ply]
+            self.pattern_features.o_feature(ply)
         }
     }
 

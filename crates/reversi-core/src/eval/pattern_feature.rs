@@ -13,6 +13,7 @@
 //! - 0 = current player's disc
 //! - 1 = opponent's disc
 //! - 2 = empty square
+use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
 
 use cfg_if::cfg_if;
@@ -105,11 +106,6 @@ impl PatternFeature {
     unsafe fn as_m256_ptr(&self) -> *const std::arch::x86_64::__m256i {
         self.data.as_ptr() as *const std::arch::x86_64::__m256i
     }
-
-    #[inline(always)]
-    unsafe fn as_mut_m256_ptr(&mut self) -> *mut std::arch::x86_64::__m256i {
-        self.data.as_mut_ptr() as *mut std::arch::x86_64::__m256i
-    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -117,11 +113,6 @@ impl PatternFeature {
     #[inline(always)]
     unsafe fn as_v128_ptr(&self) -> *const core::arch::wasm32::v128 {
         self.data.as_ptr() as *const core::arch::wasm32::v128
-    }
-
-    #[inline(always)]
-    unsafe fn as_mut_v128_ptr(&mut self) -> *mut core::arch::wasm32::v128 {
-        self.data.as_mut_ptr() as *mut core::arch::wasm32::v128
     }
 }
 
@@ -356,34 +347,40 @@ static EVAL_X2F: [CoordinateToFeature; BOARD_SQUARES] = generate_eval_x2f();
 /// Maintains pattern features for each ply of the game, allowing
 /// incremental updates as moves are made.
 pub struct PatternFeatures {
-    /// Pattern features from the current player's perspective.
-    pub p_features: [PatternFeature; MAX_PLY],
-    /// Pattern features from the opponent's perspective.
-    pub o_features: [PatternFeature; MAX_PLY],
+    p_features: [MaybeUninit<PatternFeature>; MAX_PLY],
+    o_features: [MaybeUninit<PatternFeature>; MAX_PLY],
 }
 
 impl PatternFeatures {
+    /// Returns a reference to the player's pattern feature at the given ply.
+    #[inline(always)]
+    pub fn p_feature(&self, ply: usize) -> &PatternFeature {
+        debug_assert!(ply < MAX_PLY);
+        unsafe { self.p_features.get_unchecked(ply).assume_init_ref() }
+    }
+
+    /// Returns a reference to the opponent's pattern feature at the given ply.
+    #[inline(always)]
+    pub fn o_feature(&self, ply: usize) -> &PatternFeature {
+        debug_assert!(ply < MAX_PLY);
+        unsafe { self.o_features.get_unchecked(ply).assume_init_ref() }
+    }
+
     /// Creates new pattern features from the given board position.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - The current board position
-    /// * `ply` - The current ply number
-    ///
-    /// # Returns
-    ///
-    /// A new PatternFeatures instance with features computed for both players.
     pub fn new(board: &Board, ply: usize) -> Self {
         debug_assert!(ply < MAX_PLY);
 
         let mut pattern_features = PatternFeatures {
-            p_features: [PatternFeature::new(); MAX_PLY],
-            o_features: [PatternFeature::new(); MAX_PLY],
+            p_features: [const { MaybeUninit::uninit() }; MAX_PLY],
+            o_features: [const { MaybeUninit::uninit() }; MAX_PLY],
         };
 
+        pattern_features.p_features[ply] = MaybeUninit::new(PatternFeature::new());
+        pattern_features.o_features[ply] = MaybeUninit::new(PatternFeature::new());
+
         let o_board = board.switch_players();
-        let p_feature = &mut pattern_features.p_features[ply];
-        let o_feature = &mut pattern_features.o_features[ply];
+        let p_feature = unsafe { pattern_features.p_features[ply].assume_init_mut() };
+        let o_feature = unsafe { pattern_features.o_features[ply].assume_init_mut() };
         for (i, f2x) in EVAL_F2X.iter().enumerate() {
             for j in 0..f2x.n_square {
                 let sq = f2x.squares[j];
@@ -476,15 +473,15 @@ impl PatternFeatures {
 
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
-            let p_in_ptr = p_feats.get_unchecked(ply).as_m256_ptr();
-            let o_in_ptr = o_feats.get_unchecked(ply).as_m256_ptr();
+            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_m256_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_m256_ptr();
             let p_in0 = _mm256_load_si256(p_in_ptr);
             let p_in1 = _mm256_load_si256(p_in_ptr.add(1));
             let o_in0 = _mm256_load_si256(o_in_ptr);
             let o_in1 = _mm256_load_si256(o_in_ptr.add(1));
 
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_m256_ptr();
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m256i;
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m256i;
 
             let (delta_p0, delta_p1, delta_o0, delta_o1) = if side_to_move == SideToMove::Player {
                 (
@@ -595,8 +592,8 @@ impl PatternFeatures {
 
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
-            let p_in_ptr = p_feats.get_unchecked(ply).as_v128_ptr();
-            let o_in_ptr = o_feats.get_unchecked(ply).as_v128_ptr();
+            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
 
             let p_in0 = v128_load(p_in_ptr);
             let p_in1 = v128_load(p_in_ptr.add(1));
@@ -608,8 +605,8 @@ impl PatternFeatures {
             let o_in2 = v128_load(o_in_ptr.add(2));
             let o_in3 = v128_load(o_in_ptr.add(3));
 
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_v128_ptr();
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_v128_ptr();
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
 
             match side_to_move {
                 SideToMove::Player => {
@@ -667,10 +664,10 @@ impl PatternFeatures {
         ply: usize,
         side_to_move: SideToMove,
     ) {
-        self.p_features.copy_within(ply..ply + 1, ply + 1);
-        self.o_features.copy_within(ply..ply + 1, ply + 1);
-        let p_out = &mut self.p_features[ply + 1];
-        let o_out = &mut self.o_features[ply + 1];
+        self.p_features[ply + 1] = self.p_features[ply];
+        self.o_features[ply + 1] = self.o_features[ply];
+        let p_out = unsafe { self.p_features.get_unchecked_mut(ply + 1).assume_init_mut() };
+        let o_out = unsafe { self.o_features.get_unchecked_mut(ply + 1).assume_init_mut() };
 
         let placed = &EVAL_X2F[sq.index()];
 
@@ -967,8 +964,8 @@ mod tests {
         // Features should be computed for both players
         for i in 0..NUM_PATTERN_FEATURES {
             // Features should be within valid range
-            let p_val = pf.p_features[ply][i];
-            let o_val = pf.o_features[ply][i];
+            let p_val = unsafe { pf.p_feature(ply) }[i];
+            let o_val = unsafe { pf.o_feature(ply) }[i];
             let max_val = calc_pattern_size(i) as u16;
             assert!(
                 p_val < max_val,
@@ -1000,9 +997,12 @@ mod tests {
         // Player features of board should match opponent features of switched board
         for i in 0..NUM_PATTERN_FEATURES {
             assert_eq!(
-                pf1.p_features[0][i], pf2.o_features[0][i],
+                pf1.p_feature(0)[i],
+                pf2.o_feature(0)[i],
                 "Feature {} mismatch: p1={} != o2={}",
-                i, pf1.p_features[0][i], pf2.o_features[0][i]
+                i,
+                pf1.p_feature(0)[i],
+                pf2.o_feature(0)[i]
             );
         }
     }
@@ -1151,24 +1151,26 @@ mod tests {
         context: &str,
     ) {
         for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf.o_features[ply + 1][i],
-                pf_fresh.p_features[ply + 1][i],
-                "{}: o_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.o_features[ply + 1][i],
-                pf_fresh.p_features[ply + 1][i]
-            );
-            assert_eq!(
-                pf.p_features[ply + 1][i],
-                pf_fresh.o_features[ply + 1][i],
-                "{}: p_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.p_features[ply + 1][i],
-                pf_fresh.o_features[ply + 1][i]
-            );
+            unsafe {
+                assert_eq!(
+                    pf.o_feature(ply + 1)[i],
+                    pf_fresh.p_feature(ply + 1)[i],
+                    "{}: o_features[{}] mismatch: {} != {}",
+                    context,
+                    i,
+                    pf.o_feature(ply + 1)[i],
+                    pf_fresh.p_feature(ply + 1)[i]
+                );
+                assert_eq!(
+                    pf.p_feature(ply + 1)[i],
+                    pf_fresh.o_feature(ply + 1)[i],
+                    "{}: p_features[{}] mismatch: {} != {}",
+                    context,
+                    i,
+                    pf.p_feature(ply + 1)[i],
+                    pf_fresh.o_feature(ply + 1)[i]
+                );
+            }
         }
     }
 
@@ -1180,24 +1182,26 @@ mod tests {
         context: &str,
     ) {
         for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf.p_features[ply + 1][i],
-                pf_fresh.p_features[ply + 1][i],
-                "{}: p_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.p_features[ply + 1][i],
-                pf_fresh.p_features[ply + 1][i]
-            );
-            assert_eq!(
-                pf.o_features[ply + 1][i],
-                pf_fresh.o_features[ply + 1][i],
-                "{}: o_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.o_features[ply + 1][i],
-                pf_fresh.o_features[ply + 1][i]
-            );
+            unsafe {
+                assert_eq!(
+                    pf.p_feature(ply + 1)[i],
+                    pf_fresh.p_feature(ply + 1)[i],
+                    "{}: p_features[{}] mismatch: {} != {}",
+                    context,
+                    i,
+                    pf.p_feature(ply + 1)[i],
+                    pf_fresh.p_feature(ply + 1)[i]
+                );
+                assert_eq!(
+                    pf.o_feature(ply + 1)[i],
+                    pf_fresh.o_feature(ply + 1)[i],
+                    "{}: o_features[{}] mismatch: {} != {}",
+                    context,
+                    i,
+                    pf.o_feature(ply + 1)[i],
+                    pf_fresh.o_feature(ply + 1)[i]
+                );
+            }
         }
     }
 
@@ -1577,22 +1581,24 @@ mod tests {
 
         // Compare results
         for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_features[ply + 1][i],
-                pf_avx2.p_features[ply + 1][i],
-                "AVX2 vs fallback p_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.p_features[ply + 1][i],
-                pf_avx2.p_features[ply + 1][i]
-            );
-            assert_eq!(
-                pf_fallback.o_features[ply + 1][i],
-                pf_avx2.o_features[ply + 1][i],
-                "AVX2 vs fallback o_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.o_features[ply + 1][i],
-                pf_avx2.o_features[ply + 1][i]
-            );
+            unsafe {
+                assert_eq!(
+                    pf_fallback.p_feature(ply + 1)[i],
+                    pf_avx2.p_feature(ply + 1)[i],
+                    "AVX2 vs fallback p_features[{}] mismatch: {} != {}",
+                    i,
+                    pf_fallback.p_feature(ply + 1)[i],
+                    pf_avx2.p_feature(ply + 1)[i]
+                );
+                assert_eq!(
+                    pf_fallback.o_feature(ply + 1)[i],
+                    pf_avx2.o_feature(ply + 1)[i],
+                    "AVX2 vs fallback o_features[{}] mismatch: {} != {}",
+                    i,
+                    pf_fallback.o_feature(ply + 1)[i],
+                    pf_avx2.o_feature(ply + 1)[i]
+                );
+            }
         }
     }
 
@@ -1643,20 +1649,22 @@ mod tests {
             }
 
             for i in 0..NUM_PATTERN_FEATURES {
-                assert_eq!(
-                    pf_fallback.p_features[ply + 1][i],
-                    pf_avx2.p_features[ply + 1][i],
-                    "Player position {:?} feature {} p mismatch",
-                    move_sq,
-                    i
-                );
-                assert_eq!(
-                    pf_fallback.o_features[ply + 1][i],
-                    pf_avx2.o_features[ply + 1][i],
-                    "Player position {:?} feature {} o mismatch",
-                    move_sq,
-                    i
-                );
+                unsafe {
+                    assert_eq!(
+                        pf_fallback.p_feature(ply + 1)[i],
+                        pf_avx2.p_feature(ply + 1)[i],
+                        "Player position {:?} feature {} p mismatch",
+                        move_sq,
+                        i
+                    );
+                    assert_eq!(
+                        pf_fallback.o_feature(ply + 1)[i],
+                        pf_avx2.o_feature(ply + 1)[i],
+                        "Player position {:?} feature {} o mismatch",
+                        move_sq,
+                        i
+                    );
+                }
             }
         }
     }
@@ -1683,22 +1691,24 @@ mod tests {
 
         // Compare results
         for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_features[ply + 1][i],
-                pf_avx2.p_features[ply + 1][i],
-                "AVX2 Opponent vs fallback p_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.p_features[ply + 1][i],
-                pf_avx2.p_features[ply + 1][i]
-            );
-            assert_eq!(
-                pf_fallback.o_features[ply + 1][i],
-                pf_avx2.o_features[ply + 1][i],
-                "AVX2 Opponent vs fallback o_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.o_features[ply + 1][i],
-                pf_avx2.o_features[ply + 1][i]
-            );
+            unsafe {
+                assert_eq!(
+                    pf_fallback.p_feature(ply + 1)[i],
+                    pf_avx2.p_feature(ply + 1)[i],
+                    "AVX2 Opponent vs fallback p_features[{}] mismatch: {} != {}",
+                    i,
+                    pf_fallback.p_feature(ply + 1)[i],
+                    pf_avx2.p_feature(ply + 1)[i]
+                );
+                assert_eq!(
+                    pf_fallback.o_feature(ply + 1)[i],
+                    pf_avx2.o_feature(ply + 1)[i],
+                    "AVX2 Opponent vs fallback o_features[{}] mismatch: {} != {}",
+                    i,
+                    pf_fallback.o_feature(ply + 1)[i],
+                    pf_avx2.o_feature(ply + 1)[i]
+                );
+            }
         }
     }
 
@@ -1729,18 +1739,20 @@ mod tests {
         }
 
         for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_features[ply + 1][i],
-                pf_avx2.p_features[ply + 1][i],
-                "AVX2 Opponent multi-flip p[{}] mismatch",
-                i
-            );
-            assert_eq!(
-                pf_fallback.o_features[ply + 1][i],
-                pf_avx2.o_features[ply + 1][i],
-                "AVX2 Opponent multi-flip o[{}] mismatch",
-                i
-            );
+            unsafe {
+                assert_eq!(
+                    pf_fallback.p_feature(ply + 1)[i],
+                    pf_avx2.p_feature(ply + 1)[i],
+                    "AVX2 Opponent multi-flip p[{}] mismatch",
+                    i
+                );
+                assert_eq!(
+                    pf_fallback.o_feature(ply + 1)[i],
+                    pf_avx2.o_feature(ply + 1)[i],
+                    "AVX2 Opponent multi-flip o[{}] mismatch",
+                    i
+                );
+            }
         }
     }
 

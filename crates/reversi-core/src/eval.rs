@@ -204,7 +204,7 @@ impl Eval {
         let pattern_features = pattern_feature::PatternFeatures::new(board, ply);
 
         self.network
-            .evaluate(board, &pattern_features.p_features[ply], ply)
+            .evaluate(board, pattern_features.p_feature(ply), ply)
     }
 
     /// Clears the evaluation cache.
