@@ -583,10 +583,9 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
 
     let mut moves = board.get_moves();
     if moves.is_empty() {
-        ctx.update_pass();
         let next = board.switch_players();
-        ctx.undo_pass();
         if next.has_legal_moves() {
+            ctx.increment_nodes();
             return -null_window_search_with_ec(ctx, &next, -beta);
         } else {
             return board.solve(n_empties);
@@ -708,10 +707,9 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 
     let mut moves = board.get_moves();
     if moves.is_empty() {
-        ctx.update_pass();
         let next = board.switch_players();
-        ctx.undo_pass();
         if next.has_legal_moves() {
+            ctx.increment_nodes();
             return -shallow_search(ctx, &next, -beta);
         } else {
             return board.solve(n_empties);
