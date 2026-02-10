@@ -57,33 +57,6 @@ datagen opening --depth 9 > openings.txt
 
 - `--depth`: Maximum number of moves to include in the sequences (default: 8)
 
-### feature
-
-Extracts neural network training features from self-play data. The feature extraction process generates all 8 symmetrical variations of each board position (rotations and reflections) to augment the training data. When deduplication is enabled, identical positions are automatically removed to reduce dataset redundancy.
-
-```bash
-datagen feature --input-dir ./data --output-dir ./features --threads 8 --score-correction
-```
-
-#### Options
-
-- `--input-dir`: Input directory containing self-play data files (`.bin` format)
-- `--output-dir`: Output directory for compressed feature data files
-- `--threads`: Number of threads to use for parallel processing (default: 1)
-- `--score-correction`: Apply endgame score correction by blending evaluation scores with game outcomes (default: false)
-- `--ply-min`: Minimum ply value to include in feature extraction (0-59, default: 0)
-- `--ply-max`: Maximum ply value to include in feature extraction (0-59, default: 59)
-- `--dedup`: Enable deduplication of identical positions across the dataset (default: false)
-
-#### Data format
-
-zstd compressed format with:
-
-- Score (f32) - neural network teacher signal
-- Pattern features (u16 array) - neural network input features
-- Mobility (u8) - number of legal moves for the current player
-- Ply (u8) - can be used for training weights
-
 ### probcut
 
 Generates training data for calculating ProbCut parameters. This command analyzes game positions with multiple search depths to create correlation data between shallow and deep search results.
@@ -125,5 +98,4 @@ datagen shuffle --input-dir ./data --output-dir ./shuffled_data --pattern "*.bin
 ## Workflow
 
 1. Generate self-play data
-2. Extract features from self-play data
-3. Train neural network using extracted features
+2. Train neural network using self-play data

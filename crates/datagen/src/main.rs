@@ -1,4 +1,3 @@
-mod feature;
 mod opening;
 mod probcut;
 mod selfplay;
@@ -16,22 +15,6 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum SubCommands {
-    Feature {
-        #[arg(short, long)]
-        input_dir: String,
-
-        #[arg(short, long)]
-        output_dir: String,
-
-        #[arg(short, long, default_value = "1")]
-        threads: usize,
-
-        #[arg(long, default_value = "0")]
-        ply_min: u8,
-
-        #[arg(long, default_value = "59")]
-        ply_max: u8,
-    },
     Selfplay {
         #[arg(long, default_value = "100000000")]
         games: u32,
@@ -95,15 +78,6 @@ enum SubCommands {
 fn main() {
     let args = Cli::parse();
     match args.command {
-        SubCommands::Feature {
-            input_dir,
-            output_dir,
-            threads,
-            ply_min,
-            ply_max,
-        } => {
-            feature::execute(&input_dir, &output_dir, threads, ply_min, ply_max).unwrap();
-        }
         SubCommands::Selfplay {
             games,
             records_per_file,
