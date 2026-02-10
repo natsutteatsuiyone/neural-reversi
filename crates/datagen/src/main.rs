@@ -72,6 +72,9 @@ enum SubCommands {
 
         #[arg(short = 'n', long)]
         num_output_files: Option<usize>,
+
+        #[arg(short = 'm', long, default_value_t = 0)]
+        min_ply: u8,
     },
 }
 
@@ -135,6 +138,7 @@ fn main() {
             pattern,
             files_per_chunk,
             num_output_files,
+            min_ply,
         } => {
             shuffle::execute(
                 &input_dir,
@@ -142,6 +146,7 @@ fn main() {
                 &pattern,
                 files_per_chunk,
                 num_output_files,
+                min_ply,
             )
             .unwrap();
         }

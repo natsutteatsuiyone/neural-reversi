@@ -50,6 +50,7 @@ pub fn execute(
     pattern: &str,
     files_per_chunk: usize,
     num_output_files: Option<usize>,
+    min_ply: u8,
 ) -> anyhow::Result<()> {
     let input_dir_path = Path::new(input_dir);
     let output_dir_path = Path::new(output_dir);
@@ -71,6 +72,7 @@ pub fn execute(
     println!("Input files   : {}", input_files.len());
     println!("Output files  : {num_output_files}");
     println!("Files/chunk   : {files_per_chunk}");
+    println!("Min ply       : {min_ply}");
     println!("----------------------------------------");
 
     let mp = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
@@ -93,7 +95,7 @@ pub fn execute(
         let mut chunk_records: Vec<Record> = Vec::new();
 
         for path in chunk {
-            read_records(path, &mut chunk_records)?;
+            read_records(path, &mut chunk_records, min_ply)?;
         }
 
         chunk_records.shuffle(&mut rng);
@@ -173,7 +175,7 @@ fn find_input_files(dir: &Path, pattern: &str, rng: &mut SmallRng) -> anyhow::Re
 /// # Returns
 ///
 /// Returns `Ok(())` on success, or an I/O error if reading fails.
-fn read_records(path: &Path, out: &mut Vec<Record>) -> io::Result<()> {
+fn read_records(path: &Path, out: &mut Vec<Record>, min_ply: u8) -> io::Result<()> {
     let md = metadata(path)?;
     if md.len() == 0 || md.len() % RECORD_SIZE as u64 != 0 {
         eprintln!(
@@ -195,7 +197,9 @@ fn read_records(path: &Path, out: &mut Vec<Record>) -> io::Result<()> {
         }
         let record_count = bytes_read / RECORD_SIZE;
         for chunk in buffer[..record_count * RECORD_SIZE].chunks_exact(RECORD_SIZE) {
-            out.push(chunk.try_into().expect("slice length == RECORD_SIZE"));
+            if chunk[21] >= min_ply {
+                out.push(chunk.try_into().expect("slice length == RECORD_SIZE"));
+            }
         }
     }
     Ok(())
