@@ -338,9 +338,9 @@ impl NetworkSmall {
             let out2 = mm512_dpwssd_epi32::<USE_VNNI>(_mm512_setzero_si512(), act2, ow2);
             let out3 = mm512_dpwssd_epi32::<USE_VNNI>(_mm512_setzero_si512(), act3, ow3);
 
-            let combined =
-                _mm512_add_epi32(_mm512_add_epi32(_mm512_add_epi32(out0, out1), out2), out3);
-            _mm512_reduce_add_epi32(combined)
+            let sum01 = _mm512_add_epi32(out0, out1);
+            let sum23 = _mm512_add_epi32(out2, out3);
+            _mm512_reduce_add_epi32(_mm512_add_epi32(sum01, sum23))
         }
     }
 
