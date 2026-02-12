@@ -24,7 +24,7 @@ impl BenchInput {
     }
 
     fn pattern_feature(&self) -> &PatternFeature {
-        unsafe { self.pattern_features.p_feature(self.ply) }
+        self.pattern_features.p_feature(self.ply)
     }
 }
 

@@ -964,8 +964,8 @@ mod tests {
         // Features should be computed for both players
         for i in 0..NUM_PATTERN_FEATURES {
             // Features should be within valid range
-            let p_val = unsafe { pf.p_feature(ply) }[i];
-            let o_val = unsafe { pf.o_feature(ply) }[i];
+            let p_val = pf.p_feature(ply)[i];
+            let o_val = pf.o_feature(ply)[i];
             let max_val = calc_pattern_size(i) as u16;
             assert!(
                 p_val < max_val,
@@ -1151,26 +1151,24 @@ mod tests {
         context: &str,
     ) {
         for i in 0..NUM_PATTERN_FEATURES {
-            unsafe {
-                assert_eq!(
-                    pf.o_feature(ply + 1)[i],
-                    pf_fresh.p_feature(ply + 1)[i],
-                    "{}: o_features[{}] mismatch: {} != {}",
-                    context,
-                    i,
-                    pf.o_feature(ply + 1)[i],
-                    pf_fresh.p_feature(ply + 1)[i]
-                );
-                assert_eq!(
-                    pf.p_feature(ply + 1)[i],
-                    pf_fresh.o_feature(ply + 1)[i],
-                    "{}: p_features[{}] mismatch: {} != {}",
-                    context,
-                    i,
-                    pf.p_feature(ply + 1)[i],
-                    pf_fresh.o_feature(ply + 1)[i]
-                );
-            }
+            assert_eq!(
+                pf.o_feature(ply + 1)[i],
+                pf_fresh.p_feature(ply + 1)[i],
+                "{}: o_features[{}] mismatch: {} != {}",
+                context,
+                i,
+                pf.o_feature(ply + 1)[i],
+                pf_fresh.p_feature(ply + 1)[i]
+            );
+            assert_eq!(
+                pf.p_feature(ply + 1)[i],
+                pf_fresh.o_feature(ply + 1)[i],
+                "{}: p_features[{}] mismatch: {} != {}",
+                context,
+                i,
+                pf.p_feature(ply + 1)[i],
+                pf_fresh.o_feature(ply + 1)[i]
+            );
         }
     }
 
@@ -1182,26 +1180,24 @@ mod tests {
         context: &str,
     ) {
         for i in 0..NUM_PATTERN_FEATURES {
-            unsafe {
-                assert_eq!(
-                    pf.p_feature(ply + 1)[i],
-                    pf_fresh.p_feature(ply + 1)[i],
-                    "{}: p_features[{}] mismatch: {} != {}",
-                    context,
-                    i,
-                    pf.p_feature(ply + 1)[i],
-                    pf_fresh.p_feature(ply + 1)[i]
-                );
-                assert_eq!(
-                    pf.o_feature(ply + 1)[i],
-                    pf_fresh.o_feature(ply + 1)[i],
-                    "{}: o_features[{}] mismatch: {} != {}",
-                    context,
-                    i,
-                    pf.o_feature(ply + 1)[i],
-                    pf_fresh.o_feature(ply + 1)[i]
-                );
-            }
+            assert_eq!(
+                pf.p_feature(ply + 1)[i],
+                pf_fresh.p_feature(ply + 1)[i],
+                "{}: p_features[{}] mismatch: {} != {}",
+                context,
+                i,
+                pf.p_feature(ply + 1)[i],
+                pf_fresh.p_feature(ply + 1)[i]
+            );
+            assert_eq!(
+                pf.o_feature(ply + 1)[i],
+                pf_fresh.o_feature(ply + 1)[i],
+                "{}: o_features[{}] mismatch: {} != {}",
+                context,
+                i,
+                pf.o_feature(ply + 1)[i],
+                pf_fresh.o_feature(ply + 1)[i]
+            );
         }
     }
 
@@ -1581,24 +1577,22 @@ mod tests {
 
         // Compare results
         for i in 0..NUM_PATTERN_FEATURES {
-            unsafe {
-                assert_eq!(
-                    pf_fallback.p_feature(ply + 1)[i],
-                    pf_avx2.p_feature(ply + 1)[i],
-                    "AVX2 vs fallback p_features[{}] mismatch: {} != {}",
-                    i,
-                    pf_fallback.p_feature(ply + 1)[i],
-                    pf_avx2.p_feature(ply + 1)[i]
-                );
-                assert_eq!(
-                    pf_fallback.o_feature(ply + 1)[i],
-                    pf_avx2.o_feature(ply + 1)[i],
-                    "AVX2 vs fallback o_features[{}] mismatch: {} != {}",
-                    i,
-                    pf_fallback.o_feature(ply + 1)[i],
-                    pf_avx2.o_feature(ply + 1)[i]
-                );
-            }
+            assert_eq!(
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_avx2.p_feature(ply + 1)[i],
+                "AVX2 vs fallback p_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_avx2.p_feature(ply + 1)[i]
+            );
+            assert_eq!(
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_avx2.o_feature(ply + 1)[i],
+                "AVX2 vs fallback o_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_avx2.o_feature(ply + 1)[i]
+            );
         }
     }
 
@@ -1649,22 +1643,20 @@ mod tests {
             }
 
             for i in 0..NUM_PATTERN_FEATURES {
-                unsafe {
-                    assert_eq!(
-                        pf_fallback.p_feature(ply + 1)[i],
-                        pf_avx2.p_feature(ply + 1)[i],
-                        "Player position {:?} feature {} p mismatch",
-                        move_sq,
-                        i
-                    );
-                    assert_eq!(
-                        pf_fallback.o_feature(ply + 1)[i],
-                        pf_avx2.o_feature(ply + 1)[i],
-                        "Player position {:?} feature {} o mismatch",
-                        move_sq,
-                        i
-                    );
-                }
+                assert_eq!(
+                    pf_fallback.p_feature(ply + 1)[i],
+                    pf_avx2.p_feature(ply + 1)[i],
+                    "Player position {:?} feature {} p mismatch",
+                    move_sq,
+                    i
+                );
+                assert_eq!(
+                    pf_fallback.o_feature(ply + 1)[i],
+                    pf_avx2.o_feature(ply + 1)[i],
+                    "Player position {:?} feature {} o mismatch",
+                    move_sq,
+                    i
+                );
             }
         }
     }
@@ -1691,24 +1683,22 @@ mod tests {
 
         // Compare results
         for i in 0..NUM_PATTERN_FEATURES {
-            unsafe {
-                assert_eq!(
-                    pf_fallback.p_feature(ply + 1)[i],
-                    pf_avx2.p_feature(ply + 1)[i],
-                    "AVX2 Opponent vs fallback p_features[{}] mismatch: {} != {}",
-                    i,
-                    pf_fallback.p_feature(ply + 1)[i],
-                    pf_avx2.p_feature(ply + 1)[i]
-                );
-                assert_eq!(
-                    pf_fallback.o_feature(ply + 1)[i],
-                    pf_avx2.o_feature(ply + 1)[i],
-                    "AVX2 Opponent vs fallback o_features[{}] mismatch: {} != {}",
-                    i,
-                    pf_fallback.o_feature(ply + 1)[i],
-                    pf_avx2.o_feature(ply + 1)[i]
-                );
-            }
+            assert_eq!(
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_avx2.p_feature(ply + 1)[i],
+                "AVX2 Opponent vs fallback p_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_avx2.p_feature(ply + 1)[i]
+            );
+            assert_eq!(
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_avx2.o_feature(ply + 1)[i],
+                "AVX2 Opponent vs fallback o_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_avx2.o_feature(ply + 1)[i]
+            );
         }
     }
 
@@ -1739,20 +1729,18 @@ mod tests {
         }
 
         for i in 0..NUM_PATTERN_FEATURES {
-            unsafe {
-                assert_eq!(
-                    pf_fallback.p_feature(ply + 1)[i],
-                    pf_avx2.p_feature(ply + 1)[i],
-                    "AVX2 Opponent multi-flip p[{}] mismatch",
-                    i
-                );
-                assert_eq!(
-                    pf_fallback.o_feature(ply + 1)[i],
-                    pf_avx2.o_feature(ply + 1)[i],
-                    "AVX2 Opponent multi-flip o[{}] mismatch",
-                    i
-                );
-            }
+            assert_eq!(
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_avx2.p_feature(ply + 1)[i],
+                "AVX2 Opponent multi-flip p[{}] mismatch",
+                i
+            );
+            assert_eq!(
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_avx2.o_feature(ply + 1)[i],
+                "AVX2 Opponent multi-flip o[{}] mismatch",
+                i
+            );
         }
     }
 
