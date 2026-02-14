@@ -1,9 +1,11 @@
 import type { AIMoveProgress, AIMoveResult } from "@/lib/ai";
-import type { AIMode, Board, GameMode, MoveRecord } from "@/types";
+import type { AIMode, Board, GameMode, MoveRecord, Player } from "@/types";
 import type { Move } from "@/lib/store-helpers";
 
 export interface GameSlice {
     board: Board;
+    historyStartBoard: Board;
+    historyStartPlayer: Player;
     moves: MoveRecord[];
     allMoves: MoveRecord[];
     currentPlayer: "black" | "white";
@@ -70,4 +72,25 @@ export interface SettingsSlice {
     setAIAnalysisPanelOpen: (open: boolean) => void;
 }
 
-export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice;
+export type SetupTab = "manual" | "transcript" | "boardString";
+
+export interface SetupSlice {
+    setupBoard: Board;
+    setupCurrentPlayer: Player;
+    setupTab: SetupTab;
+    transcriptInput: string;
+    boardStringInput: string;
+    setupError: string | null;
+    resetSetup: () => void;
+    setSetupTab: (tab: SetupTab) => void;
+    setSetupCurrentPlayer: (player: Player) => void;
+    setSetupBoard: (board: Board) => void;
+    setSetupCellColor: (row: number, col: number) => void;
+    setTranscriptInput: (input: string) => void;
+    setBoardStringInput: (input: string) => void;
+    clearSetupBoard: () => void;
+    resetSetupToInitial: () => void;
+    startFromSetup: () => Promise<void>;
+}
+
+export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice & SetupSlice;

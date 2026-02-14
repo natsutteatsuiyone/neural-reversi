@@ -63,11 +63,15 @@ export function createPassMove(moveId: number, player: Player, remainingTime?: n
   };
 }
 
-export function reconstructBoardFromMoves(moves: MoveRecord[]): {
+export function reconstructBoardFromMoves(
+  moves: MoveRecord[],
+  historyStartBoard: Board = initializeBoard(),
+  historyStartPlayer: Player = "black"
+): {
   board: Board;
   currentPlayer: Player;
 } {
-  const board = initializeBoard();
+  const board = cloneBoard(historyStartBoard);
 
   for (const move of moves) {
     if (move.row >= 0 && move.col >= 0) {
@@ -84,7 +88,7 @@ export function reconstructBoardFromMoves(moves: MoveRecord[]): {
   }
 
   const currentPlayer: Player =
-    moves.length > 0 ? nextPlayer(moves[moves.length - 1].player) : "black";
+    moves.length > 0 ? nextPlayer(moves[moves.length - 1].player) : historyStartPlayer;
 
   return { board, currentPlayer };
 }
@@ -108,21 +112,29 @@ export function checkGameOver(board: Board, currentPlayer: Player): {
   return { gameOver: false, shouldPass: true };
 }
 
-// Helper function to determine whose turn it is based on move count
-function getTurnColor(moveCount: number): Player {
-  return moveCount % 2 === 0 ? "black" : "white";
+// Helper function to determine whose turn it is from the actual move history.
+// Unlike modulo-based alternation, this correctly handles pass moves
+// where the same player may appear in consecutive move records.
+function getCurrentPlayer(moves: MoveRecord[], historyStartPlayer: Player): Player {
+  if (moves.length === 0) return historyStartPlayer;
+  return nextPlayer(moves[moves.length - 1].player);
 }
 
 // Helper function to check if it's the player's turn
-function isPlayerTurn(moveCount: number, gameMode: "ai-black" | "ai-white"): boolean {
-  const currentTurn = getTurnColor(moveCount);
+function isPlayerTurn(
+  moves: MoveRecord[],
+  gameMode: "ai-black" | "ai-white",
+  historyStartPlayer: Player
+): boolean {
+  const currentTurn = getCurrentPlayer(moves, historyStartPlayer);
   const playerIsBlack = gameMode === "ai-white";
   return (playerIsBlack && currentTurn === "black") || (!playerIsBlack && currentTurn === "white");
 }
 
 export function getUndoMoves(
   moves: MoveRecord[],
-  gameMode: "analyze" | "ai-black" | "ai-white"
+  gameMode: "analyze" | "ai-black" | "ai-white",
+  historyStartPlayer: Player = "black"
 ): MoveRecord[] {
   if (moves.length === 0) {
     return [];
@@ -137,7 +149,7 @@ export function getUndoMoves(
   }
 
   // In AI mode, undo to the previous player's turn
-  const currentIsPlayerTurn = isPlayerTurn(newMoves.length, gameMode);
+  const currentIsPlayerTurn = isPlayerTurn(newMoves, gameMode, historyStartPlayer);
 
   if (currentIsPlayerTurn) {
     // Currently player's turn, go back to previous player's turn (remove 2 moves)
@@ -158,7 +170,8 @@ export function getUndoMoves(
 export function getRedoMoves(
   currentMoves: MoveRecord[],
   allMoves: MoveRecord[],
-  gameMode: "analyze" | "ai-black" | "ai-white"
+  gameMode: "analyze" | "ai-black" | "ai-white",
+  historyStartPlayer: Player = "black"
 ): MoveRecord[] {
   // No moves to redo
   if (currentMoves.length >= allMoves.length) {
@@ -181,7 +194,7 @@ export function getRedoMoves(
     index++;
 
     // Check if it's now the player's turn
-    if (isPlayerTurn(newMoves.length, gameMode)) {
+    if (isPlayerTurn(newMoves, gameMode, historyStartPlayer)) {
       // Stop at player's turn
       break;
     }

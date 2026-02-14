@@ -6,7 +6,9 @@
     "stop": "停止",
     "youPlay": "あなたの色",
     "pass": "パス",
-    "loading": "読み込み中..."
+    "loading": "読み込み中...",
+    "nextStep": "盤面設定",
+    "previousStep": "戻る"
   },
   "colors": {
     "black": "黒",
@@ -61,5 +63,33 @@
     "score": "黒: {{black}} - 白: {{white}}",
     "noValidMoves": "打てる場所がありません",
     "passingTurn": "{{color}}：パス"
+  },
+  "setup": {
+    "title": "盤面設定",
+    "tabs": {
+      "manual": "手動配置",
+      "transcript": "棋譜入力",
+      "boardString": "ボード文字列"
+    },
+    "turn": "手番",
+    "clear": "クリア",
+    "initialPosition": "初期配置",
+    "start": "開始",
+    "cancel": "キャンセル",
+    "transcriptPlaceholder": "例: F5D6C3D3C4",
+    "boardStringPlaceholder": "64文字: X=黒, O=白, -=空",
+    "error": {
+      "invalidLength": "棋譜の長さが不正です（1手2文字）",
+      "invalidMove": "不正な着手表記があります",
+      "illegalMove": "非合法手: {{move}}",
+      "gameAlreadyOver": "この時点で対局は終了しています",
+      "invalidBoardLength": "ボード文字列は64文字である必要があります",
+      "invalidCharacter": "不正な文字が含まれています",
+      "needBothColors": "黒と白の石が少なくとも1つずつ必要です",
+      "noValidMoves": "どちらのプレイヤーも打てる場所がありません",
+      "currentPlayerNoMoves": "指定された手番のプレイヤーには合法手がありません。手番を変更するか、盤面を修正してください。",
+      "aiInitFailed": "AIエンジンの初期化に失敗しました",
+      "unexpectedError": "予期しないエラーが発生しました"
+    }
   }
 }

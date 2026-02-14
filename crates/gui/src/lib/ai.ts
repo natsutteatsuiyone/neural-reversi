@@ -66,6 +66,7 @@ export async function initializeAI(): Promise<void> {
     await invoke("init_ai_command");
   } catch (error) {
     console.error("Failed to initialize search:", error);
+    throw error;
   }
 }
 

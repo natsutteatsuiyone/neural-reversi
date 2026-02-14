@@ -17,7 +17,7 @@ import {
     reconstructBoardFromMoves,
 } from "@/lib/store-helpers";
 import { abortAISearch } from "@/lib/ai";
-import type { Board, MoveRecord } from "@/types";
+import type { Board, MoveRecord, Player } from "@/types";
 import type { GameSlice, ReversiState } from "./types";
 import { initializeAI } from "@/lib/ai";
 
@@ -35,13 +35,21 @@ function toLastMove(moves: MoveRecord[]): Move | null {
     };
 }
 
-function deriveStateFromMoves(moves: MoveRecord[]): {
+function deriveStateFromMoves(
+    moves: MoveRecord[],
+    historyStartBoard: Board,
+    historyStartPlayer: Player,
+): {
     board: Board;
     currentPlayer: "black" | "white";
     validMoves: [number, number][];
     lastMove: Move | null;
 } {
-    const { board, currentPlayer } = reconstructBoardFromMoves(moves);
+    const { board, currentPlayer } = reconstructBoardFromMoves(
+        moves,
+        historyStartBoard,
+        historyStartPlayer,
+    );
 
     return {
         board,
@@ -76,6 +84,8 @@ export const createGameSlice: StateCreator<
     GameSlice
 > = (set, get) => ({
     board: initializeBoard(),
+    historyStartBoard: initializeBoard(),
+    historyStartPlayer: "black",
     moves: [],
     allMoves: [],
     currentPlayer: "black",
@@ -171,8 +181,12 @@ export const createGameSlice: StateCreator<
                 return state;
             }
 
-            const newMoves = getUndoMoves(state.moves, state.gameMode);
-            const derived = deriveStateFromMoves(newMoves);
+            const newMoves = getUndoMoves(state.moves, state.gameMode, state.historyStartPlayer);
+            const derived = deriveStateFromMoves(
+                newMoves,
+                state.historyStartBoard,
+                state.historyStartPlayer,
+            );
 
             return {
                 ...derived,
@@ -198,8 +212,17 @@ export const createGameSlice: StateCreator<
                 return state;
             }
 
-            const newMoves = getRedoMoves(state.moves, state.allMoves, state.gameMode);
-            const derived = deriveStateFromMoves(newMoves);
+            const newMoves = getRedoMoves(
+                state.moves,
+                state.allMoves,
+                state.gameMode,
+                state.historyStartPlayer,
+            );
+            const derived = deriveStateFromMoves(
+                newMoves,
+                state.historyStartBoard,
+                state.historyStartPlayer,
+            );
             const { gameOver } = checkGameOver(derived.board, derived.currentPlayer);
 
             return {
@@ -230,8 +253,12 @@ export const createGameSlice: StateCreator<
             clearInterval(searchTimer);
         }
 
+        const board = initializeBoard();
+
         set({
-            board: initializeBoard(),
+            board,
+            historyStartBoard: cloneBoard(board),
+            historyStartPlayer: "black",
             moves: [],
             allMoves: [],
             currentPlayer: "black",
@@ -252,13 +279,19 @@ export const createGameSlice: StateCreator<
     },
 
     startGame: async () => {
-        await initializeAI();
+        try {
+            await initializeAI();
+        } catch {
+            return;
+        }
 
         set(() => {
             const board = initializeBoard();
             const currentPlayer = "black";
             return {
                 board,
+                historyStartBoard: cloneBoard(board),
+                historyStartPlayer: currentPlayer,
                 moves: [],
                 allMoves: [],
                 currentPlayer,
@@ -270,6 +303,8 @@ export const createGameSlice: StateCreator<
                 validMoves: getValidMoves(board, currentPlayer),
                 showPassNotification: null,
                 analyzeResults: null,
+                aiMoveProgress: null,
+                aiThinkingHistory: [],
                 aiRemainingTime: get().gameTimeLimit * 1000,
             };
         });

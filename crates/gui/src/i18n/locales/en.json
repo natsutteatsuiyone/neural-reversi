@@ -6,7 +6,9 @@
     "stop": "Stop",
     "youPlay": "You play",
     "pass": "Pass",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "nextStep": "Board Setup",
+    "previousStep": "Back"
   },
   "colors": {
     "black": "Black",
@@ -61,5 +63,33 @@
     "score": "Black: {{black}} - White: {{white}}",
     "noValidMoves": "No valid moves available",
     "passingTurn": "{{color}}: Pass"
+  },
+  "setup": {
+    "title": "Board Setup",
+    "tabs": {
+      "manual": "Manual",
+      "transcript": "Transcript",
+      "boardString": "Board String"
+    },
+    "turn": "Turn",
+    "clear": "Clear",
+    "initialPosition": "Initial",
+    "start": "Start",
+    "cancel": "Cancel",
+    "transcriptPlaceholder": "e.g. F5D6C3D3C4",
+    "boardStringPlaceholder": "64 chars: X=black, O=white, -=empty",
+    "error": {
+      "invalidLength": "Transcript length must be even (2 chars per move)",
+      "invalidMove": "Invalid move notation found",
+      "illegalMove": "Illegal move: {{move}}",
+      "gameAlreadyOver": "Game is already over at this point",
+      "invalidBoardLength": "Board string must be exactly 64 characters",
+      "invalidCharacter": "Invalid character in board string",
+      "needBothColors": "Board must have at least one black and one white stone",
+      "noValidMoves": "No valid moves available for either player",
+      "currentPlayerNoMoves": "The selected player has no legal moves. Change the turn or modify the board.",
+      "aiInitFailed": "Failed to initialize AI engine",
+      "unexpectedError": "An unexpected error occurred"
+    }
   }
 }

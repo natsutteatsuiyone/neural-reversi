@@ -1,14 +1,18 @@
 import type { Board, Player } from "@/types";
 import { BOARD_SIZE, INITIAL_BOARD } from "./constants";
 
-export function initializeBoard(): Board {
-  const board = Array(BOARD_SIZE)
+export function createEmptyBoard(): Board {
+  return Array(BOARD_SIZE)
     .fill(null)
     .map(() =>
       Array(BOARD_SIZE)
         .fill(null)
         .map(() => ({ color: null as "black" | "white" | null })),
     );
+}
+
+export function initializeBoard(): Board {
+  const board = createEmptyBoard();
 
   for (const [row, col, color] of INITIAL_BOARD) {
     board[row][col] = { color };
