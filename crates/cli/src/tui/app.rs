@@ -212,7 +212,7 @@ impl App {
             // Trigger AI move if it's AI's turn
             if !self.ai_thinking
                 && !self.game.board().is_game_over()
-                && self.mode.is_ai_turn(self.game.get_side_to_move())
+                && self.mode.is_ai_turn(self.game.side_to_move())
                 && self.ui_mode == UiMode::Normal
             {
                 self.start_ai_search();

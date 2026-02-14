@@ -83,7 +83,7 @@ fn render_board(frame: &mut Frame, area: Rect, app: &App) {
     let inner_area = board_block.inner(area);
     frame.render_widget(board_block, area);
 
-    let board_widget = BoardWidget::new(app.game.board(), app.game.get_side_to_move())
+    let board_widget = BoardWidget::new(app.game.board(), app.game.side_to_move())
         .cursor(app.cursor.0, app.cursor.1)
         .last_move(app.game.last_move());
 
@@ -103,8 +103,8 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = Vec::new();
 
     // Game status
-    let (black_count, white_count) = app.game.get_score();
-    let side_to_move = app.game.get_side_to_move();
+    let (black_count, white_count) = app.game.score();
+    let side_to_move = app.game.side_to_move();
 
     lines.push(Line::from(""));
 
@@ -160,7 +160,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from("─".repeat(inner_area.width as usize)));
 
     // Move history
-    let history = app.game.get_move_history();
+    let history = app.game.move_history();
     if !history.is_empty() {
         lines.push(Line::from(Span::styled(
             "History:",

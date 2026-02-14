@@ -626,7 +626,7 @@ impl GtpEngine {
             }
             TimeControlMode::Fischer { increment_ms, .. } => {
                 // Use remaining time for the current player
-                let remaining_time_ms = match self.game.get_side_to_move() {
+                let remaining_time_ms = match self.game.side_to_move() {
                     Disc::Black => self.black_time_ms,
                     Disc::White => self.white_time_ms,
                     _ => 0,
@@ -638,7 +638,7 @@ impl GtpEngine {
             }
             TimeControlMode::MovesToGo { moves, .. } => {
                 // Use remaining time for the current player
-                let remaining_time_ms = match self.game.get_side_to_move() {
+                let remaining_time_ms = match self.game.side_to_move() {
                     Disc::Black => self.black_time_ms,
                     Disc::White => self.white_time_ms,
                     _ => 0,
@@ -652,7 +652,7 @@ impl GtpEngine {
                 time_per_move_ms, ..
             } => {
                 // Use remaining time for the current player
-                let remaining_time_ms = match self.game.get_side_to_move() {
+                let remaining_time_ms = match self.game.side_to_move() {
                     Disc::Black => self.black_time_ms,
                     Disc::White => self.white_time_ms,
                     _ => 0,
@@ -669,7 +669,7 @@ impl GtpEngine {
     ///
     /// Returns a text representation of the current board state.
     fn handle_showboard(&self) -> GtpResponse {
-        let board_display = self.game.get_board_string();
+        let board_display = self.game.board_string();
         GtpResponse::Success(format!("\n{board_display}"))
     }
 
@@ -716,7 +716,7 @@ impl GtpEngine {
     /// # Returns
     /// `Ok(())` if valid, `Err(message)` if invalid or wrong player
     fn validate_color(&self, color: &str) -> Result<(), String> {
-        let expected_color = match self.game.get_side_to_move() {
+        let expected_color = match self.game.side_to_move() {
             Disc::Black => "b",
             Disc::White => "w",
             _ => unreachable!(),
