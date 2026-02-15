@@ -60,6 +60,46 @@ function deriveStateFromMoves(
     };
 }
 
+function applyHistoryNavigation(
+    state: ReversiState,
+    direction: "undo" | "redo",
+): Partial<ReversiState> | null {
+    const isUndo = direction === "undo";
+
+    if (state.gameStatus !== "playing") return null;
+    if (isUndo ? !state.moveHistory.canUndo : !state.moveHistory.canRedo) return null;
+
+    const count = isUndo
+        ? getUndoCount(state.moveHistory.currentMoves, state.gameMode, state.historyStartPlayer)
+        : getRedoCount(
+              state.moveHistory.currentMoves,
+              [...state.moveHistory.currentMoves, ...state.moveHistory.redoMoves],
+              state.gameMode,
+              state.historyStartPlayer,
+          );
+    if (count === 0) return null;
+
+    const newHistory = isUndo ? state.moveHistory.undo(count) : state.moveHistory.redo(count);
+    const derived = deriveStateFromMoves(
+        newHistory.currentMoves,
+        state.historyStartBoard,
+        state.historyStartPlayer,
+    );
+
+    const gameOver = isUndo ? false : checkGameOver(derived.board, derived.currentPlayer).gameOver;
+
+    return {
+        ...derived,
+        moveHistory: newHistory,
+        isPass: false,
+        analyzeResults: null,
+        gameOver,
+        aiRemainingTime: newHistory.length > 0
+            ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
+            : state.gameTimeLimit * 1000,
+    };
+}
+
 export function triggerAutomation(getState: () => ReversiState): void {
     const state = getState();
 
@@ -175,31 +215,7 @@ export const createGameSlice: StateCreator<
     },
 
     undoMove: () => {
-        set((state) => {
-            if (state.gameStatus !== "playing" || !state.moveHistory.canUndo) {
-                return state;
-            }
-
-            const count = getUndoCount(state.moveHistory.currentMoves, state.gameMode, state.historyStartPlayer);
-            if (count === 0) return state;
-            const newHistory = state.moveHistory.undo(count);
-            const derived = deriveStateFromMoves(
-                newHistory.currentMoves,
-                state.historyStartBoard,
-                state.historyStartPlayer,
-            );
-
-            return {
-                ...derived,
-                moveHistory: newHistory,
-                isPass: false,
-                analyzeResults: null,
-                gameOver: false,
-                aiRemainingTime: newHistory.length > 0
-                    ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
-                    : state.gameTimeLimit * 1000,
-            };
-        });
+        set((state) => applyHistoryNavigation(state, "undo") ?? state);
 
         const state = get();
         if (state.isHintMode && state.gameStatus === "playing") {
@@ -208,37 +224,7 @@ export const createGameSlice: StateCreator<
     },
 
     redoMove: () => {
-        set((state) => {
-            if (state.gameStatus !== "playing" || !state.moveHistory.canRedo) {
-                return state;
-            }
-
-            const count = getRedoCount(
-                state.moveHistory.currentMoves,
-                [...state.moveHistory.currentMoves, ...state.moveHistory.redoMoves],
-                state.gameMode,
-                state.historyStartPlayer,
-            );
-            if (count === 0) return state;
-            const newHistory = state.moveHistory.redo(count);
-            const derived = deriveStateFromMoves(
-                newHistory.currentMoves,
-                state.historyStartBoard,
-                state.historyStartPlayer,
-            );
-            const { gameOver } = checkGameOver(derived.board, derived.currentPlayer);
-
-            return {
-                ...derived,
-                moveHistory: newHistory,
-                isPass: false,
-                analyzeResults: null,
-                gameOver,
-                aiRemainingTime: newHistory.length > 0
-                    ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
-                    : state.gameTimeLimit * 1000,
-            };
-        });
+        set((state) => applyHistoryNavigation(state, "redo") ?? state);
 
         const state = get();
         if (state.isHintMode && state.gameStatus === "playing") {
