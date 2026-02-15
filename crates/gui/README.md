@@ -43,3 +43,13 @@ bun tauri build
 # Frontend-only production build
 bun build
 ```
+
+### Testing
+
+```bash
+# Single run
+bun test
+
+# Watch mode
+bun run test:watch
+```

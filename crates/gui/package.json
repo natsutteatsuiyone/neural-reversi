@@ -7,7 +7,9 @@
         "dev": "vite",
         "build": "tsc && vite build",
         "preview": "vite preview",
-        "tauri": "tauri"
+        "tauri": "tauri",
+        "test": "vitest run",
+        "test:watch": "vitest"
     },
     "dependencies": {
         "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -49,7 +51,8 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^5.1.2",
         "typescript": "~5.9.3",
-        "vite": "^7.3.1"
+        "vite": "^7.3.1",
+        "vitest": "^4.0.18"
     },
     "trustedDependencies": [
         "@tailwindcss/oxide"
