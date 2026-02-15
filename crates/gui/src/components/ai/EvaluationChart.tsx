@@ -23,7 +23,7 @@ interface ChartDataItem {
 
 export function EvaluationChart() {
   const { t } = useTranslation();
-  const moves = useReversiStore((state) => state.moves);
+  const moves = useReversiStore((state) => state.moveHistory.currentMoves);
   const gameMode = useReversiStore((state) => state.gameMode);
 
   const chartData = useMemo(() => {

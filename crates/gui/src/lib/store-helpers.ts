@@ -131,74 +131,46 @@ function isPlayerTurn(
   return (playerIsBlack && currentTurn === "black") || (!playerIsBlack && currentTurn === "white");
 }
 
-export function getUndoMoves(
-  moves: MoveRecord[],
+export function getUndoCount(
+  currentMoves: readonly MoveRecord[],
   gameMode: "analyze" | "ai-black" | "ai-white",
   historyStartPlayer: Player = "black"
-): MoveRecord[] {
-  if (moves.length === 0) {
-    return [];
-  }
+): number {
+  if (currentMoves.length === 0) return 0;
+  if (gameMode === "analyze") return 1;
 
-  const newMoves = [...moves];
-
-  if (gameMode === "analyze") {
-    // In analyze mode, just remove one move
-    newMoves.pop();
-    return newMoves;
-  }
-
-  // In AI mode, undo to the previous player's turn
-  const currentIsPlayerTurn = isPlayerTurn(newMoves, gameMode, historyStartPlayer);
-
+  const currentIsPlayerTurn = isPlayerTurn(
+    currentMoves as MoveRecord[],
+    gameMode,
+    historyStartPlayer
+  );
   if (currentIsPlayerTurn) {
-    // Currently player's turn, go back to previous player's turn (remove 2 moves)
-    if (newMoves.length >= 2) {
-      newMoves.pop();
-      newMoves.pop();
-    }
-  } else {
-    // Currently AI's turn, go back to player's turn (remove 1 move)
-    if (newMoves.length >= 1) {
-      newMoves.pop();
-    }
+    return currentMoves.length >= 2 ? 2 : 0;
   }
-
-  return newMoves;
+  return 1;
 }
 
-export function getRedoMoves(
-  currentMoves: MoveRecord[],
-  allMoves: MoveRecord[],
+export function getRedoCount(
+  currentMoves: readonly MoveRecord[],
+  allMoves: readonly MoveRecord[],
   gameMode: "analyze" | "ai-black" | "ai-white",
   historyStartPlayer: Player = "black"
-): MoveRecord[] {
-  // No moves to redo
-  if (currentMoves.length >= allMoves.length) {
-    return currentMoves;
-  }
+): number {
+  if (currentMoves.length >= allMoves.length) return 0;
+  if (gameMode === "analyze") return 1;
 
-  // In analyze mode, redo one move at a time
-  if (gameMode === "analyze") {
-    return [...currentMoves, allMoves[currentMoves.length]];
-  }
-
-  // In AI mode, redo until it's the player's turn
-  const newMoves = [...currentMoves];
+  const simulated = [...currentMoves] as MoveRecord[];
+  let count = 0;
   let index = currentMoves.length;
 
-  // Add moves until we reach a player's turn
   while (index < allMoves.length) {
-    const move = allMoves[index];
-    newMoves.push(move);
+    simulated.push(allMoves[index]);
     index++;
-
-    // Check if it's now the player's turn
-    if (isPlayerTurn(newMoves, gameMode, historyStartPlayer)) {
-      // Stop at player's turn
+    count++;
+    if (isPlayerTurn(simulated, gameMode, historyStartPlayer)) {
       break;
     }
   }
-
-  return newMoves;
+  return count;
 }
+

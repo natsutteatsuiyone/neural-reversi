@@ -6,8 +6,8 @@ import {
   createPassMove,
   reconstructBoardFromMoves,
   checkGameOver,
-  getUndoMoves,
-  getRedoMoves,
+  getUndoCount,
+  getRedoCount,
 } from "@/lib/store-helpers";
 import type { Move } from "@/lib/store-helpers";
 import { createEmptyBoard, getNotation, initializeBoard } from "@/lib/game-logic";
@@ -256,156 +256,72 @@ describe("checkGameOver", () => {
   });
 });
 
-describe("getUndoMoves", () => {
-  it("returns empty array when moves is empty", () => {
-    expect(getUndoMoves([], "analyze")).toEqual([]);
+describe("getUndoCount", () => {
+  it("returns 0 for empty moves", () => {
+    expect(getUndoCount([], "analyze")).toBe(0);
   });
 
-  it("removes one move in analyze mode", () => {
-    const moves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-    ];
-    const result = getUndoMoves(moves, "analyze");
-
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe(1);
+  it("returns 1 in analyze mode", () => {
+    const moves = [makeMoveRecord(1, "black", 4, 5), makeMoveRecord(2, "white", 5, 3)];
+    expect(getUndoCount(moves, "analyze")).toBe(1);
   });
 
-  it("removes two moves in AI mode when it is the player's turn", () => {
-    // ai-white: player=black, AI=white
-    // After [black, white, black, white]: nextPlayer("white")="black" → player's turn
+  it("returns 2 in AI mode when player's turn", () => {
     const moves = [
       makeMoveRecord(1, "black", 4, 5),
       makeMoveRecord(2, "white", 5, 3),
       makeMoveRecord(3, "black", 2, 2),
       makeMoveRecord(4, "white", 2, 3),
     ];
-    const result = getUndoMoves(moves, "ai-white");
-
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe(1);
-    expect(result[1].id).toBe(2);
+    expect(getUndoCount(moves, "ai-white")).toBe(2);
   });
 
-  it("removes one move in AI mode when it is the AI's turn", () => {
-    // ai-white: player=black, AI=white
-    // After [black, white, black]: nextPlayer("black")="white" → AI's turn
+  it("returns 1 in AI mode when AI's turn", () => {
     const moves = [
       makeMoveRecord(1, "black", 4, 5),
       makeMoveRecord(2, "white", 5, 3),
       makeMoveRecord(3, "black", 2, 2),
     ];
-    const result = getUndoMoves(moves, "ai-white");
-
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe(1);
-    expect(result[1].id).toBe(2);
+    expect(getUndoCount(moves, "ai-white")).toBe(1);
   });
 
-  it("does not remove when player's turn but only 1 move exists", () => {
-    // ai-black: AI=black, player=white
-    // After [black]: nextPlayer("black")="white" → player's turn
-    // Needs 2 to pop but only 1 exists → unchanged
+  it("returns 0 when player's turn but only 1 move", () => {
     const moves = [makeMoveRecord(1, "black", 4, 5)];
-    const result = getUndoMoves(moves, "ai-black");
-
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe(1);
-  });
-
-  it("undoes past a pass move in AI mode", () => {
-    // ai-white: player=black, AI=white
-    // [black(move), white(move), black(pass), white(move)]
-    // nextPlayer("white")="black" → player's turn → pop 2
-    const moves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-      makePassRecord(3, "black"),
-      makeMoveRecord(4, "white", 2, 2),
-    ];
-    const result = getUndoMoves(moves, "ai-white");
-
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe(1);
-    expect(result[1].id).toBe(2);
+    expect(getUndoCount(moves, "ai-black")).toBe(0);
   });
 });
 
-describe("getRedoMoves", () => {
-  it("returns currentMoves unchanged when already at the end", () => {
-    const moves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-    ];
-    const result = getRedoMoves(moves, moves, "analyze");
-
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe(1);
-    expect(result[1].id).toBe(2);
+describe("getRedoCount", () => {
+  it("returns 0 when at the end", () => {
+    const moves = [makeMoveRecord(1, "black", 4, 5)];
+    expect(getRedoCount(moves, moves, "analyze")).toBe(0);
   });
 
-  it("adds one move in analyze mode", () => {
+  it("returns 1 in analyze mode", () => {
     const allMoves = [
       makeMoveRecord(1, "black", 4, 5),
       makeMoveRecord(2, "white", 5, 3),
-      makeMoveRecord(3, "black", 2, 2),
     ];
-    const result = getRedoMoves([allMoves[0]], allMoves, "analyze");
-
-    expect(result).toHaveLength(2);
-    expect(result[1].id).toBe(2);
+    expect(getRedoCount([allMoves[0]], allMoves, "analyze")).toBe(1);
   });
 
-  it("redoes until player's turn in AI mode", () => {
-    // ai-white: player=black, AI=white
-    // allMoves = [black, white, black, white]
-    // current = [black] → nextPlayer("black")="white" → AI's turn
-    // Redo: push white(m2), check: nextPlayer("white")="black" → player's turn → break
+  it("returns count until player's turn in AI mode", () => {
     const allMoves = [
       makeMoveRecord(1, "black", 4, 5),
       makeMoveRecord(2, "white", 5, 3),
       makeMoveRecord(3, "black", 2, 2),
       makeMoveRecord(4, "white", 2, 3),
     ];
-    const result = getRedoMoves([allMoves[0]], allMoves, "ai-white");
-
-    expect(result).toHaveLength(2);
-    expect(result[1].id).toBe(2);
+    expect(getRedoCount([allMoves[0]], allMoves, "ai-white")).toBe(1);
   });
 
-  it("redoes past a pass move in AI mode", () => {
-    // ai-white: player=black, AI=white
-    // allMoves = [black, white, black(pass), white]
-    // current = [black, white] → nextPlayer("white")="black" → player's turn
-    // Redo: push pass(black), check: nextPlayer("black")="white" → AI's turn → continue
-    //        push white(m4), check: nextPlayer("white")="black" → player's turn → break
+  it("skips past pass moves in AI mode", () => {
     const allMoves = [
       makeMoveRecord(1, "black", 4, 5),
       makeMoveRecord(2, "white", 5, 3),
       makePassRecord(3, "black"),
       makeMoveRecord(4, "white", 2, 2),
     ];
-    const result = getRedoMoves(
-      [allMoves[0], allMoves[1]],
-      allMoves,
-      "ai-white",
-    );
-
-    expect(result).toHaveLength(4);
-    expect(result[2].id).toBe(3);
-    expect(result[3].id).toBe(4);
-  });
-
-  it("adds remaining moves when player's turn is not reached before end", () => {
-    // ai-white: player=black, AI=white
-    // allMoves = [black] — only one player move, no AI response
-    // current = [] → redo: push black(m1), check: nextPlayer("black")="white" → AI's turn
-    // No more moves → exit loop → returns [m1]
-    const allMoves = [makeMoveRecord(1, "black", 4, 5)];
-    const result = getRedoMoves([], allMoves, "ai-white");
-
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe(1);
+    expect(getRedoCount([allMoves[0], allMoves[1]], allMoves, "ai-white")).toBe(2);
   });
 });

@@ -9,8 +9,8 @@ import { useTranslation } from "react-i18next";
 export function MoveHistory() {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const moves = useReversiStore((state) => state.moves);
-  const allMoves = useReversiStore((state) => state.allMoves);
+  const moveHistory = useReversiStore((state) => state.moveHistory);
+  const moves = moveHistory.currentMoves;
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const isAnalyzing = useReversiStore((state) => state.isAnalyzing);
@@ -18,8 +18,8 @@ export function MoveHistory() {
   const redoMove = useReversiStore((state) => state.redoMove);
   const prevMovesLengthRef = useRef(moves.length);
 
-  const canUndo = moves.length > 0 && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
-  const canRedo = moves.length < allMoves.length && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
+  const canUndo = moveHistory.canUndo && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
+  const canRedo = moveHistory.canRedo && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
 
   useLayoutEffect(() => {
     if (prevMovesLengthRef.current !== moves.length) {

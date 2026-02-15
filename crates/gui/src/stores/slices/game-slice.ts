@@ -12,16 +12,17 @@ import {
     cloneBoard,
     createMoveRecord,
     createPassMove,
-    getUndoMoves,
-    getRedoMoves,
+    getUndoCount,
+    getRedoCount,
     reconstructBoardFromMoves,
 } from "@/lib/store-helpers";
+import { MoveHistory } from "@/lib/move-history";
 import { abortAISearch } from "@/lib/ai";
 import type { Board, MoveRecord, Player } from "@/types";
 import type { GameSlice, ReversiState } from "./types";
 import { initializeAI } from "@/lib/ai";
 
-function toLastMove(moves: MoveRecord[]): Move | null {
+function toLastMove(moves: readonly MoveRecord[]): Move | null {
     const last = moves.length > 0 ? moves[moves.length - 1] : undefined;
     if (!last || last.row < 0 || last.col < 0) {
         return null;
@@ -36,7 +37,7 @@ function toLastMove(moves: MoveRecord[]): Move | null {
 }
 
 function deriveStateFromMoves(
-    moves: MoveRecord[],
+    moves: readonly MoveRecord[],
     historyStartBoard: Board,
     historyStartPlayer: Player,
 ): {
@@ -46,7 +47,7 @@ function deriveStateFromMoves(
     lastMove: Move | null;
 } {
     const { board, currentPlayer } = reconstructBoardFromMoves(
-        moves,
+        moves as MoveRecord[],
         historyStartBoard,
         historyStartPlayer,
     );
@@ -86,8 +87,7 @@ export const createGameSlice: StateCreator<
     board: initializeBoard(),
     historyStartBoard: initializeBoard(),
     historyStartPlayer: "black",
-    moves: [],
-    allMoves: [],
+    moveHistory: MoveHistory.empty(),
     currentPlayer: "black",
     gameOver: false,
     gameStatus: "waiting",
@@ -126,13 +126,12 @@ export const createGameSlice: StateCreator<
         set((state) => {
             const currentPlayer = state.currentPlayer;
             const newBoard = applyMove(state.board, move, currentPlayer);
-            const newMoveRecord = createMoveRecord(state.moves.length, currentPlayer, move, state.aiRemainingTime);
+            const newMoveRecord = createMoveRecord(state.moveHistory.length, currentPlayer, move, state.aiRemainingTime);
             const nextPlayerTurn = nextPlayer(currentPlayer);
 
             return {
                 board: newBoard,
-                moves: [...state.moves, newMoveRecord],
-                allMoves: [...state.moves, newMoveRecord], // Update allMoves when making a new move
+                moveHistory: state.moveHistory.append(newMoveRecord),
                 currentPlayer: nextPlayerTurn,
                 isPass: false,
                 lastMove: move,
@@ -160,14 +159,13 @@ export const createGameSlice: StateCreator<
     makePass: () => {
         set((state) => {
             const currentPlayer = state.currentPlayer;
-            const passMove = createPassMove(state.moves.length, currentPlayer, state.aiRemainingTime);
+            const passMove = createPassMove(state.moveHistory.length, currentPlayer, state.aiRemainingTime);
             const nextPlayerTurn = nextPlayer(currentPlayer);
             const boardClone = cloneBoard(state.board);
 
             return {
                 board: boardClone,
-                moves: [...state.moves, passMove],
-                allMoves: [...state.moves, passMove], // Update allMoves when passing
+                moveHistory: state.moveHistory.append(passMove),
                 currentPlayer: nextPlayerTurn,
                 validMoves: getValidMoves(boardClone, nextPlayerTurn),
                 isPass: true,
@@ -178,25 +176,27 @@ export const createGameSlice: StateCreator<
 
     undoMove: () => {
         set((state) => {
-            if (state.gameStatus !== "playing" || state.moves.length === 0) {
+            if (state.gameStatus !== "playing" || !state.moveHistory.canUndo) {
                 return state;
             }
 
-            const newMoves = getUndoMoves(state.moves, state.gameMode, state.historyStartPlayer);
+            const count = getUndoCount(state.moveHistory.currentMoves, state.gameMode, state.historyStartPlayer);
+            if (count === 0) return state;
+            const newHistory = state.moveHistory.undo(count);
             const derived = deriveStateFromMoves(
-                newMoves,
+                newHistory.currentMoves,
                 state.historyStartBoard,
                 state.historyStartPlayer,
             );
 
             return {
                 ...derived,
-                moves: newMoves,
+                moveHistory: newHistory,
                 isPass: false,
                 analyzeResults: null,
                 gameOver: false,
-                aiRemainingTime: newMoves.length > 0
-                    ? (newMoves[newMoves.length - 1].remainingTime ?? state.gameTimeLimit * 1000)
+                aiRemainingTime: newHistory.length > 0
+                    ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
                     : state.gameTimeLimit * 1000,
             };
         });
@@ -209,18 +209,20 @@ export const createGameSlice: StateCreator<
 
     redoMove: () => {
         set((state) => {
-            if (state.gameStatus !== "playing" || state.moves.length >= state.allMoves.length) {
+            if (state.gameStatus !== "playing" || !state.moveHistory.canRedo) {
                 return state;
             }
 
-            const newMoves = getRedoMoves(
-                state.moves,
-                state.allMoves,
+            const count = getRedoCount(
+                state.moveHistory.currentMoves,
+                [...state.moveHistory.currentMoves, ...state.moveHistory.redoMoves],
                 state.gameMode,
                 state.historyStartPlayer,
             );
+            if (count === 0) return state;
+            const newHistory = state.moveHistory.redo(count);
             const derived = deriveStateFromMoves(
-                newMoves,
+                newHistory.currentMoves,
                 state.historyStartBoard,
                 state.historyStartPlayer,
             );
@@ -228,12 +230,12 @@ export const createGameSlice: StateCreator<
 
             return {
                 ...derived,
-                moves: newMoves,
+                moveHistory: newHistory,
                 isPass: false,
                 analyzeResults: null,
                 gameOver,
-                aiRemainingTime: newMoves.length > 0
-                    ? (newMoves[newMoves.length - 1].remainingTime ?? state.gameTimeLimit * 1000)
+                aiRemainingTime: newHistory.length > 0
+                    ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
                     : state.gameTimeLimit * 1000,
             };
         });
@@ -260,8 +262,7 @@ export const createGameSlice: StateCreator<
             board,
             historyStartBoard: cloneBoard(board),
             historyStartPlayer: "black",
-            moves: [],
-            allMoves: [],
+            moveHistory: MoveHistory.empty(),
             currentPlayer: "black",
             gameOver: false,
             gameStatus: "waiting",
@@ -293,8 +294,7 @@ export const createGameSlice: StateCreator<
                 board,
                 historyStartBoard: cloneBoard(board),
                 historyStartPlayer: currentPlayer,
-                moves: [],
-                allMoves: [],
+                moveHistory: MoveHistory.empty(),
                 currentPlayer,
                 gameStatus: "playing",
                 gameOver: false,

@@ -1,13 +1,13 @@
 import type { AIMoveProgress, AIMoveResult } from "@/lib/ai";
-import type { AIMode, Board, GameMode, MoveRecord, Player } from "@/types";
+import type { MoveHistory } from "@/lib/move-history";
+import type { AIMode, Board, GameMode, Player } from "@/types";
 import type { Move } from "@/lib/store-helpers";
 
 export interface GameSlice {
     board: Board;
     historyStartBoard: Board;
     historyStartPlayer: Player;
-    moves: MoveRecord[];
-    allMoves: MoveRecord[];
+    moveHistory: MoveHistory;
     currentPlayer: "black" | "white";
     gameOver: boolean;
     gameStatus: "waiting" | "playing" | "finished";

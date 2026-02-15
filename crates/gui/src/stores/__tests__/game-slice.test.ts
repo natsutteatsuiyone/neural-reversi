@@ -167,14 +167,14 @@ describe("makeMove", () => {
     expect(store.getState().currentPlayer).toBe("white");
   });
 
-  it("appends record to moves and allMoves", async () => {
+  it("appends record to moveHistory", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     const s = store.getState();
-    expect(s.moves).toHaveLength(1);
-    expect(s.allMoves).toHaveLength(1);
-    expect(s.moves[0].player).toBe("black");
-    expect(s.moves[0].row).toBe(2);
-    expect(s.moves[0].col).toBe(3);
+    expect(s.moveHistory.length).toBe(1);
+    expect(s.moveHistory.totalLength).toBe(1);
+    expect(s.moveHistory.currentMoves[0].player).toBe("black");
+    expect(s.moveHistory.currentMoves[0].row).toBe(2);
+    expect(s.moveHistory.currentMoves[0].col).toBe(3);
   });
 
   it("recalculates validMoves for next player", async () => {
@@ -275,14 +275,14 @@ describe("makePass", () => {
     expect(boardAfter).toBe(boardBefore);
   });
 
-  it("appends pass record to moves and allMoves", () => {
+  it("appends pass record to moveHistory", () => {
     store.getState().makePass();
     const s = store.getState();
-    expect(s.moves).toHaveLength(1);
-    expect(s.allMoves).toHaveLength(1);
-    expect(s.moves[0].row).toBe(-1);
-    expect(s.moves[0].col).toBe(-1);
-    expect(s.moves[0].notation).toBe("Pass");
+    expect(s.moveHistory.length).toBe(1);
+    expect(s.moveHistory.totalLength).toBe(1);
+    expect(s.moveHistory.currentMoves[0].row).toBe(-1);
+    expect(s.moveHistory.currentMoves[0].col).toBe(-1);
+    expect(s.moveHistory.currentMoves[0].notation).toBe("Pass");
   });
 
   it("sets isPass to true", () => {
@@ -304,7 +304,7 @@ describe("undoMove", () => {
     const stateBefore = store.getState();
     store.getState().undoMove();
     const stateAfter = store.getState();
-    expect(stateAfter.moves).toHaveLength(0);
+    expect(stateAfter.moveHistory.length).toBe(0);
     expect(stateAfter.currentPlayer).toBe(stateBefore.currentPlayer);
   });
 
@@ -312,7 +312,7 @@ describe("undoMove", () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.setState({ gameStatus: "waiting" });
     store.getState().undoMove();
-    expect(store.getState().moves).toHaveLength(1);
+    expect(store.getState().moveHistory.length).toBe(1);
   });
 
   it("restores board and currentPlayer after undo", async () => {
@@ -348,10 +348,10 @@ describe("redoMove", () => {
     await store.getState().startGame();
   });
 
-  it("does nothing when moves equals allMoves", () => {
+  it("does nothing when no redo available", () => {
     const stateBefore = store.getState();
     store.getState().redoMove();
-    expect(store.getState().moves.length).toBe(stateBefore.moves.length);
+    expect(store.getState().moveHistory.length).toBe(stateBefore.moveHistory.length);
   });
 
   it("advances board and currentPlayer after redo", async () => {
@@ -406,7 +406,7 @@ describe("redoMove", () => {
     store.setState({ gameStatus: "finished" });
     store.getState().redoMove();
     // Should still be undone state
-    expect(store.getState().moves).toHaveLength(0);
+    expect(store.getState().moveHistory.length).toBe(0);
   });
 
   it("clears analyzeResults", async () => {
@@ -427,8 +427,8 @@ describe("resetGame", () => {
     await store.getState().resetGame();
     const s = store.getState();
     expect(s.gameStatus).toBe("waiting");
-    expect(s.moves).toHaveLength(0);
-    expect(s.allMoves).toHaveLength(0);
+    expect(s.moveHistory.length).toBe(0);
+    expect(s.moveHistory.totalLength).toBe(0);
     expect(s.currentPlayer).toBe("black");
     expect(s.gameOver).toBe(false);
     expect(s.lastMove).toBeNull();
@@ -474,7 +474,7 @@ describe("startGame", () => {
     expect(s.gameStatus).toBe("playing");
     expect(s.currentPlayer).toBe("black");
     expect(s.gameOver).toBe(false);
-    expect(s.moves).toHaveLength(0);
+    expect(s.moveHistory.length).toBe(0);
   });
 
   it("computes validMoves for initial board", async () => {

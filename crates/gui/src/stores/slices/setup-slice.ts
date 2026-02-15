@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
 import { createEmptyBoard, initializeBoard, getValidMoves } from "@/lib/game-logic";
 import { cloneBoard } from "@/lib/store-helpers";
+import { MoveHistory } from "@/lib/move-history";
 import { parseTranscript, parseBoardString, validateBoard } from "@/lib/board-parser";
 import { initializeAI } from "@/lib/ai";
 import type { Board, Player } from "@/types";
@@ -191,8 +192,7 @@ export const createSetupSlice: StateCreator<
             board,
             historyStartBoard: cloneBoard(board),
             historyStartPlayer: resolvedCurrentPlayer,
-            moves: [],
-            allMoves: [],
+            moveHistory: MoveHistory.empty(),
             currentPlayer: resolvedCurrentPlayer,
             gameStatus: "playing",
             gameOver: false,

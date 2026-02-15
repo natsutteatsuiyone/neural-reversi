@@ -277,7 +277,7 @@ describe("startFromSetup", () => {
     expect(s.gameStatus).toBe("playing");
     expect(s.gameOver).toBe(false);
     expect(s.setupError).toBeNull();
-    expect(s.moves).toHaveLength(0);
+    expect(s.moveHistory.length).toBe(0);
   });
 
   it("starts game from transcript tab", async () => {
