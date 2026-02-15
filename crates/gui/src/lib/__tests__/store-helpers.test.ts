@@ -8,6 +8,7 @@ import {
   checkGameOver,
   getUndoCount,
   getRedoCount,
+  createGameStartState,
 } from "@/lib/store-helpers";
 import type { Move } from "@/lib/store-helpers";
 import { createEmptyBoard, getNotation, initializeBoard } from "@/lib/game-logic";
@@ -323,5 +324,60 @@ describe("getRedoCount", () => {
       makeMoveRecord(4, "white", 2, 2),
     ];
     expect(getRedoCount([allMoves[0], allMoves[1]], allMoves, "ai-white")).toBe(2);
+  });
+});
+
+describe("createGameStartState", () => {
+  it("returns waiting state with empty validMoves", () => {
+    const board = initializeBoard();
+    const state = createGameStartState(board, "black", "waiting", 60000);
+
+    expect(state.board).toBe(board);
+    expect(state.historyStartBoard).not.toBe(board);
+    expect(state.historyStartPlayer).toBe("black");
+    expect(state.moveHistory.length).toBe(0);
+    expect(state.currentPlayer).toBe("black");
+    expect(state.gameStatus).toBe("waiting");
+    expect(state.gameOver).toBe(false);
+    expect(state.isPass).toBe(false);
+    expect(state.lastMove).toBeNull();
+    expect(state.lastAIMove).toBeNull();
+    expect(state.showPassNotification).toBeNull();
+    expect(state.analyzeResults).toBeNull();
+    expect(state.isAIThinking).toBe(false);
+    expect(state.isAnalyzing).toBe(false);
+    expect(state.aiMoveProgress).toBeNull();
+    expect(state.aiThinkingHistory).toEqual([]);
+    expect(state.aiRemainingTime).toBe(60000);
+    expect(state.searchTimer).toBeNull();
+    expect(state.validMoves).toEqual([]);
+  });
+
+  it("returns playing state with computed validMoves", () => {
+    const board = initializeBoard();
+    const state = createGameStartState(board, "black", "playing", 120000);
+
+    expect(state.gameStatus).toBe("playing");
+    expect(state.validMoves).toHaveLength(4);
+    expect(state.validMoves).toContainEqual([2, 3]);
+    expect(state.aiRemainingTime).toBe(120000);
+  });
+
+  it("uses the given currentPlayer for historyStartPlayer and validMoves", () => {
+    const board = initializeBoard();
+    const state = createGameStartState(board, "white", "playing", 30000);
+
+    expect(state.currentPlayer).toBe("white");
+    expect(state.historyStartPlayer).toBe("white");
+    expect(state.validMoves).toHaveLength(4);
+    expect(state.validMoves).toContainEqual([2, 4]);
+  });
+
+  it("deep-clones board for historyStartBoard", () => {
+    const board = initializeBoard();
+    const state = createGameStartState(board, "black", "playing", 60000);
+
+    state.historyStartBoard[0][0].color = "black";
+    expect(board[0][0].color).toBeNull();
   });
 });

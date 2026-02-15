@@ -10,6 +10,7 @@ import {
     applyMove,
     checkGameOver,
     cloneBoard,
+    createGameStartState,
     createMoveRecord,
     createPassMove,
     getUndoCount,
@@ -243,27 +244,7 @@ export const createGameSlice: StateCreator<
         }
 
         const board = initializeBoard();
-
-        set({
-            board,
-            historyStartBoard: cloneBoard(board),
-            historyStartPlayer: "black",
-            moveHistory: MoveHistory.empty(),
-            currentPlayer: "black",
-            gameOver: false,
-            gameStatus: "waiting",
-            isPass: false,
-            lastMove: null,
-            lastAIMove: null,
-            showPassNotification: null,
-            isAIThinking: false,
-            isAnalyzing: false,
-            analyzeResults: null,
-            validMoves: [],
-            aiMoveProgress: null,
-            aiRemainingTime: get().gameTimeLimit * 1000,
-            searchTimer: null,
-        });
+        set(createGameStartState(board, "black", "waiting", get().gameTimeLimit * 1000));
     },
 
     startGame: async () => {
@@ -273,28 +254,8 @@ export const createGameSlice: StateCreator<
             return;
         }
 
-        set(() => {
-            const board = initializeBoard();
-            const currentPlayer = "black";
-            return {
-                board,
-                historyStartBoard: cloneBoard(board),
-                historyStartPlayer: currentPlayer,
-                moveHistory: MoveHistory.empty(),
-                currentPlayer,
-                gameStatus: "playing",
-                gameOver: false,
-                isPass: false,
-                lastMove: null,
-                lastAIMove: null,
-                validMoves: getValidMoves(board, currentPlayer),
-                showPassNotification: null,
-                analyzeResults: null,
-                aiMoveProgress: null,
-                aiThinkingHistory: [],
-                aiRemainingTime: get().gameTimeLimit * 1000,
-            };
-        });
+        const board = initializeBoard();
+        set(createGameStartState(board, "black", "playing", get().gameTimeLimit * 1000));
 
         triggerAutomation(get);
     },

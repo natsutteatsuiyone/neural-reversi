@@ -3,6 +3,17 @@ import { abortAISearch, getAIMove } from "@/lib/ai";
 import type { AISlice, ReversiState } from "./types";
 import { saveSetting } from "@/lib/settings-store";
 
+function clearSearchTimer(
+    get: () => ReversiState,
+    set: (partial: Partial<ReversiState>) => void,
+): void {
+    const { searchTimer } = get();
+    if (searchTimer) {
+        clearInterval(searchTimer);
+        set({ searchTimer: null });
+    }
+}
+
 export const createAISlice: StateCreator<
     ReversiState,
     [],
@@ -76,12 +87,7 @@ export const createAISlice: StateCreator<
                 }
             );
 
-            // Clear timer
-            const { searchTimer } = get();
-            if (searchTimer) {
-                clearInterval(searchTimer);
-                set({ searchTimer: null });
-            }
+            clearSearchTimer(get, set);
 
             if (aiMove && aiMode === "game-time") {
                 set({
@@ -102,12 +108,7 @@ export const createAISlice: StateCreator<
                 });
             }
         } catch (error) {
-            // Ensure timer is cleared on error
-            const { searchTimer } = get();
-            if (searchTimer) {
-                clearInterval(searchTimer);
-                set({ searchTimer: null });
-            }
+            clearSearchTimer(get, set);
             set({ isAIThinking: false, aiMoveProgress: null });
             console.error("AI Move failed:", error);
         }
@@ -117,16 +118,12 @@ export const createAISlice: StateCreator<
         if (get().isAIThinking || get().isAnalyzing) {
             await abortAISearch();
 
-            const { searchTimer } = get();
-            if (searchTimer) {
-                clearInterval(searchTimer);
-            }
+            clearSearchTimer(get, set);
 
             set({
                 isAIThinking: false,
                 isAnalyzing: false,
                 aiMoveProgress: null,
-                searchTimer: null
             });
         }
     },

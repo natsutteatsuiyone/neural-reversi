@@ -6,6 +6,7 @@ import {
   opponentPlayer as nextPlayer,
 } from "@/lib/game-logic";
 import type { Board, MoveRecord, Player } from "@/types";
+import { MoveHistory } from "@/lib/move-history";
 
 export interface Move {
   row: number;
@@ -91,6 +92,35 @@ export function reconstructBoardFromMoves(
     moves.length > 0 ? nextPlayer(moves[moves.length - 1].player) : historyStartPlayer;
 
   return { board, currentPlayer };
+}
+
+export function createGameStartState(
+  board: Board,
+  currentPlayer: Player,
+  gameStatus: "waiting" | "playing",
+  gameTimeLimitMs: number,
+) {
+  return {
+    board,
+    historyStartBoard: cloneBoard(board),
+    historyStartPlayer: currentPlayer,
+    moveHistory: MoveHistory.empty(),
+    currentPlayer,
+    gameStatus,
+    gameOver: false,
+    isPass: false,
+    lastMove: null,
+    lastAIMove: null,
+    showPassNotification: null,
+    analyzeResults: null,
+    isAIThinking: false,
+    isAnalyzing: false,
+    aiMoveProgress: null,
+    aiThinkingHistory: [],
+    aiRemainingTime: gameTimeLimitMs,
+    searchTimer: null,
+    validMoves: gameStatus === "playing" ? getValidMoves(board, currentPlayer) : [],
+  };
 }
 
 export function checkGameOver(board: Board, currentPlayer: Player): {

@@ -1,7 +1,6 @@
 import { StateCreator } from "zustand";
-import { createEmptyBoard, initializeBoard, getValidMoves } from "@/lib/game-logic";
-import { cloneBoard } from "@/lib/store-helpers";
-import { MoveHistory } from "@/lib/move-history";
+import { createEmptyBoard, initializeBoard } from "@/lib/game-logic";
+import { cloneBoard, createGameStartState } from "@/lib/store-helpers";
 import { parseTranscript, parseBoardString, validateBoard } from "@/lib/board-parser";
 import { initializeAI } from "@/lib/ai";
 import type { Board, Player } from "@/types";
@@ -186,32 +185,10 @@ export const createSetupSlice: StateCreator<
         }
 
         const board = cloneBoard(resolvedBoard);
-        const currentMoves = getValidMoves(board, resolvedCurrentPlayer);
+        const startState = createGameStartState(board, resolvedCurrentPlayer, "playing", get().gameTimeLimit * 1000);
+        set({ ...startState, setupError: null });
 
-        set({
-            board,
-            historyStartBoard: cloneBoard(board),
-            historyStartPlayer: resolvedCurrentPlayer,
-            moveHistory: MoveHistory.empty(),
-            currentPlayer: resolvedCurrentPlayer,
-            gameStatus: "playing",
-            gameOver: false,
-            isPass: false,
-            lastMove: null,
-            lastAIMove: null,
-            validMoves: currentMoves,
-            showPassNotification: null,
-            setupError: null,
-            analyzeResults: null,
-            isAIThinking: false,
-            isAnalyzing: false,
-            aiMoveProgress: null,
-            aiThinkingHistory: [],
-            aiRemainingTime: get().gameTimeLimit * 1000,
-            searchTimer: null,
-        });
-
-        if (currentMoves.length === 0) {
+        if (startState.validMoves.length === 0) {
             set({ showPassNotification: resolvedCurrentPlayer });
             return;
         }

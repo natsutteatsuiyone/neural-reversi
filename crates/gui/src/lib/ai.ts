@@ -25,6 +25,15 @@ export type AIMoveProgress = {
   isEndgame: boolean;
 };
 
+function serializeBoardForAI(board: Board, player: Player): string {
+  return board
+    .flat()
+    .map((cell) =>
+      cell.color === player ? "X" : cell.color === null ? "-" : "O"
+    )
+    .join("");
+}
+
 export async function getAIMove(
   board: Board,
   player: Player,
@@ -36,12 +45,7 @@ export async function getAIMove(
   const validMoves = getValidMoves(board, player);
   if (validMoves.length === 0) return null;
 
-  const boardString = board
-    .flat()
-    .map((cell) =>
-      cell.color === player ? "X" : cell.color === null ? "-" : "O"
-    )
-    .join("");
+  const boardString = serializeBoardForAI(board, player);
 
   const unlisten = await listen<AIMoveProgress>("ai-move-progress", (data) => {
     callback(data);
@@ -87,12 +91,7 @@ export async function analyze(
   const validMoves = getValidMoves(board, player);
   if (validMoves.length === 0) return;
 
-  const boardString = board
-    .flat()
-    .map((cell) =>
-      cell.color === player ? "X" : cell.color === null ? "-" : "O"
-    )
-    .join("");
+  const boardString = serializeBoardForAI(board, player);
 
   const unlisten = await listen<AIMoveProgress>("ai-move-progress", (data) => {
     callback(data);
