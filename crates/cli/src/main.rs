@@ -2,7 +2,6 @@ mod game;
 mod gtp;
 mod solve;
 mod tui;
-mod ui;
 
 use std::path::{Path, PathBuf};
 
@@ -112,7 +111,7 @@ fn main() {
                 args.engine_params.eval_file.as_deref(),
                 args.engine_params.eval_sm_file.as_deref(),
             );
-            ui::ui_loop(
+            tui::run(
                 args.engine_params.hash_size,
                 args.engine_params.level,
                 Selectivity::from_u8(args.engine_params.selectivity),

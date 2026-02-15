@@ -33,6 +33,34 @@ impl GameState {
         }
     }
 
+    /// Creates a game state from an existing board position.
+    pub fn from_board(board: Board, side_to_move: Disc) -> Self {
+        Self {
+            core: game_state::GameState::from_board(board, side_to_move),
+        }
+    }
+
+    /// Creates a game state by replaying a sequence of moves from the initial position.
+    ///
+    /// Automatically handles passes when a player has no legal moves.
+    pub fn from_moves(moves: &[Square]) -> Result<Self, String> {
+        let mut state = Self::new();
+        for (i, &sq) in moves.iter().enumerate() {
+            if !state.board().is_legal_move(sq) {
+                if !state.board().has_legal_moves() {
+                    state.make_pass();
+                    if !state.board().is_legal_move(sq) {
+                        return Err(format!("Illegal move at position {}: {sq}", i + 1));
+                    }
+                } else {
+                    return Err(format!("Illegal move at position {}: {sq}", i + 1));
+                }
+            }
+            state.make_move(sq);
+        }
+        Ok(state)
+    }
+
     /// Returns a reference to the current board position.
     pub fn board(&self) -> &Board {
         self.core.board()

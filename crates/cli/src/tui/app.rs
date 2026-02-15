@@ -17,6 +17,7 @@ use reversi_core::square::Square;
 use crate::game::GameState;
 
 use super::event::{self, Event};
+use super::parse;
 use super::render;
 
 /// Game mode configuration determining which players are controlled by AI.
@@ -84,6 +85,55 @@ impl GameMode {
     }
 }
 
+/// Tab selection for the board editor dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardEditTab {
+    /// Move sequence input (e.g. "f5d6c3")
+    Moves,
+    /// Board string input (64 chars of X/O/-)
+    BoardString,
+    /// Bitboard hex value input
+    Bitboard,
+}
+
+impl BoardEditTab {
+    /// Returns the next tab in order, wrapping around.
+    pub fn next(self) -> Self {
+        match self {
+            BoardEditTab::Moves => BoardEditTab::BoardString,
+            BoardEditTab::BoardString => BoardEditTab::Bitboard,
+            BoardEditTab::Bitboard => BoardEditTab::Moves,
+        }
+    }
+
+    /// Returns the previous tab in order, wrapping around.
+    pub fn prev(self) -> Self {
+        match self {
+            BoardEditTab::Moves => BoardEditTab::Bitboard,
+            BoardEditTab::BoardString => BoardEditTab::Moves,
+            BoardEditTab::Bitboard => BoardEditTab::BoardString,
+        }
+    }
+
+    /// Returns the display name.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BoardEditTab::Moves => "Moves",
+            BoardEditTab::BoardString => "Board String",
+            BoardEditTab::Bitboard => "Bitboard",
+        }
+    }
+
+    /// Returns all tabs in order.
+    pub const fn all() -> [BoardEditTab; 3] {
+        [
+            BoardEditTab::Moves,
+            BoardEditTab::BoardString,
+            BoardEditTab::Bitboard,
+        ]
+    }
+}
+
 /// UI mode for handling different interaction states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiMode {
@@ -99,6 +149,8 @@ pub enum UiMode {
     ModeSelect,
     /// Confirming quit
     ConfirmQuit,
+    /// Board editor dialog
+    BoardEdit,
 }
 
 /// Result from AI search thread.
@@ -156,6 +208,18 @@ pub struct App {
     pub level_input: String,
     /// Currently selected mode index in mode selection dialog
     pub mode_selection: usize,
+    /// Current board editor tab
+    pub board_edit_tab: BoardEditTab,
+    /// Board editor main input buffer
+    pub board_edit_input: String,
+    /// Board editor second input buffer (bitboard opponent)
+    pub board_edit_input2: String,
+    /// Board editor side to move selection
+    pub board_edit_side: Disc,
+    /// Board editor active field index for bitboard tab (0=player, 1=opponent, 2=side)
+    pub board_edit_focus: u8,
+    /// Board editor validation error message
+    pub board_edit_error: Option<String>,
 }
 
 impl App {
@@ -195,6 +259,12 @@ impl App {
             status_message: None,
             level_input: String::new(),
             mode_selection: 0,
+            board_edit_tab: BoardEditTab::Moves,
+            board_edit_input: String::new(),
+            board_edit_input2: String::new(),
+            board_edit_side: Disc::Black,
+            board_edit_focus: 0,
+            board_edit_error: None,
         })
     }
 
@@ -228,7 +298,11 @@ impl App {
                 Duration::from_millis(100)
             };
 
-            if let Some(event) = event::poll_event(timeout)? {
+            let text_input = matches!(
+                self.ui_mode,
+                UiMode::BoardEdit | UiMode::LevelSelect
+            );
+            if let Some(event) = event::poll_event(timeout, text_input)? {
                 self.handle_event(event);
             }
 
@@ -252,6 +326,7 @@ impl App {
             UiMode::LevelSelect => self.handle_level_select_event(event),
             UiMode::ModeSelect => self.handle_mode_select_event(event),
             UiMode::ConfirmQuit => self.handle_confirm_quit_event(event),
+            UiMode::BoardEdit => self.handle_board_edit_event(event),
         }
     }
 
@@ -312,6 +387,11 @@ impl App {
             Event::ChangeLevel => {
                 self.level_input = self.level.to_string();
                 self.ui_mode = UiMode::LevelSelect;
+            }
+            Event::EditBoard => {
+                if !self.ai_thinking {
+                    self.open_board_editor();
+                }
             }
             _ => {}
         }
@@ -593,6 +673,166 @@ impl App {
                 best_move,
             });
         });
+    }
+
+    /// Opens the board editor dialog.
+    fn open_board_editor(&mut self) {
+        self.board_edit_tab = BoardEditTab::Moves;
+        self.board_edit_input.clear();
+        self.board_edit_input2.clear();
+        self.board_edit_side = self.game.side_to_move();
+        self.board_edit_focus = 0;
+        self.board_edit_error = None;
+        self.ui_mode = UiMode::BoardEdit;
+    }
+
+    /// Handles events in board editor mode.
+    fn handle_board_edit_event(&mut self, event: Event) {
+        match event {
+            Event::ForceQuit => {
+                self.should_quit = true;
+            }
+            Event::Quit => {
+                self.ui_mode = UiMode::Normal;
+            }
+            Event::Tab => {
+                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus < 2 {
+                    self.board_edit_focus += 1;
+                } else {
+                    self.board_edit_tab = self.board_edit_tab.next();
+                    self.board_edit_input.clear();
+                    self.board_edit_input2.clear();
+                    self.board_edit_focus = 0;
+                    self.board_edit_error = None;
+                }
+            }
+            Event::BackTab => {
+                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus > 0 {
+                    self.board_edit_focus -= 1;
+                } else {
+                    self.board_edit_tab = self.board_edit_tab.prev();
+                    self.board_edit_input.clear();
+                    self.board_edit_input2.clear();
+                    self.board_edit_focus = 0;
+                    self.board_edit_error = None;
+                }
+            }
+            Event::CursorUp => {
+                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus > 0 {
+                    self.board_edit_focus -= 1;
+                }
+            }
+            Event::CursorDown => {
+                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus < 2 {
+                    self.board_edit_focus += 1;
+                }
+            }
+            Event::CursorLeft | Event::CursorRight => {
+                let on_side_field = match self.board_edit_tab {
+                    BoardEditTab::Moves => false,
+                    BoardEditTab::BoardString => true,
+                    BoardEditTab::Bitboard => self.board_edit_focus == 2,
+                };
+                if on_side_field {
+                    self.board_edit_side = if self.board_edit_side == Disc::Black {
+                        Disc::White
+                    } else {
+                        Disc::Black
+                    };
+                }
+            }
+            Event::Select => {
+                self.apply_board_edit();
+            }
+            Event::Char(c) => {
+                self.board_edit_error = None;
+                let target = self.active_board_edit_input();
+                if target.len() < 128 {
+                    target.push(c);
+                }
+            }
+            Event::Backspace => {
+                self.board_edit_error = None;
+                self.active_board_edit_input().pop();
+            }
+            _ => {}
+        }
+    }
+
+    /// Returns a mutable reference to the currently active input buffer.
+    fn active_board_edit_input(&mut self) -> &mut String {
+        if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus == 1 {
+            &mut self.board_edit_input2
+        } else {
+            &mut self.board_edit_input
+        }
+    }
+
+    /// Validates the board editor input and applies the new board state.
+    fn apply_board_edit(&mut self) {
+        use reversi_core::bitboard::Bitboard;
+        use reversi_core::board::Board;
+
+        let result: Result<GameState, String> = match self.board_edit_tab {
+            BoardEditTab::Moves => parse::parse_move_string(&self.board_edit_input)
+                .and_then(|moves| GameState::from_moves(&moves)),
+            BoardEditTab::BoardString => {
+                Board::from_string(&self.board_edit_input, self.board_edit_side)
+                    .map(|board| GameState::from_board(board, self.board_edit_side))
+                    .map_err(|e| format!("{e:?}"))
+            }
+            BoardEditTab::Bitboard => {
+                let player = parse::parse_hex_u64(&self.board_edit_input);
+                let opponent = parse::parse_hex_u64(&self.board_edit_input2);
+                match (player, opponent) {
+                    (Ok(p), Ok(o)) => {
+                        if p & o != 0 {
+                            Err("Player and opponent bitboards overlap".to_string())
+                        } else {
+                            let board = Board::from_bitboards(Bitboard::from(p), Bitboard::from(o));
+                            Ok(GameState::from_board(board, self.board_edit_side))
+                        }
+                    }
+                    (Err(e), _) => Err(format!("Player: {e}")),
+                    (_, Err(e)) => Err(format!("Opponent: {e}")),
+                }
+            }
+        };
+
+        // For BoardString/Bitboard tabs, verify the specified side has legal moves
+        let result = result.and_then(|game| {
+            if matches!(
+                self.board_edit_tab,
+                BoardEditTab::BoardString | BoardEditTab::Bitboard
+            ) && !game.board().has_legal_moves()
+                && !game.board().is_game_over()
+            {
+                Err(format!(
+                    "{} has no legal moves",
+                    if self.board_edit_side == Disc::Black {
+                        "Black"
+                    } else {
+                        "White"
+                    }
+                ))
+            } else {
+                Ok(game)
+            }
+        });
+
+        match result {
+            Ok(game) => {
+                self.game = game;
+                self.search.init();
+                self.last_ai_result = None;
+                self.hints.clear();
+                self.ui_mode = UiMode::Normal;
+                self.status_message = Some("Board position set".to_string());
+            }
+            Err(e) => {
+                self.board_edit_error = Some(e);
+            }
+        }
     }
 
     /// Checks for AI search results.

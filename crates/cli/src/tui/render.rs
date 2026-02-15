@@ -9,7 +9,7 @@ use ratatui::{
 };
 use reversi_core::disc::Disc;
 
-use super::app::{App, GameMode, UiMode};
+use super::app::{App, BoardEditTab, GameMode, UiMode};
 use super::widgets::BoardWidget;
 
 /// Main render function.
@@ -35,6 +35,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         UiMode::LevelSelect => render_level_dialog(frame, app),
         UiMode::ModeSelect => render_mode_dialog(frame, app),
         UiMode::ConfirmQuit => render_quit_dialog(frame),
+        UiMode::BoardEdit => render_board_edit_dialog(frame, app),
         UiMode::Normal => {}
     }
 }
@@ -289,6 +290,7 @@ fn render_help_bar(frame: &mut Frame, area: Rect, app: &App) {
             ("G", "Go"),
             ("M", "Mode"),
             ("V", "Level"),
+            ("E", "Edit"),
             ("Q", "Quit"),
         ]
     };
@@ -553,4 +555,162 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         Constraint::Percentage((100 - percent_x) / 2),
     ])
     .split(popup_layout[1])[1]
+}
+
+/// Renders the board editor dialog.
+fn render_board_edit_dialog(frame: &mut Frame, app: &App) {
+    let area = centered_rect(70, 55, frame.area());
+    frame.render_widget(Clear, area);
+
+    let mut lines = vec![Line::from("")];
+
+    // Tab bar
+    let tab_spans: Vec<Span> = BoardEditTab::all()
+        .iter()
+        .flat_map(|tab| {
+            let is_active = *tab == app.board_edit_tab;
+            let style = if is_active {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            vec![
+                Span::styled(format!(" {} ", tab.as_str()), style),
+                Span::raw(" "),
+            ]
+        })
+        .collect();
+    lines.push(Line::from(tab_spans));
+    lines.push(Line::from(""));
+
+    // Tab-specific content
+    match app.board_edit_tab {
+        BoardEditTab::Moves => {
+            lines.push(Line::from(Span::styled(
+                "Enter move sequence (e.g. f5d6c3d3c4):",
+                Style::default().fg(Color::Cyan),
+            )));
+            lines.push(Line::from(vec![
+                Span::raw("  > "),
+                Span::styled(
+                    format!("{}_", app.board_edit_input),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::RAPID_BLINK),
+                ),
+            ]));
+        }
+        BoardEditTab::BoardString => {
+            lines.push(Line::from(Span::styled(
+                "Enter 64-char board string (X/O/-):",
+                Style::default().fg(Color::Cyan),
+            )));
+            lines.push(Line::from(vec![
+                Span::raw("  > "),
+                Span::styled(
+                    format!("{}_", app.board_edit_input),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::RAPID_BLINK),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Length: "),
+                Span::styled(
+                    format!("{}/64", app.board_edit_input.len()),
+                    Style::default().fg(if app.board_edit_input.len() == 64 {
+                        Color::Green
+                    } else {
+                        Color::Yellow
+                    }),
+                ),
+            ]));
+            lines.push(Line::from(""));
+            render_side_selector(&mut lines, app.board_edit_side);
+        }
+        BoardEditTab::Bitboard => {
+            let player_style = if app.board_edit_focus == 0 {
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::RAPID_BLINK)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let opponent_style = if app.board_edit_focus == 1 {
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::RAPID_BLINK)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            lines.push(Line::from(Span::styled(
+                "Enter bitboard hex values:",
+                Style::default().fg(Color::Cyan),
+            )));
+            lines.push(Line::from(vec![
+                Span::raw("  Player:   > "),
+                Span::styled(format!("{}_", app.board_edit_input), player_style),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Opponent: > "),
+                Span::styled(format!("{}_", app.board_edit_input2), opponent_style),
+            ]));
+            lines.push(Line::from(""));
+            render_side_selector(&mut lines, app.board_edit_side);
+        }
+    }
+
+    // Error message
+    if let Some(ref err) = app.board_edit_error {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            err.as_str(),
+            Style::default().fg(Color::Red),
+        )));
+    }
+
+    // Help
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Tab: Switch  ←→: Side  Enter: Apply  Esc: Cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let dialog = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" Board Editor "),
+    );
+    frame.render_widget(dialog, area);
+}
+
+/// Renders the side-to-move selector line.
+fn render_side_selector(lines: &mut Vec<Line<'_>>, side: Disc) {
+    let black_style = if side == Disc::Black {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let white_style = if side == Disc::White {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    lines.push(Line::from(vec![
+        Span::raw("  Side: "),
+        Span::styled("● Black", black_style),
+        Span::raw("  "),
+        Span::styled("○ White", white_style),
+        Span::raw("  (←→ to toggle)"),
+    ]));
 }

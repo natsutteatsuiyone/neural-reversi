@@ -37,6 +37,12 @@ pub enum Event {
     ChangeMode,
     /// Change AI level
     ChangeLevel,
+    /// Open board editor
+    EditBoard,
+    /// Tab key (for switching tabs/fields)
+    Tab,
+    /// Shift+Tab (for switching tabs/fields backward)
+    BackTab,
     /// Character input (for dialogs)
     Char(char),
     /// Backspace key
@@ -75,20 +81,32 @@ impl Default for BoardArea {
 }
 
 /// Polls for an event with a timeout.
-pub fn poll_event(timeout: Duration) -> std::io::Result<Option<Event>> {
+///
+/// When `text_input` is true, letter and digit keys are passed through as
+/// `Char` events instead of being mapped to game commands. This is used by
+/// text input dialogs like the board editor.
+pub fn poll_event(timeout: Duration, text_input: bool) -> std::io::Result<Option<Event>> {
     if !event::poll(timeout)? {
         return Ok(None);
     }
 
     match event::read()? {
         CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
+            // Check for Shift+Tab (BackTab key code)
+            if matches!(key.code, KeyCode::BackTab) {
+                return Ok(Some(Event::BackTab));
+            }
             // Check for Ctrl+C
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 && matches!(key.code, KeyCode::Char('c'))
             {
                 return Ok(Some(Event::ForceQuit));
             }
-            Ok(Some(map_key_event(key.code)))
+            if text_input {
+                Ok(Some(map_key_event_text_input(key.code)))
+            } else {
+                Ok(Some(map_key_event(key.code)))
+            }
         }
         CrosstermEvent::Mouse(mouse) => Ok(map_mouse_event(mouse)),
         _ => Ok(None),
@@ -130,6 +148,12 @@ fn map_key_event(code: KeyCode) -> Event {
         KeyCode::Char('m') => Event::ChangeMode,
         KeyCode::Char('v') => Event::ChangeLevel,
 
+        // Tab key
+        KeyCode::Tab => Event::Tab,
+
+        // Board editor
+        KeyCode::Char('e') => Event::EditBoard,
+
         // Backspace
         KeyCode::Backspace => Event::Backspace,
 
@@ -137,6 +161,26 @@ fn map_key_event(code: KeyCode) -> Event {
         KeyCode::Char(c) => Event::Char(c),
 
         // Default
+        _ => Event::Char('\0'),
+    }
+}
+
+/// Maps a key code to an application event in text input mode.
+///
+/// Only special keys (Esc, Enter, Tab, arrows, Backspace) are mapped to
+/// their respective events. All printable characters are passed through as
+/// `Char` events, allowing text input dialogs to receive raw characters.
+fn map_key_event_text_input(code: KeyCode) -> Event {
+    match code {
+        KeyCode::Esc => Event::Quit,
+        KeyCode::Enter => Event::Select,
+        KeyCode::Tab => Event::Tab,
+        KeyCode::Up => Event::CursorUp,
+        KeyCode::Down => Event::CursorDown,
+        KeyCode::Left => Event::CursorLeft,
+        KeyCode::Right => Event::CursorRight,
+        KeyCode::Backspace => Event::Backspace,
+        KeyCode::Char(c) => Event::Char(c),
         _ => Event::Char('\0'),
     }
 }
