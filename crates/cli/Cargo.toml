@@ -4,9 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-clap = { version = "4.5.53", features = ["derive"] }
-colored = "3.0.0"
+clap = { version = "4", features = ["derive"] }
+colored = "3"
 crossterm = { version = "0.29", features = ["event-stream"] }
 ratatui = "0.30"
 reversi-core = { path = "../reversi-core" }
-rustyline = "17.0.2"
+rustyline = "17"
