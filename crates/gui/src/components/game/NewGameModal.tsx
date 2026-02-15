@@ -6,19 +6,17 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { Play, Timer, Zap, ChevronRight, ChevronLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Play, ChevronRight, ChevronLeft } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { AIMode, GameMode } from "@/types";
-import { Stone } from "@/components/board/Stone";
 import { useTranslation } from "react-i18next";
 import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
 import { TranscriptTab } from "@/components/setup/TranscriptTab";
 import { BoardStringTab } from "@/components/setup/BoardStringTab";
+import { GameSettingsStep } from "@/components/game/GameSettingsStep";
+import type { GameSettings } from "@/components/game/GameSettingsStep";
 import type { SetupTab } from "@/stores/slices/types";
 
 export function NewGameModal() {
@@ -45,31 +43,34 @@ export function NewGameModal() {
   const resetSetup = useReversiStore((state) => state.resetSetup);
 
   // Local state for pending AI settings
-  const [localGameMode, setLocalGameMode] = useState<GameMode>(gameMode);
-  const [localAILevel, setLocalAILevel] = useState(aiLevel);
-  const [localAIMode, setLocalAIMode] = useState<AIMode>(aiMode);
-  const [localGameTimeLimit, setLocalGameTimeLimit] = useState(gameTimeLimit);
+  const [settings, setSettings] = useState<GameSettings>({
+    gameMode,
+    aiMode,
+    aiLevel,
+    gameTimeLimit,
+  });
 
   // Step management
   const [step, setStep] = useState<1 | 2>(1);
 
+  const handleSettingsChange = useCallback((partial: Partial<GameSettings>) => {
+    setSettings((prev) => ({ ...prev, ...partial }));
+  }, []);
+
   // Sync local state and reset step when modal opens
   useEffect(() => {
     if (isNewGameModalOpen) {
-      setLocalGameMode(gameMode);
-      setLocalAILevel(aiLevel);
-      setLocalAIMode(aiMode);
-      setLocalGameTimeLimit(gameTimeLimit);
+      setSettings({ gameMode, aiMode, aiLevel, gameTimeLimit });
       setStep(1);
       resetSetup();
     }
   }, [isNewGameModalOpen, gameMode, aiLevel, aiMode, gameTimeLimit, resetSetup]);
 
   const commitAISettings = () => {
-    setGameMode(localGameMode);
-    setAILevelChange(localAILevel);
-    setAIMode(localAIMode);
-    setGameTimeLimit(localGameTimeLimit);
+    setGameMode(settings.gameMode);
+    setAILevelChange(settings.aiLevel);
+    setAIMode(settings.aiMode);
+    setGameTimeLimit(settings.gameTimeLimit);
   };
 
   const handleStartGame = async () => {
@@ -98,13 +99,6 @@ export function NewGameModal() {
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (secs === 0) return `${mins}m`;
-    return `${mins}m ${secs}s`;
-  };
-
   return (
     <Dialog open={isNewGameModalOpen} onOpenChange={setNewGameModalOpen}>
       <DialogContent
@@ -121,89 +115,7 @@ export function NewGameModal() {
         </DialogHeader>
 
         {step === 1 ? (
-          <div className="space-y-6 py-4">
-            {/* Game Mode Selection */}
-            <div className="space-y-3">
-              <Label className="text-sm font-medium text-foreground-secondary">{t('game.youPlay')}</Label>
-              <div className="grid grid-cols-2 gap-3">
-                <GameModeOption
-                  selected={localGameMode === "ai-white"}
-                  onClick={() => setLocalGameMode("ai-white")}
-                  playerColor="black"
-                  label={t('colors.black')}
-                />
-                <GameModeOption
-                  selected={localGameMode === "ai-black"}
-                  onClick={() => setLocalGameMode("ai-black")}
-                  playerColor="white"
-                  label={t('colors.white')}
-                />
-              </div>
-            </div>
-
-            {/* AI Mode Tabs */}
-            <div className="space-y-3">
-              <Label className="text-sm font-medium text-foreground-secondary">{t('ai.mode')}</Label>
-              <Tabs
-                value={localAIMode}
-                onValueChange={(v) => setLocalAIMode(v as AIMode)}
-              >
-                <TabsList className="w-full bg-white/10">
-                  <TabsTrigger value="game-time" className="flex-1 gap-2 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary">
-                    <Timer className="w-4 h-4" />
-                    {t('ai.timed')}
-                  </TabsTrigger>
-                  <TabsTrigger value="level" className="flex-1 gap-2 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary">
-                    <Zap className="w-4 h-4" />
-                    {t('ai.level')}
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-
-            {/* Settings based on AI mode */}
-            {localAIMode === "level" ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium text-foreground-secondary">{t('ai.level')}</Label>
-                  <span className="text-sm font-mono font-semibold text-primary">
-                    {localAILevel}
-                  </span>
-                </div>
-                <Slider
-                  value={[localAILevel]}
-                  min={1}
-                  max={24}
-                  step={1}
-                  onValueChange={([value]) => setLocalAILevel(value)}
-                />
-                <div className="flex justify-between text-xs text-foreground-muted">
-                  <span>{t('ai.easy')}</span>
-                  <span>{t('ai.hard')}</span>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium text-foreground-secondary">{t('ai.timePerGame')}</Label>
-                  <span className="text-sm font-mono font-semibold text-primary">
-                    {formatTime(localGameTimeLimit)}
-                  </span>
-                </div>
-                <Slider
-                  value={[localGameTimeLimit]}
-                  min={30}
-                  max={600}
-                  step={30}
-                  onValueChange={([value]) => setLocalGameTimeLimit(value)}
-                />
-                <div className="flex justify-between text-xs text-foreground-muted">
-                  <span>30s</span>
-                  <span>10m</span>
-                </div>
-              </div>
-            )}
-          </div>
+          <GameSettingsStep settings={settings} onChange={handleSettingsChange} />
         ) : (
           /* Step 2: Board Setup */
           <Tabs
@@ -300,33 +212,5 @@ export function NewGameModal() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function GameModeOption({
-  selected,
-  onClick,
-  playerColor,
-  label,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  playerColor: "black" | "white";
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all",
-        selected
-          ? "border-primary bg-primary/10"
-          : "border-white/20 hover:border-white/30 hover:bg-white/5"
-      )}
-    >
-      <Stone color={playerColor} size="lg" />
-      <span className="text-sm font-semibold text-foreground">{label}</span>
-    </button>
   );
 }
