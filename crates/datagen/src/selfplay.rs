@@ -5,7 +5,7 @@
 //! sequences, with configurable search parameters.
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use rand::Rng;
+use rand::RngExt;
 use rand::seq::IteratorRandom;
 use regex::Regex;
 use reversi_core::board::Board;
