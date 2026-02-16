@@ -298,10 +298,7 @@ impl App {
                 Duration::from_millis(100)
             };
 
-            let text_input = matches!(
-                self.ui_mode,
-                UiMode::BoardEdit | UiMode::LevelSelect
-            );
+            let text_input = matches!(self.ui_mode, UiMode::BoardEdit | UiMode::LevelSelect);
             if let Some(event) = event::poll_event(timeout, text_input)? {
                 self.handle_event(event);
             }
@@ -798,6 +795,19 @@ impl App {
                 }
             }
         };
+
+        // For BoardString/Bitboard tabs, require at least 4 discs on the board
+        let result = result.and_then(|game| {
+            if matches!(
+                self.board_edit_tab,
+                BoardEditTab::BoardString | BoardEditTab::Bitboard
+            ) && game.board().get_player_count() + game.board().get_opponent_count() < 4
+            {
+                Err("At least 4 discs required".to_string())
+            } else {
+                Ok(game)
+            }
+        });
 
         // For BoardString/Bitboard tabs, verify the specified side has legal moves
         let result = result.and_then(|game| {
