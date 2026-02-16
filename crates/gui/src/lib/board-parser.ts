@@ -159,6 +159,16 @@ export function validateBoard(board: Board, currentPlayer: Player): string | nul
     return "needBothColors";
   }
 
+  let discCount = 0;
+  for (let row = 0; row < BOARD_SIZE; row++) {
+    for (let col = 0; col < BOARD_SIZE; col++) {
+      if (board[row][col].color !== null) discCount++;
+    }
+  }
+  if (discCount < 4) {
+    return "tooFewDiscs";
+  }
+
   const currentMoves = getValidMoves(board, currentPlayer);
   const opponentMoves = getValidMoves(board, opponentOf(currentPlayer));
 

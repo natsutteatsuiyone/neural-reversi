@@ -86,6 +86,7 @@
       "invalidBoardLength": "Board string must be exactly 64 characters",
       "invalidCharacter": "Invalid character in board string",
       "needBothColors": "Board must have at least one black and one white stone",
+      "tooFewDiscs": "At least 4 discs are required on the board",
       "noValidMoves": "No valid moves available for either player",
       "currentPlayerNoMoves": "The selected player has no legal moves. Change the turn or modify the board.",
       "aiInitFailed": "Failed to initialize AI engine",

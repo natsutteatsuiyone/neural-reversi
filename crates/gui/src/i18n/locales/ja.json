@@ -86,6 +86,7 @@
       "invalidBoardLength": "ボード文字列は64文字である必要があります",
       "invalidCharacter": "不正な文字が含まれています",
       "needBothColors": "黒と白の石が少なくとも1つずつ必要です",
+      "tooFewDiscs": "石は4つ以上配置してください",
       "noValidMoves": "どちらのプレイヤーも打てる場所がありません",
       "currentPlayerNoMoves": "指定された手番のプレイヤーには合法手がありません。手番を変更するか、盤面を修正してください。",
       "aiInitFailed": "AIエンジンの初期化に失敗しました",

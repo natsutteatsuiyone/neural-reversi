@@ -252,9 +252,20 @@ describe("validateBoard", () => {
     expect(validateBoard(board, "black")).toBe("needBothColors");
   });
 
+  it("returns tooFewDiscs when fewer than 4 stones on board", () => {
+    const board = setupBoard([
+      [0, 0, "black"],
+      [0, 1, "white"],
+      [0, 2, "black"],
+    ]);
+    expect(validateBoard(board, "black")).toBe("tooFewDiscs");
+  });
+
   it("returns noValidMoves when neither player can move", () => {
     const board = setupBoard([
       [0, 0, "black"],
+      [0, 1, "black"],
+      [7, 6, "white"],
       [7, 7, "white"],
     ]);
     expect(validateBoard(board, "black")).toBe("noValidMoves");
@@ -264,6 +275,8 @@ describe("validateBoard", () => {
     const board = setupBoard([
       [0, 0, "white"],
       [0, 1, "black"],
+      [7, 6, "black"],
+      [7, 7, "black"],
     ]);
     expect(validateBoard(board, "black")).toBe("currentPlayerNoMoves");
   });
