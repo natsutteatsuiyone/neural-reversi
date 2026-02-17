@@ -120,61 +120,30 @@ fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     unsafe { Box::from_raw(Box::into_raw(tbl) as *mut [[f64; MAX_DEPTH]; MAX_DEPTH]) }
 }
 
-/// Builds the pre-computed mean table for midgame positions.
-fn build_mean_table() -> Box<MeanTable> {
+/// Builds a symmetric 3D [ply][shallow][deep] table from midgame ProbCut parameters.
+fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MeanTable> {
     let mut tbl = alloc_3d_table();
-
     for ply in 0..MAX_PLY {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
             for deep in shallow..MAX_DEPTH {
-                let v = params.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
+                let v = f(params, shallow as f64, deep as f64) * SCORE_SCALE_F64;
                 tbl[ply][shallow][deep] = v;
-                tbl[ply][deep][shallow] = v; // Mirror for symmetric table access
+                tbl[ply][deep][shallow] = v;
             }
         }
     }
     tbl
 }
 
-/// Builds the pre-computed sigma table for midgame positions.
-fn build_sigma_table() -> Box<SigmaTable> {
-    let mut tbl = unsafe { Box::from_raw(Box::into_raw(alloc_3d_table()) as *mut SigmaTable) };
-
-    for ply in 0..MAX_PLY {
-        let params = &PROBCUT_PARAMS[ply];
-        for shallow in 0..MAX_DEPTH {
-            for deep in shallow..MAX_DEPTH {
-                let v = params.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
-                tbl[ply][shallow][deep] = v;
-                tbl[ply][deep][shallow] = v; // Mirror for symmetric table access
-            }
-        }
-    }
-    tbl
-}
-
-/// Builds the pre-computed mean table for endgame positions.
-fn build_mean_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
+/// Builds a symmetric 2D [shallow][deep] table from endgame ProbCut parameters.
+fn build_end_table(
+    f: impl Fn(&ProbcutParams, f64, f64) -> f64,
+) -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     let mut tbl = alloc_2d_table();
-
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
-            let v = PROBCUT_ENDGAME_PARAMS.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
-            tbl[shallow][deep] = v;
-            tbl[deep][shallow] = v;
-        }
-    }
-    tbl
-}
-
-/// Builds the pre-computed sigma table for endgame positions.
-fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
-    let mut tbl = alloc_2d_table();
-
-    for shallow in 0..MAX_DEPTH {
-        for deep in shallow..MAX_DEPTH {
-            let v = PROBCUT_ENDGAME_PARAMS.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
+            let v = f(&PROBCUT_ENDGAME_PARAMS, shallow as f64, deep as f64) * SCORE_SCALE_F64;
             tbl[shallow][deep] = v;
             tbl[deep][shallow] = v;
         }
@@ -184,10 +153,10 @@ fn build_sigma_table_end() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 
 /// Initializes probcut tables. Called from Search::new().
 pub fn init() {
-    MEAN_TABLE.get_or_init(build_mean_table);
-    SIGMA_TABLE.get_or_init(build_sigma_table);
-    MEAN_TABLE_END.get_or_init(build_mean_table_end);
-    SIGMA_TABLE_END.get_or_init(build_sigma_table_end);
+    MEAN_TABLE.get_or_init(|| build_mid_table(ProbcutParams::mean));
+    SIGMA_TABLE.get_or_init(|| build_mid_table(ProbcutParams::sigma));
+    MEAN_TABLE_END.get_or_init(|| build_end_table(ProbcutParams::mean));
+    SIGMA_TABLE_END.get_or_init(|| build_end_table(ProbcutParams::sigma));
 }
 
 /// Returns the pre-computed mean value for midgame positions.
