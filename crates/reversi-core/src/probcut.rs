@@ -61,8 +61,14 @@ impl Selectivity {
     /// Values > 5 are clamped to `Selectivity::None` (5).
     #[inline]
     pub fn from_u8(value: u8) -> Self {
-        // SAFETY: Selectivity enum has repr(u8) with contiguous values 0-5.
-        unsafe { std::mem::transmute(value.min(5)) }
+        match value {
+            0 => Selectivity::Level1,
+            1 => Selectivity::Level2,
+            2 => Selectivity::Level3,
+            3 => Selectivity::Level4,
+            4 => Selectivity::Level5,
+            _ => Selectivity::None,
+        }
     }
 
     /// Checks if ProbCut is enabled for this selectivity level.
@@ -108,16 +114,18 @@ static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
 static MEAN_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
 static SIGMA_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
 
-/// Safely allocates a 3D table on the heap to avoid stack overflow.
 fn alloc_3d_table() -> Box<MeanTable> {
-    let tbl = vec![[0.0f64; MAX_DEPTH]; MAX_PLY * MAX_DEPTH].into_boxed_slice();
-    unsafe { Box::from_raw(Box::into_raw(tbl) as *mut MeanTable) }
+    vec![[[0.0f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY]
+        .into_boxed_slice()
+        .try_into()
+        .unwrap()
 }
 
-/// Safely allocates a 2D table on the heap to avoid stack overflow.
 fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
-    let tbl = vec![0.0f64; MAX_DEPTH * MAX_DEPTH].into_boxed_slice();
-    unsafe { Box::from_raw(Box::into_raw(tbl) as *mut [[f64; MAX_DEPTH]; MAX_DEPTH]) }
+    vec![[0.0f64; MAX_DEPTH]; MAX_DEPTH]
+        .into_boxed_slice()
+        .try_into()
+        .unwrap()
 }
 
 /// Builds a symmetric 3D [ply][shallow][deep] table from midgame ProbCut parameters.
