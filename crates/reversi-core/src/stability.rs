@@ -11,6 +11,51 @@ const EDGE_STABILITY_SIZE: usize = 256 * 256;
 /// Global edge stability lookup table, initialized once at startup.
 static EDGE_STABILITY: OnceLock<[u8; EDGE_STABILITY_SIZE]> = OnceLock::new();
 
+/// Simulates placing a disc at position `x` on an edge and applies flips.
+///
+/// # Arguments
+///
+/// * `x` - Position (0-7) where the disc is placed
+/// * `player` - The side placing the disc (8-bit edge)
+/// * `opponent` - The opposing side (8-bit edge)
+///
+/// # Returns
+///
+/// `(player_after, opponent_after)` with flips applied in both directions.
+fn apply_edge_move(x: i32, player: i32, opponent: i32) -> (i32, i32) {
+    let mut p = player | x_to_bit(x);
+    let mut o = opponent;
+    if x > 1 {
+        let mut y = x - 1;
+        while y > 0 && (o & x_to_bit(y)) != 0 {
+            y -= 1;
+        }
+        if (p & x_to_bit(y)) != 0 {
+            let mut y = x - 1;
+            while y > 0 && (o & x_to_bit(y)) != 0 {
+                o ^= x_to_bit(y);
+                p ^= x_to_bit(y);
+                y -= 1;
+            }
+        }
+    }
+    if x < 6 {
+        let mut y = x + 1;
+        while y < 8 && (o & x_to_bit(y)) != 0 {
+            y += 1;
+        }
+        if (p & x_to_bit(y)) != 0 {
+            let mut y = x + 1;
+            while y < 8 && (o & x_to_bit(y)) != 0 {
+                o ^= x_to_bit(y);
+                p ^= x_to_bit(y);
+                y += 1;
+            }
+        }
+    }
+    (p, o)
+}
+
 /// Recursively finds stable discs along an edge by simulating all possible move sequences.
 ///
 /// # Arguments
@@ -23,91 +68,27 @@ static EDGE_STABILITY: OnceLock<[u8; EDGE_STABILITY_SIZE]> = OnceLock::new();
 ///
 /// A bitmask of stable discs for the player on this edge.
 fn find_edge_stable(old_p: i32, old_o: i32, mut stable: i32) -> i32 {
-    // Calculate empty squares on the edge
     let e: i32 = !(old_p | old_o);
 
-    // Only player's discs can be stable
     stable &= old_p;
     if stable == 0 || e == 0 {
         return stable;
     }
 
-    // Try placing a disc on each empty square and check stability
     for x in 0..8 {
         if (e & x_to_bit(x)) == 0 {
             continue;
         }
 
         // Simulate player's move at position x
-        let mut o = old_o;
-        let mut p = old_p | x_to_bit(x);
-        if x > 1 {
-            // Check for flips to the left
-            let mut y = x - 1;
-            while y > 0 && (o & x_to_bit(y)) != 0 {
-                y -= 1;
-            }
-            if (p & x_to_bit(y)) != 0 {
-                let mut y = x - 1;
-                while y > 0 && (o & x_to_bit(y)) != 0 {
-                    o ^= x_to_bit(y);
-                    p ^= x_to_bit(y);
-                    y -= 1;
-                }
-            }
-        }
-        if x < 6 {
-            // Check for flips to the right
-            let mut y = x + 1;
-            while y < 8 && (o & x_to_bit(y)) != 0 {
-                y += 1;
-            }
-            if (p & x_to_bit(y)) != 0 {
-                let mut y = x + 1;
-                while y < 8 && (o & x_to_bit(y)) != 0 {
-                    o ^= x_to_bit(y);
-                    p ^= x_to_bit(y);
-                    y += 1;
-                }
-            }
-        }
-        // Recursively check stability after player's move
+        let (p, o) = apply_edge_move(x, old_p, old_o);
         stable = find_edge_stable(p, o, stable);
         if stable == 0 {
             return stable;
         }
 
-        // Now simulate opponent's move at position x
-        let mut p = old_p;
-        let mut o = old_o | x_to_bit(x);
-        if x > 1 {
-            let mut y = x - 1;
-            while y > 0 && (p & x_to_bit(y)) != 0 {
-                y -= 1;
-            }
-            if (o & x_to_bit(y)) != 0 {
-                let mut y = x - 1;
-                while y > 0 && (p & x_to_bit(y)) != 0 {
-                    o ^= x_to_bit(y);
-                    p ^= x_to_bit(y);
-                    y -= 1;
-                }
-            }
-        }
-        if x < 6 {
-            let mut y = x + 1;
-            while y < 8 && (p & x_to_bit(y)) != 0 {
-                y += 1;
-            }
-            if (o & x_to_bit(y)) != 0 {
-                let mut y = x + 1;
-                while y < 8 && (p & x_to_bit(y)) != 0 {
-                    o ^= x_to_bit(y);
-                    p ^= x_to_bit(y);
-                    y += 1;
-                }
-            }
-        }
+        // Simulate opponent's move at position x
+        let (o, p) = apply_edge_move(x, old_o, old_p);
         stable = find_edge_stable(p, o, stable);
         if stable == 0 {
             return stable;
@@ -332,8 +313,8 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
 ///
 /// # Arguments
 ///
-/// * `p` - Player's bitboard
-/// * `o` - Opponent's bitboard
+/// * `player` - Player's bitboard
+/// * `opponent` - Opponent's bitboard
 ///
 /// # Returns
 ///
