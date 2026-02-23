@@ -536,3 +536,102 @@ impl NetworkSmall {
         output
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_test_fixture() -> (PatternFeature, InputLayer, OutputLayer) {
+        let mut pattern_feature = PatternFeature::new();
+        for i in 0..NUM_FEATURES {
+            pattern_feature[i] = ((i * 13 + 7) % 193) as u16;
+        }
+
+        let mut input_layer = InputLayer {
+            biases: Align64([0i16; PA_OUTPUT_DIMS]),
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS],
+        };
+
+        for (i, bias) in input_layer.biases.as_mut_slice().iter_mut().enumerate() {
+            *bias = ((i % 9) as i16) - 4;
+        }
+
+        for feature_idx in 0..NUM_FEATURES {
+            let offset = feature_offset(&pattern_feature, feature_idx);
+            let row =
+                &mut input_layer.weights[offset * PA_OUTPUT_DIMS..(offset + 1) * PA_OUTPUT_DIMS];
+            for (j, w) in row.iter_mut().enumerate() {
+                *w = (((feature_idx * 11 + j * 3) % 17) as i16) - 8;
+            }
+        }
+
+        let mut output_layer = OutputLayer {
+            bias: 0,
+            weights: Align64([0i16; PA_OUTPUT_DIMS]),
+        };
+        for (i, w) in output_layer.weights.as_mut_slice().iter_mut().enumerate() {
+            *w = ((i % 11) as i16) - 5;
+        }
+
+        (pattern_feature, input_layer, output_layer)
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn forward_avx2_matches_scalar() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        let (pattern_feature, input_layer, output_layer) = build_test_fixture();
+        let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
+        // SAFETY: Guarded by runtime AVX2 feature detection above.
+        let avx2_no_vnni = unsafe {
+            NetworkSmall::forward_avx2_no_vnni(&pattern_feature, &input_layer, &output_layer)
+        };
+        assert_eq!(scalar, avx2_no_vnni, "scalar and avx2(no_vnni) mismatch");
+
+        if is_x86_feature_detected!("avxvnni") {
+            // SAFETY: Guarded by runtime AVX2+AVXVNNI feature detection above.
+            let avx2_vnni = unsafe {
+                NetworkSmall::forward_avx2_vnni(&pattern_feature, &input_layer, &output_layer)
+            };
+            assert_eq!(scalar, avx2_vnni, "scalar and avx2(vnni) mismatch");
+            assert_eq!(
+                avx2_no_vnni, avx2_vnni,
+                "avx2(no_vnni) and avx2(vnni) mismatch"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn forward_avx512_matches_scalar() {
+        if !is_x86_feature_detected!("avx512bw") {
+            return;
+        }
+
+        let (pattern_feature, input_layer, output_layer) = build_test_fixture();
+        let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
+        // SAFETY: Guarded by runtime AVX-512BW feature detection above.
+        let avx512_no_vnni = unsafe {
+            NetworkSmall::forward_avx512_no_vnni(&pattern_feature, &input_layer, &output_layer)
+        };
+        assert_eq!(
+            scalar, avx512_no_vnni,
+            "scalar and avx512(no_vnni) mismatch"
+        );
+
+        if is_x86_feature_detected!("avx512vnni") {
+            // SAFETY: Guarded by runtime AVX-512BW+AVX-512VNNI feature detection above.
+            let avx512_vnni = unsafe {
+                NetworkSmall::forward_avx512_vnni(&pattern_feature, &input_layer, &output_layer)
+            };
+            assert_eq!(scalar, avx512_vnni, "scalar and avx512(vnni) mismatch");
+            assert_eq!(
+                avx512_no_vnni, avx512_vnni,
+                "avx512(no_vnni) and avx512(vnni) mismatch"
+            );
+        }
+    }
+}
