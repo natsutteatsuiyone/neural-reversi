@@ -2,7 +2,7 @@
 members = [
     "crates/cli",
     "crates/datagen",
-    "crates/ffotest",
+    "crates/evaltest",
     "crates/gui/src-tauri",
     "crates/match-runner",
     "crates/reversi-core",

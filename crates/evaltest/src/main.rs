@@ -1,14 +1,15 @@
-//! FFO Test Suite Runner for Reversi AI Engines
+//! Evaluation Test Suite Runner for Reversi AI Engines
 //!
-//! This program runs the FFO (French Federation of Othello) test suite,
-//! a collection of 79 challenging endgame positions used to evaluate
-//! the solving capabilities of Reversi/Othello engines.
+//! This program runs evaluation test suites loaded from OBF (Othello Board Format) files,
+//! containing challenging positions used to evaluate the solving capabilities
+//! of Reversi/Othello engines.
 //!
 //! The test runner measures:
 //! - Solving accuracy (correct score and best move)
 //! - Search performance (time and nodes)
 //! - Move selection quality (best move percentage)
 
+mod obf;
 mod test_case;
 
 use clap::Parser;
@@ -161,6 +162,20 @@ impl SearchStats {
             / self.total_count as f64;
 
         (mean, variance.sqrt())
+    }
+
+    /// Merge another SearchStats into this one
+    fn merge(&mut self, other: &SearchStats) {
+        self.total_time += other.total_time;
+        self.total_nodes += other.total_nodes;
+        self.total_count += other.total_count;
+        self.score_differences.extend(&other.score_differences);
+        self.best_move_count += other.best_move_count;
+        self.top2_move_count += other.top2_move_count;
+        self.top3_move_count += other.top3_move_count;
+        self.perfect_score_count += other.perfect_score_count;
+        self.good_score_count += other.good_score_count;
+        self.acceptable_score_count += other.acceptable_score_count;
     }
 
     /// Print formatted statistics summary with color coding
@@ -394,7 +409,7 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
 
     println!(
         "| {:>3} | {:^6} | {:>9.4} | {:>15} | {:>13} | {:<8} | {:>6} | {:<32} |",
-        test_case.no,
+        test_case.line_number,
         depth_str,
         rounded_secs,
         nodes_formatted,
@@ -409,31 +424,21 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
     );
 }
 
-/// Execute the FFO test suite with given parameters
-///
-/// # Arguments
-/// * `test_cases` - Vector of test positions to solve
-/// * `search_options` - Search configuration (hash size, threads)
-/// * `depth` - Maximum search depth
-/// * `selectivity` - Search selectivity level (1-6)
-fn execute(
-    test_cases: &[&TestCase],
-    search_options: &SearchOptions,
-    depth: Depth,
+/// Execute a section of test cases and return aggregated statistics
+fn execute_section(
+    section_name: &str,
+    test_cases: &[TestCase],
+    search: &mut search::Search,
+    level: Level,
     selectivity: Selectivity,
-) {
+) -> SearchStats {
+    println!("\n## {section_name} ({} cases)\n", test_cases.len());
     print_header();
 
-    let mut search = search::Search::new(search_options);
     let mut stats = SearchStats::default();
-    let level = Level {
-        mid_depth: depth,
-        end_depth: [depth; 6],
-    };
 
     for test_case in test_cases {
-        let result = execute_test_case(test_case, &mut search, level, selectivity);
-        // Convert TestResult back to SearchResult for stats update
+        let result = execute_test_case(test_case, search, level, selectivity);
         let search_result = SearchResult {
             score: result.score,
             best_move: result.pv_line.first().copied(),
@@ -449,11 +454,12 @@ fn execute(
     }
 
     stats.print();
+    stats
 }
 
-/// Command line arguments for the FFO test runner
+/// Command line arguments for the evaluation test runner
 #[derive(Parser)]
-#[command(author, version, about = "FFO Test Suite Runner for Reversi AI")]
+#[command(author, version, about = "Evaluation Test Suite Runner for Reversi AI")]
 struct Args {
     /// Maximum search depth in plies
     #[arg(short, long, default_value = "60")]
@@ -471,50 +477,67 @@ struct Args {
     #[arg(long)]
     threads: Option<usize>,
 
-    /// Run only a specific test case number (1-79)
-    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=79))]
-    case: Option<u8>,
+    /// Problem set to run (preset: fforum, hard-20, hard-25, hard-30; or file path)
+    /// Can be specified multiple times. Default: all .obf files in problem directory.
+    #[arg(long)]
+    problem: Vec<String>,
 
-    /// Start from this test case number
-    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=79))]
-    from: Option<u8>,
-
-    /// Run up to this test case number
-    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=79))]
-    to: Option<u8>,
+    /// Path to the problem directory containing .obf files
+    #[arg(long)]
+    problem_dir: Option<String>,
 }
 
 fn main() {
     let args = Args::parse();
 
-    // Validate argument combinations
-    if args.case.is_some() && (args.from.is_some() || args.to.is_some()) {
-        eprintln!("Error: --case cannot be used with --from or --to");
-        std::process::exit(1);
-    }
-
-    let test_cases = test_case::get_test_cases();
-    let filtered: Vec<&TestCase> = test_cases
-        .iter()
-        .filter(|test| {
-            let case_matches = args.case.is_none_or(|case_no| test.no == case_no as usize);
-            let from_matches = args.from.is_none_or(|from| test.no >= from as usize);
-            let to_matches = args.to.is_none_or(|to| test.no <= to as usize);
-            case_matches && from_matches && to_matches
+    let problem_dir = if let Some(ref dir) = args.problem_dir {
+        let path = std::path::PathBuf::from(dir);
+        if !path.is_dir() {
+            eprintln!("Error: Problem directory not found: {dir}");
+            std::process::exit(1);
+        }
+        path
+    } else {
+        obf::find_problem_dir().unwrap_or_else(|| {
+            eprintln!("Error: Cannot find problem directory. Use --problem-dir to specify.");
+            std::process::exit(1);
         })
-        .collect();
+    };
 
-    if filtered.is_empty() {
-        eprintln!("Error: No test cases match the specified criteria");
+    let problem_sets = if args.problem.is_empty() {
+        obf::load_all_problems(&problem_dir)
+    } else {
+        obf::load_problems(&args.problem, &problem_dir)
+    };
+
+    if problem_sets.is_empty() || problem_sets.iter().all(|ps| ps.cases.is_empty()) {
+        eprintln!("Error: No test cases found");
         std::process::exit(1);
     }
 
     let search_options = SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
+    let mut search = search::Search::new(&search_options);
+    let level = Level {
+        mid_depth: args.depth,
+        end_depth: [args.depth; 6],
+    };
+    let selectivity = Selectivity::from_u8(args.selectivity);
 
-    execute(
-        &filtered,
-        &search_options,
-        args.depth,
-        Selectivity::from_u8(args.selectivity),
-    );
+    let mut overall_stats = SearchStats::default();
+
+    for problem_set in &problem_sets {
+        let stats = execute_section(
+            &problem_set.name,
+            &problem_set.cases,
+            &mut search,
+            level,
+            selectivity,
+        );
+        overall_stats.merge(&stats);
+    }
+
+    if problem_sets.len() > 1 {
+        println!("\n## Overall ({} cases)", overall_stats.total_count);
+        overall_stats.print();
+    }
 }

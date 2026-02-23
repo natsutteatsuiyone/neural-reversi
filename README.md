@@ -12,7 +12,7 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 - **web**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [https://neural-reversi.net](https://neural-reversi.net).
 - **match-runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
 - **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.
-- **ffotest**: FFO endgame test suite, including Edax problem sets.
+- **evaltest**: Evaluation test suite runner for benchmarking engine performance using OBF problem files (FFO Forum, Edax hard sets).
 
 ## Neural Network
 

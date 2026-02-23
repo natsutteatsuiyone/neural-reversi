@@ -493,7 +493,7 @@ fn play_game(
                 (0, "-".to_string())
             };
 
-            // Format depth with selectivity probability (like ffotest)
+            // Format depth with selectivity probability (like evaltest)
             let depth_str = {
                 let probability = result.get_probability();
                 if probability == 100 {
