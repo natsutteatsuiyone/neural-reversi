@@ -30,7 +30,7 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 
 - Mobility: Number of legal moves for the current player.
 - Patterns:  
-  ![Pattern features](docs/1.0.0/pattern_features_1.0.0.svg)
+  ![Pattern features](docs/3.0.0/pattern_features_3.0.0.svg)
 
 ### Training
 

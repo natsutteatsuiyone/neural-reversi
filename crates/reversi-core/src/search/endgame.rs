@@ -254,7 +254,7 @@ fn estimate_aspiration_base_score(
 ) -> ScaledScore {
     ctx.eval_mode = EvalMode::Main;
     ctx.selectivity = Selectivity::Level1;
-    let midgame_depth = n_empties / 4;
+    let midgame_depth = n_empties / 3;
 
     let hash_key = board.hash();
     let tt_probe_result = ctx.tt.probe(hash_key);

@@ -13,7 +13,7 @@ use crate::{
     search::{Search, search_context::SearchContext},
 };
 use js_sys::Function;
-use rand::Rng;
+use rand::RngExt;
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::eval::pattern_feature::PatternFeatures;

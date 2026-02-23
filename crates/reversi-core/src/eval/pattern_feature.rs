@@ -65,7 +65,7 @@ impl FeatureToCoordinate {
 }
 
 /// Storage for pattern features.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(align(64))]
 pub struct PatternFeature {
     data: [u16; FEATURE_VECTOR_SIZE],
@@ -156,34 +156,35 @@ impl CoordinateToFeature {
 /// Board squares that make up each pattern.
 #[rustfmt::skip]
 pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
-    FeatureToCoordinate::new(8, [Sq::C2, Sq::D2, Sq::B3, Sq::C3, Sq::D3, Sq::B4, Sq::C4, Sq::D4, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::F2, Sq::E2, Sq::G3, Sq::F3, Sq::E3, Sq::G4, Sq::F4, Sq::E4, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::C7, Sq::D7, Sq::B6, Sq::C6, Sq::D6, Sq::B5, Sq::C5, Sq::D5, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::F7, Sq::E7, Sq::G6, Sq::F6, Sq::E6, Sq::G5, Sq::F5, Sq::E5, Sq::None, Sq::None]),
+    FeatureToCoordinate::new(8, [Sq::C2, Sq::D2, Sq::E2, Sq::F2, Sq::C3, Sq::D3, Sq::E3, Sq::F3, Sq::None, Sq::None]),  // 0: inner top-left
+    FeatureToCoordinate::new(8, [Sq::C7, Sq::D7, Sq::E7, Sq::F7, Sq::C6, Sq::D6, Sq::E6, Sq::F6, Sq::None, Sq::None]),  // 1: inner bottom-left
+    FeatureToCoordinate::new(8, [Sq::B3, Sq::B4, Sq::B5, Sq::B6, Sq::C3, Sq::C4, Sq::C5, Sq::C6, Sq::None, Sq::None]),  // 2: inner top-left
+    FeatureToCoordinate::new(8, [Sq::G3, Sq::G4, Sq::G5, Sq::G6, Sq::F3, Sq::F4, Sq::F5, Sq::F6, Sq::None, Sq::None]),  // 3: inner top-right
 
-    FeatureToCoordinate::new(8, [Sq::A1, Sq::B2, Sq::C3, Sq::D4, Sq::E5, Sq::F6, Sq::G7, Sq::H8, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::H1, Sq::G2, Sq::F3, Sq::E4, Sq::D5, Sq::C6, Sq::B7, Sq::A8, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::D3, Sq::E4, Sq::F5, Sq::D4, Sq::E5, Sq::C4, Sq::D5, Sq::E6, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::E3, Sq::D4, Sq::C5, Sq::E4, Sq::D5, Sq::F4, Sq::E5, Sq::D6, Sq::None, Sq::None]),
+    FeatureToCoordinate::new(8, [Sq::A1, Sq::B2, Sq::C3, Sq::D4, Sq::E5, Sq::F6, Sq::G7, Sq::H8, Sq::None, Sq::None]),  // 4: diagonal A1-H8
+    FeatureToCoordinate::new(8, [Sq::H1, Sq::G2, Sq::F3, Sq::E4, Sq::D5, Sq::C6, Sq::B7, Sq::A8, Sq::None, Sq::None]),  // 5: diagonal H1-A8
 
-    FeatureToCoordinate::new(8, [Sq::A1, Sq::B1, Sq::C1, Sq::D1, Sq::E1, Sq::F1, Sq::G1, Sq::H1, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::A8, Sq::B8, Sq::C8, Sq::D8, Sq::E8, Sq::F8, Sq::G8, Sq::H8, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::A1, Sq::A2, Sq::A3, Sq::A4, Sq::A5, Sq::A6, Sq::A7, Sq::A8, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::H1, Sq::H2, Sq::H3, Sq::H4, Sq::H5, Sq::H6, Sq::H7, Sq::H8, Sq::None, Sq::None]),
+    FeatureToCoordinate::new(8, [Sq::C4, Sq::D4, Sq::E4, Sq::F4, Sq::C5, Sq::D5, Sq::E5, Sq::F5, Sq::None, Sq::None]),  // 6: center 2x4 horizontal
+    FeatureToCoordinate::new(8, [Sq::D3, Sq::E3, Sq::D4, Sq::E4, Sq::D5, Sq::E5, Sq::D6, Sq::E6, Sq::None, Sq::None]),  // 7: center 2x4 vertical
 
-    FeatureToCoordinate::new(8, [Sq::B1, Sq::C1, Sq::D1, Sq::E1, Sq::B2, Sq::C2, Sq::D2, Sq::E2, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::G1, Sq::F1, Sq::E1, Sq::D1, Sq::G2, Sq::F2, Sq::E2, Sq::D2, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::B8, Sq::C8, Sq::D8, Sq::E8, Sq::B7, Sq::C7, Sq::D7, Sq::E7, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::G8, Sq::F8, Sq::E8, Sq::D8, Sq::G7, Sq::F7, Sq::E7, Sq::D7, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::A2, Sq::A3, Sq::A4, Sq::A5, Sq::B2, Sq::B3, Sq::B4, Sq::B5, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::A7, Sq::A6, Sq::A5, Sq::A4, Sq::B7, Sq::B6, Sq::B5, Sq::B4, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::H2, Sq::H3, Sq::H4, Sq::H5, Sq::G2, Sq::G3, Sq::G4, Sq::G5, Sq::None, Sq::None]),
-    FeatureToCoordinate::new(8, [Sq::H7, Sq::H6, Sq::H5, Sq::H4, Sq::G7, Sq::G6, Sq::G5, Sq::G4, Sq::None, Sq::None]),
+    FeatureToCoordinate::new(8, [Sq::A1, Sq::B1, Sq::C1, Sq::D1, Sq::E1, Sq::F1, Sq::G1, Sq::H1, Sq::None, Sq::None]),  // 8: row 1
+    FeatureToCoordinate::new(8, [Sq::A8, Sq::B8, Sq::C8, Sq::D8, Sq::E8, Sq::F8, Sq::G8, Sq::H8, Sq::None, Sq::None]),  // 9: row 8
+    FeatureToCoordinate::new(8, [Sq::A1, Sq::A2, Sq::A3, Sq::A4, Sq::A5, Sq::A6, Sq::A7, Sq::A8, Sq::None, Sq::None]),  // 10: column A
+    FeatureToCoordinate::new(8, [Sq::H1, Sq::H2, Sq::H3, Sq::H4, Sq::H5, Sq::H6, Sq::H7, Sq::H8, Sq::None, Sq::None]),  // 11: column H
 
-    FeatureToCoordinate::new(9, [Sq::A1, Sq::B1, Sq::C1, Sq::A2, Sq::B2, Sq::C2, Sq::A3, Sq::B3, Sq::C3, Sq::None]),
-    FeatureToCoordinate::new(9, [Sq::H1, Sq::G1, Sq::F1, Sq::H2, Sq::G2, Sq::F2, Sq::H3, Sq::G3, Sq::F3, Sq::None]),
-    FeatureToCoordinate::new(9, [Sq::A8, Sq::B8, Sq::C8, Sq::A7, Sq::B7, Sq::C7, Sq::A6, Sq::B6, Sq::C6, Sq::None]),
-    FeatureToCoordinate::new(9, [Sq::H8, Sq::G8, Sq::F8, Sq::H7, Sq::G7, Sq::F7, Sq::H6, Sq::G6, Sq::F6, Sq::None]),
+    FeatureToCoordinate::new(8, [Sq::B1, Sq::C1, Sq::D1, Sq::E1, Sq::B2, Sq::C2, Sq::D2, Sq::E2, Sq::None, Sq::None]),  // 12: top edge 2x4
+    FeatureToCoordinate::new(8, [Sq::G1, Sq::F1, Sq::E1, Sq::D1, Sq::G2, Sq::F2, Sq::E2, Sq::D2, Sq::None, Sq::None]),  // 13: top edge 2x4 (mirrored)
+    FeatureToCoordinate::new(8, [Sq::B8, Sq::C8, Sq::D8, Sq::E8, Sq::B7, Sq::C7, Sq::D7, Sq::E7, Sq::None, Sq::None]),  // 14: bottom edge 2x4
+    FeatureToCoordinate::new(8, [Sq::G8, Sq::F8, Sq::E8, Sq::D8, Sq::G7, Sq::F7, Sq::E7, Sq::D7, Sq::None, Sq::None]),  // 15: bottom edge 2x4 (mirrored)
+    FeatureToCoordinate::new(8, [Sq::A2, Sq::A3, Sq::A4, Sq::A5, Sq::B2, Sq::B3, Sq::B4, Sq::B5, Sq::None, Sq::None]),  // 16: left edge 2x4
+    FeatureToCoordinate::new(8, [Sq::A7, Sq::A6, Sq::A5, Sq::A4, Sq::B7, Sq::B6, Sq::B5, Sq::B4, Sq::None, Sq::None]),  // 17: left edge 2x4 (mirrored)
+    FeatureToCoordinate::new(8, [Sq::H2, Sq::H3, Sq::H4, Sq::H5, Sq::G2, Sq::G3, Sq::G4, Sq::G5, Sq::None, Sq::None]),  // 18: right edge 2x4
+    FeatureToCoordinate::new(8, [Sq::H7, Sq::H6, Sq::H5, Sq::H4, Sq::G7, Sq::G6, Sq::G5, Sq::G4, Sq::None, Sq::None]),  // 19: right edge 2x4 (mirrored)
+
+    FeatureToCoordinate::new(9, [Sq::A1, Sq::B1, Sq::C1, Sq::A2, Sq::B2, Sq::C2, Sq::A3, Sq::B3, Sq::C3, Sq::None]),  // 20: corner A1 3x3
+    FeatureToCoordinate::new(9, [Sq::H1, Sq::G1, Sq::F1, Sq::H2, Sq::G2, Sq::F2, Sq::H3, Sq::G3, Sq::F3, Sq::None]),  // 21: corner H1 3x3
+    FeatureToCoordinate::new(9, [Sq::A8, Sq::B8, Sq::C8, Sq::A7, Sq::B7, Sq::C7, Sq::A6, Sq::B6, Sq::C6, Sq::None]),  // 22: corner A8 3x3
+    FeatureToCoordinate::new(9, [Sq::H8, Sq::G8, Sq::F8, Sq::H7, Sq::G7, Sq::F7, Sq::H6, Sq::G6, Sq::F6, Sq::None]),  // 23: corner H8 3x3
 ];
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
@@ -1861,21 +1862,21 @@ mod tests {
     #[test]
     fn test_compute_pattern_feature_index_center() {
         // Test center squares with golden values
-        // Feature 6: [D3, E4, F5, D4, E5, C4, D5, E6]
-        // D4 is at position 3 (0-indexed), so weight is 3^(7-3) = 3^4 = 81
+        // Feature 6: [C4, D4, E4, F4, C5, D5, E5, F5]
+        // D4 is at position 1 (0-indexed), so weight is 3^(7-1) = 3^6 = 729
         let board_d4 = 1u64 << Square::D4.index();
         let idx = compute_pattern_feature_index(board_d4, &EVAL_F2X[6]);
-        assert_eq!(idx, 81, "D4 in feature 6 should have weight 3^4 = 81");
+        assert_eq!(idx, 729, "D4 in feature 6 should have weight 3^6 = 729");
 
-        // E5 is at position 4, so weight is 3^(7-4) = 3^3 = 27
+        // E5 is at position 6, so weight is 3^(7-6) = 3^1 = 3
         let board_e5 = 1u64 << Square::E5.index();
         let idx = compute_pattern_feature_index(board_e5, &EVAL_F2X[6]);
-        assert_eq!(idx, 27, "E5 in feature 6 should have weight 3^3 = 27");
+        assert_eq!(idx, 3, "E5 in feature 6 should have weight 3^1 = 3");
 
-        // D5 is at position 6, so weight is 3^(7-6) = 3^1 = 3
+        // D5 is at position 5, so weight is 3^(7-5) = 3^2 = 9
         let board_d5 = 1u64 << Square::D5.index();
         let idx = compute_pattern_feature_index(board_d5, &EVAL_F2X[6]);
-        assert_eq!(idx, 3, "D5 in feature 6 should have weight 3^1 = 3");
+        assert_eq!(idx, 9, "D5 in feature 6 should have weight 3^2 = 9");
     }
 
     #[test]
