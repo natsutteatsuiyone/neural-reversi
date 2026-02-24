@@ -48,12 +48,12 @@ pub struct EndGameCacheEntry {
 }
 
 impl EndGameCacheEntry {
-    /// Returns whether this entry can produce a cutoff.
+    /// Returns the normalized cutoff score if this entry produces a cutoff for the given beta.
     #[inline(always)]
-    pub fn can_cut(&self, beta: Score) -> bool {
+    pub fn try_cut(&self, beta: Score) -> Option<Score> {
         match self.bound {
-            EndGameCacheBound::Lower => self.score >= beta,
-            EndGameCacheBound::Upper => self.score < beta,
+            EndGameCacheBound::Lower => (self.score >= beta).then_some(beta),
+            EndGameCacheBound::Upper => (self.score < beta).then_some(beta - 1),
         }
     }
 }

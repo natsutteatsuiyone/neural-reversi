@@ -187,8 +187,8 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     let entry = probe_endgame_cache(key);
     let mut tt_move = Square::None;
     if let Some(entry_data) = &entry {
-        if entry_data.can_cut(beta) {
-            return entry_data.score;
+        if let Some(score) = entry_data.try_cut(beta) {
+            return score;
         }
         tt_move = entry_data.best_move;
     }
@@ -280,8 +280,8 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     let key = board.hash();
     let entry = probe_endgame_cache(key);
     let tt_move = if let Some(entry_data) = &entry {
-        if entry_data.can_cut(beta) {
-            return entry_data.score;
+        if let Some(score) = entry_data.try_cut(beta) {
+            return score;
         }
         entry_data.best_move
     } else {
@@ -391,9 +391,9 @@ fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta:
         let entry = probe_endgame_cache(next_key);
         let next_beta = -beta + 1;
         if let Some(entry_data) = &entry
-            && entry_data.can_cut(next_beta)
+            && let Some(score) = entry_data.try_cut(next_beta)
         {
-            -entry_data.score
+            -score
         } else if let Some(score) = stability::stability_cutoff(&next, 4, -beta) {
             -score
         } else {
