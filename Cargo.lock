@@ -656,7 +656,7 @@ checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "cli"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "colored",
@@ -1069,7 +1069,7 @@ dependencies = [
 
 [[package]]
 name = "datagen"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "evaltest"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "colored",
@@ -1972,7 +1972,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "reversi-core",
  "serde",
@@ -2700,7 +2700,7 @@ dependencies = [
 
 [[package]]
 name = "match-runner"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "colored",
@@ -4054,7 +4054,7 @@ dependencies = [
 
 [[package]]
 name = "reversi-core"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "aligned-vec",
  "arrayvec",
@@ -5121,7 +5121,7 @@ checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "time-debug"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "colored",
@@ -5762,7 +5762,7 @@ dependencies = [
 
 [[package]]
 name = "web"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "byteorder",
  "console_error_panic_hook",
