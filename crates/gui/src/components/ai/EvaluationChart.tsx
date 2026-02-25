@@ -23,7 +23,8 @@ interface ChartDataItem {
 
 export function EvaluationChart() {
   const { t } = useTranslation();
-  const moves = useReversiStore((state) => state.moveHistory.currentMoves);
+  const moveHistory = useReversiStore((state) => state.moveHistory);
+  const moves = moveHistory.currentMoves;
   const gameMode = useReversiStore((state) => state.gameMode);
 
   const chartData = useMemo(() => {
@@ -115,8 +116,8 @@ export function EvaluationChart() {
   };
 
   return (
-    <div className="h-full bg-white/5 rounded-lg p-2 border border-white/10">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="bg-white/5 rounded-lg p-2 border border-white/10">
+      <ResponsiveContainer width="100%" height={180}>
         <LineChart
           data={chartData}
           margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
@@ -144,10 +145,10 @@ export function EvaluationChart() {
               fill: "rgba(255,255,255,0.5)",
             }}
             tickMargin={8}
-            domain={[0, 60]}
+            domain={[1, 60]}
             type="number"
             scale="linear"
-            ticks={[0, 10, 20, 30, 40, 50, 60]}
+            ticks={[1, 10, 20, 30, 40, 50, 60]}
           />
 
           <YAxis
