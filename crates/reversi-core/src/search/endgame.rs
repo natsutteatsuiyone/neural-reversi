@@ -57,12 +57,14 @@ thread_local! {
         UnsafeCell::new(EndGameCache::new(14));
 }
 
-/// Returns a raw pointer to the thread-local endgame cache.
+/// Returns a mutable reference to the thread-local endgame cache.
 ///
-/// Thread-local ensures no cross-thread aliasing.
+/// # Safety
+/// Thread-local ensures no cross-thread aliasing. Caller must not hold
+/// overlapping references within the same thread.
 #[inline(always)]
-fn cache() -> *mut EndGameCache {
-    ENDGAME_CACHE.with(|cell| cell.get())
+unsafe fn cache() -> &'static mut EndGameCache {
+    ENDGAME_CACHE.with(|cell| unsafe { &mut *cell.get() })
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
@@ -541,7 +543,7 @@ fn search_move_nws_tt(
 /// The cached entry if found.
 #[inline(always)]
 fn probe_endgame_cache(key: u64) -> Option<EndGameCacheEntry> {
-    unsafe { (*cache()).probe(key) }
+    unsafe { cache().probe(key) }
 }
 
 /// Stores an entry in the endgame cache.
@@ -556,7 +558,7 @@ fn probe_endgame_cache(key: u64) -> Option<EndGameCacheEntry> {
 fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
     let bound = EndGameCacheBound::classify(score, beta);
     unsafe {
-        (*cache()).store(key, score, bound, best_move);
+        cache().store(key, score, bound, best_move);
     }
 }
 
