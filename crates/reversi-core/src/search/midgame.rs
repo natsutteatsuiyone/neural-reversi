@@ -1,8 +1,6 @@
 //! Midgame search algorithms.
 //!
-//! # References
-//!
-//! - <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/midgame.c>
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/midgame.c>
 
 use std::sync::Arc;
 
@@ -28,15 +26,6 @@ use crate::types::{Depth, ScaledScore};
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);
 
 /// Performs the root search using iterative deepening with aspiration windows.
-///
-/// # Arguments
-///
-/// * `task` - Search task containing board position, search parameters, and callbacks
-/// * `thread` - Thread handle for parallel search coordination
-///
-/// # Returns
-///
-/// SearchResult containing the best move, score, and search statistics.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let time_manager = task.time_manager.clone();
@@ -226,33 +215,12 @@ fn next_iteration_depth(
 }
 
 /// Selects a random legal move from the current position.
-///
-/// # Arguments
-///
-/// * `board` - Current board position.
-///
-/// # Returns
-///
-/// Randomly selected legal move.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     board.get_moves().iter().choose(&mut rng).unwrap()
 }
 
-/// Attempts ProbCut pruning for midgame positions
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `depth` - Depth of the deep search.
-/// * `beta` - Beta bound.
-/// * `thread` - Thread handle for parallel search.
-///
-/// # Returns
-///
-/// * `Some(score)` - If probcut triggers, returns the predicted bound.
-/// * `None` - If probcut doesn't trigger, deep search should be performed.
+/// Attempts ProbCut pruning for midgame positions.
 pub fn probcut(
     ctx: &mut SearchContext,
     board: &Board,
@@ -295,18 +263,7 @@ pub fn probcut(
     None
 }
 
-/// Specialized evaluation function for positions at depth 2.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Alpha bound.
-/// * `beta` - Beta bound.
-///
-/// # Returns
-///
-/// Best score found.
+/// Specialized alpha-beta search for positions at depth 2.
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
@@ -374,18 +331,7 @@ pub fn evaluate_depth2(
     best_score
 }
 
-/// Specialized evaluation function for positions at depth 1.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Alpha bound.
-/// * `beta` - Beta bound.
-///
-/// # Returns
-///
-/// Best score found.
+/// Specialized alpha-beta search for positions at depth 1.
 pub fn evaluate_depth1(
     ctx: &mut SearchContext,
     board: &Board,
@@ -424,19 +370,7 @@ pub fn evaluate_depth1(
     best_score
 }
 
-/// Searches a move and updates the best score if it's better.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `sq` - Square to search.
-/// * `beta` - Beta bound.
-/// * `best_score` - Best score found so far.
-///
-/// # Returns
-///
-/// Best score found.
+/// Searches a single move within [`evaluate_depth1`], returning on beta cutoff.
 #[inline(always)]
 fn search_move_in_evaluate_depth1(
     ctx: &mut SearchContext,
@@ -464,16 +398,7 @@ fn search_move_in_evaluate_depth1(
     None
 }
 
-/// Evaluates a leaf node position using the neural network evaluator.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-///
-/// # Returns
-///
-/// Position score.
+/// Evaluates a leaf node position using the neural network.
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == 60 {

@@ -20,14 +20,6 @@ pub struct Bitboard(u64);
 
 impl Bitboard {
     /// Creates a new bitboard from raw bits.
-    ///
-    /// # Arguments
-    ///
-    /// * `bits` - Raw 64-bit value where each bit represents a square.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` wrapping the given bits.
     #[inline(always)]
     pub const fn new(bits: u64) -> Self {
         Bitboard(bits)
@@ -40,96 +32,49 @@ impl Bitboard {
     }
 
     /// Creates a bitboard with a single bit set at the given square.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to set.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with only the specified square's bit set.
     #[inline(always)]
     pub const fn from_square(sq: Square) -> Self {
         Bitboard(1 << sq as u8)
     }
 
     /// Returns a new bitboard with the bit at the given square set.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to set.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with the specified square's bit set.
     #[inline(always)]
     pub fn set(self, sq: Square) -> Self {
         Bitboard(self.0 | sq.bitboard().0)
     }
 
-    /// Returns a new bitboard with the bit at the given square removed.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to clear.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with the specified square's bit cleared.
+    /// Returns a new bitboard with the bit at the given square cleared.
     #[inline(always)]
     pub fn remove(self, sq: Square) -> Self {
         Bitboard(self.0 & !sq.bitboard().0)
     }
 
-    /// Checks if the bitboard contains the bit at the given square.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to check.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the specified square's bit is set, `false` otherwise.
+    /// Checks whether the given square's bit is set.
     #[inline(always)]
     pub fn contains(self, sq: Square) -> bool {
         self.0 & sq.bitboard().0 != 0
     }
 
-    /// Checks if the bitboard has no bits set.
-    ///
-    /// # Returns
-    ///
-    /// `true` if no bits are set, `false` otherwise.
+    /// Checks whether the bitboard has no bits set.
     #[inline(always)]
     pub const fn is_empty(self) -> bool {
         self.0 == 0
     }
 
     /// Returns the number of set bits (population count).
-    ///
-    /// # Returns
-    ///
-    /// The number of bits set in the bitboard (0-64).
     #[inline(always)]
     pub const fn count(self) -> u32 {
         self.0.count_ones()
     }
 
     /// Returns a new bitboard with the least significant bit cleared.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with the LSB cleared.
     #[inline(always)]
     pub const fn clear_lsb(self) -> Self {
         Bitboard(self.0 & self.0.wrapping_sub(1))
     }
 
-    /// Returns the square corresponding to the least significant set bit.
-    ///
-    /// # Returns
-    ///
-    /// `Some(Square)` for the LSB position, or `None` if the bitboard is empty.
+    /// Returns the [`Square`] corresponding to the least significant set bit,
+    /// or [`None`] if the bitboard is empty.
     #[inline(always)]
     pub fn lsb_square(self) -> Option<Square> {
         if self.0 == 0 {
@@ -139,11 +84,7 @@ impl Bitboard {
         }
     }
 
-    /// Returns the square corresponding to the least significant set bit.
-    ///
-    /// # Returns
-    ///
-    /// The `Square` corresponding to the LSB position.
+    /// Returns the [`Square`] corresponding to the least significant set bit.
     ///
     /// # Panics
     ///
@@ -157,13 +98,8 @@ impl Bitboard {
         Square::from_u32_unchecked(self.0.trailing_zeros())
     }
 
-    /// Removes and returns the least significant set bit as a square,
+    /// Removes and returns the least significant set bit as a [`Square`],
     /// along with the updated bitboard.
-    ///
-    /// # Returns
-    ///
-    /// A tuple of `(Square, Bitboard)` where the square is the LSB position
-    /// and the bitboard has that bit cleared.
     ///
     /// # Panics
     ///
@@ -174,21 +110,13 @@ impl Bitboard {
         (self.lsb_square_unchecked(), self.clear_lsb())
     }
 
-    /// Flips the bitboard vertically (swaps ranks 1-8).
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with ranks mirrored (rank 1 ↔ rank 8, etc.).
+    /// Flips the bitboard vertically (rank 1 ↔ rank 8, etc.).
     #[inline(always)]
     pub fn flip_vertical(self) -> Self {
         Bitboard(self.0.swap_bytes())
     }
 
-    /// Flips the bitboard horizontally (swaps files A-H).
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with files mirrored (file A ↔ file H, etc.).
+    /// Flips the bitboard horizontally (file A ↔ file H, etc.).
     #[inline(always)]
     pub fn flip_horizontal(self) -> Self {
         const MASK1: u64 = 0x5555555555555555;
@@ -203,10 +131,6 @@ impl Bitboard {
     }
 
     /// Flips the bitboard along the A1-H8 diagonal.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` transposed along the main diagonal.
     #[inline(always)]
     pub fn flip_diag_a1h8(self) -> Self {
         const MASK1: u64 = 0x5500550055005500;
@@ -221,10 +145,6 @@ impl Bitboard {
     }
 
     /// Flips the bitboard along the A8-H1 diagonal.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` transposed along the anti-diagonal.
     #[inline(always)]
     pub fn flip_diag_a8h1(self) -> Self {
         const MASK1: u64 = 0xaa00aa00aa00aa00;
@@ -239,44 +159,24 @@ impl Bitboard {
     }
 
     /// Rotates the bitboard 90 degrees clockwise.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` rotated 90° clockwise.
     #[inline(always)]
     pub fn rotate_90_clockwise(self) -> Self {
         self.flip_diag_a8h1().flip_vertical()
     }
 
     /// Rotates the bitboard 180 degrees.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` rotated 180°.
     #[inline(always)]
     pub fn rotate_180_clockwise(self) -> Self {
         Bitboard(self.0.reverse_bits())
     }
 
     /// Rotates the bitboard 270 degrees clockwise (90 degrees counter-clockwise).
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` rotated 270° clockwise (or 90° counter-clockwise).
     #[inline(always)]
     pub fn rotate_270_clockwise(self) -> Self {
         self.flip_diag_a1h8().flip_vertical()
     }
 
-    /// Checks if there is an adjacent bit set in the bitboard.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to check adjacency for.
-    ///
-    /// # Returns
-    ///
-    /// `true` if there is an adjacent bit set, otherwise `false`.
+    /// Checks whether any bit adjacent to the given square is set.
     #[inline(always)]
     pub fn has_adjacent_bit(self, sq: Square) -> bool {
         /// Pre-computed masks for adjacent squares around each board position.
@@ -305,47 +205,27 @@ impl Bitboard {
         (self.0 & unsafe { *NEIGHBOUR_MASK.get_unchecked(sq.index()) }) != 0
     }
 
-    /// Counts the number of set bits in the bitboard, giving double weight to corner squares.
+    /// Returns the population count with corner squares weighted double.
     ///
     /// Reference: <https://github.com/abulmo/edax-reversi/blob/master/src/bit.c#L237>
-    ///
-    /// # Returns
-    ///
-    /// The total weighted count of set bits, with corner bits counted twice.
     #[inline(always)]
     pub fn corner_weighted_count(self) -> u32 {
         self.count() + self.corners().count()
     }
 
     /// Returns a new bitboard with only the corner squares (A1, H1, A8, H8).
-    ///
-    /// This applies the [`CORNER_MASK`] to extract only the corner bits.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` containing only the corner bits from the original.
     #[inline(always)]
     pub const fn corners(self) -> Self {
         Bitboard(self.0 & CORNER_MASK)
     }
 
-    /// Returns a new bitboard with only the non-corner squares.
-    ///
-    /// This applies the inverse of [`CORNER_MASK`] to exclude corner bits.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with the corner bits cleared.
+    /// Returns a new bitboard with corner squares cleared.
     #[inline(always)]
     pub const fn non_corners(self) -> Self {
         Bitboard(self.0 & !CORNER_MASK)
     }
 
-    /// Returns an iterator over all set squares in the bitboard.
-    ///
-    /// # Returns
-    ///
-    /// A [`BitboardIterator`] that yields each set square in LSB-first order.
+    /// Returns an iterator over all set squares in LSB-first order.
     #[inline(always)]
     pub fn iter(self) -> BitboardIterator {
         BitboardIterator::new(self)
@@ -354,47 +234,24 @@ impl Bitboard {
     /// Returns a new bitboard after applying a player's move.
     ///
     /// XORs the current bitboard with both the flipped discs and the placed disc.
-    ///
-    /// # Arguments
-    ///
-    /// * `flipped` - Bitboard of opponent discs flipped by this move.
-    /// * `sq` - Square where the disc was placed.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` representing the player's discs after the move.
     #[inline(always)]
     pub fn apply_move(self, flipped: Bitboard, sq: Square) -> Bitboard {
         self ^ flipped ^ sq.bitboard()
     }
 
-    /// Returns a new bitboard after applying a flip.
-    ///
-    /// XORs the current bitboard with the flipped discs.
-    ///
-    /// # Arguments
-    ///
-    /// * `flipped` - Bitboard of discs flipped by the move.
-    ///
-    /// # Returns
-    ///
-    /// A new `Bitboard` with the flipped discs toggled.
+    /// Returns a new bitboard after toggling the flipped discs.
     #[inline(always)]
     pub fn apply_flip(self, flipped: Bitboard) -> Bitboard {
         self ^ flipped
     }
 
-    /// Returns the number of stable discs around corners in this bitboard.
+    /// Returns the number of stable discs around corners.
     ///
     /// Counts corners plus adjacent edge squares that form stable groups.
     /// A corner is stable if occupied. An edge square adjacent to a corner
     /// is stable if both it and the corner are occupied by the same player.
     ///
     /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L1453>
-    ///
-    /// # Returns
-    ///
-    /// The count of stable discs (0-12: up to 4 corners + 8 adjacent edge squares).
     #[inline(always)]
     pub fn corner_stability(self) -> u32 {
         let p = self.0;
@@ -407,49 +264,25 @@ impl Bitboard {
         stable.count_ones()
     }
 
-    /// Gets the legal moves for the player.
-    ///
-    /// # Arguments
-    ///
-    /// * `opponent` - The opponent's bitboard.
-    ///
-    /// # Returns
-    ///
-    /// A `Bitboard` with bits set for each legal move position.
+    /// Returns the legal moves for the player given the opponent's bitboard.
     #[inline(always)]
     pub fn get_moves(self, opponent: Bitboard) -> Bitboard {
         Bitboard(get_moves(self.0, opponent.0))
     }
 
-    /// Gets the potential moves for the player.
+    /// Returns the potential moves for the player.
     ///
-    /// Potential moves are empty squares that are adjacent (including diagonally) to at least
+    /// Potential moves are empty squares adjacent (including diagonally) to at least
     /// one opponent disc.
-    ///
-    /// # Arguments
-    ///
-    /// * `opponent` - The opponent's bitboard.
-    ///
-    /// # Returns
-    ///
-    /// A `Bitboard` with bits set for each potential move position.
     #[inline(always)]
     pub fn get_potential_moves(self, opponent: Bitboard) -> Bitboard {
         Bitboard(get_potential_moves(self.0, opponent.0))
     }
 
-    /// Gets both the legal moves and potential moves for the current player.
+    /// Returns both the legal moves and potential moves for the current player.
     ///
-    /// This is more efficient than calling [`get_moves`](Self::get_moves) and
+    /// More efficient than calling [`get_moves`](Self::get_moves) and
     /// [`get_potential_moves`](Self::get_potential_moves) separately.
-    ///
-    /// # Arguments
-    ///
-    /// * `opponent` - The opponent's bitboard.
-    ///
-    /// # Returns
-    ///
-    /// A tuple of `(legal_moves, potential_moves)`.
     #[inline(always)]
     pub fn get_moves_and_potential(self, opponent: Bitboard) -> (Bitboard, Bitboard) {
         let (m, p) = get_moves_and_potential(self.0, opponent.0);
@@ -602,18 +435,11 @@ impl std::fmt::Display for Bitboard {
     }
 }
 
-/// Gets the legal moves for the player.
+/// Returns the legal moves for the player.
+///
+/// Dispatches to the best available SIMD implementation at compile time.
 ///
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L822>
-///
-/// # Arguments
-///
-/// * `player` - The player's bitboard.
-/// * `opponent` - The opponent's bitboard.
-///
-/// # Returns
-///
-/// A `u64` value representing the legal moves for the player.
 #[inline(always)]
 fn get_moves(player: u64, opponent: u64) -> u64 {
     cfg_if! {
@@ -629,16 +455,7 @@ fn get_moves(player: u64, opponent: u64) -> u64 {
     }
 }
 
-/// Fallback implementation of `get_moves` for architectures without SIMD support.
-///
-/// # Arguments
-///
-/// * `player` - The player's bitboard.
-/// * `opponent` - The opponent's bitboard.
-///
-/// # Returns
-///
-/// A `u64` value representing the legal moves for the player.
+/// Scalar fallback implementation of `get_moves` for architectures without SIMD.
 #[inline(always)]
 #[allow(dead_code)]
 fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
@@ -649,20 +466,10 @@ fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
         | (get_some_moves(player, opponent & 0x00FFFFFFFFFFFF00, 8) & empty)
 }
 
-/// Propagates flipped discs in a specific direction.
+/// Propagates flipped discs in a specific direction for move generation.
 ///
-/// This is a helper function for move generation that calculates the flip propagation
-/// along a ray direction. The result is then used to determine where legal moves exist.
-///
-/// # Arguments
-///
-/// * `b` - The player's bitboard.
-/// * `mask` - The mask for the direction (opponent's discs with edge masking).
-/// * `dir` - The direction (in bits).
-///
-/// # Returns
-///
-/// A `u64` value representing the flip propagation in the specified direction.
+/// Calculates flip propagation along a ray direction; the result is then
+/// used to determine where legal moves exist.
 #[inline(always)]
 #[allow(dead_code)]
 fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
@@ -676,15 +483,6 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 }
 
 /// AVX-512-optimized implementation of `get_moves`.
-///
-/// # Arguments
-///
-/// * `player` - The player's bitboard.
-/// * `opponent` - The opponent's bitboard.
-///
-/// # Returns
-///
-/// A `u64` value representing the legal moves for the player.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
 #[allow(dead_code)]
@@ -731,15 +529,6 @@ fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
 }
 
 /// AVX2-optimized implementation of `get_moves`.
-///
-/// # Arguments
-///
-/// * `player` - The player's bitboard.
-/// * `opponent` - The opponent's bitboard.
-///
-/// # Returns
-///
-/// A `u64` value representing the legal moves for the player.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(dead_code)]
@@ -828,15 +617,6 @@ fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
 }
 
 /// WASM SIMD128-optimized implementation of `get_moves`.
-///
-/// # Arguments
-///
-/// * `player` - The player's bitboard.
-/// * `opponent` - The opponent's bitboard.
-///
-/// # Returns
-///
-/// A `u64` value representing the legal moves for the player.
 #[cfg(target_arch = "wasm32")]
 #[target_feature(enable = "simd128")]
 fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
@@ -883,34 +663,16 @@ fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
     (h_moves | v_moves | d7_moves | d9_moves) & empty
 }
 
-/// Gets some potential moves in a specific direction.
-///
-/// # Arguments
-///
-/// * `o` - The opponent's bitboard.
-/// * `dir` - The direction (in bits).
-///
-/// # Returns
-///
-/// A `u64` value representing some potential moves in the specified direction.
+/// Expands the opponent bitboard by one step in a direction for potential-move detection.
 #[inline(always)]
 #[allow(dead_code)]
 fn get_some_potential_moves(o: u64, dir: u32) -> u64 {
     (o << dir) | (o >> dir)
 }
 
-/// Gets the potential moves for the player.
+/// Returns the potential moves for the player.
 ///
-/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L944
-///
-/// # Arguments
-///
-/// * `p` - The player's bitboard.
-/// * `o` - The opponent's bitboard.
-///
-/// # Returns
-///
-/// A `u64` value representing the potential moves for the player.
+/// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L944>
 #[inline(always)]
 fn get_potential_moves(p: u64, o: u64) -> u64 {
     let h = get_some_potential_moves(o & 0x7E7E_7E7E_7E7E_7E7E_u64, 1);
@@ -921,17 +683,9 @@ fn get_potential_moves(p: u64, o: u64) -> u64 {
     (h | v | d1 | d2) & !(p | o)
 }
 
-/// Gets both the legal moves and potential moves for the current player.
+/// Returns both legal and potential moves for the current player.
 ///
-/// # Arguments
-///
-/// * `p` - The player's bitboard.
-/// * `o` - The opponent's bitboard.
-///
-/// # Returns
-/// A tuple containing two `u64` values:
-/// - The first value represents the legal moves.
-/// - The second value represents the potential moves.
+/// Dispatches to the best available SIMD implementation at compile time.
 #[inline(always)]
 fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
     cfg_if! {
@@ -1058,17 +812,7 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     (moves & empty, potential & empty)
 }
 
-/// Delta swap - a fundamental bit manipulation operation.
-///
-/// # Arguments
-///
-/// * `bits` - The value to perform the swap on.
-/// * `mask` - Specifies which bit pairs to swap (must have 1s in positions that are `delta` apart).
-/// * `delta` - The distance between bit pairs to swap.
-///
-/// # Returns
-///
-/// A `u64` value with the specified bit pairs swapped.
+/// Swaps bit pairs separated by `delta` positions where `mask` has bits set.
 #[inline(always)]
 fn delta_swap(bits: u64, mask: u64, delta: u32) -> u64 {
     let tmp = mask & (bits ^ (bits << delta));
@@ -1081,11 +825,7 @@ pub struct BitboardIterator {
 }
 
 impl BitboardIterator {
-    /// Creates a new `BitboardIterator`.
-    ///
-    /// # Arguments
-    ///
-    /// * `bitboard` - The bitboard to iterate over.
+    /// Creates a new [`BitboardIterator`].
     #[inline(always)]
     pub fn new(bitboard: Bitboard) -> BitboardIterator {
         BitboardIterator { bitboard }

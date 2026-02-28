@@ -33,14 +33,6 @@ const JP_BYO_MAIN_MIN_PERCENT_NORMAL: u64 = 60;
 const JP_BYO_MAIN_MIN_PERCENT_ENDGAME: u64 = 85;
 
 /// Calculates a time allocation factor based on game phase.
-///
-/// # Arguments
-///
-/// * `n_empties` - Number of empty squares.
-///
-/// # Returns
-///
-/// Time allocation multiplier (1.0 = base allocation).
 fn get_time_allocation_factor(n_empties: u32) -> f64 {
     match n_empties {
         51..=60 => 0.5,
@@ -136,13 +128,7 @@ pub struct TimeManager {
 }
 
 impl TimeManager {
-    /// Creates a new TimeManager with the specified mode and abort flag.
-    ///
-    /// # Arguments
-    ///
-    /// * `mode` - Time control mode.
-    /// * `abort_flag` - Shared abort flag for search termination.
-    /// * `n_empties` - Number of empty squares.
+    /// Creates a new time manager with the specified mode and abort flag.
     pub fn new(mode: TimeControlMode, abort_flag: Arc<AtomicBool>, n_empties: u32) -> Self {
         let (mini_time_ms, maxi_time_ms, hard_limit_ms) =
             Self::calculate_time_limits(mode, n_empties, false);
@@ -320,7 +306,7 @@ impl TimeManager {
         self.start_time.elapsed().as_millis() as u64
     }
 
-    /// Checks if the search has exceeded the maximum time limit.
+    /// Checks whether the search has exceeded the maximum time limit.
     #[inline]
     pub fn is_time_up(&self) -> bool {
         if self.mode == TimeControlMode::Infinite {
@@ -329,7 +315,7 @@ impl TimeManager {
         self.elapsed_ms() >= self.max_time_ms.load(Ordering::Relaxed)
     }
 
-    /// Checks if we should continue to the next iteration.
+    /// Checks whether the search should continue to the next iteration.
     pub fn should_continue_iteration(&self) -> bool {
         if self.mode == TimeControlMode::Infinite {
             return true;
@@ -455,13 +441,13 @@ impl TimeManager {
         self.abort_flag.store(true, Ordering::Release);
     }
 
-    /// Checks if abort has been signaled.
+    /// Checks whether abort has been signaled.
     #[inline]
     pub fn is_aborted(&self) -> bool {
         self.abort_flag.load(Ordering::Relaxed)
     }
 
-    /// Checks time and signals abort if time is up.
+    /// Checks whether time is up and signals abort if so.
     #[inline]
     pub fn check_time(&self) -> bool {
         if self.is_time_up() {
@@ -574,17 +560,9 @@ impl TimeManager {
 
 /// Determines whether to stop the current search iteration based on time control.
 ///
-/// Returns `true` if:
-/// - Time control indicates time is up (`check_time()` returns true), OR
-/// - Time control indicates we should not continue to the next iteration
-///
-/// Returns `false` if:
-/// - No time manager is provided (unlimited search), OR
-/// - There is still time remaining and we should continue
-///
-/// # Arguments
-///
-/// * `time_manager` - Optional reference to time manager.
+/// Returns `true` if time is up or the iteration should not continue.
+/// Returns `false` if no time manager is provided (unlimited search) or there
+/// is still time remaining.
 #[inline]
 pub fn should_stop_iteration(time_manager: &Option<Arc<TimeManager>>) -> bool {
     match time_manager {

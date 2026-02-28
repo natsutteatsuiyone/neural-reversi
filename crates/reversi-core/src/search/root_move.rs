@@ -25,11 +25,7 @@ pub struct RootMove {
 }
 
 impl RootMove {
-    /// Creates a new RootMove for the given square.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - Move square.
+    /// Creates a new root move for the given square.
     pub fn new(sq: Square) -> Self {
         Self {
             sq,
@@ -47,7 +43,7 @@ impl RootMove {
 /// along with Multi-PV state. It can be cloned to share across threads via Arc.
 #[derive(Clone)]
 pub struct RootMoves {
-    /// Shared list of root moves being searched (sorted by score after each PV line).
+    /// Shared list of root moves being searched.
     moves: Arc<Mutex<Vec<RootMove>>>,
     /// Current PV index for Multi-PV search.
     /// Moves at indices < pv_idx are already part of earlier PV lines.
@@ -55,11 +51,7 @@ pub struct RootMoves {
 }
 
 impl RootMoves {
-    /// Creates a new RootMoves container from the current board position.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - Current board position.
+    /// Creates a new root moves container from the current board position.
     pub fn new(board: &Board) -> Self {
         let move_list = MoveList::new(board);
         let mut moves = Vec::<RootMove>::with_capacity(move_list.count());
@@ -74,13 +66,9 @@ impl RootMoves {
 
     /// Updates a root move with its search results.
     ///
-    /// # Arguments
+    /// # Panics
     ///
-    /// * `sq` - Root move square.
-    /// * `score` - Search score.
-    /// * `move_count` - Move index in search order (1-based).
-    /// * `alpha` - Alpha bound.
-    /// * `pv` - Principal variation from search stack.
+    /// Panics if `sq` is not found in the root move list.
     pub fn update(
         &self,
         sq: Square,
@@ -113,34 +101,22 @@ impl RootMoves {
         }
     }
 
-    /// Gets the root move at the current PV index.
-    ///
-    /// In Multi-PV mode, this returns the move at the current PV position
-    /// which should be searched next.
-    ///
-    /// # Returns
-    ///
-    /// Root move at current PV index, or None if out of bounds.
+    /// Returns the root move at the current PV index, or [`None`] if out of bounds.
     pub fn get_current_pv(&self) -> Option<RootMove> {
         let moves = self.moves.lock().unwrap();
         moves.get(self.pv_idx()).cloned()
     }
 
-    /// Gets the best root move (the one at index 0 after sorting).
+    /// Returns the first root move, or [`None`] if no moves exist.
     ///
-    /// # Returns
-    ///
-    /// Best root move, or None if no moves exist.
+    /// The caller must sort the list beforehand (via [`sort_from_pv_idx`](Self::sort_from_pv_idx)
+    /// or [`sort_all`](Self::sort_all)) for this to return the highest-scoring move.
     pub fn get_best(&self) -> Option<RootMove> {
         let moves = self.moves.lock().unwrap();
         moves.first().cloned()
     }
 
     /// Sets the current PV index for Multi-PV search.
-    ///
-    /// # Arguments
-    ///
-    /// * `idx` - PV index.
     pub fn set_pv_idx(&self, idx: usize) {
         self.pv_idx.store(idx, Ordering::Relaxed);
     }
@@ -178,22 +154,11 @@ impl RootMoves {
     }
 
     /// Returns the number of root moves available.
-    ///
-    /// # Returns
-    /// Count of legal moves from root position.
     pub fn count(&self) -> usize {
         self.moves.lock().unwrap().len()
     }
 
     /// Applies a function to all root moves and collects the results.
-    ///
-    /// # Arguments
-    ///
-    /// * `f` - Function to apply to each RootMove.
-    ///
-    /// # Returns
-    ///
-    /// Vector of results.
     pub fn map<T, F>(&self, f: F) -> Vec<T>
     where
         F: FnMut(&RootMove) -> T,
@@ -202,15 +167,7 @@ impl RootMoves {
         moves.iter().map(f).collect()
     }
 
-    /// Checks if a move square exists in the remaining moves (from pv_idx onwards).
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - Move square to check.
-    ///
-    /// # Returns
-    ///
-    /// True if move exists in moves[pv_idx..], false otherwise.
+    /// Checks whether a move square exists in the remaining moves (from pv_idx onwards).
     pub fn contains_from_pv_idx(&self, sq: Square) -> bool {
         let pv_idx = self.pv_idx();
         let moves = self.moves.lock().unwrap();

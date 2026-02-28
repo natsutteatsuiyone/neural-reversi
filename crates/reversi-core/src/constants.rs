@@ -1,4 +1,4 @@
-//! Global constants
+//! Global constants.
 
 use crate::types::Score;
 

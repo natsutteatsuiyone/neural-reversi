@@ -39,18 +39,20 @@ pub enum Square {
     None,
 }
 
-/// Constants for board dimensions.
+/// Number of squares per side of the board.
 pub const BOARD_SIZE: usize = 8;
+/// Total number of squares on the board (64).
 pub const TOTAL_SQUARES: usize = BOARD_SIZE * BOARD_SIZE;
 
 impl Square {
-    /// Converts this square into a `Bitboard` with a single bit set.
+    /// Returns a [`Bitboard`] with a single bit set at this square's position.
     ///
-    /// # Returns
+    /// For example, `A1` returns `Bitboard(0x1)` and `H8` returns
+    /// `Bitboard(0x8000_0000_0000_0000)`.
     ///
-    /// A `Bitboard` with exactly one bit set at the position corresponding to this square.
-    /// For example, `A1` returns `Bitboard(0x1)`, `B1` returns `Bitboard(0x2)`,
-    /// `H8` returns `Bitboard(0x8000000000000000)`.
+    /// # Panics
+    ///
+    /// Panics in debug mode if called on [`Square::None`].
     #[inline(always)]
     pub fn bitboard(self) -> Bitboard {
         debug_assert!(
@@ -60,26 +62,16 @@ impl Square {
         Bitboard::from_square(self)
     }
 
-    /// Converts the `Square` into a `usize` index.
-    ///
-    /// # Returns
-    ///
-    /// A `usize` value representing the index of the `Square` (0-63 for valid squares,
-    /// 64 for `Square::None`).
+    /// Returns this square's index as a `usize` (0-63 for valid squares,
+    /// 64 for [`Square::None`]).
     #[inline]
     pub fn index(self) -> usize {
         self as usize
     }
 
-    /// Converts a `u8` value into a `Square` enum without bounds checking.
+    /// Converts a `u8` index to a [`Square`] without bounds checking.
     ///
-    /// # Arguments
-    ///
-    /// * `index` - The `u8` value to convert (0-63 for valid squares, 64 for `None`).
-    ///
-    /// # Returns
-    ///
-    /// The corresponding `Square` variant.
+    /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
     ///
     /// # Panics
     ///
@@ -93,17 +85,10 @@ impl Square {
         unsafe { std::mem::transmute(index) }
     }
 
-    /// Safely converts a `u8` value into a `Square` enum.
+    /// Safely converts a `u8` index to a [`Square`].
     ///
-    /// # Arguments
-    ///
-    /// * `index` - The `u8` value to convert.
-    ///
-    /// # Returns
-    ///
-    /// * `Some(Square)` if the index is in the range 0-64 inclusive
-    ///   (where 64 maps to `Square::None`)
-    /// * `None` (the `Option` variant) if the index is out of range (> 64)
+    /// Accepts indices 0-64 (where 64 maps to [`Square::None`]).
+    /// Returns `None` for indices > 64.
     #[inline]
     pub fn from_u8(index: u8) -> Option<Square> {
         if index <= 64 {
@@ -113,15 +98,9 @@ impl Square {
         }
     }
 
-    /// Converts a `u32` value into a `Square` enum without bounds checking.
+    /// Converts a `u32` index to a [`Square`] without bounds checking.
     ///
-    /// # Arguments
-    ///
-    /// * `index` - The `u32` value to convert (0-63 for valid squares, 64 for `None`).
-    ///
-    /// # Returns
-    ///
-    /// The corresponding `Square` variant.
+    /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
     ///
     /// # Panics
     ///
@@ -135,17 +114,10 @@ impl Square {
         unsafe { std::mem::transmute(index as u8) }
     }
 
-    /// Safely converts a `u32` value into a `Square` enum.
+    /// Safely converts a `u32` index to a [`Square`].
     ///
-    /// # Arguments
-    ///
-    /// * `index` - The `u32` value to convert.
-    ///
-    /// # Returns
-    ///
-    /// * `Some(Square)` if the index is in the range 0-64 inclusive
-    ///   (where 64 maps to `Square::None`)
-    /// * `None` (the `Option` variant) if the index is out of range (> 64)
+    /// Accepts indices 0-64 (where 64 maps to [`Square::None`]).
+    /// Returns `None` for indices > 64.
     #[inline]
     pub fn from_u32(index: u32) -> Option<Square> {
         if index <= 64 {
@@ -155,15 +127,9 @@ impl Square {
         }
     }
 
-    /// Converts a `usize` value into a `Square` enum without bounds checking.
+    /// Converts a `usize` index to a [`Square`] without bounds checking.
     ///
-    /// # Arguments
-    ///
-    /// * `index` - The `usize` value to convert (0-63 for valid squares, 64 for `None`).
-    ///
-    /// # Returns
-    ///
-    /// The corresponding `Square` variant.
+    /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
     ///
     /// # Panics
     ///
@@ -177,17 +143,10 @@ impl Square {
         unsafe { std::mem::transmute(index as u8) }
     }
 
-    /// Safely converts a `usize` value into a `Square` enum.
+    /// Safely converts a `usize` index to a [`Square`].
     ///
-    /// # Arguments
-    ///
-    /// * `index` - The `usize` value to convert.
-    ///
-    /// # Returns
-    ///
-    /// * `Some(Square)` if the index is in the range 0-64 inclusive
-    ///   (where 64 maps to `Square::None`)
-    /// * `None` (the `Option` variant) if the index is out of range (> 64)
+    /// Accepts indices 0-64 (where 64 maps to [`Square::None`]).
+    /// Returns `None` for indices > 64.
     #[inline]
     pub fn from_usize(index: usize) -> Option<Square> {
         if index <= 64 {
@@ -197,46 +156,31 @@ impl Square {
         }
     }
 
-    /// Returns the file (column) of this square.
-    ///
-    /// # Returns
-    ///
-    /// The file index (0-7) where 0 represents file A and 7 represents file H.
+    /// Returns the file (column) index of this square, where 0 is file A and
+    /// 7 is file H.
     ///
     /// # Panics
     ///
-    /// Panics if called on `Square::None`.
+    /// Panics if called on [`Square::None`].
     #[inline]
     pub fn file(self) -> usize {
         assert!(self != Square::None, "Square::file called on Square::None");
         self.index() % BOARD_SIZE
     }
 
-    /// Returns the rank (row) of this square.
-    ///
-    /// # Returns
-    ///
-    /// The rank index (0-7) where 0 represents rank 1 and 7 represents rank 8.
+    /// Returns the rank (row) index of this square, where 0 is rank 1 and
+    /// 7 is rank 8.
     ///
     /// # Panics
     ///
-    /// Panics if called on `Square::None`.
+    /// Panics if called on [`Square::None`].
     #[inline]
     pub fn rank(self) -> usize {
         assert!(self != Square::None, "Square::rank called on Square::None");
         self.index() / BOARD_SIZE
     }
 
-    /// Creates a `Square` from file and rank coordinates.
-    ///
-    /// # Arguments
-    ///
-    /// * `file` - The file index (0-7) where 0 is file A and 7 is file H.
-    /// * `rank` - The rank index (0-7) where 0 is rank 1 and 7 is rank 8.
-    ///
-    /// # Returns
-    ///
-    /// The corresponding `Square` variant.
+    /// Creates a [`Square`] from file (0-7) and rank (0-7) coordinates.
     ///
     /// # Panics
     ///
@@ -247,14 +191,9 @@ impl Square {
         Self::from_usize_unchecked(rank as usize * BOARD_SIZE + file as usize)
     }
 
-    /// Returns an iterator over all 64 valid squares on the board.
+    /// Returns an iterator over all 64 valid squares from A1 to H8.
     ///
-    /// The iterator yields squares in order from A1 to H8, following the
-    /// index order (0-63). This does not include `Square::None`.
-    ///
-    /// # Returns
-    ///
-    /// An iterator that yields all 64 board squares.
+    /// Does not include [`Square::None`].
     #[inline]
     pub fn iter() -> impl Iterator<Item = Square> {
         (0..TOTAL_SQUARES as u8).map(Square::from_u8_unchecked)
@@ -273,11 +212,11 @@ impl Default for Square {
 /// Error type for square-related operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SquareError {
-    /// Invalid square string format (must be 2 characters)
+    /// Invalid square string format (must be 2 characters).
     InvalidFormat,
-    /// Invalid file character (must be a-h or A-H)
+    /// Invalid file character (must be a-h or A-H).
     InvalidFile(char),
-    /// Invalid rank character (must be 1-8)
+    /// Invalid rank character (must be 1-8).
     InvalidRank(char),
 }
 
@@ -302,19 +241,14 @@ pub type ParseSquareError = SquareError;
 impl FromStr for Square {
     type Err = SquareError;
 
-    /// Parses a string into a `Square` enum.
+    /// Parses a string in algebraic notation (e.g., "a1", "H8") into a [`Square`].
     ///
-    /// The string must be in algebraic notation (e.g., "a1", "h8").
-    /// Both uppercase and lowercase letters are accepted.
+    /// Both uppercase and lowercase letters are accepted. Leading and trailing
+    /// whitespace is trimmed.
     ///
-    /// # Arguments
+    /// # Errors
     ///
-    /// * `s` - The string to parse.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Square)` - The parsed square if the string is valid.
-    /// * `Err(ParseSquareError)` - If the string is not a valid square representation.
+    /// Returns [`SquareError`] if the string is not a valid square representation.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
         if s.len() != 2 {

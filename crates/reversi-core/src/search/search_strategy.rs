@@ -29,7 +29,7 @@ pub trait SearchStrategy: Copy + Clone + 'static {
     /// Minimum depth required for parallel search splitting.
     const MIN_SPLIT_DEPTH: Depth;
 
-    /// Evaluates a terminal PV node position.
+    /// Evaluates a PV leaf node position (depth == 0).
     fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore;
 
     /// Shallow-depth specialized search for NonPV nodes.

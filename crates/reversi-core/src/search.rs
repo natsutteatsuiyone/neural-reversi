@@ -1,4 +1,7 @@
 //! Game tree search engine.
+//!
+//! Provides the main [`Search`] engine, alpha-beta search functions shared by
+//! midgame and endgame phases, and parallel search support via split points.
 
 mod endgame;
 pub mod endgame_cache;
@@ -35,7 +38,11 @@ use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, ScaledScore, Scoref};
 use crate::{probcut, stability};
 
-/// Main search engine structure.
+/// Main search engine that coordinates game tree exploration.
+///
+/// Manages the transposition table, thread pool, and evaluation function
+/// used during search. Create one instance per game session and call
+/// [`Search::init`] between games to reset state.
 pub struct Search {
     tt: Arc<TranspositionTable>,
     threads: Arc<ThreadPool>,
@@ -43,34 +50,55 @@ pub struct Search {
     endgame_start_n_empties: Option<Depth>,
 }
 
-/// Task structure passed to search threads.
+/// Task descriptor passed to search threads.
+///
+/// Contains all shared state needed for a search thread to independently
+/// execute a search on the given board position.
 #[derive(Clone)]
 pub struct SearchTask {
+    /// Board position to search.
     pub board: Board,
+    /// Selectivity level controlling ProbCut pruning aggressiveness.
     pub selectivity: Selectivity,
+    /// Shared transposition table.
     pub tt: Arc<TranspositionTable>,
+    /// Shared thread pool for parallel search.
     pub pool: Arc<ThreadPool>,
+    /// Shared evaluation function.
     pub eval: Arc<Eval>,
+    /// Search depth and endgame configuration.
     pub level: Level,
+    /// Whether to report multiple principal variations.
     pub multi_pv: bool,
+    /// Optional callback invoked to report search progress.
     pub callback: Option<Arc<SearchProgressCallback>>,
+    /// Optional time manager for time-controlled searches.
     pub time_manager: Option<Arc<TimeManager>>,
+    /// Optional override for evaluation mode.
     pub eval_mode: Option<EvalMode>,
 }
 
-/// Progress information during search.
+/// Progress information reported during an ongoing search.
 pub struct SearchProgress {
+    /// Current search depth completed.
     pub depth: Depth,
+    /// Target search depth for this iteration.
     pub target_depth: Depth,
+    /// Best score found so far (in disc difference).
     pub score: Scoref,
+    /// Best move found so far.
     pub best_move: Square,
+    /// Probability percentage from the current [`Selectivity`] level.
     pub probability: i32,
+    /// Total nodes searched.
     pub nodes: u64,
+    /// Principal variation (sequence of best moves).
     pub pv_line: Vec<Square>,
+    /// Whether the search is in endgame phase.
     pub is_endgame: bool,
 }
 
-/// Type alias for search progress callback.
+/// Callback invoked to report [`SearchProgress`] during a search.
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
 // Re-export SearchConstraint and SearchRunOptions for external use
@@ -78,6 +106,13 @@ pub use options::{SearchConstraint, SearchRunOptions};
 
 impl Search {
     /// Creates a new search engine with the given options.
+    ///
+    /// Initializes the evaluation function, transposition table, and thread pool.
+    /// The number of threads is clamped to the available CPU count and [`MAX_THREADS`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the evaluation weight files cannot be loaded.
     pub fn new(options: &SearchOptions) -> Search {
         let n_threads = options.n_threads.min(num_cpus::get()).clamp(1, MAX_THREADS);
         let eval = Eval::with_weight_files(
@@ -99,6 +134,9 @@ impl Search {
     }
 
     /// Resets the search state for a new game.
+    ///
+    /// Clears the transposition table, resets the TT generation counter,
+    /// flushes the evaluation cache, and resets endgame tracking.
     pub fn init(&mut self) {
         self.tt.clear();
         self.tt.reset_generation();
@@ -107,6 +145,10 @@ impl Search {
     }
 
     /// Runs a search on the given board position.
+    ///
+    /// Selects the appropriate search strategy based on the constraint (fixed level
+    /// or time-controlled), executes the search, and falls back to [`Search::quick_move`]
+    /// if the search is aborted before completing any iteration.
     pub fn run(&mut self, board: &Board, options: &SearchRunOptions) -> SearchResult {
         let callback = options.callback.clone();
 
@@ -238,24 +280,18 @@ impl Search {
         self.threads.is_aborted()
     }
 
-    /// Returns the thread pool used by this search engine.
+    /// Returns the [`ThreadPool`] used by this search engine.
+    ///
+    /// [`ThreadPool`]: threading::ThreadPool
     pub fn get_thread_pool(&self) -> Arc<threading::ThreadPool> {
         self.threads.clone()
     }
 
-    /// Quick move selection for time-critical situations.
+    /// Selects a move quickly for time-critical situations.
     ///
-    /// Performs a shallow 1-ply search to find the best move when there's
+    /// Performs a shallow 1-ply search to find the best move when there is
     /// not enough time for a full search. This is a fallback for situations
     /// where the main search would return invalid results.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - The board position to search
-    ///
-    /// # Returns
-    ///
-    /// SearchResult with the best move found by shallow evaluation.
     pub fn quick_move(&self, board: &Board) -> SearchResult {
         use crate::flip;
 
@@ -305,6 +341,10 @@ impl Search {
 }
 
 /// Dispatches to midgame or endgame search based on remaining empties.
+///
+/// Compares the minimum endgame depth from the level configuration against the
+/// number of empty squares. If the endgame depth covers all empties, delegates
+/// to the endgame solver; otherwise delegates to the midgame search.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let min_end_depth = task.level.get_end_depth(Selectivity::Level1);
     let n_empties = task.board.get_empty_count();
@@ -316,7 +356,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     midgame::search_root(task, thread)
 }
 
-/// Checks child positions in TT for potential cutoffs.
+/// Performs enhanced transposition cutoff (ETC) by probing child positions.
+///
+/// For each move in the move list, checks the transposition table for the resulting
+/// position. If a child entry produces a score above alpha with sufficient depth
+/// and selectivity, stores a lower-bound entry at the parent and returns the cutoff score.
 fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -359,25 +403,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     None
 }
 
-/// Search function for both midgame and endgame positions.
-///
-/// # Type Parameters
-///
-/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-/// * `SS` - Search strategy (MidGamePhase or EndGamePhase) determining phase-specific logic.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `depth` - Remaining search depth (for endgame, equals n_empties).
-/// * `alpha` - Alpha bound.
-/// * `beta` - Beta bound.
-/// * `thread` - Thread handle for parallel search.
-///
-/// # Returns
-///
-/// Best score found.
+/// Searches both midgame and endgame positions using Principal Variation Search.
 pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -567,7 +593,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         tt_probe_result.index(),
         tt_key,
         best_score,
-        Bound::classify::<NT>(best_score.value(), org_alpha.value(), beta.value()),
+        Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
         depth,
         best_move,
         ctx.selectivity,
@@ -577,24 +603,11 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     best_score
 }
 
-/// Search function for split-point nodes in parallel search.
+/// Searches remaining moves at a split point in parallel search.
 ///
-/// # Type Parameters
-///
-/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-/// * `SS` - Search strategy (MidGamePhase or EndGamePhase) determining phase-specific logic.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `depth` - Remaining search depth.
-/// * `thread` - Thread handle for parallel search.
-/// * `split_point` - Split point for work distribution.
-///
-/// # Returns
-///
-/// Best score found.
+/// Called by helper threads that join an existing split point. Picks moves from
+/// the shared [`ConcurrentMoveIterator`], searches them, and updates the split
+/// point's best score/move under its lock.
 pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,

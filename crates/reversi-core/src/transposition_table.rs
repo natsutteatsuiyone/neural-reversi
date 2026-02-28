@@ -3,7 +3,7 @@
 use crate::probcut::Selectivity;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore};
+use crate::types::{Depth, ScaledScore, Score};
 use aligned_vec::{AVec, ConstAlign};
 use cfg_if::cfg_if;
 use std::{
@@ -18,36 +18,43 @@ const CLUSTER_SIZE: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Bound {
-    /// No valid entry
+    /// No valid entry.
     None = 0,
-    /// Score is a lower bound (fail-high)
+    /// Score is a lower bound (fail-high).
     Lower = 1,
-    /// Score is an upper bound (fail-low)
+    /// Score is an upper bound (fail-low).
     Upper = 2,
-    /// Score is the exact minimax value
+    /// Score is the exact minimax value.
     Exact = 3,
 }
 
 impl Bound {
-    /// Classifies the search result into a bound type.
+    /// Classifies a midgame search result into a [`Bound`] type.
     ///
-    /// # Type Parameters
+    /// - [`Bound::Lower`] if `best_score >= beta` (fail-high).
+    /// - [`Bound::Exact`] if `best_score > alpha` and node is PV (exact value).
+    /// - [`Bound::Upper`] otherwise (fail-low).
+    #[inline(always)]
+    pub fn classify_scaled<NT: NodeType>(
+        best_score: ScaledScore,
+        alpha: ScaledScore,
+        beta: ScaledScore,
+    ) -> Bound {
+        Self::classify_inner::<NT>(best_score.value(), alpha.value(), beta.value())
+    }
+
+    /// Classifies an endgame search result into a [`Bound`] type.
     ///
-    /// * `NT` - Node type (PV or non-PV) that affects bound classification
-    ///
-    /// # Arguments
-    ///
-    /// * `best_score` - The best score found so far
-    /// * `alpha` - The alpha value
-    /// * `beta` - The beta value
-    ///
-    /// # Returns
-    ///
-    /// * `Bound::Lower` if `best_score >= beta`
-    /// * `Bound::Exact` if `NT::PV_NODE && best_score > alpha`
-    /// * `Bound::Upper` otherwise
-    #[inline]
-    pub fn classify<NT: NodeType>(best_score: i32, alpha: i32, beta: i32) -> Bound {
+    /// - [`Bound::Lower`] if `best_score >= beta` (fail-high).
+    /// - [`Bound::Exact`] if `best_score > alpha` and node is PV (exact value).
+    /// - [`Bound::Upper`] otherwise (fail-low).
+    #[inline(always)]
+    pub fn classify_score<NT: NodeType>(best_score: Score, alpha: Score, beta: Score) -> Bound {
+        Self::classify_inner::<NT>(best_score, alpha, beta)
+    }
+
+    #[inline(always)]
+    fn classify_inner<NT: NodeType>(best_score: i32, alpha: i32, beta: i32) -> Bound {
         if best_score >= beta {
             return Bound::Lower;
         }
@@ -59,12 +66,12 @@ impl Bound {
         Bound::Upper
     }
 
-    /// Converts an 8-bit value to a `Bound` without bounds checking.
+    /// Converts an 8-bit value to a [`Bound`] without bounds checking.
     ///
     /// # Safety
     ///
     /// The caller must ensure that `value` is in the range 0..=3, corresponding
-    /// to `Bound::None`, `Bound::Lower`, `Bound::Upper`, or `Bound::Exact`.
+    /// to [`Bound::None`], [`Bound::Lower`], [`Bound::Upper`], or [`Bound::Exact`].
     /// Values outside this range result in undefined behavior.
     #[inline]
     pub unsafe fn from_u8_unchecked(value: u8) -> Bound {
@@ -99,7 +106,7 @@ impl TTProbeResult {
         }
     }
 
-    /// Returns the cached data if hit, otherwise None.
+    /// Returns the cached data if hit, otherwise [`None`].
     #[inline(always)]
     pub fn data(&self) -> Option<TTEntryData> {
         match self {
@@ -108,7 +115,7 @@ impl TTProbeResult {
         }
     }
 
-    /// Returns the best move if hit, otherwise Square::None.
+    /// Returns the best move if hit, otherwise [`Square::None`].
     #[inline(always)]
     pub fn best_move(&self) -> Square {
         match self {
@@ -117,7 +124,7 @@ impl TTProbeResult {
         }
     }
 
-    /// Returns true if the probe was a hit.
+    /// Returns `true` if the probe was a hit.
     #[inline(always)]
     pub fn is_hit(&self) -> bool {
         matches!(self, TTProbeResult::Hit { .. })
@@ -131,55 +138,59 @@ pub struct TTEntryData {
 }
 
 impl TTEntryData {
+    /// Returns the stored hash key (lower 22 bits).
     #[inline(always)]
     pub fn key(&self) -> u32 {
         ((self.raw >> TTEntry::KEY_SHIFT) & TTEntry::KEY_MASK) as u32
     }
 
+    /// Returns the evaluation score.
     #[inline(always)]
     pub fn score(&self) -> ScaledScore {
         let raw = ((self.raw >> TTEntry::SCORE_SHIFT) & TTEntry::SCORE_MASK) as i16 as i32;
         ScaledScore::from_raw(raw)
     }
 
+    /// Returns the best move found for this position.
     #[inline(always)]
     pub fn best_move(&self) -> Square {
         let val = ((self.raw >> TTEntry::BEST_MOVE_SHIFT) & TTEntry::BEST_MOVE_MASK) as u8;
         Square::from_u8_unchecked(val)
     }
 
+    /// Returns the [`Bound`] type of this entry.
     #[inline(always)]
     pub fn bound(&self) -> Bound {
         let val = ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) as u8;
         unsafe { Bound::from_u8_unchecked(val) }
     }
 
+    /// Returns the search depth at which this entry was computed.
     #[inline(always)]
     pub fn depth(&self) -> Depth {
         ((self.raw >> TTEntry::DEPTH_SHIFT) & TTEntry::DEPTH_MASK) as u8 as Depth
     }
 
+    /// Returns the [`Selectivity`] level used during search.
     #[inline(always)]
     pub fn selectivity(&self) -> Selectivity {
         let val = ((self.raw >> TTEntry::SELECTIVITY_SHIFT) & TTEntry::SELECTIVITY_MASK) as u8;
         Selectivity::from_u8(val)
     }
 
+    /// Returns the generation counter when this entry was stored.
     #[inline(always)]
     pub fn generation(&self) -> u8 {
         ((self.raw >> TTEntry::GENERATION_SHIFT) & TTEntry::GENERATION_MASK) as u8
     }
 
+    /// Returns `true` if this entry is from an endgame search.
     #[inline(always)]
     pub fn is_endgame(&self) -> bool {
         ((self.raw >> TTEntry::IS_ENDGAME_SHIFT) & TTEntry::IS_ENDGAME_MASK) != 0
     }
 
-    /// Determines whether the entry provides a conclusive result for the given beta.
-    ///
-    /// Returns true if:
-    /// - Score >= beta AND bound is Lower or Exact (fail-high cutoff), OR
-    /// - Score < beta AND bound is Upper or Exact (fail-low proves score is low enough)
+    /// Returns `true` if the entry provides a conclusive result for the given beta.
     #[inline(always)]
     pub fn can_cut(&self, beta: ScaledScore) -> bool {
         let score = self.score();
@@ -194,25 +205,13 @@ impl TTEntryData {
         (bound_raw & required) != 0
     }
 
-    /// Checks if the transposition table entry contains valid data.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the entry has a valid bound type (not None), `false` otherwise
+    /// Returns `true` if the entry has a valid bound type (not [`Bound::None`]).
     #[inline(always)]
     pub fn is_occupied(&self) -> bool {
         ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) != 0
     }
 
-    /// Calculates the relative age of the entry based on the current generation.
-    ///
-    /// # Arguments
-    ///
-    /// * `generation` - The current generation count
-    ///
-    /// # Returns
-    ///
-    /// The age difference (positive means this entry is older)
+    /// Calculates the relative age (positive means older) based on the current generation.
     #[inline(always)]
     fn relative_age(&self, generation: u8) -> i32 {
         generation as i32 - self.generation() as i32
@@ -307,18 +306,14 @@ impl TTEntry {
         Self::unpack_from_u64(data)
     }
 
-    /// Saves data into the transposition table entry.
+    /// Saves data into the entry, applying the replacement policy.
     ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position
-    /// * `score` - The evaluation score of the position
-    /// * `bound` - The bound type (none, lower, upper, exact)
-    /// * `depth` - The search depth at which the position was evaluated
-    /// * `best_move` - The best move found for the position
-    /// * `selectivity` - The selectivity level of the search
-    /// * `generation` - The current generation count for aging
-    /// * `is_endgame` - Whether this entry is from endgame search
+    /// Replacement rules (evaluated in order):
+    /// 1. [`Bound::Exact`] always replaces unconditionally.
+    /// 2. Different key always replaces.
+    /// 3. Same key replaces if depth is within 2 plies, selectivity is higher,
+    ///    or generation differs. Preserves the existing best move when the new
+    ///    one is [`Square::None`].
     #[allow(clippy::too_many_arguments)]
     pub fn save(
         &self,
@@ -415,11 +410,7 @@ pub struct TranspositionTable {
 }
 
 impl TranspositionTable {
-    /// Initializes a new `TranspositionTable` with the specified memory size in megabytes.
-    ///
-    /// # Arguments
-    ///
-    /// * `mb_size` - The size of the transposition table in megabytes.
+    /// Creates a new [`TranspositionTable`] with the specified memory size in megabytes.
     pub fn new(mb_size: usize) -> Self {
         let cluster_count = if mb_size == 0 {
             16
@@ -465,11 +456,7 @@ impl TranspositionTable {
         self.generation.store(0, Ordering::Relaxed);
     }
 
-    /// Prefetches the transposition table entry corresponding to the given hash.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position to prefetch.
+    /// Prefetches the cluster corresponding to the given hash key into L1 cache.
     #[inline]
     pub fn prefetch(&self, key: u64) {
         #[cfg(target_arch = "x86_64")]
@@ -485,15 +472,7 @@ impl TranspositionTable {
         }
     }
 
-    /// Probes the transposition table for an entry matching the given key.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position to probe
-    ///
-    /// # Returns
-    ///
-    /// A `TTProbeResult` indicating whether a matching entry was found.
+    /// Probes the table for an entry matching the given key, returning a [`TTProbeResult`].
     #[inline(always)]
     pub fn probe(&self, key: u64) -> TTProbeResult {
         let generation = self.generation();
@@ -622,18 +601,7 @@ impl TranspositionTable {
         TTProbeResult::Miss { index: replace_idx }
     }
 
-    /// Stores data in the transposition table at the specified entry index.
-    ///
-    /// # Arguments
-    ///
-    /// * `entry_index` - The index returned by `probe`
-    /// * `key` - The hash key of the board position
-    /// * `score` - The evaluation score of the position
-    /// * `bound` - The bound type (none, lower, upper, exact)
-    /// * `depth` - The search depth at which the position was evaluated
-    /// * `best_move` - The best move found for the position
-    /// * `selectivity` - The selectivity level used in search
-    /// * `is_endgame` - Whether this entry is from endgame search
+    /// Stores data at the entry index returned by [`probe`](Self::probe).
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     pub fn store(
@@ -665,30 +633,13 @@ impl TranspositionTable {
         );
     }
 
-    /// Calculates the cluster index for a given hash key.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The hash key of the board position
-    ///
-    /// # Returns
-    ///
-    /// The starting index of the cluster in the entries vector.
+    /// Returns the starting entry index of the cluster for the given hash key.
     #[inline(always)]
     fn get_cluster_idx(&self, key: u64) -> usize {
         (Self::mul_hi64(key, self.cluster_count) as usize) * CLUSTER_SIZE
     }
 
-    /// Multiplies two 64-bit values and returns the high 64 bits of the result.
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - The first value (typically the hash key)
-    /// * `b` - The second value (typically the cluster count)
-    ///
-    /// # Returns
-    ///
-    /// The high 64 bits of the 128-bit product.
+    /// Returns the high 64 bits of the 128-bit product of two 64-bit values.
     #[inline(always)]
     fn mul_hi64(a: u64, b: u64) -> u64 {
         let product = (a as u128) * (b as u128);
@@ -872,18 +823,52 @@ mod tests {
         assert_eq!(data.score().value(), 100);
     }
 
-    /// Tests Bound::classify for different node types.
+    /// Tests Bound::classify_scaled for different node types.
     #[test]
-    fn test_bound_classify() {
+    fn test_bound_classify_scaled() {
+        let s = |v| ScaledScore::from_raw(v);
+
         // Test PV node
-        assert_eq!(Bound::classify::<PV>(100, 30, 50), Bound::Lower); // score >= beta
-        assert_eq!(Bound::classify::<PV>(40, 30, 50), Bound::Exact); // alpha < score < beta in PV
-        assert_eq!(Bound::classify::<PV>(20, 30, 50), Bound::Upper); // score <= alpha in PV
+        assert_eq!(
+            Bound::classify_scaled::<PV>(s(100), s(30), s(50)),
+            Bound::Lower
+        );
+        assert_eq!(
+            Bound::classify_scaled::<PV>(s(40), s(30), s(50)),
+            Bound::Exact
+        );
+        assert_eq!(
+            Bound::classify_scaled::<PV>(s(20), s(30), s(50)),
+            Bound::Upper
+        );
 
         // Test non-PV node
-        assert_eq!(Bound::classify::<NonPV>(100, 30, 50), Bound::Lower); // score >= beta
-        assert_eq!(Bound::classify::<NonPV>(40, 30, 50), Bound::Upper); // score < beta in non-PV
-        assert_eq!(Bound::classify::<NonPV>(20, 30, 50), Bound::Upper); // score <= alpha in non-PV
+        assert_eq!(
+            Bound::classify_scaled::<NonPV>(s(100), s(30), s(50)),
+            Bound::Lower
+        );
+        assert_eq!(
+            Bound::classify_scaled::<NonPV>(s(40), s(30), s(50)),
+            Bound::Upper
+        );
+        assert_eq!(
+            Bound::classify_scaled::<NonPV>(s(20), s(30), s(50)),
+            Bound::Upper
+        );
+    }
+
+    /// Tests Bound::classify_score for different node types.
+    #[test]
+    fn test_bound_classify_score() {
+        // Test PV node
+        assert_eq!(Bound::classify_score::<PV>(100, 30, 50), Bound::Lower);
+        assert_eq!(Bound::classify_score::<PV>(40, 30, 50), Bound::Exact);
+        assert_eq!(Bound::classify_score::<PV>(20, 30, 50), Bound::Upper);
+
+        // Test non-PV node
+        assert_eq!(Bound::classify_score::<NonPV>(100, 30, 50), Bound::Lower);
+        assert_eq!(Bound::classify_score::<NonPV>(40, 30, 50), Bound::Upper);
+        assert_eq!(Bound::classify_score::<NonPV>(20, 30, 50), Bound::Upper);
     }
 
     /// Tests TTEntryData methods.

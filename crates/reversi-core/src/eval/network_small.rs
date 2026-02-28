@@ -144,16 +144,11 @@ impl NetworkSmall {
 
     /// Evaluates a position using the small network.
     ///
-    /// Faster but less accurate than the main [`Network`](super::Network).
+    /// Faster but less accurate than the main [`Network`](super::network::Network).
     ///
-    /// # Arguments
+    /// # Panics
     ///
-    /// * `pattern_feature` - Pattern features from the board.
-    /// * `ply` - Current game ply. Must be in the range `[30, 60)`.
-    ///
-    /// # Returns
-    ///
-    /// A position evaluation score clamped to the valid range.
+    /// Panics if `ply` is outside the endgame range `[30, 60)`.
     pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
         debug_assert!(ply >= ENDGAME_START_PLY);
         debug_assert!(ply < ENDGAME_START_PLY + NUM_OUTPUT_LAYERS);

@@ -210,13 +210,7 @@ impl_accumulate!(
     add = _mm256_add_epi16
 );
 
-/// Accumulates weights of active sparse features into accumulator (scalar fallback).
-///
-/// # Arguments
-///
-/// * `pattern_feature` - Sparse feature values indexed by pattern identifier.
-/// * `weights` - Flat weight matrix in feature-major order.
-/// * `acc` - Dense accumulation buffer.
+/// Accumulates weights of active sparse features into the accumulator (scalar fallback).
 #[inline(always)]
 fn accumulate_scalar<const DIMS: usize>(
     pattern_feature: &PatternFeature,

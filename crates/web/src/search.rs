@@ -479,7 +479,7 @@ pub fn search<NT: NodeType>(
         tt_probe_result.index(),
         tt_key,
         best_score,
-        Bound::classify::<NT>(best_score.value(), org_alpha.value(), beta.value()),
+        Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
         depth,
         best_move,
         ctx.selectivity,

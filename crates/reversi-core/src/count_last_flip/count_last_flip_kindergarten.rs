@@ -1,10 +1,10 @@
 //! Based on count_last_flip_kindergarten.c from edax-reversi.
-//! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/count_last_flip_kindergarten.c
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/count_last_flip_kindergarten.c>
 
 use crate::square::Square;
 use crate::uget;
 
-/// precomputed count flip array
+/// Precomputed count flip array.
 #[rustfmt::skip]
 pub static COUNT_FLIP: [[i8; 256]; 8] = [
     [
@@ -95,14 +95,6 @@ fn lookup(table: usize, idx: usize) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a1(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -115,14 +107,6 @@ pub fn count_last_flip_a1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b1(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -135,14 +119,6 @@ pub fn count_last_flip_b1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c1(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -155,14 +131,6 @@ pub fn count_last_flip_c1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d1(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -175,14 +143,6 @@ pub fn count_last_flip_d1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e1(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -195,14 +155,6 @@ pub fn count_last_flip_e1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f1(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -215,14 +167,6 @@ pub fn count_last_flip_f1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g1(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -235,14 +179,6 @@ pub fn count_last_flip_g1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h1(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -255,14 +191,6 @@ pub fn count_last_flip_h1(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a2(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -275,14 +203,6 @@ pub fn count_last_flip_a2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b2(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -295,14 +215,6 @@ pub fn count_last_flip_b2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c2(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -315,14 +227,6 @@ pub fn count_last_flip_c2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d2(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -335,14 +239,6 @@ pub fn count_last_flip_d2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e2(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -355,14 +251,6 @@ pub fn count_last_flip_e2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f2(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -375,14 +263,6 @@ pub fn count_last_flip_f2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g2(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -395,14 +275,6 @@ pub fn count_last_flip_g2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h2(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -415,14 +287,6 @@ pub fn count_last_flip_h2(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a3(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -435,14 +299,6 @@ pub fn count_last_flip_a3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b3(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -455,14 +311,6 @@ pub fn count_last_flip_b3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c3(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -477,14 +325,6 @@ pub fn count_last_flip_c3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d3(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -499,14 +339,6 @@ pub fn count_last_flip_d3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e3(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -521,14 +353,6 @@ pub fn count_last_flip_e3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f3(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -543,14 +367,6 @@ pub fn count_last_flip_f3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g3(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -563,14 +379,6 @@ pub fn count_last_flip_g3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h3(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -583,14 +391,6 @@ pub fn count_last_flip_h3(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a4(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -603,14 +403,6 @@ pub fn count_last_flip_a4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b4(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -623,14 +415,6 @@ pub fn count_last_flip_b4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c4(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -645,14 +429,6 @@ pub fn count_last_flip_c4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d4(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -667,14 +443,6 @@ pub fn count_last_flip_d4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e4(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -689,14 +457,6 @@ pub fn count_last_flip_e4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f4(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -711,14 +471,6 @@ pub fn count_last_flip_f4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g4(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -731,14 +483,6 @@ pub fn count_last_flip_g4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h4(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -751,14 +495,6 @@ pub fn count_last_flip_h4(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a5(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -771,14 +507,6 @@ pub fn count_last_flip_a5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b5(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -791,14 +519,6 @@ pub fn count_last_flip_b5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c5(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -813,14 +533,6 @@ pub fn count_last_flip_c5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d5(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -835,14 +547,6 @@ pub fn count_last_flip_d5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e5(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -857,14 +561,6 @@ pub fn count_last_flip_e5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f5(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -879,14 +575,6 @@ pub fn count_last_flip_f5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g5(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -899,14 +587,6 @@ pub fn count_last_flip_g5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h5(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -919,14 +599,6 @@ pub fn count_last_flip_h5(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a6(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -939,14 +611,6 @@ pub fn count_last_flip_a6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b6(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -959,14 +623,6 @@ pub fn count_last_flip_b6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c6(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -981,14 +637,6 @@ pub fn count_last_flip_c6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d6(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -1003,14 +651,6 @@ pub fn count_last_flip_d6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e6(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -1025,14 +665,6 @@ pub fn count_last_flip_e6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f6(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -1047,14 +679,6 @@ pub fn count_last_flip_f6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g6(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -1067,14 +691,6 @@ pub fn count_last_flip_g6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h6(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -1087,14 +703,6 @@ pub fn count_last_flip_h6(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a7(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -1107,14 +715,6 @@ pub fn count_last_flip_a7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b7(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -1127,14 +727,6 @@ pub fn count_last_flip_b7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c7(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -1147,14 +739,6 @@ pub fn count_last_flip_c7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d7(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -1167,14 +751,6 @@ pub fn count_last_flip_d7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e7(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -1187,14 +763,6 @@ pub fn count_last_flip_e7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f7(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -1207,14 +775,6 @@ pub fn count_last_flip_f7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g7(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -1227,14 +787,6 @@ pub fn count_last_flip_g7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h7(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -1247,14 +799,6 @@ pub fn count_last_flip_h7(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square A8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_a8(p: u64) -> i32 {
     let idx0 = (((p & 0x0101010101010101u64).wrapping_mul(0x0102040810204080u64)) >> 56) as usize;
@@ -1267,14 +811,6 @@ pub fn count_last_flip_a8(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square B8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_b8(p: u64) -> i32 {
     let idx0 = (((p & 0x0202020202020202u64).wrapping_mul(0x0081020408102040u64)) >> 56) as usize;
@@ -1287,14 +823,6 @@ pub fn count_last_flip_b8(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square C8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_c8(p: u64) -> i32 {
     let idx0 = (((p & 0x0404040404040404u64).wrapping_mul(0x0040810204081020u64)) >> 56) as usize;
@@ -1307,14 +835,6 @@ pub fn count_last_flip_c8(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square D8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_d8(p: u64) -> i32 {
     let idx0 = (((p & 0x0808080808080808u64).wrapping_mul(0x0020408102040810u64)) >> 56) as usize;
@@ -1327,14 +847,6 @@ pub fn count_last_flip_d8(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square E8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_e8(p: u64) -> i32 {
     let idx0 = (((p & 0x1010101010101010u64).wrapping_mul(0x0010204081020408u64)) >> 56) as usize;
@@ -1347,14 +859,6 @@ pub fn count_last_flip_e8(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square F8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_f8(p: u64) -> i32 {
     let idx0 = (((p & 0x2020202020202020u64).wrapping_mul(0x0008102040810204u64)) >> 56) as usize;
@@ -1367,14 +871,6 @@ pub fn count_last_flip_f8(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square G8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_g8(p: u64) -> i32 {
     let idx0 = (((p & 0x4040404040404040u64).wrapping_mul(0x0004081020408102u64)) >> 56) as usize;
@@ -1387,14 +883,6 @@ pub fn count_last_flip_g8(p: u64) -> i32 {
 }
 
 /// Counts last flipped discs when playing on square H8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[rustfmt::skip]
 pub fn count_last_flip_h8(p: u64) -> i32 {
     let idx0 = (((p & 0x8080808080808080u64).wrapping_mul(0x0002040810204081u64)) >> 56) as usize;
@@ -1408,7 +896,7 @@ pub fn count_last_flip_h8(p: u64) -> i32 {
 
 pub type CountLastFlipFn = fn(u64) -> i32;
 
-/** Array of functions to count flipped discs of the last move */
+/// Array of functions to count flipped discs of the last move.
 #[rustfmt::skip]
 pub static LAST_FLIP: [CountLastFlipFn; 64] = [
     count_last_flip_a1, count_last_flip_b1, count_last_flip_c1, count_last_flip_d1, count_last_flip_e1, count_last_flip_f1, count_last_flip_g1, count_last_flip_h1,
@@ -1422,15 +910,6 @@ pub static LAST_FLIP: [CountLastFlipFn; 64] = [
 ];
 
 /// Counts last flipped discs.
-///
-/// # Arguments
-///
-/// * `sq` - The square where the last move was played.
-/// * `p` - Player's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc count.
 #[inline(always)]
 pub fn count_last_flip(p: u64, sq: Square) -> i32 {
     (unsafe { LAST_FLIP.get_unchecked(sq.index()) })(p)

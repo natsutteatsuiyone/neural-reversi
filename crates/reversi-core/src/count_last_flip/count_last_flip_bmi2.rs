@@ -1,6 +1,6 @@
 //! BMI2 version of counting flipped discs for the last move.
 //! Based on count_last_flip_bmi2.c from edax-reversi.
-//! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c>
 
 use std::arch::x86_64::_pext_u64;
 
@@ -160,13 +160,6 @@ const MASK_X: [[u64; 4]; 64] = [
 
 /// Counts the number of discs that would be flipped by the last move.
 ///
-/// # Arguments
-///
-/// * `player` - Current player's bitboard.
-/// * `sq` - Square where the last move is played.
-///
-/// # Returns
-///
 /// Returns twice the actual number of flipped discs for optimization purposes.
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[target_feature(enable = "bmi2")]
@@ -194,15 +187,8 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
 
 /// Counts flipped discs for both players simultaneously using BMI2 PEXT.
 ///
-/// # Arguments
-///
-/// * `player` - Current player's bitboard
-/// * `opponent` - Opponent's bitboard
-/// * `sq` - Square where the last move is played
-///
-/// # Returns
-///
-/// Tuple of (player_flipped, opponent_flipped) where values are 2x actual flip count
+/// Returns a `(player_flipped, opponent_flipped)` tuple where each value is twice the
+/// actual flip count.
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[target_feature(enable = "bmi2")]
 #[inline]

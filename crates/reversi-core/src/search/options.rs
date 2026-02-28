@@ -20,8 +20,8 @@ pub struct SearchOptions {
 }
 
 impl SearchOptions {
-    /// Creates search options with the desired transposition-table size while
-    /// relying on defaults for other parameters (threads and weight paths).
+    /// Creates search options with the specified transposition table size and defaults for
+    /// other parameters.
     #[must_use]
     pub fn new(tt_mb_size: usize) -> Self {
         SearchOptions {
@@ -30,8 +30,7 @@ impl SearchOptions {
         }
     }
 
-    /// Override the number of search threads when the default CPU count is not
-    /// appropriate for the caller.
+    /// Overrides the number of search threads.
     #[must_use]
     pub fn with_threads(mut self, n_threads: Option<usize>) -> Self {
         if let Some(value) = n_threads {
@@ -40,8 +39,7 @@ impl SearchOptions {
         self
     }
 
-    /// Supply custom paths for the neural network weight blobs, allowing CLI or
-    /// tooling layers to override the embedded defaults.
+    /// Sets custom paths for the neural network weight files.
     #[must_use]
     pub fn with_eval_paths<P, Q>(mut self, eval_path: Option<P>, eval_sm_path: Option<Q>) -> Self
     where
@@ -112,7 +110,7 @@ impl SearchRunOptions {
         self
     }
 
-    /// Sets progress callback.
+    /// Sets the progress callback.
     #[must_use]
     pub fn callback<F>(mut self, f: F) -> Self
     where

@@ -16,18 +16,10 @@ cfg_if! {
     }
 }
 
-/// Calculates which opponent discs would be flipped by placing a disc at the given square.
+/// Calculates which opponent discs would be flipped by placing a disc at `sq`.
 ///
-/// # Arguments
-///
-/// * `sq` - The square where the disc is being placed
-/// * `p` - Bitboard representing the current player's discs
-/// * `o` - Bitboard representing the opponent's discs
-///
-/// # Returns
-///
-/// A bitboard representing all opponent discs that would be flipped by this move.
-/// Returns empty bitboard if no discs would be flipped (invalid move).
+/// Dispatches to a platform-specific implementation (AVX-512, AVX2, BMI2, or
+/// kindergarten bitboard).
 #[inline(always)]
 pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
     cfg_if! {

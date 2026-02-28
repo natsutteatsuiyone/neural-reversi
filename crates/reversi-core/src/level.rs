@@ -17,13 +17,19 @@ pub struct Level {
     /// Endgame search depths indexed by selectivity level.
     ///
     /// The array has 6 elements, where:
-    /// - Index 0: Most aggressive pruning (Selectivity::Level1)
-    /// - Index 5: ProbCut disabled (Selectivity::None)
+    /// - Index 0: Most aggressive ProbCut pruning ([`Selectivity::Level1`])
+    /// - Index 5: ProbCut disabled ([`Selectivity::None`])
     pub end_depth: [Depth; 6],
 }
 
 impl Level {
-    /// Creates a Level with no depth restrictions (for time-controlled search).
+    /// Creates a [`Level`] for time-controlled search.
+    ///
+    /// Sets `mid_depth` to 60 (effectively unlimited) and `end_depth` to 14.
+    /// The endgame depth is later extended to 60 by [`Search::run`] once
+    /// the search reaches near-endgame positions.
+    ///
+    /// [`Search::run`]: crate::search::Search::run
     pub const fn unlimited() -> Self {
         Level {
             mid_depth: 60,
@@ -39,30 +45,13 @@ impl Level {
         }
     }
 
-    /// Returns the endgame search depth for a given selectivity level.
-    ///
-    /// # Arguments
-    ///
-    /// * `selectivity` - The selectivity level, where lower values mean
-    ///   more aggressive pruning and faster searches.
-    ///
-    /// # Returns
-    ///
-    /// The search depth to use for endgame positions at the given selectivity.
+    /// Returns the endgame search depth for a given [`Selectivity`] level.
     pub fn get_end_depth(&self, selectivity: Selectivity) -> Depth {
         self.end_depth[selectivity.as_u8() as usize]
     }
 }
 
-/// Retrieves the configuration for a specific difficulty level.
-///
-/// # Arguments
-///
-/// * `lv` - The level index (0-24), where 0 is the weakest and 24 is the strongest.
-///
-/// # Returns
-///
-/// A `Level` struct containing the search depth configuration.
+/// Returns the [`Level`] configuration for a specific difficulty level (0-24).
 ///
 /// # Panics
 ///

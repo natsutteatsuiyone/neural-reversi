@@ -1,4 +1,10 @@
-//! ProbCut forward pruning implementation for search optimization.
+//! ProbCut forward pruning implementation.
+//!
+//! Uses a statistical model to predict whether a shallow search result can
+//! substitute for a deeper search, allowing subtrees to be pruned with
+//! controlled error probability. Pre-computed lookup tables for mean and sigma
+//! values are initialized once via [`init`] and accessed through the `get_*`
+//! functions.
 
 use std::sync::OnceLock;
 
@@ -38,27 +44,27 @@ impl Selectivity {
         (999.0, 100), // None: Effectively disabled
     ];
 
-    /// Gets the statistical confidence multiplier (t-value).
+    /// Returns the statistical confidence multiplier (t-value).
     #[inline]
     pub fn t_value(self) -> f64 {
         Self::CONFIG[self as usize].0
     }
 
-    /// Gets the expected success probability percentage.
+    /// Returns the probability percentage for this level.
     #[inline]
     pub fn probability(self) -> i32 {
         Self::CONFIG[self as usize].1
     }
 
-    /// Converts to u8.
+    /// Converts to [`u8`].
     #[inline]
     pub fn as_u8(self) -> u8 {
         self as u8
     }
 
-    /// Creates a Selectivity from a u8 value, clamping to valid range.
+    /// Creates a [`Selectivity`] from a [`u8`] value, clamping to valid range.
     ///
-    /// Values > 5 are clamped to `Selectivity::None` (5).
+    /// Values > 5 are clamped to [`Selectivity::None`].
     #[inline]
     pub fn from_u8(value: u8) -> Self {
         match value {
@@ -71,7 +77,7 @@ impl Selectivity {
         }
     }
 
-    /// Checks if ProbCut is enabled for this selectivity level.
+    /// Returns `true` if ProbCut is enabled at this selectivity level.
     #[inline]
     pub fn is_enabled(self) -> bool {
         self != Selectivity::None
@@ -159,7 +165,10 @@ fn build_end_table(
     tbl
 }
 
-/// Initializes probcut tables. Called from Search::new().
+/// Initializes the ProbCut lookup tables.
+///
+/// Must be called before any `get_*` functions. Called automatically by
+/// [`Search::new`](crate::search::Search::new).
 pub fn init() {
     MEAN_TABLE.get_or_init(|| build_mid_table(ProbcutParams::mean));
     SIGMA_TABLE.get_or_init(|| build_mid_table(ProbcutParams::sigma));
@@ -168,6 +177,10 @@ pub fn init() {
 }
 
 /// Returns the pre-computed mean value for midgame positions.
+///
+/// # Panics
+///
+/// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     debug_assert!(ply < MAX_PLY);
@@ -178,6 +191,10 @@ pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 }
 
 /// Returns the pre-computed sigma value for midgame positions.
+///
+/// # Panics
+///
+/// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     debug_assert!(ply < MAX_PLY);
@@ -188,6 +205,10 @@ pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 }
 
 /// Returns the pre-computed mean value for endgame positions.
+///
+/// # Panics
+///
+/// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
     debug_assert!((shallow as usize) < MAX_DEPTH);
@@ -197,6 +218,10 @@ pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
 }
 
 /// Returns the pre-computed sigma value for endgame positions.
+///
+/// # Panics
+///
+/// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
     debug_assert!((shallow as usize) < MAX_DEPTH);

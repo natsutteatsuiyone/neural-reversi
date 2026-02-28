@@ -1,8 +1,6 @@
 //! Linear transformation layer for neural network.
 //!
-//! # Reference
-//!
-//! - <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h>
+//! Reference: <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/affine_transform.h>
 
 use std::io::{self, Read};
 
@@ -14,13 +12,6 @@ use crate::constants::CACHE_LINE_SIZE;
 use crate::util::align::Align64;
 
 /// Linear transformation layer.
-///
-/// # Type Parameters
-///
-/// * `INPUT_DIMS` - Number of input features.
-/// * `OUTPUT_DIMS` - Number of output neurons.
-/// * `PADDED_INPUT_DIMS` - Input dimensions padded to SIMD width.
-/// * `PADDED_OUTPUT_DIMS` - Output dimensions padded to SIMD width.
 pub struct LinearLayer<
     const INPUT_DIMS: usize,
     const OUTPUT_DIMS: usize,
@@ -56,6 +47,8 @@ impl<
     /// Format: `OUTPUT_DIMS` biases (little-endian `i32`) followed by row-major
     /// signed weights (`i8`) for each output neuron. The raw weights are
     /// repacked into the SIMD-friendly layout while loading.
+    ///
+    /// `PADDED_INPUT_DIMS` must be a multiple of 4 for correct weight repacking.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i32; PADDED_OUTPUT_DIMS];
         let mut weights = avec![[CACHE_LINE_SIZE]|0i8; PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS];
@@ -122,7 +115,7 @@ impl<
         (i / 4) % (input_size / 4) * output_stride + i / input_size * STRIDE_MULTIPLIER + i % 4
     }
 
-    /// Gets packed index for weight at (input_idx, output_idx).
+    /// Returns the packed index for the weight at (input_idx, output_idx).
     #[inline(always)]
     fn get_packed_weight_index(&self, input_idx: usize, output_idx: usize) -> usize {
         let conceptual_index = output_idx * PADDED_INPUT_DIMS + input_idx;
@@ -130,11 +123,6 @@ impl<
     }
 
     /// Performs the forward pass of the linear layer.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Aligned input activations.
-    /// * `output` - Aligned output buffer.
     #[inline(always)]
     pub fn forward(
         &self,
@@ -199,7 +187,6 @@ impl<
     }
 
     /// AVX-512 accelerated forward pass optionally using VNNI.
-    /// Falls back to the AVX2 path when the layer is narrower than a full 512-bit vector.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[inline]
@@ -208,9 +195,9 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
+        use crate::eval::util::ceil_to_multiple;
         use crate::eval::util::clone_biases;
         use crate::eval::util::mm512_dpbusd_epi32;
-        use crate::util::ceil_to_multiple;
         use std::arch::x86_64::*;
         use std::mem::size_of;
         use std::ptr::copy_nonoverlapping;
@@ -248,9 +235,9 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
+        use crate::eval::util::ceil_to_multiple;
         use crate::eval::util::clone_biases;
         use crate::eval::util::mm256_dpbusd_epi32;
-        use crate::util::ceil_to_multiple;
         use std::arch::x86_64::*;
         use std::mem::size_of;
         use std::ptr::copy_nonoverlapping;

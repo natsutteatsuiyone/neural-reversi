@@ -1,6 +1,6 @@
 //! AVX-512 variant of flip function.
 //! Based on flip_avx512cd.c from edax-reversi.
-//! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/flip_avx512cd.c
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/flip_avx512cd.c>
 
 use crate::square::Square;
 use std::arch::x86_64::*;
@@ -115,6 +115,7 @@ fn mm_flip(op: __m128i, x: usize) -> __m128i {
     _mm_or_si128(_mm256_castsi256_si128(ff), _mm256_extracti128_si256(ff, 1))
 }
 
+/// Computes the bitboard of discs flipped by placing a disc at `sq`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512cd,avx512vl")]
 #[inline]

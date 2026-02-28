@@ -77,11 +77,6 @@ macro_rules! impl_phase_input_apply_activation {
 }
 
 /// Phase-adaptive input layer.
-///
-/// # Type Parameters
-///
-/// * `INPUT_DIMS` - Number of input features (sparse).
-/// * `OUTPUT_DIMS` - Number of output dimensions (dense).
 #[derive(Debug)]
 pub struct PhaseAdaptiveInputLayer<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
@@ -92,10 +87,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     PhaseAdaptiveInputLayer<INPUT_DIMS, OUTPUT_DIMS>
 {
     /// Loads network weights and biases from a binary reader.
-    ///
-    /// # Arguments
-    ///
-    /// * `reader` - Binary data reader containing network parameters.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS];
         let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * OUTPUT_DIMS];
@@ -114,12 +105,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         Ok(PhaseAdaptiveInputLayer { biases, weights })
     }
 
-    /// Performs forward pass through the phase-adaptive input layer.
-    ///
-    /// # Arguments
-    ///
-    /// * `pattern_feature` - Sparse feature values encoded by pattern index.
-    /// * `output` - Output buffer to write results.
+    /// Performs a forward pass through the phase-adaptive input layer.
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         cfg_if! {
@@ -213,13 +199,8 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 
 /// A set of phase-adaptive input layers for different game phases.
 ///
-/// This struct encapsulates the phase selection logic, choosing the appropriate
+/// Encapsulates the phase selection logic, choosing the appropriate
 /// input layer based on the current ply.
-///
-/// # Type Parameters
-///
-/// * `INPUT_DIMS` - Number of input features (sparse).
-/// * `OUTPUT_DIMS` - Number of output dimensions (dense).
 #[derive(Debug)]
 pub struct PhaseAdaptiveInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
     inputs: Vec<PhaseAdaptiveInputLayer<INPUT_DIMS, OUTPUT_DIMS>>,
@@ -229,10 +210,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     PhaseAdaptiveInput<INPUT_DIMS, OUTPUT_DIMS>
 {
     /// Loads all phase-adaptive input layers from a binary reader.
-    ///
-    /// # Arguments
-    ///
-    /// * `reader` - Binary data reader containing network parameters.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let inputs = (0..NUM_PA_INPUTS)
             .map(|_| PhaseAdaptiveInputLayer::<INPUT_DIMS, OUTPUT_DIMS>::load(reader))
@@ -240,15 +217,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         Ok(PhaseAdaptiveInput { inputs })
     }
 
-    /// Performs forward pass through the appropriate phase-adaptive input layer.
-    ///
-    /// Selects the input layer based on the current ply and performs the forward pass.
-    ///
-    /// # Arguments
-    ///
-    /// * `pattern_feature` - Sparse feature values encoded by pattern index.
-    /// * `ply` - Current game ply (must be < 60).
-    /// * `output` - Output buffer to write results.
+    /// Performs a forward pass, selecting the input layer based on the current ply.
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, ply: usize, output: &mut [u8]) {
         debug_assert!(ply < 60, "ply {} out of valid range 0-59", ply);

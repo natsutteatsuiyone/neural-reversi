@@ -1,6 +1,6 @@
 //! Disc representation for the Reversi board.
 
-/// Represents a disc in the game.
+/// Represents a disc color on the board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Disc {
     /// An empty spot on the board.
@@ -12,13 +12,7 @@ pub enum Disc {
 }
 
 impl Disc {
-    /// Converts the disc to its corresponding character representation.
-    ///
-    /// # Returns
-    ///
-    /// * `'-'` for `Disc::Empty`
-    /// * `'X'` for `Disc::Black`
-    /// * `'O'` for `Disc::White`
+    /// Returns the character representation (`'-'`, `'X'`, or `'O'`).
     pub fn to_char(self) -> char {
         match self {
             Disc::Empty => '-',
@@ -27,13 +21,7 @@ impl Disc {
         }
     }
 
-    /// Returns the opposite disc.
-    ///
-    /// # Returns
-    ///
-    /// * `Disc::White` for `Disc::Black`
-    /// * `Disc::Black` for `Disc::White`
-    /// * `Disc::Empty` for `Disc::Empty`
+    /// Returns the opposite disc (`Empty` maps to itself).
     pub fn opposite(self) -> Disc {
         match self {
             Disc::Black => Disc::White,

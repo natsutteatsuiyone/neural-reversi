@@ -1,6 +1,6 @@
 //! AVX2 variant of flip function.
 //! Based on flip_avx_ppseq.c from edax-reversi.
-//! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_avx_ppseq.c
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_avx_ppseq.c>
 
 use crate::square::Square;
 use std::arch::x86_64::*;
@@ -124,6 +124,11 @@ fn mm_flip(op: __m128i, pos: usize) -> __m128i {
     )
 }
 
+/// Computes the bitboard of discs flipped by placing a disc at `sq`.
+///
+/// # Safety
+///
+/// The caller must ensure the CPU supports AVX2.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]

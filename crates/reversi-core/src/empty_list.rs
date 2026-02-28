@@ -1,9 +1,9 @@
-//! # Empty Square List Management
+//! Empty square list management.
 
 use crate::board::Board;
 use crate::square::Square;
 
-/// Retrieves the quadrant ID for a given square.
+/// Returns the quadrant ID for a given square.
 ///
 /// The board is divided into 4 quadrants for parity calculation:
 /// - Top-left (A1-D4): bit mask 1
@@ -67,7 +67,7 @@ struct EmptyNode {
     prev: Square,
 }
 
-/// Efficient linked list of empty squares for move generation.
+/// Doubly-linked list of empty squares for move generation.
 #[derive(Clone)]
 pub struct EmptyList {
     /// Array of linked list nodes indexed by square position.
@@ -98,15 +98,7 @@ impl EmptyList {
 }
 
 impl EmptyList {
-    /// Creates a new `EmptyList` by scanning the board for empty squares.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - A reference to the current `Board` state.
-    ///
-    /// # Returns
-    ///
-    /// An instance of `EmptyList` containing all empty squares in the presorted order.
+    /// Creates a new [`EmptyList`] by scanning the board for empty squares in presorted order.
     pub fn new(board: &Board) -> Self {
         let mut count = 0;
         let mut parity: u8 = 0;
@@ -132,22 +124,13 @@ impl EmptyList {
         }
     }
 
-    /// Retrieves the first empty square in the list.
-    ///
-    /// # Returns
-    ///
-    /// The `Square` representing the first empty square, or `Square::None` if empty.
+    /// Returns the first empty square, or [`Square::None`] if the list is empty.
     #[inline(always)]
     pub fn first(&self) -> Square {
         unsafe { self.nodes.get_unchecked(Square::None.index()).next }
     }
 
-    /// Retrieves the first empty square and its quadrant ID.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing the first `Square` and its `quad_id`.
-    /// If the list is empty, returns (`Square::None`, 0).
+    /// Returns the first empty square and its quadrant ID.
     #[inline(always)]
     pub fn first_and_quad_id(&self) -> (Square, u8) {
         let first_sq = self.first();
@@ -155,15 +138,7 @@ impl EmptyList {
         (first_sq, quad_id)
     }
 
-    /// Retrieves the next empty square following the given square.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The current `Square`. Must be a valid square in the list.
-    ///
-    /// # Returns
-    ///
-    /// The `Square` representing the next empty square, or `Square::None` if `sq` is the last square.
+    /// Returns the next empty square after `sq`, or [`Square::None`] if `sq` is the last.
     #[inline(always)]
     pub fn next(&self, sq: Square) -> Square {
         debug_assert!(
@@ -173,16 +148,7 @@ impl EmptyList {
         unsafe { self.nodes.get_unchecked(sq.index()).next }
     }
 
-    /// Retrieves the next empty square and its quadrant ID following the given square.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The current `Square`. Must be a square currently in the empty list.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing the next `Square` and its `quad_id`.
-    /// If `sq` is the last square, returns (`Square::None`, 0).
+    /// Returns the next empty square after `sq` and its quadrant ID.
     #[inline(always)]
     pub fn next_and_quad_id(&self, sq: Square) -> (Square, u8) {
         let next_sq = self.next(sq);
@@ -190,11 +156,7 @@ impl EmptyList {
         (next_sq, quad_id)
     }
 
-    /// Removes a square from the empty list.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The `Square` to remove. Must currently be in the list.
+    /// Removes `sq` from the empty list.
     #[inline(always)]
     pub fn remove(&mut self, sq: Square) {
         debug_assert!(sq != Square::None, "Cannot remove Square::None");
@@ -222,10 +184,6 @@ impl EmptyList {
     }
 
     /// Restores a previously removed square to the empty list.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The `Square` to restore.refactor(core): encapsulate EmptyList count and parity fields
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
         debug_assert!(sq != Square::None, "Cannot restore Square::None");

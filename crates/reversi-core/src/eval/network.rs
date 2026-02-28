@@ -10,9 +10,9 @@ use crate::eval::input_layer::{BaseInput, PhaseAdaptiveInput};
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::output_layer::OutputLayer;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
+use crate::eval::util::ceil_to_multiple;
 use crate::types::ScaledScore;
 use crate::util::align::Align64;
-use crate::util::ceil_to_multiple;
 
 const BASE_OUTPUT_DIMS: usize = 128;
 const PA_OUTPUT_DIMS: usize = 128;
@@ -147,12 +147,6 @@ impl Network {
     }
 
     /// Evaluates a board position using the neural network.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - Current board position.
-    /// * `pattern_feature` - Pattern features from the board.
-    /// * `ply` - Current game ply.
     pub fn evaluate(
         &self,
         board: &Board,

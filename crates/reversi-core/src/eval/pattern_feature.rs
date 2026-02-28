@@ -1,6 +1,6 @@
 //! Pattern-based feature extraction for neural network evaluation.
 //!
-//! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/eval.c
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/eval.c>
 //!
 //! This module implements a pattern feature extraction system that converts board
 //! positions into numerical features for the neural network evaluator. It uses
@@ -59,6 +59,7 @@ pub struct FeatureToCoordinate {
 }
 
 impl FeatureToCoordinate {
+    /// Creates a new feature-to-coordinate mapping with the given squares.
     pub const fn new(n_square: usize, squares: [Square; 10]) -> Self {
         Self { n_square, squares }
     }
@@ -78,23 +79,23 @@ impl Default for PatternFeature {
 }
 
 impl PatternFeature {
-    /// Creates a new PatternFeature initialized to zero.
+    /// Creates a new pattern feature initialized to zero.
     pub const fn new() -> Self {
         Self {
             data: [0; FEATURE_VECTOR_SIZE],
         }
     }
 
-    /// Builds a PatternFeature from an explicit array.
+    /// Creates a pattern feature from an explicit array.
     pub const fn from_array(data: [u16; FEATURE_VECTOR_SIZE]) -> Self {
         Self { data }
     }
 
-    /// Unsafe getter for internal data without bounds checking.
+    /// Returns the feature value at `idx` without bounds checking.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `idx < FEATURE_VECTOR_SIZE`.
+    /// `idx` must be less than `FEATURE_VECTOR_SIZE`.
     pub unsafe fn get_unchecked(&self, idx: usize) -> u16 {
         *unsafe { self.data.get_unchecked(idx) }
     }
@@ -102,6 +103,7 @@ impl PatternFeature {
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 impl PatternFeature {
+    /// Returns a pointer to the internal data as a 256-bit SIMD vector.
     #[inline(always)]
     unsafe fn as_m256_ptr(&self) -> *const std::arch::x86_64::__m256i {
         self.data.as_ptr() as *const std::arch::x86_64::__m256i
@@ -110,6 +112,7 @@ impl PatternFeature {
 
 #[cfg(target_arch = "wasm32")]
 impl PatternFeature {
+    /// Returns a pointer to the internal data as a 128-bit WASM SIMD vector.
     #[inline(always)]
     unsafe fn as_v128_ptr(&self) -> *const core::arch::wasm32::v128 {
         self.data.as_ptr() as *const core::arch::wasm32::v128
@@ -188,7 +191,6 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
 ];
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
-/// Each square can have 3 states: empty, player's disc, or opponent's disc.
 pub const fn calc_pattern_size(pattern_index: usize) -> usize {
     let mut value = 1;
     let mut j = 0;
@@ -230,13 +232,7 @@ pub const fn calc_feature_offsets() -> [usize; NUM_PATTERN_FEATURES] {
 /// Precomputed offsets for each pattern feature in the feature vector.
 pub const PATTERN_FEATURE_OFFSETS: [usize; NUM_PATTERN_FEATURES] = calc_feature_offsets();
 
-/// Common logic for computing pattern feature indices.
-///
-/// This function calculates the positional weight (power of 3) for a specific
-/// square within a pattern feature, based on the ternary encoding used.
-///
-/// Replaces duplicate logic previously found in both EVAL_FEATURE and EVAL_X2F
-/// generation, ensuring consistent computation across both lookup tables.
+/// Computes the base-3 positional weight for the square(s) set in `board` within a pattern.
 const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate) -> u32 {
     let mut multiplier = 0u32;
     let mut feature_index = 0u32;
@@ -392,18 +388,10 @@ impl PatternFeatures {
         pattern_features
     }
 
-    /// Updates pattern features after a move is made.
+    /// Incrementally updates pattern features after a move is made.
     ///
-    /// This method efficiently updates only the affected patterns rather than
-    /// recomputing all features from scratch. It handles both the placed disc
-    /// and all flipped discs.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square where the move was made
-    /// * `flipped` - Bitboard of discs flipped by the move
-    /// * `ply` - The current ply number
-    /// * `side_to_move` - The side that made the move (Player or Opponent)
+    /// Updates only the affected patterns rather than recomputing all features
+    /// from scratch, handling both the placed disc and all flipped discs.
     #[inline(always)]
     pub fn update(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
         debug_assert!(sq != Square::None);
@@ -656,7 +644,7 @@ impl PatternFeatures {
         }
     }
 
-    /// Fallback implementation of pattern feature update for architectures without AVX2 support.
+    /// Scalar fallback implementation of pattern feature update.
     #[allow(dead_code)]
     fn update_fallback(
         &mut self,
@@ -710,15 +698,10 @@ impl PatternFeatures {
     }
 }
 
-/// Computes pattern features for a board position.
+/// Computes pattern features for a board position into `patterns`.
 ///
 /// Each pattern is encoded as a base-3 number representing the
 /// configuration of discs in that pattern.
-///
-/// # Arguments
-///
-/// * `board` - The board position to extract features from
-/// * `patterns` - Output array to store the computed pattern indices
 pub fn set_features(board: &Board, patterns: &mut [u16]) {
     patterns.fill(0);
     for i in 0..NUM_PATTERN_FEATURES {
@@ -731,18 +714,7 @@ pub fn set_features(board: &Board, patterns: &mut [u16]) {
     }
 }
 
-/// Gets the color/state of a square on the board.
-///
-/// # Arguments
-///
-/// * `board` - The board to examine
-/// * `sq` - The square to check
-///
-/// # Returns
-///
-/// * 0 - Current player's disc
-/// * 1 - Opponent's disc
-/// * 2 - Empty square
+/// Returns the ternary color of a square: 0 = player, 1 = opponent, 2 = empty.
 #[inline]
 fn get_square_color(board: &Board, sq: Square) -> u16 {
     if board.player.contains(sq) {

@@ -26,7 +26,7 @@ mod output_layer;
 pub mod pattern_feature;
 mod util;
 
-/// Represents the evaluation mode for neural network selection.
+/// Selects which neural network to use for evaluation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvalMode {
     /// Use the main network for evaluation.
@@ -53,7 +53,7 @@ pub const EVAL_FILE_NAME: &str = eval_main_weights_literal!();
 /// Filename for the small neural network weights (zstd compressed).
 pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
 
-/// Neural network evaluator.
+/// Evaluates board positions using dual neural networks.
 pub struct Eval {
     /// Main neural network for early and midgame evaluation.
     network: Network,
@@ -78,10 +78,8 @@ fn missing_weights_error(path: &Path) -> io::Error {
 }
 
 impl Eval {
-    /// Creates a new `Eval` with default or override weight files.
-    ///
-    /// Looks for weight files in the executable's directory. If not found,
-    /// uses embedded weights.
+    /// Creates a new [`Eval`] using weight files from the executable's directory,
+    /// falling back to embedded weights.
     pub fn new() -> io::Result<Self> {
         let exe_path = env::current_exe()?;
         let exe_dir = exe_path.parent().ok_or_else(|| {
@@ -100,12 +98,7 @@ impl Eval {
         Self::with_weight_files(eval_override.as_deref(), eval_sm_override.as_deref())
     }
 
-    /// Creates a new `Eval` with specified weight files.
-    ///
-    /// # Arguments
-    ///
-    /// * `eval_path` - Path to main network weights, or `None` for embedded.
-    /// * `eval_sm_path` - Path to small network weights, or `None` for embedded.
+    /// Creates a new [`Eval`] with specified weight file paths, or [`None`] for embedded weights.
     pub fn with_weight_files(
         eval_path: Option<&Path>,
         eval_sm_path: Option<&Path>,
@@ -145,25 +138,13 @@ impl Eval {
         })
     }
 
-    /// Evaluate the current position.
+    /// Evaluates the current position.
     ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The search context.
-    /// * `board` - The current board.
-    ///
-    /// # Returns
-    ///
-    /// The evaluation score of the current position.
-    ///
-    /// # Network Selection
-    ///
+    /// Network selection:
     /// - `ply < 30`: Always uses main network (small network does not support early/midgame)
     /// - `ply >= 30`: Uses small network when [`EvalMode::Small`], otherwise main network
     ///
-    /// # Caching
-    ///
-    /// Only main network evaluations are cached. Small network is fast enough without caching.
+    /// Only main network evaluations are cached; the small network is fast enough without caching.
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
         if ctx.eval_mode == EvalMode::Main || ctx.ply() < 30 {
             let key = board.hash();
@@ -182,18 +163,11 @@ impl Eval {
         }
     }
 
-    /// Simple evaluation without [`SearchContext`].
+    /// Evaluates a position without [`SearchContext`].
     ///
-    /// Always uses the main network regardless of ply. Creates pattern features
-    /// on the fly, so it's slower than [`evaluate`](Self::evaluate).
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - The current board.
-    ///
-    /// # Returns
-    ///
-    /// The evaluation score of the current position.
+    /// Uses the main network with pattern features created on the fly, so it is
+    /// slower than [`evaluate`](Self::evaluate). Returns the exact final score
+    /// when the board has no empties.
     pub fn evaluate_simple(&self, board: &Board) -> ScaledScore {
         let n_empties = board.get_empty_count() as usize;
         if n_empties == 0 {

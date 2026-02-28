@@ -23,11 +23,7 @@ impl AtomicBitSet {
         self.data.load(Ordering::Relaxed).count_ones()
     }
 
-    /// Sets the bit at the specified index to 1.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Bit index (0-based).
+    /// Sets the bit at the specified index.
     #[inline(always)]
     pub fn set(&self, index: usize) {
         debug_assert!(index < 64);
@@ -35,10 +31,6 @@ impl AtomicBitSet {
     }
 
     /// Clears the bit at the specified index.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Bit index (0-based).
     #[inline(always)]
     pub fn reset(&self, index: usize) {
         debug_assert!(index < 64);
@@ -46,24 +38,12 @@ impl AtomicBitSet {
     }
 
     /// Tests whether the bit at the specified index is set.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Bit index (0-based).
-    ///
-    /// # Returns
-    ///
-    /// `true` if the bit is set.
     #[inline(always)]
     pub fn test(&self, index: usize) -> bool {
         (self.data.load(Ordering::Relaxed) >> index) & 1 != 0
     }
 
-    /// Checks if all bits are clear.
-    ///
-    /// # Returns
-    ///
-    /// `true` if no bits are set.
+    /// Checks whether all bits are clear.
     #[inline(always)]
     pub fn none(&self) -> bool {
         self.data.load(Ordering::Relaxed) == 0

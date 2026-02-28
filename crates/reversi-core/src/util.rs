@@ -1,22 +1,34 @@
+//! Utility types and functions for low-level operations.
+//!
+//! Provides memory alignment wrappers, atomic bitsets, spinlocks,
+//! and helper functions used throughout the engine's hot paths.
+
 pub mod align;
 pub mod bitset;
 pub mod spinlock;
 
-/// Rounds up a number to the nearest multiple of a base value.
+/// Performs unchecked array indexing, bypassing bounds checks.
 ///
-/// # Arguments
+/// Supports multi-dimensional access by chaining indices with commas.
 ///
-/// * `n` - The number to round up
-/// * `base` - The base value to round to
+/// # Safety
 ///
-/// # Returns
+/// All indices must be within bounds. Out-of-bounds access causes
+/// undefined behavior.
 ///
-/// The smallest multiple of `base` that is greater than or equal to `n`.
-pub const fn ceil_to_multiple(n: usize, base: usize) -> usize {
-    n.div_ceil(base) * base
-}
-
-/// Unsafe array access macro that skips bounds checking.
+/// # Examples
+///
+/// ```
+/// use reversi_core::uget;
+///
+/// let arr = [10, 20, 30];
+/// let val = unsafe { *uget!(arr; 1) };
+/// assert_eq!(val, 20);
+///
+/// let arr_2d = [[1, 2], [3, 4]];
+/// let val = unsafe { *uget!(arr_2d; 0, 1) };
+/// assert_eq!(val, 2);
+/// ```
 #[macro_export]
 macro_rules! uget {
     ($arr:expr; $i:expr $(,)?) => {{

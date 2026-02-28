@@ -120,7 +120,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         tt_probe_result.index(),
         tt_key,
         ScaledScore::from_disc_diff(best_score),
-        Bound::classify::<NonPV>(best_score, alpha, beta),
+        Bound::classify_score::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,
         Selectivity::None,

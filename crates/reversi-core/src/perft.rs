@@ -5,17 +5,13 @@ use crate::eval::pattern_feature::PatternFeatures;
 use crate::move_list::MoveList;
 use crate::search::side_to_move::SideToMove;
 
-/// Executes a perft run starting from the standard initial position.
+/// Counts the total nodes reachable from the standard initial position.
 ///
-/// # Arguments
+/// A depth of 1 counts the immediate legal moves; larger values walk the
+/// tree recursively. Also exercises [`PatternFeatures`] updates to verify
+/// incremental feature consistency.
 ///
-/// * `depth` - Number of plies to expand from the initial position. A depth of
-///   `1` counts the immediate legal moves; larger values walk the tree
-///   recursively.
-///
-/// # Returns
-///
-/// The total number of nodes visited from the initial position.
+/// [`PatternFeatures`]: crate::eval::pattern_feature::PatternFeatures
 pub fn perft_root(depth: u32) -> u64 {
     let board = Board::new();
     let mut pattern_features = PatternFeatures::new(&board, 0);

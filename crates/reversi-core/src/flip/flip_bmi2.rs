@@ -1,6 +1,6 @@
 //! BMI2 variant of flip function.
 //! Based on flip_bmi2.c from edax-reversi.
-//! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_bmi2.c
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_bmi2.c>
 
 use crate::bit::{bextr_u32, pdep_u64, pext_u64};
 use crate::square::Square;
@@ -75,7 +75,7 @@ const MASK_X:[[u64; 4]; 66] = [
 	[ 0, 0, 0, 0 ]
 ];
 
-/** outflank array */
+/// Outflank array.
 #[rustfmt::skip]
 const OUTFLANK: [[u8; 64]; 8] = [
 	[
@@ -128,7 +128,7 @@ const OUTFLANK: [[u8; 64]; 8] = [
 	],
 ];
 
-/** flip array */
+/// Flip array.
 #[rustfmt::skip]
 const FLIPPED: [[u8; 144]; 8] = [
 	[
@@ -221,6 +221,7 @@ const FLIPPED: [[u8; 144]; 8] = [
 	],
 ];
 
+/// Computes the bitboard of discs flipped by placing a disc at `sq`.
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     let mut index: usize;
     let mut flipped: u64;

@@ -30,6 +30,27 @@ pub type Scoref = f32;
 ///
 /// - [`ScaledScore::MIN`] / [`ScaledScore::MAX`]: Bounds for actual game outcomes (-64/+64 discs)
 /// - [`ScaledScore::INF`]: Sentinel value for search algorithm bounds (larger than any real score)
+///
+/// # Examples
+///
+/// ```
+/// use reversi_core::types::ScaledScore;
+///
+/// // Create from a disc difference (scaled internally by 256)
+/// let score = ScaledScore::from_disc_diff(10);
+/// assert_eq!(score.value(), 2560);
+/// assert_eq!(score.to_disc_diff(), 10);
+///
+/// // Create from a raw internal value
+/// let raw = ScaledScore::from_raw(2560);
+/// assert_eq!(raw.to_disc_diff(), 10);
+///
+/// // Arithmetic preserves scaling
+/// let a = ScaledScore::from_disc_diff(10);
+/// let b = ScaledScore::from_disc_diff(5);
+/// assert_eq!((a + b).to_disc_diff(), 15);
+/// assert_eq!((-a).to_disc_diff(), -10);
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct ScaledScore(i32);
@@ -53,61 +74,33 @@ impl ScaledScore {
     /// Infinity sentinel for alpha-beta search bounds.
     pub const INF: Self = Self(i16::MAX as i32);
 
-    /// Creates a `ScaledScore` from a raw internal value.
-    ///
-    /// # Arguments
-    ///
-    /// * `raw_value` - The raw internal value to convert to a `ScaledScore`.
-    ///
-    /// # Returns
-    ///
-    /// A `ScaledScore` with the given raw value.
+    /// Creates a [`ScaledScore`] from a raw internal value (already scaled by 256).
     #[inline(always)]
     pub const fn from_raw(raw_value: i32) -> Self {
-        debug_assert!(raw_value >= -Self::INF.0 || raw_value <= Self::INF.0);
+        debug_assert!(raw_value >= -Self::INF.0 && raw_value <= Self::INF.0);
         Self(raw_value)
     }
 
-    /// Creates a `ScaledScore` from a disc difference.
-    ///
-    /// # Arguments
-    ///
-    /// * `disc_diff` - The disc difference to convert to a `ScaledScore`.
-    ///
-    /// # Returns
-    ///
-    /// A `ScaledScore` with the given disc difference.
+    /// Creates a [`ScaledScore`] from a disc difference (-64 to +64).
     #[inline(always)]
     pub const fn from_disc_diff(disc_diff: Score) -> Self {
-        debug_assert!(disc_diff >= -SCORE_INF || disc_diff <= SCORE_INF);
+        debug_assert!(disc_diff >= -SCORE_INF && disc_diff <= SCORE_INF);
         Self(disc_diff << Self::SCALE_BITS)
     }
 
     /// Returns the raw internal value (scaled by 256).
-    ///
-    /// # Returns
-    ///
-    /// The raw internal value.
     #[inline(always)]
     pub const fn value(self) -> i32 {
         self.0
     }
 
-    /// Converts to a disc difference score (truncated toward zero).
-    ///
-    /// # Returns
-    ///
-    /// The disc difference score.
+    /// Converts to a disc difference score (truncated toward negative infinity).
     #[inline(always)]
     pub const fn to_disc_diff(self) -> Score {
         self.0 >> Self::SCALE_BITS
     }
 
     /// Converts to a floating-point disc difference with full precision.
-    ///
-    /// # Returns
-    ///
-    /// The disc difference score as a floating-point number.
     #[inline(always)]
     pub fn to_disc_diff_f32(self) -> Scoref {
         (self.0 as f32) / (Self::SCALE as f32)

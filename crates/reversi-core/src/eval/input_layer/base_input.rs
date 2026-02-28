@@ -78,15 +78,7 @@ macro_rules! impl_base_input_apply_activation {
 
 /// Neural network base input layer.
 ///
-/// # Reference
-///
-/// - <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h>
-///
-/// # Type Parameters
-///
-/// * `INPUT_DIMS` - Number of input features (sparse).
-/// * `OUTPUT_DIMS` - Number of output dimensions (dense).
-/// * `HIDDEN_DIMS` - Number of hidden units (must be 2 * OUTPUT_DIMS).
+/// Reference: <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h>
 pub struct BaseInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize> {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
@@ -96,10 +88,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     BaseInput<INPUT_DIMS, OUTPUT_DIMS, HIDDEN_DIMS>
 {
     /// Loads network weights and biases from a binary reader.
-    ///
-    /// # Arguments
-    ///
-    /// * `reader` - Binary data reader containing network parameters.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS];
         let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * HIDDEN_DIMS];
@@ -118,12 +106,7 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         Ok(BaseInput { biases, weights })
     }
 
-    /// Performs forward pass through the base input layer.
-    ///
-    /// # Arguments
-    ///
-    /// * `pattern_feature` - Sparse feature values encoded by pattern index.
-    /// * `output` - Output buffer to write results.
+    /// Performs a forward pass through the base input layer.
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         cfg_if! {

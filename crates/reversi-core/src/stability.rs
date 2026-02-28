@@ -1,27 +1,30 @@
-//! Stability detection module
+//! Stability detection module.
 //!
-//! Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c
+//! Stable discs are pieces that can never be flipped for the rest of the game.
+//! This module provides fast stability estimation using a pre-computed edge
+//! stability lookup table combined with full-line and contact-based analysis.
+//!
+//! The stability count is used for search pruning (stability cutoff): if the
+//! opponent has enough stable discs to guarantee a score at or below alpha,
+//! the subtree can be pruned without further search.
+//!
+//! Call [`init`] once at startup before using any other functions in this module.
+//!
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c>
 use std::sync::OnceLock;
 
 use crate::{bitboard::Bitboard, board::Board, constants::SCORE_MAX, types::Score};
 
-/// Size of the edge stability lookup table (256 * 256 for all possible edge configurations)
+/// Size of the edge stability lookup table (256 * 256 for all possible edge configurations).
 const EDGE_STABILITY_SIZE: usize = 256 * 256;
 
 /// Global edge stability lookup table, initialized once at startup.
 static EDGE_STABILITY: OnceLock<[u8; EDGE_STABILITY_SIZE]> = OnceLock::new();
 
-/// Simulates placing a disc at position `x` on an edge and applies flips.
+/// Simulates placing a disc at position `x` (0-7) on an 8-bit edge and applies
+/// flips in both directions.
 ///
-/// # Arguments
-///
-/// * `x` - Position (0-7) where the disc is placed
-/// * `player` - The side placing the disc (8-bit edge)
-/// * `opponent` - The opposing side (8-bit edge)
-///
-/// # Returns
-///
-/// `(player_after, opponent_after)` with flips applied in both directions.
+/// Returns `(player_after, opponent_after)`.
 fn apply_edge_move(x: i32, player: i32, opponent: i32) -> (i32, i32) {
     let mut p = player | x_to_bit(x);
     let mut o = opponent;
@@ -56,17 +59,12 @@ fn apply_edge_move(x: i32, player: i32, opponent: i32) -> (i32, i32) {
     (p, o)
 }
 
-/// Recursively finds stable discs along an edge by simulating all possible move sequences.
+/// Recursively finds stable discs along an edge by simulating all possible move
+/// sequences.
 ///
-/// # Arguments
-///
-/// * `old_p` - Player's disc configuration on the edge (8 bits, one per square)
-/// * `old_o` - Opponent's disc configuration on the edge (8 bits, one per square)
-/// * `stable` - Current stable disc configuration to refine
-///
-/// # Returns
-///
-/// A bitmask of stable discs for the player on this edge.
+/// Starting from `stable` (initially the player's discs), prunes away any disc
+/// that could be flipped by some sequence of moves into the empty squares.
+/// Returns the surviving stable disc bitmask.
 fn find_edge_stable(old_p: i32, old_o: i32, mut stable: i32) -> i32 {
     let e: i32 = !(old_p | old_o);
 
@@ -99,23 +97,13 @@ fn find_edge_stable(old_p: i32, old_o: i32, mut stable: i32) -> i32 {
 }
 
 /// Converts a position index (0-7) to its corresponding bit mask.
-///
-/// # Arguments
-///
-/// * `x` - Position index from 0 to 7
-///
-/// # Returns
-///
-/// Bit mask with only the bit at position x set.
 fn x_to_bit(x: i32) -> i32 {
     1 << x
 }
 
-/// Initializes the edge stability lookup table.
+/// Computes the edge stability lookup table.
 ///
-/// # Returns
-///
-/// A 65536-entry lookup table indexed by [player_edge * 256 + opponent_edge].
+/// Returns a 65536-entry table indexed by `player_edge * 256 + opponent_edge`.
 fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
     let mut table: [u8; EDGE_STABILITY_SIZE] = [0; EDGE_STABILITY_SIZE];
     for p in 0..256 {
@@ -133,34 +121,21 @@ fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
 }
 
 /// Initializes the stability module by computing the edge stability table.
+///
+/// This must be called once before using [`get_stable_discs`] or
+/// [`stability_cutoff`]. Subsequent calls are no-ops.
 pub fn init() {
     let _ = EDGE_STABILITY.set(init_edge_stability());
 }
 
-/// Unpacks bits 1-6 of a byte to the A2-A7 squares on the board.
-///
-/// # Arguments
-///
-/// * `x` - Edge byte containing stability information
-///
-/// # Returns
-///
-/// 64-bit board with bits set at A2-A7 positions.
+/// Unpacks bits 1-6 of an edge stability byte to the A2-A7 squares on the board.
 #[inline]
 fn unpack_a2a7(x: u8) -> u64 {
     let a = (x & 0x7e) as u64; // Extract bits 1-6
     (a.wrapping_mul(0x0000_0408_1020_4080u64)) & 0x0001_0101_0101_0100
 }
 
-/// Unpacks bits 1-6 of a byte to the H2-H7 squares on the board.
-///
-/// # Arguments
-///
-/// * `x` - Edge byte containing stability information
-///
-/// # Returns
-///
-/// 64-bit board with bits set at H2-H7 positions.
+/// Unpacks bits 1-6 of an edge stability byte to the H2-H7 squares on the board.
 #[inline]
 fn unpack_h2h7(x: u8) -> u64 {
     let a = (x & 0x7e) as u64; // Extract bits 1-6
@@ -168,14 +143,6 @@ fn unpack_h2h7(x: u8) -> u64 {
 }
 
 /// Packs the A-file (A1-A8) of a bitboard into a single byte.
-///
-/// # Arguments
-///
-/// * `x` - 64-bit bitboard
-///
-/// # Returns
-///
-/// 8-bit value with each bit representing a square in the A-file.
 #[inline]
 fn pack_a1a8(x: u64) -> usize {
     let a = x & 0x0101_0101_0101_0101; // Mask A-file
@@ -183,37 +150,15 @@ fn pack_a1a8(x: u64) -> usize {
 }
 
 /// Packs the H-file (H1-H8) of a bitboard into a single byte.
-///
-/// # Arguments
-///
-/// * `x` - 64-bit bitboard
-///
-/// # Returns
-///
-/// 8-bit value with each bit representing a square in the H-file.
 #[inline]
 fn pack_h1h8(x: u64) -> usize {
     let a = x & 0x8080_8080_8080_8080; // Mask H-file
     ((a.wrapping_mul(0x0002_0408_1020_4081u64)) >> 56) as usize
 }
 
-/// Gets stable discs along all four edges of the board.
+/// Returns stable discs along all four edges (rank 1, rank 8, A-file, H-file).
 ///
-/// This function uses the pre-computed edge stability table to quickly
-/// determine which edge discs are stable. It handles all four edges:
-/// - Bottom edge (rank 1)
-/// - Top edge (rank 8)
-/// - Left edge (A-file)
-/// - Right edge (H-file)
-///
-/// # Arguments
-///
-/// * `p` - Player's bitboard
-/// * `o` - Opponent's bitboard
-///
-/// # Returns
-///
-/// Bitboard with stable edge discs marked.
+/// Uses the pre-computed edge stability table for fast lookup.
 #[inline]
 fn get_stable_edge(p: u64, o: u64) -> u64 {
     let table = EDGE_STABILITY.get().unwrap();
@@ -225,18 +170,9 @@ fn get_stable_edge(p: u64, o: u64) -> u64 {
 
 /// Detects completely filled lines in all four directions.
 ///
-/// # Arguments
-///
-/// * `disc` - Combined bitboard of all occupied squares (player | opponent)
-/// * `full` - Output array to store full lines in each direction:
-///   - `full[0]`: Horizontal full lines
-///   - `full[1]`: Vertical full lines
-///   - `full[2]`: Diagonal (/) full lines
-///   - `full[3]`: Diagonal (\) full lines
-///
-/// # Returns
-///
-/// Bitboard with all squares that are on full lines in all four directions.
+/// Populates `full` with bitmasks for each direction: horizontal (`full[0]`),
+/// vertical (`full[1]`), diagonal `/` (`full[2]`), and diagonal `\` (`full[3]`).
+/// Returns the intersection (squares on full lines in every direction).
 fn get_full_lines(disc: u64, full: &mut [u64; 4]) -> u64 {
     let mut h = disc; // Horizontal
     let mut v = disc; // Vertical
@@ -274,17 +210,11 @@ fn get_full_lines(disc: u64, full: &mut [u64; 4]) -> u64 {
     full[0] & full[1] & full[2] & full[3]
 }
 
-/// Gets stable discs by contact with other stable discs.
+/// Expands the stable disc set by contact propagation.
 ///
-/// # Arguments
-///
-/// * `central_mask` - Mask of potentially stable discs (excludes edges)
-/// * `previous_stable` - Initially stable discs (from edges and full lines)
-/// * `full` - Full lines in each direction (from `get_full_lines`)
-///
-/// # Returns
-///
-/// Bitboard with stable discs marked.
+/// Starting from `previous_stable` (edge-stable and full-line-stable discs),
+/// iteratively marks central discs in `central_mask` as stable if they are
+/// adjacent to stable discs or on full lines in all four directions.
 fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4]) -> u64 {
     let mut stable_h: u64; // Stable in horizontal direction
     let mut stable_v: u64; // Stable in vertical direction
@@ -309,16 +239,17 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
     stable
 }
 
-/// Estimates the stable discs.
+/// Returns an estimate of the player's stable discs.
 ///
-/// # Arguments
+/// Stable discs are pieces that can never be flipped for the rest of the game.
+/// The estimation combines three techniques:
+/// 1. Edge stability from a pre-computed lookup table
+/// 2. Full-line detection (discs on completely filled lines)
+/// 3. Contact propagation (discs adjacent to already-stable discs)
 ///
-/// * `player` - Player's bitboard
-/// * `opponent` - Opponent's bitboard
+/// # Panics
 ///
-/// # Returns
-///
-/// Bitboard with stable discs for the player.
+/// Panics if [`init`] has not been called.
 pub fn get_stable_discs(player: Bitboard, opponent: Bitboard) -> Bitboard {
     let central_mask = player.bits() & 0x007e7e7e7e7e7e00;
     let mut full: [u64; 4] = [0; 4];
@@ -343,19 +274,14 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
 
 /// Attempts to prove an alpha cutoff using stability analysis.
 ///
-/// This function implements a stability-based pruning technique. If we can prove
-/// that the opponent has enough stable discs to guarantee a score <= alpha,
-/// we can immediately return that score without further search.
+/// If the opponent has enough stable discs to guarantee a final score at or
+/// below `alpha`, returns that score immediately.
 ///
-/// # Arguments
+/// Returns [`None`] if the cutoff cannot be proven.
 ///
-/// * `board` - Current board position
-/// * `n_empties` - Number of empty squares remaining
-/// * `alpha` - Alpha value from alpha-beta search
+/// # Panics
 ///
-/// # Returns
-///
-/// Some(score) if a cutoff is possible, None otherwise.
+/// Panics if [`init`] has not been called.
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
     if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
         let score = SCORE_MAX - 2 * board.switch_players().get_stability() as Score;

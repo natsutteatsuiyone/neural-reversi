@@ -58,16 +58,7 @@ impl SearchResult {
         }
     }
 
-    /// Creates a SearchResult from the search context state.
-    ///
-    /// # Arguments
-    ///
-    /// * `root_moves` - Container for root moves.
-    /// * `best_move` - Best move found during search.
-    /// * `n_nodes` - Total nodes searched.
-    /// * `depth` - Search depth reached.
-    /// * `selectivity` - Selectivity level used.
-    /// * `is_endgame` - Whether this is an endgame search.
+    /// Creates a search result from the root move state.
     pub fn from_root_move(
         root_moves: &RootMoves,
         best_move: &RootMove,

@@ -19,10 +19,6 @@ pub struct EvalCache {
 
 impl EvalCache {
     /// Creates a new cache with `2^size_log2` entries.
-    ///
-    /// # Arguments
-    ///
-    /// * `size_log2` - Log2 of the number of entries (e.g., 20 for ~1M entries)
     pub fn new(size_log2: u32) -> Self {
         let size = 1usize << size_log2;
         let mask = size as u64 - 1;
@@ -39,11 +35,6 @@ impl EvalCache {
     }
 
     /// Stores an evaluation score in the cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - Position hash key
-    /// * `score` - Evaluation score to store
     #[inline(always)]
     pub fn store(&self, key: u64, score: ScaledScore) {
         let index = self.index(key);
@@ -56,16 +47,7 @@ impl EvalCache {
         }
     }
 
-    /// Retrieves an evaluation score from the cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - Position hash key to look up
-    ///
-    /// # Returns
-    ///
-    /// * `Some(score)` - If the key matches exactly
-    /// * `None` - If no entry exists or key doesn't match
+    /// Returns the cached evaluation score for `key`, or [`None`] if not found.
     #[inline(always)]
     pub fn probe(&self, key: u64) -> Option<ScaledScore> {
         let index = self.index(key);

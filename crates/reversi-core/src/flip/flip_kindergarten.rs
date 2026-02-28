@@ -1,11 +1,11 @@
 #![allow(clippy::needless_late_init)]
 
 //! Based on flip_kindergarten.c from edax-reversi.
-//! Reference: https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_kindergarten.c
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_kindergarten.c>
 
 use crate::square::Square;
 
-/** outflank array */
+/// Outflank array.
 #[rustfmt::skip]
 pub const OUTFLANK: [[u8; 64]; 8] = [
 	[
@@ -58,7 +58,7 @@ pub const OUTFLANK: [[u8; 64]; 8] = [
 	],
 ];
 
-/** flip array */
+/// Flip array.
 #[rustfmt::skip]
 pub const FLIPPED: [[u8; 144]; 8] = [
 	[
@@ -151,7 +151,7 @@ pub const FLIPPED: [[u8; 144]; 8] = [
 	],
 ];
 
-/** conversion from an 8-bit line to the A2-A7- line */
+/// Conversion from an 8-bit line to the A2-A7- line.
 #[rustfmt::skip]
 pub const A2A7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000100, 0x0000000000010000, 0x0000000000010100, 0x0000000001000000, 0x0000000001000100, 0x0000000001010000, 0x0000000001010100,
@@ -164,7 +164,7 @@ pub const A2A7: [u64; 64] = [
     0x0001010100000000, 0x0001010100000100, 0x0001010100010000, 0x0001010100010100, 0x0001010101000000, 0x0001010101000100, 0x0001010101010000, 0x0001010101010100,
 ];
 
-/** conversion from an 8-bit line to the B2-B7- line */
+/// Conversion from an 8-bit line to the B2-B7- line.
 #[rustfmt::skip]
 pub const B2B7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000200, 0x0000000000020000, 0x0000000000020200, 0x0000000002000000, 0x0000000002000200, 0x0000000002020000, 0x0000000002020200,
@@ -177,7 +177,7 @@ pub const B2B7: [u64; 64] = [
     0x0002020200000000, 0x0002020200000200, 0x0002020200020000, 0x0002020200020200, 0x0002020202000000, 0x0002020202000200, 0x0002020202020000, 0x0002020202020200,
 ];
 
-/** conversion from an 8-bit line to the C2-C7- line */
+/// Conversion from an 8-bit line to the C2-C7- line.
 #[rustfmt::skip]
 pub const C2C7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000400, 0x0000000000040000, 0x0000000000040400, 0x0000000004000000, 0x0000000004000400, 0x0000000004040000, 0x0000000004040400,
@@ -190,7 +190,7 @@ pub const C2C7: [u64; 64] = [
     0x0004040400000000, 0x0004040400000400, 0x0004040400040000, 0x0004040400040400, 0x0004040404000000, 0x0004040404000400, 0x0004040404040000, 0x0004040404040400,
 ];
 
-/** conversion from an 8-bit line to the D2-D7- line */
+/// Conversion from an 8-bit line to the D2-D7- line.
 #[rustfmt::skip]
 pub const D2D7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000800, 0x0000000000080000, 0x0000000000080800, 0x0000000008000000, 0x0000000008000800, 0x0000000008080000, 0x0000000008080800,
@@ -203,7 +203,7 @@ pub const D2D7: [u64; 64] = [
     0x0008080800000000, 0x0008080800000800, 0x0008080800080000, 0x0008080800080800, 0x0008080808000000, 0x0008080808000800, 0x0008080808080000, 0x0008080808080800,
 ];
 
-/** conversion from an 8-bit line to the E2-E7- line */
+/// Conversion from an 8-bit line to the E2-E7- line.
 #[rustfmt::skip]
 pub const E2E7: [u64; 64] = [
     0x0000000000000000, 0x0000000000001000, 0x0000000000100000, 0x0000000000101000, 0x0000000010000000, 0x0000000010001000, 0x0000000010100000, 0x0000000010101000,
@@ -216,7 +216,7 @@ pub const E2E7: [u64; 64] = [
     0x0010101000000000, 0x0010101000001000, 0x0010101000100000, 0x0010101000101000, 0x0010101010000000, 0x0010101010001000, 0x0010101010100000, 0x0010101010101000,
 ];
 
-/** conversion from an 8-bit line to the F2-F7- line */
+/// Conversion from an 8-bit line to the F2-F7- line.
 #[rustfmt::skip]
 pub const F2F7: [u64; 64] = [
     0x0000000000000000, 0x0000000000002000, 0x0000000000200000, 0x0000000000202000, 0x0000000020000000, 0x0000000020002000, 0x0000000020200000, 0x0000000020202000,
@@ -229,7 +229,7 @@ pub const F2F7: [u64; 64] = [
     0x0020202000000000, 0x0020202000002000, 0x0020202000200000, 0x0020202000202000, 0x0020202020000000, 0x0020202020002000, 0x0020202020200000, 0x0020202020202000,
 ];
 
-/** conversion from an 8-bit line to the G2-G7- line */
+/// Conversion from an 8-bit line to the G2-G7- line.
 #[rustfmt::skip]
 pub const G2G7: [u64; 64] = [
     0x0000000000000000, 0x0000000000004000, 0x0000000000400000, 0x0000000000404000, 0x0000000040000000, 0x0000000040004000, 0x0000000040400000, 0x0000000040404000,
@@ -242,7 +242,7 @@ pub const G2G7: [u64; 64] = [
     0x0040404000000000, 0x0040404000004000, 0x0040404000400000, 0x0040404000404000, 0x0040404040000000, 0x0040404040004000, 0x0040404040400000, 0x0040404040404000,
 ];
 
-/** conversion from an 8-bit line to the H2-H7- line */
+/// Conversion from an 8-bit line to the H2-H7- line.
 #[rustfmt::skip]
 pub const H2H7: [u64; 64] = [
     0x0000000000000000, 0x0000000000008000, 0x0000000000800000, 0x0000000000808000, 0x0000000080000000, 0x0000000080008000, 0x0000000080800000, 0x0000000080808000,
@@ -255,14 +255,14 @@ pub const H2H7: [u64; 64] = [
     0x0080808000000000, 0x0080808000008000, 0x0080808000800000, 0x0080808000808000, 0x0080808080000000, 0x0080808080008000, 0x0080808080800000, 0x0080808080808000,
 ];
 
-/** conversion from an 8-bit line to the E2-B5- line */
+/// Conversion from an 8-bit line to the E2-B5- line.
 #[rustfmt::skip]
 pub const E2B5: [u64; 16] = [
     0x0000000000000000, 0x0000000200000000, 0x0000000004000000, 0x0000000204000000, 0x0000000000080000, 0x0000000200080000, 0x0000000004080000, 0x0000000204080000,
     0x0000000000001000, 0x0000000200001000, 0x0000000004001000, 0x0000000204001000, 0x0000000000081000, 0x0000000200081000, 0x0000000004081000, 0x0000000204081000,
 ];
 
-/** conversion from an 8-bit line to the F2-B6- line */
+/// Conversion from an 8-bit line to the F2-B6- line.
 #[rustfmt::skip]
 pub const F2B6: [u64; 32] = [
     0x0000000000000000, 0x0000020000000000, 0x0000000400000000, 0x0000020400000000, 0x0000000008000000, 0x0000020008000000, 0x0000000408000000, 0x0000020408000000,
@@ -271,7 +271,7 @@ pub const F2B6: [u64; 32] = [
     0x0000000000102000, 0x0000020000102000, 0x0000000400102000, 0x0000020400102000, 0x0000000008102000, 0x0000020008102000, 0x0000000408102000, 0x0000020408102000,
 ];
 
-/** conversion from an 8-bit line to the G2-B7- line */
+/// Conversion from an 8-bit line to the G2-B7- line.
 #[rustfmt::skip]
 pub const G2B7: [u64; 64] = [
     0x0000000000000000, 0x0002000000000000, 0x0000040000000000, 0x0002040000000000, 0x0000000800000000, 0x0002000800000000, 0x0000040800000000, 0x0002040800000000,
@@ -284,7 +284,7 @@ pub const G2B7: [u64; 64] = [
     0x0000000010204000, 0x0002000010204000, 0x0000040010204000, 0x0002040010204000, 0x0000000810204000, 0x0002000810204000, 0x0000040810204000, 0x0002040810204000,
 ];
 
-/** conversion from an 8-bit line to the G3-C7- line */
+/// Conversion from an 8-bit line to the G3-C7- line.
 #[rustfmt::skip]
 pub const G3C7: [u64; 32] = [
     0x0000000000000000, 0x0004000000000000, 0x0000080000000000, 0x0004080000000000, 0x0000001000000000, 0x0004001000000000, 0x0000081000000000, 0x0004081000000000,
@@ -293,21 +293,21 @@ pub const G3C7: [u64; 32] = [
     0x0000000020400000, 0x0004000020400000, 0x0000080020400000, 0x0004080020400000, 0x0000001020400000, 0x0004001020400000, 0x0000081020400000, 0x0004081020400000,
 ];
 
-/** conversion from an 8-bit line to the G4-D7- line */
+/// Conversion from an 8-bit line to the G4-D7- line.
 #[rustfmt::skip]
 pub const G4D7: [u64; 16] = [
     0x0000000000000000, 0x0008000000000000, 0x0000100000000000, 0x0008100000000000, 0x0000002000000000, 0x0008002000000000, 0x0000102000000000, 0x0008102000000000,
     0x0000000040000000, 0x0008000040000000, 0x0000100040000000, 0x0008100040000000, 0x0000002040000000, 0x0008002040000000, 0x0000102040000000, 0x0008102040000000,
 ];
 
-/** conversion from an 8-bit line to the B4-E7- line */
+/// Conversion from an 8-bit line to the B4-E7- line.
 #[rustfmt::skip]
 pub const B4E7: [u64; 16] = [
     0x0000000000000000, 0x0000000002000000, 0x0000000400000000, 0x0000000402000000, 0x0000080000000000, 0x0000080002000000, 0x0000080400000000, 0x0000080402000000,
     0x0010000000000000, 0x0010000002000000, 0x0010000400000000, 0x0010000402000000, 0x0010080000000000, 0x0010080002000000, 0x0010080400000000, 0x0010080402000000,
 ];
 
-/** conversion from an 8-bit line to the B3-F7- line */
+/// Conversion from an 8-bit line to the B3-F7- line.
 #[rustfmt::skip]
 pub const B3F7: [u64; 32] = [
     0x0000000000000000, 0x0000000000020000, 0x0000000004000000, 0x0000000004020000, 0x0000000800000000, 0x0000000800020000, 0x0000000804000000, 0x0000000804020000,
@@ -316,7 +316,7 @@ pub const B3F7: [u64; 32] = [
     0x0020100000000000, 0x0020100000020000, 0x0020100004000000, 0x0020100004020000, 0x0020100800000000, 0x0020100800020000, 0x0020100804000000, 0x0020100804020000,
 ];
 
-/** conversion from an 8-bit line to the B2-G7- line */
+/// Conversion from an 8-bit line to the B2-G7- line.
 #[rustfmt::skip]
 pub const B2G7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000200, 0x0000000000040000, 0x0000000000040200, 0x0000000008000000, 0x0000000008000200, 0x0000000008040000, 0x0000000008040200,
@@ -329,7 +329,7 @@ pub const B2G7: [u64; 64] = [
     0x0040201000000000, 0x0040201000000200, 0x0040201000040000, 0x0040201000040200, 0x0040201008000000, 0x0040201008000200, 0x0040201008040000, 0x0040201008040200,
 ];
 
-/** conversion from an 8-bit line to the C2-G6- line */
+/// Conversion from an 8-bit line to the C2-G6- line.
 #[rustfmt::skip]
 pub const C2G6: [u64; 32] = [
     0x0000000000000000, 0x0000000000000400, 0x0000000000080000, 0x0000000000080400, 0x0000000010000000, 0x0000000010000400, 0x0000000010080000, 0x0000000010080400,
@@ -338,14 +338,14 @@ pub const C2G6: [u64; 32] = [
     0x0000402000000000, 0x0000402000000400, 0x0000402000080000, 0x0000402000080400, 0x0000402010000000, 0x0000402010000400, 0x0000402010080000, 0x0000402010080400,
 ];
 
-/** conversion from an 8-bit line to the D2-G5- line */
+/// Conversion from an 8-bit line to the D2-G5- line.
 #[rustfmt::skip]
 pub const D2G5: [u64; 16] = [
     0x0000000000000000, 0x0000000000000800, 0x0000000000100000, 0x0000000000100800, 0x0000000020000000, 0x0000000020000800, 0x0000000020100000, 0x0000000020100800,
     0x0000004000000000, 0x0000004000000800, 0x0000004000100000, 0x0000004000100800, 0x0000004020000000, 0x0000004020000800, 0x0000004020100000, 0x0000004020100800,
 ];
 
-/** conversion from an 8-bit line to the B2-C1-G5 line */
+/// Conversion from an 8-bit line to the B2-C1-G5 line.
 #[rustfmt::skip]
 pub const B2C1G5: [u64; 64] = [
     0x0000000000000000, 0x0000000000000200, 0x0000000000000004, 0x0000000000000204, 0x0000000000000800, 0x0000000000000a00, 0x0000000000000804, 0x0000000000000a04,
@@ -358,7 +358,7 @@ pub const B2C1G5: [u64; 64] = [
     0x0000004020100000, 0x0000004020100200, 0x0000004020100004, 0x0000004020100204, 0x0000004020100800, 0x0000004020100a00, 0x0000004020100804, 0x0000004020100a04,
 ];
 
-/** conversion from an 8-bit line to the B3-D1-G4 line */
+/// Conversion from an 8-bit line to the B3-D1-G4 line.
 #[rustfmt::skip]
 pub const B3D1G4: [u64; 64] = [
     0x0000000000000000, 0x0000000000020000, 0x0000000000000400, 0x0000000000020400, 0x0000000000000008, 0x0000000000020008, 0x0000000000000408, 0x0000000000020408,
@@ -371,7 +371,7 @@ pub const B3D1G4: [u64; 64] = [
     0x0000000040201000, 0x0000000040221000, 0x0000000040201400, 0x0000000040221400, 0x0000000040201008, 0x0000000040221008, 0x0000000040201408, 0x0000000040221408,
 ];
 
-/** conversion from an 8-bit line to the B4-E1-G3 line */
+/// Conversion from an 8-bit line to the B4-E1-G3 line.
 #[rustfmt::skip]
 pub const B4E1G3: [u64; 64] = [
     0x0000000000000000, 0x0000000002000000, 0x0000000000040000, 0x0000000002040000, 0x0000000000000800, 0x0000000002000800, 0x0000000000040800, 0x0000000002040800,
@@ -384,7 +384,7 @@ pub const B4E1G3: [u64; 64] = [
     0x0000000000402010, 0x0000000002402010, 0x0000000000442010, 0x0000000002442010, 0x0000000000402810, 0x0000000002402810, 0x0000000000442810, 0x0000000002442810,
 ];
 
-/** conversion from an 8-bit line to the B5-F1-G2 line */
+/// Conversion from an 8-bit line to the B5-F1-G2 line.
 #[rustfmt::skip]
 pub const B5F1G2: [u64; 64] = [
     0x0000000000000000, 0x0000000200000000, 0x0000000004000000, 0x0000000204000000, 0x0000000000080000, 0x0000000200080000, 0x0000000004080000, 0x0000000204080000,
@@ -397,7 +397,7 @@ pub const B5F1G2: [u64; 64] = [
     0x0000000000005020, 0x0000000200005020, 0x0000000004005020, 0x0000000204005020, 0x0000000000085020, 0x0000000200085020, 0x0000000004085020, 0x0000000204085020,
 ];
 
-/** conversion from an 8-bit line to the B3-C2-G6 line */
+/// Conversion from an 8-bit line to the B3-C2-G6 line.
 #[rustfmt::skip]
 pub const B3C2G6: [u64; 64] = [
     0x0000000000000000, 0x0000000000020000, 0x0000000000000400, 0x0000000000020400, 0x0000000000080000, 0x00000000000a0000, 0x0000000000080400, 0x00000000000a0400,
@@ -410,7 +410,7 @@ pub const B3C2G6: [u64; 64] = [
     0x0000402010000000, 0x0000402010020000, 0x0000402010000400, 0x0000402010020400, 0x0000402010080000, 0x00004020100a0000, 0x0000402010080400, 0x00004020100a0400,
 ];
 
-/** conversion from an 8-bit line to the B4-D2-G5 line */
+/// Conversion from an 8-bit line to the B4-D2-G5 line.
 #[rustfmt::skip]
 pub const B4D2G5: [u64; 64] = [
     0x0000000000000000, 0x0000000002000000, 0x0000000000040000, 0x0000000002040000, 0x0000000000000800, 0x0000000002000800, 0x0000000000040800, 0x0000000002040800,
@@ -423,7 +423,7 @@ pub const B4D2G5: [u64; 64] = [
     0x0000004020100000, 0x0000004022100000, 0x0000004020140000, 0x0000004022140000, 0x0000004020100800, 0x0000004022100800, 0x0000004020140800, 0x0000004022140800,
 ];
 
-/** conversion from an 8-bit line to the B5-E2-G4 line */
+/// Conversion from an 8-bit line to the B5-E2-G4 line.
 #[rustfmt::skip]
 pub const B5E2G4: [u64; 64] = [
     0x0000000000000000, 0x0000000200000000, 0x0000000004000000, 0x0000000204000000, 0x0000000000080000, 0x0000000200080000, 0x0000000004080000, 0x0000000204080000,
@@ -436,7 +436,7 @@ pub const B5E2G4: [u64; 64] = [
     0x0000000040201000, 0x0000000240201000, 0x0000000044201000, 0x0000000244201000, 0x0000000040281000, 0x0000000240281000, 0x0000000044281000, 0x0000000244281000,
 ];
 
-/** conversion from an 8-bit line to the B6-F2-G3 line */
+/// Conversion from an 8-bit line to the B6-F2-G3 line.
 #[rustfmt::skip]
 pub const B6F2G3: [u64; 64] = [
     0x0000000000000000, 0x0000020000000000, 0x0000000400000000, 0x0000020400000000, 0x0000000008000000, 0x0000020008000000, 0x0000000408000000, 0x0000020408000000,
@@ -449,7 +449,7 @@ pub const B6F2G3: [u64; 64] = [
     0x0000000000502000, 0x0000020000502000, 0x0000000400502000, 0x0000020400502000, 0x0000000008502000, 0x0000020008502000, 0x0000000408502000, 0x0000020408502000,
 ];
 
-/** conversion from an 8-bit line to the B6-C7-G3 line */
+/// Conversion from an 8-bit line to the B6-C7-G3 line.
 #[rustfmt::skip]
 pub const B6C7G3: [u64; 64] = [
     0x0000000000000000, 0x0000020000000000, 0x0004000000000000, 0x0004020000000000, 0x0000080000000000, 0x00000a0000000000, 0x0004080000000000, 0x00040a0000000000,
@@ -462,7 +462,7 @@ pub const B6C7G3: [u64; 64] = [
     0x0000001020400000, 0x0000021020400000, 0x0004001020400000, 0x0004021020400000, 0x0000081020400000, 0x00000a1020400000, 0x0004081020400000, 0x00040a1020400000,
 ];
 
-/** conversion from an 8-bit line to the B5-D7-G4 line */
+/// Conversion from an 8-bit line to the B5-D7-G4 line.
 #[rustfmt::skip]
 pub const B5D7G4: [u64; 64] = [
     0x0000000000000000, 0x0000000200000000, 0x0000040000000000, 0x0000040200000000, 0x0008000000000000, 0x0008000200000000, 0x0008040000000000, 0x0008040200000000,
@@ -475,7 +475,7 @@ pub const B5D7G4: [u64; 64] = [
     0x0000102040000000, 0x0000102240000000, 0x0000142040000000, 0x0000142240000000, 0x0008102040000000, 0x0008102240000000, 0x0008142040000000, 0x0008142240000000,
 ];
 
-/** conversion from an 8-bit line to the B4-E7-G5 line */
+/// Conversion from an 8-bit line to the B4-E7-G5 line.
 #[rustfmt::skip]
 pub const B4E7G5: [u64; 64] = [
     0x0000000000000000, 0x0000000002000000, 0x0000000400000000, 0x0000000402000000, 0x0000080000000000, 0x0000080002000000, 0x0000080400000000, 0x0000080402000000,
@@ -488,7 +488,7 @@ pub const B4E7G5: [u64; 64] = [
     0x0010204000000000, 0x0010204002000000, 0x0010204400000000, 0x0010204402000000, 0x0010284000000000, 0x0010284002000000, 0x0010284400000000, 0x0010284402000000,
 ];
 
-/** conversion from an 8-bit line to the B3-F7-G6 line */
+/// Conversion from an 8-bit line to the B3-F7-G6 line.
 #[rustfmt::skip]
 pub const B3F7G6: [u64; 64] = [
     0x0000000000000000, 0x0000000000020000, 0x0000000004000000, 0x0000000004020000, 0x0000000800000000, 0x0000000800020000, 0x0000000804000000, 0x0000000804020000,
@@ -501,7 +501,7 @@ pub const B3F7G6: [u64; 64] = [
     0x0020500000000000, 0x0020500000020000, 0x0020500004000000, 0x0020500004020000, 0x0020500800000000, 0x0020500800020000, 0x0020500804000000, 0x0020500804020000,
 ];
 
-/** conversion from an 8-bit line to the B7-C8-G4 line */
+/// Conversion from an 8-bit line to the B7-C8-G4 line.
 #[rustfmt::skip]
 pub const B7C8G4: [u64; 64] = [
     0x0000000000000000, 0x0002000000000000, 0x0400000000000000, 0x0402000000000000, 0x0008000000000000, 0x000a000000000000, 0x0408000000000000, 0x040a000000000000,
@@ -514,7 +514,7 @@ pub const B7C8G4: [u64; 64] = [
     0x0000102040000000, 0x0002102040000000, 0x0400102040000000, 0x0402102040000000, 0x0008102040000000, 0x000a102040000000, 0x0408102040000000, 0x040a102040000000,
 ];
 
-/** conversion from an 8-bit line to the B6-D8-G5 line */
+/// Conversion from an 8-bit line to the B6-D8-G5 line.
 #[rustfmt::skip]
 pub const B6D8G5: [u64; 64] = [
     0x0000000000000000, 0x0000020000000000, 0x0004000000000000, 0x0004020000000000, 0x0800000000000000, 0x0800020000000000, 0x0804000000000000, 0x0804020000000000,
@@ -527,7 +527,7 @@ pub const B6D8G5: [u64; 64] = [
     0x0010204000000000, 0x0010224000000000, 0x0014204000000000, 0x0014224000000000, 0x0810204000000000, 0x0810224000000000, 0x0814204000000000, 0x0814224000000000,
 ];
 
-/** conversion from an 8-bit line to the B5-E8-G6 line */
+/// Conversion from an 8-bit line to the B5-E8-G6 line.
 #[rustfmt::skip]
 pub const B5E8G6: [u64; 64] = [
     0x0000000000000000, 0x0000000200000000, 0x0000040000000000, 0x0000040200000000, 0x0008000000000000, 0x0008000200000000, 0x0008040000000000, 0x0008040200000000,
@@ -540,7 +540,7 @@ pub const B5E8G6: [u64; 64] = [
     0x1020400000000000, 0x1020400200000000, 0x1020440000000000, 0x1020440200000000, 0x1028400000000000, 0x1028400200000000, 0x1028440000000000, 0x1028440200000000,
 ];
 
-/** conversion from an 8-bit line to the B4-F8-G7 line */
+/// Conversion from an 8-bit line to the B4-F8-G7 line.
 #[rustfmt::skip]
 pub const B4F8G7: [u64; 64] = [
     0x0000000000000000, 0x0000000002000000, 0x0000000400000000, 0x0000000402000000, 0x0000080000000000, 0x0000080002000000, 0x0000080400000000, 0x0000080402000000,
@@ -553,7 +553,7 @@ pub const B4F8G7: [u64; 64] = [
     0x2050000000000000, 0x2050000002000000, 0x2050000400000000, 0x2050000402000000, 0x2050080000000000, 0x2050080002000000, 0x2050080400000000, 0x2050080402000000,
 ];
 
-/** conversion from an 8-bit line to the G2-H3-D7 line */
+/// Conversion from an 8-bit line to the G2-H3-D7 line.
 #[rustfmt::skip]
 pub const G2H3D7: [u64; 64] = [
     0x0000000000000000, 0x0000000000004000, 0x0000000000800000, 0x0000000000804000, 0x0000000040000000, 0x0000000040004000, 0x0000000040800000, 0x0000000040804000,
@@ -566,7 +566,7 @@ pub const G2H3D7: [u64; 64] = [
     0x0008102000000000, 0x0008102000004000, 0x0008102000800000, 0x0008102000804000, 0x0008102040000000, 0x0008102040004000, 0x0008102040800000, 0x0008102040804000,
 ];
 
-/** conversion from an 8-bit line to the F2-H4-E7 line */
+/// Conversion from an 8-bit line to the F2-H4-E7 line.
 #[rustfmt::skip]
 pub const F2H4E7: [u64; 64] = [
     0x0000000000000000, 0x0000000000002000, 0x0000000000400000, 0x0000000000402000, 0x0000000080000000, 0x0000000080002000, 0x0000000080400000, 0x0000000080402000,
@@ -579,7 +579,7 @@ pub const F2H4E7: [u64; 64] = [
     0x0010204000000000, 0x0010204000002000, 0x0010204000400000, 0x0010204000402000, 0x0010204080000000, 0x0010204080002000, 0x0010204080400000, 0x0010204080402000,
 ];
 
-/** conversion from an 8-bit line to the E2-H5-F7 line */
+/// Conversion from an 8-bit line to the E2-H5-F7 line.
 #[rustfmt::skip]
 pub const E2H5F7: [u64; 64] = [
     0x0000000000000000, 0x0000000000001000, 0x0000000000200000, 0x0000000000201000, 0x0000000040000000, 0x0000000040001000, 0x0000000040200000, 0x0000000040201000,
@@ -592,7 +592,7 @@ pub const E2H5F7: [u64; 64] = [
     0x0020408000000000, 0x0020408000001000, 0x0020408000200000, 0x0020408000201000, 0x0020408040000000, 0x0020408040001000, 0x0020408040200000, 0x0020408040201000,
 ];
 
-/** conversion from an 8-bit line to the D2-H6-G7 line */
+/// Conversion from an 8-bit line to the D2-H6-G7 line.
 #[rustfmt::skip]
 pub const D2H6G7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000800, 0x0000000000100000, 0x0000000000100800, 0x0000000020000000, 0x0000000020000800, 0x0000000020100000, 0x0000000020100800,
@@ -605,7 +605,7 @@ pub const D2H6G7: [u64; 64] = [
     0x0040804000000000, 0x0040804000000800, 0x0040804000100000, 0x0040804000100800, 0x0040804020000000, 0x0040804020000800, 0x0040804020100000, 0x0040804020100800,
 ];
 
-/** conversion from an 8-bit line to the F2-G3-C7 line */
+/// Conversion from an 8-bit line to the F2-G3-C7 line.
 #[rustfmt::skip]
 pub const F2G3C7: [u64; 64] = [
     0x0000000000000000, 0x0000000000002000, 0x0000000000400000, 0x0000000000402000, 0x0000000020000000, 0x0000000020002000, 0x0000000020400000, 0x0000000020402000,
@@ -618,7 +618,7 @@ pub const F2G3C7: [u64; 64] = [
     0x0004081000000000, 0x0004081000002000, 0x0004081000400000, 0x0004081000402000, 0x0004081020000000, 0x0004081020002000, 0x0004081020400000, 0x0004081020402000,
 ];
 
-/** conversion from an 8-bit line to the E2-G4-D7 line */
+/// Conversion from an 8-bit line to the E2-G4-D7 line.
 #[rustfmt::skip]
 pub const E2G4D7: [u64; 64] = [
     0x0000000000000000, 0x0000000000001000, 0x0000000000200000, 0x0000000000201000, 0x0000000040000000, 0x0000000040001000, 0x0000000040200000, 0x0000000040201000,
@@ -631,7 +631,7 @@ pub const E2G4D7: [u64; 64] = [
     0x0008102000000000, 0x0008102000001000, 0x0008102000200000, 0x0008102000201000, 0x0008102040000000, 0x0008102040001000, 0x0008102040200000, 0x0008102040201000,
 ];
 
-/** conversion from an 8-bit line to the D2-G5-E7 line */
+/// Conversion from an 8-bit line to the D2-G5-E7 line.
 #[rustfmt::skip]
 pub const D2G5E7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000800, 0x0000000000100000, 0x0000000000100800, 0x0000000020000000, 0x0000000020000800, 0x0000000020100000, 0x0000000020100800,
@@ -644,7 +644,7 @@ pub const D2G5E7: [u64; 64] = [
     0x0010204000000000, 0x0010204000000800, 0x0010204000100000, 0x0010204000100800, 0x0010204020000000, 0x0010204020000800, 0x0010204020100000, 0x0010204020100800,
 ];
 
-/** conversion from an 8-bit line to the C2-G6-F7 line */
+/// Conversion from an 8-bit line to the C2-G6-F7 line.
 #[rustfmt::skip]
 pub const C2G6F7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000400, 0x0000000000080000, 0x0000000000080400, 0x0000000010000000, 0x0000000010000400, 0x0000000010080000, 0x0000000010080400,
@@ -657,7 +657,7 @@ pub const C2G6F7: [u64; 64] = [
     0x0020402000000000, 0x0020402000000400, 0x0020402000080000, 0x0020402000080400, 0x0020402010000000, 0x0020402010000400, 0x0020402010080000, 0x0020402010080400,
 ];
 
-/** conversion from an 8-bit line to the B2-A3-E7 line */
+/// Conversion from an 8-bit line to the B2-A3-E7 line.
 #[rustfmt::skip]
 pub const B2A3E7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000200, 0x0000000000010000, 0x0000000000010200, 0x0000000002000000, 0x0000000002000200, 0x0000000002010000, 0x0000000002010200,
@@ -670,7 +670,7 @@ pub const B2A3E7: [u64; 64] = [
     0x0010080400000000, 0x0010080400000200, 0x0010080400010000, 0x0010080400010200, 0x0010080402000000, 0x0010080402000200, 0x0010080402010000, 0x0010080402010200,
 ];
 
-/** conversion from an 8-bit line to the C2-A4-D7 line */
+/// Conversion from an 8-bit line to the C2-A4-D7 line.
 #[rustfmt::skip]
 pub const C2A4D7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000400, 0x0000000000020000, 0x0000000000020400, 0x0000000001000000, 0x0000000001000400, 0x0000000001020000, 0x0000000001020400,
@@ -683,7 +683,7 @@ pub const C2A4D7: [u64; 64] = [
     0x0008040200000000, 0x0008040200000400, 0x0008040200020000, 0x0008040200020400, 0x0008040201000000, 0x0008040201000400, 0x0008040201020000, 0x0008040201020400,
 ];
 
-/** conversion from an 8-bit line to the D2-A5-C7 line */
+/// Conversion from an 8-bit line to the D2-A5-C7 line.
 #[rustfmt::skip]
 pub const D2A5C7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000800, 0x0000000000040000, 0x0000000000040800, 0x0000000002000000, 0x0000000002000800, 0x0000000002040000, 0x0000000002040800,
@@ -696,7 +696,7 @@ pub const D2A5C7: [u64; 64] = [
     0x0004020100000000, 0x0004020100000800, 0x0004020100040000, 0x0004020100040800, 0x0004020102000000, 0x0004020102000800, 0x0004020102040000, 0x0004020102040800,
 ];
 
-/** conversion from an 8-bit line to the E2-A6-B7 line */
+/// Conversion from an 8-bit line to the E2-A6-B7 line.
 #[rustfmt::skip]
 pub const E2A6B7: [u64; 64] = [
     0x0000000000000000, 0x0000000000001000, 0x0000000000080000, 0x0000000000081000, 0x0000000004000000, 0x0000000004001000, 0x0000000004080000, 0x0000000004081000,
@@ -709,7 +709,7 @@ pub const E2A6B7: [u64; 64] = [
     0x0002010200000000, 0x0002010200001000, 0x0002010200080000, 0x0002010200081000, 0x0002010204000000, 0x0002010204001000, 0x0002010204080000, 0x0002010204081000,
 ];
 
-/** conversion from an 8-bit line to the C2-B3-F7 line */
+/// Conversion from an 8-bit line to the C2-B3-F7 line.
 #[rustfmt::skip]
 pub const C2B3F7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000400, 0x0000000000020000, 0x0000000000020400, 0x0000000004000000, 0x0000000004000400, 0x0000000004020000, 0x0000000004020400,
@@ -722,7 +722,7 @@ pub const C2B3F7: [u64; 64] = [
     0x0020100800000000, 0x0020100800000400, 0x0020100800020000, 0x0020100800020400, 0x0020100804000000, 0x0020100804000400, 0x0020100804020000, 0x0020100804020400,
 ];
 
-/** conversion from an 8-bit line to the D2-B4-E7 line */
+/// Conversion from an 8-bit line to the D2-B4-E7 line.
 #[rustfmt::skip]
 pub const D2B4E7: [u64; 64] = [
     0x0000000000000000, 0x0000000000000800, 0x0000000000040000, 0x0000000000040800, 0x0000000002000000, 0x0000000002000800, 0x0000000002040000, 0x0000000002040800,
@@ -735,7 +735,7 @@ pub const D2B4E7: [u64; 64] = [
     0x0010080400000000, 0x0010080400000800, 0x0010080400040000, 0x0010080400040800, 0x0010080402000000, 0x0010080402000800, 0x0010080402040000, 0x0010080402040800,
 ];
 
-/** conversion from an 8-bit line to the E2-B5-D7 line */
+/// Conversion from an 8-bit line to the E2-B5-D7 line.
 #[rustfmt::skip]
 pub const E2B5D7: [u64; 64] = [
     0x0000000000000000, 0x0000000000001000, 0x0000000000080000, 0x0000000000081000, 0x0000000004000000, 0x0000000004001000, 0x0000000004080000, 0x0000000004081000,
@@ -748,7 +748,7 @@ pub const E2B5D7: [u64; 64] = [
     0x0008040200000000, 0x0008040200001000, 0x0008040200080000, 0x0008040200081000, 0x0008040204000000, 0x0008040204001000, 0x0008040204080000, 0x0008040204081000,
 ];
 
-/** conversion from an 8-bit line to the F2-B6-C7 line */
+/// Conversion from an 8-bit line to the F2-B6-C7 line.
 #[rustfmt::skip]
 pub const F2B6C7: [u64; 64] = [
     0x0000000000000000, 0x0000000000002000, 0x0000000000100000, 0x0000000000102000, 0x0000000008000000, 0x0000000008002000, 0x0000000008100000, 0x0000000008102000,
@@ -1074,16 +1074,7 @@ macro_rules! f2b6c7 {
     }}
 }
 
-/// Compute flipped discs when playing on square A1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A1.
 #[rustfmt::skip]
 fn flip_a1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1108,16 +1099,7 @@ fn flip_a1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B1.
 #[rustfmt::skip]
 fn flip_b1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1142,16 +1124,7 @@ fn flip_b1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C1.
 #[rustfmt::skip]
 fn flip_c1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1176,16 +1149,7 @@ fn flip_c1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D1.
 #[rustfmt::skip]
 fn flip_d1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1210,16 +1174,7 @@ fn flip_d1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E1.
 #[rustfmt::skip]
 fn flip_e1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1244,16 +1199,7 @@ fn flip_e1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F1.
 #[rustfmt::skip]
 fn flip_f1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1278,16 +1224,7 @@ fn flip_f1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G1.
 #[rustfmt::skip]
 fn flip_g1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1312,16 +1249,7 @@ fn flip_g1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H1.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H1.
 #[rustfmt::skip]
 fn flip_h1(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1346,16 +1274,7 @@ fn flip_h1(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square A2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A2.
 #[rustfmt::skip]
 fn flip_a2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1377,16 +1296,7 @@ fn flip_a2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B2.
 #[rustfmt::skip]
 fn flip_b2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1408,16 +1318,7 @@ fn flip_b2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C2.
 #[rustfmt::skip]
 fn flip_c2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1439,16 +1340,7 @@ fn flip_c2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D2.
 #[rustfmt::skip]
 fn flip_d2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1470,16 +1362,7 @@ fn flip_d2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E2.
 #[rustfmt::skip]
 fn flip_e2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1501,16 +1384,7 @@ fn flip_e2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F2.
 #[rustfmt::skip]
 fn flip_f2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1532,16 +1406,7 @@ fn flip_f2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G2.
 #[rustfmt::skip]
 fn flip_g2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1563,16 +1428,7 @@ fn flip_g2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H2.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H2.
 #[rustfmt::skip]
 fn flip_h2(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1594,16 +1450,7 @@ fn flip_h2(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square A3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A3.
 #[rustfmt::skip]
 fn flip_a3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1625,16 +1472,7 @@ fn flip_a3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B3.
 #[rustfmt::skip]
 fn flip_b3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1656,16 +1494,7 @@ fn flip_b3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C3.
 #[rustfmt::skip]
 fn flip_c3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1689,16 +1518,7 @@ fn flip_c3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D3.
 #[rustfmt::skip]
 fn flip_d3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1725,16 +1545,7 @@ fn flip_d3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E3.
 #[rustfmt::skip]
 fn flip_e3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1761,16 +1572,7 @@ fn flip_e3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F3.
 #[rustfmt::skip]
 fn flip_f3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1794,16 +1596,7 @@ fn flip_f3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G3.
 #[rustfmt::skip]
 fn flip_g3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1825,16 +1618,7 @@ fn flip_g3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H3.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H3.
 #[rustfmt::skip]
 fn flip_h3(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1856,16 +1640,7 @@ fn flip_h3(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square A4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A4.
 #[rustfmt::skip]
 fn flip_a4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1887,16 +1662,7 @@ fn flip_a4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B4.
 #[rustfmt::skip]
 fn flip_b4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1918,16 +1684,7 @@ fn flip_b4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C4.
 #[rustfmt::skip]
 fn flip_c4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1954,16 +1711,7 @@ fn flip_c4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D4.
 #[rustfmt::skip]
 fn flip_d4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -1990,16 +1738,7 @@ fn flip_d4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E4.
 #[rustfmt::skip]
 fn flip_e4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2026,16 +1765,7 @@ fn flip_e4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F4.
 #[rustfmt::skip]
 fn flip_f4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2062,16 +1792,7 @@ fn flip_f4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G4.
 #[rustfmt::skip]
 fn flip_g4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2093,16 +1814,7 @@ fn flip_g4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H4.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H4.
 #[rustfmt::skip]
 fn flip_h4(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2124,16 +1836,7 @@ fn flip_h4(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square A5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A5.
 #[rustfmt::skip]
 fn flip_a5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2155,16 +1858,7 @@ fn flip_a5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B5.
 #[rustfmt::skip]
 fn flip_b5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2186,16 +1880,7 @@ fn flip_b5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C5.
 #[rustfmt::skip]
 fn flip_c5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2222,16 +1907,7 @@ fn flip_c5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D5.
 #[rustfmt::skip]
 fn flip_d5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2258,16 +1934,7 @@ fn flip_d5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E5.
 #[rustfmt::skip]
 fn flip_e5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2294,16 +1961,7 @@ fn flip_e5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F5.
 #[rustfmt::skip]
 fn flip_f5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2330,16 +1988,7 @@ fn flip_f5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G5.
 #[rustfmt::skip]
 fn flip_g5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2361,16 +2010,7 @@ fn flip_g5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H5.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H5.
 #[rustfmt::skip]
 fn flip_h5(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2392,16 +2032,7 @@ fn flip_h5(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square A6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A6.
 #[rustfmt::skip]
 fn flip_a6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2423,16 +2054,7 @@ fn flip_a6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B6.
 #[rustfmt::skip]
 fn flip_b6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2454,16 +2076,7 @@ fn flip_b6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C6.
 #[rustfmt::skip]
 fn flip_c6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2487,16 +2100,7 @@ fn flip_c6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D6.
 #[rustfmt::skip]
 fn flip_d6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2523,16 +2127,7 @@ fn flip_d6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E6.
 #[rustfmt::skip]
 fn flip_e6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2559,16 +2154,7 @@ fn flip_e6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F6.
 #[rustfmt::skip]
 fn flip_f6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2592,16 +2178,7 @@ fn flip_f6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G6.
 #[rustfmt::skip]
 fn flip_g6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2623,16 +2200,7 @@ fn flip_g6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H6.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H6.
 #[rustfmt::skip]
 fn flip_h6(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2654,16 +2222,7 @@ fn flip_h6(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square A7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A7.
 #[rustfmt::skip]
 fn flip_a7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2685,16 +2244,7 @@ fn flip_a7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B7.
 #[rustfmt::skip]
 fn flip_b7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2716,16 +2266,7 @@ fn flip_b7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C7.
 #[rustfmt::skip]
 fn flip_c7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2747,16 +2288,7 @@ fn flip_c7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D7.
 #[rustfmt::skip]
 fn flip_d7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2778,16 +2310,7 @@ fn flip_d7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E7.
 #[rustfmt::skip]
 fn flip_e7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2809,16 +2332,7 @@ fn flip_e7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F7.
 #[rustfmt::skip]
 fn flip_f7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2840,16 +2354,7 @@ fn flip_f7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G7.
 #[rustfmt::skip]
 fn flip_g7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2871,16 +2376,7 @@ fn flip_g7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H7.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H7.
 #[rustfmt::skip]
 fn flip_h7(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2902,16 +2398,7 @@ fn flip_h7(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square A8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square A8.
 #[rustfmt::skip]
 fn flip_a8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2933,16 +2420,7 @@ fn flip_a8(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square B8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square B8.
 #[rustfmt::skip]
 fn flip_b8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2964,16 +2442,7 @@ fn flip_b8(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square C8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square C8.
 #[rustfmt::skip]
 fn flip_c8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -2995,16 +2464,7 @@ fn flip_c8(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square D8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square D8.
 #[rustfmt::skip]
 fn flip_d8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -3026,16 +2486,7 @@ fn flip_d8(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square E8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square E8.
 #[rustfmt::skip]
 fn flip_e8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -3057,16 +2508,7 @@ fn flip_e8(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square F8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square F8.
 #[rustfmt::skip]
 fn flip_f8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -3088,16 +2530,7 @@ fn flip_f8(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square G8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square G8.
 #[rustfmt::skip]
 fn flip_g8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -3119,16 +2552,7 @@ fn flip_g8(p: u64, o: u64) -> u64 {
     flipped
 }
 
-/// Compute flipped discs when playing on square H8.
-///
-/// # Arguments
-///
-/// * `p` - Player's disc pattern.
-/// * `o` - Opponent's disc pattern.
-///
-/// # Returns
-///
-/// Flipped disc pattern.
+/// Computes flipped discs when playing on square H8.
 #[rustfmt::skip]
 fn flip_h8(p: u64, o: u64) -> u64 {
     let index_h: u64;
@@ -3164,6 +2588,7 @@ static FLIP: [FlipFunction; 64] = [
     flip_a8, flip_b8, flip_c8, flip_d8, flip_e8, flip_f8, flip_g8, flip_h8,
 ];
 
+/// Computes the bitboard of discs flipped by placing a disc at `sq`.
 #[inline(always)]
 pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     (unsafe { FLIP.get_unchecked(sq.index()) })(p, o)

@@ -40,15 +40,6 @@ pub struct Move {
 
 impl Move {
     /// Creates a new move with the specified square and flipped discs.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square where the disc is placed
-    /// * `flipped` - Bitboard of opponent discs flipped by this move
-    ///
-    /// # Returns
-    ///
-    /// A new Move instance with default evaluation data.
     #[inline]
     pub fn new(sq: Square, flipped: Bitboard) -> Move {
         debug_assert!(sq != Square::None, "Move cannot have Square::None");
@@ -74,29 +65,12 @@ pub struct MoveList {
 
 impl MoveList {
     /// Generates all legal moves for the current player.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - The current game state
-    ///
-    /// # Returns
-    ///
-    /// A new MoveList containing all legal moves for the current player.
     #[inline]
     pub fn new(board: &Board) -> MoveList {
         Self::with_moves(board, board.get_moves())
     }
 
-    /// Creates a MoveList from precomputed legal moves bitboard.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - Current game state.
-    /// * `moves_bb` - Precomputed bitboard of legal moves (from `board.get_moves()`).
-    ///
-    /// # Returns
-    ///
-    /// A new MoveList containing all legal moves.
+    /// Creates a [`MoveList`] from a precomputed legal moves [`Bitboard`].
     #[inline]
     pub fn with_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
         let mut moves = ArrayVec::new();
@@ -121,31 +95,18 @@ impl MoveList {
     }
 
     /// Returns the wipeout move square if one exists.
-    ///
-    /// # Returns
-    ///
-    /// - `Some(sq)` if a wipeout move exists
-    /// - `None` if no wipeout move exists
     #[inline(always)]
     pub fn wipeout_move(&self) -> Option<Square> {
         self.wipeout_move
     }
 
     /// Returns the number of legal moves in this position.
-    ///
-    /// # Returns
-    ///
-    /// The count of legal moves.
     #[inline]
     pub fn count(&self) -> usize {
         self.moves.len()
     }
 
-    /// Returns the first move in the list, if any exists.
-    ///
-    /// # Returns
-    ///
-    /// Reference to the first move, or None if no legal moves exist.
+    /// Returns the first move in the list, if any.
     #[inline]
     pub fn first(&self) -> Option<&Move> {
         self.moves.first()
@@ -155,47 +116,24 @@ impl MoveList {
     ///
     /// The moves are returned in their current order, which may be the generation
     /// order or sorted order depending on previous operations.
-    ///
-    /// # Returns
-    ///
-    /// Iterator over moves in the list.
     #[inline]
     pub fn iter(&self) -> slice::Iter<'_, Move> {
         self.moves.iter()
     }
 
     /// Returns a mutable iterator over all moves in the list.
-    ///
-    /// # Returns
-    ///
-    /// Mutable iterator over moves in the list.
     #[inline]
     pub fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
         self.moves.iter_mut()
     }
 
     /// Returns an iterator that yields moves in order of decreasing value.
-    ///
-    /// # Returns
-    ///
-    /// Iterator that yields moves in best-first order.
     #[inline]
     pub fn into_best_first_iter(self) -> BestFirstMoveIterator {
         BestFirstMoveIterator::new(self.moves)
     }
 
     /// Evaluates all moves to assign ordering values and reduction depths.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `SS` - Search strategy determining midgame vs endgame evaluation
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Search context with transposition table and statistics
-    /// * `board` - Current position before making any move
-    /// * `depth` - Remaining search depth at this node
-    /// * `tt_move` - Best move from transposition table (if any)
     pub fn evaluate_moves<SS: SearchStrategy>(
         &mut self,
         ctx: &mut SearchContext,
@@ -204,7 +142,7 @@ impl MoveList {
         tt_move: Square,
     ) {
         // Minimum depth required for shallow search evaluation based on empty squares
-        // When depth is below this threshold, use fast heuristic evaluation instead
+        // When depth is at or below this threshold, use fast heuristic evaluation instead
         #[rustfmt::skip]
         const MIN_DEPTH: [u32; 64] = [
             19, 18, 18, 18, 17, 17, 17, 16,  // 0-7 empty squares
@@ -342,13 +280,7 @@ impl MoveList {
         }
     }
 
-    /// Evaluates moves using heuristics.
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Search context for node counting
-    /// * `board` - Current board position
-    /// * `tt_move` - Move suggested by transposition table (if any)
+    /// Evaluates moves using fast heuristics for move ordering.
     pub fn evaluate_moves_fast(&mut self, ctx: &mut SearchContext, board: &Board, tt_move: Square) {
         /// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c#L30
         #[rustfmt::skip]
@@ -408,10 +340,6 @@ impl MoveList {
     /// In Multi-PV mode, each PV line explores a different best move at the root. This method
     /// retains only moves that appear in `root_moves` from `pv_idx` onwards, excluding moves
     /// that were already selected as the best move for earlier PV lines (indices 0..pv_idx).
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - Search context containing root_moves and pv_idx
     pub fn exclude_earlier_pv_moves(&mut self, ctx: &SearchContext) {
         if ctx.pv_idx() == 0 {
             return; // No filtering needed for first PV line
@@ -463,14 +391,6 @@ pub struct ConcurrentMoveIterator {
 
 impl ConcurrentMoveIterator {
     /// Creates a new concurrent iterator from a move list.
-    ///
-    /// # Arguments
-    ///
-    /// * `move_list` - The move list to iterate over
-    ///
-    /// # Returns
-    ///
-    /// A new concurrent iterator starting at the first move.
     pub fn new(move_list: MoveList) -> ConcurrentMoveIterator {
         ConcurrentMoveIterator {
             move_list,
@@ -478,15 +398,7 @@ impl ConcurrentMoveIterator {
         }
     }
 
-    /// Retrieves the next move and its index.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing:
-    /// - Reference to the next move
-    /// - 1-based index of the move in the original list
-    ///
-    /// Returns None when all moves have been consumed.
+    /// Returns the next move and its 1-based index atomically.
     pub fn next(&self) -> Option<(&Move, usize)> {
         let current = self.current.fetch_add(1, atomic::Ordering::Relaxed);
         if current < self.move_list.moves.len() {
@@ -496,21 +408,13 @@ impl ConcurrentMoveIterator {
         }
     }
 
-    /// Returns the total number of moves available in this iterator.
-    ///
-    /// # Returns
-    ///
-    /// Total count of moves (does not change as moves are consumed).
+    /// Returns the total number of moves in this iterator.
     #[inline]
     pub fn count(&self) -> usize {
         self.move_list.count()
     }
 
-    /// Returns the number of moves remaining to be consumed.
-    ///
-    /// # Returns
-    ///
-    /// Remaining move count (0 if all moves have been consumed).
+    /// Returns the number of moves not yet consumed.
     #[inline]
     pub fn remaining(&self) -> usize {
         let current = self.current.load(atomic::Ordering::Relaxed);
@@ -535,10 +439,6 @@ pub struct BestFirstMoveIterator {
 
 impl BestFirstMoveIterator {
     /// Creates a new owning best-first iterator from a moves array.
-    ///
-    /// # Arguments
-    ///
-    /// * `moves` - The moves array to take ownership of
     #[inline]
     pub fn new(moves: ArrayVec<Move, MAX_MOVES>) -> Self {
         BestFirstMoveIterator { moves, current: 0 }

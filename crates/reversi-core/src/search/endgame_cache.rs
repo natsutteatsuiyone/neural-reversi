@@ -39,7 +39,7 @@ impl EndGameCacheBound {
     }
 }
 
-/// Entry structure for endgame cache.
+/// Single entry stored in the endgame cache.
 #[derive(Clone, Copy)]
 pub struct EndGameCacheEntry {
     pub score: Score,
@@ -58,18 +58,14 @@ impl EndGameCacheEntry {
     }
 }
 
-/// Endgame cache structure.
+/// Hash table for caching endgame search results.
 pub struct EndGameCache {
     table: Box<[u64]>,
     mask: usize,
 }
 
 impl EndGameCache {
-    /// Creates a new endgame cache with the specified size.
-    ///
-    /// # Arguments
-    ///
-    /// * `size` - The size of the cache in bits (e.g., 20 for 1M entries)
+    /// Creates a new endgame cache with `2^size` entries.
     pub fn new(size: u32) -> Self {
         let entries = 1usize << size;
         EndGameCache {
@@ -91,7 +87,7 @@ impl EndGameCache {
             | ((value as i8 as u8) as u64)
     }
 
-    /// Probes the cache for an entry.
+    /// Looks up an entry by key.
     #[inline(always)]
     pub fn probe(&self, key: u64) -> Option<EndGameCacheEntry> {
         let idx = self.index(key);
@@ -114,7 +110,7 @@ impl EndGameCache {
         })
     }
 
-    /// Stores an entry.
+    /// Stores an entry, overwriting any existing entry at the same index.
     #[inline(always)]
     pub fn store(&mut self, key: u64, value: Score, bound: EndGameCacheBound, best_move: Square) {
         let idx = self.index(key);
@@ -123,7 +119,7 @@ impl EndGameCache {
         }
     }
 
-    /// Clears the cache.
+    /// Clears all entries.
     pub fn clear(&mut self) {
         self.table.fill(0);
     }

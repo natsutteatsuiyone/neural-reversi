@@ -1,7 +1,6 @@
 //! Activation functions for neural network evaluation.
 //!
-//! # References
-//!
+//! Reference:
 //! - [Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h)
 //! - [Squared Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h)
 
@@ -21,15 +20,10 @@ const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 ///
 /// Values are right-shifted by `HIDDEN_WEIGHT_SCALE_BITS` (6) and clamped to [0, 255].
 ///
-/// # Arguments
+/// # Safety
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
-///
-/// # Type Parameters
-///
-/// * `SIZE` - The number of elements to process. Used at compile time to select the optimal
-///   SIMD path (AVX2 for multiples of 32, SSE2 otherwise).
+/// On x86-64 with AVX2, both `input` and `output` must be 32-byte aligned
+/// (or 16-byte aligned when `SIZE` is not a multiple of 32).
 pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_if! {
         if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
@@ -41,11 +35,6 @@ pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 }
 
 /// Clipped ReLU with AVX2 SIMD optimization.
-///
-/// # Arguments
-///
-/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
 ///
 /// # Safety
 ///
@@ -115,12 +104,6 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 }
 
 /// Clipped ReLU scalar fallback implementation.
-///
-/// # Arguments
-///
-/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
-/// * `start_idx` - Start index for processing (used after SIMD processes aligned portion)
 #[inline(always)]
 fn clipped_relu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
@@ -134,14 +117,10 @@ fn clipped_relu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], st
 /// Negative inputs are squared just like positive ones (no rectification) before scaling and clipping.
 /// Output = min((input² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)), 255)
 ///
-/// # Arguments
+/// # Safety
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
-///
-/// # Type Parameters
-///
-/// * `SIZE` - The number of elements to process. Used at compile time to determine SIMD chunk count.
+/// On x86-64 with AVX2, both `input` and `output` must be 16-byte aligned
+/// for SSE2 loads/stores.
 #[inline(always)]
 pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_if! {
@@ -156,11 +135,6 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 /// Square-clipped activation with AVX2 SIMD optimization.
 ///
 /// Uses SSE2 instructions (128-bit) for processing.
-///
-/// # Arguments
-///
-/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
 ///
 /// # Safety
 ///
@@ -197,12 +171,6 @@ fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 }
 
 /// Square-clipped activation scalar fallback implementation.
-///
-/// # Arguments
-///
-/// * `input` - A slice of 32-bit integers (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit integer results (length must equal `SIZE`)
-/// * `start_idx` - Start index for processing (used after SIMD processes aligned portion)
 #[inline(always)]
 fn sqr_clipped_relu_fallback<const SIZE: usize>(
     input: &[i32],
@@ -215,20 +183,15 @@ fn sqr_clipped_relu_fallback<const SIZE: usize>(
     }
 }
 
-/// Squared Clipped ReLU (SCReLU) activation function.
+/// Applies the Squared Clipped ReLU (SCReLU) activation function to `input`.
 ///
 /// Clamps input to [0, 255 << HIDDEN_WEIGHT_SCALE_BITS], squares, then scales down.
 /// Output = (clamp(input, 0, max)² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8))
 ///
-/// # Arguments
+/// # Safety
 ///
-/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit unsigned integer results (length must equal `SIZE`)
-///
-/// # Type Parameters
-///
-/// * `SIZE` - The number of elements to process. Used at compile time to select the optimal
-///   SIMD path (AVX2 for multiples of 32, SSE2 otherwise).
+/// On x86-64 with AVX2, both `input` and `output` must be 32-byte aligned
+/// (or 16-byte aligned when `SIZE` is not a multiple of 32).
 #[inline(always)]
 pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_if! {
@@ -241,11 +204,6 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 }
 
 /// Squared Clipped ReLU with AVX2 SIMD optimization.
-///
-/// # Arguments
-///
-/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit unsigned integer results (length must equal `SIZE`)
 ///
 /// # Safety
 ///
@@ -316,12 +274,6 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 }
 
 /// Squared Clipped ReLU scalar fallback implementation.
-///
-/// # Arguments
-///
-/// * `input` - A slice of 32-bit integers representing pre-activation values (length must equal `SIZE`)
-/// * `output` - A mutable slice for 8-bit unsigned integer results (length must equal `SIZE`)
-/// * `start_idx` - Start index for processing (used after SIMD processes aligned portion)
 fn screlu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let clamped = input[i].clamp(0, 255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;

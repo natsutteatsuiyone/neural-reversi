@@ -11,11 +11,7 @@ use crate::flip;
 use crate::square::Square;
 use crate::types::{ScaledScore, Score};
 
-/// Represents a Reversi board with bitboards for the player and opponent.
-///
-/// The `Board` struct contains two 64-bit integers representing the positions of the player's
-/// and opponent's discs on the board. Each bit in the integer corresponds to a square on the
-/// board.
+/// Represents a Reversi board using player/opponent [`Bitboard`] pairs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Board {
     /// Bitboard representing the player's discs.
@@ -39,25 +35,12 @@ impl Default for Board {
 }
 
 impl Board {
-    /// Creates a new `Board` with the initial Reversi setup.
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance.
+    /// Creates a new [`Board`] with the standard initial position.
     pub fn new() -> Board {
         Default::default()
     }
 
-    /// Creates a `Board` from given bitboards.
-    ///
-    /// # Arguments
-    ///
-    /// * `player` - Bitboard representing the player's discs.
-    /// * `opponent` - Bitboard representing the opponent's discs.
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance.
+    /// Creates a [`Board`] from given bitboards.
     ///
     /// # Panics
     ///
@@ -73,24 +56,14 @@ impl Board {
         Board { player, opponent }
     }
 
-    /// Creates a `Board` from a string representation.
+    /// Parses a [`Board`] from a 64-character string (`'X'`/`'O'`/`'-'`).
     ///
-    /// The string must contain exactly 64 characters representing the board squares from A1 to H8.
-    /// Characters are interpreted as:
-    /// - The current player's disc character (e.g., 'X' for Black)
-    /// - The opponent's disc character (e.g., 'O' for White)
-    /// - '-' for empty squares
-    ///
-    /// # Arguments
-    ///
-    /// * `board_string` - A string representing the board.
-    /// * `current_player` - The current player.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(Board)` if the string is valid, `Err(BoardError)` otherwise.
+    /// `current_player` determines which character maps to `player`:
+    /// if [`Disc::Black`], `'X'` → player and `'O'` → opponent;
+    /// if [`Disc::White`], `'O'` → player and `'X'` → opponent.
     ///
     /// # Errors
+    ///
     /// - [`BoardError::InvalidPlayer`] if `current_player` is [`Disc::Empty`].
     /// - [`BoardError::TooShort`] if the string has fewer than 64 characters.
     /// - [`BoardError::TooLong`] if the string has more than 64 characters.
@@ -139,16 +112,7 @@ impl Board {
         Ok(Board { player, opponent })
     }
 
-    /// Gets the disc at a specific square from the perspective of the current player.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to check.
-    /// * `side_to_move` - The current player's disc.
-    ///
-    /// # Returns
-    ///
-    /// The disc at the specified square (current player's disc, opponent's disc, or empty).
+    /// Returns the disc at `sq` from the perspective of `side_to_move`.
     #[inline]
     pub fn get_disc_at(&self, sq: Square, side_to_move: Disc) -> Disc {
         if self.player.contains(sq) {
@@ -160,11 +124,7 @@ impl Board {
         }
     }
 
-    /// Checks if the game is over (neither player can make a move).
-    ///
-    /// # Returns
-    ///
-    /// `true` if the game is over, `false` otherwise.
+    /// Returns whether the game is over (neither player can move).
     #[inline]
     pub fn is_game_over(&self) -> bool {
         if self.has_legal_moves() {
@@ -175,51 +135,31 @@ impl Board {
         !switched.has_legal_moves()
     }
 
-    /// Gets the empty squares.
-    ///
-    /// # Returns
-    ///
-    /// A `Bitboard` value representing the empty squares.
+    /// Returns a [`Bitboard`] of empty squares.
     #[inline(always)]
     pub fn get_empty(&self) -> Bitboard {
         !(self.player | self.opponent)
     }
 
     /// Returns the number of discs the current player has on the board.
-    ///
-    /// # Returns
-    ///
-    /// The number of discs the current player has on the board.
     #[inline(always)]
     pub fn get_player_count(&self) -> u32 {
         self.player.count()
     }
 
     /// Returns the number of discs the opponent has on the board.
-    ///
-    /// # Returns
-    ///
-    /// The number of discs the opponent has on the board.
     #[inline(always)]
     pub fn get_opponent_count(&self) -> u32 {
         self.opponent.count()
     }
 
     /// Returns the number of empty squares on the board.
-    ///
-    /// # Returns
-    ///
-    /// The number of empty squares on the board.
     #[inline(always)]
     pub fn get_empty_count(&self) -> u32 {
         self.get_empty().count()
     }
 
-    /// Returns the final score from the current player's perspective.
-    ///
-    /// # Returns
-    ///
-    /// Disc difference (positive if player has more discs).
+    /// Returns the final score (disc difference) from the current player's perspective.
     ///
     /// # Panics
     ///
@@ -245,24 +185,9 @@ impl Board {
 
     /// Calculates the final score when both players have passed.
     ///
-    /// Unlike [`final_score`](Self::final_score) which assumes no empty squares,
-    /// this method handles positions with remaining empties by awarding them
-    /// to the player with more discs (standard Reversi endgame rules).
-    ///
-    /// # Scoring Rules
-    ///
-    /// Let `P` = player's disc count, `O` = opponent's disc count:
-    /// - `P > O`: Player gets all empties → returns `(P - O) + n_empties`
-    /// - `P < O`: Opponent gets all empties → returns `(P - O) - n_empties`
-    /// - `P == O`: Empties split evenly → returns `0`
-    ///
-    /// # Arguments
-    ///
-    /// * `n_empties` - Number of empty squares on the board.
-    ///
-    /// # Returns
-    ///
-    /// Final score as disc difference (positive = player wins).
+    /// Unlike [`final_score`](Self::final_score), handles positions with remaining
+    /// empties by awarding them to the player with more discs.
+    /// The caller must pass the actual empty count; no validation is performed.
     #[inline(always)]
     pub fn solve(&self, n_empties: u32) -> Score {
         let score = self.get_player_count() as Score * 2 - SCORE_MAX;
@@ -283,11 +208,7 @@ impl Board {
         ScaledScore::from_disc_diff(self.solve(n_empties))
     }
 
-    /// Switches the players.
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the players switched.
+    /// Returns a new [`Board`] with the player and opponent swapped.
     #[inline(always)]
     pub fn switch_players(&self) -> Board {
         Board {
@@ -296,15 +217,7 @@ impl Board {
         }
     }
 
-    /// Attempts to make a move for the current player.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square where the player is attempting to place a disc.
-    ///
-    /// # Returns
-    ///
-    /// `Some(Board)` with the updated board if the move is valid, `None` otherwise.
+    /// Attempts to make a move at `sq`, returning [`None`] if the move is invalid.
     #[inline]
     pub fn try_make_move(&self, sq: Square) -> Option<Board> {
         if !self.opponent.has_adjacent_bit(sq) {
@@ -322,13 +235,7 @@ impl Board {
         })
     }
 
-    /// Makes a move for the current player.
-    ///
-    /// # Arguments
-    /// * `sq` - The square where the player is placing a disc.
-    ///
-    /// # Returns
-    /// A new `Board` instance with the updated board state after the move.
+    /// Makes a move at `sq` for the current player.
     ///
     /// # Panics
     ///
@@ -346,16 +253,7 @@ impl Board {
         }
     }
 
-    /// Makes a move for the current player, given the already calculated flipped discs.
-    ///
-    /// # Arguments
-    ///
-    /// * `flipped` - The bitboard representing the discs flipped by the move.
-    /// * `sq` - The square where the player is placing a disc.
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the updated board state after the move.
+    /// Makes a move at `sq` using pre-computed `flipped` discs.
     ///
     /// # Panics
     ///
@@ -379,94 +277,52 @@ impl Board {
         }
     }
 
-    /// Returns a bitboard representing the valid moves for the current player.
-    ///
-    /// # Returns
-    ///
-    /// A bitboard where each set bit represents a valid move for the current player.
+    /// Returns a [`Bitboard`] of legal moves for the current player.
     #[inline(always)]
     pub fn get_moves(&self) -> Bitboard {
         self.player.get_moves(self.opponent)
     }
 
-    /// Checks if the current player has any legal moves.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the current player has legal moves, `false` otherwise.
+    /// Returns whether the current player has any legal moves.
     #[inline(always)]
     pub fn has_legal_moves(&self) -> bool {
         !self.get_moves().is_empty()
     }
 
-    /// Checks if a move to a specific square is legal for the current player.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to check.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the move is legal, `false` otherwise.
+    /// Returns whether placing a disc at `sq` is a legal move.
     #[inline(always)]
     pub fn is_legal_move(&self, sq: Square) -> bool {
         self.get_moves().contains(sq)
     }
 
-    /// Gets the number of stable discs for the current player.
+    /// Returns the number of stable discs for the current player.
     ///
-    /// Stable discs are discs that cannot be flipped for the remainder of the game.
-    /// This includes corner discs and discs protected by filled edges or other stable discs.
-    ///
-    /// # Returns
-    ///
-    /// The number of stable discs for the current player.
+    /// Stable discs cannot be flipped for the remainder of the game (e.g. corners,
+    /// discs protected by filled edges or other stable discs).
     #[inline]
     pub fn get_stability(&self) -> u32 {
         crate::stability::get_stable_discs(self.player, self.opponent).count()
     }
 
-    /// Gets the potential moves for the current player.
-    ///
-    /// # Returns
-    ///
-    /// A `Bitboard` value representing the potential moves for the current player.
+    /// Returns a [`Bitboard`] of potential moves for the current player.
     #[inline(always)]
     pub fn get_potential_moves(&self) -> Bitboard {
         self.player.get_potential_moves(self.opponent)
     }
 
-    /// Gets both the legal moves and potential moves for the current player.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing two `Bitboard` values:
-    /// - The first value represents the legal moves.
-    /// - The second value represents the potential moves.
+    /// Returns `(legal_moves, potential_moves)` for the current player.
     #[inline(always)]
     pub fn get_moves_and_potential(&self) -> (Bitboard, Bitboard) {
         self.player.get_moves_and_potential(self.opponent)
     }
 
-    /// Checks if a given square is empty.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to check.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the square is empty, `false` otherwise.
+    /// Returns whether `sq` is empty.
     #[inline]
     pub fn is_square_empty(&self, sq: Square) -> bool {
         self.get_empty().contains(sq)
     }
 
     /// Calculates a hash of the current board position.
-    ///
-    /// # Returns
-    ///
-    /// A 64-bit hash value representing the current board position.
     #[inline]
     pub fn hash(&self) -> u64 {
         use rapidhash::v3;
@@ -476,10 +332,6 @@ impl Board {
     }
 
     /// Rotates the board 90 degrees clockwise.
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the board rotated 90 degrees clockwise.
     #[inline]
     pub fn rotate_90_clockwise(&self) -> Board {
         Board {
@@ -489,10 +341,6 @@ impl Board {
     }
 
     /// Rotates the board 180 degrees.
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the board rotated 180 degrees.
     #[inline]
     pub fn rotate_180_clockwise(&self) -> Board {
         Board {
@@ -502,10 +350,6 @@ impl Board {
     }
 
     /// Rotates the board 270 degrees clockwise.
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the board rotated 270 degrees clockwise.
     #[inline]
     pub fn rotate_270_clockwise(&self) -> Board {
         Board {
@@ -515,10 +359,6 @@ impl Board {
     }
 
     /// Flips the board vertically (top to bottom).
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the board flipped vertically.
     #[inline]
     pub fn flip_vertical(&self) -> Board {
         Board {
@@ -528,10 +368,6 @@ impl Board {
     }
 
     /// Flips the board horizontally (left to right).
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the board flipped horizontally.
     #[inline]
     pub fn flip_horizontal(&self) -> Board {
         Board {
@@ -541,10 +377,6 @@ impl Board {
     }
 
     /// Flips the board along the main diagonal (A1-H8).
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the board flipped along the main diagonal.
     #[inline]
     pub fn flip_diag_a1h8(&self) -> Board {
         Board {
@@ -554,10 +386,6 @@ impl Board {
     }
 
     /// Flips the board along the anti-diagonal (A8-H1).
-    ///
-    /// # Returns
-    ///
-    /// A new `Board` instance with the board flipped along the anti-diagonal.
     #[inline]
     pub fn flip_diag_a8h1(&self) -> Board {
         Board {
@@ -568,13 +396,9 @@ impl Board {
 
     /// Returns the canonical (unique) form of this board.
     ///
-    /// The canonical form is the board with the lexicographically smallest
+    /// The canonical form is the [`Board`] with the lexicographically smallest
     /// `(player.bits(), opponent.bits())` tuple among all 8 symmetric variants
     /// (original, 3 rotations, and 4 reflections).
-    ///
-    /// # Returns
-    ///
-    /// The canonical `Board` among all 8 symmetric variants.
     #[inline]
     pub fn unique(&self) -> Board {
         let candidates = [
@@ -599,20 +423,7 @@ impl Board {
         result
     }
 
-    /// Converts the board to a string representation.
-    ///
-    /// The output format shows the board as an 8x8 grid with:
-    /// - 'X' for Black discs
-    /// - 'O' for White discs
-    /// - '-' for empty squares
-    ///
-    /// # Arguments
-    ///
-    /// * `current_player` - The current player (determines which discs are shown as 'X' or 'O').
-    ///
-    /// # Returns
-    ///
-    /// A string representation of the board with newlines between rows.
+    /// Converts the board to an 8x8 string representation (`'X'`/`'O'`/`'-'`).
     pub fn to_string_as_board(&self, current_player: Disc) -> String {
         let mut s = String::with_capacity(64 + 8);
         for (i, sq) in Square::iter().enumerate() {
@@ -638,30 +449,30 @@ impl fmt::Display for Board {
     }
 }
 
-/// Error type for board parsing operations.
+/// Error type for [`Board::from_string`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoardError {
-    /// Current player is `Disc::Empty`
+    /// Current player is [`Disc::Empty`].
     InvalidPlayer,
-    /// String is too short (less than 64 characters)
+    /// String is too short (less than 64 characters).
     TooShort {
-        /// Expected number of characters
+        /// Expected number of characters.
         expected: usize,
-        /// Actual number of characters
+        /// Actual number of characters.
         actual: usize,
     },
-    /// String is too long (more than 64 characters)
+    /// String is too long (more than 64 characters).
     TooLong {
-        /// Expected number of characters
+        /// Expected number of characters.
         expected: usize,
-        /// Actual number of characters
+        /// Actual number of characters.
         actual: usize,
     },
-    /// Invalid character at position
+    /// Invalid character at position.
     InvalidChar {
-        /// The invalid character
+        /// The invalid character.
         char: char,
-        /// Position in the string (0-indexed)
+        /// Position in the string (0-indexed).
         position: usize,
     },
 }

@@ -50,12 +50,6 @@ pub struct SearchContext {
 
 impl SearchContext {
     /// Creates a new search context for the given board position.
-    ///
-    /// # Arguments
-    /// * `board` - Current board position.
-    /// * `selectivity` - Selectivity level.
-    /// * `tt` - Transposition table.
-    /// * `eval` - Neural network evaluator.
     pub fn new(
         board: &Board,
         selectivity: Selectivity,
@@ -81,9 +75,6 @@ impl SearchContext {
     }
 
     /// Creates a new search context from a parallel search split point.
-    ///
-    /// # Arguments
-    /// * `sp` - Split point reference.
     #[inline]
     pub fn from_split_point(sp: &Arc<SplitPoint>) -> SearchContext {
         let state = sp.state();
@@ -118,10 +109,6 @@ impl SearchContext {
     }
 
     /// Updates the search context after making a move in midgame search.
-    ///
-    /// # Arguments
-    /// * `sq` - Move square.
-    /// * `flipped` - Flipped discs bitboard.
     #[inline]
     pub fn update(&mut self, sq: Square, flipped: Bitboard) {
         self.increment_nodes();
@@ -132,9 +119,6 @@ impl SearchContext {
     }
 
     /// Undoes a move in the search context.
-    ///
-    /// # Arguments
-    /// * `sq` - Move square to restore.
     #[inline]
     pub fn undo(&mut self, sq: Square) {
         self.empty_list.restore(sq);
@@ -142,9 +126,6 @@ impl SearchContext {
     }
 
     /// Updates the context for an endgame move (no pattern feature update).
-    ///
-    /// # Arguments
-    /// * `sq` - Move square.
     #[inline]
     pub fn update_endgame(&mut self, sq: Square) {
         self.increment_nodes();
@@ -152,9 +133,6 @@ impl SearchContext {
     }
 
     /// Undoes an endgame move by restoring the played square.
-    ///
-    /// # Arguments
-    /// * `sq` - Move square to restore.
     #[inline]
     pub fn undo_endgame(&mut self, sq: Square) {
         self.empty_list.restore(sq);
@@ -177,9 +155,6 @@ impl SearchContext {
     ///
     /// The ply is calculated from the number of empty squares remaining,
     /// representing how far we are from the start of the game.
-    ///
-    /// # Returns
-    /// Current search depth/ply.
     #[inline]
     pub fn ply(&self) -> usize {
         self.empty_list.ply()
@@ -191,10 +166,7 @@ impl SearchContext {
         self.n_nodes += 1;
     }
 
-    /// Gets the current pattern feature for neural network evaluation.
-    ///
-    /// # Returns
-    /// Reference to the current pattern feature.
+    /// Returns the current pattern feature for neural network evaluation.
     #[inline]
     pub fn get_pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
@@ -206,12 +178,6 @@ impl SearchContext {
     }
 
     /// Updates a root move with its search results.
-    ///
-    /// # Arguments
-    /// * `sq` - Root move square.
-    /// * `score` - Search score.
-    /// * `move_count` - Move index in search order (1-based).
-    /// * `alpha` - Alpha bound.
     pub fn update_root_move(
         &mut self,
         sq: Square,
@@ -228,29 +194,20 @@ impl SearchContext {
         self.root_moves.update(sq, score, move_count, alpha, &pv);
     }
 
-    /// Gets the root move at the current PV index.
-    ///
-    /// In Multi-PV mode, this returns the move at the current PV position
-    /// which should be searched next.
-    ///
-    /// # Returns
-    /// Root move at current PV index, or None if out of bounds.
+    /// Returns the root move at the current PV index, or [`None`] if out of bounds.
     pub fn get_current_pv_root_move(&self) -> Option<RootMove> {
         self.root_moves.get_current_pv()
     }
 
-    /// Gets the best root move (the one at index 0 after sorting).
+    /// Returns the first root move, or [`None`] if no moves exist.
     ///
-    /// # Returns
-    /// Best root move, or None if no moves exist.
+    /// The caller must sort the root moves beforehand for this to return the
+    /// highest-scoring move.
     pub fn get_best_root_move(&self) -> Option<RootMove> {
         self.root_moves.get_best()
     }
 
     /// Sets the current PV index for Multi-PV search.
-    ///
-    /// # Arguments
-    /// * `idx` - PV index.
     pub fn set_pv_idx(&self, idx: usize) {
         self.root_moves.set_pv_idx(idx);
     }
@@ -280,9 +237,6 @@ impl SearchContext {
     }
 
     /// Updates the principal variation at the current ply.
-    ///
-    /// # Arguments
-    /// * `sq` - Best move at current ply.
     pub fn update_pv(&mut self, sq: Square) {
         let ply = self.ply();
         self.stack[ply].pv[0] = sq;
@@ -302,7 +256,7 @@ impl SearchContext {
         self.stack[self.ply()].pv.fill(Square::None);
     }
 
-    /// Gets the principal variation at the current ply.
+    /// Returns the principal variation at the current ply.
     pub fn get_pv(&self) -> &[Square; MAX_PLY] {
         &self.stack[self.ply()].pv
     }
@@ -313,9 +267,6 @@ impl SearchContext {
     }
 
     /// Returns the number of root moves available from the current position.
-    ///
-    /// # Returns
-    /// Count of legal moves from root position.
     pub fn root_moves_count(&self) -> usize {
         self.root_moves.count()
     }

@@ -1,8 +1,6 @@
 //! Endgame search and solving algorithms.
 //!
-//! # References:
-//!
-//! - <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c>
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c>
 
 use std::cell::UnsafeCell;
 use std::sync::Arc;
@@ -68,15 +66,6 @@ unsafe fn cache() -> &'static mut EndGameCache {
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
-///
-/// # Arguments
-///
-/// * `task` - Search task.
-/// * `thread` - Thread handle for parallel search.
-///
-/// # Returns
-///
-/// Search result with best move and score.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let time_manager = task.time_manager.clone();
@@ -234,18 +223,7 @@ fn aspiration_search(
     }
 }
 
-/// Estimates a stable base score to center the aspiration window for the endgame search.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `n_empties` - Number of empty squares.
-/// * `thread` - Thread handle for parallel search.
-///
-/// # Returns
-///
-/// An estimated score used to center the aspiration window at the start of endgame search.
+/// Estimates a base score to center the aspiration window for endgame search.
 fn estimate_aspiration_base_score(
     ctx: &mut SearchContext,
     board: &Board,
@@ -281,20 +259,7 @@ fn estimate_aspiration_base_score(
     }
 }
 
-/// Attempts ProbCut pruning for endgame positions
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `depth` - Depth of the deep search.
-/// * `beta` - Beta bound.
-/// * `thread` - Thread handle for parallel search.
-///
-/// # Returns
-///
-/// * `Some(score)` - If probcut triggers, returns the predicted bound.
-/// * `None` - If probcut doesn't trigger, deep search should be performed.
+/// Attempts ProbCut pruning for endgame positions.
 pub fn probcut(
     ctx: &mut SearchContext,
     board: &Board,
@@ -337,17 +302,8 @@ pub fn probcut(
 }
 
 /// Null window search for endgame positions.
+///
 /// Dispatches to the optimal solver based on empty square count.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Score threshold.
-///
-/// # Returns
-///
-/// Best score found.
 #[inline(always)]
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
@@ -385,17 +341,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     }
 }
 
-/// Performs a null window search for fast endgame solving.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Score threshold.
-///
-/// # Returns
-///
-/// Best score found.
+/// Null window search using the transposition table.
 pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -444,7 +390,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
                 tt_probe_result.index(),
                 tt_key,
                 ScaledScore::from_disc_diff(score),
-                Bound::classify::<NonPV>(score, alpha, beta),
+                Bound::classify_score::<NonPV>(score, alpha, beta),
                 n_empties,
                 tt_move,
                 Selectivity::None,
@@ -500,7 +446,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         tt_probe_result.index(),
         tt_key,
         ScaledScore::from_disc_diff(best_score),
-        Bound::classify::<NonPV>(best_score, alpha, beta),
+        Bound::classify_score::<NonPV>(best_score, alpha, beta),
         n_empties,
         best_move,
         Selectivity::None,
@@ -532,28 +478,13 @@ fn search_move_nws_tt(
     }
 }
 
-/// Probes the endgame cache for a given position.
-///
-/// # Arguments
-///
-/// * `key` - The hash key of the board position.
-///
-/// # Returns
-///
-/// The cached entry if found.
+/// Probes the thread-local endgame cache for a given position.
 #[inline(always)]
 fn probe_endgame_cache(key: u64) -> Option<EndGameCacheEntry> {
     unsafe { cache().probe(key) }
 }
 
-/// Stores an entry in the endgame cache.
-///
-/// # Arguments
-///
-/// * `key` - The hash key of the board position.
-/// * `beta` - The beta value for determining the bound.
-/// * `score` - The score to store.
-/// * `best_move` - The best move found in this position.
+/// Stores an entry in the thread-local endgame cache.
 #[inline(always)]
 fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
     let bound = EndGameCacheBound::classify(score, beta);
@@ -562,17 +493,7 @@ fn store_endgame_cache(key: u64, beta: Score, score: Score, best_move: Square) {
     }
 }
 
-/// Null window search with endgame cache probing.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Score threshold.
-///
-/// # Returns
-///
-/// Best score found.
+/// Null window search using the thread-local endgame cache.
 fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -686,17 +607,9 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     best_score
 }
 
-/// Optimized search for shallow endgame positions.
+/// Null window search for shallow endgame positions (≤[`DEPTH_TO_SHALLOW_SEARCH`] empties).
 ///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Score threshold.
-///
-/// # Returns
-///
-/// Best score found.
+/// Orders moves by quadrant parity and corner priority.
 pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -817,17 +730,6 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 }
 
 /// Evaluates a single move in shallow search.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `sq` - Square to move to.
-/// * `beta` - Beta bound.
-///
-/// # Returns
-///
-/// Score after making move.
 #[inline(always)]
 fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta: Score) -> Score {
     let next = board.make_move(sq);
@@ -855,21 +757,7 @@ fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta:
     score
 }
 
-/// Searches all moves in a bitboard for shallow search.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `moves` - Bitboard of moves to search.
-/// * `key` - Hash key for endgame cache.
-/// * `beta` - Beta bound.
-/// * `best_score` - Current best score (updated if better move found).
-/// * `best_move` - Current best move (updated if better move found).
-///
-/// # Returns
-///
-/// `Some(score)` if beta cutoff occurs, `None` otherwise.
+/// Searches all moves in a bitboard subset for shallow search, returning on beta cutoff.
 #[inline(always)]
 fn shallow_search_moves(
     ctx: &mut SearchContext,
@@ -896,15 +784,7 @@ fn shallow_search_moves(
     None
 }
 
-/// Sorts the last four empty squares based on quadrant parity.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-///
-/// # Returns
-///
-/// Tuple of four squares sorted by quadrant parity.
+/// Sorts the last four empty squares so that odd-parity quadrants are searched first.
 #[inline(always)]
 fn sort_last4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
     let (sq1, quad_id1) = ctx.empty_list.first_and_quad_id();
@@ -937,17 +817,6 @@ fn sort_last4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
 }
 
 /// Specialized solver for positions with exactly 4 empty squares.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Score threshold.
-/// * `sq1..sq4` - Four empty squares in search order.
-///
-/// # Returns
-///
-/// Best score with perfect play.
 fn solve4(
     ctx: &mut SearchContext,
     board: &Board,
@@ -1001,17 +870,6 @@ fn solve4(
 }
 
 /// Specialized solver for positions with exactly 3 empty squares.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Score threshold.
-/// * `sq1..sq3` - Three empty squares.
-///
-/// # Returns
-///
-/// Best score with perfect play.
 fn solve3(
     ctx: &mut SearchContext,
     board: &Board,
@@ -1082,17 +940,6 @@ fn solve3(
 }
 
 /// Specialized solver for positions with exactly 2 empty squares.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `alpha` - Score threshold.
-/// * `sq1, sq2` - Two empty squares.
-///
-/// # Returns
-///
-/// Exact score with perfect play.
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
     let player = board.player;
@@ -1164,23 +1011,9 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     board.solve(2)
 }
 
-/// Specialized solver for positions with exactly 1 empty square.
+/// Specialized branchless solver for positions with exactly 1 empty square.
 ///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `player` - Current player's bitboard.
-/// * `alpha` - Score threshold (unused in branchless version).
-/// * `sq` - Last empty square.
-///
-/// # Returns
-///
-/// Exact final score after optimal play.
-///
-/// # References
-///
-/// Branchless optimization based on:
-/// <https://eukaryote.hateblo.jp/entry/2020/05/10/033228>
+/// Reference: <https://eukaryote.hateblo.jp/entry/2020/05/10/033228>
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, player: Bitboard, _alpha: Score, sq: Square) -> Score {

@@ -8,10 +8,10 @@ use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
 
-/// Represents the state of a Reversi game.
+/// Manages the state of a Reversi game.
 ///
-/// This is a core game state manager that handles move execution,
-/// automatic passing, move history tracking, and undo functionality.
+/// Handles move execution, automatic passing, move history tracking,
+/// and undo functionality.
 #[derive(Clone, Debug)]
 pub struct GameState {
     /// The current board position.
@@ -30,14 +30,7 @@ impl Default for GameState {
 }
 
 impl GameState {
-    /// Creates a new game in the initial position.
-    ///
-    /// The initial position has 4 discs in the center (2 black, 2 white)
-    /// with Black to move first, following standard Reversi rules.
-    ///
-    /// # Returns
-    ///
-    /// A new `GameState` in the starting position.
+    /// Creates a new game in the standard initial position with Black to move.
     pub fn new() -> Self {
         Self {
             board: Board::new(),
@@ -46,19 +39,7 @@ impl GameState {
         }
     }
 
-    /// Creates a new game state from an existing board position.
-    ///
-    /// This is useful for setting up specific positions for analysis
-    /// or continuing a game from a saved state.
-    ///
-    /// # Arguments
-    ///
-    /// * `board` - The board position to start from
-    /// * `side_to_move` - Which player moves next
-    ///
-    /// # Returns
-    ///
-    /// A new `GameState` with the specified position.
+    /// Creates a new game state from an existing [`Board`] position.
     pub fn from_board(board: Board, side_to_move: Disc) -> Self {
         Self {
             board,
@@ -67,40 +48,23 @@ impl GameState {
         }
     }
 
-    /// Returns a reference to the current board position.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the `Board`
+    /// Returns a reference to the current [`Board`] position.
     pub fn board(&self) -> &Board {
         &self.board
     }
 
-    /// Returns which player's turn it is to move.
-    ///
-    /// # Returns
-    ///
-    /// The `Disc` representing the current player (Black or White)
+    /// Returns the current side to move.
     pub fn side_to_move(&self) -> Disc {
         self.side_to_move
     }
 
     /// Executes a move and updates the game state.
     ///
-    /// This method handles regular moves and automatically manages passing
-    /// when the opponent has no legal moves after the move is made.
-    ///
-    /// # Arguments
-    ///
-    /// * `sq` - The square to place a disc on
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the move was successfully executed.
+    /// Also automatically passes for the opponent if they have no legal moves.
     ///
     /// # Errors
     ///
-    /// Returns an error string if the move is not legal on the current board.
+    /// Returns an error if `sq` is not a legal move on the current board.
     pub fn make_move(&mut self, sq: Square) -> Result<(), String> {
         if !self.board.is_legal_move(sq) {
             return Err(format!("Illegal move: {sq:?}"));
@@ -120,15 +84,11 @@ impl GameState {
         Ok(())
     }
 
-    /// Executes a pass move (switching players without placing a disc).
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the pass was successfully executed.
+    /// Executes a pass move (switches players without placing a disc).
     ///
     /// # Errors
     ///
-    /// Returns an error string if attempting to pass when legal moves are available.
+    /// Returns an error if the current player has legal moves available.
     pub fn make_pass(&mut self) -> Result<(), String> {
         if self.board.has_legal_moves() {
             return Err("Cannot pass when legal moves are available".to_string());
@@ -138,7 +98,7 @@ impl GameState {
         Ok(())
     }
 
-    /// Internal method to handle a pass move.
+    /// Records a pass in history and switches the side to move.
     fn handle_pass(&mut self) {
         // Record pass in history
         self.history.push((None, self.board, self.side_to_move));
@@ -147,14 +107,10 @@ impl GameState {
         self.side_to_move = self.side_to_move.opposite();
     }
 
-    /// Checks if the game has ended.
+    /// Returns whether the game has ended.
     ///
-    /// A game ends when both players pass consecutively (neither player has
+    /// A game ends when both players pass consecutively (neither has
     /// legal moves) or when the board is completely filled.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the game is over, `false` otherwise
     pub fn is_game_over(&self) -> bool {
         // Check if the last move was a pass and current player has no legal moves
         // (meaning both players passed consecutively)
@@ -167,12 +123,7 @@ impl GameState {
         self.board.get_empty_count() == 0
     }
 
-    /// Returns the disc count for both players.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(black_count, white_count)` representing the number of
-    /// discs each player has on the board.
+    /// Returns the disc count as `(black_count, white_count)`.
     pub fn get_score(&self) -> (u32, u32) {
         let (black_count, white_count) = if self.side_to_move == Disc::Black {
             (
@@ -189,34 +140,24 @@ impl GameState {
         (black_count, white_count)
     }
 
-    /// Returns the last move played.
-    ///
-    /// # Returns
-    ///
-    /// `Some(Square)` if a regular move was played, `None` if the last move was a pass
-    /// or if no moves have been played yet
+    /// Returns the last move played, or [`None`] if the last move was a pass
+    /// or no moves have been played yet.
     pub fn last_move(&self) -> Option<Square> {
         self.history.last().and_then(|(sq, _, _)| *sq)
     }
 
     /// Returns a reference to the move history.
     ///
-    /// # Returns
-    ///
-    /// A slice of tuples containing (move, board_before_move, side_to_move_before).
-    /// `None` for the move indicates a pass.
+    /// Each entry is `(move, board_before_move, side_to_move_before)`.
+    /// [`None`] for the move indicates a pass.
     pub fn move_history(&self) -> &[(Option<Square>, Board, Disc)] {
         &self.history
     }
 
-    /// Undoes the last move if possible.
+    /// Undoes the last move, returning `true` if successful.
     ///
-    /// This restores the game state to what it was before the last move,
-    /// including the board position and side to move.
-    ///
-    /// # Returns
-    ///
-    /// `true` if a move was successfully undone, `false` if there are no moves to undo
+    /// Restores the board position and side to move from the history.
+    /// Returns `false` if there are no moves to undo.
     pub fn undo(&mut self) -> bool {
         match self.history.pop() {
             Some((_, prev_board, prev_side)) => {

@@ -8,16 +8,19 @@ use crate::{
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use std::arch::x86_64::*;
 
-/// Clones a bias vector into a 64-byte aligned array.
+/// Returns the smallest multiple of `base` that is greater than or equal to `n`.
 ///
-/// # Type Parameters
+/// Used to pad neural network layer dimensions to SIMD-friendly boundaries.
+pub const fn ceil_to_multiple(n: usize, base: usize) -> usize {
+    n.div_ceil(base) * base
+}
+
+/// Clones a bias vector into a 64-byte-aligned array.
 ///
-/// * `T` - Bias element type (e.g., `i16`, `f32`).
-/// * `N` - Number of bias elements to copy.
+/// # Safety
 ///
-/// # Arguments
-///
-/// * `biases` - Slice of bias elements. Must have at least `N` elements.
+/// `biases` must have at least `N` elements. The function uses
+/// `copy_nonoverlapping` without bounds checking.
 #[inline(always)]
 pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
     let mut acc = std::mem::MaybeUninit::<Align64<[T; N]>>::uninit();
@@ -33,14 +36,10 @@ pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
 
 /// Computes the feature offset for a given pattern feature index.
 ///
-/// # Arguments
+/// # Safety
 ///
-/// * `pattern_feature` - Pattern features from the board.
-/// * `idx` - Pattern feature index. Must be less than `NUM_PATTERN_FEATURES`.
-///
-/// # Returns
-///
-/// Feature offset.
+/// `idx` must be less than [`NUM_PATTERN_FEATURES`]. The function uses
+/// `get_unchecked` without bounds checking (debug builds assert this).
 #[inline(always)]
 pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
     debug_assert!(
@@ -53,7 +52,7 @@ pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
         + unsafe { pattern_feature.get_unchecked(idx) } as usize
 }
 
-/// Multiply signed 16-bit lanes by signed 16-bit lanes and accumulate into 32-bit results.
+/// Multiplies signed 16-bit lanes by signed 16-bit lanes and accumulates into 32-bit results.
 /// Matches the semantics of `VPDPWSSD`, using a portable fallback when VNNI is unavailable.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 #[target_feature(enable = "avx512bw")]
@@ -68,7 +67,7 @@ pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
     }
 }
 
-/// Multiply signed 16-bit lanes by signed 16-bit lanes and accumulate into 32-bit results.
+/// Multiplies signed 16-bit lanes by signed 16-bit lanes and accumulates into 32-bit results.
 /// Matches the semantics of `VPDPWSSD`, using a portable fallback when VNNI is unavailable.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
@@ -83,7 +82,7 @@ pub fn mm256_dpwssd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
     }
 }
 
-/// Multiply unsigned 8-bit lanes by signed 8-bit lanes and accumulate into 32-bit results.
+/// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
 /// Emulates `VPDPBUSD`, expanding to a VNNI-free sequence when the instruction is missing.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 #[target_feature(enable = "avx512bw")]
@@ -105,7 +104,7 @@ pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
     }
 }
 
-/// Multiply unsigned 8-bit lanes by signed 8-bit lanes and accumulate into 32-bit results.
+/// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
 /// Emulates `VPDPBUSD`, expanding to a VNNI-free sequence when the instruction is missing.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
@@ -127,7 +126,7 @@ pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
     }
 }
 
-/// Horizontal add of all 32-bit lanes in a 256-bit vector.
+/// Horizontally adds all 32-bit lanes in a 256-bit vector.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]

@@ -8,12 +8,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crate::constants::CACHE_LINE_SIZE;
 
 /// Output layer with 16-bit weights for computing a single scalar output.
-///
-/// # Type Parameters
-///
-/// * `INPUT_DIMS` - The actual number of input dimensions
-/// * `PADDED_INPUT_DIMS` - The padded dimension count for SIMD alignment (must be >= INPUT_DIMS
-///   and a multiple of 32)
 pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> {
     /// Bias term for the output neuron.
     bias: i32,
@@ -48,7 +42,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     /// Selection priority (highest to lowest):
     /// 1. AVX-512 with VNNI (if compiled with `target-feature=+avx512bw` and CPU supports VNNI)
     /// 2. AVX-512 without VNNI (if compiled with `target-feature=+avx512bw`)
-    /// 3. AVX2 with VNNI (if compiled with `target-feature=+avx2` and CPU supports AVXVNNI)
+    /// 3. AVX2 with VNNI (if compiled with `target-feature=+avx2` and CPU supports `avxvnni`)
     /// 4. AVX2 without VNNI (if compiled with `target-feature=+avx2`)
     /// 5. Scalar fallback (all other cases)
     fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 3]) -> i32 {
@@ -85,9 +79,15 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
 
     /// Computes the weighted sum of 8-bit inputs with 16-bit weights, plus the bias term.
     ///
-    /// # Arguments
+    /// # Preconditions
     ///
-    /// * `segments` - Three input segments `[l2_output, base_output, pa_output]`.
+    /// - The sum of all segment lengths must equal `INPUT_DIMS`.
+    /// - On AVX-512 builds (`target-feature=+avx512bw`), each non-empty segment must:
+    ///   - have length as a multiple of 32, and
+    ///   - start at a 32-byte aligned address.
+    /// - On AVX2 builds (`target-feature=+avx2`), each non-empty segment must:
+    ///   - have length as a multiple of 16, and
+    ///   - start at a 16-byte aligned address.
     #[inline(always)]
     pub fn forward(&self, segments: [&[u8]; 3]) -> i32 {
         debug_assert_eq!(

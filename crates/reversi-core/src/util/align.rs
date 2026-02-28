@@ -1,4 +1,4 @@
-//! 64-byte aligned wrapper for SIMD and cache optimization.
+//! 64-byte-aligned wrapper for SIMD and cache-line optimization.
 
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
