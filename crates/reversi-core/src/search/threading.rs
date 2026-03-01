@@ -16,6 +16,7 @@ use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::EvalMode;
+use crate::eval::pattern_feature::PatternFeature;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
@@ -203,6 +204,12 @@ pub struct SplitPointTask {
 
     /// List of empty squares for move generation optimization.
     pub empty_list: EmptyList,
+
+    /// Pre-computed player pattern feature at the split point ply.
+    pub p_feature: PatternFeature,
+
+    /// Pre-computed opponent pattern feature at the split point ply.
+    pub o_feature: PatternFeature,
 }
 
 /// A split point in the parallel search tree.
@@ -534,6 +541,7 @@ impl Thread {
         sp_state.beta = beta;
         sp_state.node_type = node_type;
         sp_state.move_iter = Some(move_iter.clone());
+        let ply = ctx.ply();
         sp_state.task = Some(SplitPointTask {
             board: *board,
             side_to_move: ctx.side_to_move,
@@ -543,6 +551,8 @@ impl Thread {
             eval: ctx.eval.clone(),
             eval_mode: ctx.eval_mode,
             empty_list: ctx.empty_list.clone(),
+            p_feature: *ctx.pattern_features.p_feature(ply),
+            o_feature: *ctx.pattern_features.o_feature(ply),
         });
         sp_state.n_nodes.store(0, Ordering::Relaxed);
         sp_state.set_cutoff(false);

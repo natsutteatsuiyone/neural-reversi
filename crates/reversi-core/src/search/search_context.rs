@@ -81,11 +81,8 @@ impl SearchContext {
         let task = state.task.as_ref().unwrap();
         let empty_list = task.empty_list.clone();
         let ply = empty_list.ply();
-        let pattern_features = if task.side_to_move == SideToMove::Player {
-            PatternFeatures::new(&task.board, ply)
-        } else {
-            PatternFeatures::new(&task.board.switch_players(), ply)
-        };
+        let pattern_features =
+            PatternFeatures::from_features(ply, &task.p_feature, &task.o_feature);
         SearchContext {
             n_nodes: 0,
             side_to_move: task.side_to_move,

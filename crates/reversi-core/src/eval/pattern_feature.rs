@@ -349,6 +349,16 @@ pub struct PatternFeatures {
 }
 
 impl PatternFeatures {
+    /// Creates an uninitialized `PatternFeatures` container.
+    ///
+    /// Callers must initialize the relevant ply slots before reading them.
+    fn uninit() -> Self {
+        PatternFeatures {
+            p_features: [const { MaybeUninit::uninit() }; MAX_PLY],
+            o_features: [const { MaybeUninit::uninit() }; MAX_PLY],
+        }
+    }
+
     /// Returns a reference to the player's pattern feature at the given ply.
     #[inline(always)]
     pub fn p_feature(&self, ply: usize) -> &PatternFeature {
@@ -363,14 +373,27 @@ impl PatternFeatures {
         unsafe { self.o_features.get_unchecked(ply).assume_init_ref() }
     }
 
+    /// Creates pattern features by copying pre-computed features at the given ply.
+    ///
+    /// This avoids the full board scan of [`PatternFeatures::new`] by reusing
+    /// features that were already computed (e.g., from the split point owner's context).
+    pub fn from_features(
+        ply: usize,
+        p_feature: &PatternFeature,
+        o_feature: &PatternFeature,
+    ) -> Self {
+        debug_assert!(ply < MAX_PLY);
+        let mut pf = Self::uninit();
+        pf.p_features[ply] = MaybeUninit::new(*p_feature);
+        pf.o_features[ply] = MaybeUninit::new(*o_feature);
+        pf
+    }
+
     /// Creates new pattern features from the given board position.
     pub fn new(board: &Board, ply: usize) -> Self {
         debug_assert!(ply < MAX_PLY);
 
-        let mut pattern_features = PatternFeatures {
-            p_features: [const { MaybeUninit::uninit() }; MAX_PLY],
-            o_features: [const { MaybeUninit::uninit() }; MAX_PLY],
-        };
+        let mut pattern_features = Self::uninit();
 
         pattern_features.p_features[ply] = MaybeUninit::new(PatternFeature::new());
         pattern_features.o_features[ply] = MaybeUninit::new(PatternFeature::new());
