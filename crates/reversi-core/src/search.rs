@@ -532,7 +532,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         ctx.undo(mv.sq);
 
         // Abort check
-        if thread.is_search_aborted() || thread.cutoff_occurred() {
+        if thread.cutoff_occurred() || thread.is_search_aborted() {
             return ScaledScore::ZERO;
         }
 
@@ -578,7 +578,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             best_move = m;
             ctx.n_nodes += n;
 
-            if thread.is_search_aborted() || thread.cutoff_occurred() {
+            if thread.cutoff_occurred() || thread.is_search_aborted() {
                 return ScaledScore::ZERO;
             }
 
@@ -651,7 +651,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         split_point.lock();
 
         // Abort check
-        if thread.is_search_aborted() || thread.cutoff_occurred() {
+        if thread.cutoff_occurred() || thread.is_search_aborted() {
             return ScaledScore::ZERO;
         }
 

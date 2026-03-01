@@ -427,13 +427,22 @@ impl Thread {
     /// Checks whether a beta cutoff has occurred in the current or ancestor split points.
     #[inline]
     pub fn cutoff_occurred(&self) -> bool {
-        let mut current_sp = self.state().active_split_point.as_ref();
-        while let Some(sp) = current_sp {
+        let Some(sp) = self.state().active_split_point.as_ref() else {
+            return false;
+        };
+        self.cutoff_occurred_slow(sp)
+    }
+
+    /// Walks the split point ancestor chain checking for cutoffs.
+    #[cold]
+    fn cutoff_occurred_slow(&self, sp: &Arc<SplitPoint>) -> bool {
+        let mut current = Some(sp);
+        while let Some(sp) = current {
             let sp_state = sp.state();
             if sp_state.cutoff() {
                 return true;
             }
-            current_sp = sp_state.parent_split_point.as_ref();
+            current = sp_state.parent_split_point.as_ref();
         }
         false
     }
