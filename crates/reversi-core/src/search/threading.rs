@@ -816,7 +816,8 @@ impl Thread {
             let sp = &th.state().split_points[size - 1];
             let sp_state = sp.state();
 
-            if sp_state.helpers_mask.count() >= MAX_HELPERS_PER_SPLITPOINT
+            if sp_state.cutoff()
+                || sp_state.helpers_mask.count() >= MAX_HELPERS_PER_SPLITPOINT
                 || !sp_state.all_helpers_searching()
                 || !self.can_join(sp)
             {
@@ -847,7 +848,8 @@ impl Thread {
         sp.lock();
 
         let sp_state = sp.state_mut();
-        if sp_state.all_helpers_searching()
+        if !sp_state.cutoff()
+            && sp_state.all_helpers_searching()
             && sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT
         {
             self.lock();
