@@ -311,6 +311,12 @@ pub struct Thread {
     /// Weak reference to the thread pool this thread belongs to.
     pool: Weak<ThreadPool>,
 
+    /// Shared abort flag, cached to avoid `Weak::upgrade()` on every node.
+    abort_flag: Arc<AtomicBool>,
+
+    /// Cached pool size, avoids `Weak::upgrade()` in `can_split()`.
+    pool_size: usize,
+
     /// Shared flag indicating if the engine is thinking.
     thinking: Arc<AtomicBool>,
 
@@ -331,7 +337,13 @@ unsafe impl Sync for Thread {}
 
 impl Thread {
     /// Creates a new thread with the given index.
-    fn new(idx: usize, thinking: Arc<AtomicBool>, pool: Weak<ThreadPool>) -> Thread {
+    fn new(
+        idx: usize,
+        thinking: Arc<AtomicBool>,
+        abort_flag: Arc<AtomicBool>,
+        pool_size: usize,
+        pool: Weak<ThreadPool>,
+    ) -> Thread {
         let split_points = std::array::from_fn(|_| Arc::new(SplitPoint::default()));
 
         Thread {
@@ -340,6 +352,8 @@ impl Thread {
             sleep_condition: std::sync::Condvar::new(),
             idx,
             pool,
+            abort_flag,
+            pool_size,
             thinking,
             state: UnsafeCell::new(ThreadState {
                 active_split_point: None,
@@ -372,7 +386,7 @@ impl Thread {
     ///    - Not all helpers are searching (room for more), OR
     ///    - We can steal helpers from the current split point
     pub fn can_split(&self) -> bool {
-        let thread_pool_size = self.pool.upgrade().map_or(1, |p| p.size) as u32;
+        let thread_pool_size = self.pool_size as u32;
         if thread_pool_size <= 1 {
             return false;
         }
@@ -841,8 +855,9 @@ impl Thread {
         sp.unlock();
     }
 
+    #[inline]
     pub fn is_search_aborted(&self) -> bool {
-        self.pool.upgrade().is_some_and(|pool| pool.is_aborted())
+        self.abort_flag.load(Ordering::Acquire)
     }
 }
 
@@ -918,7 +933,13 @@ impl ThreadPool {
 
     /// Creates and starts the main thread that handles control messages.
     fn create_main_thread(&mut self, pool: &std::sync::Weak<ThreadPool>) {
-        let main_thread = Arc::new(Thread::new(0, self.thinking.clone(), pool.clone()));
+        let main_thread = Arc::new(Thread::new(
+            0,
+            self.thinking.clone(),
+            self.abort_flag.clone(),
+            self.size,
+            pool.clone(),
+        ));
         let main_thread_clone = main_thread.clone();
         let receiver_clone = self.receiver.clone();
 
@@ -931,7 +952,13 @@ impl ThreadPool {
     /// Creates and starts worker threads that wait in idle loops.
     fn create_worker_threads(&mut self, pool: &std::sync::Weak<ThreadPool>) {
         for i in 1..self.size {
-            let thread = Arc::new(Thread::new(i, self.thinking.clone(), pool.clone()));
+            let thread = Arc::new(Thread::new(
+                i,
+                self.thinking.clone(),
+                self.abort_flag.clone(),
+                self.size,
+                pool.clone(),
+            ));
             let thread_clone = thread.clone();
 
             let handle = std::thread::spawn(move || thread_clone.idle_loop());
