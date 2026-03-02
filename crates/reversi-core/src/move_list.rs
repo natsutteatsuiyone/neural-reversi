@@ -112,6 +112,14 @@ impl MoveList {
         self.moves.first()
     }
 
+    /// Returns the move at the given index by value.
+    #[inline(always)]
+    pub fn get_move(&self, index: usize) -> Move {
+        debug_assert!(index < self.moves.len());
+        // SAFETY: caller ensures index < count (guarded by loop bound in search hot path)
+        unsafe { *self.moves.get_unchecked(index) }
+    }
+
     /// Returns an iterator over all moves in the list.
     ///
     /// The moves are returned in their current order, which may be the generation
@@ -392,9 +400,18 @@ pub struct ConcurrentMoveIterator {
 impl ConcurrentMoveIterator {
     /// Creates a new concurrent iterator from a move list.
     pub fn new(move_list: MoveList) -> ConcurrentMoveIterator {
+        Self::from_offset(move_list, 0)
+    }
+
+    /// Creates a concurrent iterator starting from the given offset.
+    ///
+    /// Moves before `start` are skipped. The `next()` method returns 1-based
+    /// indices relative to the original list, so helpers at a split point
+    /// correctly see `move_count > 1`.
+    pub fn from_offset(move_list: MoveList, start: usize) -> ConcurrentMoveIterator {
         ConcurrentMoveIterator {
             move_list,
-            current: atomic::AtomicUsize::new(0),
+            current: atomic::AtomicUsize::new(start),
         }
     }
 
@@ -745,5 +762,59 @@ mod tests {
 
         // Verify no more moves
         assert!(concurrent_iter.next().is_none());
+    }
+
+    #[test]
+    fn test_get_move() {
+        let board = Board::new();
+        let move_list = MoveList::new(&board);
+
+        // get_move should return the same move as iter
+        let moves_from_iter: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+        for (i, expected_sq) in moves_from_iter.iter().enumerate() {
+            assert_eq!(move_list.get_move(i).sq, *expected_sq);
+        }
+    }
+
+    #[test]
+    fn test_concurrent_move_iterator_from_offset() {
+        let board = Board::new();
+        let move_list = MoveList::new(&board);
+        let all_moves: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+
+        // Create iterator starting from offset 2 (skip first 2 moves)
+        let concurrent_iter = ConcurrentMoveIterator::from_offset(move_list, 2);
+
+        assert_eq!(concurrent_iter.remaining(), 2);
+
+        // First next() should return move at index 2 with move_count 3
+        let (mv1, idx1) = concurrent_iter.next().unwrap();
+        assert_eq!(mv1.sq, all_moves[2]);
+        assert_eq!(idx1, 3); // 1-based: offset(2) + 1
+
+        // Second next() should return move at index 3 with move_count 4
+        let (mv2, idx2) = concurrent_iter.next().unwrap();
+        assert_eq!(mv2.sq, all_moves[3]);
+        assert_eq!(idx2, 4);
+
+        // No more moves
+        assert!(concurrent_iter.next().is_none());
+        assert_eq!(concurrent_iter.remaining(), 0);
+    }
+
+    #[test]
+    fn test_concurrent_move_iterator_from_offset_zero() {
+        let board = Board::new();
+        let move_list = MoveList::new(&board);
+
+        // Offset 0 should behave identically to new()
+        let concurrent_iter = ConcurrentMoveIterator::from_offset(move_list, 0);
+        assert_eq!(concurrent_iter.remaining(), 4);
+
+        let mut count = 0;
+        while concurrent_iter.next().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 4);
     }
 }

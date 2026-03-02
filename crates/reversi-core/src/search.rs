@@ -501,12 +501,16 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         move_list.sort();
     }
 
-    let move_iter = Arc::new(ConcurrentMoveIterator::new(move_list));
+    let n_moves = move_list.count();
     let mut best_move = Square::None;
     let mut best_score = -ScaledScore::INF;
+    let mut move_count: usize = 0;
 
     // Main move loop
-    while let Some((mv, move_count)) = move_iter.next() {
+    while move_count < n_moves {
+        let mv = move_list.get_move(move_count);
+        move_count += 1;
+
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
@@ -561,7 +565,8 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
 
         // Parallel search split
-        if depth >= SS::MIN_SPLIT_DEPTH && move_iter.remaining() >= 2 && thread.can_split() {
+        if depth >= SS::MIN_SPLIT_DEPTH && (n_moves - move_count) >= 2 && thread.can_split() {
+            let move_iter = Arc::new(ConcurrentMoveIterator::from_offset(move_list, move_count));
             let (s, m, n) = thread.split(
                 ctx,
                 board,
@@ -582,9 +587,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 return ScaledScore::ZERO;
             }
 
-            if best_score >= beta {
-                break;
-            }
+            break; // Split consumed all remaining moves
         }
     }
 
