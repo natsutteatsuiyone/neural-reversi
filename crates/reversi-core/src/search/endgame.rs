@@ -42,7 +42,7 @@ const SELECTIVITY_SEQUENCE: [Selectivity; 6] = [
 ];
 
 /// Depth threshold for switching to null window search in endgame.
-pub const DEPTH_TO_NWS: Depth = 13;
+pub const DEPTH_TO_NWS: Depth = 12;
 
 /// Depth threshold for endgame cache null window search.
 const DEPTH_TO_NWS_EC: Depth = 11;
