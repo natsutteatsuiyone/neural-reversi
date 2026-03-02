@@ -11,6 +11,7 @@ pub mod options;
 pub mod root_move;
 pub mod search_context;
 pub mod search_result;
+pub mod search_stack;
 pub mod search_strategy;
 pub mod side_to_move;
 pub mod threading;

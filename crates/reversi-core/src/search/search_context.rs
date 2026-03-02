@@ -11,18 +11,14 @@ use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
 use crate::search::root_move::{RootMove, RootMoves};
+use crate::search::search_stack::SearchStack;
 use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::ScaledScore;
 
-/// A record stored for each ply in the search stack.
-#[derive(Clone, Copy)]
-pub struct StackRecord {
-    /// Principal variation line from this ply to the end of search.
-    pub pv: [Square; MAX_PLY],
-}
+pub use crate::search::search_stack::StackRecord;
 
 /// The search context that maintains all state during search operations.
 pub struct SearchContext {
@@ -43,7 +39,7 @@ pub struct SearchContext {
     /// Pattern features for efficient neural network input
     pub pattern_features: PatternFeatures,
     /// Search stack for maintaining PV and search state at each ply
-    stack: [StackRecord; MAX_PLY],
+    pub stack: SearchStack,
     /// Current evaluation mode (midgame vs endgame).
     pub eval_mode: EvalMode,
 }
@@ -67,9 +63,7 @@ impl SearchContext {
             root_moves: RootMoves::new(board),
             eval,
             pattern_features: PatternFeatures::new(board, ply),
-            stack: [StackRecord {
-                pv: [Square::None; MAX_PLY],
-            }; MAX_PLY],
+            stack: SearchStack::new(),
             eval_mode: EvalMode::Main,
         }
     }
@@ -92,9 +86,7 @@ impl SearchContext {
             root_moves: task.root_moves.clone(),
             eval: task.eval.clone(),
             pattern_features,
-            stack: [StackRecord {
-                pv: [Square::None; MAX_PLY],
-            }; MAX_PLY],
+            stack: SearchStack::new(),
             eval_mode: task.eval_mode,
         }
     }
@@ -187,7 +179,7 @@ impl SearchContext {
             self.update_pv(sq);
         }
 
-        let pv = self.stack[self.ply()].pv;
+        let pv = *self.stack.get_pv(self.ply());
         self.root_moves.update(sq, score, move_count, alpha, &pv);
     }
 
@@ -234,33 +226,27 @@ impl SearchContext {
     }
 
     /// Updates the principal variation at the current ply.
+    #[inline]
     pub fn update_pv(&mut self, sq: Square) {
-        let ply = self.ply();
-        self.stack[ply].pv[0] = sq;
-        if ply == 0 {
-            return;
-        }
-        let mut idx = 0;
-        while idx < self.stack[ply + 1].pv.len() && self.stack[ply + 1].pv[idx] != Square::None {
-            self.stack[ply].pv[idx + 1] = self.stack[ply + 1].pv[idx];
-            idx += 1;
-        }
-        self.stack[ply].pv[idx + 1] = Square::None;
+        self.stack.update_pv(sq, self.ply());
     }
 
     /// Clears the principal variation at the current ply.
+    #[inline]
     pub fn clear_pv(&mut self) {
-        self.stack[self.ply()].pv.fill(Square::None);
+        self.stack.clear_pv(self.ply());
     }
 
     /// Returns the principal variation at the current ply.
+    #[inline]
     pub fn get_pv(&self) -> &[Square; MAX_PLY] {
-        &self.stack[self.ply()].pv
+        self.stack.get_pv(self.ply())
     }
 
     /// Sets the principal variation at the current ply.
+    #[inline]
     pub fn set_pv(&mut self, pv: &[Square; MAX_PLY]) {
-        self.stack[self.ply()].pv.copy_from_slice(pv);
+        self.stack.set_pv(self.ply(), pv);
     }
 
     /// Returns the number of root moves available from the current position.
