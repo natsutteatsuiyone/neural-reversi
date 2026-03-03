@@ -526,13 +526,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     let mut best_score = -SCORE_INF;
     if tt_move != Square::None && moves.contains(tt_move) {
         let next = board.make_move(tt_move);
-        ctx.update_endgame(tt_move);
-        let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-            -shallow_search(ctx, &next, -beta)
-        } else {
-            -null_window_search_with_ec(ctx, &next, -beta)
-        };
-        ctx.undo_endgame(tt_move);
+        let score = search_move_nws_ec(ctx, &next, tt_move, beta);
 
         moves = moves.remove(tt_move);
         if score >= beta || moves.is_empty() {
@@ -553,13 +547,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         move_list.evaluate_moves_fast(ctx, board, Square::None);
         for mv in move_list.into_best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update_endgame(mv.sq);
-            let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-                -shallow_search(ctx, &next, -beta)
-            } else {
-                -null_window_search_with_ec(ctx, &next, -beta)
-            };
-            ctx.undo_endgame(mv.sq);
+            let score = search_move_nws_ec(ctx, &next, mv.sq, beta);
 
             if score > best_score {
                 best_score = score;
@@ -574,13 +562,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         move_list.sort();
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update_endgame(mv.sq);
-            let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-                -shallow_search(ctx, &next, -beta)
-            } else {
-                -null_window_search_with_ec(ctx, &next, -beta)
-            };
-            ctx.undo_endgame(mv.sq);
+            let score = search_move_nws_ec(ctx, &next, mv.sq, beta);
 
             if score > best_score {
                 best_score = score;
@@ -592,19 +574,26 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         }
     } else if let Some(mv) = move_list.first() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update_endgame(mv.sq);
-        best_score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-            -shallow_search(ctx, &next, -beta)
-        } else {
-            -null_window_search_with_ec(ctx, &next, -beta)
-        };
-        ctx.undo_endgame(mv.sq);
+        best_score = search_move_nws_ec(ctx, &next, mv.sq, beta);
         best_move = mv.sq;
     }
 
     store_endgame_cache(key, beta, best_score, best_move);
 
     best_score
+}
+
+/// Searches a move with null window, dispatching to shallow or EC search based on depth.
+#[inline(always)]
+fn search_move_nws_ec(ctx: &mut SearchContext, next: &Board, sq: Square, beta: Score) -> Score {
+    ctx.update_endgame(sq);
+    let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
+        -shallow_search(ctx, next, -beta)
+    } else {
+        -null_window_search_with_ec(ctx, next, -beta)
+    };
+    ctx.undo_endgame(sq);
+    score
 }
 
 /// Null window search for shallow endgame positions (≤[`DEPTH_TO_SHALLOW_SEARCH`] empties).
