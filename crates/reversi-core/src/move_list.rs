@@ -360,18 +360,8 @@ impl MoveList {
 
 #[inline(always)]
 fn cas(moves: &mut [Move], i: usize, j: usize) {
-    debug_assert!(i < moves.len());
-    debug_assert!(j < moves.len());
-
-    unsafe {
-        let base_ptr = moves.as_mut_ptr();
-
-        let ptr_i = base_ptr.add(i);
-        let ptr_j = base_ptr.add(j);
-
-        if (*ptr_i).value < (*ptr_j).value {
-            std::ptr::swap(ptr_i, ptr_j);
-        }
+    if moves[i].value < moves[j].value {
+        moves.swap(i, j);
     }
 }
 
