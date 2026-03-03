@@ -11,7 +11,7 @@ use crate::bitboard::Bitboard;
 /// and ranks (rows) are labeled 1-8. The board is indexed as follows:
 ///
 /// ```text
-///   A B C D E F G H
+///   A  B  C  D  E  F  G  H
 /// 1 00 01 02 03 04 05 06 07
 /// 2 08 09 10 11 12 13 14 15
 /// 3 16 17 18 19 20 21 22 23
@@ -107,11 +107,7 @@ impl Square {
     /// Panics in debug mode if `index` > 64.
     #[inline]
     pub fn from_u32_unchecked(index: u32) -> Square {
-        debug_assert!(
-            index <= 64,
-            "Index out of bounds for Square enum. index: {index:?}"
-        );
-        unsafe { std::mem::transmute(index as u8) }
+        Self::from_u8_unchecked(index as u8)
     }
 
     /// Safely converts a `u32` index to a [`Square`].
@@ -121,7 +117,7 @@ impl Square {
     #[inline]
     pub fn from_u32(index: u32) -> Option<Square> {
         if index <= 64 {
-            Some(Square::from_u32_unchecked(index))
+            Some(Self::from_u8_unchecked(index as u8))
         } else {
             None
         }
@@ -136,11 +132,7 @@ impl Square {
     /// Panics in debug mode if `index` > 64.
     #[inline]
     pub fn from_usize_unchecked(index: usize) -> Square {
-        debug_assert!(
-            index <= 64,
-            "Index out of bounds for Square enum. index: {index:?}"
-        );
-        unsafe { std::mem::transmute(index as u8) }
+        Self::from_u8_unchecked(index as u8)
     }
 
     /// Safely converts a `usize` index to a [`Square`].
@@ -150,7 +142,7 @@ impl Square {
     #[inline]
     pub fn from_usize(index: usize) -> Option<Square> {
         if index <= 64 {
-            Some(Square::from_usize_unchecked(index))
+            Some(Self::from_u8_unchecked(index as u8))
         } else {
             None
         }
@@ -235,9 +227,6 @@ impl fmt::Display for SquareError {
 
 impl std::error::Error for SquareError {}
 
-/// Alias for the old error type name for backward compatibility.
-pub type ParseSquareError = SquareError;
-
 impl FromStr for Square {
     type Err = SquareError;
 
@@ -255,23 +244,19 @@ impl FromStr for Square {
             return Err(SquareError::InvalidFormat);
         }
 
-        let chars: Vec<char> = s.chars().collect();
-        let file_char = chars[0].to_ascii_lowercase();
-        let rank_char = chars[1];
+        let bytes = s.as_bytes();
+        let file_char = bytes[0].to_ascii_lowercase();
+        let rank_char = bytes[1];
 
-        if !('a'..='h').contains(&file_char) {
-            return Err(SquareError::InvalidFile(chars[0]));
+        if !(b'a'..=b'h').contains(&file_char) {
+            return Err(SquareError::InvalidFile(bytes[0] as char));
         }
 
-        if !('1'..='8').contains(&rank_char) {
-            return Err(SquareError::InvalidRank(rank_char));
+        if !(b'1'..=b'8').contains(&rank_char) {
+            return Err(SquareError::InvalidRank(rank_char as char));
         }
 
-        let file = file_char as u8 - b'a';
-        let rank = rank_char as u8 - b'1';
-        Ok(Square::from_usize_unchecked(
-            rank as usize * BOARD_SIZE + file as usize,
-        ))
+        Ok(Square::from_file_rank(file_char - b'a', rank_char - b'1'))
     }
 }
 
@@ -281,8 +266,8 @@ impl fmt::Display for Square {
             return write!(f, "None");
         }
 
-        let file = ((*self as usize) % 8) as u8 + b'a';
-        let rank = ((*self as usize) / 8) as u8 + b'1';
+        let file = self.file() as u8 + b'a';
+        let rank = self.rank() as u8 + b'1';
 
         write!(f, "{}{}", file as char, rank as char)
     }
