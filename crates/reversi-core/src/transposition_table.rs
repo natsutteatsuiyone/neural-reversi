@@ -519,14 +519,16 @@ impl TranspositionTable {
         if hits != 0 {
             let tz = hits.trailing_zeros();
             let lane_idx = (tz / 8) as usize;
-            let entries_ptr = ptr as *const u64;
-            let raw_data = unsafe { *entries_ptr.add(lane_idx) };
+            let entry = unsafe { self.entries.get_unchecked(base + lane_idx) };
+            let raw_data = entry.data.load(Ordering::Relaxed);
             let tt_data = TTEntryData { raw: raw_data };
 
-            return TTProbeResult::Hit {
-                data: tt_data,
-                index: base + lane_idx,
-            };
+            if tt_data.key() == key22 {
+                return TTProbeResult::Hit {
+                    data: tt_data,
+                    index: base + lane_idx,
+                };
+            }
         }
 
         let depth_mask = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
