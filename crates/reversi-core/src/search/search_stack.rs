@@ -48,9 +48,12 @@ impl SearchStack {
     }
 
     /// Clears the principal variation at the given ply.
+    ///
+    /// Sets only the sentinel at position 0; all PV consumers stop at `Square::None`,
+    /// so a full fill is unnecessary.
     #[inline]
     pub fn clear_pv(&mut self, ply: usize) {
-        self.stack[ply].pv.fill(Square::None);
+        self.stack[ply].pv[0] = Square::None;
     }
 
     /// Returns the principal variation at the given ply.
@@ -118,13 +121,13 @@ mod tests {
     }
 
     #[test]
-    fn clear_pv_resets_to_none() {
+    fn clear_pv_sets_sentinel() {
         let mut stack = SearchStack::new();
         stack.update_pv(Square::D3, 0);
         assert_eq!(stack.get_pv(0)[0], Square::D3);
 
         stack.clear_pv(0);
-        assert!(stack.get_pv(0).iter().all(|&sq| sq == Square::None));
+        assert_eq!(stack.get_pv(0)[0], Square::None);
     }
 
     #[test]
