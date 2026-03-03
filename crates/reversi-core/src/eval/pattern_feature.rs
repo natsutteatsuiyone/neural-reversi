@@ -620,50 +620,50 @@ impl PatternFeatures {
             let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
             let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
 
-            match side_to_move {
-                SideToMove::Player => {
-                    let p_out0 = i16x8_sub(p_in0, twof_plus_sum_0);
-                    let p_out1 = i16x8_sub(p_in1, twof_plus_sum_1);
-                    let p_out2 = i16x8_sub(p_in2, twof_plus_sum_2);
-                    let p_out3 = i16x8_sub(p_in3, twof_plus_sum_3);
+            let (delta_p0, delta_p1, delta_p2, delta_p3, delta_o0, delta_o1, delta_o2, delta_o3) =
+                if side_to_move == SideToMove::Player {
+                    (
+                        twof_plus_sum_0,
+                        twof_plus_sum_1,
+                        twof_plus_sum_2,
+                        twof_plus_sum_3,
+                        f_minus_sum_0,
+                        f_minus_sum_1,
+                        f_minus_sum_2,
+                        f_minus_sum_3,
+                    )
+                } else {
+                    (
+                        f_minus_sum_0,
+                        f_minus_sum_1,
+                        f_minus_sum_2,
+                        f_minus_sum_3,
+                        twof_plus_sum_0,
+                        twof_plus_sum_1,
+                        twof_plus_sum_2,
+                        twof_plus_sum_3,
+                    )
+                };
 
-                    let o_out0 = i16x8_sub(o_in0, f_minus_sum_0);
-                    let o_out1 = i16x8_sub(o_in1, f_minus_sum_1);
-                    let o_out2 = i16x8_sub(o_in2, f_minus_sum_2);
-                    let o_out3 = i16x8_sub(o_in3, f_minus_sum_3);
+            let p_out0 = i16x8_sub(p_in0, delta_p0);
+            let p_out1 = i16x8_sub(p_in1, delta_p1);
+            let p_out2 = i16x8_sub(p_in2, delta_p2);
+            let p_out3 = i16x8_sub(p_in3, delta_p3);
 
-                    v128_store(p_out_ptr, p_out0);
-                    v128_store(p_out_ptr.add(1), p_out1);
-                    v128_store(p_out_ptr.add(2), p_out2);
-                    v128_store(p_out_ptr.add(3), p_out3);
+            let o_out0 = i16x8_sub(o_in0, delta_o0);
+            let o_out1 = i16x8_sub(o_in1, delta_o1);
+            let o_out2 = i16x8_sub(o_in2, delta_o2);
+            let o_out3 = i16x8_sub(o_in3, delta_o3);
 
-                    v128_store(o_out_ptr, o_out0);
-                    v128_store(o_out_ptr.add(1), o_out1);
-                    v128_store(o_out_ptr.add(2), o_out2);
-                    v128_store(o_out_ptr.add(3), o_out3);
-                }
-                SideToMove::Opponent => {
-                    let p_out0 = i16x8_sub(p_in0, f_minus_sum_0);
-                    let p_out1 = i16x8_sub(p_in1, f_minus_sum_1);
-                    let p_out2 = i16x8_sub(p_in2, f_minus_sum_2);
-                    let p_out3 = i16x8_sub(p_in3, f_minus_sum_3);
+            v128_store(p_out_ptr, p_out0);
+            v128_store(p_out_ptr.add(1), p_out1);
+            v128_store(p_out_ptr.add(2), p_out2);
+            v128_store(p_out_ptr.add(3), p_out3);
 
-                    let o_out0 = i16x8_sub(o_in0, twof_plus_sum_0);
-                    let o_out1 = i16x8_sub(o_in1, twof_plus_sum_1);
-                    let o_out2 = i16x8_sub(o_in2, twof_plus_sum_2);
-                    let o_out3 = i16x8_sub(o_in3, twof_plus_sum_3);
-
-                    v128_store(p_out_ptr, p_out0);
-                    v128_store(p_out_ptr.add(1), p_out1);
-                    v128_store(p_out_ptr.add(2), p_out2);
-                    v128_store(p_out_ptr.add(3), p_out3);
-
-                    v128_store(o_out_ptr, o_out0);
-                    v128_store(o_out_ptr.add(1), o_out1);
-                    v128_store(o_out_ptr.add(2), o_out2);
-                    v128_store(o_out_ptr.add(3), o_out3);
-                }
-            }
+            v128_store(o_out_ptr, o_out0);
+            v128_store(o_out_ptr.add(1), o_out1);
+            v128_store(o_out_ptr.add(2), o_out2);
+            v128_store(o_out_ptr.add(3), o_out3);
         }
     }
 
@@ -1139,60 +1139,44 @@ mod tests {
         }
     }
 
-    /// Helper to verify Player move update matches fresh computation (both p and o features)
-    fn assert_player_update_matches_fresh(
+    /// Helper to verify update matches fresh computation (both p and o features).
+    /// For Player moves, the board is switched so updated p/o map to fresh o/p.
+    /// For Opponent moves, p/o map directly.
+    fn assert_update_matches_fresh(
         pf: &PatternFeatures,
         pf_fresh: &PatternFeatures,
         ply: usize,
+        side_to_move: SideToMove,
         context: &str,
     ) {
         for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf.o_feature(ply + 1)[i],
-                pf_fresh.p_feature(ply + 1)[i],
-                "{}: o_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.o_feature(ply + 1)[i],
-                pf_fresh.p_feature(ply + 1)[i]
-            );
+            let (expected_p, expected_o) = match side_to_move {
+                SideToMove::Player => (
+                    pf_fresh.o_feature(ply + 1)[i],
+                    pf_fresh.p_feature(ply + 1)[i],
+                ),
+                SideToMove::Opponent => (
+                    pf_fresh.p_feature(ply + 1)[i],
+                    pf_fresh.o_feature(ply + 1)[i],
+                ),
+            };
             assert_eq!(
                 pf.p_feature(ply + 1)[i],
-                pf_fresh.o_feature(ply + 1)[i],
+                expected_p,
                 "{}: p_features[{}] mismatch: {} != {}",
                 context,
                 i,
                 pf.p_feature(ply + 1)[i],
-                pf_fresh.o_feature(ply + 1)[i]
-            );
-        }
-    }
-
-    /// Helper to verify Opponent move update matches fresh computation (both p and o features)
-    fn assert_opponent_update_matches_fresh(
-        pf: &PatternFeatures,
-        pf_fresh: &PatternFeatures,
-        ply: usize,
-        context: &str,
-    ) {
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf.p_feature(ply + 1)[i],
-                pf_fresh.p_feature(ply + 1)[i],
-                "{}: p_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.p_feature(ply + 1)[i],
-                pf_fresh.p_feature(ply + 1)[i]
+                expected_p
             );
             assert_eq!(
                 pf.o_feature(ply + 1)[i],
-                pf_fresh.o_feature(ply + 1)[i],
+                expected_o,
                 "{}: o_features[{}] mismatch: {} != {}",
                 context,
                 i,
                 pf.o_feature(ply + 1)[i],
-                pf_fresh.o_feature(ply + 1)[i]
+                expected_o
             );
         }
     }
@@ -1225,7 +1209,7 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Horizontal flip");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Horizontal flip");
     }
 
     #[test]
@@ -1256,7 +1240,7 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Diagonal flip");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Diagonal flip");
     }
 
     #[test]
@@ -1300,7 +1284,13 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Multi-direction flip");
+        assert_update_matches_fresh(
+            &pf,
+            &pf_fresh,
+            ply,
+            SideToMove::Player,
+            "Multi-direction flip",
+        );
     }
 
     #[test]
@@ -1322,7 +1312,7 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Ply 0");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Ply 0");
     }
 
     #[test]
@@ -1344,7 +1334,7 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "High ply");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "High ply");
     }
 
     #[test]
@@ -1372,7 +1362,7 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Corner A1");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Corner A1");
     }
 
     #[test]
@@ -1399,7 +1389,7 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Corner H8");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Corner H8");
     }
 
     #[test]
@@ -1426,7 +1416,7 @@ mod tests {
         // Verify against fresh computation
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_opponent_update_matches_fresh(&pf, &pf_fresh, ply, "Opponent move");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Opponent, "Opponent move");
     }
 
     #[test]
@@ -1457,7 +1447,13 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_opponent_update_matches_fresh(&pf, &pf_fresh, ply, "Opponent multi-flip");
+        assert_update_matches_fresh(
+            &pf,
+            &pf_fresh,
+            ply,
+            SideToMove::Opponent,
+            "Opponent multi-flip",
+        );
     }
 
     #[test]
@@ -1505,7 +1501,7 @@ mod tests {
 
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Large flip");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Large flip");
     }
 
     #[test]
@@ -1528,7 +1524,7 @@ mod tests {
         let new_board = new_board.switch_players();
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_player_update_matches_fresh(&pf, &pf_fresh, ply, "Fallback Player");
+        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Fallback Player");
     }
 
     #[test]
@@ -1548,7 +1544,13 @@ mod tests {
         new_board.player &= !flipped;
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
-        assert_opponent_update_matches_fresh(&pf, &pf_fresh, ply, "Fallback Opponent");
+        assert_update_matches_fresh(
+            &pf,
+            &pf_fresh,
+            ply,
+            SideToMove::Opponent,
+            "Fallback Opponent",
+        );
     }
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
