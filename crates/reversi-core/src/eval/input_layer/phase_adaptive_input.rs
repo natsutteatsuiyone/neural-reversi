@@ -49,7 +49,7 @@ macro_rules! impl_phase_input_apply_activation {
             use std::mem::size_of;
             unsafe {
                 let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
-                let mut acc_ptr = acc.as_ptr() as *mut $lane_ty;
+                let mut acc_ptr = acc.as_ptr() as *const $lane_ty;
                 const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
                 let num_regs = OUTPUT_DIMS / LANES_PER_REG;
                 let one = $set1(ACTIVATION_MAX);

@@ -43,7 +43,7 @@ macro_rules! impl_base_input_apply_activation {
             use std::arch::x86_64::*;
             use std::mem::size_of;
             unsafe {
-                let acc_ptr = acc.as_ptr() as *mut $lane_ty;
+                let acc_ptr = acc.as_ptr() as *const $lane_ty;
                 let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
                 const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
                 let num_regs = HIDDEN_DIMS / LANES_PER_REG;
