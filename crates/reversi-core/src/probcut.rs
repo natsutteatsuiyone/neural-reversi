@@ -134,35 +134,42 @@ fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
         .unwrap()
 }
 
-/// Builds a symmetric 3D [ply][shallow][deep] table from midgame ProbCut parameters.
+/// Builds a 3D [ply][shallow][deep] table from midgame ProbCut parameters.
+///
+/// Only populates entries where `shallow <= deep` (callers always satisfy this).
 fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MeanTable> {
     let mut tbl = alloc_3d_table();
     for ply in 0..MAX_PLY {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..MAX_DEPTH {
             for deep in shallow..MAX_DEPTH {
-                let v = f(params, shallow as f64, deep as f64) * SCORE_SCALE_F64;
-                tbl[ply][shallow][deep] = v;
-                tbl[ply][deep][shallow] = v;
+                tbl[ply][shallow][deep] = f(params, shallow as f64, deep as f64) * SCORE_SCALE_F64;
             }
         }
     }
     tbl
 }
 
-/// Builds a symmetric 2D [shallow][deep] table from endgame ProbCut parameters.
+/// Builds a 2D [shallow][deep] table from endgame ProbCut parameters.
+///
+/// Only populates entries where `shallow <= deep` (callers always satisfy this).
 fn build_end_table(
     f: impl Fn(&ProbcutParams, f64, f64) -> f64,
 ) -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
     let mut tbl = alloc_2d_table();
     for shallow in 0..MAX_DEPTH {
         for deep in shallow..MAX_DEPTH {
-            let v = f(&PROBCUT_ENDGAME_PARAMS, shallow as f64, deep as f64) * SCORE_SCALE_F64;
-            tbl[shallow][deep] = v;
-            tbl[deep][shallow] = v;
+            tbl[shallow][deep] =
+                f(&PROBCUT_ENDGAME_PARAMS, shallow as f64, deep as f64) * SCORE_SCALE_F64;
         }
     }
     tbl
+}
+
+#[cold]
+#[inline(never)]
+fn probcut_not_initialized() -> ! {
+    panic!("probcut not initialized");
 }
 
 /// Initializes the ProbCut lookup tables.
@@ -184,9 +191,11 @@ pub fn init() {
 #[inline]
 pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     debug_assert!(ply < MAX_PLY);
-    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((shallow as usize) <= (deep as usize));
     debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = MEAN_TABLE.get().expect("probcut not initialized");
+    let tbl = MEAN_TABLE
+        .get()
+        .unwrap_or_else(|| probcut_not_initialized());
     tbl[ply][shallow as usize][deep as usize]
 }
 
@@ -198,9 +207,11 @@ pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 #[inline]
 pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     debug_assert!(ply < MAX_PLY);
-    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((shallow as usize) <= (deep as usize));
     debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = SIGMA_TABLE.get().expect("probcut not initialized");
+    let tbl = SIGMA_TABLE
+        .get()
+        .unwrap_or_else(|| probcut_not_initialized());
     tbl[ply][shallow as usize][deep as usize]
 }
 
@@ -211,9 +222,11 @@ pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 /// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
-    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((shallow as usize) <= (deep as usize));
     debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = MEAN_TABLE_END.get().expect("probcut not initialized");
+    let tbl = MEAN_TABLE_END
+        .get()
+        .unwrap_or_else(|| probcut_not_initialized());
     tbl[shallow as usize][deep as usize]
 }
 
@@ -224,9 +237,11 @@ pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
 /// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
-    debug_assert!((shallow as usize) < MAX_DEPTH);
+    debug_assert!((shallow as usize) <= (deep as usize));
     debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = SIGMA_TABLE_END.get().expect("probcut not initialized");
+    let tbl = SIGMA_TABLE_END
+        .get()
+        .unwrap_or_else(|| probcut_not_initialized());
     tbl[shallow as usize][deep as usize]
 }
 
