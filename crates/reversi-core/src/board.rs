@@ -326,9 +326,10 @@ impl Board {
     #[inline]
     pub fn hash(&self) -> u64 {
         use rapidhash::v3;
-        let words = [self.player.bits(), self.opponent.bits()];
-        let bytes: &[u8] = unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, 16) };
-        v3::rapidhash_v3_nano_inline::<true, false>(bytes, &v3::DEFAULT_RAPID_SECRETS)
+        let mut bytes = [0u8; 16];
+        bytes[..8].copy_from_slice(&self.player.bits().to_ne_bytes());
+        bytes[8..].copy_from_slice(&self.opponent.bits().to_ne_bytes());
+        v3::rapidhash_v3_nano_inline::<true, false>(&bytes, &v3::DEFAULT_RAPID_SECRETS)
     }
 
     /// Rotates the board 90 degrees clockwise.
