@@ -34,7 +34,7 @@ impl AtomicBitSet {
     #[inline(always)]
     pub fn reset(&self, index: usize) {
         debug_assert!(index < 64);
-        self.data.fetch_and(!(1 << index), Ordering::Relaxed);
+        self.data.fetch_and(!(1 << index), Ordering::Release);
     }
 
     /// Tests whether the bit at the specified index is set.
@@ -46,7 +46,7 @@ impl AtomicBitSet {
     /// Checks whether all bits are clear.
     #[inline(always)]
     pub fn none(&self) -> bool {
-        self.data.load(Ordering::Relaxed) == 0
+        self.data.load(Ordering::Acquire) == 0
     }
 
     /// Clears all bits.
@@ -159,5 +159,33 @@ mod tests {
         assert!(bitset.test(0));
         assert!(bitset.test(31));
         assert!(bitset.test(63));
+    }
+
+    #[test]
+    fn test_reset_release() {
+        let bitset = AtomicBitSet::new();
+        bitset.set(3);
+        bitset.set(7);
+        assert_eq!(bitset.count(), 2);
+
+        bitset.reset(3);
+        assert!(!bitset.test(3));
+        assert!(bitset.test(7));
+        assert_eq!(bitset.count(), 1);
+
+        bitset.reset(7);
+        assert!(bitset.none());
+    }
+
+    #[test]
+    fn test_none_acquire() {
+        let bitset = AtomicBitSet::new();
+        assert!(bitset.none());
+
+        bitset.set(5);
+        assert!(!bitset.none());
+
+        bitset.reset(5);
+        assert!(bitset.none());
     }
 }

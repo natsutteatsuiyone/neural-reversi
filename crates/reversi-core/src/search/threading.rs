@@ -992,7 +992,7 @@ impl ThreadPool {
     fn all_threads_ready(&self) -> bool {
         self.threads
             .iter()
-            .all(|thread| thread.ready.load(Ordering::Relaxed))
+            .all(|thread| thread.ready.load(Ordering::Acquire))
     }
 
     /// Shuts down the thread pool and waits for all threads to exit.
