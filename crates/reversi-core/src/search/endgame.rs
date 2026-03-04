@@ -243,20 +243,26 @@ fn estimate_aspiration_base_score(
         return tt_data.score();
     }
 
-    if n_empties >= 24 {
-        search::<PV, MidGameStrategy>(
+    if midgame_depth < 4 {
+        return midgame::evaluate(ctx, board);
+    }
+
+    let mut score = ScaledScore::ZERO;
+    let mut depth = midgame::compute_start_depth(midgame_depth);
+    while depth <= midgame_depth {
+        score = search::<PV, MidGameStrategy>(
             ctx,
             board,
-            midgame_depth,
+            depth,
             -ScaledScore::INF,
             ScaledScore::INF,
             thread,
-        )
-    } else if n_empties >= 12 {
-        midgame::evaluate_depth2(ctx, board, -ScaledScore::INF, ScaledScore::INF)
-    } else {
-        midgame::evaluate(ctx, board)
+        );
+
+        depth += 2;
     }
+
+    score
 }
 
 /// Attempts ProbCut pruning for endgame positions.

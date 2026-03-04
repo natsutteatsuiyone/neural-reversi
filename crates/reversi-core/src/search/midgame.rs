@@ -151,7 +151,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 }
 
 /// Computes the starting depth for iterative deepening.
-fn compute_start_depth(max_depth: Depth) -> Depth {
+pub(super) fn compute_start_depth(max_depth: Depth) -> Depth {
     if max_depth.is_multiple_of(2) { 2 } else { 1 }
 }
 
