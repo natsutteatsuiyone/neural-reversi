@@ -10,8 +10,12 @@ use cfg_if::cfg_if;
 
 use crate::square::Square;
 
-/// Bitboard mask representing the four corner squares (A1, H1, A8, H8).
-const CORNER_MASK: u64 = 0x8100000000000081;
+/// Bitboard mask representing the four corner squares.
+const A1_MASK: u64 = 0x0000000000000001;
+const H1_MASK: u64 = 0x0000000000000080;
+const A8_MASK: u64 = 0x0100000000000000;
+const H8_MASK: u64 = 0x8000000000000000;
+const CORNER_MASK: u64 = A1_MASK | H1_MASK | A8_MASK | H8_MASK;
 
 /// Newtype wrapper for a 64-bit bitboard (bit 0 = A1, bit 63 = H8).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
@@ -255,11 +259,16 @@ impl Bitboard {
     #[inline(always)]
     pub fn corner_stability(self) -> u32 {
         let p = self.0;
-        let stable: u64 = (((0x0100000000000001 & p) << 1)
-            | ((0x8000000000000080 & p) >> 1)
-            | ((0x0000000000000081 & p) << 8)
-            | ((0x8100000000000000 & p) >> 8)
-            | 0x8100000000000081)
+        const A_FILE_CORNERS: u64 = A1_MASK | A8_MASK;
+        const H_FILE_CORNERS: u64 = H1_MASK | H8_MASK;
+        const RANK1_CORNERS: u64 = A1_MASK | H1_MASK;
+        const RANK8_CORNERS: u64 = A8_MASK | H8_MASK;
+
+        let stable: u64 = (((A_FILE_CORNERS & p) << 1)
+            | ((H_FILE_CORNERS & p) >> 1)
+            | ((RANK1_CORNERS & p) << 8)
+            | ((RANK8_CORNERS & p) >> 8)
+            | CORNER_MASK)
             & p;
         stable.count_ones()
     }
