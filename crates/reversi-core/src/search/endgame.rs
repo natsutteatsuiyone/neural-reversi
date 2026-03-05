@@ -18,8 +18,8 @@ use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
+use crate::search::node_type::NonPV;
 use crate::search::node_type::Root;
-use crate::search::node_type::{NonPV, PV};
 use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
@@ -85,7 +85,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let n_empties = ctx.empty_list.count();
 
     // Estimate initial aspiration window center
-    let base_score = estimate_aspiration_base_score(&mut ctx, &board, n_empties, thread);
+    let base_score = estimate_aspiration_base_score(&mut ctx, &board);
 
     // Configure for endgame search
     ctx.selectivity = Selectivity::None;
@@ -103,12 +103,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         // Initialize aspiration window for this PV line
         let mut alpha = if pv_idx == 0 {
-            base_score - ScaledScore::from_disc_diff(3)
+            base_score - ScaledScore::from_disc_diff(6)
         } else {
             -ScaledScore::INF
         };
         let mut beta = if pv_idx == 0 {
-            base_score + ScaledScore::from_disc_diff(3)
+            base_score + ScaledScore::from_disc_diff(6)
         } else if let Some(rm) = ctx.get_best_root_move() {
             rm.score
         } else {
@@ -190,6 +190,18 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     )
 }
 
+/// Estimates a base score to center the aspiration window for endgame search.
+fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> ScaledScore {
+    if let Some(tt_data) = ctx.tt.probe(board.hash()).data()
+        && tt_data.bound() == Bound::Exact
+    {
+        return tt_data.score();
+    }
+
+    ctx.eval_mode = EvalMode::Main;
+    midgame::evaluate(ctx, board)
+}
+
 /// Performs aspiration window search for endgame at the current selectivity level.
 fn aspiration_search(
     ctx: &mut SearchContext,
@@ -221,48 +233,6 @@ fn aspiration_search(
 
         delta += delta; // Exponential widening
     }
-}
-
-/// Estimates a base score to center the aspiration window for endgame search.
-fn estimate_aspiration_base_score(
-    ctx: &mut SearchContext,
-    board: &Board,
-    n_empties: u32,
-    thread: &Arc<Thread>,
-) -> ScaledScore {
-    ctx.eval_mode = EvalMode::Main;
-    ctx.selectivity = Selectivity::Level1;
-    let midgame_depth = n_empties / 3;
-
-    let hash_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(hash_key);
-    if let Some(tt_data) = tt_probe_result.data()
-        && tt_data.bound() == Bound::Exact
-        && tt_data.depth() >= midgame_depth
-    {
-        return tt_data.score();
-    }
-
-    if midgame_depth < 4 {
-        return midgame::evaluate(ctx, board);
-    }
-
-    let mut score = ScaledScore::ZERO;
-    let mut depth = midgame::compute_start_depth(midgame_depth);
-    while depth <= midgame_depth {
-        score = search::<PV, MidGameStrategy>(
-            ctx,
-            board,
-            depth,
-            -ScaledScore::INF,
-            ScaledScore::INF,
-            thread,
-        );
-
-        depth += 2;
-    }
-
-    score
 }
 
 /// Attempts ProbCut pruning for endgame positions.
