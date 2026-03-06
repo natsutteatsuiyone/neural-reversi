@@ -3,9 +3,10 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::square::Square;
 use crate::types::Depth;
 
 /// Safety buffer in milliseconds to avoid time forfeit.
@@ -17,11 +18,17 @@ const MIN_STABILITY_CHECK_DEPTH: Depth = 10;
 /// Score drop (in discs) that triggers an emergency extension.
 const SCORE_DROP_THRESHOLD: f32 = 3.0;
 
-/// Additional time granted on instability (percentage of baseline max time).
-const EXTENSION_RATIO: f64 = 0.5;
+/// Fraction of the reserve (hard_limit - base_maxi) used as the extension budget.
+const EXTENSION_RESERVE_RATIO: f64 = 0.5;
 
 /// Maximum number of incremental time extensions allowed per move.
-const MAX_EXTENSION_STEPS: u8 = 3;
+const MAX_EXTENSION_STEPS: u8 = 5;
+
+/// Consecutive stable best-move iterations before allowing early stop.
+const STABILITY_THRESHOLD: u32 = 3;
+
+/// Sentinel value indicating no previous best move has been recorded.
+const NO_PREV_MOVE: u8 = Square::None as u8;
 
 // Time allocation percentages (0-100)
 const MIN_PERCENT_NORMAL: u64 = 45;
@@ -36,11 +43,11 @@ const JP_BYO_MAIN_MIN_PERCENT_ENDGAME: u64 = 85;
 fn get_time_allocation_factor(n_empties: u32) -> f64 {
     match n_empties {
         51..=60 => 0.5,
-        45..=50 => 1.5,
-        29..=44 => 2.5,
-        25..=28 => 1.5,
-        20..=24 => 0.8,
-        _ => 0.3,
+        45..=50 => 2.5,
+        29..=44 => 3.0,
+        25..=28 => 1.6,
+        20..=24 => 0.5,
+        _ => 0.1,
     }
 }
 
@@ -125,6 +132,22 @@ pub struct TimeManager {
 
     /// Flag indicating if we are in endgame search mode.
     is_endgame_mode: AtomicBool,
+
+    /// Consecutive iterations where the best move has not changed.
+    best_move_stability: AtomicU32,
+
+    /// Best move from the previous iteration (raw u8, NO_PREV_MOVE if unset).
+    prev_best_move: AtomicU8,
+
+    /// Suppresses one early-stop check after a score-drop extension is granted.
+    skip_early_stop_once: AtomicBool,
+}
+
+/// Reason for requesting a time extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExtensionReason {
+    ScoreDrop,
+    PvChange,
 }
 
 impl TimeManager {
@@ -152,6 +175,9 @@ impl TimeManager {
             prev_score: Mutex::new(None),
             n_empties,
             is_endgame_mode: AtomicBool::new(false),
+            best_move_stability: AtomicU32::new(0),
+            prev_best_move: AtomicU8::new(NO_PREV_MOVE),
+            skip_early_stop_once: AtomicBool::new(false),
         }
     }
 
@@ -298,6 +324,39 @@ impl TimeManager {
         self.base_max_time_ms.store(current_maxi, Ordering::Relaxed);
         *self.prev_score.lock().unwrap() = None;
         self.is_endgame_mode.store(false, Ordering::Relaxed);
+        self.best_move_stability.store(0, Ordering::Relaxed);
+        self.prev_best_move.store(NO_PREV_MOVE, Ordering::Relaxed);
+        self.skip_early_stop_once.store(false, Ordering::Relaxed);
+    }
+
+    /// Reports the iteration result: tracks best move stability and extends time on instability.
+    pub fn report_iteration(&self, sq: Square, current_score: f32, depth: Depth) {
+        let pv_changed = if depth >= MIN_STABILITY_CHECK_DEPTH {
+            let prev_raw = self.prev_best_move.swap(sq as u8, Ordering::Relaxed);
+            let pv_changed = prev_raw != NO_PREV_MOVE && prev_raw != sq as u8;
+
+            if !pv_changed {
+                if prev_raw != NO_PREV_MOVE {
+                    self.best_move_stability.fetch_add(1, Ordering::Relaxed);
+                }
+            } else {
+                self.best_move_stability.store(0, Ordering::Relaxed);
+            }
+
+            if is_debug_enabled() {
+                eprintln!(
+                    "[TimeManager] Best move: {:?}, stability={}",
+                    sq,
+                    self.best_move_stability.load(Ordering::Relaxed)
+                );
+            }
+
+            pv_changed
+        } else {
+            false
+        };
+
+        self.try_extend_time(current_score, pv_changed, depth);
     }
 
     /// Returns the elapsed time in milliseconds since search started.
@@ -315,6 +374,28 @@ impl TimeManager {
         self.elapsed_ms() >= self.max_time_ms.load(Ordering::Relaxed)
     }
 
+    /// Returns true if the current mode uses a shared time bank (Fischer or MovesToGo).
+    fn has_time_bank(&self) -> bool {
+        matches!(
+            self.mode,
+            TimeControlMode::Fischer { .. } | TimeControlMode::MovesToGo { .. }
+        )
+    }
+
+    /// Returns a scaling factor for min_time based on best move stability.
+    ///
+    /// Higher stability → lower scale → min_time is reduced, enabling earlier stop.
+    /// Only meaningful for time-bank modes (Fischer/MovesToGo).
+    fn stability_time_scale(&self) -> f64 {
+        if !self.has_time_bank() {
+            return 1.0;
+        }
+
+        const SCALE: [f64; 5] = [1.0, 1.0, 0.70, 0.50, 0.35];
+        let idx = (self.best_move_stability.load(Ordering::Relaxed) as usize).min(SCALE.len() - 1);
+        SCALE[idx]
+    }
+
     /// Checks whether the search should continue to the next iteration.
     pub fn should_continue_iteration(&self) -> bool {
         if self.mode == TimeControlMode::Infinite {
@@ -322,8 +403,33 @@ impl TimeManager {
         }
 
         let elapsed = self.elapsed_ms();
-        if elapsed < self.min_time_ms.load(Ordering::Relaxed) {
+        let scale = self.stability_time_scale();
+        let effective_min = (self.min_time_ms.load(Ordering::Relaxed) as f64 * scale) as u64;
+        if elapsed < effective_min {
             return true;
+        }
+        let skip_early_stop = self.skip_early_stop_once.swap(false, Ordering::Relaxed);
+
+        // Early stop: best move has been stable for several iterations
+        let stability = self.best_move_stability.load(Ordering::Relaxed);
+        if self.has_time_bank() && stability >= STABILITY_THRESHOLD {
+            if skip_early_stop {
+                if is_debug_enabled() {
+                    eprintln!(
+                        "[TimeManager] Continue after score-drop extension: elapsed={}ms, effective_min={}ms, stability={}",
+                        elapsed, effective_min, stability
+                    );
+                }
+                return true;
+            }
+
+            if is_debug_enabled() {
+                eprintln!(
+                    "[TimeManager] Early stop (stable best move): elapsed={}ms, effective_min={}ms, stability={}",
+                    elapsed, effective_min, stability
+                );
+            }
+            return false;
         }
 
         let should_continue = (elapsed as f64 * 1.5) < self.maxi_time_ms() as f64;
@@ -339,7 +445,7 @@ impl TimeManager {
     }
 
     /// Attempts to extend the search time when the search becomes unstable.
-    pub fn try_extend_time(&self, current_score: f32, pv_changed: bool, depth: Depth) -> bool {
+    fn try_extend_time(&self, current_score: f32, pv_changed: bool, depth: Depth) -> bool {
         if self.mode == TimeControlMode::Infinite {
             *self.prev_score.lock().unwrap() = Some(current_score);
             return false;
@@ -357,19 +463,17 @@ impl TimeManager {
             *prev_guard = Some(current_score); // Always update
 
             let mut extend = false;
-            let mut r = "unknown";
+            let mut r = ExtensionReason::PvChange;
 
-            if let Some(p) = prev {
-                if current_score < p - SCORE_DROP_THRESHOLD {
-                    extend = true;
-                    r = "score_drop";
-                } else if pv_changed && depth >= MIN_STABILITY_CHECK_DEPTH {
-                    extend = true;
-                    r = "pv_change";
-                }
-            } else if pv_changed && depth >= MIN_STABILITY_CHECK_DEPTH {
+            if let Some(p) = prev
+                && current_score < p - SCORE_DROP_THRESHOLD
+            {
                 extend = true;
-                r = "pv_change";
+                r = ExtensionReason::ScoreDrop;
+            }
+            if !extend && pv_changed && depth >= MIN_STABILITY_CHECK_DEPTH {
+                extend = true;
+                r = ExtensionReason::PvChange;
             }
             (extend, r, prev)
         };
@@ -383,7 +487,7 @@ impl TimeManager {
 
     fn apply_extension(
         &self,
-        reason: &str,
+        reason: ExtensionReason,
         used_steps: u8,
         prev_value: Option<f32>,
         current_score: f32,
@@ -400,7 +504,8 @@ impl TimeManager {
             let reserve = hard_limit.saturating_sub(base_maxi);
             base_maxi.saturating_add(reserve / 4).min(hard_limit)
         } else {
-            let extension_amount = ((base_maxi as f64) * EXTENSION_RATIO) as u64;
+            let reserve = hard_limit.saturating_sub(base_maxi);
+            let extension_amount = ((reserve as f64) * EXTENSION_RESERVE_RATIO) as u64;
             base_maxi.saturating_add(extension_amount).min(hard_limit)
         };
 
@@ -410,20 +515,33 @@ impl TimeManager {
 
         let remaining_steps = (MAX_EXTENSION_STEPS - used_steps) as u64;
         let remaining_budget = target_maxi.saturating_sub(old_maxi);
-        let step_increment = remaining_budget.div_ceil(remaining_steps);
+        let base_step = remaining_budget.div_ceil(remaining_steps);
 
-        if step_increment == 0 {
+        if base_step == 0 {
             return false;
         }
 
+        // Score drops get a double-sized step and consume 2 extension steps
+        let is_score_drop = reason == ExtensionReason::ScoreDrop;
+        let got_double_step = is_score_drop && remaining_steps >= 2;
+        let (step_increment, steps_consumed) = if got_double_step {
+            ((base_step * 2).min(remaining_budget), 2u8)
+        } else {
+            (base_step, 1u8)
+        };
+
         let new_maxi = old_maxi.saturating_add(step_increment).min(target_maxi);
         self.max_time_ms.store(new_maxi, Ordering::Relaxed);
-        self.extension_steps.fetch_add(1, Ordering::Release);
+        self.extension_steps
+            .fetch_add(steps_consumed, Ordering::Relaxed);
+        self.skip_early_stop_once
+            .store(got_double_step, Ordering::Relaxed);
 
         if is_debug_enabled() {
             eprintln!(
-                "[TimeManager] Time extended ({reason}, step {}/{}): {:.2} -> {:.2}, old={}ms, new={}ms, limit={}ms",
-                used_steps + 1,
+                "[TimeManager] Time extended ({reason:?}, +{steps_consumed} step, {}/{}): \
+                 {:.2} -> {:.2}, old={}ms, new={}ms, limit={}ms",
+                used_steps + steps_consumed,
                 MAX_EXTENSION_STEPS,
                 prev_value.unwrap_or(current_score),
                 current_score,
@@ -507,6 +625,7 @@ impl TimeManager {
         self.base_max_time_ms.store(maxi, Ordering::Relaxed);
         self.hard_time_limit_ms.store(hard_limit, Ordering::Relaxed);
         self.extension_steps.store(0, Ordering::Relaxed);
+        self.skip_early_stop_once.store(false, Ordering::Relaxed);
     }
 
     /// Returns the current time control mode.
@@ -577,4 +696,183 @@ fn is_debug_enabled() -> bool {
         let env_var = std::env::var("REVERSI_DEBUG_TIME").unwrap_or_default();
         env_var == "1" || env_var.to_lowercase() == "true"
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_fischer_tm(main_time_ms: u64, increment_ms: u64, n_empties: u32) -> TimeManager {
+        let abort = Arc::new(AtomicBool::new(false));
+        let mode = TimeControlMode::Fischer {
+            main_time_ms,
+            increment_ms,
+        };
+        TimeManager::new(mode, abort, n_empties)
+    }
+
+    #[test]
+    fn stability_scale_returns_1_for_low_stability() {
+        let tm = make_fischer_tm(60_000, 0, 40);
+        assert_eq!(tm.best_move_stability.load(Ordering::Relaxed), 0);
+        assert_eq!(tm.stability_time_scale(), 1.0);
+    }
+
+    #[test]
+    fn stability_scale_decreases_with_higher_stability() {
+        let tm = make_fischer_tm(60_000, 0, 40);
+        tm.best_move_stability.store(2, Ordering::Relaxed);
+        assert!(tm.stability_time_scale() < 1.0);
+
+        tm.best_move_stability.store(3, Ordering::Relaxed);
+        let scale_3 = tm.stability_time_scale();
+
+        tm.best_move_stability.store(4, Ordering::Relaxed);
+        let scale_4 = tm.stability_time_scale();
+
+        assert!(
+            scale_3 > scale_4,
+            "higher stability should give lower scale"
+        );
+    }
+
+    #[test]
+    fn extension_budget_increased() {
+        const { assert!(MAX_EXTENSION_STEPS >= 5) };
+        const { assert!(EXTENSION_RESERVE_RATIO >= 0.1) };
+    }
+
+    #[test]
+    fn score_drop_extends_more_than_pv_change() {
+        let mut tm = make_fischer_tm(120_000, 0, 40);
+        tm.start();
+        let sq = Square::D3;
+        tm.report_iteration(sq, 5.0, 12);
+        let base_maxi = tm.maxi_time_ms();
+
+        // PV change extension
+        let mut tm_pv = make_fischer_tm(120_000, 0, 40);
+        tm_pv.start();
+        tm_pv.report_iteration(sq, 5.0, 12);
+        let sq2 = Square::C4;
+        tm_pv.report_iteration(sq2, 4.0, 13);
+        let maxi_after_pv = tm_pv.maxi_time_ms();
+
+        // Score drop extension
+        let mut tm_sd = make_fischer_tm(120_000, 0, 40);
+        tm_sd.start();
+        tm_sd.report_iteration(sq, 5.0, 12);
+        tm_sd.report_iteration(sq, 1.0, 13);
+        let maxi_after_sd = tm_sd.maxi_time_ms();
+
+        let pv_extension = maxi_after_pv - base_maxi;
+        let sd_extension = maxi_after_sd - base_maxi;
+        assert!(
+            sd_extension >= pv_extension,
+            "score drop extension ({sd_extension}) should be >= pv change extension ({pv_extension})"
+        );
+    }
+
+    #[test]
+    fn early_stop_respects_dynamic_min_time() {
+        let mut tm = make_fischer_tm(60_000, 0, 40);
+        tm.start();
+        let original_min = tm.mini_time_ms();
+
+        tm.best_move_stability.store(4, Ordering::Relaxed);
+        let scale = tm.stability_time_scale();
+        let effective_min = (original_min as f64 * scale) as u64;
+
+        assert!(
+            effective_min < original_min,
+            "effective min ({effective_min}) should be less than original ({original_min})"
+        );
+    }
+
+    #[test]
+    fn stability_ignores_shallow_iterations() {
+        let mut tm = make_fischer_tm(60_000, 0, 40);
+        tm.start();
+        let sq = Square::D3;
+
+        tm.report_iteration(sq, 5.0, 8);
+        assert_eq!(tm.prev_best_move.load(Ordering::Relaxed), NO_PREV_MOVE);
+        assert_eq!(tm.best_move_stability.load(Ordering::Relaxed), 0);
+
+        tm.report_iteration(sq, 5.0, 10);
+        assert_eq!(tm.best_move_stability.load(Ordering::Relaxed), 0);
+
+        tm.report_iteration(sq, 5.0, 11);
+        assert_eq!(tm.best_move_stability.load(Ordering::Relaxed), 1);
+
+        tm.report_iteration(sq, 5.0, 12);
+        assert_eq!(tm.best_move_stability.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn score_drop_extension_skips_immediate_stable_early_stop_once() {
+        let mut tm = make_fischer_tm(120_000, 0, 40);
+        tm.start();
+        let sq = Square::D3;
+
+        tm.report_iteration(sq, 5.0, 12);
+        tm.best_move_stability
+            .store(STABILITY_THRESHOLD, Ordering::Relaxed);
+        tm.start_time = Instant::now() - Duration::from_millis(tm.maxi_time_ms() / 2);
+
+        let base_maxi = tm.maxi_time_ms();
+        tm.report_iteration(sq, 1.0, 13);
+
+        assert!(tm.maxi_time_ms() > base_maxi);
+        assert!(tm.should_continue_iteration());
+        assert!(!tm.should_continue_iteration());
+    }
+
+    #[test]
+    fn stability_resets_on_pv_change() {
+        let mut tm = make_fischer_tm(60_000, 0, 40);
+        tm.start();
+        let sq = Square::D3;
+
+        // Build up stability
+        tm.report_iteration(sq, 5.0, 10);
+        tm.report_iteration(sq, 5.0, 11);
+        tm.report_iteration(sq, 5.0, 12);
+        assert_eq!(tm.best_move_stability.load(Ordering::Relaxed), 2);
+
+        // PV change resets stability
+        tm.report_iteration(Square::C4, 5.0, 13);
+        assert_eq!(tm.best_move_stability.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn score_drop_with_one_remaining_step_falls_back_to_single() {
+        let mut tm = make_fischer_tm(120_000, 0, 40);
+        tm.start();
+        let sq = Square::D3;
+
+        // Exhaust all but 1 extension step
+        tm.extension_steps
+            .store(MAX_EXTENSION_STEPS - 1, Ordering::Relaxed);
+
+        tm.report_iteration(sq, 5.0, 12);
+        tm.report_iteration(sq, 1.0, 13); // score drop with 1 step remaining
+
+        assert_eq!(
+            tm.extension_steps.load(Ordering::Relaxed),
+            MAX_EXTENSION_STEPS
+        );
+        // skip_early_stop_once should NOT be set (double-step was not granted)
+        assert!(!tm.skip_early_stop_once.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn byoyomi_ignores_stability_early_stop() {
+        let abort = Arc::new(AtomicBool::new(false));
+        let mode = TimeControlMode::Byoyomi {
+            time_per_move_ms: 10_000,
+        };
+        let tm = TimeManager::new(mode, abort, 40);
+        assert!(!tm.has_time_bank());
+    }
 }

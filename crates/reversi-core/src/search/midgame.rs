@@ -56,7 +56,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         1
     };
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
-    let mut prev_best_move: Option<Square> = None;
 
     let mut depth = compute_start_depth(max_depth);
     while depth <= max_depth {
@@ -113,10 +112,8 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         // Notify time manager about search progress
         if let Some(ref tm) = time_manager {
-            let pv_changed = prev_best_move.is_some_and(|sq| sq != best_move.sq);
-            tm.try_extend_time(best_move.score.to_disc_diff_f32(), pv_changed, depth);
+            tm.report_iteration(best_move.sq, best_move.score.to_disc_diff_f32(), depth);
         }
-        prev_best_move = Some(best_move.sq);
 
         // Check termination conditions
         if thread.is_search_aborted() || should_stop_iteration(&time_manager) {
