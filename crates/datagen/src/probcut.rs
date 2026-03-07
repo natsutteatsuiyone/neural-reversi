@@ -31,7 +31,7 @@ use reversi_core::{
 const TT_SIZE_MB: usize = 256;
 
 /// Total number of search depths to test
-const NUM_SEARCH_DEPTHS: usize = 15;
+const NUM_SEARCH_DEPTHS: usize = 14;
 
 /// Maximum shallow depth for ProbCut analysis
 const MAX_SHALLOW_DEPTH: usize = 7;

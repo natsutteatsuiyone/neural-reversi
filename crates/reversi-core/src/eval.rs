@@ -37,7 +37,7 @@ pub enum EvalMode {
 
 macro_rules! eval_main_weights_literal {
     () => {
-        "eval-69fb3156.zst"
+        "eval-dbdbed46.zst"
     };
 }
 

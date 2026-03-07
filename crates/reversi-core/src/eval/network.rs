@@ -17,23 +17,15 @@ use crate::util::align::Align64;
 const BASE_OUTPUT_DIMS: usize = 128;
 const PA_OUTPUT_DIMS: usize = 128;
 
-const L1_BASE_INPUT_DIMS: usize = BASE_OUTPUT_DIMS + 1;
-const L1_BASE_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_BASE_INPUT_DIMS, 32);
-const L1_BASE_OUTPUT_DIMS: usize = 8;
-const L1_BASE_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_BASE_OUTPUT_DIMS, 32);
-
-const L1_PA_INPUT_DIMS: usize = PA_OUTPUT_DIMS + 1;
-const L1_PA_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_PA_INPUT_DIMS, 32);
-const L1_PA_OUTPUT_DIMS: usize = 8;
-const L1_PA_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_PA_OUTPUT_DIMS, 32);
-const L1_OUTPUT_DIMS: usize = L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS;
+const L1_INPUT_DIMS: usize = BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS + 1;
+const L1_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_INPUT_DIMS, 32);
+const L1_OUTPUT_DIMS: usize = 16;
+const L1_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_OUTPUT_DIMS, 32);
 
 const L2_INPUT_DIMS: usize = L1_OUTPUT_DIMS * 2;
 const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
 const L2_OUTPUT_DIMS: usize = 64;
 const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
-
-const _: () = assert!(L1_OUTPUT_DIMS == L1_BASE_OUTPUT_DIMS + L1_PA_OUTPUT_DIMS);
 
 const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS + BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS;
 const LO_PADDED_INPUT_DIMS: usize = ceil_to_multiple(LO_INPUT_DIMS, 32);
@@ -44,29 +36,17 @@ const NUM_LAYER_STACKS: usize = 60;
 
 /// Layer stack for a specific game ply.
 struct LayerStack {
-    pub l1_base: LinearLayer<
-        L1_BASE_INPUT_DIMS,
-        L1_BASE_OUTPUT_DIMS,
-        L1_BASE_PADDED_INPUT_DIMS,
-        L1_BASE_PADDED_OUTPUT_DIMS,
-    >,
-    pub l1_pa: LinearLayer<
-        L1_PA_INPUT_DIMS,
-        L1_PA_OUTPUT_DIMS,
-        L1_PA_PADDED_INPUT_DIMS,
-        L1_PA_PADDED_OUTPUT_DIMS,
-    >,
+    pub l1: LinearLayer<L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS>,
     pub l2: LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>,
     pub lo: OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>,
 }
 
 /// Thread-local working buffers for network computation.
 struct NetworkBuffers {
-    base_out: Align64<[u8; L1_BASE_PADDED_INPUT_DIMS]>,
-    pa_out: Align64<[u8; L1_PA_PADDED_INPUT_DIMS]>,
-    l1_base_out: Align64<[i32; L1_BASE_PADDED_OUTPUT_DIMS]>,
-    l1_pa_out: Align64<[i32; L1_PA_PADDED_OUTPUT_DIMS]>,
-    l1_li_out: Align64<[i32; L1_OUTPUT_DIMS]>,
+    base_out: Align64<[u8; BASE_OUTPUT_DIMS]>,
+    pa_out: Align64<[u8; PA_OUTPUT_DIMS]>,
+    l1_input: Align64<[u8; L1_PADDED_INPUT_DIMS]>,
+    l1_li_out: Align64<[i32; L1_PADDED_OUTPUT_DIMS]>,
     l1_out: Align64<[u8; L2_PADDED_INPUT_DIMS]>,
     l2_li_out: Align64<[i32; L2_PADDED_OUTPUT_DIMS]>,
     l2_out: Align64<[u8; L2_PADDED_OUTPUT_DIMS]>,
@@ -76,11 +56,10 @@ impl NetworkBuffers {
     #[inline]
     fn new() -> Self {
         Self {
-            base_out: Align64([0; L1_BASE_PADDED_INPUT_DIMS]),
-            pa_out: Align64([0; L1_PA_PADDED_INPUT_DIMS]),
-            l1_base_out: Align64([0; L1_BASE_PADDED_OUTPUT_DIMS]),
-            l1_pa_out: Align64([0; L1_PA_PADDED_OUTPUT_DIMS]),
-            l1_li_out: Align64([0; L1_OUTPUT_DIMS]),
+            base_out: Align64([0; BASE_OUTPUT_DIMS]),
+            pa_out: Align64([0; PA_OUTPUT_DIMS]),
+            l1_input: Align64([0; L1_PADDED_INPUT_DIMS]),
+            l1_li_out: Align64([0; L1_PADDED_OUTPUT_DIMS]),
             l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
             l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
             l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
@@ -127,16 +106,10 @@ impl Network {
 
         let mut layer_stacks = Vec::with_capacity(NUM_LAYER_STACKS);
         for _ in 0..NUM_LAYER_STACKS {
-            let l1_base = LinearLayer::load(&mut decoder)?;
-            let l1_pa = LinearLayer::load(&mut decoder)?;
+            let l1 = LinearLayer::load(&mut decoder)?;
             let l2 = LinearLayer::load(&mut decoder)?;
             let lo = OutputLayer::load(&mut decoder)?;
-            layer_stacks.push(LayerStack {
-                l1_base,
-                l1_pa,
-                l2,
-                lo,
-            });
+            layer_stacks.push(LayerStack { l1, l2, lo });
         }
 
         Ok(Network {
@@ -183,8 +156,10 @@ impl Network {
             .forward(pattern_feature, ply, &mut buffers.pa_out[..PA_OUTPUT_DIMS]);
 
         let mobility_scaled = mobility.saturating_mul(MOBILITY_SCALE);
-        buffers.base_out[L1_BASE_INPUT_DIMS - 1] = mobility_scaled;
-        buffers.pa_out[L1_PA_INPUT_DIMS - 1] = mobility_scaled;
+        buffers.l1_input[..BASE_OUTPUT_DIMS].copy_from_slice(&buffers.base_out[..BASE_OUTPUT_DIMS]);
+        buffers.l1_input[BASE_OUTPUT_DIMS..BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS]
+            .copy_from_slice(&buffers.pa_out[..PA_OUTPUT_DIMS]);
+        buffers.l1_input[L1_INPUT_DIMS - 1] = mobility_scaled;
 
         let ls = &self.layer_stacks[ply];
         self.forward_l1(ls, buffers);
@@ -194,30 +169,13 @@ impl Network {
 
     #[inline(always)]
     fn forward_l1(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) {
-        ls.l1_base
-            .forward(&buffers.base_out, &mut buffers.l1_base_out);
-        ls.l1_pa.forward(&buffers.pa_out, &mut buffers.l1_pa_out);
-
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                buffers.l1_base_out.0.as_ptr(),
-                buffers.l1_li_out.0.as_mut_ptr(),
-                L1_BASE_OUTPUT_DIMS,
-            );
-            std::ptr::copy_nonoverlapping(
-                buffers.l1_pa_out.0.as_ptr(),
-                buffers.l1_li_out.0.as_mut_ptr().add(L1_BASE_OUTPUT_DIMS),
-                L1_PA_OUTPUT_DIMS,
-            );
-        }
+        ls.l1.forward(&buffers.l1_input, &mut buffers.l1_li_out);
 
         const L2_INPUT_DIMS_HALF: usize = L2_INPUT_DIMS / 2;
-        sqr_clipped_relu::<L1_OUTPUT_DIMS>(
-            buffers.l1_li_out.as_slice(),
-            &mut buffers.l1_out[..L2_INPUT_DIMS_HALF],
-        );
+        let l1_out = &buffers.l1_li_out[..L1_OUTPUT_DIMS];
+        sqr_clipped_relu::<L1_OUTPUT_DIMS>(l1_out, &mut buffers.l1_out[..L2_INPUT_DIMS_HALF]);
         clipped_relu::<L1_OUTPUT_DIMS>(
-            buffers.l1_li_out.as_slice(),
+            l1_out,
             &mut buffers.l1_out[L2_INPUT_DIMS_HALF..L2_INPUT_DIMS],
         );
     }
