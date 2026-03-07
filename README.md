@@ -20,7 +20,7 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 
 #### Midgame
 
-![Neural network architecture](docs/1.0.0/nn_architecture_1.0.0.svg)
+![Neural network architecture](docs/4.0.0/nn_architecture_4.0.0.svg)
 
 #### Endgame
 
