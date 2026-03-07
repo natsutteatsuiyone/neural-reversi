@@ -230,14 +230,14 @@ impl MatchStatistics {
             println!("{} {}", "LOS:".text().bold(), los_str);
         }
 
-        // Display Disk diff
+        // Display Disc diff
         let avg_score = if self.total_games() > 0 {
             self.total_score as f64 / self.total_games() as f64
         } else {
             0.0
         };
 
-        let disk_diff_str = if self.total_score >= 10 {
+        let disc_diff_str = if self.total_score >= 10 {
             format!(
                 "{} ({})",
                 format!("+{}", self.total_score).success().bold(),
@@ -269,7 +269,7 @@ impl MatchStatistics {
             )
         };
 
-        println!("{} {}", "Disk diff:".text().bold(), disk_diff_str);
+        println!("{} {}", "Disc diff:".text().bold(), disc_diff_str);
     }
 }
 

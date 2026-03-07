@@ -12,7 +12,7 @@
 - Games: 21568 W: 10599 L: 10249 D: 720
 - Ptnml(0-2): 2410, 367, 5075, 327, 2605
 - Elo: +5.6 ± 4.5
-- Disk diff: +7140 (+0.33/game)
+- Disc diff: +7140 (+0.33/game)
 
 ## Endgame Tests
 
