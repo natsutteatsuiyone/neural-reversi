@@ -24,7 +24,7 @@ fn main() -> io::Result<()> {
             MatchRunnerError::Io(io_err) => return Err(io_err),
             _ => {
                 eprintln!("Error: {e}");
-                return Ok(());
+                std::process::exit(1);
             }
         }
     }

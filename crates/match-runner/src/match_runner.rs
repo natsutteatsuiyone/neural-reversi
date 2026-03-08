@@ -35,6 +35,36 @@ pub struct MatchResult {
     pub score: i32,
 }
 
+/// Parse an opening string into a vector of move strings.
+///
+/// The opening string is a sequence of algebraic notation moves concatenated together
+/// (e.g., "f5d6c3d3c4f4"). Each move consists of a file (a-h) and a rank (1-8).
+fn parse_opening_moves(opening: &str) -> Result<Vec<String>> {
+    if !opening.len().is_multiple_of(2) {
+        return Err(MatchRunnerError::Game(format!(
+            "Opening sequence has odd length: '{opening}'"
+        )));
+    }
+
+    let bytes = opening.as_bytes();
+    let mut moves = Vec::new();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        let file = bytes[i] as char;
+        let rank = bytes[i + 1] as char;
+
+        if !('a'..='h').contains(&file) || !('1'..='8').contains(&rank) {
+            return Err(MatchRunnerError::Game(format!(
+                "Invalid move in opening sequence: {file}{rank}"
+            )));
+        }
+
+        moves.push(format!("{file}{rank}"));
+        i += 2;
+    }
+    Ok(moves)
+}
+
 /// Orchestrates and executes automated matches between two engines.
 ///
 /// The MatchRunner handles the complete lifecycle of a match, from engine
@@ -192,15 +222,15 @@ impl MatchRunner {
             let is_black = game_state.side_to_move() == Disc::Black;
             let current_color = if is_black { "black" } else { "white" };
 
-            // Send time_left to both engines before move generation
+            // Send time_left to both engines before move generation.
+            // In byoyomi phase, this sends the remaining period time and stones.
             if time_tracker.is_enabled() {
-                // GTP time_left uses stones=0 for both byoyomi and Fischer modes.
-                // The engine uses time_settings to determine the time control mode,
-                // and time_left simply updates the remaining time.
-                black_engine.time_left("black", time_tracker.black_time_secs(), 0)?;
-                white_engine.time_left("black", time_tracker.black_time_secs(), 0)?;
-                black_engine.time_left("white", time_tracker.white_time_secs(), 0)?;
-                white_engine.time_left("white", time_tracker.white_time_secs(), 0)?;
+                let (black_time, black_stones) = time_tracker.black_time_left();
+                let (white_time, white_stones) = time_tracker.white_time_left();
+                black_engine.time_left("black", black_time, black_stones)?;
+                white_engine.time_left("black", black_time, black_stones)?;
+                black_engine.time_left("white", white_time, white_stones)?;
+                white_engine.time_left("white", white_time, white_stones)?;
             }
 
             // Start timing this move
@@ -215,13 +245,7 @@ impl MatchRunner {
             // End timing and update remaining time
             let has_time = time_tracker.end_move(is_black);
             if !has_time && time_tracker.is_enabled() {
-                // Player ran out of time - they lose
-                let result = if is_black {
-                    GameResult::WhiteWin
-                } else {
-                    GameResult::BlackWin
-                };
-                return Ok(MatchResult { result, score: 64 });
+                return Ok(Self::time_loss_result(is_black));
             }
 
             self.execute_move(
@@ -247,19 +271,9 @@ impl MatchRunner {
         white_engine: &mut GtpEngine,
         opening: &str,
     ) -> Result<()> {
-        let mut i = 0;
-        while i + 1 < opening.len() {
-            let file = opening.chars().nth(i).unwrap();
-            let rank = opening.chars().nth(i + 1).unwrap();
-
-            if !('a'..='h').contains(&file) || !('1'..='8').contains(&rank) {
-                return Err(MatchRunnerError::Game(format!(
-                    "Invalid move in opening sequence: {file}{rank}"
-                )));
-            }
-
-            let mv = format!("{file}{rank}");
-            let square = self.parse_move(&mv)?;
+        let moves = parse_opening_moves(opening)?;
+        for mv in &moves {
+            let square = self.parse_move(mv)?;
 
             let color = if game_state.side_to_move() == Disc::Black {
                 "black"
@@ -271,10 +285,8 @@ impl MatchRunner {
                 .make_move(Some(square))
                 .map_err(MatchRunnerError::Game)?;
 
-            black_engine.play(color, &mv)?;
-            white_engine.play(color, &mv)?;
-
-            i += 2;
+            black_engine.play(color, mv)?;
+            white_engine.play(color, mv)?;
         }
 
         Ok(())
@@ -334,6 +346,23 @@ impl MatchRunner {
             std::cmp::Ordering::Greater => 64 - (white_count as i32) * 2,
             std::cmp::Ordering::Less => (black_count as i32) * 2 - 64,
             std::cmp::Ordering::Equal => 0,
+        }
+    }
+
+    /// Create a MatchResult for a time loss.
+    ///
+    /// Score is from black's perspective: -64 if black lost, +64 if white lost.
+    fn time_loss_result(is_black: bool) -> MatchResult {
+        if is_black {
+            MatchResult {
+                result: GameResult::WhiteWin,
+                score: -64,
+            }
+        } else {
+            MatchResult {
+                result: GameResult::BlackWin,
+                score: 64,
+            }
         }
     }
 
@@ -437,5 +466,147 @@ impl MatchRunner {
             }
             GameResult::Draw => MatchWinner::Draw,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_determine_game_result_black_wins() {
+        let runner = MatchRunner::new();
+        assert_eq!(runner.determine_game_result(40, 24), GameResult::BlackWin);
+    }
+
+    #[test]
+    fn test_determine_game_result_white_wins() {
+        let runner = MatchRunner::new();
+        assert_eq!(runner.determine_game_result(20, 44), GameResult::WhiteWin);
+    }
+
+    #[test]
+    fn test_determine_game_result_draw() {
+        let runner = MatchRunner::new();
+        assert_eq!(runner.determine_game_result(32, 32), GameResult::Draw);
+    }
+
+    #[test]
+    fn test_calculate_score_black_wins() {
+        let runner = MatchRunner::new();
+        // black=40, white=24: 64 - 24*2 = 16
+        assert_eq!(runner.calculate_score(40, 24), 16);
+    }
+
+    #[test]
+    fn test_calculate_score_white_wins() {
+        let runner = MatchRunner::new();
+        // black=20, white=44: 20*2 - 64 = -24
+        assert_eq!(runner.calculate_score(20, 44), -24);
+    }
+
+    #[test]
+    fn test_calculate_score_draw() {
+        let runner = MatchRunner::new();
+        assert_eq!(runner.calculate_score(32, 32), 0);
+    }
+
+    #[test]
+    fn test_calculate_score_with_empties() {
+        let runner = MatchRunner::new();
+        // black=30, white=20, empties=14 -> winner gets empties: 64 - 40 = 24
+        assert_eq!(runner.calculate_score(30, 20), 24);
+    }
+
+    #[test]
+    fn test_time_loss_result_black_loses() {
+        let result = MatchRunner::time_loss_result(true);
+        assert_eq!(result.result, GameResult::WhiteWin);
+        assert_eq!(result.score, -64);
+    }
+
+    #[test]
+    fn test_time_loss_result_white_loses() {
+        let result = MatchRunner::time_loss_result(false);
+        assert_eq!(result.result, GameResult::BlackWin);
+        assert_eq!(result.score, 64);
+    }
+
+    #[test]
+    fn test_determine_match_winner_not_swapped() {
+        let runner = MatchRunner::new();
+        assert!(matches!(
+            runner.determine_match_winner(GameResult::BlackWin, false),
+            MatchWinner::Engine1
+        ));
+        assert!(matches!(
+            runner.determine_match_winner(GameResult::WhiteWin, false),
+            MatchWinner::Engine2
+        ));
+        assert!(matches!(
+            runner.determine_match_winner(GameResult::Draw, false),
+            MatchWinner::Draw
+        ));
+    }
+
+    #[test]
+    fn test_determine_match_winner_swapped() {
+        let runner = MatchRunner::new();
+        assert!(matches!(
+            runner.determine_match_winner(GameResult::BlackWin, true),
+            MatchWinner::Engine2
+        ));
+        assert!(matches!(
+            runner.determine_match_winner(GameResult::WhiteWin, true),
+            MatchWinner::Engine1
+        ));
+    }
+
+    #[test]
+    fn test_parse_opening_moves_valid() {
+        let moves = parse_opening_moves("f5d6c3").unwrap();
+        assert_eq!(moves, vec!["f5", "d6", "c3"]);
+    }
+
+    #[test]
+    fn test_parse_opening_moves_full() {
+        let moves = parse_opening_moves("f5d6c3d3c4f4").unwrap();
+        assert_eq!(moves.len(), 6);
+        assert_eq!(moves[0], "f5");
+        assert_eq!(moves[5], "f4");
+    }
+
+    #[test]
+    fn test_parse_opening_moves_empty() {
+        let moves = parse_opening_moves("").unwrap();
+        assert!(moves.is_empty());
+    }
+
+    #[test]
+    fn test_parse_opening_moves_single() {
+        let moves = parse_opening_moves("a1").unwrap();
+        assert_eq!(moves, vec!["a1"]);
+    }
+
+    #[test]
+    fn test_parse_opening_moves_boundary_squares() {
+        let moves = parse_opening_moves("a1h8").unwrap();
+        assert_eq!(moves, vec!["a1", "h8"]);
+    }
+
+    #[test]
+    fn test_parse_opening_moves_invalid_file() {
+        assert!(parse_opening_moves("z5").is_err());
+    }
+
+    #[test]
+    fn test_parse_opening_moves_invalid_rank() {
+        assert!(parse_opening_moves("a9").is_err());
+    }
+
+    #[test]
+    fn test_parse_opening_moves_odd_length() {
+        // Odd-length opening strings are rejected as invalid
+        assert!(parse_opening_moves("f5d").is_err());
     }
 }

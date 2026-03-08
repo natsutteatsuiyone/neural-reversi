@@ -327,6 +327,17 @@ impl PentanomialStats {
             return if self.elo_diff > 0.0 { 1.0 } else { 0.0 };
         }
 
+        if self.confidence_interval == 0.0 {
+            // Zero variance: all pairs identical. LOS is determined by sign of elo_diff.
+            return if self.elo_diff > 0.0 {
+                1.0
+            } else if self.elo_diff < 0.0 {
+                0.0
+            } else {
+                0.5
+            };
+        }
+
         // Using normal approximation
         let z = self.elo_diff / (self.confidence_interval / 1.96);
         0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))

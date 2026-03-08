@@ -7,7 +7,7 @@
 use std::{
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
 use crate::error::{MatchRunnerError, Result};
@@ -22,8 +22,6 @@ const GTP_CMD_VERSION: &str = "version";
 const GTP_CMD_CLEAR_BOARD: &str = "clear_board";
 const GTP_CMD_PLAY: &str = "play";
 const GTP_CMD_GENMOVE: &str = "genmove";
-const GTP_CMD_QUIT: &str = "quit";
-
 // Error messages
 const ERR_STDIN_FAILED: &str = "Failed to open stdin";
 const ERR_STDOUT_FAILED: &str = "Failed to open stdout";
@@ -34,8 +32,13 @@ const ERR_PROCESS_CLOSED: &str = "Process closed stdout";
 /// This struct manages communication with an external Reversi engine process
 /// that implements the GTP (Go Text Protocol). It handles starting the process,
 /// sending commands, and receiving responses.
+///
+/// The engine's stdin and stdout are stored as fields to maintain a persistent
+/// `BufReader`, preventing potential data loss from repeated buffer recreation.
 pub struct GtpEngine {
     process: Child,
+    stdin: ChildStdin,
+    reader: BufReader<ChildStdout>,
     /// Engine name
     name: String,
     /// Engine version
@@ -50,7 +53,7 @@ impl GtpEngine {
     /// Create a new GTP engine instance.
     ///
     /// Starts the engine process with the specified executable, arguments, and working directory.
-    /// The process is configured with piped stdin, stdout, and stderr for communication.
+    /// The process is configured with piped stdin and stdout for communication.
     /// Immediately queries the engine for its name and version to cache these values.
     ///
     /// # Arguments
@@ -82,34 +85,36 @@ impl GtpEngine {
             .current_dir(&working_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::inherit())
             .spawn()?;
 
-        // Get name and version
-        let (name, version) = Self::get_name_and_version(&mut process)?;
+        let stdin = process
+            .stdin
+            .take()
+            .ok_or_else(|| MatchRunnerError::Engine(ERR_STDIN_FAILED.to_string()))?;
+        let stdout = process
+            .stdout
+            .take()
+            .ok_or_else(|| MatchRunnerError::Engine(ERR_STDOUT_FAILED.to_string()))?;
+        let reader = BufReader::new(stdout);
 
-        Ok(GtpEngine {
+        let mut engine = GtpEngine {
             process,
-            name,
-            version,
-        })
-    }
+            stdin,
+            reader,
+            name: String::new(),
+            version: String::new(),
+        };
 
-    /// Get the engine's name and version from GTP commands.
-    ///
-    /// Queries the engine for its name and version and returns them.
-    /// This is called once during engine initialization.
-    fn get_name_and_version(process: &mut Child) -> Result<(String, String)> {
-        // Get name
-        let name_response = Self::send_command_to_process(process, GTP_CMD_NAME)?;
-        let name = Self::parse_success_response(&name_response)?;
+        // Get name and version
+        let name_response = engine.send_command(GTP_CMD_NAME)?;
+        engine.name = Self::parse_success_response(&name_response)?;
 
-        // Get version
-        let version_response = Self::send_command_to_process(process, GTP_CMD_VERSION)?;
+        let version_response = engine.send_command(GTP_CMD_VERSION)?;
         let version_raw = Self::parse_optional_response(&version_response)?;
-        let version = Self::format_version(&version_raw);
+        engine.version = Self::format_version(&version_raw);
 
-        Ok((name, version))
+        Ok(engine)
     }
 
     // =============================================================================
@@ -117,9 +122,9 @@ impl GtpEngine {
     // =============================================================================
 
     /// Core GTP communication logic.
-    fn communicate_with_process(
+    fn communicate(
         stdin: &mut dyn Write,
-        stdout: &mut dyn BufRead,
+        reader: &mut dyn BufRead,
         command: &str,
     ) -> Result<String> {
         writeln!(stdin, "{command}")?;
@@ -130,7 +135,7 @@ impl GtpEngine {
 
         loop {
             line.clear();
-            let bytes_read = stdout.read_line(&mut line)?;
+            let bytes_read = reader.read_line(&mut line)?;
             if bytes_read == 0 {
                 return Err(MatchRunnerError::Engine(ERR_PROCESS_CLOSED.to_string()));
             }
@@ -143,22 +148,6 @@ impl GtpEngine {
         }
 
         Ok(response)
-    }
-
-    /// Send a GTP command to a process and wait for response.
-    fn send_command_to_process(process: &mut Child, command: &str) -> Result<String> {
-        let stdin = process
-            .stdin
-            .as_mut()
-            .ok_or_else(|| MatchRunnerError::Engine(ERR_STDIN_FAILED.to_string()))?;
-
-        let stdout = process
-            .stdout
-            .as_mut()
-            .ok_or_else(|| MatchRunnerError::Engine(ERR_STDOUT_FAILED.to_string()))?;
-
-        let mut reader = BufReader::new(stdout);
-        Self::communicate_with_process(stdin, &mut reader, command)
     }
 
     /// Send a GTP command to the engine and wait for response.
@@ -179,7 +168,7 @@ impl GtpEngine {
     /// Returns an error if communication with the engine fails or if the
     /// engine process terminates unexpectedly.
     pub fn send_command(&mut self, command: &str) -> Result<String> {
-        Self::send_command_to_process(&mut self.process, command)
+        Self::communicate(&mut self.stdin, &mut self.reader, command)
     }
 
     // =============================================================================
@@ -210,14 +199,6 @@ impl GtpEngine {
     ///
     /// Sends the "clear_board" GTP command to reset the engine to an
     /// initial empty board state.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the engine doesn't accept the clear_board command.
     pub fn clear_board(&mut self) -> Result<()> {
         let response = self.send_command(GTP_CMD_CLEAR_BOARD)?;
         Self::parse_success_response(&response)?;
@@ -233,14 +214,6 @@ impl GtpEngine {
     ///
     /// * `color` - The color making the move ("black" or "white")
     /// * `mv` - The move in algebraic notation (e.g., "f5" or "pass")
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the engine rejects the move or if communication fails.
     pub fn play(&mut self, color: &str, mv: &str) -> Result<()> {
         let response = self.send_command(&format!("{GTP_CMD_PLAY} {color} {mv}"))?;
         Self::parse_success_response(&response)?;
@@ -255,15 +228,6 @@ impl GtpEngine {
     /// # Arguments
     ///
     /// * `color` - The color for which to generate a move ("black" or "white")
-    ///
-    /// # Returns
-    ///
-    /// The engine's chosen move in algebraic notation (e.g., "f5" or "pass").
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the engine fails to generate a move or if
-    /// communication fails.
     pub fn genmove(&mut self, color: &str) -> Result<String> {
         let response = self.send_command(&format!("{GTP_CMD_GENMOVE} {color}"))?;
         Self::parse_success_response(&response)
@@ -277,16 +241,6 @@ impl GtpEngine {
     ///
     /// Sends a "time_settings" GTP command to configure the engine's time control.
     /// This command is optional and some engines may not support it.
-    ///
-    /// # Arguments
-    ///
-    /// * `main_time` - Main time in seconds (0 for byoyomi-only mode)
-    /// * `byoyomi_time` - Time per period in seconds (or increment for Fischer)
-    /// * `byoyomi_stones` - Number of moves per period (1 for byoyomi/Fischer)
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success or if the engine doesn't support time_settings.
     pub fn time_settings(
         &mut self,
         main_time: u64,
@@ -305,38 +259,10 @@ impl GtpEngine {
     ///
     /// Sends a "time_left" GTP command to inform the engine of the current
     /// remaining time for a player.
-    ///
-    /// # Arguments
-    ///
-    /// * `color` - The color ("black" or "white")
-    /// * `time` - Remaining time in seconds
-    /// * `stones` - Number of stones/moves remaining in the period (0 for sudden death)
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` on success or if the engine doesn't support time_left.
     pub fn time_left(&mut self, color: &str, time: u64, stones: u32) -> Result<()> {
         let response = self.send_command(&format!("time_left {color} {time} {stones}"))?;
         // Ignore errors - not all engines support time_left
         let _ = Self::parse_optional_response(&response);
-        Ok(())
-    }
-
-    // =============================================================================
-    // Engine Management
-    // =============================================================================
-
-    /// Send a quit command to the engine.
-    ///
-    /// Attempts to gracefully shut down the engine by sending the "quit"
-    /// GTP command. Note that this method doesn't wait for the process to
-    /// actually terminate.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` regardless of whether the engine responds to the quit command.
-    pub fn quit(&mut self) -> Result<()> {
-        let _ = self.send_command(GTP_CMD_QUIT);
         Ok(())
     }
 
@@ -396,8 +322,108 @@ impl GtpEngine {
 
 impl Drop for GtpEngine {
     fn drop(&mut self) {
-        let _ = self.quit();
         let _ = self.process.kill();
         let _ = self.process.wait();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_success_response_with_content() {
+        let result = GtpEngine::parse_success_response("= hello world\n").unwrap();
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_parse_success_response_empty() {
+        let result = GtpEngine::parse_success_response("=\n").unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_parse_success_response_just_equals_space() {
+        let result = GtpEngine::parse_success_response("= \n").unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_parse_success_response_rejects_error() {
+        let result = GtpEngine::parse_success_response("? unknown command\n");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_optional_response_success() {
+        let result = GtpEngine::parse_optional_response("= 1.0\n").unwrap();
+        assert_eq!(result, "1.0");
+    }
+
+    #[test]
+    fn test_parse_optional_response_failure_returns_empty() {
+        let result = GtpEngine::parse_optional_response("? unsupported\n").unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_parse_optional_response_invalid() {
+        let result = GtpEngine::parse_optional_response("garbage\n");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_version_empty() {
+        assert_eq!(GtpEngine::format_version(""), "");
+    }
+
+    #[test]
+    fn test_format_version_with_v_prefix() {
+        assert_eq!(GtpEngine::format_version("v1.0"), "v1.0");
+    }
+
+    #[test]
+    fn test_format_version_with_capital_v_prefix() {
+        assert_eq!(GtpEngine::format_version("V2.0"), "V2.0");
+    }
+
+    #[test]
+    fn test_format_version_without_prefix() {
+        assert_eq!(GtpEngine::format_version("1.0"), "v1.0");
+    }
+
+    #[test]
+    fn test_communicate_success() {
+        let response_data = b"= hello\n\n";
+        let mut reader = std::io::Cursor::new(response_data.to_vec());
+        let mut writer = Vec::new();
+
+        let result = GtpEngine::communicate(&mut writer, &mut reader, "test_cmd").unwrap();
+
+        assert_eq!(result, "= hello\n");
+        assert_eq!(String::from_utf8(writer).unwrap(), "test_cmd\n");
+    }
+
+    #[test]
+    fn test_communicate_multiline_response() {
+        let response_data = b"= line1\nline2\n\n";
+        let mut reader = std::io::Cursor::new(response_data.to_vec());
+        let mut writer = Vec::new();
+
+        let result = GtpEngine::communicate(&mut writer, &mut reader, "cmd").unwrap();
+
+        assert_eq!(result, "= line1\nline2\n");
+    }
+
+    #[test]
+    fn test_communicate_process_closed() {
+        let response_data = b"";
+        let mut reader = std::io::Cursor::new(response_data.to_vec());
+        let mut writer = Vec::new();
+
+        let result = GtpEngine::communicate(&mut writer, &mut reader, "cmd");
+
+        assert!(result.is_err());
     }
 }
