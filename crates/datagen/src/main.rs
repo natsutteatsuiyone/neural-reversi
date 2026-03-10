@@ -22,7 +22,7 @@ enum SubCommands {
         #[arg(long, default_value = "1000000")]
         records_per_file: u32,
 
-        #[arg(long, default_value = "128")]
+        #[arg(long, default_value = "512")]
         hash_size: usize,
 
         #[arg(long, default_value = "12")]

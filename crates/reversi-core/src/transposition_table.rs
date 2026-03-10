@@ -1,20 +1,23 @@
-//! Hash table for caching previously searched positions to avoid redundant computation.
+//! Transposition table for caching search results.
+//!
+//! Each entry stores the full board plus packed search metadata, so hash-index
+//! collisions only affect replacement and never produce a false hit.
 
+use crate::board::Board;
 use crate::probcut::Selectivity;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore, Score};
 use aligned_vec::{AVec, ConstAlign};
-use cfg_if::cfg_if;
 use std::{
     mem,
     sync::atomic::{AtomicU8, AtomicU64, Ordering},
 };
 
 /// Size of each cluster in the transposition table.
-const CLUSTER_SIZE: usize = 4;
+const CLUSTER_SIZE: usize = 2;
 
-/// Bound type for transposition table entries.
+/// Represents the bound type of a transposition table entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Bound {
@@ -80,24 +83,24 @@ impl Bound {
     }
 }
 
-/// Result of a transposition table probe operation.
+/// Represents the result of probing a transposition table cluster.
 pub enum TTProbeResult {
-    /// Found an entry with a matching key.
+    /// Found an entry whose stored board matches the probe.
     Hit {
         /// The data of the entry.
         data: TTEntryData,
         /// The index of the entry in the table.
         index: usize,
     },
-    /// No matching entry found, or collision.
+    /// No matching board was found.
     Miss {
-        /// The index where a new entry should be stored.
+        /// Replacement candidate for a potential store.
         index: usize,
     },
 }
 
 impl TTProbeResult {
-    /// Returns the entry index for storing data.
+    /// Returns the slot index for a subsequent store.
     #[inline(always)]
     pub fn index(&self) -> usize {
         match self {
@@ -131,20 +134,20 @@ impl TTProbeResult {
     }
 }
 
-/// A lightweight wrapper around raw TT entry data for lazy unpacking.
+/// Packed metadata from a validated transposition-table entry.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TTEntryData {
     raw: u64,
 }
 
 impl TTEntryData {
-    /// Returns the stored hash key (lower 22 bits).
+    /// Returns the embedded SeqLock version counter.
     #[inline(always)]
-    pub fn key(&self) -> u32 {
-        ((self.raw >> TTEntry::KEY_SHIFT) & TTEntry::KEY_MASK) as u32
+    pub fn version(&self) -> u16 {
+        ((self.raw >> TTEntry::VERSION_SHIFT) & TTEntry::VERSION_MASK) as u16
     }
 
-    /// Returns the evaluation score.
+    /// Returns the cached search score.
     #[inline(always)]
     pub fn score(&self) -> ScaledScore {
         let raw = ((self.raw >> TTEntry::SCORE_SHIFT) & TTEntry::SCORE_MASK) as i16 as i32;
@@ -190,7 +193,7 @@ impl TTEntryData {
         ((self.raw >> TTEntry::IS_ENDGAME_SHIFT) & TTEntry::IS_ENDGAME_MASK) != 0
     }
 
-    /// Returns `true` if the entry provides a conclusive result for the given beta.
+    /// Returns whether this bound cuts a null-window search at `beta`.
     #[inline(always)]
     pub fn can_cut(&self, beta: ScaledScore) -> bool {
         let score = self.score();
@@ -205,75 +208,98 @@ impl TTEntryData {
         (bound_raw & required) != 0
     }
 
-    /// Returns `true` if the entry has a valid bound type (not [`Bound::None`]).
+    /// Returns `true` if the entry contains initialized metadata.
     #[inline(always)]
     pub fn is_occupied(&self) -> bool {
         ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) != 0
     }
 
-    /// Calculates the relative age (positive means older) based on the current generation.
+    /// Returns `true` while a writer holds the SeqLock for this slot.
+    #[inline(always)]
+    fn is_write_in_progress(&self) -> bool {
+        (self.version() & 1) != 0
+    }
+
+    /// Returns the age distance in the 7-bit generation ring.
     #[inline(always)]
     fn relative_age(&self, generation: u8) -> i32 {
-        generation as i32 - self.generation() as i32
+        ((generation.wrapping_sub(self.generation())) & (TTEntry::GENERATION_MASK as u8)) as i32
     }
 }
 
-/// A single entry in the transposition table.
+/// One slot inside a transposition-table cluster.
 ///
-/// # Entry Format
+/// Stores the full board plus packed metadata. The low 16 bits of `data` are a
+/// SeqLock version used to read the split payload consistently.
 ///
-/// - 22 bits: Hash key (lower 22 bits for verification)
-/// - 16 bits: Evaluation score
-/// - 7 bits: Best move square
-/// - 2 bits: Bound type (none/lower/upper/exact)
-/// - 6 bits: Search depth
-/// - 3 bits: Selectivity level
-/// - 7 bits: Generation counter for aging
-/// - 1 bit: Endgame flag
-#[derive(Default)]
-#[repr(transparent)]
+/// # Layout
+///
+/// - `player`: Player bitboard (AtomicU64)
+/// - `opponent`: Opponent bitboard (AtomicU64)
+/// - `data`: Packed data word with the following bit layout:
+///   - 16 bits: Version counter (SeqLock sequence number)
+///   - 16 bits: Evaluation score
+///   - 7 bits: Best move square
+///   - 2 bits: Bound type (none/lower/upper/exact)
+///   - 6 bits: Search depth
+///   - 3 bits: Selectivity level
+///   - 7 bits: Generation counter for aging
+///   - 1 bit: Endgame flag
+#[repr(C)]
 pub struct TTEntry {
+    player: AtomicU64,
+    opponent: AtomicU64,
     data: AtomicU64,
+}
+
+impl Default for TTEntry {
+    fn default() -> Self {
+        TTEntry {
+            player: AtomicU64::new(0),
+            opponent: AtomicU64::new(0),
+            data: AtomicU64::new(0),
+        }
+    }
 }
 
 impl TTEntry {
     // Bit layout constants for packing data into 64 bits
-    pub(crate) const KEY_SIZE: i32 = 22;
-    pub(crate) const KEY_SHIFT: i32 = 0;
-    pub(crate) const KEY_MASK: u64 = (1 << (Self::KEY_SIZE)) - 1;
+    const VERSION_SIZE: i32 = 16;
+    const VERSION_SHIFT: i32 = 0;
+    const VERSION_MASK: u64 = (1 << Self::VERSION_SIZE) - 1;
 
-    pub(crate) const SCORE_SIZE: i32 = 16;
-    pub(crate) const SCORE_SHIFT: i32 = Self::KEY_SHIFT + Self::KEY_SIZE;
-    pub(crate) const SCORE_MASK: u64 = (1 << (Self::SCORE_SIZE)) - 1;
+    const SCORE_SIZE: i32 = 16;
+    const SCORE_SHIFT: i32 = Self::VERSION_SHIFT + Self::VERSION_SIZE;
+    const SCORE_MASK: u64 = (1 << Self::SCORE_SIZE) - 1;
 
-    pub(crate) const BEST_MOVE_SIZE: i32 = 7;
-    pub(crate) const BEST_MOVE_SHIFT: i32 = Self::SCORE_SHIFT + Self::SCORE_SIZE;
-    pub(crate) const BEST_MOVE_MASK: u64 = (1 << (Self::BEST_MOVE_SIZE)) - 1;
+    const BEST_MOVE_SIZE: i32 = 7;
+    const BEST_MOVE_SHIFT: i32 = Self::SCORE_SHIFT + Self::SCORE_SIZE;
+    const BEST_MOVE_MASK: u64 = (1 << Self::BEST_MOVE_SIZE) - 1;
 
-    pub(crate) const BOUND_SIZE: i32 = 2;
-    pub(crate) const BOUND_SHIFT: i32 = Self::BEST_MOVE_SHIFT + Self::BEST_MOVE_SIZE;
-    pub(crate) const BOUND_MASK: u64 = (1 << (Self::BOUND_SIZE)) - 1;
+    const BOUND_SIZE: i32 = 2;
+    const BOUND_SHIFT: i32 = Self::BEST_MOVE_SHIFT + Self::BEST_MOVE_SIZE;
+    const BOUND_MASK: u64 = (1 << Self::BOUND_SIZE) - 1;
 
-    pub(crate) const DEPTH_SIZE: i32 = 6;
-    pub(crate) const DEPTH_SHIFT: i32 = Self::BOUND_SHIFT + Self::BOUND_SIZE;
-    pub(crate) const DEPTH_MASK: u64 = (1 << (Self::DEPTH_SIZE)) - 1;
+    const DEPTH_SIZE: i32 = 6;
+    const DEPTH_SHIFT: i32 = Self::BOUND_SHIFT + Self::BOUND_SIZE;
+    const DEPTH_MASK: u64 = (1 << Self::DEPTH_SIZE) - 1;
 
-    pub(crate) const SELECTIVITY_SIZE: i32 = 3;
-    pub(crate) const SELECTIVITY_SHIFT: i32 = Self::DEPTH_SHIFT + Self::DEPTH_SIZE;
-    pub(crate) const SELECTIVITY_MASK: u64 = (1 << (Self::SELECTIVITY_SIZE)) - 1;
+    const SELECTIVITY_SIZE: i32 = 3;
+    const SELECTIVITY_SHIFT: i32 = Self::DEPTH_SHIFT + Self::DEPTH_SIZE;
+    const SELECTIVITY_MASK: u64 = (1 << Self::SELECTIVITY_SIZE) - 1;
 
-    pub(crate) const GENERATION_SIZE: i32 = 7;
-    pub(crate) const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
-    pub(crate) const GENERATION_MASK: u64 = (1 << (Self::GENERATION_SIZE)) - 1;
+    const GENERATION_SIZE: i32 = 7;
+    const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
+    const GENERATION_MASK: u64 = (1 << Self::GENERATION_SIZE) - 1;
 
-    pub(crate) const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
-    pub(crate) const IS_ENDGAME_MASK: u64 = 1;
+    const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
+    const IS_ENDGAME_MASK: u64 = 1;
 
-    /// Packs all fields into a single 64-bit value and stores it.
+    /// Builds the packed data word from all fields.
     #[allow(clippy::too_many_arguments)]
-    fn pack(
-        &self,
-        key: u32,
+    #[inline(always)]
+    fn pack_data(
+        version: u16,
         score: ScaledScore,
         best_move: u8,
         bound: u8,
@@ -281,43 +307,71 @@ impl TTEntry {
         selectivity: u8,
         generation: u8,
         is_endgame: bool,
-    ) {
-        let data = key as u64
+    ) -> u64 {
+        (version as u64)
             | (((score.value() as u16) as u64) << Self::SCORE_SHIFT)
             | ((best_move as u64) << Self::BEST_MOVE_SHIFT)
             | ((bound as u64) << Self::BOUND_SHIFT)
             | ((depth as u64) << Self::DEPTH_SHIFT)
             | ((selectivity as u64) << Self::SELECTIVITY_SHIFT)
-            | ((generation as u64) << Self::GENERATION_SHIFT)
-            | ((is_endgame as u64) << Self::IS_ENDGAME_SHIFT);
-        self.data.store(data, Ordering::Relaxed);
+            | (((generation & Self::GENERATION_MASK as u8) as u64) << Self::GENERATION_SHIFT)
+            | ((is_endgame as u64) << Self::IS_ENDGAME_SHIFT)
     }
 
-    /// Unpacks a 64-bit value into TTEntryData.
+    /// Loads packed metadata for replacement scoring.
     #[inline(always)]
-    fn unpack_from_u64(data_u64: u64) -> TTEntryData {
-        TTEntryData { raw: data_u64 }
+    pub fn load_data(&self) -> TTEntryData {
+        TTEntryData {
+            raw: self.data.load(Ordering::Relaxed),
+        }
     }
 
-    /// Loads and unpacks the entry data atomically.
+    /// Attempts to read a stable snapshot of the slot.
     #[inline(always)]
-    pub fn unpack(&self) -> TTEntryData {
-        let data = self.data.load(Ordering::Relaxed);
-        Self::unpack_from_u64(data)
+    fn try_load_snapshot(&self) -> Option<(u64, u64, TTEntryData)> {
+        let data1 = self.data.load(Ordering::Acquire);
+        if (data1 & 1) != 0 {
+            return None;
+        }
+
+        let player = self.player.load(Ordering::Acquire);
+        let opponent = self.opponent.load(Ordering::Acquire);
+
+        let data2 = self.data.load(Ordering::Acquire);
+        if data1 != data2 {
+            return None;
+        }
+
+        Some((player, opponent, TTEntryData { raw: data1 }))
     }
 
-    /// Saves data into the entry, applying the replacement policy.
+    /// Reads the slot and returns metadata if it matches `board`.
+    #[inline(always)]
+    pub fn read(&self, board: &Board) -> Option<TTEntryData> {
+        for _ in 0..3 {
+            if let Some((player, opponent, data)) = self.try_load_snapshot() {
+                if player == board.player.bits() && opponent == board.opponent.bits() {
+                    return Some(data);
+                }
+                // Board doesn't match — genuine miss, no retry needed.
+                return None;
+            }
+            std::hint::spin_loop();
+        }
+        None
+    }
+
+    /// Stores a result if it wins the replacement policy.
     ///
-    /// Replacement rules (evaluated in order):
-    /// 1. [`Bound::Exact`] always replaces unconditionally.
-    /// 2. Different key always replaces.
-    /// 3. Same key replaces if depth is within 2 plies, selectivity is higher,
-    ///    or generation differs. Preserves the existing best move when the new
-    ///    one is [`Square::None`].
+    /// Exact bounds always replace. A different board also replaces, since the
+    /// caller already chose this slot as the cluster victim. For the same board,
+    /// non-exact results replace when depth is within two plies, selectivity is
+    /// higher, or generation changed. If `best_move` is [`Square::None`], the
+    /// existing move is preserved for same-board non-exact updates.
     #[allow(clippy::too_many_arguments)]
     pub fn save(
         &self,
-        key: u64,
+        board: &Board,
         score: ScaledScore,
         bound: Bound,
         depth: Depth,
@@ -326,91 +380,148 @@ impl TTEntry {
         generation: u8,
         is_endgame: bool,
     ) {
-        let key22 = (key & Self::KEY_MASK) as u32;
+        let new_player = board.player.bits();
+        let new_opponent = board.opponent.bits();
 
-        // Fast path: Exact bound always replaces
-        if bound == Bound::Exact {
-            self.pack(
-                key22,
-                score,
-                best_move as u8,
-                bound as u8,
-                depth as u8,
-                selectivity.as_u8(),
-                generation,
-                is_endgame,
-            );
-            return;
-        }
+        let best_move_u8 = best_move as u8;
+        let bound_u8 = bound as u8;
+        let depth_u8 = depth as u8;
+        let selectivity_u8 = selectivity.as_u8();
 
-        // Load raw data once
-        let raw_data = self.data.load(Ordering::Relaxed);
-        let stored_key = (raw_data & Self::KEY_MASK) as u32;
-
-        // Different key: always replace (don't need to preserve best_move)
-        if key22 != stored_key {
-            self.pack(
-                key22,
-                score,
-                best_move as u8,
-                bound as u8,
-                depth as u8,
-                selectivity.as_u8(),
-                generation,
-                is_endgame,
-            );
-            return;
-        }
-
-        // Same key: check replacement conditions using bit operations
-        let stored_depth = ((raw_data >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as i8;
-        let stored_selectivity =
-            ((raw_data >> Self::SELECTIVITY_SHIFT) & Self::SELECTIVITY_MASK) as u8;
-        let stored_generation =
-            ((raw_data >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK) as u8;
-
-        // Replace if ANY of these conditions hold:
-        // 1. New depth is within 2 plies of stored depth (allows slight depth regression)
-        // 2. New selectivity is higher (more conservative search is more valuable)
-        // 3. Different generation (prioritize current search's entries)
-        let should_replace = (depth as i8) >= stored_depth.saturating_sub(2)
-            || selectivity.as_u8() > stored_selectivity
-            || generation != stored_generation;
-
-        if should_replace {
-            // Need to preserve best_move if new one is Square::None
-            let bm = if best_move != Square::None {
-                best_move as u8
-            } else {
-                ((raw_data >> Self::BEST_MOVE_SHIFT) & Self::BEST_MOVE_MASK) as u8
+        // Retry the full replacement policy if another writer wins the race
+        // between snapshot acquisition and the claim CAS.
+        for _ in 0..16 {
+            let Some((stored_player, stored_opponent, stored_data)) = self.try_load_snapshot()
+            else {
+                std::hint::spin_loop();
+                continue;
             };
 
-            self.pack(
-                key22,
+            let same_board = new_player == stored_player && new_opponent == stored_opponent;
+            let should_replace = if bound == Bound::Exact || !same_board {
+                true
+            } else {
+                let stored_depth = stored_data.depth() as i8;
+                let stored_selectivity = stored_data.selectivity().as_u8();
+                let stored_generation = stored_data.generation();
+
+                // Replace if ANY of these conditions hold:
+                // 1. New depth is within 2 plies of stored depth (allows slight depth regression)
+                // 2. New selectivity is higher (more conservative search is more valuable)
+                // 3. Different generation (prioritize current search's entries)
+                (depth as i8) >= stored_depth.saturating_sub(2)
+                    || selectivity_u8 > stored_selectivity
+                    || generation != stored_generation
+            };
+
+            if !should_replace {
+                return;
+            }
+
+            let write_best_move =
+                if best_move != Square::None || bound == Bound::Exact || !same_board {
+                    best_move_u8
+                } else {
+                    stored_data.best_move() as u8
+                };
+
+            if self.seqlock_write(
+                stored_data.raw,
+                new_player,
+                new_opponent,
+                write_best_move,
                 score,
-                bm,
-                bound as u8,
-                depth as u8,
-                selectivity.as_u8(),
+                bound_u8,
+                depth_u8,
+                selectivity_u8,
                 generation,
                 is_endgame,
-            );
+            ) {
+                return;
+            }
+
+            std::hint::spin_loop();
         }
+    }
+
+    /// Tries to claim the slot from a specific stable snapshot and publish a new value.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    fn seqlock_write(
+        &self,
+        expected_data: u64,
+        player: u64,
+        opponent: u64,
+        best_move: u8,
+        score: ScaledScore,
+        bound: u8,
+        depth: u8,
+        selectivity: u8,
+        generation: u8,
+        is_endgame: bool,
+    ) -> bool {
+        let current_version = (expected_data & Self::VERSION_MASK) as u16;
+        debug_assert_eq!(current_version & 1, 0, "expected stable snapshot");
+        if current_version & 1 != 0 {
+            return false;
+        }
+
+        let odd_data = (expected_data & !Self::VERSION_MASK) | ((current_version | 1) as u64);
+        if self
+            .data
+            .compare_exchange(expected_data, odd_data, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            return false;
+        }
+
+        // We now hold exclusive write access (version is odd).
+
+        // Step 1: Store player and opponent
+        self.player.store(player, Ordering::Relaxed);
+        self.opponent.store(opponent, Ordering::Relaxed);
+
+        // Step 2: Store even version with new data (releases the lock)
+        let next_version = current_version.wrapping_add(2) & (Self::VERSION_MASK as u16);
+        let final_data = Self::pack_data(
+            next_version,
+            score,
+            best_move,
+            bound,
+            depth,
+            selectivity,
+            generation,
+            is_endgame,
+        );
+        self.data.store(final_data, Ordering::Release);
+        true
+    }
+
+    #[inline(always)]
+    fn clear(&self) {
+        // `TranspositionTable::clear` is only used for quiescent resets between
+        // searches, so bypass the SeqLock protocol and zero the entry directly.
+        self.player.store(0, Ordering::Relaxed);
+        self.opponent.store(0, Ordering::Relaxed);
+        self.data.store(0, Ordering::Relaxed);
     }
 }
 
-/// The main transposition table structure.
+/// Shared transposition table.
 pub struct TranspositionTable {
-    /// Array of table entries organized in clusters.
+    /// Flat array of [`TTEntry`] values grouped into fixed-size clusters.
     entries: AVec<TTEntry, ConstAlign<32>>,
-    /// Number of clusters in the table.
+    /// Number of [`TTEntry`] clusters in the table.
     cluster_count: u64,
     /// Generation counter for entry aging (incremented each search).
     generation: AtomicU8,
 }
 
 impl TranspositionTable {
-    /// Creates a new [`TranspositionTable`] with the specified memory size in megabytes.
+    /// Creates a table with approximately `mb_size` MiB of storage.
+    ///
+    /// When `mb_size` is 0, creates a minimal 16-cluster table suitable for
+    /// testing.
     pub fn new(mb_size: usize) -> Self {
         let cluster_count = if mb_size == 0 {
             16
@@ -427,10 +538,10 @@ impl TranspositionTable {
         }
     }
 
-    /// Clears all entries in the transposition table.
+    /// Clears all entries.
     pub fn clear(&self) {
         for entry in &*self.entries {
-            entry.data.store(0, Ordering::Relaxed);
+            entry.clear();
         }
     }
 
@@ -442,12 +553,21 @@ impl TranspositionTable {
 
     /// Increments the generation counter and returns the new value.
     ///
-    /// This should be called at the start of each new search to age old entries.
+    /// The counter wraps at 128 (7-bit range) to match the packed storage width
+    /// in [`TTEntry`], preventing overflow into the `is_endgame` flag.
     #[inline]
     pub fn increment_generation(&self) -> u8 {
-        self.generation
-            .fetch_add(1, Ordering::Relaxed)
-            .wrapping_add(1)
+        loop {
+            let prev = self.generation.load(Ordering::Relaxed);
+            let new = prev.wrapping_add(1) & (TTEntry::GENERATION_MASK as u8);
+            if self
+                .generation
+                .compare_exchange_weak(prev, new, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                return new;
+            }
+        }
     }
 
     /// Resets the generation counter to zero.
@@ -457,6 +577,10 @@ impl TranspositionTable {
     }
 
     /// Prefetches the cluster corresponding to the given hash key into L1 cache.
+    ///
+    /// Clusters are 48 bytes (2 x 24-byte entries), so they can straddle a 64-byte
+    /// cache line. Prefetching the start plus a second address 32 bytes ahead covers
+    /// the trailing line when that happens without padding entries to 32 bytes.
     #[inline]
     pub fn prefetch(&self, key: u64) {
         #[cfg(target_arch = "x86_64")]
@@ -464,6 +588,7 @@ impl TranspositionTable {
             let index = self.get_cluster_idx(key);
             let addr = self.entries.as_ptr().add(index) as *const i8;
             std::arch::x86_64::_mm_prefetch(addr, std::arch::x86_64::_MM_HINT_T0);
+            std::arch::x86_64::_mm_prefetch(addr.add(32), std::arch::x86_64::_MM_HINT_T0);
         }
 
         #[cfg(not(target_arch = "x86_64"))]
@@ -472,144 +597,91 @@ impl TranspositionTable {
         }
     }
 
-    /// Probes the table for an entry matching the given key, returning a [`TTProbeResult`].
+    /// Performs a read-only lookup without selecting a replacement slot.
     #[inline(always)]
-    pub fn probe(&self, key: u64) -> TTProbeResult {
-        let generation = self.generation();
-        cfg_if! {
-            if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
-                unsafe { self.probe_avx2(key, generation) }
-            } else {
-                self.probe_fallback(key, generation)
-            }
-        }
-    }
-
-    /// AVX2-optimized probe implementation for faster cluster scanning.
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    #[target_feature(enable = "avx2")]
-    #[inline]
-    fn probe_avx2(&self, key: u64, generation: u8) -> TTProbeResult {
-        use std::arch::x86_64::*;
-
-        const _: () = assert!(mem::size_of::<TTEntry>() * CLUSTER_SIZE == 32);
-
-        let key22 = (key & TTEntry::KEY_MASK) as u32;
-        let base = self.get_cluster_idx(key);
-        let ptr = unsafe { self.entries.as_ptr().add(base) } as *const __m256i;
-
-        let v = unsafe { _mm256_load_si256(ptr) };
-        let key_mask = _mm256_set1_epi64x(TTEntry::KEY_MASK as i64);
-        let keys_in_entries = _mm256_and_si256(v, key_mask);
-        let key_broadcast = _mm256_set1_epi64x(key22 as i64);
-        let cmp = _mm256_cmpeq_epi32(keys_in_entries, key_broadcast);
-        let mask = _mm256_movemask_epi8(cmp) as u32;
-
-        const KEY_MATCH_MASK: u32 = 0x0F0F0F0F;
-        let key_matches = mask & KEY_MATCH_MASK;
-
-        let bound_mask = _mm256_set1_epi64x(TTEntry::BOUND_MASK as i64);
-        let bounds = _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::BOUND_SHIFT), bound_mask);
-        let zero = _mm256_setzero_si256();
-        let occupied_cmp = _mm256_cmpeq_epi32(bounds, zero);
-        let occupied_mask = !(_mm256_movemask_epi8(occupied_cmp) as u32) & KEY_MATCH_MASK;
-
-        let hits = key_matches & occupied_mask;
-
-        if hits != 0 {
-            let tz = hits.trailing_zeros();
-            let lane_idx = (tz / 8) as usize;
-            let entry = unsafe { self.entries.get_unchecked(base + lane_idx) };
-            let raw_data = entry.data.load(Ordering::Relaxed);
-            let tt_data = TTEntryData { raw: raw_data };
-
-            if tt_data.key() == key22 {
-                return TTProbeResult::Hit {
-                    data: tt_data,
-                    index: base + lane_idx,
-                };
-            }
-        }
-
-        let depth_mask = _mm256_set1_epi64x(TTEntry::DEPTH_MASK as i64);
-        let depths = _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::DEPTH_SHIFT), depth_mask);
-
-        let gen_mask = _mm256_set1_epi64x(TTEntry::GENERATION_MASK as i64);
-        let gens = _mm256_and_si256(_mm256_srli_epi64(v, TTEntry::GENERATION_SHIFT), gen_mask);
-
-        let current_gen = _mm256_set1_epi64x(generation as i64);
-        let ages = _mm256_sub_epi64(current_gen, gens);
-
-        let scores = _mm256_sub_epi64(depths, _mm256_slli_epi64(ages, 3));
-        let scores_arr: [i64; 4] = unsafe { std::mem::transmute(scores) };
-
-        let s0 = scores_arr[0];
-        let s1 = scores_arr[1];
-        let s2 = scores_arr[2];
-        let s3 = scores_arr[3];
-
-        let min01 = if s0 <= s1 { (s0, 0usize) } else { (s1, 1) };
-        let min23 = if s2 <= s3 { (s2, 2usize) } else { (s3, 3) };
-        let (_, replace_idx) = if min01.0 <= min23.0 { min01 } else { min23 };
-
-        TTProbeResult::Miss {
-            index: base + replace_idx,
-        }
-    }
-
-    /// Fallback probe implementation for non-AVX2 platforms.
-    #[inline]
-    #[allow(dead_code)]
-    fn probe_fallback(&self, key: u64, generation: u8) -> TTProbeResult {
-        let key22 = (key & TTEntry::KEY_MASK) as u32;
+    pub fn lookup(&self, board: &Board, key: u64) -> Option<TTEntryData> {
         let cluster_idx = self.get_cluster_idx(key);
 
-        // look for exact key match
+        for i in 0..CLUSTER_SIZE {
+            let entry = unsafe { self.entries.get_unchecked(cluster_idx + i) };
+            if let Some(data) = entry.read(board) {
+                return Some(data);
+            }
+        }
+
+        None
+    }
+
+    /// Probes the cluster for `board`.
+    ///
+    /// On miss, returns the slot with the lowest `depth - 8 * relative_age`
+    /// replacement score.
+    #[inline(always)]
+    pub fn probe(&self, board: &Board, key: u64) -> TTProbeResult {
+        let cluster_idx = self.get_cluster_idx(key);
+
+        // Look for a matching board using SeqLock reads
         for i in 0..CLUSTER_SIZE {
             let idx = cluster_idx + i;
             let entry = unsafe { self.entries.get_unchecked(idx) };
-            let data = entry.data.load(Ordering::Relaxed);
-            let entry_key = ((data >> TTEntry::KEY_SHIFT) & TTEntry::KEY_MASK) as u32;
-            let bound_val = (data >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK;
-            let is_occupied = bound_val != 0;
-
-            if entry_key == key22 && is_occupied {
-                let tt_data = TTEntryData { raw: data };
-                return TTProbeResult::Hit {
-                    data: tt_data,
-                    index: idx,
-                };
+            if let Some(data) = entry.read(board) {
+                return TTProbeResult::Hit { data, index: idx };
             }
         }
 
-        // find best replacement candidate
-        let mut replace_idx = cluster_idx;
-        let replace_data = unsafe { self.entries.get_unchecked(cluster_idx).unpack() };
-        let mut replace_score =
-            replace_data.depth() as i32 - replace_data.relative_age(generation) * 8;
+        // Find best replacement candidate
+        let generation = self.generation();
+        for _ in 0..3 {
+            let mut replace_idx = None;
+            let mut replace_score = 0;
+            let mut saw_in_flight_writer = false;
 
-        for i in 1..CLUSTER_SIZE {
-            let idx = cluster_idx + i;
-            let entry = unsafe { self.entries.get_unchecked(idx) };
-            let tt_data = entry.unpack();
-            let score = tt_data.depth() as i32 - tt_data.relative_age(generation) * 8;
+            for i in 0..CLUSTER_SIZE {
+                let idx = cluster_idx + i;
+                let entry = unsafe { self.entries.get_unchecked(idx) };
+                let tt_data = entry.load_data();
 
-            if score < replace_score {
-                replace_score = score;
-                replace_idx = idx;
+                if tt_data.is_write_in_progress() {
+                    saw_in_flight_writer = true;
+                    continue;
+                }
+
+                if !tt_data.is_occupied() {
+                    return TTProbeResult::Miss { index: idx };
+                }
+
+                let score = tt_data.depth() as i32 - tt_data.relative_age(generation) * 8;
+                if replace_idx.is_none() || score < replace_score {
+                    replace_score = score;
+                    replace_idx = Some(idx);
+                }
             }
+
+            if let Some(index) = replace_idx {
+                return TTProbeResult::Miss { index };
+            }
+
+            if !saw_in_flight_writer {
+                break;
+            }
+
+            std::hint::spin_loop();
         }
 
-        TTProbeResult::Miss { index: replace_idx }
+        TTProbeResult::Miss { index: cluster_idx }
     }
 
-    /// Stores data at the entry index returned by [`probe`](Self::probe).
+    /// Stores data into a slot previously returned by [`probe`](Self::probe).
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if `entry_index` is out of bounds.
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     pub fn store(
         &self,
         entry_index: usize,
-        key: u64,
+        board: &Board,
         score: ScaledScore,
         bound: Bound,
         depth: Depth,
@@ -624,7 +696,7 @@ impl TranspositionTable {
         );
         let entry = unsafe { self.entries.get_unchecked(entry_index) };
         entry.save(
-            key,
+            board,
             score,
             bound,
             depth,
@@ -635,13 +707,13 @@ impl TranspositionTable {
         );
     }
 
-    /// Returns the starting entry index of the cluster for the given hash key.
+    /// Returns the first entry index of the cluster selected by `key`.
     #[inline(always)]
     fn get_cluster_idx(&self, key: u64) -> usize {
         (Self::mul_hi64(key, self.cluster_count) as usize) * CLUSTER_SIZE
     }
 
-    /// Returns the high 64 bits of the 128-bit product of two 64-bit values.
+    /// Returns the high 64 bits of `a * b`.
     #[inline(always)]
     fn mul_hi64(a: u64, b: u64) -> u64 {
         let product = (a as u128) * (b as u128);
@@ -652,54 +724,49 @@ impl TranspositionTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bitboard::Bitboard;
     use crate::search::node_type::{NonPV, PV};
 
     fn sq(idx: usize) -> Square {
         Square::from_usize_unchecked(idx)
     }
 
+    fn make_board(player: u64, opponent: u64) -> Board {
+        Board {
+            player: Bitboard::new(player),
+            opponent: Bitboard::new(opponent),
+        }
+    }
+
     fn store_entry(
         tt: &TranspositionTable,
-        key: u64,
+        board: &Board,
         score: ScaledScore,
         bound: Bound,
         depth: Depth,
         best_move: usize,
         selectivity: Selectivity,
     ) -> usize {
-        let idx = tt.probe(key).index();
+        let key = board.hash();
+        let idx = tt.probe(board, key).index();
         tt.store(
             idx,
-            key,
+            board,
             score,
             bound,
             depth,
             sq(best_move),
             selectivity,
-            false, // default to midgame for tests
+            false,
         );
         idx
-    }
-
-    fn cluster_keys(tt: &TranspositionTable, target_cluster: usize, count: usize) -> Vec<u64> {
-        let mut keys = Vec::with_capacity(count);
-        let mut candidate: u64 = 0;
-
-        while keys.len() < count {
-            if tt.get_cluster_idx(candidate) == target_cluster {
-                keys.push(candidate);
-            }
-            candidate = candidate.wrapping_add(1);
-        }
-
-        keys
     }
 
     /// Tests that TTEntry correctly packs and unpacks all fields.
     #[test]
     fn test_ttentry_store_and_read() {
         let entry = TTEntry::default();
-        let test_key: u64 = 42;
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
         let test_score = ScaledScore::from_disc_diff(-64);
         let test_bound = Bound::Exact;
         let test_depth: Depth = 60;
@@ -708,7 +775,7 @@ mod tests {
         let test_generation: u8 = 127;
 
         entry.save(
-            test_key,
+            &board,
             test_score,
             test_bound,
             test_depth,
@@ -718,8 +785,7 @@ mod tests {
             false,
         );
 
-        let data = entry.unpack();
-        assert_eq!(data.key(), (test_key & TTEntry::KEY_MASK) as u32);
+        let data = entry.read(&board).expect("should hit");
         assert_eq!(data.score(), test_score);
         assert_eq!(data.bound(), test_bound);
         assert_eq!(data.depth(), test_depth);
@@ -728,14 +794,37 @@ mod tests {
         assert_eq!(data.generation(), test_generation);
     }
 
+    /// Tests that reading with a different board returns None.
+    #[test]
+    fn test_ttentry_different_board_miss() {
+        let entry = TTEntry::default();
+        let board1 = make_board(1, 2);
+        let board2 = make_board(3, 4);
+
+        entry.save(
+            &board1,
+            ScaledScore::from_raw(50),
+            Bound::Exact,
+            10,
+            sq(5),
+            Selectivity::Level2,
+            1,
+            false,
+        );
+
+        assert!(entry.read(&board1).is_some());
+        assert!(entry.read(&board2).is_none());
+    }
+
     /// Tests the replacement policy in TTEntry::save.
     #[test]
     fn test_ttentry_replacement_policy() {
         let entry = TTEntry::default();
+        let board = make_board(100, 200);
 
         // Initial save
         entry.save(
-            100,
+            &board,
             ScaledScore::from_raw(50),
             Bound::Lower,
             10,
@@ -744,13 +833,12 @@ mod tests {
             1,
             false,
         );
-        let data = entry.unpack();
+        let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 10);
-        assert_eq!(data.generation(), 1);
 
-        // Try to replace with slightly shallower depth (within 2 plies) - should replace
+        // Slightly shallower (within 2 plies) - should replace
         entry.save(
-            100,
+            &board,
             ScaledScore::from_raw(60),
             Bound::Lower,
             8,
@@ -759,13 +847,13 @@ mod tests {
             1,
             false,
         );
-        let data = entry.unpack();
-        assert_eq!(data.depth(), 8); // Replacement allowed within 2 plies
-        assert_eq!(data.score().value(), 60); // New value should be stored
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.depth(), 8);
+        assert_eq!(data.score().value(), 60);
 
-        // Replace with deeper depth - should replace
+        // Deeper - should replace
         entry.save(
-            100,
+            &board,
             ScaledScore::from_raw(70),
             Bound::Lower,
             12,
@@ -774,13 +862,12 @@ mod tests {
             1,
             false,
         );
-        let data = entry.unpack();
+        let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 12);
-        assert_eq!(data.score().value(), 70);
 
-        // Replace with exact bound - should always replace
+        // Exact bound - always replaces
         entry.save(
-            100,
+            &board,
             ScaledScore::from_raw(80),
             Bound::Exact,
             5,
@@ -789,14 +876,14 @@ mod tests {
             1,
             false,
         );
-        let data = entry.unpack();
+        let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 5);
-        assert_eq!(data.score().value(), 80);
         assert_eq!(data.bound(), Bound::Exact);
 
-        // Different key - should replace
+        // Different board - always replaces
+        let board2 = make_board(300, 400);
         entry.save(
-            200,
+            &board2,
             ScaledScore::from_raw(90),
             Bound::Upper,
             3,
@@ -805,13 +892,13 @@ mod tests {
             1,
             false,
         );
-        let data = entry.unpack();
-        assert_eq!(data.key(), 200);
+        let data = entry.read(&board2).unwrap();
         assert_eq!(data.score().value(), 90);
+        assert!(entry.read(&board).is_none()); // old board no longer matches
 
         // Newer generation - should replace
         entry.save(
-            200,
+            &board2,
             ScaledScore::from_raw(100),
             Bound::Lower,
             2,
@@ -820,17 +907,47 @@ mod tests {
             5,
             false,
         );
-        let data = entry.unpack();
+        let data = entry.read(&board2).unwrap();
         assert_eq!(data.generation(), 5);
-        assert_eq!(data.score().value(), 100);
+    }
+
+    /// Tests that save preserves the stored best move when the new one is Square::None.
+    #[test]
+    fn test_ttentry_preserves_best_move_when_new_move_is_none() {
+        let entry = TTEntry::default();
+        let board = make_board(123, 456);
+
+        entry.save(
+            &board,
+            ScaledScore::from_raw(30),
+            Bound::Lower,
+            12,
+            sq(11),
+            Selectivity::Level2,
+            1,
+            false,
+        );
+
+        entry.save(
+            &board,
+            ScaledScore::from_raw(40),
+            Bound::Lower,
+            11,
+            Square::None,
+            Selectivity::Level2,
+            1,
+            false,
+        );
+
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.best_move(), sq(11));
+        assert_eq!(data.score().value(), 40);
     }
 
     /// Tests Bound::classify_scaled for different node types.
     #[test]
     fn test_bound_classify_scaled() {
         let s = |v| ScaledScore::from_raw(v);
-
-        // Test PV node
         assert_eq!(
             Bound::classify_scaled::<PV>(s(100), s(30), s(50)),
             Bound::Lower
@@ -843,8 +960,6 @@ mod tests {
             Bound::classify_scaled::<PV>(s(20), s(30), s(50)),
             Bound::Upper
         );
-
-        // Test non-PV node
         assert_eq!(
             Bound::classify_scaled::<NonPV>(s(100), s(30), s(50)),
             Bound::Lower
@@ -859,32 +974,19 @@ mod tests {
         );
     }
 
-    /// Tests Bound::classify_score for different node types.
+    /// Tests TTEntryData occupancy and cutoff helpers.
     #[test]
-    fn test_bound_classify_score() {
-        // Test PV node
-        assert_eq!(Bound::classify_score::<PV>(100, 30, 50), Bound::Lower);
-        assert_eq!(Bound::classify_score::<PV>(40, 30, 50), Bound::Exact);
-        assert_eq!(Bound::classify_score::<PV>(20, 30, 50), Bound::Upper);
-
-        // Test non-PV node
-        assert_eq!(Bound::classify_score::<NonPV>(100, 30, 50), Bound::Lower);
-        assert_eq!(Bound::classify_score::<NonPV>(40, 30, 50), Bound::Upper);
-        assert_eq!(Bound::classify_score::<NonPV>(20, 30, 50), Bound::Upper);
-    }
-
-    /// Tests TTEntryData methods.
-    #[test]
-    fn test_ttentry_data_methods() {
+    fn test_ttentry_data_helpers() {
         let s = |v| ScaledScore::from_raw(v);
-        // Construct a TTEntry to test TTEntryData via unpack
         let entry = TTEntry::default();
+        let board = make_board(1, 2);
 
-        // Test is_occupied
-        assert!(!entry.unpack().is_occupied());
+        // Test is_occupied (empty entry read via load_data)
+        assert!(!entry.load_data().is_occupied());
 
+        // After storing with Lower bound
         entry.save(
-            0,
+            &board,
             s(0),
             Bound::Lower,
             0,
@@ -893,38 +995,11 @@ mod tests {
             0,
             false,
         );
-        assert!(entry.unpack().is_occupied());
+        assert!(entry.read(&board).unwrap().is_occupied());
 
+        // can_cut tests
         entry.save(
-            0,
-            s(0),
-            Bound::Upper,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            0,
-            false,
-        );
-        assert!(entry.unpack().is_occupied());
-
-        entry.save(
-            0,
-            s(0),
-            Bound::Exact,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            0,
-            false,
-        );
-        assert!(entry.unpack().is_occupied());
-
-        // can_cut and relative_age are tested implicitly or can be tested via helper if necessary
-        // Recreating scenarios for can_cut
-
-        // Test can_cut
-        entry.save(
-            0,
+            &board,
             s(100),
             Bound::Lower,
             0,
@@ -933,11 +1008,11 @@ mod tests {
             0,
             false,
         );
-        assert!(entry.unpack().can_cut(s(50))); // score >= beta, lower bound
-        assert!(!entry.unpack().can_cut(s(150))); // score < beta, lower bound
+        assert!(entry.read(&board).unwrap().can_cut(s(50)));
+        assert!(!entry.read(&board).unwrap().can_cut(s(150)));
 
         entry.save(
-            0,
+            &board,
             s(30),
             Bound::Upper,
             0,
@@ -946,11 +1021,11 @@ mod tests {
             0,
             false,
         );
-        assert!(entry.unpack().can_cut(s(50))); // score < beta, upper bound
-        assert!(!entry.unpack().can_cut(s(20))); // score >= beta, upper bound
+        assert!(entry.read(&board).unwrap().can_cut(s(50)));
+        assert!(!entry.read(&board).unwrap().can_cut(s(20)));
 
         entry.save(
-            0,
+            &board,
             s(30),
             Bound::Exact,
             0,
@@ -959,55 +1034,36 @@ mod tests {
             0,
             false,
         );
-        assert!(entry.unpack().can_cut(s(50))); // exact bound matches both
-        assert!(entry.unpack().can_cut(s(20)));
-
-        // Test relative_age
-        entry.save(
-            0,
-            s(0),
-            Bound::Exact,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            5,
-            false,
-        );
-        assert_eq!(entry.unpack().relative_age(8), 3);
-        assert_eq!(entry.unpack().relative_age(5), 0);
-        assert_eq!(entry.unpack().relative_age(3), -2);
+        assert!(entry.read(&board).unwrap().can_cut(s(50)));
+        assert!(entry.read(&board).unwrap().can_cut(s(20)));
     }
 
     /// Tests TranspositionTable creation with different sizes.
     #[test]
     fn test_transposition_table_new() {
-        // Test with 0 MB (minimum size)
         let tt = TranspositionTable::new(0);
         assert_eq!(tt.cluster_count, 16);
         assert_eq!(tt.entries.len(), 16 * CLUSTER_SIZE);
 
-        // Test with 1 MB
         let tt = TranspositionTable::new(1);
         let expected_clusters = (1024 * 1024) / (std::mem::size_of::<TTEntry>() * CLUSTER_SIZE);
         assert_eq!(tt.cluster_count, expected_clusters as u64);
-        assert_eq!(tt.entries.len(), expected_clusters * CLUSTER_SIZE);
     }
 
     /// Tests basic probe and store operations.
     #[test]
     fn test_probe_and_store() {
         let tt = TranspositionTable::new(1);
-        let key: u64 = 0x123456789ABCDEF0;
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
         let generation = tt.increment_generation();
 
-        // First probe should return not found
-        assert!(!tt.probe(key).is_hit());
+        assert!(!tt.probe(&board, key).is_hit());
 
-        // Store an entry
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(&board, key).index();
         tt.store(
             idx,
-            key,
+            &board,
             ScaledScore::from_raw(100),
             Bound::Exact,
             20,
@@ -1016,11 +1072,9 @@ mod tests {
             false,
         );
 
-        // Second probe should find the entry
-        let result = tt.probe(key);
+        let result = tt.probe(&board, key);
         assert!(result.is_hit());
         let d = result.data().unwrap();
-        assert_eq!(d.key(), (key & TTEntry::KEY_MASK) as u32);
         assert_eq!(d.score().value(), 100);
         assert_eq!(d.bound(), Bound::Exact);
         assert_eq!(d.depth(), 20);
@@ -1029,132 +1083,309 @@ mod tests {
         assert_eq!(d.generation(), generation);
     }
 
-    /// Tests collision handling and replacement strategies.
-    #[test]
-    fn test_cluster_replacement() {
-        let tt = TranspositionTable::new(1);
-        tt.increment_generation(); // generation = 1
-        let target_cluster = tt.get_cluster_idx(0);
-
-        // Generate keys that map to the same cluster
-        let keys = cluster_keys(&tt, target_cluster, CLUSTER_SIZE + 1);
-
-        // Fill the cluster
-        for (i, key) in keys.iter().take(CLUSTER_SIZE).enumerate() {
-            let depth: Depth = i as Depth * 10;
-            tt.store(
-                target_cluster + i,
-                *key,
-                ScaledScore::from_raw(i as i32 * 10),
-                Bound::Lower,
-                depth,
-                sq(i),
-                Selectivity::Level1,
-                false,
-            );
-        }
-
-        let new_key = keys[CLUSTER_SIZE];
-        let result = tt.probe(new_key);
-        assert!(!result.is_hit());
-        let replace_idx = result.index();
-        assert_eq!(replace_idx, target_cluster);
-
-        tt.store(
-            replace_idx,
-            new_key,
-            ScaledScore::from_raw(999),
-            Bound::Exact,
-            50,
-            sq(20),
-            Selectivity::Level1,
-            false,
-        );
-
-        let result = tt.probe(new_key);
-        assert!(result.is_hit());
-        assert_eq!(result.data().unwrap().score().value(), 999);
-    }
-
-    /// Tests generation-based aging in replacement.
-    #[test]
-    fn test_generation_aging() {
-        let tt = TranspositionTable::new(1);
-        tt.increment_generation(); // generation = 1
-        let target_cluster = tt.get_cluster_idx(0);
-        let keys = cluster_keys(&tt, target_cluster, CLUSTER_SIZE + 1);
-
-        for (i, key) in keys.iter().take(CLUSTER_SIZE).enumerate() {
-            let depth: Depth = 30u32 - i as Depth;
-            tt.store(
-                target_cluster + i,
-                *key,
-                ScaledScore::from_raw(100 + i as i32),
-                Bound::Lower,
-                depth,
-                sq(i),
-                Selectivity::Level1,
-                false,
-            );
-        }
-
-        // Advance generation to 10 to simulate aging
-        for _ in 1..10 {
-            tt.increment_generation();
-        }
-
-        let new_key = keys[CLUSTER_SIZE];
-        let result = tt.probe(new_key);
-        assert!(!result.is_hit());
-        let replace_idx = result.index();
-        assert_eq!(replace_idx, target_cluster + (CLUSTER_SIZE - 1));
-
-        tt.store(
-            replace_idx,
-            new_key,
-            ScaledScore::from_raw(200),
-            Bound::Exact,
-            10,
-            sq(20),
-            Selectivity::Level1,
-            false,
-        );
-
-        let result = tt.probe(new_key);
-        assert!(result.is_hit());
-        assert_eq!(result.data().unwrap().generation(), 10);
-    }
-
     /// Tests the clear function.
     #[test]
     fn test_clear() {
         let tt = TranspositionTable::new(1);
-        tt.increment_generation(); // generation = 1
+        tt.increment_generation();
 
-        // Store some entries
-        for i in 0..10 {
-            let key = i * 0x1000000000000000;
-            store_entry(
-                &tt,
-                key,
-                ScaledScore::from_raw(i as i32 * 10),
-                Bound::Exact,
-                20,
-                i as usize,
-                Selectivity::Level1,
-            );
-        }
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+        store_entry(
+            &tt,
+            &board,
+            ScaledScore::from_raw(100),
+            Bound::Exact,
+            20,
+            10,
+            Selectivity::Level1,
+        );
 
-        // Verify entries exist
-        assert!(tt.probe(0).is_hit());
+        assert!(tt.probe(&board, key).is_hit());
 
-        // Clear the table
         tt.clear();
+        assert!(!tt.probe(&board, key).is_hit());
+    }
 
-        // Verify entries are gone
-        for i in 0..10 {
-            let key = i * 0x1000000000000000;
-            assert!(!tt.probe(key).is_hit());
+    /// Tests that generation wraps at 128 (7-bit), not 256.
+    #[test]
+    fn test_generation_wraps_at_128() {
+        let tt = TranspositionTable::new(0);
+        for _ in 0..127 {
+            tt.increment_generation();
         }
+        assert_eq!(tt.generation(), 127);
+
+        // Next increment should wrap to 0
+        let g = tt.increment_generation();
+        assert_eq!(g, 0);
+        assert_eq!(tt.generation(), 0);
+
+        // Verify it keeps counting from 0
+        let g = tt.increment_generation();
+        assert_eq!(g, 1);
+    }
+
+    /// Tests that probe prefers an unused slot even immediately after generation wrap.
+    #[test]
+    fn test_probe_prefers_unused_slot_after_generation_wrap() {
+        let tt = TranspositionTable::new(0);
+
+        for _ in 0..127 {
+            tt.increment_generation();
+        }
+        assert_eq!(tt.generation(), 127);
+
+        let live_board = make_board(0x0000000810000000, 0x0000001008000000);
+        let cluster_idx = tt.get_cluster_idx(live_board.hash());
+
+        tt.store(
+            cluster_idx,
+            &live_board,
+            ScaledScore::from_raw(100),
+            Bound::Lower,
+            4,
+            sq(10),
+            Selectivity::Level1,
+            false,
+        );
+
+        assert_eq!(
+            tt.entries[cluster_idx]
+                .read(&live_board)
+                .unwrap()
+                .generation(),
+            127
+        );
+        assert!(!tt.entries[cluster_idx + 1].load_data().is_occupied());
+
+        tt.increment_generation();
+        assert_eq!(tt.generation(), 0);
+
+        let miss_board = (1u64..)
+            .map(|seed| make_board(seed, seed << 32))
+            .find(|board| tt.get_cluster_idx(board.hash()) == cluster_idx)
+            .expect("should find a second board in the same cluster");
+
+        let probe = tt.probe(&miss_board, miss_board.hash());
+        assert!(!probe.is_hit());
+        assert_eq!(probe.index(), cluster_idx + 1);
+    }
+
+    /// Tests that probe does not treat an in-flight SeqLock write as an unused slot.
+    #[test]
+    fn test_probe_ignores_in_flight_slot_after_generation_wrap() {
+        let tt = TranspositionTable::new(0);
+
+        for _ in 0..127 {
+            tt.increment_generation();
+        }
+        assert_eq!(tt.generation(), 127);
+
+        let live_board = make_board(0x0000000810000000, 0x0000001008000000);
+        let cluster_idx = tt.get_cluster_idx(live_board.hash());
+
+        tt.store(
+            cluster_idx,
+            &live_board,
+            ScaledScore::from_raw(100),
+            Bound::Lower,
+            4,
+            sq(10),
+            Selectivity::Level1,
+            false,
+        );
+
+        let in_flight = unsafe { tt.entries.get_unchecked(cluster_idx + 1) };
+        assert!(
+            in_flight
+                .data
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+        );
+        assert!(in_flight.load_data().is_write_in_progress());
+        assert!(!in_flight.load_data().is_occupied());
+
+        tt.increment_generation();
+        assert_eq!(tt.generation(), 0);
+
+        let miss_board = (1u64..)
+            .map(|seed| make_board(seed, seed << 32))
+            .find(|board| tt.get_cluster_idx(board.hash()) == cluster_idx)
+            .expect("should find a second board in the same cluster");
+
+        let probe = tt.probe(&miss_board, miss_board.hash());
+        assert!(!probe.is_hit());
+        assert_eq!(probe.index(), cluster_idx);
+    }
+
+    /// Tests that relative_age works correctly across the 7-bit wrap boundary.
+    #[test]
+    fn test_relative_age_wrap_around() {
+        let entry = TTEntry::default();
+        let board = make_board(1, 2);
+
+        // Store entry at generation 126
+        entry.save(
+            &board,
+            ScaledScore::from_raw(0),
+            Bound::Exact,
+            0,
+            Square::None,
+            Selectivity::Level1,
+            126,
+            false,
+        );
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.generation(), 126);
+
+        // Global generation wrapped to 2: age = (2 - 126) & 0x7F = 4
+        assert_eq!(data.relative_age(2), 4);
+
+        // Global generation at 127: age = (127 - 126) & 0x7F = 1
+        assert_eq!(data.relative_age(127), 1);
+
+        // Same generation: age = 0
+        assert_eq!(data.relative_age(126), 0);
+    }
+
+    /// Tests that pack_data does not corrupt the is_endgame flag even with large generation values.
+    #[test]
+    fn test_pack_data_no_endgame_corruption() {
+        let entry = TTEntry::default();
+        let board = make_board(42, 84);
+
+        // Store with generation=127, is_endgame=false
+        entry.save(
+            &board,
+            ScaledScore::from_raw(50),
+            Bound::Exact,
+            10,
+            sq(5),
+            Selectivity::Level1,
+            127,
+            false,
+        );
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.generation(), 127);
+        assert!(!data.is_endgame(), "is_endgame should be false");
+
+        // Store with generation=127, is_endgame=true
+        entry.save(
+            &board,
+            ScaledScore::from_raw(50),
+            Bound::Exact,
+            10,
+            sq(5),
+            Selectivity::Level1,
+            127,
+            true,
+        );
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.generation(), 127);
+        assert!(data.is_endgame(), "is_endgame should be true");
+
+        // Defense-in-depth: even if generation=255 is passed (should be masked to 127)
+        entry.save(
+            &board,
+            ScaledScore::from_raw(50),
+            Bound::Exact,
+            10,
+            sq(5),
+            Selectivity::Level1,
+            255,
+            false,
+        );
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.generation(), 127);
+        assert!(
+            !data.is_endgame(),
+            "is_endgame must not be corrupted by generation overflow"
+        );
+    }
+
+    /// Tests SeqLock version counter behavior.
+    #[test]
+    fn test_seqlock_version_increments() {
+        let entry = TTEntry::default();
+        let board = make_board(1, 2);
+
+        entry.save(
+            &board,
+            ScaledScore::from_raw(10),
+            Bound::Lower,
+            5,
+            sq(1),
+            Selectivity::Level1,
+            0,
+            false,
+        );
+        let v1 = entry.read(&board).unwrap().version();
+        assert!(v1 & 1 == 0, "version should be even after save");
+
+        entry.save(
+            &board,
+            ScaledScore::from_raw(20),
+            Bound::Exact,
+            6,
+            sq(2),
+            Selectivity::Level1,
+            0,
+            false,
+        );
+        let v2 = entry.read(&board).unwrap().version();
+        assert!(v2 > v1, "version should increment");
+        assert!(v2 & 1 == 0, "version should be even after save");
+    }
+
+    /// Tests that stale snapshots cannot claim the entry for writing.
+    #[test]
+    fn test_seqlock_write_rejects_stale_snapshot() {
+        let entry = TTEntry::default();
+        let board1 = make_board(1, 2);
+        let board2 = make_board(3, 4);
+
+        entry.save(
+            &board1,
+            ScaledScore::from_raw(10),
+            Bound::Exact,
+            5,
+            sq(1),
+            Selectivity::Level1,
+            0,
+            false,
+        );
+        let (_, _, snapshot) = entry.try_load_snapshot().unwrap();
+
+        entry.save(
+            &board2,
+            ScaledScore::from_raw(20),
+            Bound::Exact,
+            6,
+            sq(2),
+            Selectivity::Level2,
+            1,
+            false,
+        );
+
+        assert!(!entry.seqlock_write(
+            snapshot.raw,
+            1,
+            2,
+            sq(3) as u8,
+            ScaledScore::from_raw(30),
+            Bound::Exact as u8,
+            7,
+            Selectivity::Level3.as_u8(),
+            2,
+            false,
+        ));
+
+        assert!(entry.read(&board1).is_none());
+        let data = entry.read(&board2).unwrap();
+        assert_eq!(data.score().value(), 20);
+        assert_eq!(data.depth(), 6);
+        assert_eq!(data.best_move(), sq(2));
+        assert_eq!(data.generation(), 1);
     }
 }

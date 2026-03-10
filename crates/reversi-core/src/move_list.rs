@@ -112,6 +112,12 @@ impl MoveList {
         self.moves.first()
     }
 
+    /// Swaps two moves in the list by index.
+    #[inline(always)]
+    pub fn swap_moves(&mut self, a: usize, b: usize) {
+        self.moves.swap(a, b);
+    }
+
     /// Returns the move at the given index by value.
     #[inline(always)]
     pub fn get_move(&self, index: usize) -> Move {

@@ -65,8 +65,8 @@ impl SearchStrategy for MidGameStrategy {
     const IS_ENDGAME: bool = false;
     const USE_SBR: bool = true;
     const MIN_ETC_DEPTH: Depth = 6;
-    const MIN_PROBCUT_DEPTH: Depth = 3;
-    const DEPTH_TO_SHALLOW: Depth = 2;
+    const MIN_PROBCUT_DEPTH: Depth = 4;
+    const DEPTH_TO_SHALLOW: Depth = 3;
     const MIN_SPLIT_DEPTH: Depth = 5;
 
     #[inline(always)]
@@ -85,7 +85,8 @@ impl SearchStrategy for MidGameStrategy {
         match depth {
             0 => midgame::evaluate(ctx, board),
             1 => midgame::evaluate_depth1(ctx, board, alpha, beta),
-            _ => midgame::evaluate_depth2(ctx, board, alpha, beta),
+            2 => midgame::evaluate_depth2(ctx, board, alpha, beta),
+            _ => midgame::evaluate_depth3(ctx, board, alpha, beta),
         }
     }
 

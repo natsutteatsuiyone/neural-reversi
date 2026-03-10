@@ -22,6 +22,7 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::constants::MAX_THREADS;
 use crate::eval::{Eval, EvalMode};
+use crate::flip;
 use crate::level::Level;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 
@@ -294,8 +295,6 @@ impl Search {
     /// not enough time for a full search. This is a fallback for situations
     /// where the main search would return invalid results.
     pub fn quick_move(&self, board: &Board) -> SearchResult {
-        use crate::flip;
-
         let moves = board.get_moves();
         if moves.is_empty() {
             // No legal moves - return pass
@@ -368,7 +367,6 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     move_list: &MoveList,
     depth: Depth,
     alpha: ScaledScore,
-    tt_key: u64,
     tt_entry_index: usize,
 ) -> Option<ScaledScore> {
     let etc_depth = depth - 1;
@@ -377,8 +375,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
         ctx.increment_nodes();
 
         let etc_tt_key = next.hash();
-        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key);
-        if let Some(etc_tt_data) = etc_tt_probe_result.data()
+        if let Some(etc_tt_data) = ctx.tt.lookup(&next, etc_tt_key)
             && (!SS::IS_ENDGAME || etc_tt_data.is_endgame())
             && etc_tt_data.depth() >= etc_depth
             && etc_tt_data.selectivity() >= ctx.selectivity
@@ -389,7 +386,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
             {
                 ctx.tt.store(
                     tt_entry_index,
-                    tt_key,
+                    board,
                     score,
                     Bound::Lower,
                     depth,
@@ -454,7 +451,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     // Transposition table probe
-    let tt_probe_result = ctx.tt.probe(tt_key);
+    let tt_probe_result = ctx.tt.probe(board, tt_key);
     let tt_move = tt_probe_result.best_move();
 
     // NonPV cutoffs
@@ -476,7 +473,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 &move_list,
                 depth,
                 alpha,
-                tt_key,
                 tt_probe_result.index(),
             )
         {
@@ -496,19 +492,90 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         move_list.exclude_earlier_pv_moves(ctx);
     }
 
-    // Move ordering
-    if move_list.count() > 1 {
-        move_list.evaluate_moves::<SS>(ctx, board, depth, tt_move);
-        move_list.sort();
-    }
-
     let n_moves = move_list.count();
     let mut best_move = Square::None;
     let mut best_score = -ScaledScore::INF;
     let mut move_count: usize = 0;
 
+    // TT move first: search the TT move before expensive move ordering (NonPV only).
+    let tt_flipped = (!NT::PV_NODE && n_moves > 1 && tt_move != Square::None)
+        .then(|| flip::flip(tt_move, board.player, board.opponent))
+        .filter(|f| !f.is_empty());
+    if let Some(flipped) = tt_flipped {
+        move_count = 1;
+
+        let next = board.make_move_with_flipped(flipped, tt_move);
+        ctx.update(tt_move, flipped);
+        let score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+        ctx.undo(tt_move);
+
+        if thread.cutoff_occurred() || thread.is_search_aborted() {
+            return ScaledScore::ZERO;
+        }
+
+        best_score = score;
+        if score > alpha {
+            best_move = tt_move;
+            if score >= beta {
+                // Beta cutoff — skip move ordering entirely
+                ctx.tt.store(
+                    tt_probe_result.index(),
+                    board,
+                    best_score,
+                    Bound::Lower,
+                    depth,
+                    best_move,
+                    ctx.selectivity,
+                    SS::IS_ENDGAME,
+                );
+                return best_score;
+            }
+            alpha = score;
+        }
+    }
+
+    // Move ordering
+    // Both branches must ensure the TT move ends up at index 0 when present,
+    // so the main loop (starting at move_count=1) skips it correctly.
+    if n_moves - move_count > 1 {
+        move_list.evaluate_moves::<SS>(ctx, board, depth, tt_move);
+        move_list.sort();
+    } else if n_moves == 2 && move_list.get_move(0).sq != tt_move {
+        move_list.swap_moves(0, 1);
+    }
+
     // Main move loop
     while move_count < n_moves {
+        // Parallel search split
+        if move_count >= 1
+            && depth >= SS::MIN_SPLIT_DEPTH
+            && (n_moves - move_count) >= 2
+            && thread.can_split()
+        {
+            let move_iter = Arc::new(ConcurrentMoveIterator::from_offset(move_list, move_count));
+            let (s, m, n) = thread.split(
+                ctx,
+                board,
+                alpha,
+                beta,
+                best_score,
+                best_move,
+                depth,
+                &move_iter,
+                NT::TYPE_ID,
+                SS::IS_ENDGAME,
+            );
+            best_score = s;
+            best_move = m;
+            ctx.n_nodes += n;
+
+            if thread.cutoff_occurred() || thread.is_search_aborted() {
+                return ScaledScore::ZERO;
+            }
+
+            break; // Split consumed all remaining moves
+        }
+
         let mv = move_list.get_move(move_count);
         move_count += 1;
 
@@ -564,38 +631,12 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 }
             }
         }
-
-        // Parallel search split
-        if depth >= SS::MIN_SPLIT_DEPTH && (n_moves - move_count) >= 2 && thread.can_split() {
-            let move_iter = Arc::new(ConcurrentMoveIterator::from_offset(move_list, move_count));
-            let (s, m, n) = thread.split(
-                ctx,
-                board,
-                alpha,
-                beta,
-                best_score,
-                best_move,
-                depth,
-                &move_iter,
-                NT::TYPE_ID,
-                SS::IS_ENDGAME,
-            );
-            best_score = s;
-            best_move = m;
-            ctx.n_nodes += n;
-
-            if thread.cutoff_occurred() || thread.is_search_aborted() {
-                return ScaledScore::ZERO;
-            }
-
-            break; // Split consumed all remaining moves
-        }
     }
 
     // Store in transposition table
     ctx.tt.store(
         tt_probe_result.index(),
-        tt_key,
+        board,
         best_score,
         Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
         depth,

@@ -274,7 +274,7 @@ fn estimate_aspiration_base_score(
     let midgame_depth = n_empties / 2;
 
     let hash_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(hash_key);
+    let tt_probe_result = ctx.tt.probe(board, hash_key);
 
     if let Some(tt_data) = tt_probe_result.data()
         && tt_data.bound() == Bound::Exact
@@ -389,7 +389,7 @@ pub fn search<NT: NodeType>(
 
     // Look up position in transposition table
     let tt_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(tt_key);
+    let tt_probe_result = ctx.tt.probe(board, tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if !NT::PV_NODE {
@@ -409,7 +409,6 @@ pub fn search<NT: NodeType>(
                 &move_list,
                 depth,
                 alpha,
-                tt_key,
                 tt_probe_result.index(),
                 is_endgame,
             )
@@ -477,7 +476,7 @@ pub fn search<NT: NodeType>(
 
     ctx.tt.store(
         tt_probe_result.index(),
-        tt_key,
+        board,
         best_score,
         Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
         depth,
@@ -646,7 +645,6 @@ fn enhanced_transposition_cutoff(
     move_list: &MoveList,
     depth: u32,
     alpha: ScaledScore,
-    tt_key: u64,
     tt_entry_index: usize,
     is_endgame: bool,
 ) -> Option<ScaledScore> {
@@ -656,8 +654,7 @@ fn enhanced_transposition_cutoff(
         ctx.increment_nodes();
 
         let etc_tt_key = next.hash();
-        let etc_tt_probe_result = ctx.tt.probe(etc_tt_key);
-        if let Some(etc_tt_data) = etc_tt_probe_result.data()
+        if let Some(etc_tt_data) = ctx.tt.lookup(&next, etc_tt_key)
             && (!is_endgame || etc_tt_data.is_endgame())
             && etc_tt_data.depth() >= etc_depth
             && etc_tt_data.selectivity() >= ctx.selectivity
@@ -668,7 +665,7 @@ fn enhanced_transposition_cutoff(
             {
                 ctx.tt.store(
                     tt_entry_index,
-                    tt_key,
+                    board,
                     score,
                     Bound::Lower,
                     depth,

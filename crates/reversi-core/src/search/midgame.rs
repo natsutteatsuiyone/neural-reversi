@@ -260,6 +260,57 @@ pub fn probcut(
     None
 }
 
+/// Specialized alpha-beta search for positions at depth 3.
+pub fn evaluate_depth3(
+    ctx: &mut SearchContext,
+    board: &Board,
+    mut alpha: ScaledScore,
+    beta: ScaledScore,
+) -> ScaledScore {
+    let moves = board.get_moves();
+    if moves.is_empty() {
+        let next = board.switch_players();
+        if next.has_legal_moves() {
+            ctx.update_pass();
+            let score = -evaluate_depth3(ctx, &next, -beta, -alpha);
+            ctx.undo_pass();
+            return score;
+        } else {
+            return board.solve_scaled(ctx.empty_list.count());
+        }
+    }
+
+    let mut move_list = MoveList::with_moves(board, moves);
+    if move_list.wipeout_move().is_some() {
+        return ScaledScore::MAX;
+    }
+
+    if move_list.count() >= 2 {
+        move_list.evaluate_moves_fast(ctx, board, Square::None);
+    }
+
+    let mut best_score = -ScaledScore::INF;
+    for mv in move_list.into_best_first_iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+
+        ctx.update(mv.sq, mv.flipped);
+        let score = -evaluate_depth2(ctx, &next, -beta, -alpha);
+        ctx.undo(mv.sq);
+
+        if score > best_score {
+            best_score = score;
+            if score >= beta {
+                break;
+            }
+            if score > alpha {
+                alpha = score;
+            }
+        }
+    }
+
+    best_score
+}
+
 /// Specialized alpha-beta search for positions at depth 2.
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
