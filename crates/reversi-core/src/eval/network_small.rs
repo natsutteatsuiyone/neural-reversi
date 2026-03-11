@@ -83,6 +83,10 @@ pub struct NetworkSmall {
 
 impl NetworkSmall {
     /// Creates a new small network from a zstd-compressed weights file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the file cannot be opened or the weights are malformed.
     pub fn new(file_path: &Path) -> io::Result<Self> {
         let file = File::open(file_path)?;
         let reader = BufReader::new(file);
@@ -90,6 +94,10 @@ impl NetworkSmall {
     }
 
     /// Creates a new small network from a zstd-compressed in-memory blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the weights are malformed.
     pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
         let cursor = io::Cursor::new(bytes);
         Self::from_reader(cursor)
