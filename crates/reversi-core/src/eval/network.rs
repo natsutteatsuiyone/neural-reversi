@@ -36,15 +36,13 @@ const NUM_LAYER_STACKS: usize = 60;
 
 /// Layer stack for a specific game ply.
 struct LayerStack {
-    pub l1: LinearLayer<L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS>,
-    pub l2: LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>,
-    pub lo: OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>,
+    l1: LinearLayer<L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS>,
+    l2: LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>,
+    lo: OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>,
 }
 
 /// Thread-local working buffers for network computation.
 struct NetworkBuffers {
-    base_out: Align64<[u8; BASE_OUTPUT_DIMS]>,
-    pa_out: Align64<[u8; PA_OUTPUT_DIMS]>,
     l1_input: Align64<[u8; L1_PADDED_INPUT_DIMS]>,
     l1_li_out: Align64<[i32; L1_PADDED_OUTPUT_DIMS]>,
     l1_out: Align64<[u8; L2_PADDED_INPUT_DIMS]>,
@@ -56,8 +54,6 @@ impl NetworkBuffers {
     #[inline]
     fn new() -> Self {
         Self {
-            base_out: Align64([0; BASE_OUTPUT_DIMS]),
-            pa_out: Align64([0; PA_OUTPUT_DIMS]),
             l1_input: Align64([0; L1_PADDED_INPUT_DIMS]),
             l1_li_out: Align64([0; L1_PADDED_OUTPUT_DIMS]),
             l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
@@ -143,23 +139,15 @@ impl Network {
         mobility: u8,
         ply: usize,
     ) -> ScaledScore {
-        debug_assert!(
-            ply < NUM_LAYER_STACKS,
-            "ply {} out of valid range 0-{}",
+        self.base_input
+            .forward(pattern_feature, &mut buffers.l1_input[..BASE_OUTPUT_DIMS]);
+        self.pa_input.forward(
+            pattern_feature,
             ply,
-            NUM_LAYER_STACKS - 1
+            &mut buffers.l1_input[BASE_OUTPUT_DIMS..BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS],
         );
 
-        self.base_input
-            .forward(pattern_feature, &mut buffers.base_out[..BASE_OUTPUT_DIMS]);
-        self.pa_input
-            .forward(pattern_feature, ply, &mut buffers.pa_out[..PA_OUTPUT_DIMS]);
-
-        let mobility_scaled = mobility.saturating_mul(MOBILITY_SCALE);
-        buffers.l1_input[..BASE_OUTPUT_DIMS].copy_from_slice(&buffers.base_out[..BASE_OUTPUT_DIMS]);
-        buffers.l1_input[BASE_OUTPUT_DIMS..BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS]
-            .copy_from_slice(&buffers.pa_out[..PA_OUTPUT_DIMS]);
-        buffers.l1_input[L1_INPUT_DIMS - 1] = mobility_scaled;
+        buffers.l1_input[L1_INPUT_DIMS - 1] = mobility.saturating_mul(MOBILITY_SCALE);
 
         let ls = &self.layer_stacks[ply];
         self.forward_l1(ls, buffers);
@@ -194,8 +182,8 @@ impl Network {
     fn forward_output(&self, ls: &LayerStack, buffers: &mut NetworkBuffers) -> ScaledScore {
         let segments = [
             &buffers.l2_out[..L2_OUTPUT_DIMS],
-            &buffers.base_out[..BASE_OUTPUT_DIMS],
-            &buffers.pa_out[..PA_OUTPUT_DIMS],
+            &buffers.l1_input[..BASE_OUTPUT_DIMS],
+            &buffers.l1_input[BASE_OUTPUT_DIMS..BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS],
         ];
 
         ScaledScore::from_raw(ls.lo.forward(segments) >> OUTPUT_WEIGHT_SCALE_BITS)
