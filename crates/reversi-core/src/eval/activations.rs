@@ -94,12 +94,7 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
         }
     }
 
-    let start = if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
-        SIZE / AVX2_SIMD_WIDTH * AVX2_SIMD_WIDTH
-    } else {
-        SIZE / AVX2_SIMD_WIDTH * SSE2_SIMD_WIDTH
-    };
-
+    let start = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
     clipped_relu_fallback::<SIZE>(input, output, start);
 }
 
@@ -211,6 +206,7 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 /// or 16-byte aligned when falling back to SSE2.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
+#[inline]
 fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     unsafe {
         if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
@@ -274,6 +270,7 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 }
 
 /// Squared Clipped ReLU scalar fallback implementation.
+#[inline(always)]
 fn screlu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let clamped = input[i].clamp(0, 255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;
