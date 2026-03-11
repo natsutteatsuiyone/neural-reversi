@@ -497,11 +497,10 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     let mut best_score = -ScaledScore::INF;
     let mut move_count: usize = 0;
 
-    // TT move first: search the TT move before expensive move ordering (NonPV only).
-    let tt_flipped = (!NT::PV_NODE && n_moves > 1 && tt_move != Square::None)
-        .then(|| flip::flip(tt_move, board.player, board.opponent))
-        .filter(|f| !f.is_empty());
-    if let Some(flipped) = tt_flipped {
+    if !NT::PV_NODE && n_moves > 1 && tt_move != Square::None {
+        // TT move first: search the TT move before expensive move ordering (NonPV only).
+        let flipped = flip::flip(tt_move, board.player, board.opponent);
+        debug_assert!(!flipped.is_empty());
         move_count = 1;
 
         let next = board.make_move_with_flipped(flipped, tt_move);
