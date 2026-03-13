@@ -74,17 +74,15 @@ impl Bound {
         Bound::Upper
     }
 
-    /// Converts an 8-bit value to a [`Bound`] without bounds checking.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `value` is in the range 0..=3, corresponding
-    /// to [`Bound::None`], [`Bound::Lower`], [`Bound::Upper`], or [`Bound::Exact`].
-    /// Values outside this range result in undefined behavior.
+    /// Converts a 2-bit value to a [`Bound`].
     #[inline]
-    pub unsafe fn from_u8_unchecked(value: u8) -> Bound {
-        debug_assert!(value <= 3, "Invalid Bound value: {}", value);
-        unsafe { std::mem::transmute(value) }
+    pub fn from_u8(value: u8) -> Bound {
+        match value {
+            0 => Bound::None,
+            1 => Bound::Lower,
+            2 => Bound::Upper,
+            _ => Bound::Exact,
+        }
     }
 }
 
@@ -171,7 +169,7 @@ impl TTEntryData {
     #[inline(always)]
     pub fn bound(&self) -> Bound {
         let val = ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) as u8;
-        unsafe { Bound::from_u8_unchecked(val) }
+        Bound::from_u8(val)
     }
 
     /// Returns the search depth at which this entry was computed.
