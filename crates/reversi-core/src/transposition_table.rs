@@ -299,6 +299,9 @@ impl TTEntry {
     const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
     const IS_ENDGAME_MASK: u64 = 1;
 
+    /// Weight applied to the generation age difference in the replacement score.
+    const AGE_WEIGHT: i32 = 8;
+
     /// Builds the packed data word from all fields.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
@@ -626,7 +629,7 @@ impl TranspositionTable {
     /// Probes the cluster for `board`.
     ///
     /// On miss, returns the first unused slot if one exists; otherwise returns
-    /// the slot with the lowest `depth - 8 * relative_age` replacement score.
+    /// the slot with the lowest replacement score (`depth - AGE_WEIGHT * relative_age`).
     #[inline(always)]
     pub fn probe(&self, board: &Board, key: u64) -> TTProbeResult {
         let cluster_idx = self.get_cluster_idx(key);
@@ -663,7 +666,8 @@ impl TranspositionTable {
                     return TTProbeResult::Miss { index: idx };
                 }
 
-                let score = tt_data.depth() as i32 - tt_data.relative_age(generation) * 8;
+                let score =
+                    tt_data.depth() as i32 - tt_data.relative_age(generation) * TTEntry::AGE_WEIGHT;
                 if score < replace_score {
                     replace_score = score;
                     replace_idx = idx;
