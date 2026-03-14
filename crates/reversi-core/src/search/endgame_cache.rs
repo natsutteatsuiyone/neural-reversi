@@ -1,6 +1,4 @@
-//! Thread-local cache for endgame search.
-//!
-//! Provides a lightweight hash table for storing endgame search results,
+//! Lightweight hash table for endgame search results,
 //! separate from the main transposition table.
 
 use crate::board::Board;
@@ -19,7 +17,7 @@ pub enum EndGameCacheBound {
 impl EndGameCacheBound {
     /// Classifies the score into a bound type.
     #[inline(always)]
-    pub fn classify(score: Score, beta: Score) -> Self {
+    fn classify(score: Score, beta: Score) -> Self {
         if score < beta {
             EndGameCacheBound::Upper
         } else {
@@ -62,40 +60,35 @@ impl EndGameCacheEntry {
 /// Raw entry stored in the hash table.
 ///
 /// Uses `repr(C, packed)` to achieve 18-byte entries (no padding).
-/// On x86_64, unaligned access is zero-cost within cache lines.
 ///
-/// Data packing (u16):
-/// - bits [15:8]: score (i8 as u8 bit pattern)
-/// - bit  [7]:    bound (0=Lower, 1=Upper)
-/// - bits [6:0]:  best_move (0-64)
+/// `move_bound` packing (u8):
+/// - bit  [7]:   bound (0=Lower, 1=Upper)
+/// - bits [6:0]: best_move (0-64)
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 struct RawEntry {
     player: u64,
     opponent: u64,
-    data: u16,
+    score: i8,
+    move_bound: u8,
 }
 
 impl RawEntry {
     const EMPTY: Self = RawEntry {
         player: 0,
         opponent: 0,
-        data: Self::pack(0, EndGameCacheBound::Lower, Square::None as u8),
+        score: 0,
+        move_bound: Self::pack_move_bound(EndGameCacheBound::Lower, Square::None as u8),
     };
 
     #[inline(always)]
-    const fn pack(score: i8, bound: EndGameCacheBound, best_move: u8) -> u16 {
-        ((score as u8 as u16) << 8) | ((bound as u16) << 7) | (best_move as u16 & 0x7F)
-    }
-
-    #[inline(always)]
-    fn score(self) -> Score {
-        (self.data >> 8) as u8 as i8 as Score
+    const fn pack_move_bound(bound: EndGameCacheBound, best_move: u8) -> u8 {
+        ((bound as u8) << 7) | (best_move & 0x7F)
     }
 
     #[inline(always)]
     fn bound(self) -> EndGameCacheBound {
-        if (self.data >> 7) & 1 == 0 {
+        if self.move_bound >> 7 == 0 {
             EndGameCacheBound::Lower
         } else {
             EndGameCacheBound::Upper
@@ -104,14 +97,22 @@ impl RawEntry {
 
     #[inline(always)]
     fn best_move(self) -> Square {
-        Square::from_u8_unchecked((self.data & 0x7F) as u8)
+        Square::from_u8_unchecked(self.move_bound & 0x7F)
+    }
+
+    #[inline(always)]
+    fn unpack(self) -> EndGameCacheEntry {
+        EndGameCacheEntry {
+            score: self.score as Score,
+            best_move: self.best_move(),
+            bound: self.bound(),
+        }
     }
 }
 
 /// Hash table for caching endgame search results.
 pub struct EndGameCache {
     table: Box<[RawEntry]>,
-    count: u64,
 }
 
 impl EndGameCache {
@@ -124,13 +125,12 @@ impl EndGameCache {
         );
         EndGameCache {
             table: vec![RawEntry::EMPTY; count].into_boxed_slice(),
-            count: count as u64,
         }
     }
 
     #[inline(always)]
     fn index(&self, key: u64) -> usize {
-        ((key as u128).wrapping_mul(self.count as u128) >> 64) as usize
+        ((key as u128).wrapping_mul(self.table.len() as u128) >> 64) as usize
     }
 
     /// Looks up an entry by key, verifying the stored board matches.
@@ -143,33 +143,24 @@ impl EndGameCache {
             return None;
         }
 
-        Some(EndGameCacheEntry {
-            score: entry.score(),
-            best_move: entry.best_move(),
-            bound: entry.bound(),
-        })
+        Some(entry.unpack())
     }
 
     /// Stores an entry, overwriting any existing entry at the same index.
     #[inline(always)]
-    pub fn store(
-        &mut self,
-        key: u64,
-        board: &Board,
-        value: Score,
-        bound: EndGameCacheBound,
-        best_move: Square,
-    ) {
+    pub fn store(&mut self, key: u64, board: &Board, score: Score, beta: Score, best_move: Square) {
         debug_assert!(
-            (-128..=127).contains(&value),
-            "score {value} out of i8 range"
+            (-128..=127).contains(&score),
+            "score {score} out of i8 range"
         );
+        let bound = EndGameCacheBound::classify(score, beta);
         let idx = self.index(key);
         unsafe {
             self.table.as_mut_ptr().add(idx).write_unaligned(RawEntry {
                 player: board.player.bits(),
                 opponent: board.opponent.bits(),
-                data: RawEntry::pack(value as i8, bound, best_move as u8),
+                score: score as i8,
+                move_bound: RawEntry::pack_move_bound(bound, best_move as u8),
             });
         }
     }
@@ -277,7 +268,7 @@ mod tests {
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 12, EndGameCacheBound::Lower, Square::D3);
+        cache.store(key, &board, 12, 12, Square::D3);
 
         let result = cache.probe(key, &board);
         assert!(result.is_some());
@@ -295,7 +286,7 @@ mod tests {
         let key1 = board1.hash();
         let key2 = board2.hash();
 
-        cache.store(key1, &board1, 12, EndGameCacheBound::Lower, Square::D3);
+        cache.store(key1, &board1, 12, 12, Square::D3);
 
         assert!(cache.probe(key2, &board2).is_none());
     }
@@ -308,10 +299,10 @@ mod tests {
         let key1 = board1.hash();
         let key2 = board2.hash();
 
-        cache.store(key1, &board1, 12, EndGameCacheBound::Lower, Square::D3);
+        cache.store(key1, &board1, 12, 12, Square::D3);
         assert!(cache.probe(key2, &board2).is_none());
 
-        cache.store(key2, &board2, -8, EndGameCacheBound::Upper, Square::A1);
+        cache.store(key2, &board2, -8, -7, Square::A1);
 
         assert!(cache.probe(key1, &board1).is_none());
         let entry = cache.probe(key2, &board2).unwrap();
@@ -326,7 +317,7 @@ mod tests {
         let board = make_board(0xFF, 0xAA);
         let key = board.hash();
 
-        cache.store(key, &board, -30, EndGameCacheBound::Upper, Square::A1);
+        cache.store(key, &board, -30, -29, Square::A1);
 
         let entry = cache.probe(key, &board).unwrap();
         assert_eq!(entry.score, -30);
@@ -340,11 +331,11 @@ mod tests {
         let board = make_board(0x1234, 0x5678);
         let key = board.hash();
 
-        cache.store(key, &board, 64, EndGameCacheBound::Lower, Square::H8);
+        cache.store(key, &board, 64, 64, Square::H8);
         let entry = cache.probe(key, &board).unwrap();
         assert_eq!(entry.score, 64);
 
-        cache.store(key, &board, -64, EndGameCacheBound::Upper, Square::A1);
+        cache.store(key, &board, -64, -63, Square::A1);
         let entry = cache.probe(key, &board).unwrap();
         assert_eq!(entry.score, -64);
     }
@@ -355,7 +346,7 @@ mod tests {
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 12, EndGameCacheBound::Lower, Square::D3);
+        cache.store(key, &board, 12, 12, Square::D3);
         assert!(cache.probe(key, &board).is_some());
 
         cache.clear();

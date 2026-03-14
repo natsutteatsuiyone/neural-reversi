@@ -17,7 +17,7 @@ use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
-use crate::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
+use crate::search::endgame_cache::{EndGameCache, EndGameCacheEntry};
 use crate::search::node_type::NonPV;
 use crate::search::node_type::Root;
 use crate::search::search_context::SearchContext;
@@ -463,9 +463,8 @@ fn probe_endgame_cache(key: u64, board: &Board) -> Option<EndGameCacheEntry> {
 /// Stores an entry in the thread-local endgame cache.
 #[inline(always)]
 fn store_endgame_cache(key: u64, board: &Board, beta: Score, score: Score, best_move: Square) {
-    let bound = EndGameCacheBound::classify(score, beta);
     unsafe {
-        cache().store(key, board, score, bound, best_move);
+        cache().store(key, board, score, beta, best_move);
     }
 }
 

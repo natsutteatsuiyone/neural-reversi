@@ -4,7 +4,7 @@ use reversi_core::board::Board;
 use reversi_core::constants::{SCORE_INF, SCORE_MAX};
 use reversi_core::count_last_flip::count_last_flip;
 use reversi_core::probcut::Selectivity;
-use reversi_core::search::endgame_cache::{EndGameCache, EndGameCacheBound, EndGameCacheEntry};
+use reversi_core::search::endgame_cache::{EndGameCache, EndGameCacheEntry};
 use reversi_core::search::node_type::NonPV;
 use reversi_core::square::Square;
 use reversi_core::transposition_table::Bound;
@@ -159,10 +159,9 @@ fn probe_endgame_cache(key: u64, board: &Board) -> Option<EndGameCacheEntry> {
 /// * `best_move` - The best move found in this position
 #[inline(always)]
 fn store_endgame_cache(key: u64, board: &Board, beta: Score, score: Score, best_move: Square) {
-    let bound = EndGameCacheBound::classify(score, beta);
     ENDGAME_CACHE.with(|cell| {
         let mut cache = cell.borrow_mut();
-        cache.store(key, board, score, bound, best_move);
+        cache.store(key, board, score, beta, best_move);
     });
 }
 
