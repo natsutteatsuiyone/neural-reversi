@@ -338,67 +338,55 @@ impl Board {
         v3::rapidhash_v3_nano_inline::<true, false>(&bytes, &v3::DEFAULT_RAPID_SECRETS)
     }
 
+    /// Applies a [`Bitboard`] transformation to both player and opponent.
+    #[inline(always)]
+    fn transform(&self, f: fn(Bitboard) -> Bitboard) -> Board {
+        Board {
+            player: f(self.player),
+            opponent: f(self.opponent),
+        }
+    }
+
     /// Rotates the board 90 degrees clockwise.
     #[inline]
     pub fn rotate_90_clockwise(&self) -> Board {
-        Board {
-            player: self.player.rotate_90_clockwise(),
-            opponent: self.opponent.rotate_90_clockwise(),
-        }
+        self.transform(Bitboard::rotate_90_clockwise)
     }
 
     /// Rotates the board 180 degrees.
     #[inline]
     pub fn rotate_180_clockwise(&self) -> Board {
-        Board {
-            player: self.player.rotate_180_clockwise(),
-            opponent: self.opponent.rotate_180_clockwise(),
-        }
+        self.transform(Bitboard::rotate_180_clockwise)
     }
 
     /// Rotates the board 270 degrees clockwise.
     #[inline]
     pub fn rotate_270_clockwise(&self) -> Board {
-        Board {
-            player: self.player.rotate_270_clockwise(),
-            opponent: self.opponent.rotate_270_clockwise(),
-        }
+        self.transform(Bitboard::rotate_270_clockwise)
     }
 
     /// Flips the board vertically (top to bottom).
     #[inline]
     pub fn flip_vertical(&self) -> Board {
-        Board {
-            player: self.player.flip_vertical(),
-            opponent: self.opponent.flip_vertical(),
-        }
+        self.transform(Bitboard::flip_vertical)
     }
 
     /// Flips the board horizontally (left to right).
     #[inline]
     pub fn flip_horizontal(&self) -> Board {
-        Board {
-            player: self.player.flip_horizontal(),
-            opponent: self.opponent.flip_horizontal(),
-        }
+        self.transform(Bitboard::flip_horizontal)
     }
 
     /// Flips the board along the main diagonal (A1-H8).
     #[inline]
     pub fn flip_diag_a1h8(&self) -> Board {
-        Board {
-            player: self.player.flip_diag_a1h8(),
-            opponent: self.opponent.flip_diag_a1h8(),
-        }
+        self.transform(Bitboard::flip_diag_a1h8)
     }
 
     /// Flips the board along the anti-diagonal (A8-H1).
     #[inline]
     pub fn flip_diag_a8h1(&self) -> Board {
-        Board {
-            player: self.player.flip_diag_a8h1(),
-            opponent: self.opponent.flip_diag_a8h1(),
-        }
+        self.transform(Bitboard::flip_diag_a8h1)
     }
 
     /// Returns the canonical (unique) form of this board.
