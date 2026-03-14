@@ -55,7 +55,7 @@ impl SearchOptions {
 impl Default for SearchOptions {
     fn default() -> Self {
         SearchOptions {
-            tt_mb_size: 64,
+            tt_mb_size: 512,
             n_threads: num_cpus::get().min(MAX_THREADS),
             eval_path: None,
             eval_sm_path: None,
