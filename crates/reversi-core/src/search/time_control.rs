@@ -39,16 +39,26 @@ const MOVESTOGO_MAX_PERCENT: u64 = 95;
 const JP_BYO_MAIN_MIN_PERCENT_NORMAL: u64 = 60;
 const JP_BYO_MAIN_MIN_PERCENT_ENDGAME: u64 = 85;
 
-/// Calculates a time allocation factor based on game phase.
+/// Calculates a time allocation factor based on game phase using a smooth bell curve.
+///
+/// Uses an asymmetric Gaussian that peaks during midgame and tapers toward
+/// opening (wider spread) and endgame (narrower spread).
 fn get_time_allocation_factor(n_empties: u32) -> f64 {
-    match n_empties {
-        51..=60 => 0.5,
-        45..=50 => 2.5,
-        29..=44 => 3.0,
-        25..=28 => 1.6,
-        20..=24 => 0.5,
-        _ => 0.1,
-    }
+    const AMPLITUDE: f64 = 2.9;
+    const BASE: f64 = 0.1;
+    const CENTER: f64 = 38.0;
+    const SIGMA_OPENING: f64 = 12.0;
+    const SIGMA_ENDGAME: f64 = 8.0;
+
+    let x = n_empties as f64;
+    let sigma = if x >= CENTER {
+        SIGMA_OPENING
+    } else {
+        SIGMA_ENDGAME
+    };
+    let d = x - CENTER;
+    let exponent = -d * d / (2.0 * sigma * sigma);
+    exponent.exp().mul_add(AMPLITUDE, BASE)
 }
 
 /// Calculates the sum of time allocation factors for remaining moves.
