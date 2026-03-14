@@ -491,6 +491,15 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
     (flip << dir) | (flip >> dir)
 }
 
+/// Reduces a 256-bit vector to a single `u64` by OR-ing all four 64-bit lanes.
+#[cfg(target_arch = "x86_64")]
+macro_rules! horizontal_or_u64 {
+    ($mm:expr) => {{
+        let m128 = _mm_or_si128(_mm256_castsi256_si128($mm), _mm256_extracti128_si256($mm, 1));
+        _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64
+    }};
+}
+
 /// AVX-512-optimized implementation of `get_moves`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
@@ -531,8 +540,7 @@ fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
     fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
 
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-    let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
-    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
+    let moves = horizontal_or_u64!(mm);
 
     moves & empty
 }
@@ -576,8 +584,7 @@ fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     fr = _mm256_or_si256(fr, _mm256_and_si256(pre_r, _mm256_srlv_epi64(fr, shift2)));
 
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-    let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
-    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
+    let moves = horizontal_or_u64!(mm);
 
     moves & empty
 }
@@ -734,11 +741,7 @@ fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
     let pot_r = _mm256_srlv_epi64(masked_oo, sh);
     let pot_mm = _mm256_or_si256(pot_l, pot_r);
 
-    let pot_m128 = _mm_or_si128(
-        _mm256_castsi256_si128(pot_mm),
-        _mm256_extracti128_si256(pot_mm, 1),
-    );
-    let potential = _mm_cvtsi128_si64(_mm_or_si128(pot_m128, _mm_srli_si128(pot_m128, 8))) as u64;
+    let potential = horizontal_or_u64!(pot_mm);
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
@@ -759,8 +762,7 @@ fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
     fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
 
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-    let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
-    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
+    let moves = horizontal_or_u64!(mm);
 
     (moves & empty, potential & empty)
 }
@@ -790,11 +792,7 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     let pot_r = _mm256_srlv_epi64(masked_oo, sh);
     let pot_mm = _mm256_or_si256(pot_l, pot_r);
 
-    let pot_m128 = _mm_or_si128(
-        _mm256_castsi256_si128(pot_mm),
-        _mm256_extracti128_si256(pot_mm, 1),
-    );
-    let potential = _mm_cvtsi128_si64(_mm_or_si128(pot_m128, _mm_srli_si128(pot_m128, 8))) as u64;
+    let potential = horizontal_or_u64!(pot_mm);
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
@@ -815,8 +813,7 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     fr = _mm256_or_si256(fr, _mm256_and_si256(pre_r, _mm256_srlv_epi64(fr, shift2)));
 
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-    let m128 = _mm_or_si128(_mm256_castsi256_si128(mm), _mm256_extracti128_si256(mm, 1));
-    let moves = _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64;
+    let moves = horizontal_or_u64!(mm);
 
     (moves & empty, potential & empty)
 }
