@@ -10,12 +10,19 @@ use cfg_if::cfg_if;
 
 use crate::square::Square;
 
-/// Bitboard mask representing the four corner squares.
 const A1_MASK: u64 = 0x0000000000000001;
 const H1_MASK: u64 = 0x0000000000000080;
 const A8_MASK: u64 = 0x0100000000000000;
 const H8_MASK: u64 = 0x8000000000000000;
+
+/// Bitboard mask representing the four corner squares.
 const CORNER_MASK: u64 = A1_MASK | H1_MASK | A8_MASK | H8_MASK;
+/// Horizontal: excludes files A and H.
+const HORIZONTAL_MASK: u64 = 0x7E7E7E7E7E7E7E7E;
+/// Vertical: excludes ranks 1 and 8.
+const VERTICAL_MASK: u64 = 0x00FFFFFFFFFFFF00;
+/// Diagonal: excludes all edge files and ranks.
+const DIAGONAL_MASK: u64 = 0x007E7E7E7E7E7E00;
 
 /// Newtype wrapper for a 64-bit bitboard (bit 0 = A1, bit 63 = H8).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
@@ -469,10 +476,11 @@ fn get_moves(player: u64, opponent: u64) -> u64 {
 #[allow(dead_code)]
 fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
     let empty = !(player | opponent);
-    (get_some_moves(player, opponent & 0x007E7E7E7E7E7E00, 7) & empty)
-        | (get_some_moves(player, opponent & 0x007E7E7E7E7E7E00, 9) & empty)
-        | (get_some_moves(player, opponent & 0x7E7E7E7E7E7E7E7E, 1) & empty)
-        | (get_some_moves(player, opponent & 0x00FFFFFFFFFFFF00, 8) & empty)
+    let diag_opp = opponent & DIAGONAL_MASK;
+    (get_some_moves(player, diag_opp, 7) & empty)
+        | (get_some_moves(player, diag_opp, 9) & empty)
+        | (get_some_moves(player, opponent & HORIZONTAL_MASK, 1) & empty)
+        | (get_some_moves(player, opponent & VERTICAL_MASK, 8) & empty)
 }
 
 /// Propagates flipped discs in a specific direction for move generation.
@@ -495,7 +503,10 @@ fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
 #[cfg(target_arch = "x86_64")]
 macro_rules! horizontal_or_u64 {
     ($mm:expr) => {{
-        let m128 = _mm_or_si128(_mm256_castsi256_si128($mm), _mm256_extracti128_si256($mm, 1));
+        let m128 = _mm_or_si128(
+            _mm256_castsi256_si128($mm),
+            _mm256_extracti128_si256($mm, 1),
+        );
         _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64
     }};
 }
@@ -509,10 +520,10 @@ fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
 
     let sh = _mm256_set_epi64x(7, 9, 8, 1);
     let masks = _mm256_set_epi64x(
-        0x007E7E7E7E7E7E00u64 as i64,
-        0x007E7E7E7E7E7E00u64 as i64,
-        0x00FFFFFFFFFFFF00u64 as i64,
-        0x7E7E7E7E7E7E7E7Eu64 as i64,
+        DIAGONAL_MASK as i64,
+        DIAGONAL_MASK as i64,
+        VERTICAL_MASK as i64,
+        HORIZONTAL_MASK as i64,
     );
 
     let empty = !(player | opponent);
@@ -554,10 +565,10 @@ fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
 
     let sh = _mm256_set_epi64x(7, 9, 8, 1);
     let masks = _mm256_set_epi64x(
-        0x007E7E7E7E7E7E00,
-        0x007E7E7E7E7E7E00,
-        0x00FFFFFFFFFFFF00,
-        0x7E7E7E7E7E7E7E7E,
+        DIAGONAL_MASK as i64,
+        DIAGONAL_MASK as i64,
+        VERTICAL_MASK as i64,
+        HORIZONTAL_MASK as i64,
     );
 
     let empty = !(player | opponent);
@@ -641,7 +652,7 @@ fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
     let pp = u64x2_splat(player);
     let oo = u64x2_splat(opponent);
 
-    let masked_oo_hv = v128_and(oo, u64x2(0x7E7E7E7E7E7E7E7E, 0x00FFFFFFFFFFFF00));
+    let masked_oo_hv = v128_and(oo, u64x2(HORIZONTAL_MASK, VERTICAL_MASK));
 
     let adj_h_l = v128_and(masked_oo_hv, u64x2_shl(pp, 1));
     let adj_h_r = v128_and(masked_oo_hv, u64x2_shr(pp, 1));
@@ -656,7 +667,7 @@ fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
     let moves_h = v128_or(u64x2_shl(flip_h_l, 1), u64x2_shr(flip_h_r, 1));
     let moves_v = v128_or(u64x2_shl(flip_v_l, 8), u64x2_shr(flip_v_r, 8));
 
-    let masked_oo_d = v128_and(oo, u64x2_splat(0x007E7E7E7E7E7E00));
+    let masked_oo_d = v128_and(oo, u64x2_splat(DIAGONAL_MASK));
 
     let adj_d7_l = v128_and(masked_oo_d, u64x2_shl(pp, 7));
     let adj_d7_r = v128_and(masked_oo_d, u64x2_shr(pp, 7));
@@ -679,22 +690,19 @@ fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
     (h_moves | v_moves | d7_moves | d9_moves) & empty
 }
 
-/// Expands the opponent bitboard by one step in a direction for potential-move detection.
-#[inline(always)]
-#[allow(dead_code)]
-fn get_some_potential_moves(o: u64, dir: u32) -> u64 {
-    (o << dir) | (o >> dir)
-}
-
 /// Returns the potential moves for the player.
 ///
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L944>
 #[inline(always)]
 fn get_potential_moves(p: u64, o: u64) -> u64 {
-    let h = get_some_potential_moves(o & 0x7E7E_7E7E_7E7E_7E7E_u64, 1);
-    let v = get_some_potential_moves(o & 0x00FF_FFFF_FFFF_FF00_u64, 8);
-    let d1 = get_some_potential_moves(o & 0x007E_7E7E_7E7E_7E00_u64, 7);
-    let d2 = get_some_potential_moves(o & 0x007E_7E7E_7E7E_7E00_u64, 9);
+    let h_opp = o & HORIZONTAL_MASK;
+    let v_opp = o & VERTICAL_MASK;
+    let d_opp = o & DIAGONAL_MASK;
+
+    let h = (h_opp << 1) | (h_opp >> 1);
+    let v = (v_opp << 8) | (v_opp >> 8);
+    let d1 = (d_opp << 7) | (d_opp >> 7);
+    let d2 = (d_opp << 9) | (d_opp >> 9);
 
     (h | v | d1 | d2) & !(p | o)
 }
@@ -723,10 +731,10 @@ fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
 
     let sh = _mm256_set_epi64x(7, 9, 8, 1);
     let masks = _mm256_set_epi64x(
-        0x007E7E7E7E7E7E00u64 as i64,
-        0x007E7E7E7E7E7E00u64 as i64,
-        0x00FFFFFFFFFFFF00u64 as i64,
-        0x7E7E7E7E7E7E7E7Eu64 as i64,
+        DIAGONAL_MASK as i64,
+        DIAGONAL_MASK as i64,
+        VERTICAL_MASK as i64,
+        HORIZONTAL_MASK as i64,
     );
 
     let empty = !(player | opponent);
@@ -775,10 +783,10 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
 
     let sh = _mm256_set_epi64x(7, 9, 8, 1);
     let masks = _mm256_set_epi64x(
-        0x007E7E7E7E7E7E00u64 as i64,
-        0x007E7E7E7E7E7E00u64 as i64,
-        0x00FFFFFFFFFFFF00u64 as i64,
-        0x7E7E7E7E7E7E7E7Eu64 as i64,
+        DIAGONAL_MASK as i64,
+        DIAGONAL_MASK as i64,
+        VERTICAL_MASK as i64,
+        HORIZONTAL_MASK as i64,
     );
 
     let empty = !(player | opponent);
