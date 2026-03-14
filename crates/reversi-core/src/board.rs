@@ -218,7 +218,7 @@ impl Board {
     }
 
     /// Attempts to make a move at `sq`, returning [`None`] if the move is invalid.
-    #[inline]
+    #[inline(always)]
     pub fn try_make_move(&self, sq: Square) -> Option<Board> {
         if !self.opponent.has_adjacent_bit(sq) {
             return None;
