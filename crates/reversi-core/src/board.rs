@@ -159,6 +159,12 @@ impl Board {
         self.get_empty().count()
     }
 
+    /// Returns the disc-difference score without any assertions.
+    #[inline(always)]
+    fn disc_score(&self) -> Score {
+        self.get_player_count() as Score * 2 - SCORE_MAX
+    }
+
     /// Returns the final score (disc difference) from the current player's perspective.
     ///
     /// # Panics
@@ -172,7 +178,7 @@ impl Board {
             self.get_empty().is_empty(),
             "final_score requires no empty squares; use solve() for boards with empties"
         );
-        self.get_player_count() as Score * 2 - SCORE_MAX
+        self.disc_score()
     }
 
     /// Returns the final score as a [`ScaledScore`].
@@ -190,7 +196,7 @@ impl Board {
     /// The caller must pass the actual empty count; no validation is performed.
     #[inline(always)]
     pub fn solve(&self, n_empties: u32) -> Score {
-        let score = self.get_player_count() as Score * 2 - SCORE_MAX;
+        let score = self.disc_score();
         let diff = score + n_empties as Score;
 
         match diff.cmp(&0) {
