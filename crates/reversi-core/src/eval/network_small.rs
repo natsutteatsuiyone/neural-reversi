@@ -29,7 +29,7 @@ const NUM_INPUT_LAYERS: usize = 3;
 const NUM_OUTPUT_LAYERS: usize = 30;
 
 /// The ply at which the endgame phase begins.
-const ENDGAME_START_PLY: usize = 30;
+pub(crate) const ENDGAME_START_PLY: usize = 30;
 
 /// Number of plies each input layer covers (30 / 3 = 10 plies per layer).
 const INPUT_LAYER_SEGMENT_SIZE: usize = NUM_OUTPUT_LAYERS / NUM_INPUT_LAYERS;

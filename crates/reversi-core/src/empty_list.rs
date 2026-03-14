@@ -1,6 +1,7 @@
 //! Empty square list management.
 
 use crate::board::Board;
+use crate::constants::INITIAL_EMPTY_COUNT;
 use crate::square::Square;
 
 /// Returns the quadrant ID for a given square.
@@ -204,10 +205,10 @@ impl EmptyList {
     /// Returns the current ply (number of disc placements).
     ///
     /// In Reversi, the game starts with 4 discs placed and 60 empty squares.
-    /// Each non-pass move fills one empty square, so ply = 60 - empty_count.
+    /// Each non-pass move fills one empty square, so ply = [`INITIAL_EMPTY_COUNT`] - empty_count.
     #[inline(always)]
     pub fn ply(&self) -> usize {
-        (60 - self.count) as usize
+        (INITIAL_EMPTY_COUNT as u32 - self.count) as usize
     }
 }
 

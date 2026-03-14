@@ -13,8 +13,11 @@ pub use network::Network;
 pub use network_small::NetworkSmall;
 
 use crate::board::Board;
+use crate::constants::INITIAL_EMPTY_COUNT;
 use crate::search::search_context::SearchContext;
 use crate::types::ScaledScore;
+
+use self::network_small::ENDGAME_START_PLY;
 
 mod activations;
 pub mod eval_cache;
@@ -25,6 +28,9 @@ mod network_small;
 mod output_layer;
 pub mod pattern_feature;
 mod util;
+
+/// Log2 of the number of evaluation cache entries.
+const EVAL_CACHE_SIZE_LOG2: u32 = 17;
 
 /// Selects which neural network to use for evaluation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,7 +140,7 @@ impl Eval {
         Ok(Eval {
             network,
             network_sm,
-            cache: EvalCache::new(17),
+            cache: EvalCache::new(EVAL_CACHE_SIZE_LOG2),
         })
     }
 
@@ -145,8 +151,9 @@ impl Eval {
     /// - `ply >= 30`: Uses small network when [`EvalMode::Small`], otherwise main network
     ///
     /// Only main network evaluations are cached; the small network is fast enough without caching.
+    #[inline]
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
-        if ctx.eval_mode == EvalMode::Main || ctx.ply() < 30 {
+        if ctx.eval_mode == EvalMode::Main || ctx.ply() < ENDGAME_START_PLY {
             let key = board.hash();
             if let Some(score_cache) = self.cache.probe(key) {
                 return score_cache;
@@ -174,7 +181,7 @@ impl Eval {
             return board.final_score_scaled();
         }
 
-        let ply = 60 - n_empties;
+        let ply = INITIAL_EMPTY_COUNT - n_empties;
         let pattern_features = pattern_feature::PatternFeatures::new(board, ply);
 
         self.network
