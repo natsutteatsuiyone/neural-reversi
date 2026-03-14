@@ -107,28 +107,28 @@ impl ProbcutParams {
     }
 }
 
-const MAX_PLY: usize = 60;
-const MAX_DEPTH: usize = 60;
+const NUM_PLY: usize = 60;
+const NUM_DEPTH: usize = 60;
 
-type MeanTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
-type SigmaTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
+type MidTable = [[[f64; NUM_DEPTH]; NUM_DEPTH]; NUM_PLY];
+type EndTable = [[f64; NUM_DEPTH]; NUM_DEPTH];
 
 const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
 
-static MEAN_TABLE: OnceLock<Box<MeanTable>> = OnceLock::new();
-static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
-static MEAN_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
-static SIGMA_TABLE_END: OnceLock<Box<[[f64; MAX_DEPTH]; MAX_DEPTH]>> = OnceLock::new();
+static MEAN_TABLE: OnceLock<Box<MidTable>> = OnceLock::new();
+static SIGMA_TABLE: OnceLock<Box<MidTable>> = OnceLock::new();
+static MEAN_TABLE_END: OnceLock<Box<EndTable>> = OnceLock::new();
+static SIGMA_TABLE_END: OnceLock<Box<EndTable>> = OnceLock::new();
 
-fn alloc_3d_table() -> Box<MeanTable> {
-    vec![[[0.0f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY]
+fn alloc_3d_table() -> Box<MidTable> {
+    vec![[[0.0f64; NUM_DEPTH]; NUM_DEPTH]; NUM_PLY]
         .into_boxed_slice()
         .try_into()
         .unwrap()
 }
 
-fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
-    vec![[0.0f64; MAX_DEPTH]; MAX_DEPTH]
+fn alloc_2d_table() -> Box<EndTable> {
+    vec![[0.0f64; NUM_DEPTH]; NUM_DEPTH]
         .into_boxed_slice()
         .try_into()
         .unwrap()
@@ -137,12 +137,12 @@ fn alloc_2d_table() -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
 /// Builds a 3D [ply][shallow][deep] table from midgame ProbCut parameters.
 ///
 /// Only populates entries where `shallow <= deep` (callers always satisfy this).
-fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MeanTable> {
+fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MidTable> {
     let mut tbl = alloc_3d_table();
-    for ply in 0..MAX_PLY {
+    for ply in 0..NUM_PLY {
         let params = &PROBCUT_PARAMS[ply];
-        for shallow in 0..MAX_DEPTH {
-            for deep in shallow..MAX_DEPTH {
+        for shallow in 0..NUM_DEPTH {
+            for deep in shallow..NUM_DEPTH {
                 tbl[ply][shallow][deep] = f(params, shallow as f64, deep as f64) * SCORE_SCALE_F64;
             }
         }
@@ -153,12 +153,10 @@ fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MeanTable
 /// Builds a 2D [shallow][deep] table from endgame ProbCut parameters.
 ///
 /// Only populates entries where `shallow <= deep` (callers always satisfy this).
-fn build_end_table(
-    f: impl Fn(&ProbcutParams, f64, f64) -> f64,
-) -> Box<[[f64; MAX_DEPTH]; MAX_DEPTH]> {
+fn build_end_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<EndTable> {
     let mut tbl = alloc_2d_table();
-    for shallow in 0..MAX_DEPTH {
-        for deep in shallow..MAX_DEPTH {
+    for shallow in 0..NUM_DEPTH {
+        for deep in shallow..NUM_DEPTH {
             tbl[shallow][deep] =
                 f(&PROBCUT_ENDGAME_PARAMS, shallow as f64, deep as f64) * SCORE_SCALE_F64;
         }
@@ -183,6 +181,23 @@ pub fn init() {
     SIGMA_TABLE_END.get_or_init(|| build_end_table(ProbcutParams::sigma));
 }
 
+#[inline]
+fn lookup_mid(table: &OnceLock<Box<MidTable>>, ply: usize, shallow: Depth, deep: Depth) -> f64 {
+    debug_assert!(ply < NUM_PLY);
+    debug_assert!((shallow as usize) <= (deep as usize));
+    debug_assert!((deep as usize) < NUM_DEPTH);
+    let tbl = table.get().unwrap_or_else(|| probcut_not_initialized());
+    tbl[ply][shallow as usize][deep as usize]
+}
+
+#[inline]
+fn lookup_end(table: &OnceLock<Box<EndTable>>, shallow: Depth, deep: Depth) -> f64 {
+    debug_assert!((shallow as usize) <= (deep as usize));
+    debug_assert!((deep as usize) < NUM_DEPTH);
+    let tbl = table.get().unwrap_or_else(|| probcut_not_initialized());
+    tbl[shallow as usize][deep as usize]
+}
+
 /// Returns the pre-computed mean value for midgame positions.
 ///
 /// # Panics
@@ -190,13 +205,7 @@ pub fn init() {
 /// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
-    debug_assert!(ply < MAX_PLY);
-    debug_assert!((shallow as usize) <= (deep as usize));
-    debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = MEAN_TABLE
-        .get()
-        .unwrap_or_else(|| probcut_not_initialized());
-    tbl[ply][shallow as usize][deep as usize]
+    lookup_mid(&MEAN_TABLE, ply, shallow, deep)
 }
 
 /// Returns the pre-computed sigma value for midgame positions.
@@ -206,13 +215,7 @@ pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 /// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
-    debug_assert!(ply < MAX_PLY);
-    debug_assert!((shallow as usize) <= (deep as usize));
-    debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = SIGMA_TABLE
-        .get()
-        .unwrap_or_else(|| probcut_not_initialized());
-    tbl[ply][shallow as usize][deep as usize]
+    lookup_mid(&SIGMA_TABLE, ply, shallow, deep)
 }
 
 /// Returns the pre-computed mean value for endgame positions.
@@ -222,12 +225,7 @@ pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
 /// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
-    debug_assert!((shallow as usize) <= (deep as usize));
-    debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = MEAN_TABLE_END
-        .get()
-        .unwrap_or_else(|| probcut_not_initialized());
-    tbl[shallow as usize][deep as usize]
+    lookup_end(&MEAN_TABLE_END, shallow, deep)
 }
 
 /// Returns the pre-computed sigma value for endgame positions.
@@ -237,12 +235,7 @@ pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
 /// Panics if [`init`] has not been called.
 #[inline]
 pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
-    debug_assert!((shallow as usize) <= (deep as usize));
-    debug_assert!((deep as usize) < MAX_DEPTH);
-    let tbl = SIGMA_TABLE_END
-        .get()
-        .unwrap_or_else(|| probcut_not_initialized());
-    tbl[shallow as usize][deep as usize]
+    lookup_end(&SIGMA_TABLE_END, shallow, deep)
 }
 
 /// Computes the ProbCut beta threshold for verification search.
@@ -762,4 +755,4 @@ const PROBCUT_PARAMS: [ProbcutParams; 60] = [
     },
 ];
 
-const _: () = assert!(PROBCUT_PARAMS.len() == MAX_PLY);
+const _: () = assert!(PROBCUT_PARAMS.len() == NUM_PLY);
