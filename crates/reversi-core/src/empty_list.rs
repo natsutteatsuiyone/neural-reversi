@@ -79,25 +79,6 @@ pub struct EmptyList {
 }
 
 impl EmptyList {
-    /// Returns the number of empty squares currently in the list.
-    #[inline(always)]
-    pub fn count(&self) -> u32 {
-        self.count
-    }
-
-    /// Returns the parity value (XOR of all quadrant IDs).
-    ///
-    /// Each bit (1, 2, 4, 8) represents a quadrant with an odd number of empties.
-    /// When parity is 0, all quadrants have even empty counts. A non-zero bit
-    /// indicates the corresponding quadrant has an odd number of empties, which
-    /// affects move ordering heuristics in endgame search.
-    #[inline(always)]
-    pub fn parity(&self) -> u8 {
-        self.parity
-    }
-}
-
-impl EmptyList {
     /// Creates a new [`EmptyList`] by scanning the board for empty squares in presorted order.
     pub fn new(board: &Board) -> Self {
         let mut count = 0;
@@ -124,18 +105,33 @@ impl EmptyList {
         }
     }
 
+    /// Returns the number of empty squares currently in the list.
+    #[inline(always)]
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+
+    /// Returns the parity value (XOR of all quadrant IDs).
+    ///
+    /// Each bit (1, 2, 4, 8) represents a quadrant with an odd number of empties.
+    /// When parity is 0, all quadrants have even empty counts. A non-zero bit
+    /// indicates the corresponding quadrant has an odd number of empties, which
+    /// affects move ordering heuristics in endgame search.
+    #[inline(always)]
+    pub fn parity(&self) -> u8 {
+        self.parity
+    }
+
     /// Returns the first empty square, or [`Square::None`] if the list is empty.
     #[inline(always)]
     pub fn first(&self) -> Square {
-        unsafe { self.nodes.get_unchecked(Square::None.index()).next }
+        self.next(Square::None)
     }
 
     /// Returns the first empty square and its quadrant ID.
     #[inline(always)]
     pub fn first_and_quad_id(&self) -> (Square, u8) {
-        let first_sq = self.first();
-        let quad_id = get_quadrant_id(first_sq);
-        (first_sq, quad_id)
+        self.next_and_quad_id(Square::None)
     }
 
     /// Returns the next empty square after `sq`, or [`Square::None`] if `sq` is the last.
@@ -177,9 +173,8 @@ impl EmptyList {
 
             self.nodes.get_unchecked_mut(prev_idx).next = next;
             self.nodes.get_unchecked_mut(next_idx).prev = prev;
-
-            self.parity ^= get_quadrant_id(sq);
         }
+        self.parity ^= get_quadrant_id(sq);
         self.count -= 1;
     }
 
@@ -201,9 +196,8 @@ impl EmptyList {
 
             self.nodes.get_unchecked_mut(prev_idx).next = sq;
             self.nodes.get_unchecked_mut(next_idx).prev = sq;
-
-            self.parity ^= get_quadrant_id(sq);
         }
+        self.parity ^= get_quadrant_id(sq);
         self.count += 1;
     }
 
@@ -397,8 +391,8 @@ mod tests {
         empty_list2.remove(Square::A1);
 
         // Both should have the same count and parity
-        assert_eq!(empty_list1.count, empty_list2.count);
-        assert_eq!(empty_list1.parity, empty_list2.parity);
+        assert_eq!(empty_list1.count(), empty_list2.count());
+        assert_eq!(empty_list1.parity(), empty_list2.parity());
     }
 
     #[test]
@@ -536,15 +530,15 @@ mod tests {
         let cloned_list = empty_list.clone();
 
         // Verify clone has same properties
-        assert_eq!(cloned_list.count, empty_list.count());
-        assert_eq!(cloned_list.parity, empty_list.parity());
+        assert_eq!(cloned_list.count(), empty_list.count());
+        assert_eq!(cloned_list.parity(), empty_list.parity());
         assert_eq!(cloned_list.first(), empty_list.first());
 
         // Verify independence - modify original
         empty_list.remove(Square::C1);
 
         // Clone should be unchanged
-        assert_ne!(cloned_list.count, empty_list.count());
+        assert_ne!(cloned_list.count(), empty_list.count());
     }
 
     #[test]
