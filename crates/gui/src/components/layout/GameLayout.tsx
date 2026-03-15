@@ -7,13 +7,13 @@ import { Toaster } from "@/components/ui/sonner";
 
 export function GameLayout() {
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
       <NewGameModal />
       <Header />
       
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Main Board Area */}
-        <main className="flex-1 flex items-center justify-center p-6">
+        <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-3 sm:p-4 lg:p-6">
           <Board />
         </main>
 

@@ -21,7 +21,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-80 border-l border-white/10 bg-background-secondary flex flex-col shrink-0">
+    <aside className="flex w-full basis-72 min-h-0 shrink-0 flex-col border-t border-white/10 bg-background-secondary sm:basis-80 lg:w-80 lg:basis-auto lg:border-t-0 lg:border-l">
       {/* Player Cards */}
       <div className="p-4 space-y-3 border-b border-white/10">
         <PlayerCard

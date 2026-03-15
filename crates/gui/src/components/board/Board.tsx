@@ -1,8 +1,8 @@
-import { BoardCell } from "./BoardCell";
+import { Canvas } from "@react-three/fiber";
+import { Board3DScene } from "./Board3DScene";
 import type { AIMoveProgress } from "@/lib/ai";
-import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 interface MoveHistoryItem {
   row: number;
@@ -83,7 +83,7 @@ export function Board() {
     }
   }, [lastMove]);
 
-  function onCellClick(row: number, col: number) {
+  const onCellClick = useCallback((row: number, col: number) => {
     if (isAITurn() || gameOver || !isValidMove(row, col)) {
       return;
     }
@@ -93,66 +93,27 @@ export function Board() {
       col,
       isAI: false,
     });
-  }
+  }, [isAITurn, gameOver, isValidMove, makeMove]);
 
   return (
-    <div className="h-full w-full flex flex-col items-center justify-center">
-      {/* Board container - maintains square aspect ratio */}
-      <div className="h-full max-h-[min(calc(100vh-200px),600px)] max-w-full aspect-square flex flex-col">
-        {/* Column labels */}
-        <div className="flex ml-7 shrink-0 h-6">
-          {COLUMN_LABELS.map((label) => (
-            <div
-              key={label}
-              className="flex-1 text-center text-sm font-semibold text-foreground-secondary uppercase"
-              aria-hidden="true"
-            >
-              {label}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex flex-1 min-h-0">
-          {/* Row labels */}
-          <div className="flex flex-col justify-around w-7 shrink-0">
-            {ROW_LABELS.map((label) => (
-              <div
-                key={label}
-                className="text-center text-sm font-semibold text-foreground-secondary"
-                aria-hidden="true"
-              >
-                {label}
-              </div>
-            ))}
-          </div>
-
-          {/* Board */}
-          <div className="flex-1 bg-board-surface p-3 rounded-lg shadow-xl">
-            <div className="grid grid-cols-8 grid-rows-8 gap-0.5 h-full w-full">
-              {board.map((row, rowIndex) =>
-                row.map((cell, colIndex) => (
-                  <BoardCell
-                    key={`${COLUMN_LABELS[colIndex]}${ROW_LABELS[rowIndex]}`}
-                    rowIndex={rowIndex}
-                    colIndex={colIndex}
-                    cell={cell}
-                    lastMove={lastMove}
-                    aiMoveProgress={aiMoveProgress}
-                    lastAIMove={lastAIMove}
-                    moveHistory={moveHistory}
-                    gameOver={gameOver}
-                    isValidMove={isValidMove}
-                    isAITurn={isAITurn}
-                    onCellClick={onCellClick}
-                    analyzeResults={analyzeResults}
-                    maxScore={maxScore}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="h-full w-full">
+      <Canvas frameloop="demand" resize={{ debounce: { scroll: 50, resize: 100 } }}>
+        <Suspense fallback={null}>
+          <Board3DScene
+            board={board}
+            lastMove={lastMove}
+            gameOver={gameOver}
+            isValidMove={isValidMove}
+            isAITurn={isAITurn}
+            onCellClick={onCellClick}
+            aiMoveProgress={aiMoveProgress}
+            lastAIMove={lastAIMove}
+            moveHistory={moveHistory}
+            analyzeResults={analyzeResults}
+            maxScore={maxScore}
+          />
+        </Suspense>
+      </Canvas>
     </div>
   );
 }

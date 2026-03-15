@@ -29,11 +29,11 @@ export function AIAnalysisPanel() {
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors cursor-pointer",
+          "flex w-full items-center justify-between gap-3 px-4 py-3 transition-colors cursor-pointer hover:bg-white/5",
           isOpen && "border-b border-white/10"
         )}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
           <Activity className={cn(
             "w-4 h-4",
             isAIThinking ? "text-accent-blue animate-pulse" : "text-foreground-muted"
@@ -45,7 +45,7 @@ export function AIAnalysisPanel() {
             </span>
           )}
           {!isAIThinking && latestEntry && (
-            <span className="text-xs text-primary font-mono font-semibold">
+            <span className="max-w-full truncate text-xs font-mono font-semibold text-primary">
               {t('analysis.best')} {latestEntry.bestMove} ({latestEntry.score > 0 ? "+" : ""}{latestEntry.score}) {latestEntry.acc === 100 ? latestEntry.depth : `${latestEntry.depth}@${latestEntry.acc}%`}
             </span>
           )}

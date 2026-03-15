@@ -137,6 +137,13 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
@@ -144,6 +151,7 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+    overflow: hidden;
   }
 }
 
@@ -161,21 +169,6 @@
       inset -2px -2px 5px rgba(0, 0, 0, 0.06),
       inset 2px 2px 5px rgba(255, 255, 255, 0.9),
       0 3px 6px rgba(0, 0, 0, 0.35);
-  }
-  
-  /* Board cell shadow */
-  .cell-shadow {
-    box-shadow: 
-      inset 1px 1px 1px rgba(255, 255, 255, 0.08),
-      inset -1px -1px 1px rgba(0, 0, 0, 0.25);
-  }
-  
-  /* Last move highlight */
-  .last-move-highlight {
-    box-shadow: 
-      inset 0 0 0 2px var(--accent-gold),
-      inset 1px 1px 1px rgba(255, 255, 255, 0.08),
-      inset -1px -1px 1px rgba(0, 0, 0, 0.25);
   }
   
   /* Scrollbar styling */

@@ -22,6 +22,7 @@ import { abortAISearch } from "@/lib/ai";
 import type { Board, MoveRecord, Player } from "@/types";
 import type { GameSlice, ReversiState } from "./types";
 import { initializeAI } from "@/lib/ai";
+import { FLIP_DURATION_S } from "@/components/board/board3d-utils";
 
 function toLastMove(moves: readonly MoveRecord[]): Move | null {
     const last = moves.length > 0 ? moves[moves.length - 1] : undefined;
@@ -164,6 +165,8 @@ export const createGameSlice: StateCreator<
             void abortAISearch();
         }
 
+        const oldBoard = get().board;
+
         set((state) => {
             const currentPlayer = state.currentPlayer;
             const newBoard = applyMove(state.board, move, currentPlayer);
@@ -192,6 +195,26 @@ export const createGameSlice: StateCreator<
         if (shouldPass) {
             set({ showPassNotification: updatedState.currentPlayer });
             return;
+        }
+
+        // Wait for flip animation to complete before triggering AI
+        const FLIP_DURATION_MS = FLIP_DURATION_S * 1000;
+        if (!move.isAI) {
+            const newBoard = updatedState.board;
+            let hasFlipped = false;
+            for (let r = 0; r < 8 && !hasFlipped; r++) {
+                for (let c = 0; c < 8 && !hasFlipped; c++) {
+                    const oldCell = oldBoard[r][c];
+                    const newCell = newBoard[r][c];
+                    if (oldCell.color && newCell.color && oldCell.color !== newCell.color) {
+                        hasFlipped = true;
+                    }
+                }
+            }
+            if (hasFlipped) {
+                setTimeout(() => triggerAutomation(get), FLIP_DURATION_MS);
+                return;
+            }
         }
 
         triggerAutomation(get);
