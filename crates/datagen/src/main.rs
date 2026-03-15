@@ -1,5 +1,7 @@
 mod opening;
 mod probcut;
+mod record;
+mod rescore;
 mod selfplay;
 mod shuffle;
 
@@ -76,6 +78,22 @@ enum SubCommands {
         #[arg(short = 'm', long, default_value_t = 0)]
         min_ply: u8,
     },
+    Rescore {
+        #[arg(short, long)]
+        input: String,
+
+        #[arg(short, long)]
+        output: String,
+
+        #[arg(short, long, value_parser = clap::value_parser!(u32).range(1..=60))]
+        empties: u32,
+
+        #[arg(long, default_value = "512")]
+        hash_size: usize,
+
+        #[arg(short, long, default_value = "false")]
+        verbose: bool,
+    },
 }
 
 fn main() {
@@ -149,6 +167,16 @@ fn main() {
                 min_ply,
             )
             .unwrap();
+        }
+        SubCommands::Rescore {
+            input,
+            output,
+            empties,
+            hash_size,
+            verbose,
+        } => {
+            rescore::execute(&input, &output, empties, hash_size, verbose)
+                .expect("Failed to execute rescore");
         }
     }
 }

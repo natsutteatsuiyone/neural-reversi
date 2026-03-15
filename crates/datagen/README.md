@@ -95,7 +95,23 @@ datagen shuffle --input-dir ./data --output-dir ./shuffled_data --pattern "*.bin
 - `--files-per-chunk`: Number of input files to read and shuffle in memory at a time (default: 10). Adjust based on available memory and the size of your input files.
 - `--num-output-files`: Optional number of output files to create. If not specified, it defaults to the number of input files. The shuffled records will be distributed among these output files.
 
+### rescore
+
+Corrects training data scores by performing exact endgame solving. For positions with a specified number of empty squares or fewer, the evaluation score and game score are replaced with the exact disc difference from a perfect endgame search.
+
+```bash
+datagen rescore --input ./data --output ./rescored_data --empties 16 --hash-size 512
+```
+
+#### Options
+
+- `--input`: Input file (.bin) or directory containing .bin files to rescore.
+- `--output`: Output directory where corrected files will be written with the same filenames.
+- `--empties`: Correct records with this many or fewer empty squares (1-60). Positions with more empty squares are left unchanged.
+- `--hash-size`: Transposition table size in MB (default: 512).
+
 ## Workflow
 
 1. Generate self-play data
-2. Train neural network using self-play data
+2. Rescore endgame positions with exact solving (optional)
+3. Train neural network using self-play data

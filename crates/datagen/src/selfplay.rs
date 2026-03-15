@@ -4,7 +4,6 @@
 //! It supports both random game generation and generation from predefined opening
 //! sequences, with configurable search parameters.
 
-use byteorder::{LittleEndian, WriteBytesExt};
 use rand::RngExt;
 use rand::seq::IteratorRandom;
 use regex::Regex;
@@ -16,18 +15,14 @@ use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
-use reversi_core::types::Scoref;
 use std::collections::HashMap;
 use std::fs;
-use std::fs::OpenOptions;
-use std::io::{self, BufWriter, Write};
+use std::io;
 use std::path::Path;
 use std::time::Instant;
 
 use crate::opening;
-
-/// Size of each record in bytes (24 bytes per record)
-const RECORD_SIZE: u64 = 24;
+use crate::record::{GameRecord, count_records_in_file, write_records_to_file};
 
 /// Minimum number of random moves at the start of each game
 const MIN_RANDOM_MOVES: u8 = 10;
@@ -40,28 +35,6 @@ const FILE_ID_DIGITS: usize = 5;
 
 /// Maximum size of the record cache
 const MAX_CACHE_SIZE: usize = 1_000_000;
-
-/// Represents a single position record from a self-play game.
-///
-/// Each record captures the board state, evaluation, and move information
-/// at a specific point in the game.
-#[derive(Clone)]
-struct GameRecord {
-    /// Move number in the game (0-59)
-    ply: u8,
-    /// Current board state
-    board: Board,
-    /// Evaluation score from the search
-    score: Scoref,
-    /// Final game score from this player's perspective
-    game_score: i8,
-    /// Current player to move
-    side_to_move: Disc,
-    /// Whether this position resulted from a random move
-    is_random: bool,
-    /// The move played from this position
-    sq: Square,
-}
 
 /// Executes self-play with random openings to generate training data.
 ///
@@ -402,29 +375,6 @@ fn random_move(board: &Board) -> Square {
     board.get_moves().iter().choose(&mut rng).unwrap()
 }
 
-/// Writes game records to a binary file.
-///
-/// Records are appended to the file if it already exists.
-fn write_records_to_file(path_str: &str, records: &[GameRecord]) -> io::Result<()> {
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(Path::new(path_str))?;
-    let mut writer = BufWriter::new(file);
-
-    for record in records {
-        writer.write_u64::<LittleEndian>(record.board.player.bits())?;
-        writer.write_u64::<LittleEndian>(record.board.opponent.bits())?;
-        writer.write_f32::<LittleEndian>(record.score)?;
-        writer.write_i8(record.game_score)?;
-        writer.write_u8(record.ply)?;
-        writer.write_u8(if record.is_random { 1 } else { 0 })?;
-        writer.write_u8(record.sq as u8)?;
-    }
-    writer.flush()?;
-    Ok(())
-}
-
 /// Saves game records to output files with automatic file rotation.
 ///
 /// Records are distributed across multiple files, creating new files
@@ -496,7 +446,7 @@ fn save_game(
             let start_index = records_processed;
             let end_index = records_processed + records_to_write_now;
             write_records_to_file(
-                &current_file_path_str,
+                Path::new(&current_file_path_str),
                 &game_records[start_index..end_index],
             )?;
 
@@ -509,35 +459,4 @@ fn save_game(
     }
 
     Ok(())
-}
-
-/// Counts the number of records in a binary file.
-///
-/// Returns 0 if the file doesn't exist.
-fn count_records_in_file(path: &Path) -> io::Result<u32> {
-    if !path.exists() {
-        return Ok(0);
-    }
-    let metadata = fs::metadata(path)?;
-    let file_size = metadata.len();
-
-    if RECORD_SIZE == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "RECORD_SIZE is zero",
-        ));
-    }
-    // Check for potential file corruption or incorrect RECORD_SIZE
-    if file_size % RECORD_SIZE != 0 {
-        eprintln!(
-            "Warning: File size {} is not a multiple of RECORD_SIZE {} for file {}. File might be corrupted or RECORD_SIZE is incorrect.",
-            file_size,
-            RECORD_SIZE,
-            path.display()
-        );
-        // Decide handling: error out or proceed with floor division?
-        // Proceeding with floor division, assuming partial records at the end are invalid/ignored.
-    }
-
-    Ok((file_size / RECORD_SIZE) as u32)
 }
