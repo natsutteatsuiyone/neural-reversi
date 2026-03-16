@@ -186,3 +186,17 @@ fn test_solve_15() {
 
     assert_eq!(result.score as i32, 8);
 }
+
+#[test]
+fn test_solve_20() {
+    let mut search = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let board = Board::from_string(
+        "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--",
+        Disc::Black,
+    )
+    .unwrap();
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let result = search.run(&board, &options);
+
+    assert_eq!(result.score as i32, 6);
+}
