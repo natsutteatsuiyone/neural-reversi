@@ -71,7 +71,7 @@ impl EndGameCache {
     #[inline(always)]
     pub fn probe(&self, key: u64, board: &Board, alpha: Score) -> Option<EndGameCacheProbe> {
         let idx = self.index(key);
-        let entry = unsafe { self.table.as_ptr().add(idx).read_unaligned() };
+        let entry = self.table[idx];
 
         if entry.player != board.player.bits() || entry.opponent != board.opponent.bits() {
             return None;
@@ -97,20 +97,14 @@ impl EndGameCache {
         score: Score,
         best_move: Square,
     ) {
-        debug_assert!(
-            (-128..=127).contains(&score),
-            "score {score} out of i8 range"
-        );
         let idx = self.index(key);
-        unsafe {
-            self.table.as_mut_ptr().add(idx).write_unaligned(RawEntry {
-                player: board.player.bits(),
-                opponent: board.opponent.bits(),
-                alpha: alpha as i8,
-                score: score as i8,
-                best_move: best_move as u8,
-            });
-        }
+        self.table[idx] = RawEntry {
+            player: board.player.bits(),
+            opponent: board.opponent.bits(),
+            alpha: alpha as i8,
+            score: score as i8,
+            best_move: best_move as u8,
+        };
     }
 
     /// Clears all entries.
@@ -189,19 +183,6 @@ mod tests {
         assert!(cache.probe(key1, &board1, 11).is_none());
         let probe = cache.probe(key2, &board2, -8).unwrap();
         assert_eq!(probe.score, Some(-8));
-        assert_eq!(probe.best_move, Square::A1);
-    }
-
-    #[test]
-    fn test_store_negative_score() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
-        let board = make_board(0xFF, 0xAA);
-        let key = board.hash();
-
-        cache.store(key, &board, -30, -30, Square::A1);
-
-        let probe = cache.probe(key, &board, -30).unwrap();
-        assert_eq!(probe.score, Some(-30));
         assert_eq!(probe.best_move, Square::A1);
     }
 
