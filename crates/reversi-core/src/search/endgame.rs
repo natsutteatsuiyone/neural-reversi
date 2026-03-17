@@ -50,19 +50,33 @@ const DEPTH_TO_NWS_EC: Depth = 11;
 /// Depth threshold for switching to specialized shallow search.
 const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
 
+/// Memory budget for the EC cache (8-11 empties), in bytes.
+const EC_CACHE_BYTES: usize = 128 * 1024;
+
+/// Memory budget for the shallow cache (4-7 empties), in bytes.
+const SHALLOW_CACHE_BYTES: usize = 128 * 1024;
+
 thread_local! {
-    static ENDGAME_CACHE: UnsafeCell<EndGameCache> =
-        UnsafeCell::new(EndGameCache::new(128 * 1024));
+    static EC_CACHE: UnsafeCell<EndGameCache> =
+        UnsafeCell::new(EndGameCache::new(EC_CACHE_BYTES));
+    static SHALLOW_CACHE: UnsafeCell<EndGameCache> =
+        UnsafeCell::new(EndGameCache::new(SHALLOW_CACHE_BYTES));
 }
 
-/// Returns a mutable reference to the thread-local endgame cache.
-///
 /// # Safety
 /// Thread-local ensures no cross-thread aliasing. Caller must not hold
 /// overlapping references within the same thread.
 #[inline(always)]
-unsafe fn cache() -> &'static mut EndGameCache {
-    ENDGAME_CACHE.with(|cell| unsafe { &mut *cell.get() })
+unsafe fn ec_cache() -> &'static mut EndGameCache {
+    EC_CACHE.with(|cell| unsafe { &mut *cell.get() })
+}
+
+/// # Safety
+/// Thread-local ensures no cross-thread aliasing. Caller must not hold
+/// overlapping references within the same thread.
+#[inline(always)]
+unsafe fn shallow_cache() -> &'static mut EndGameCache {
+    SHALLOW_CACHE.with(|cell| unsafe { &mut *cell.get() })
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
@@ -453,18 +467,28 @@ fn search_move_nws_tt(
     }
 }
 
-/// Probes the thread-local endgame cache for a given position and alpha.
+/// Probes the EC cache (8-11 empties) for a given position and alpha.
 #[inline(always)]
-fn probe_endgame_cache(key: u64, board: &Board, alpha: Score) -> Option<EndGameCacheProbe> {
-    unsafe { cache().probe(key, board, alpha) }
+fn probe_ec_cache(key: u64, board: &Board, alpha: Score) -> Option<EndGameCacheProbe> {
+    unsafe { ec_cache().probe(key, board, alpha) }
 }
 
-/// Stores an entry in the thread-local endgame cache.
+/// Stores an entry in the EC cache (8-11 empties).
 #[inline(always)]
-fn store_endgame_cache(key: u64, board: &Board, alpha: Score, score: Score, best_move: Square) {
-    unsafe {
-        cache().store(key, board, alpha, score, best_move);
-    }
+fn store_ec_cache(key: u64, board: &Board, alpha: Score, score: Score, best_move: Square) {
+    unsafe { ec_cache().store(key, board, alpha, score, best_move) }
+}
+
+/// Probes the shallow cache (4-7 empties) for a given position and alpha.
+#[inline(always)]
+fn probe_shallow_cache(key: u64, board: &Board, alpha: Score) -> Option<EndGameCacheProbe> {
+    unsafe { shallow_cache().probe(key, board, alpha) }
+}
+
+/// Stores an entry in the shallow cache (4-7 empties).
+#[inline(always)]
+fn store_shallow_cache(key: u64, board: &Board, alpha: Score, score: Score, best_move: Square) {
+    unsafe { shallow_cache().store(key, board, alpha, score, best_move) }
 }
 
 /// Null window search using the thread-local endgame cache.
@@ -489,7 +513,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
 
     let key = board.hash();
     let mut tt_move = Square::None;
-    if let Some(probe) = probe_endgame_cache(key, board, alpha) {
+    if let Some(probe) = probe_ec_cache(key, board, alpha) {
         if let Some(score) = probe.score {
             return score;
         }
@@ -503,7 +527,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
 
         moves = moves.remove(tt_move);
         if score >= beta || moves.is_empty() {
-            store_endgame_cache(key, board, alpha, score, tt_move);
+            store_ec_cache(key, board, alpha, score, tt_move);
             return score;
         }
 
@@ -551,7 +575,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
         best_move = mv.sq;
     }
 
-    store_endgame_cache(key, board, alpha, best_score, best_move);
+    store_ec_cache(key, board, alpha, best_score, best_move);
 
     best_score
 }
@@ -593,7 +617,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 
     let key = board.hash();
     let mut tt_move = Square::None;
-    if let Some(probe) = probe_endgame_cache(key, board, alpha) {
+    if let Some(probe) = probe_shallow_cache(key, board, alpha) {
         if let Some(score) = probe.score {
             return score;
         }
@@ -607,7 +631,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     if tt_move != Square::None && moves.contains(tt_move) {
         let score = shallow_search_move(ctx, board, tt_move, beta);
         if score >= beta {
-            store_endgame_cache(key, board, alpha, score, tt_move);
+            store_shallow_cache(key, board, alpha, score, tt_move);
             return score;
         }
         best_score = score;
@@ -616,7 +640,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
     }
 
     if moves.is_empty() {
-        store_endgame_cache(key, board, alpha, best_score, best_move);
+        store_shallow_cache(key, board, alpha, best_score, best_move);
         return best_score;
     }
 
@@ -684,7 +708,7 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
         return score;
     }
 
-    store_endgame_cache(key, board, alpha, best_score, best_move);
+    store_shallow_cache(key, board, alpha, best_score, best_move);
 
     best_score
 }
@@ -697,7 +721,7 @@ fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta:
     let next_alpha = -beta;
     let score = if ctx.empty_list.count() == 4 {
         let next_key = next.hash();
-        if let Some(probe) = probe_endgame_cache(next_key, &next, next_alpha)
+        if let Some(probe) = probe_shallow_cache(next_key, &next, next_alpha)
             && let Some(score) = probe.score
         {
             -score
@@ -706,7 +730,7 @@ fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta:
         } else {
             let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
             let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
-            store_endgame_cache(next_key, &next, next_alpha, score, Square::None);
+            store_shallow_cache(next_key, &next, next_alpha, score, Square::None);
             -score
         }
     } else {
@@ -732,7 +756,7 @@ fn shallow_search_moves(
 
         if score > *best_score {
             if score >= beta {
-                store_endgame_cache(key, board, beta - 1, score, sq);
+                store_shallow_cache(key, board, beta - 1, score, sq);
                 return Some(score);
             }
             *best_move = sq;
