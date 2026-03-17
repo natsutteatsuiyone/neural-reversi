@@ -56,6 +56,15 @@ const EC_CACHE_BYTES: usize = 128 * 1024;
 /// Memory budget for the shallow cache (4-7 empties), in bytes.
 const SHALLOW_CACHE_BYTES: usize = 128 * 1024;
 
+/// Initial aspiration window half-width.
+const INITIAL_ASPIRATION_WINDOW: ScaledScore = ScaledScore::from_disc_diff(6);
+
+/// Inter-selectivity window narrowing delta.
+const INTER_SELECTIVITY_DELTA: ScaledScore = ScaledScore::from_disc_diff(2);
+
+/// Initial aspiration window widening delta.
+const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
+
 thread_local! {
     static EC_CACHE: UnsafeCell<EndGameCache> =
         UnsafeCell::new(EndGameCache::new(EC_CACHE_BYTES));
@@ -117,12 +126,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         // Initialize aspiration window for this PV line
         let mut alpha = if pv_idx == 0 {
-            base_score - ScaledScore::from_disc_diff(6)
+            base_score - INITIAL_ASPIRATION_WINDOW
         } else {
             -ScaledScore::INF
         };
         let mut beta = if pv_idx == 0 {
-            base_score + ScaledScore::from_disc_diff(6)
+            base_score + INITIAL_ASPIRATION_WINDOW
         } else if let Some(rm) = ctx.get_best_root_move() {
             rm.score
         } else {
@@ -140,7 +149,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             let score = aspiration_search(&mut ctx, &board, &mut alpha, &mut beta, thread);
 
             // Update aspiration window for next selectivity
-            let delta = ScaledScore::from_disc_diff(2);
+            let delta = INTER_SELECTIVITY_DELTA;
             alpha = (score - delta).max(-ScaledScore::INF);
             beta = (score + delta).min(ScaledScore::INF);
 
@@ -224,7 +233,7 @@ fn aspiration_search(
     beta: &mut ScaledScore,
     thread: &Arc<Thread>,
 ) -> ScaledScore {
-    let mut delta = ScaledScore::from_disc_diff(1);
+    let mut delta = ASPIRATION_DELTA;
     let n_empties = ctx.empty_list.count();
 
     loop {

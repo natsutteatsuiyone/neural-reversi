@@ -25,6 +25,12 @@ use crate::types::{Depth, ScaledScore};
 /// Initial aspiration window delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);
 
+/// Minimum depth to enable aspiration windows.
+const ASPIRATION_MIN_DEPTH: Depth = 5;
+
+/// Depth threshold for switching iteration step from +2 to +1.
+const DEPTH_STEP_THRESHOLD: Depth = 10;
+
 /// Performs the root search using iterative deepening with aspiration windows.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
@@ -69,7 +75,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             // Set up aspiration window based on previous score at this PV index
             let (mut alpha, mut beta) = ctx
                 .get_current_pv_root_move()
-                .filter(|_| depth >= 5)
+                .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
                 .map(|rm| {
                     (
                         (rm.previous_score - ASPIRATION_DELTA).max(-ScaledScore::INF),
@@ -204,7 +210,7 @@ fn next_iteration_depth(
     }
 
     // Normal depth progression: +2 for shallow, +1 for deep
-    if current_depth <= 10 {
+    if current_depth <= DEPTH_STEP_THRESHOLD {
         current_depth + 2
     } else {
         current_depth + 1
