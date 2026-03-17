@@ -347,8 +347,7 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
 
     if let Some(tt_data) = tt_probe_result.data()
         && tt_data.is_endgame()
-        && tt_data.depth() >= n_empties
-        && tt_data.selectivity() >= ctx.selectivity
+        && tt_data.selectivity() == Selectivity::None
         && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
     {
         return tt_data.score().to_disc_diff();
