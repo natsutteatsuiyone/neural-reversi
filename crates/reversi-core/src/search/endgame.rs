@@ -222,6 +222,10 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> Sca
     }
 
     ctx.eval_mode = EvalMode::Main;
+    if ctx.empty_list.count() >= 20 {
+        return midgame::evaluate_depth3(ctx, board, -ScaledScore::INF, ScaledScore::INF);
+    }
+
     midgame::evaluate(ctx, board)
 }
 
