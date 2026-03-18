@@ -57,10 +57,10 @@ const EC_CACHE_BYTES: usize = 128 * 1024;
 const SHALLOW_CACHE_BYTES: usize = 128 * 1024;
 
 /// Initial aspiration window half-width.
-const INITIAL_ASPIRATION_WINDOW: ScaledScore = ScaledScore::from_disc_diff(3);
+const INITIAL_ASPIRATION_WINDOW: ScaledScore = ScaledScore::from_disc_diff(1);
 
 /// Inter-selectivity window narrowing delta.
-const INTER_SELECTIVITY_DELTA: ScaledScore = ScaledScore::from_disc_diff(2);
+const INTER_SELECTIVITY_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
 
 /// Initial aspiration window widening delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
