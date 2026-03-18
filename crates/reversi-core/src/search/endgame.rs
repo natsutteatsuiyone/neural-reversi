@@ -374,15 +374,13 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         }
     }
 
-    let tt_probe_result = ctx.tt.probe(board, tt_key);
-    let tt_move = tt_probe_result.best_move();
+    let probe = ctx
+        .tt
+        .probe_endgame_nws(board, tt_key, alpha, ctx.selectivity);
+    let tt_move = probe.best_move;
 
-    if let Some(tt_data) = tt_probe_result.data()
-        && tt_data.is_endgame()
-        && tt_data.selectivity() >= ctx.selectivity
-        && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
-    {
-        return tt_data.score().to_disc_diff();
+    if let Some(score) = probe.cutoff_score {
+        return score;
     }
 
     let mut best_score = -SCORE_INF;
@@ -393,15 +391,14 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
 
         moves = moves.remove(tt_move);
         if score >= beta || moves.is_empty() {
-            ctx.tt.store(
-                tt_probe_result.index(),
+            ctx.tt.store_endgame_nws(
+                probe.index,
                 board,
-                ScaledScore::from_disc_diff(score),
-                Bound::classify_score::<NonPV>(score, alpha, beta),
+                alpha,
+                score,
                 n_empties,
                 tt_move,
                 ctx.selectivity,
-                true,
             );
             return score;
         }
@@ -449,15 +446,14 @@ pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha:
         best_move = mv.sq;
     }
 
-    ctx.tt.store(
-        tt_probe_result.index(),
+    ctx.tt.store_endgame_nws(
+        probe.index,
         board,
-        ScaledScore::from_disc_diff(best_score),
-        Bound::classify_score::<NonPV>(best_score, alpha, beta),
+        alpha,
+        best_score,
         n_empties,
         best_move,
         ctx.selectivity,
-        true,
     );
 
     best_score

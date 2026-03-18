@@ -200,3 +200,17 @@ fn test_solve_20() {
 
     assert_eq!(result.score as i32, 6);
 }
+
+#[test]
+fn test_solve_20_case2() {
+    let mut search = Search::new(&SearchOptions::default());
+    let board = Board::from_string(
+        "----------XOO---XOOOOOX-XOOOXXXXXOOXOOXXXXOXOOXXX-OOXOO---OXX-O-",
+        Disc::Black,
+    )
+    .unwrap();
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let result = search.run(&board, &options);
+
+    assert_eq!(result.score as i32, 0);
+}

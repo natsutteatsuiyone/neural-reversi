@@ -4,6 +4,7 @@
 //! collisions only affect replacement and never produce a false hit.
 
 use crate::board::Board;
+use crate::constants::SCORE_INF;
 use crate::probcut::Selectivity;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
@@ -137,6 +138,16 @@ impl TTProbeResult {
     }
 }
 
+/// Result of probing the TT for an endgame null-window search.
+pub struct EndgameProbe {
+    /// TT slot index for a subsequent store.
+    pub index: usize,
+    /// Cutoff score if alpha-match or bounds-based cutoff succeeded.
+    pub cutoff_score: Option<Score>,
+    /// Best move from TT for move ordering.
+    pub best_move: Square,
+}
+
 /// Packed metadata from a validated transposition-table entry.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TTEntryData {
@@ -195,6 +206,15 @@ impl TTEntryData {
     #[inline(always)]
     pub fn is_endgame(&self) -> bool {
         ((self.raw >> TTEntry::IS_ENDGAME_SHIFT) & TTEntry::IS_ENDGAME_MASK) != 0
+    }
+
+    /// Returns the `alpha` value stored for endgame NWS entries.
+    ///
+    /// Only meaningful when [`is_endgame`](Self::is_endgame) is `true`.
+    #[inline(always)]
+    pub fn endgame_alpha(&self) -> Score {
+        ((self.raw >> TTEntry::ENDGAME_ALPHA_SHIFT) & TTEntry::ENDGAME_ALPHA_MASK) as u8 as i8
+            as Score
     }
 
     /// Returns whether this entry allows an immediate return in a null-window
@@ -297,6 +317,10 @@ impl TTEntry {
     const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
     const IS_ENDGAME_MASK: u64 = 1;
 
+    const ENDGAME_ALPHA_SIZE: i32 = 8;
+    const ENDGAME_ALPHA_SHIFT: i32 = Self::IS_ENDGAME_SHIFT + 1;
+    const ENDGAME_ALPHA_MASK: u64 = (1 << Self::ENDGAME_ALPHA_SIZE) - 1;
+
     /// Weight applied to the generation age difference in the replacement score.
     const AGE_WEIGHT: i32 = 8;
 
@@ -311,6 +335,7 @@ impl TTEntry {
         selectivity: u8,
         generation: u8,
         is_endgame: bool,
+        endgame_alpha: i8,
     ) -> u64 {
         (((score.value() as u16) as u64) << Self::SCORE_SHIFT)
             | ((best_move as u64) << Self::BEST_MOVE_SHIFT)
@@ -319,6 +344,8 @@ impl TTEntry {
             | ((selectivity as u64) << Self::SELECTIVITY_SHIFT)
             | (((generation & Self::GENERATION_MASK as u8) as u64) << Self::GENERATION_SHIFT)
             | ((is_endgame as u64) << Self::IS_ENDGAME_SHIFT)
+            | (((endgame_alpha as u8 as u64) & Self::ENDGAME_ALPHA_MASK)
+                << Self::ENDGAME_ALPHA_SHIFT)
     }
 
     /// Attempts to read a stable snapshot of the slot.
@@ -382,6 +409,7 @@ impl TTEntry {
         selectivity: Selectivity,
         generation: u8,
         is_endgame: bool,
+        endgame_alpha: i8,
     ) {
         let new_player = board.player.bits();
         let new_opponent = board.opponent.bits();
@@ -439,6 +467,7 @@ impl TTEntry {
                 selectivity_u8,
                 generation,
                 is_endgame,
+                endgame_alpha,
             ) {
                 return;
             }
@@ -462,6 +491,7 @@ impl TTEntry {
         selectivity: u8,
         generation: u8,
         is_endgame: bool,
+        endgame_alpha: i8,
     ) -> bool {
         debug_assert_eq!(expected_seq & 1, 0, "expected stable snapshot");
 
@@ -501,6 +531,7 @@ impl TTEntry {
             selectivity,
             generation,
             is_endgame,
+            endgame_alpha,
         );
         self.data.store(final_data, Ordering::Relaxed);
         self.seq
@@ -688,6 +719,114 @@ impl TranspositionTable {
         }
     }
 
+    /// Probes the TT for an endgame null-window search position.
+    ///
+    /// Returns a cutoff score when either:
+    /// - The stored `endgame_alpha` matches `alpha` exactly (fast path), or
+    /// - The stored bound passes [`TTEntryData::can_cut`] and selectivity is sufficient.
+    ///
+    /// Otherwise returns only the best move for move ordering.
+    #[inline(always)]
+    pub fn probe_endgame_nws(
+        &self,
+        board: &Board,
+        key: u64,
+        alpha: Score,
+        selectivity: Selectivity,
+    ) -> EndgameProbe {
+        let cluster_idx = self.get_cluster_idx(key);
+        let board_player = board.player.bits();
+        let board_opponent = board.opponent.bits();
+        let generation = self.generation();
+        let mut fallback_replace_idx = None;
+
+        for _ in 0..3 {
+            let mut replace_idx = cluster_idx;
+            let mut replace_score = i32::MAX;
+            let mut saw_in_flight_writer = false;
+
+            for i in 0..CLUSTER_SIZE {
+                let idx = cluster_idx + i;
+                let entry = unsafe { self.entries.get_unchecked(idx) };
+                let Some((player, opponent, tt_data)) = entry.try_load_snapshot() else {
+                    saw_in_flight_writer = true;
+                    continue;
+                };
+
+                if player == board_player && opponent == board_opponent {
+                    let best_move = tt_data.best_move();
+
+                    if !tt_data.is_endgame() {
+                        return EndgameProbe {
+                            index: idx,
+                            cutoff_score: None,
+                            best_move,
+                        };
+                    }
+
+                    // Fast path: exact alpha match bypasses selectivity and bounds
+                    if tt_data.endgame_alpha() == alpha {
+                        return EndgameProbe {
+                            index: idx,
+                            cutoff_score: Some(tt_data.score().to_disc_diff()),
+                            best_move,
+                        };
+                    }
+
+                    // Normal path: bounds-based cutoff with selectivity check
+                    let cutoff_score = if tt_data.selectivity() >= selectivity
+                        && tt_data.can_cut(ScaledScore::from_disc_diff(alpha + 1))
+                    {
+                        Some(tt_data.score().to_disc_diff())
+                    } else {
+                        None
+                    };
+
+                    return EndgameProbe {
+                        index: idx,
+                        cutoff_score,
+                        best_move,
+                    };
+                }
+
+                if !tt_data.is_occupied() {
+                    return EndgameProbe {
+                        index: idx,
+                        cutoff_score: None,
+                        best_move: Square::None,
+                    };
+                }
+
+                let score =
+                    tt_data.depth() as i32 - tt_data.relative_age(generation) * TTEntry::AGE_WEIGHT;
+                if score < replace_score {
+                    replace_score = score;
+                    replace_idx = idx;
+                }
+            }
+
+            if replace_score != i32::MAX {
+                fallback_replace_idx = Some(replace_idx);
+            }
+
+            if !saw_in_flight_writer {
+                return EndgameProbe {
+                    index: replace_idx,
+                    cutoff_score: None,
+                    best_move: Square::None,
+                };
+            }
+
+            std::hint::spin_loop();
+        }
+
+        EndgameProbe {
+            index: fallback_replace_idx.unwrap_or(cluster_idx),
+            cutoff_score: None,
+            best_move: Square::None,
+        }
+    }
+
     /// Stores data into a slot previously returned by [`probe`](Self::probe).
     ///
     /// # Panics
@@ -721,6 +860,49 @@ impl TranspositionTable {
             selectivity,
             self.generation(),
             is_endgame,
+            (-SCORE_INF) as i8,
+        );
+    }
+
+    /// Stores an endgame NWS result, including the `alpha` value.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    pub fn store_endgame_nws(
+        &self,
+        entry_index: usize,
+        board: &Board,
+        alpha: Score,
+        score: Score,
+        depth: Depth,
+        best_move: Square,
+        selectivity: Selectivity,
+    ) {
+        debug_assert!(
+            entry_index < self.entries.len(),
+            "TT store index {} out of bounds",
+            entry_index
+        );
+        debug_assert!(
+            (-64..=64).contains(&alpha),
+            "endgame alpha {} out of disc-difference range",
+            alpha
+        );
+        let entry = unsafe { self.entries.get_unchecked(entry_index) };
+        let bound = if score > alpha {
+            Bound::Lower
+        } else {
+            Bound::Upper
+        };
+        entry.save(
+            board,
+            ScaledScore::from_disc_diff(score),
+            bound,
+            depth,
+            best_move,
+            selectivity,
+            self.generation(),
+            true,
+            alpha as i8,
         );
     }
 
@@ -800,6 +982,7 @@ mod tests {
             test_selectivity,
             test_generation,
             false,
+            0,
         );
 
         let data = entry.read(&board).expect("should hit");
@@ -827,6 +1010,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
 
         assert!(entry.read(&board1).is_some());
@@ -849,6 +1033,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 10);
@@ -863,6 +1048,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 8);
@@ -878,6 +1064,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 12);
@@ -892,6 +1079,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 5);
@@ -908,6 +1096,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
         let data = entry.read(&board2).unwrap();
         assert_eq!(data.score().value(), 90);
@@ -923,6 +1112,7 @@ mod tests {
             Selectivity::Level2,
             5,
             false,
+            0,
         );
         let data = entry.read(&board2).unwrap();
         assert_eq!(data.generation(), 5);
@@ -943,6 +1133,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
 
         entry.save(
@@ -954,6 +1145,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
 
         let data = entry.read(&board).unwrap();
@@ -1011,6 +1203,7 @@ mod tests {
             Selectivity::Level1,
             0,
             false,
+            0,
         );
         assert!(entry.read(&board).unwrap().is_occupied());
 
@@ -1024,6 +1217,7 @@ mod tests {
             Selectivity::Level1,
             0,
             false,
+            0,
         );
         assert!(entry.read(&board).unwrap().can_cut(s(50)));
         assert!(!entry.read(&board).unwrap().can_cut(s(150)));
@@ -1037,6 +1231,7 @@ mod tests {
             Selectivity::Level1,
             0,
             false,
+            0,
         );
         assert!(entry.read(&board).unwrap().can_cut(s(50)));
         assert!(!entry.read(&board).unwrap().can_cut(s(20)));
@@ -1050,6 +1245,7 @@ mod tests {
             Selectivity::Level1,
             0,
             false,
+            0,
         );
         assert!(entry.read(&board).unwrap().can_cut(s(50)));
         assert!(entry.read(&board).unwrap().can_cut(s(20)));
@@ -1324,6 +1520,7 @@ mod tests {
             Selectivity::Level1,
             126,
             false,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 126);
@@ -1354,6 +1551,7 @@ mod tests {
             Selectivity::Level1,
             127,
             false,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 127);
@@ -1369,6 +1567,7 @@ mod tests {
             Selectivity::Level1,
             127,
             true,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 127);
@@ -1384,6 +1583,7 @@ mod tests {
             Selectivity::Level1,
             255,
             false,
+            0,
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 127);
@@ -1408,6 +1608,7 @@ mod tests {
             Selectivity::Level1,
             0,
             false,
+            0,
         );
         let v1 = entry.read(&board).unwrap().sequence();
         assert!(v1 & 1 == 0, "sequence should be even after save");
@@ -1421,6 +1622,7 @@ mod tests {
             Selectivity::Level1,
             0,
             false,
+            0,
         );
         let v2 = entry.read(&board).unwrap().sequence();
         assert!(v2 > v1, "sequence should increment");
@@ -1443,6 +1645,7 @@ mod tests {
             Selectivity::Level1,
             0,
             false,
+            0,
         );
         let (_, _, snapshot) = entry.try_load_snapshot().unwrap();
 
@@ -1455,6 +1658,7 @@ mod tests {
             Selectivity::Level2,
             1,
             false,
+            0,
         );
 
         assert!(!entry.seqlock_write(
@@ -1468,6 +1672,7 @@ mod tests {
             Selectivity::Level3.as_u8(),
             2,
             false,
+            0,
         ));
 
         assert!(entry.read(&board1).is_none());
@@ -1476,5 +1681,161 @@ mod tests {
         assert_eq!(data.depth(), 6);
         assert_eq!(data.best_move(), sq(2));
         assert_eq!(data.generation(), 1);
+    }
+
+    #[test]
+    fn test_ttentry_endgame_alpha_roundtrip() {
+        let entry = TTEntry::default();
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+
+        // Positive alpha
+        entry.save(
+            &board,
+            ScaledScore::from_disc_diff(10),
+            Bound::Upper,
+            12,
+            sq(20),
+            Selectivity::None,
+            1,
+            true,
+            42,
+        );
+        let data = entry.read(&board).unwrap();
+        assert!(data.is_endgame());
+        assert_eq!(data.endgame_alpha(), 42);
+        assert_eq!(data.score(), ScaledScore::from_disc_diff(10));
+
+        // Negative alpha
+        entry.save(
+            &board,
+            ScaledScore::from_disc_diff(-5),
+            Bound::Lower,
+            12,
+            sq(20),
+            Selectivity::None,
+            1,
+            true,
+            -64,
+        );
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.endgame_alpha(), -64);
+
+        // Zero alpha
+        entry.save(
+            &board,
+            ScaledScore::from_disc_diff(0),
+            Bound::Upper,
+            12,
+            sq(20),
+            Selectivity::None,
+            1,
+            true,
+            0,
+        );
+        let data = entry.read(&board).unwrap();
+        assert_eq!(data.endgame_alpha(), 0);
+    }
+
+    #[test]
+    fn test_probe_endgame_nws_alpha_match() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+        let alpha = 5;
+
+        // Store an endgame entry with alpha=5
+        let idx = tt.probe(&board, key).index();
+        let entry = unsafe { tt.entries.get_unchecked(idx) };
+        entry.save(
+            &board,
+            ScaledScore::from_disc_diff(3),
+            Bound::Upper,
+            12,
+            sq(20),
+            Selectivity::Level1,
+            tt.generation(),
+            true,
+            alpha as i8,
+        );
+
+        // Probe with same alpha but higher selectivity → should still cut (alpha match)
+        let probe = tt.probe_endgame_nws(&board, key, alpha, Selectivity::None);
+        assert_eq!(probe.cutoff_score, Some(3));
+        assert_eq!(probe.best_move, sq(20));
+    }
+
+    #[test]
+    fn test_probe_endgame_nws_bounds_cutoff() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+
+        // Store an endgame entry: score=3 (Upper bound), alpha=5
+        let idx = tt.probe(&board, key).index();
+        let entry = unsafe { tt.entries.get_unchecked(idx) };
+        entry.save(
+            &board,
+            ScaledScore::from_disc_diff(3),
+            Bound::Upper,
+            12,
+            sq(20),
+            Selectivity::None,
+            tt.generation(),
+            true,
+            5i8,
+        );
+
+        // Probe with different alpha=10, beta=11: score=3 < beta=11 → Upper bound cuts
+        let probe = tt.probe_endgame_nws(&board, key, 10, Selectivity::None);
+        assert_eq!(probe.cutoff_score, Some(3));
+    }
+
+    #[test]
+    fn test_probe_endgame_nws_no_cutoff() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+
+        // Store: score=3 (Upper bound at alpha=5), selectivity=Level1
+        let idx = tt.probe(&board, key).index();
+        let entry = unsafe { tt.entries.get_unchecked(idx) };
+        entry.save(
+            &board,
+            ScaledScore::from_disc_diff(3),
+            Bound::Upper,
+            12,
+            sq(20),
+            Selectivity::Level1,
+            tt.generation(),
+            true,
+            5i8,
+        );
+
+        // Probe with different alpha=2, beta=3: score=3 >= beta=3 → needs Lower bound,
+        // but stored is Upper → can_cut fails. Alpha doesn't match. selectivity too low.
+        let probe = tt.probe_endgame_nws(&board, key, 2, Selectivity::None);
+        assert!(probe.cutoff_score.is_none());
+        assert_eq!(probe.best_move, sq(20));
+    }
+
+    #[test]
+    fn test_store_and_probe_endgame_nws_roundtrip() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+
+        // Store via store_endgame_nws
+        let idx = tt.probe(&board, key).index();
+        tt.store_endgame_nws(idx, &board, 5, 3, 12, sq(20), Selectivity::Level1);
+
+        // Probe with same alpha → fast path cutoff
+        let probe = tt.probe_endgame_nws(&board, key, 5, Selectivity::None);
+        assert_eq!(probe.cutoff_score, Some(3));
+        assert_eq!(probe.best_move, sq(20));
+
+        // Probe with different alpha → falls back to bounds
+        let probe = tt.probe_endgame_nws(&board, key, 10, Selectivity::Level1);
+        // score=3 < beta=11 → Upper bound → can_cut succeeds
+        assert_eq!(probe.cutoff_score, Some(3));
     }
 }
