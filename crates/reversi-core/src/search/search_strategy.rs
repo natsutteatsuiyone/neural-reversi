@@ -105,10 +105,10 @@ impl SearchStrategy for MidGameStrategy {
 impl SearchStrategy for EndGameStrategy {
     const IS_ENDGAME: bool = true;
     const USE_SBR: bool = false;
-    const MIN_ETC_DEPTH: Depth = 0;
-    const MIN_PROBCUT_DEPTH: Depth = 0;
+    const MIN_ETC_DEPTH: Depth = endgame::DEPTH_TO_NWS + 3;
+    const MIN_PROBCUT_DEPTH: Depth = endgame::DEPTH_TO_NWS + 1;
     const DEPTH_TO_SHALLOW: Depth = endgame::DEPTH_TO_NWS;
-    const MIN_SPLIT_DEPTH: Depth = 9;
+    const MIN_SPLIT_DEPTH: Depth = endgame::DEPTH_TO_NWS;
 
     #[inline(always)]
     fn evaluate(_ctx: &SearchContext, board: &Board) -> ScaledScore {

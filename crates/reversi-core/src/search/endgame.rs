@@ -32,11 +32,9 @@ use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore, Score};
 
 /// Selectivity sequence for endgame search.
-const SELECTIVITY_SEQUENCE: [Selectivity; 6] = [
+const SELECTIVITY_SEQUENCE: [Selectivity; 4] = [
     Selectivity::Level1,
-    Selectivity::Level2,
     Selectivity::Level3,
-    Selectivity::Level4,
     Selectivity::Level5,
     Selectivity::None,
 ];
