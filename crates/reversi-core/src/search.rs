@@ -441,7 +441,17 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         } else {
             return board.solve_scaled(ctx.empty_list.count());
         }
-    } else if let Some(sq) = move_list.wipeout_move() {
+    }
+
+    // Root node: exclude earlier PV moves (before wipeout/TT shortcuts)
+    if NT::ROOT_NODE {
+        move_list.exclude_earlier_pv_moves(ctx);
+        if move_list.count() == 0 {
+            return -ScaledScore::INF;
+        }
+    }
+
+    if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {
             ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
         } else if NT::PV_NODE {
@@ -485,11 +495,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         {
             return score;
         }
-    }
-
-    // Root node: exclude earlier PV moves
-    if NT::ROOT_NODE {
-        move_list.exclude_earlier_pv_moves(ctx);
     }
 
     let n_moves = move_list.count();

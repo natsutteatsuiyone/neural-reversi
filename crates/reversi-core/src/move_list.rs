@@ -361,6 +361,10 @@ impl MoveList {
 
         self.moves
             .retain(|mv| ctx.root_moves.contains_from_pv_idx(mv.sq));
+
+        // Clear wipeout shortcut if that move was excluded
+        self.wipeout_move
+            .take_if(|sq| !self.moves.iter().any(|mv| mv.sq == *sq));
     }
 }
 
