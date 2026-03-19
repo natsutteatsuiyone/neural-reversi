@@ -630,6 +630,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
                 if NT::PV_NODE && score < beta {
                     alpha = score;
+                    if alpha >= ScaledScore::MAX {
+                        break;
+                    }
                 } else {
                     break; // Beta cutoff
                 }
@@ -725,6 +728,10 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
                 if NT::PV_NODE && score < beta {
                     sp.set_alpha(score);
+                    if score >= ScaledScore::MAX {
+                        sp.set_cutoff(true);
+                        break;
+                    }
                 } else {
                     sp.set_cutoff(true);
                     break;
