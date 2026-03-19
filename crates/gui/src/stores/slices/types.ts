@@ -14,6 +14,7 @@ export interface GameSlice {
     isPass: boolean;
     lastMove: Move | null;
     validMoves: [number, number][];
+    skipAnimation: boolean;
     getScores: () => { black: number; white: number };
     isAITurn: () => boolean;
     isValidMove: (row: number, col: number) => boolean;
@@ -21,6 +22,7 @@ export interface GameSlice {
     makePass: () => void;
     undoMove: () => void;
     redoMove: () => void;
+    goToMove: (position: number) => void;
     resetGame: () => Promise<void>;
     startGame: () => Promise<void>;
     setGameStatus: (status: "waiting" | "playing" | "finished") => void;

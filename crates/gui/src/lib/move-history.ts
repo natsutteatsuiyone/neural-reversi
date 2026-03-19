@@ -51,7 +51,16 @@ export class MoveHistory {
     return this.cursor > 0 ? this.timeline[this.cursor - 1] : undefined;
   }
 
+  get allMoves(): readonly MoveRecord[] {
+    return this.timeline;
+  }
+
   get redoMoves(): readonly MoveRecord[] {
     return this.timeline.slice(this.cursor);
+  }
+
+  goTo(position: number): MoveHistory {
+    const clamped = Math.max(0, Math.min(this.timeline.length, position));
+    return new MoveHistory(this.timeline, clamped);
   }
 }

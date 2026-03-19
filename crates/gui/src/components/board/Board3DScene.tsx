@@ -33,13 +33,14 @@ interface Board3DSceneProps {
   moveHistory: MoveHistoryItem[];
   analyzeResults: Map<string, AIMoveProgress> | null;
   maxScore: number | null;
+  skipAnimation: boolean;
 }
 
 const TOTAL_SIZE = CELL_SIZE * 8 + FRAME_WIDTH * 2 + 1.2;
 
 export function Board3DScene({
   board, lastMove, gameOver, isValidMove, isAITurn, onCellClick,
-  aiMoveProgress, lastAIMove, moveHistory, analyzeResults, maxScore,
+  aiMoveProgress, lastAIMove, moveHistory, analyzeResults, maxScore, skipAnimation,
 }: Board3DSceneProps) {
   const { size } = useThree();
   const cameraRef = useRef<ThreeOrthographicCamera>(null);
@@ -138,6 +139,7 @@ export function Board3DScene({
               color={cell.color}
               isNew={cell.isNew}
               flipDelay={flipDelays.get(`${rowIndex},${colIndex}`) ?? 0}
+              skipAnimation={skipAnimation}
             />
           ) : null
         )

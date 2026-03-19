@@ -17,6 +17,7 @@ interface Disc3DProps {
   color: Player;
   isNew?: boolean;
   flipDelay?: number;
+  skipAnimation?: boolean;
 }
 
 const SEGMENTS = 32;
@@ -43,7 +44,7 @@ const WHITE_MATERIALS = [
   new THREE.MeshStandardMaterial({ color: DISC_COLOR_BLACK, roughness: ROUGHNESS, metalness: METALNESS }),
 ];
 
-export function Disc3D({ row, col, color, isNew, flipDelay = 0 }: Disc3DProps) {
+export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }: Disc3DProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const { invalidate } = useThree();
   const [x, z] = cellToWorld(row, col);
@@ -53,17 +54,17 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0 }: Disc3DProps) {
   const materials = displayColor === "black" ? BLACK_MATERIALS : WHITE_MATERIALS;
 
   const [animState, setAnimState] = useState<"idle" | "dropping" | "flipping" | "flip-waiting">(
-    isNew ? "dropping" : "idle"
+    isNew && !skipAnimation ? "dropping" : "idle"
   );
   const animProgress = useRef(0);
   const flipWaitTime = useRef(0);
   const prevColor = useRef<Player>(color);
-  const dropY = useRef(isNew ? 0.5 : 0);
+  const dropY = useRef(isNew && !skipAnimation ? 0.5 : 0);
   const dropVelocity = useRef(0);
 
   useEffect(() => {
     targetColorRef.current = color;
-    if (prevColor.current !== color && !isNew) {
+    if (prevColor.current !== color && !isNew && !skipAnimation) {
       // Keep old materials during flip so the animation shows:
       // old color (top) → flip → new color (bottom of old piece)
       if (flipDelay > 0) {
@@ -77,7 +78,7 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0 }: Disc3DProps) {
       setDisplayColor(color);
     }
     prevColor.current = color;
-  }, [color, isNew, flipDelay]);
+  }, [color, isNew, flipDelay, skipAnimation]);
 
   useFrame((_, delta) => {
     if (!meshRef.current) return;

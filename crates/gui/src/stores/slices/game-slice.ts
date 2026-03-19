@@ -96,6 +96,7 @@ function applyHistoryNavigation(
         isPass: false,
         analyzeResults: null,
         gameOver,
+        skipAnimation: true,
         aiRemainingTime: newHistory.length > 0
             ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
             : state.gameTimeLimit * 1000,
@@ -136,6 +137,7 @@ export const createGameSlice: StateCreator<
     isPass: false,
     lastMove: null,
     validMoves: [],
+    skipAnimation: false,
 
     getScores: () => {
         return calculateScores(get().board);
@@ -181,6 +183,7 @@ export const createGameSlice: StateCreator<
                 lastMove: move,
                 validMoves: getValidMoves(newBoard, nextPlayerTurn),
                 analyzeResults: null,
+                skipAnimation: false,
             };
         });
 
@@ -253,6 +256,50 @@ export const createGameSlice: StateCreator<
         const state = get();
         if (state.isHintMode && state.gameStatus === "playing") {
             void state.analyzeBoard();
+        }
+    },
+
+    goToMove: (position: number) => {
+        const state = get();
+        if (state.isAIThinking || state.isAnalyzing) return;
+
+        const newHistory = state.moveHistory.goTo(position);
+        if (newHistory.length === state.moveHistory.length) return;
+
+        const derived = deriveStateFromMoves(
+            newHistory.currentMoves,
+            state.historyStartBoard,
+            state.historyStartPlayer,
+        );
+
+        const isAtEnd = position >= state.moveHistory.totalLength;
+        const gameOver = isAtEnd
+            ? checkGameOver(derived.board, derived.currentPlayer).gameOver
+            : false;
+
+        set({
+            ...derived,
+            moveHistory: newHistory,
+            isPass: false,
+            analyzeResults: null,
+            gameOver,
+            gameStatus: gameOver ? "finished" : state.gameStatus,
+            skipAnimation: true,
+            aiRemainingTime: newHistory.length > 0
+                ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
+                : state.gameTimeLimit * 1000,
+        });
+
+        if (!gameOver && state.gameStatus === "playing") {
+            const updated = get();
+            if (updated.validMoves.length === 0) {
+                const result = checkGameOver(updated.board, updated.currentPlayer);
+                if (result.shouldPass) {
+                    set({ showPassNotification: updated.currentPlayer });
+                    return;
+                }
+            }
+            triggerAutomation(get);
         }
     },
 

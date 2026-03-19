@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -9,48 +9,86 @@ import {
   ReferenceLine,
   Tooltip,
   type TooltipProps,
+  type MouseHandlerDataParam,
 } from "recharts";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { useTranslation } from "react-i18next";
 
 interface ChartDataItem {
   move: number;
+  timelineIndex: number;
   score: number | null;
   scoreDisplay: string | null;
   hasData: boolean;
   notation: string | null;
 }
 
+function CustomTooltip({
+  active,
+  payload,
+}: TooltipProps<number, string> & { payload?: Array<{ payload: ChartDataItem }> }) {
+  if (active && payload && payload.length) {
+    const dataPoint = payload[0].payload;
+    return (
+      <div className="bg-popover text-popover-foreground px-3 py-2 rounded-lg shadow-lg border border-white/20 text-sm">
+        <p className="text-xs text-foreground-muted mb-1">#{dataPoint.move}</p>
+        {typeof dataPoint.score === "number" && (
+          <p className="font-semibold text-foreground">
+            {dataPoint.notation}: {dataPoint.scoreDisplay}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return null;
+}
+
 export function EvaluationChart() {
-  const { t } = useTranslation();
   const moveHistory = useReversiStore((state) => state.moveHistory);
-  const moves = moveHistory.currentMoves;
-  const gameMode = useReversiStore((state) => state.gameMode);
+  const gameStatus = useReversiStore((state) => state.gameStatus);
+  const goToMove = useReversiStore((state) => state.goToMove);
+
+  const allMoves = moveHistory.allMoves;
+  const cursorPosition = moveHistory.length;
 
   const chartData = useMemo(() => {
-    const allMoves: ChartDataItem[] = [];
+    const items: ChartDataItem[] = [];
+    let moveNumber = 0;
 
-    for (let i = 0; i < moves.length; i++) {
-      const currentMove = moves[i];
-      if (currentMove.notation.toLowerCase() === "pass") {
+    for (let i = 0; i < allMoves.length; i++) {
+      const currentMove = allMoves[i];
+      if (currentMove.row < 0) {
         continue;
       }
 
+      moveNumber++;
       const score =
         currentMove.isAI && currentMove.score !== undefined
           ? currentMove.score
           : null;
 
-      allMoves.push({
-        move: i + 1,
+      items.push({
+        move: moveNumber,
+        timelineIndex: i,
         score: score !== null ? Math.round(score) : null,
         scoreDisplay: score !== null ? (score > 0 ? `+${score}` : `${score}`) : null,
         hasData: Boolean(currentMove.isAI && currentMove.score !== undefined),
         notation: currentMove.notation,
       });
     }
-    return allMoves;
-  }, [moves]);
+    return items;
+  }, [allMoves]);
+
+  const cursorMoveNumber = useMemo(() => {
+    if (cursorPosition >= moveHistory.totalLength) return null;
+
+    // Find the chart data point at or just before the cursor position
+    let lastMoveNumber: number | null = null;
+    for (const item of chartData) {
+      if (item.timelineIndex >= cursorPosition) break;
+      lastMoveNumber = item.move;
+    }
+    return lastMoveNumber;
+  }, [cursorPosition, moveHistory.totalLength, chartData]);
 
   const yAxisDomain = useMemo(() => {
     const defaultRange = [-8, 8];
@@ -88,32 +126,22 @@ export function EvaluationChart() {
     return ticks;
   }, [yAxisDomain]);
 
-  if (gameMode !== "ai-black" && gameMode !== "ai-white") {
+  const handleChartClick = useCallback(
+    (data: MouseHandlerDataParam) => {
+      if (data.activeTooltipIndex == null) return;
+      const item = chartData[data.activeTooltipIndex as number];
+      if (!item) return;
+      goToMove(item.timelineIndex + 1);
+    },
+    [goToMove, chartData],
+  );
+
+  if (gameStatus === "waiting") {
     return null;
   }
 
   // Use a bright color for visibility
   const lineColor = "#3d9970"; // primary green
-
-  const CustomTooltip = ({
-    active,
-    payload,
-  }: TooltipProps<number, string> & { payload?: Array<{ payload: ChartDataItem }> }) => {
-    if (active && payload && payload.length) {
-      const dataPoint = payload[0].payload;
-      return (
-        <div className="bg-popover text-popover-foreground px-3 py-2 rounded-lg shadow-lg border border-white/20 text-sm">
-          <p className="text-xs text-foreground-muted mb-1">{t('analysis.move')} {dataPoint.move}</p>
-          {typeof dataPoint.score === "number" && (
-            <p className="font-semibold text-foreground">
-              {dataPoint.notation}: {dataPoint.scoreDisplay}
-            </p>
-          )}
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className="bg-white/5 rounded-lg p-2 border border-white/10">
@@ -121,6 +149,8 @@ export function EvaluationChart() {
         <LineChart
           data={chartData}
           margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+          onClick={handleChartClick}
+          style={{ cursor: "pointer" }}
         >
           <CartesianGrid
             strokeDasharray="3 3"
@@ -135,6 +165,15 @@ export function EvaluationChart() {
             strokeWidth={1}
             strokeDasharray="4 4"
           />
+
+          {cursorMoveNumber !== null && (
+            <ReferenceLine
+              x={cursorMoveNumber}
+              stroke="rgba(255,255,255,0.5)"
+              strokeWidth={1}
+              strokeDasharray="4 4"
+            />
+          )}
 
           <XAxis
             dataKey="move"
