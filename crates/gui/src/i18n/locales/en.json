@@ -34,6 +34,7 @@
   },
   "history": {
     "title": "Move History",
+    "copy": "Copy transcript",
     "undo": "Undo",
     "redo": "Redo",
     "noMoves": "No moves yet"

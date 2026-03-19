@@ -1,5 +1,5 @@
-import { useRef, useLayoutEffect } from "react";
-import { Bot, RotateCcw, RotateCw } from "lucide-react";
+import { useRef, useState, useCallback, useLayoutEffect } from "react";
+import { Bot, Check, Copy, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Stone } from "@/components/board/Stone";
@@ -18,8 +18,21 @@ export function MoveHistory() {
   const redoMove = useReversiStore((state) => state.redoMove);
   const prevMovesLengthRef = useRef(moves.length);
 
+  const [copied, setCopied] = useState(false);
+
   const canUndo = moveHistory.canUndo && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
   const canRedo = moveHistory.canRedo && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
+
+  const copyTranscript = useCallback(() => {
+    const transcript = moves
+      .filter((m) => m.row >= 0)
+      .map((m) => m.notation.toLowerCase())
+      .join("");
+    navigator.clipboard.writeText(transcript).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [moves]);
 
   useLayoutEffect(() => {
     if (prevMovesLengthRef.current !== moves.length) {
@@ -35,6 +48,16 @@ export function MoveHistory() {
       <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-foreground">{t('history.title')}</h3>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={copyTranscript}
+            disabled={moves.length === 0}
+            aria-label={t('history.copy')}
+            className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
+          >
+            {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
