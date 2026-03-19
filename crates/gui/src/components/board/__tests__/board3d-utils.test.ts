@@ -3,8 +3,8 @@ import {
   cellToWorld,
   CELL_SIZE,
   BOARD_OFFSET,
-  STONE_RADIUS,
-  STONE_HEIGHT,
+  DISC_RADIUS,
+  DISC_HEIGHT,
 } from "../board3d-utils";
 
 describe("board3d-utils", () => {
@@ -37,12 +37,12 @@ describe("board3d-utils", () => {
     it("has correct board offset", () => {
       expect(BOARD_OFFSET).toBe(3.5);
     });
-    it("has stone radius ~40% of cell width", () => {
-      expect(STONE_RADIUS).toBeCloseTo(0.4, 1);
+    it("has disc radius ~40% of cell width", () => {
+      expect(DISC_RADIUS).toBeCloseTo(0.4, 1);
     });
-    it("has thin stone height", () => {
-      expect(STONE_HEIGHT).toBeGreaterThan(0);
-      expect(STONE_HEIGHT).toBeLessThan(0.2);
+    it("has thin disc height", () => {
+      expect(DISC_HEIGHT).toBeGreaterThan(0);
+      expect(DISC_HEIGHT).toBeLessThan(0.2);
     });
   });
 });

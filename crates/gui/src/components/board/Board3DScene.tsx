@@ -12,7 +12,7 @@ import { CellHtmlOverlay } from "./CellHtmlOverlay";
 import { CellInteraction } from "./CellInteraction";
 import { HintScoreDisplay } from "./HintScoreDisplay";
 import { MoveIndicators } from "./MoveIndicators";
-import { Stone3D } from "./Stone3D";
+import { Disc3D } from "./Disc3D";
 import { CELL_SIZE, FRAME_WIDTH } from "./board3d-utils";
 
 interface MoveHistoryItem {
@@ -131,7 +131,7 @@ export function Board3DScene({
       {board.map((row, rowIndex) =>
         row.map((cell, colIndex) =>
           cell.color ? (
-            <Stone3D
+            <Disc3D
               key={`stone-${rowIndex}-${colIndex}`}
               row={rowIndex}
               col={colIndex}
