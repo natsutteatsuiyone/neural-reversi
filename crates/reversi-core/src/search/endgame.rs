@@ -40,10 +40,7 @@ const SELECTIVITY_SEQUENCE: [Selectivity; 4] = [
 ];
 
 /// Depth threshold for switching to null window search in endgame.
-pub const DEPTH_TO_NWS: Depth = 12;
-
-/// Depth threshold for endgame cache null window search.
-const DEPTH_TO_NWS_EC: Depth = 11;
+pub const DEPTH_TO_NWS: Depth = 11;
 
 /// Depth threshold for switching to specialized shallow search.
 const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
@@ -309,10 +306,6 @@ pub fn probcut(
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
 
-    if n_empties > DEPTH_TO_NWS_EC {
-        return null_window_search_with_tt(ctx, board, alpha);
-    }
-
     if n_empties > DEPTH_TO_SHALLOW_SEARCH {
         let ec = unsafe { ec_cache() };
         let sc = unsafe { shallow_cache() };
@@ -344,140 +337,6 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             let sc = unsafe { shallow_cache() };
             shallow_search(ctx, board, alpha, sc)
         }
-    }
-}
-
-/// Null window search using the transposition table.
-pub fn null_window_search_with_tt(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
-    let n_empties = ctx.empty_list.count();
-    let beta = alpha + 1;
-
-    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-        return score;
-    }
-
-    let tt_key = board.hash();
-    ctx.tt.prefetch(tt_key);
-
-    let mut moves = board.get_moves();
-    if moves.is_empty() {
-        let next = board.switch_players();
-        if next.has_legal_moves() {
-            ctx.update_pass();
-            let score = -null_window_search_with_tt(ctx, &next, -beta);
-            ctx.undo_pass();
-            return score;
-        } else {
-            return board.solve(n_empties);
-        }
-    }
-
-    let probe = ctx
-        .tt
-        .probe_endgame_nws(board, tt_key, alpha, ctx.selectivity);
-    let tt_move = probe.best_move;
-
-    if let Some(score) = probe.cutoff_score {
-        return score;
-    }
-
-    let mut best_score = -SCORE_INF;
-    if tt_move != Square::None && moves.contains(tt_move) {
-        let flipped = flip::flip(tt_move, board.player, board.opponent);
-        let next = board.make_move_with_flipped(flipped, tt_move);
-        let score = search_move_nws_tt(ctx, &next, tt_move, flipped, beta);
-
-        moves = moves.remove(tt_move);
-        if score >= beta || moves.is_empty() {
-            ctx.tt.store_endgame_nws(
-                probe.index,
-                board,
-                alpha,
-                score,
-                n_empties,
-                tt_move,
-                ctx.selectivity,
-            );
-            return score;
-        }
-
-        best_score = score;
-    }
-
-    let mut move_list = MoveList::with_moves(board, moves);
-    if move_list.wipeout_move().is_some() {
-        return SCORE_MAX;
-    }
-
-    let mut best_move = tt_move;
-    if move_list.count() >= 4 {
-        move_list.evaluate_moves::<EndGameStrategy>(ctx, board, n_empties, Square::None);
-        for mv in move_list.into_best_first_iter() {
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            let score = search_move_nws_tt(ctx, &next, mv.sq, mv.flipped, beta);
-            if score > best_score {
-                best_score = score;
-                if score >= beta {
-                    best_move = mv.sq;
-                    break;
-                }
-            }
-        }
-    } else if move_list.count() >= 2 {
-        move_list.evaluate_moves::<EndGameStrategy>(ctx, board, n_empties, Square::None);
-        move_list.sort();
-        for mv in move_list.iter() {
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            let score = search_move_nws_tt(ctx, &next, mv.sq, mv.flipped, beta);
-            if score > best_score {
-                best_score = score;
-                if score >= beta {
-                    best_move = mv.sq;
-                    break;
-                }
-            }
-        }
-    } else if let Some(mv) = move_list.first() {
-        // only one move available
-        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        best_score = search_move_nws_tt(ctx, &next, mv.sq, mv.flipped, beta);
-        best_move = mv.sq;
-    }
-
-    ctx.tt.store_endgame_nws(
-        probe.index,
-        board,
-        alpha,
-        best_score,
-        n_empties,
-        best_move,
-        ctx.selectivity,
-    );
-
-    best_score
-}
-
-/// Searches a move with null window, dispatching to TT variant based on depth.
-#[inline(always)]
-fn search_move_nws_tt(
-    ctx: &mut SearchContext,
-    next: &Board,
-    sq: Square,
-    flipped: Bitboard,
-    beta: Score,
-) -> Score {
-    if (ctx.empty_list.count() - 1) <= DEPTH_TO_NWS_EC {
-        let ec = unsafe { ec_cache() };
-        let sc = unsafe { shallow_cache() };
-        ctx.update_endgame(sq);
-        let score = -null_window_search_with_ec(ctx, next, -beta, ec, sc);
-        ctx.undo_endgame(sq);
-        score
-    } else {
-        ctx.update(sq, flipped);
-        let score = -null_window_search_with_tt(ctx, next, -beta);
-        ctx.undo(sq);
-        score
     }
 }
 
