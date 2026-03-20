@@ -9,12 +9,10 @@ use reversi_core::{
 
 use crate::search::{self, search_context::SearchContext};
 
-/// Statistical parameters for ProbCut prediction models
-/// - `depth_gap = max(deep_depth - shallow_depth, 0)`
-/// - `depth_gap_is_even = 1` when `depth_gap` is even, `0` otherwise
-/// - `depth_feat = 1 / (1 + ln(1 + depth_gap))`
-/// - `mean = mean_intercept + mean_coef_shallow * shallow_depth + mean_coef_deep * deep_depth + mean_coef_depth_diff * depth_feat + mean_coef_depth_gap_is_even * depth_gap_is_even`
-/// - `sigma = exp(std_intercept + std_coef_shallow * shallow_depth + std_coef_deep * deep_depth + std_coef_depth_diff * depth_feat + std_coef_depth_gap_is_even * depth_gap_is_even)`
+/// Holds statistical parameters for ProbCut prediction models.
+///
+/// - `mean = mean_intercept + mean_coef_shallow * shallow_depth + mean_coef_deep * deep_depth`
+/// - `sigma = exp(std_intercept + std_coef_shallow * shallow_depth + std_coef_deep * deep_depth)`
 struct ProbcutParams {
     mean_intercept: f64,
     mean_coef_shallow: f64,
@@ -45,13 +43,13 @@ const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
 static MEAN_TABLE: OnceLock<Box<MeanTable>> = OnceLock::new();
 static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
 
-/// Safely allocate a 3D table on the heap to avoid stack overflow
+/// Allocates a zeroed 3D table on the heap to avoid stack overflow.
 fn alloc_3d_table() -> Box<MeanTable> {
     let tbl = vec![[0.0f64; MAX_DEPTH]; MAX_PLY * MAX_DEPTH].into_boxed_slice();
     unsafe { Box::from_raw(Box::into_raw(tbl) as *mut MeanTable) }
 }
 
-/// Build the pre-computed mean table for midgame positions
+/// Builds the pre-computed mean table for midgame positions.
 fn build_mean_table() -> Box<MeanTable> {
     let mut tbl = alloc_3d_table();
 
@@ -68,7 +66,7 @@ fn build_mean_table() -> Box<MeanTable> {
     tbl
 }
 
-/// Build the pre-computed sigma table for midgame positions
+/// Builds the pre-computed sigma table for midgame positions.
 fn build_sigma_table() -> Box<SigmaTable> {
     let mut tbl = unsafe { Box::from_raw(Box::into_raw(alloc_3d_table()) as *mut SigmaTable) };
 
@@ -85,42 +83,33 @@ fn build_sigma_table() -> Box<SigmaTable> {
     tbl
 }
 
-/// Initialize probcut tables. Called from lib.rs init().
+/// Initializes probcut lookup tables.
 pub fn init() {
     MEAN_TABLE.set(build_mean_table()).ok();
     SIGMA_TABLE.set(build_sigma_table()).ok();
 }
 
-/// Fast lookup of pre-computed mean value for midgame positions
+/// Returns the pre-computed mean value for midgame positions.
 #[inline]
 fn calc_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = MEAN_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
 
-/// Fast lookup of pre-computed sigma value for midgame positions
+/// Returns the pre-computed sigma value for midgame positions.
 #[inline]
 fn calc_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     let tbl = SIGMA_TABLE.get().expect("probcut not initialized");
     tbl[ply][shallow as usize][deep as usize]
 }
 
-/// Returns the pre-computed sigma value for midgame positions.
-/// Public API for Score-Based Reduction in move ordering.
+/// Returns the pre-computed sigma value for Score-Based Reduction in move ordering.
 #[inline]
 pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     calc_sigma(ply, shallow, deep)
 }
 
-/// Determines the depth of the shallow search in probcut.
-///
-/// # Arguments
-///
-/// * `depth` - The depth of the deep search.
-///
-/// # Returns
-///
-/// The depth of the shallow search.
+/// Determines the shallow search depth for ProbCut from the given deep search depth.
 fn determine_probcut_depth(depth: Depth) -> Depth {
     let mut probcut_depth = 2 * (depth as f64 * 0.2).floor() as Depth + (depth & 1);
     if probcut_depth == 0 {
@@ -129,20 +118,10 @@ fn determine_probcut_depth(depth: Depth) -> Depth {
     probcut_depth
 }
 
-/// Attempts ProbCut pruning for midgame positions
+/// Attempts ProbCut pruning for midgame positions.
 ///
-/// # Arguments
-///
-/// * `ctx` - Search context containing selectivity settings and search state
-/// * `board` - Current board position to evaluate
-/// * `depth` - Depth of the deep search that would be performed
-/// * `alpha` - Alpha bound for the search window
-/// * `beta` - Beta bound for the search window
-///
-/// # Returns
-///
-/// * `Some(score)` - If probcut triggers, returns the predicted bound (alpha or beta)
-/// * `None` - If probcut doesn't trigger, deep search should be performed
+/// Returns [`Some(score)`] if a beta cutoff is predicted, or [`None`] if the
+/// deep search should proceed.
 pub fn probcut_midgame(
     ctx: &mut SearchContext,
     board: &Board,
@@ -176,7 +155,7 @@ pub fn probcut_midgame(
     None
 }
 
-/// Statistical parameters for midgame ProbCut indexed by ply
+/// Statistical parameters for midgame ProbCut, indexed by ply.
 #[rustfmt::skip]
 const PROBCUT_PARAMS: [ProbcutParams; 60] = [
     ProbcutParams {

@@ -17,19 +17,19 @@ use reversi_core::{
 
 use crate::{eval::Eval, level::Level, search::Search};
 
-/// Transposition table size in MB for search
+/// Transposition table size in MB for search.
 const TT_SIZE_MB: usize = 64;
 
-/// Total number of search depths to test
+/// Total number of search depths to test.
 const NUM_SEARCH_DEPTHS: usize = 10;
 
-/// Maximum shallow depth for ProbCut analysis
+/// Maximum shallow depth for ProbCut analysis.
 const MAX_SHALLOW_DEPTH: usize = 5;
 
-/// Minimum depth difference between shallow and deep search
+/// Minimum depth difference between shallow and deep search.
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
-/// Search selectivity level (none for accurate measurements)
+/// Search selectivity level (none for accurate measurements).
 const SELECTIVITY: Selectivity = Selectivity::None;
 
 /// Represents a single ProbCut training data sample.
@@ -58,7 +58,7 @@ pub struct ProbCutDatagenResult {
 
 #[wasm_bindgen]
 impl ProbCutDatagenResult {
-    /// Get the samples as a CSV string.
+    /// Returns the samples as a CSV string.
     ///
     /// Format: `ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`
     #[wasm_bindgen(getter)]
@@ -66,19 +66,19 @@ impl ProbCutDatagenResult {
         self.samples_csv.clone()
     }
 
-    /// Get the total number of samples generated.
+    /// Returns the total number of samples generated.
     #[wasm_bindgen(getter)]
     pub fn total_samples(&self) -> u32 {
         self.total_samples
     }
 
-    /// Get the total number of positions analyzed.
+    /// Returns the total number of positions analyzed.
     #[wasm_bindgen(getter)]
     pub fn total_positions(&self) -> u32 {
         self.total_positions
     }
 
-    /// Get the cache hit rate (0.0 to 1.0).
+    /// Returns the cache hit rate (0.0 to 1.0).
     #[wasm_bindgen(getter)]
     pub fn cache_hit_rate(&self) -> f64 {
         self.cache_hit_rate
@@ -100,7 +100,7 @@ pub struct ProbCutDatagen {
 
 #[wasm_bindgen]
 impl ProbCutDatagen {
-    /// Create a new ProbCut data generator.
+    /// Creates a new ProbCut data generator.
     ///
     /// # Errors
     ///
@@ -124,30 +124,13 @@ impl ProbCutDatagen {
         })
     }
 
-    /// Process a single game sequence and generate training samples.
-    ///
-    /// # Arguments
-    ///
-    /// * `game_sequence` - Move sequence string (e.g., "D3C5F6F5E6C6D6...")
-    ///
-    /// # Returns
-    ///
-    /// Result containing generated samples and statistics.
+    /// Processes a single game sequence and generates training samples.
     pub fn process_game(&mut self, game_sequence: &str) -> Result<ProbCutDatagenResult, JsValue> {
         let samples = self.process_game_internal(game_sequence)?;
         self.build_result(samples)
     }
 
-    /// Process multiple games with optional progress callback.
-    ///
-    /// # Arguments
-    ///
-    /// * `games` - Newline-separated game sequences
-    /// * `progress_callback` - Optional JS function called with progress info
-    ///
-    /// # Returns
-    ///
-    /// Result containing all generated samples and statistics.
+    /// Processes multiple newline-separated game sequences with an optional progress callback.
     pub fn process_games(
         &mut self,
         games: &str,
@@ -186,7 +169,7 @@ impl ProbCutDatagen {
         self.build_result(all_samples)
     }
 
-    /// Clear all caches and reset statistics.
+    /// Clears all caches and resets statistics.
     pub fn clear(&mut self) {
         self.score_cache.clear();
         self.tt.clear();
@@ -194,7 +177,7 @@ impl ProbCutDatagen {
         self.cache_misses = 0;
     }
 
-    /// Get the current number of cached scores.
+    /// Returns the current number of cached scores.
     #[wasm_bindgen(getter)]
     pub fn cache_size(&self) -> u32 {
         self.score_cache.len() as u32
@@ -202,7 +185,7 @@ impl ProbCutDatagen {
 }
 
 impl ProbCutDatagen {
-    /// Internal method to process a single game and return samples.
+    /// Processes a single game and returns the collected samples.
     fn process_game_internal(
         &mut self,
         game_sequence: &str,
@@ -262,7 +245,7 @@ impl ProbCutDatagen {
         Ok(samples)
     }
 
-    /// Search at all depths from 0 to NUM_SEARCH_DEPTHS.
+    /// Searches at all depths from 0 to `NUM_SEARCH_DEPTHS`.
     fn search_all_depths(&mut self, board: &Board) -> Vec<(Depth, f32)> {
         (0..=NUM_SEARCH_DEPTHS)
             .map(|d| {
@@ -273,7 +256,7 @@ impl ProbCutDatagen {
             .collect()
     }
 
-    /// Search at a specific depth, using cache if available.
+    /// Searches at a specific depth, using the cache if available.
     fn search_at_depth(&mut self, board: &Board, depth: Depth) -> f32 {
         let cache_key = (board.unique(), depth);
 
@@ -297,7 +280,7 @@ impl ProbCutDatagen {
         score
     }
 
-    /// Build the result object from collected samples.
+    /// Builds the result object from collected samples.
     fn build_result(&self, samples: Vec<ProbCutSample>) -> Result<ProbCutDatagenResult, JsValue> {
         // Convert samples to CSV
         let samples_csv = Self::samples_to_csv(&samples);
@@ -324,7 +307,7 @@ impl ProbCutDatagen {
         })
     }
 
-    /// Convert samples to CSV string.
+    /// Converts samples to a CSV string.
     ///
     /// Format matches `crates/datagen/src/probcut.rs`:
     /// `ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`

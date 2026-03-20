@@ -40,7 +40,7 @@ pub struct Search {
 }
 
 impl Search {
-    /// Construct a new searcher instance that shares evaluation and table state.
+    /// Constructs a new searcher instance that shares evaluation and table state.
     pub fn new(tt: Rc<TranspositionTable>, eval: Rc<Eval>) -> Self {
         // Ensure probcut and stability modules are initialized
         probcut::init();
@@ -76,14 +76,6 @@ impl Search {
 }
 
 /// Performs the root search using iterative deepening with aspiration windows.
-///
-/// # Arguments
-///
-/// * `task` - Search task containing board position, search parameters, and callbacks
-///
-/// # Returns
-///
-/// SearchResult containing the best move, score, and search statistics
 pub fn search_root(task: SearchTask) -> SearchResult {
     let board = task.board;
     let level = task.level;
@@ -125,7 +117,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
     }
 }
 
-/// Performs the root search for midgame positions using iterative deepening
+/// Performs the root search for midgame positions using iterative deepening.
 fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
     const INITIAL_DELTA: ScaledScore = ScaledScore::from_raw(3 * ScaledScore::SCALE);
     let mut best_score = ScaledScore::ZERO;
@@ -200,7 +192,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
     }
 }
 
-/// Performs the root search for endgame positions
+/// Performs the root search for endgame positions.
 fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
     let n_empties = ctx.empty_list.count();
     let score = estimate_aspiration_base_score(ctx, board, n_empties);
@@ -254,18 +246,7 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
     }
 }
 
-/// Estimates a stable base score to center the aspiration window for the endgame search.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context
-/// * `board` - Current board position
-/// * `n_empties` - Number of empty squares on the board
-/// * `thread` - Thread handle for parallel search coordination
-///
-/// # Returns
-///
-/// An estimated score used to center the aspiration window at the start of endgame search.
+/// Estimates a base score to center the aspiration window for endgame search.
 fn estimate_aspiration_base_score(
     ctx: &mut SearchContext,
     board: &Board,
@@ -301,37 +282,12 @@ fn estimate_aspiration_base_score(
 }
 
 /// Selects a random legal move from the current position.
-///
-/// # Arguments
-///
-/// * `board` - Current board position
-///
-/// # Returns
-///
-/// A randomly selected legal move square
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     board.get_moves().iter().choose(&mut rng).unwrap()
 }
 
-/// Alpha-beta search function for midgame positions.
-///
-/// # Type Parameters
-///
-/// * `NT` - Node type (Root, PV, or NonPV) determining search behavior.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context tracking game state and statistics.
-/// * `board` - Current board position to search.
-/// * `depth` - Remaining search depth.
-/// * `alpha` - Lower bound of the search window
-/// * `beta` - Upper bound of the search window
-/// * `is_endgame` - Whether we are in endgame search mode
-///
-/// # Returns
-///
-/// The best score found for the position.
+/// Performs alpha-beta search parameterized by node type (`Root`, `PV`, or `NonPV`).
 pub fn search<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -488,18 +444,7 @@ pub fn search<NT: NodeType>(
     best_score
 }
 
-/// Specialized evaluation function for positions at depth 2.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context tracking game state
-/// * `board` - Current board position to search
-/// * `alpha` - Lower bound of search window
-/// * `beta` - Upper bound of search window
-///
-/// # Returns
-///
-/// Best score found for the position
+/// Performs alpha-beta search specialized for depth 2.
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
@@ -545,18 +490,7 @@ pub fn evaluate_depth2(
     best_score
 }
 
-/// Specialized evaluation function for positions at depth 1.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context tracking game state
-/// * `board` - Current board position to search
-/// * `alpha` - Lower bound of search window
-/// * `beta` - Upper bound of search window
-///
-/// # Returns
-///
-/// Best score found for the position
+/// Performs alpha-beta search specialized for depth 1.
 pub fn evaluate_depth1(
     ctx: &mut SearchContext,
     board: &Board,
@@ -599,16 +533,7 @@ pub fn evaluate_depth1(
     best_score
 }
 
-/// Evaluates a leaf node position using the neural network evaluator.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context tracking game state
-/// * `board` - Current board position
-///
-/// # Returns
-///
-/// Position score in internal units
+/// Evaluates a leaf node position using the neural network.
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == 60 {
@@ -618,18 +543,7 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     ctx.eval.evaluate(ctx, board)
 }
 
-/// Checks for stability-based cutoffs in the search.
-///
-/// # Arguments
-///
-/// * `board` - Current board position
-/// * `n_empties` - Number of empty squares
-/// * `alpha` - Current alpha bound for pruning decision
-///
-/// # Returns
-///
-/// * `Some(score)` - If position can be pruned with this score
-/// * `None` - If no stability cutoff is possible
+/// Returns a stability-based cutoff score, or [`None`] if no cutoff applies.
 fn stability_cutoff(board: &Board, n_empties: Depth, alpha: ScaledScore) -> Option<ScaledScore> {
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha.to_disc_diff()) {
         return Some(ScaledScore::from_disc_diff(score));
@@ -637,7 +551,7 @@ fn stability_cutoff(board: &Board, n_empties: Depth, alpha: ScaledScore) -> Opti
     None
 }
 
-/// Enhanced Transposition Cutoff
+/// Attempts an Enhanced Transposition Cutoff (ETC).
 #[allow(clippy::too_many_arguments)]
 fn enhanced_transposition_cutoff(
     ctx: &mut SearchContext,

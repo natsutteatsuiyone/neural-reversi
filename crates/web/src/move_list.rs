@@ -13,25 +13,13 @@ use crate::{
     search::{self, search_context::SearchContext},
 };
 
-/// Value assigned to wipeout moves (capturing all opponent pieces).
+/// Ordering value assigned to wipeout moves.
 const WIPEOUT_VALUE: i32 = 1 << 30;
 
-/// Value assigned to moves suggested by the transposition table.
+/// Ordering value assigned to moves suggested by the transposition table.
 const TT_MOVE_VALUE: i32 = 1 << 20;
 
-/// Web-specific implementation of move evaluation.
-///
-/// This function evaluates all moves to assign ordering values and reduction depths,
-/// using the web search module's evaluation functions.
-///
-/// # Arguments
-///
-/// * `move_list` - The move list to evaluate
-/// * `ctx` - Search context with transposition table and statistics
-/// * `board` - Current position before making any move
-/// * `depth` - Remaining search depth at this node
-/// * `tt_move` - Best move from transposition table (if any)
-/// * `is_endgame` - Whether we are in endgame search mode
+/// Assigns ordering values and reduction depths to each move in the list.
 pub fn evaluate_moves(
     move_list: &mut MoveList,
     ctx: &mut SearchContext,
@@ -183,6 +171,7 @@ fn evaluate_moves_endgame(
     }
 }
 
+/// Assigns ordering values using fast heuristics without shallow search.
 pub fn evaluate_moves_fast(
     move_list: &mut MoveList,
     ctx: &mut SearchContext,

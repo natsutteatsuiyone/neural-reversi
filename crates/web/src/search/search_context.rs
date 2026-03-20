@@ -17,42 +17,32 @@ use reversi_core::{
 use crate::{eval::Eval, move_list::MoveList};
 use wasm_bindgen::JsValue;
 
-/// The search context that maintains all state during search operations.
+/// Maintains all mutable state during a single search operation.
 pub struct SearchContext {
-    /// Number of nodes searched in this context
+    /// Number of nodes searched so far.
     pub n_nodes: u64,
-    /// Current side to move
+    /// Current side to move.
     pub side_to_move: SideToMove,
-    /// Selectivity level
+    /// Selectivity level.
     pub selectivity: Selectivity,
-    /// List of empty squares on the board, optimized for quick access
+    /// List of empty squares, optimized for quick access.
     pub empty_list: EmptyList,
-    /// Transposition table for storing search results
+    /// Transposition table for storing search results.
     pub tt: Rc<TranspositionTable>,
-    /// Neural network evaluator for position assessment
+    /// Neural network evaluator.
     pub eval: Rc<Eval>,
-    /// List of root moves being searched
+    /// Root moves being searched.
     pub root_moves: Vec<RootMove>,
-    /// Pattern features for efficient neural network input
+    /// Pattern features for neural network input.
     pub pattern_features: PatternFeatures,
-    /// Optional callback for reporting progress back to JavaScript UI
+    /// Optional callback for reporting progress to the JavaScript UI.
     progress_callback: Option<Function>,
-    /// Search stack for maintaining PV and search state at each ply
+    /// Search stack for PV and state at each ply.
     stack: [StackRecord; MAX_PLY],
 }
 
 impl SearchContext {
     /// Creates a new search context for the given board position.
-    ///
-    /// # Arguments
-    /// * `board` - The current board position
-    /// * `selectivity` - Selectivity level
-    /// * `tt` - Transposition table
-    /// * `eval` - Neural network evaluator
-    /// * `progress_callback` - Optional JavaScript callback for reporting progress
-    ///
-    /// # Returns
-    /// A new SearchContext ready for search operations
     pub fn new(
         board: &Board,
         selectivity: Selectivity,
@@ -79,17 +69,13 @@ impl SearchContext {
         }
     }
 
-    /// Switches the side to move in this context.
+    /// Switches the side to move.
     #[inline]
     fn switch_players(&mut self) {
         self.side_to_move = self.side_to_move.switch();
     }
 
-    /// Updates the search context after making a move in midgame search.
-    ///
-    /// # Arguments
-    /// * `sq` - The square where the move is played
-    /// * `flipped` - The bitboard of flipped discs
+    /// Updates state after making a midgame move.
     #[inline]
     pub fn update(&mut self, sq: Square, flipped: Bitboard) {
         self.increment_nodes();
@@ -99,70 +85,52 @@ impl SearchContext {
         self.empty_list.remove(sq);
     }
 
-    /// Undoes a move in the search context.
-    ///
-    /// # Arguments
-    /// * `sq` - The square where the move is played
+    /// Undoes a midgame move.
     #[inline]
     pub fn undo(&mut self, sq: Square) {
         self.empty_list.restore(sq);
         self.switch_players();
     }
 
-    /// Updates the context for an endgame move where pattern features aren't used.
-    ///
-    /// # Arguments
-    /// * `sq` - The square where the move is played
+    /// Updates state after making an endgame move (skips pattern feature update).
     #[inline]
     pub fn update_endgame(&mut self, sq: Square) {
         self.increment_nodes();
         self.empty_list.remove(sq);
     }
 
-    /// Undoes an endgame move by restoring the played square.
-    ///
-    /// # Arguments
-    /// * `sq` - The square to restore to the empty list
+    /// Undoes an endgame move.
     #[inline]
     pub fn undo_endgame(&mut self, sq: Square) {
         self.empty_list.restore(sq);
     }
 
-    /// Updates the context when a pass move is made.
+    /// Updates state for a pass move.
     #[inline]
     pub fn update_pass(&mut self) {
         self.increment_nodes();
         self.switch_players();
     }
 
-    /// Undoes a pass move by switching back the side to move.
+    /// Undoes a pass move.
     #[inline]
     pub fn undo_pass(&mut self) {
         self.switch_players();
     }
 
-    /// Returns the current ply in the search tree.
-    ///
-    /// The ply is calculated from the number of empty squares remaining,
-    /// representing how far we are from the start of the game.
-    ///
-    /// # Returns
-    /// Current search depth/ply
+    /// Returns the current ply (number of moves played from the opening).
     #[inline]
     pub fn ply(&self) -> usize {
         self.empty_list.ply()
     }
 
-    /// Increments the node counter for search statistics.
+    /// Increments the node counter.
     #[inline]
     pub fn increment_nodes(&mut self) {
         self.n_nodes += 1;
     }
 
-    /// Gets the current pattern feature for neural network evaluation.
-    ///
-    /// # Returns
-    /// Reference to the current pattern feature for the position
+    /// Returns the current pattern feature for neural network evaluation.
     #[inline]
     pub fn get_pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
@@ -173,13 +141,7 @@ impl SearchContext {
         }
     }
 
-    /// Updates a root move with its search results.
-    ///
-    /// # Arguments
-    /// * `sq` - The square of the root move being updated
-    /// * `score` - The score returned from searching this move
-    /// * `move_count` - Which move this is in the search order (1-based)
-    /// * `alpha` - The current alpha bound
+    /// Updates a root move with its search score and PV.
     pub fn update_root_move(
         &mut self,
         sq: Square,
@@ -214,21 +176,12 @@ impl SearchContext {
         }
     }
 
-    /// Gets the best root move (the one with highest score).
-    ///
-    /// # Returns
-    /// The best root move, or None if no moves exist
+    /// Returns the root move with the highest score.
     pub fn get_best_root_move(&self) -> Option<RootMove> {
         self.root_moves.iter().max_by_key(|rm| rm.score).cloned()
     }
 
-    /// Creates the initial list of root moves from the current board position.
-    ///
-    /// # Arguments
-    /// * `board` - The current board position
-    ///
-    /// # Returns
-    /// Vector of initialized root moves
+    /// Creates the initial list of root moves from the board's legal moves.
     fn create_root_moves(board: &Board) -> Vec<RootMove> {
         let move_list = MoveList::new(board);
         let mut root_moves = Vec::<RootMove>::with_capacity(move_list.count());
@@ -239,9 +192,6 @@ impl SearchContext {
     }
 
     /// Updates the principal variation at the current ply.
-    ///
-    /// # Arguments
-    /// * `sq` - The best move at the current ply
     pub fn update_pv(&mut self, sq: Square) {
         let ply = self.ply();
         self.stack[ply].pv[0] = sq;
@@ -261,13 +211,7 @@ impl SearchContext {
         self.stack[self.ply()].pv.fill(Square::None);
     }
 
-    /// Notifies the UI of search progress through the registered callback.
-    ///
-    /// # Arguments
-    /// * `depth` - Current search depth
-    /// * `score` - Current best score (from engine's perspective)
-    /// * `best_move` - Current best move
-    /// * `selectivity` - Current selectivity level
+    /// Sends search progress to the JavaScript UI via the registered callback.
     pub fn notify_progress(
         &self,
         depth: Depth,

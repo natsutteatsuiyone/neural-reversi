@@ -211,7 +211,7 @@ impl Game {
         self.mid_depth = clamped as Depth;
     }
 
-    /// Make a move without checking whose turn it is (for replay purposes)
+    /// Makes a move without checking whose turn it is (for replay purposes).
     pub fn make_move_unchecked(&mut self, index: u8) -> bool {
         if self.board.is_game_over() {
             return false;
@@ -360,7 +360,7 @@ impl BenchmarkRunner {
         Ok(BenchmarkRunner { eval, test_boards })
     }
 
-    /// Generate a variety of test positions for benchmarking
+    /// Generates a variety of test positions for benchmarking.
     fn generate_test_boards() -> Vec<Board> {
         let mut boards = Vec::with_capacity(BENCH_TEST_POSITIONS);
         boards.push(Board::new()); // Opening position
@@ -389,7 +389,7 @@ impl BenchmarkRunner {
         boards
     }
 
-    /// Measure execution time and calculate benchmark statistics
+    /// Measures execution time and calculates benchmark statistics.
     fn measure_benchmark<F>(
         name: &str,
         iterations: u32,
@@ -421,7 +421,7 @@ impl BenchmarkRunner {
         }
     }
 
-    /// Benchmark move generation performance
+    /// Benchmarks move generation performance.
     pub fn bench_move_generation(&self, iterations: u32) -> BenchmarkResult {
         let boards = &self.test_boards;
 
@@ -434,7 +434,7 @@ impl BenchmarkRunner {
         })
     }
 
-    /// Benchmark neural network evaluation performance
+    /// Benchmarks neural network evaluation performance.
     pub fn bench_evaluation(&self, iterations: u32) -> BenchmarkResult {
         let boards = &self.test_boards;
         let tt = Rc::new(TranspositionTable::new(DEFAULT_TT_MB));
@@ -460,7 +460,7 @@ impl BenchmarkRunner {
         )
     }
 
-    /// Benchmark search performance (fixed depth)
+    /// Benchmarks search performance at the given fixed depth.
     pub fn bench_search(&self, depth: u8, iterations: u32) -> BenchmarkResult {
         let tt = Rc::new(TranspositionTable::new(DEFAULT_TT_MB));
         let mut search = Search::new(Rc::clone(&tt), Rc::clone(&self.eval));
@@ -477,7 +477,7 @@ impl BenchmarkRunner {
         })
     }
 
-    /// Benchmark endgame search performance using FFO #40 and #41
+    /// Benchmarks endgame search performance using FFO #40 and #41.
     pub fn bench_endgame(&self, iterations: u32) -> BenchmarkResult {
         use crate::search::search_result::SearchResult;
 
@@ -555,7 +555,7 @@ impl BenchmarkRunner {
         benchmark_result
     }
 
-    /// Benchmark perft (performance test) for move generation
+    /// Benchmarks perft (performance test) for move generation.
     pub fn bench_perft(&self, depth: u32, iterations: u32) -> BenchmarkResult {
         let board = Board::new();
 
@@ -574,7 +574,7 @@ impl BenchmarkRunner {
         result
     }
 
-    /// Helper function for perft recursion
+    /// Recursively counts leaf nodes for perft.
     fn perft(
         board: &Board,
         pattern_feature: &mut PatternFeatures,

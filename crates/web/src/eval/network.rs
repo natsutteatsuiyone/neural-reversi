@@ -98,12 +98,14 @@ impl OutputLayer {
     }
 }
 
+/// Neural network for position evaluation (input layer + per-ply output layers).
 pub struct Network {
     input_layer: InputLayer,
     output_layers: Vec<OutputLayer>,
 }
 
 impl Network {
+    /// Loads a network from zstd-compressed weight data.
     pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
         let cursor = io::Cursor::new(bytes);
         Self::from_reader(cursor)
@@ -126,6 +128,7 @@ impl Network {
         })
     }
 
+    /// Evaluates a board position and returns the score for the current ply.
     pub fn evaluate(
         &self,
         _board: &Board,

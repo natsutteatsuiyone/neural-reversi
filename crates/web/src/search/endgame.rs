@@ -35,16 +35,6 @@ thread_local! {
 }
 
 /// Performs a null window search for fast endgame solving.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context for tracking statistics and TT access
-/// * `board` - Current board position to evaluate
-/// * `alpha` - Score threshold to beat
-///
-/// # Returns
-///
-/// Best score found
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -148,17 +138,7 @@ fn store_endgame_cache(key: u64, board: &Board, alpha: Score, score: Score, best
     });
 }
 
-/// Null window search with endgame cache probing.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context for node counting and empty square tracking
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for null window search
-///
-/// # Returns
-///
-/// Best score found
+/// Performs a null window search with endgame cache probing.
 fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -229,17 +209,7 @@ fn null_window_search_with_ec(ctx: &mut SearchContext, board: &Board, alpha: Sco
     best_score
 }
 
-/// Optimized search for shallow endgame positions.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context for node counting and empty square tracking
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for null window search
-///
-/// # Returns
-///
-/// Best score found
+/// Performs a null window search optimized for shallow endgame positions.
 pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -352,17 +322,6 @@ pub fn shallow_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> S
 }
 
 /// Evaluates a single move in shallow search.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `sq` - Square to move to.
-/// * `beta` - Beta bound.
-///
-/// # Returns
-///
-/// Score after making move.
 #[inline(always)]
 fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta: Score) -> Score {
     let next = board.make_move(sq);
@@ -389,21 +348,7 @@ fn shallow_search_move(ctx: &mut SearchContext, board: &Board, sq: Square, beta:
     score
 }
 
-/// Searches all moves in a bitboard for shallow search.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context.
-/// * `board` - Current board position.
-/// * `moves` - Bitboard of moves to search.
-/// * `key` - Hash key for endgame cache.
-/// * `beta` - Beta bound.
-/// * `best_score` - Current best score (updated if better move found).
-/// * `best_move` - Current best move (updated if better move found).
-///
-/// # Returns
-///
-/// `Some(score)` if beta cutoff occurs, `None` otherwise.
+/// Searches all moves in a bitboard, returning [`Some(score)`] on a beta cutoff.
 #[inline(always)]
 fn shallow_search_moves(
     ctx: &mut SearchContext,
@@ -430,15 +375,7 @@ fn shallow_search_moves(
     None
 }
 
-/// Sorts the four remaining empty squares based on quadrant parity.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context containing empty square list and parity
-///
-/// # Returns
-///
-/// Tuple of four squares in optimized search order
+/// Sorts the four remaining empty squares by quadrant parity for optimal search order.
 #[inline(always)]
 fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
     let (sq1, quad_id1) = ctx.empty_list.first_and_quad_id();
@@ -470,18 +407,7 @@ fn sort_empties_at_4(ctx: &mut SearchContext) -> (Square, Square, Square, Square
     }
 }
 
-/// Specialized solver for positions with exactly 4 empty squares.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for pruning
-/// * `sq1..sq4` - The four empty squares in search order
-///
-/// # Returns
-///
-/// Best score achievable with perfect play
+/// Solves positions with exactly 4 empty squares.
 fn solve4(
     ctx: &mut SearchContext,
     board: &Board,
@@ -534,18 +460,7 @@ fn solve4(
     best_score
 }
 
-/// Specialized solver for positions with exactly 3 empty squares.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for pruning
-/// * `sq1..sq3` - The three empty squares
-///
-/// # Returns
-///
-/// Best score achievable with perfect play
+/// Solves positions with exactly 3 empty squares.
 fn solve3(
     ctx: &mut SearchContext,
     board: &Board,
@@ -615,18 +530,7 @@ fn solve3(
     board.solve(3)
 }
 
-/// Specialized solver for positions with exactly 2 empty squares.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold for pruning
-/// * `sq1, sq2` - The two remaining empty squares
-///
-/// # Returns
-///
-/// Exact score with perfect play
+/// Solves positions with exactly 2 empty squares.
 #[inline(always)]
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
@@ -670,18 +574,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     board.solve(2)
 }
 
-/// Specialized solver for positions with exactly 1 empty square.
-///
-/// # Arguments
-///
-/// * `ctx` - Search context for node counting
-/// * `board` - Current board position
-/// * `alpha` - Score threshold (for pruning opponent check)
-/// * `sq` - The single remaining empty square
-///
-/// # Returns
-///
-/// Exact final score after optimal play
+/// Solves positions with exactly 1 empty square.
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
