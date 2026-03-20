@@ -727,14 +727,7 @@ impl TranspositionTable {
     /// Returns the first entry index of the cluster selected by `key`.
     #[inline(always)]
     fn get_cluster_idx(&self, key: u64) -> usize {
-        (Self::mul_hi64(key, self.cluster_count) as usize) * CLUSTER_SIZE
-    }
-
-    /// Returns the high 64 bits of `a * b`.
-    #[inline(always)]
-    fn mul_hi64(a: u64, b: u64) -> u64 {
-        let product = (a as u128) * (b as u128);
-        (product >> 64) as u64
+        (crate::util::mul_hi64(key, self.cluster_count) as usize) * CLUSTER_SIZE
     }
 }
 
@@ -1477,5 +1470,4 @@ mod tests {
         assert_eq!(data.best_move(), sq(2));
         assert_eq!(data.generation(), 1);
     }
-
 }

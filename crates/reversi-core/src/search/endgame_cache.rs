@@ -60,7 +60,7 @@ impl EndGameCache {
 
     #[inline(always)]
     fn index(&self, key: u64) -> usize {
-        ((key as u128).wrapping_mul(self.table.len() as u128) >> 64) as usize
+        crate::util::mul_hi64(key, self.table.len() as u64) as usize
     }
 
     /// Probes the cache for a position.
