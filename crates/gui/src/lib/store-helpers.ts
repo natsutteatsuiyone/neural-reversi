@@ -120,7 +120,7 @@ export function createGameStartState(
     aiRemainingTime: gameTimeLimitMs,
     searchTimer: null,
     validMoves: gameStatus === "playing" ? getValidMoves(board, currentPlayer) : [],
-    skipAnimation: false,
+    skipAnimation: true,
   };
 }
 

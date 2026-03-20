@@ -24,6 +24,11 @@ const SEGMENTS = 32;
 const DROP_SPRING_STIFFNESS = 300;
 const DROP_SPRING_DAMPING = 20;
 const FLIP_ARC_HEIGHT = 0.3;
+// After long AI thinking, frameloop="demand" produces a huge first delta.
+// Clamping prevents Euler integration instability in the spring simulation.
+const MAX_FRAME_DELTA = 1 / 30;
+// Tiny offset above y=0 to prevent Z-fighting between disc bottom and board surface.
+const DISC_Y_OFFSET = 0.001;
 
 const ROUGHNESS = 0.7;
 const METALNESS = 0.05;
@@ -44,6 +49,12 @@ const WHITE_MATERIALS = [
   new THREE.MeshStandardMaterial({ color: DISC_COLOR_BLACK, roughness: ROUGHNESS, metalness: METALNESS }),
 ];
 
+// "settling" is a one-frame transitional state after the flip animation completes.
+// It allows React to re-render with the new displayColor (updating the material prop)
+// before resetting rotation.x to 0, preventing a one-frame flicker of the old color
+// at upright orientation.
+type AnimState = "idle" | "dropping" | "flipping" | "flip-waiting" | "settling";
+
 export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }: Disc3DProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const { invalidate } = useThree();
@@ -53,7 +64,7 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }:
   const [displayColor, setDisplayColor] = useState(color);
   const materials = displayColor === "black" ? BLACK_MATERIALS : WHITE_MATERIALS;
 
-  const [animState, setAnimState] = useState<"idle" | "dropping" | "flipping" | "flip-waiting">(
+  const [animState, setAnimState] = useState<AnimState>(
     isNew && !skipAnimation ? "dropping" : "idle"
   );
   const animProgress = useRef(0);
@@ -80,48 +91,61 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }:
     prevColor.current = color;
   }, [color, isNew, flipDelay, skipAnimation]);
 
-  useFrame((_, delta) => {
+  useFrame((_, rawDelta) => {
     if (!meshRef.current) return;
     const mesh = meshRef.current;
+    const dt = Math.min(rawDelta, MAX_FRAME_DELTA);
+    const restY = DISC_HEIGHT / 2 + DISC_Y_OFFSET;
 
     if (animState === "dropping") {
       const displacement = dropY.current;
       const springForce = -DROP_SPRING_STIFFNESS * displacement;
       const dampingForce = -DROP_SPRING_DAMPING * dropVelocity.current;
-      dropVelocity.current += (springForce + dampingForce) * delta;
-      dropY.current += dropVelocity.current * delta;
-      mesh.position.y = DISC_HEIGHT / 2 + Math.max(0, dropY.current);
+      dropVelocity.current += (springForce + dampingForce) * dt;
+      dropY.current += dropVelocity.current * dt;
+      mesh.position.y = restY + Math.max(0, dropY.current);
       if (Math.abs(dropY.current) < 0.001 && Math.abs(dropVelocity.current) < 0.01) {
         dropY.current = 0;
-        mesh.position.y = DISC_HEIGHT / 2;
+        mesh.position.y = restY;
         mesh.rotation.x = 0;
         setAnimState("idle");
       }
       invalidate();
     } else if (animState === "flip-waiting") {
-      flipWaitTime.current += delta;
+      flipWaitTime.current += dt;
       if (flipWaitTime.current >= flipDelay) {
         setAnimState("flipping");
         animProgress.current = 0;
       }
       invalidate();
     } else if (animState === "flipping") {
-      animProgress.current += delta / FLIP_DURATION_S;
+      animProgress.current += dt / FLIP_DURATION_S;
       if (animProgress.current >= 1) {
-        mesh.rotation.x = 0;
-        mesh.position.y = DISC_HEIGHT / 2;
-        setAnimState("idle");
+        // Don't reset rotation yet — transition to "settling" first so that
+        // React re-renders with the new material before rotation snaps to 0.
+        // The disc at rotation π looks identical to rotation 0 (top/bottom share
+        // the same color), so this intermediate state is visually seamless.
+        mesh.rotation.x = Math.PI;
+        mesh.position.y = restY;
         setDisplayColor(targetColorRef.current);
+        setAnimState("settling");
       } else {
         const t = animProgress.current;
         mesh.rotation.x = t * Math.PI;
-        mesh.position.y = DISC_HEIGHT / 2 + Math.sin(t * Math.PI) * FLIP_ARC_HEIGHT;
+        mesh.position.y = restY + Math.sin(t * Math.PI) * FLIP_ARC_HEIGHT;
       }
+      invalidate();
+    } else if (animState === "settling") {
+      // React has re-rendered with the new displayColor, so the material prop
+      // now matches the target. Safe to reset rotation without flicker.
+      mesh.rotation.x = 0;
+      mesh.position.y = restY;
+      setAnimState("idle");
       invalidate();
     }
   });
 
   return (
-    <mesh ref={meshRef} position={[x, DISC_HEIGHT / 2, z]} material={materials} geometry={sharedGeometry} />
+    <mesh ref={meshRef} position={[x, DISC_HEIGHT / 2 + DISC_Y_OFFSET, z]} material={materials} geometry={sharedGeometry} />
   );
 }
