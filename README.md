@@ -20,17 +20,17 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 
 #### Midgame
 
-![Neural network architecture](docs/4.0.0/nn_architecture_4.0.0.svg)
+![Neural network architecture](docs/5.0.0/nn_architecture_5.0.0.svg)
 
 #### Endgame
 
-![Small neural network architecture](docs/1.0.0/nn_architecture_small_1.0.0.svg)
+![Small neural network architecture](docs/5.0.0/nn_architecture_small_5.0.0.svg)
 
 ### Features
 
 - Mobility: Number of legal moves for the current player.
 - Patterns:  
-  ![Pattern features](docs/3.0.0/pattern_features_3.0.0.svg)
+  ![Pattern features](docs/5.0.0/pattern_features_5.0.0.svg)
 
 ### Training
 
