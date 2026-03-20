@@ -438,6 +438,7 @@ async function handleNewGame() {
   clearToast();
   state.pendingColor = state.selectedColor;
   state.pendingLevel = state.selectedLevel;
+  state.gameOverModalDismissed = true;
   state.showSettingsModal = true;
 }
 
