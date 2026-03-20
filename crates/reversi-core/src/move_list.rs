@@ -309,10 +309,10 @@ impl MoveList {
             18,  4, 16, 12, 12, 16,  4, 18,
         ];
 
-        const SQUARE_VALUE_WEIGHT: i32 = 1 << 8;
-        const CORNER_STABILITY_WEIGHT: i32 = 1 << 12;
-        const POTENTIAL_MOBILITY_WEIGHT: i32 = 1 << 10;
-        const MOBILITY_WEIGHT: i32 = 1 << 14;
+        const SQUARE_VALUE_WEIGHT: i32 = 128;
+        const CORNER_STABILITY_WEIGHT: i32 = 4096;
+        const POTENTIAL_MOBILITY_WEIGHT: i32 = 2048;
+        const MOBILITY_WEIGHT: i32 = 16384;
 
         for mv in self.iter_mut() {
             mv.value = if mv.flipped == board.opponent {
