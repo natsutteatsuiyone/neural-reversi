@@ -25,15 +25,15 @@ use crate::search::side_to_move::SideToMove;
 use crate::square::Square;
 
 /// Number of distinct pattern features used for evaluation.
-pub const NUM_PATTERN_FEATURES: usize = 24;
+pub const NUM_PATTERN_FEATURES: usize = 32;
 
 /// Alias for NUM_PATTERN_FEATURES for compatibility.
 pub const NUM_FEATURES: usize = NUM_PATTERN_FEATURES;
 
 /// Maximum number of features that any single square can participate in.
-const MAX_FEATURES_PER_SQUARE: usize = 4;
+const MAX_FEATURES_PER_SQUARE: usize = 5;
 
-/// Maximum number of features per square as u32 for loop comparisons.
+/// Maximum number of features per square as `u32` for loop comparisons.
 const MAX_FEATURES_PER_SQUARE_U32: u32 = MAX_FEATURES_PER_SQUARE as u32;
 
 /// Size of the pattern feature vector (padded to 32 for SIMD alignment).
@@ -143,8 +143,8 @@ impl IndexMut<usize> for PatternFeature {
 struct CoordinateToFeature {
     /// Number of features this square participates in.
     n_features: u32,
-    /// Array of [feature_index, power_of_3] pairs.
-    /// power_of_3 indicates the square's position in the pattern.
+    /// Array of `[feature_index, power_of_3]` pairs.
+    /// `power_of_3` indicates the square's position in the pattern.
     features: [[u32; 2]; MAX_FEATURES_PER_SQUARE],
 }
 
@@ -188,6 +188,16 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
     FeatureToCoordinate::new(9, [Sq::H1, Sq::G1, Sq::F1, Sq::H2, Sq::G2, Sq::F2, Sq::H3, Sq::G3, Sq::F3, Sq::None]),  // 21: corner H1 3x3
     FeatureToCoordinate::new(9, [Sq::A8, Sq::B8, Sq::C8, Sq::A7, Sq::B7, Sq::C7, Sq::A6, Sq::B6, Sq::C6, Sq::None]),  // 22: corner A8 3x3
     FeatureToCoordinate::new(9, [Sq::H8, Sq::G8, Sq::F8, Sq::H7, Sq::G7, Sq::F7, Sq::H6, Sq::G6, Sq::F6, Sq::None]),  // 23: corner H8 3x3
+
+    FeatureToCoordinate::new(9, [Sq::B2, Sq::C2, Sq::D2, Sq::B3, Sq::C3, Sq::D3, Sq::B4, Sq::C4, Sq::D4, Sq::None]),  // 24: center 3x3 NW
+    FeatureToCoordinate::new(9, [Sq::G2, Sq::F2, Sq::E2, Sq::G3, Sq::F3, Sq::E3, Sq::G4, Sq::F4, Sq::E4, Sq::None]),  // 25: center 3x3 NE
+    FeatureToCoordinate::new(9, [Sq::B7, Sq::C7, Sq::D7, Sq::B6, Sq::C6, Sq::D6, Sq::B5, Sq::C5, Sq::D5, Sq::None]),  // 26: center 3x3 SW
+    FeatureToCoordinate::new(9, [Sq::G7, Sq::F7, Sq::E7, Sq::G6, Sq::F6, Sq::E6, Sq::G5, Sq::F5, Sq::E5, Sq::None]),  // 27: center 3x3 SE
+
+    FeatureToCoordinate::new(7, [Sq::B1, Sq::C2, Sq::D3, Sq::E4, Sq::F5, Sq::G6, Sq::H7, Sq::None, Sq::None, Sq::None]),  // 28: adjacent diagonal B1-H7
+    FeatureToCoordinate::new(7, [Sq::A2, Sq::B3, Sq::C4, Sq::D5, Sq::E6, Sq::F7, Sq::G8, Sq::None, Sq::None, Sq::None]),  // 29: adjacent diagonal A2-G8
+    FeatureToCoordinate::new(7, [Sq::G1, Sq::F2, Sq::E3, Sq::D4, Sq::C5, Sq::B6, Sq::A7, Sq::None, Sq::None, Sq::None]),  // 30: adjacent diagonal G1-A7
+    FeatureToCoordinate::new(7, [Sq::H2, Sq::G3, Sq::F4, Sq::E5, Sq::D6, Sq::C7, Sq::B8, Sq::None, Sq::None, Sq::None]),  // 31: adjacent diagonal H2-B8
 ];
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
@@ -805,15 +815,21 @@ mod tests {
         // Patterns with 9 squares: 3^9 = 19683
         assert_eq!(calc_pattern_size(20), 19683);
         assert_eq!(calc_pattern_size(21), 19683);
-        assert_eq!(calc_pattern_size(22), 19683);
-        assert_eq!(calc_pattern_size(23), 19683);
+        assert_eq!(calc_pattern_size(24), 19683);
+        assert_eq!(calc_pattern_size(27), 19683);
+
+        // Patterns with 7 squares: 3^7 = 2187
+        assert_eq!(calc_pattern_size(28), 2187);
+        assert_eq!(calc_pattern_size(29), 2187);
+        assert_eq!(calc_pattern_size(30), 2187);
+        assert_eq!(calc_pattern_size(31), 2187);
     }
 
     #[test]
     fn test_sum_eval_f2x() {
-        // 20 patterns with 8 squares + 4 patterns with 9 squares
-        // = 20 * 6561 + 4 * 19683 = 131220 + 78732 = 209952
-        let expected = 20 * 6561 + 4 * 19683;
+        // 20 patterns with 8 squares + 8 patterns with 9 squares + 4 patterns with 7 squares
+        // = 20 * 6561 + 8 * 19683 + 4 * 2187 = 131220 + 157464 + 8748 = 297432
+        let expected = 20 * 6561 + 8 * 19683 + 4 * 2187;
         assert_eq!(sum_eval_f2x(), expected);
         assert_eq!(INPUT_FEATURE_DIMS, expected);
     }
@@ -840,8 +856,11 @@ mod tests {
         for (i, f2x) in EVAL_F2X.iter().enumerate().take(20) {
             assert_eq!(f2x.n_square, 8, "Pattern {} should have 8 squares", i);
         }
-        for (i, f2x) in EVAL_F2X.iter().enumerate().skip(20) {
+        for (i, f2x) in EVAL_F2X.iter().enumerate().skip(20).take(8) {
             assert_eq!(f2x.n_square, 9, "Pattern {} should have 9 squares", i);
+        }
+        for (i, f2x) in EVAL_F2X.iter().enumerate().skip(28) {
+            assert_eq!(f2x.n_square, 7, "Pattern {} should have 7 squares", i);
         }
 
         // Verify no None squares within n_square range
@@ -896,16 +915,9 @@ mod tests {
 
         // Verify not all patterns are at "all empty" value (regression check)
         // Initial position has 4 discs, so patterns covering center must differ from empty
-        let all_empty_8 = 6560u16; // 2*(3^8-1)/2
-        let all_empty_9 = 19682u16; // 2*(3^9-1)/2
-
         let mut has_non_empty_pattern = false;
         for (i, &pattern) in patterns.iter().enumerate() {
-            let empty_val = if EVAL_F2X[i].n_square == 8 {
-                all_empty_8
-            } else {
-                all_empty_9
-            };
+            let empty_val = (calc_pattern_size(i) - 1) as u16;
             if pattern != empty_val {
                 has_non_empty_pattern = true;
                 break;
@@ -1119,7 +1131,7 @@ mod tests {
     #[test]
     fn test_num_features_constant() {
         assert_eq!(NUM_FEATURES, NUM_PATTERN_FEATURES);
-        assert_eq!(NUM_PATTERN_FEATURES, 24);
+        assert_eq!(NUM_PATTERN_FEATURES, 32);
     }
 
     #[test]

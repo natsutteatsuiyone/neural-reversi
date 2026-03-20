@@ -313,6 +313,8 @@ impl NetworkSmall {
             accumulate_4!(12);
             accumulate_4!(16);
             accumulate_4!(20);
+            accumulate_4!(24);
+            accumulate_4!(28);
 
             // Clamp values to [0, ACTIVATION_CLAMP_MAX] for squared clipped ReLU
             let zero = _mm512_setzero_si512();
@@ -422,6 +424,8 @@ impl NetworkSmall {
             accumulate_4!(12);
             accumulate_4!(16);
             accumulate_4!(20);
+            accumulate_4!(24);
+            accumulate_4!(28);
 
             // Clamp values to [0, ACTIVATION_CLAMP_MAX] for squared clipped ReLU
             let zero = _mm256_setzero_si256();

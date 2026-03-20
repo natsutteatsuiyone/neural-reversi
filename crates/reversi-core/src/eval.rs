@@ -43,13 +43,13 @@ pub enum EvalMode {
 
 macro_rules! eval_main_weights_literal {
     () => {
-        "eval-dbdbed46.zst"
+        "eval-e6bbc4f6.zst"
     };
 }
 
 macro_rules! eval_small_weights_literal {
     () => {
-        "eval_sm-69fb3156.zst"
+        "eval_sm-e6bbc4f6.zst"
     };
 }
 
