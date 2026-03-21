@@ -72,6 +72,15 @@ fn calculate_remaining_factor_sum(n_empties: u32) -> f64 {
     sum
 }
 
+/// Returns the default minimum time percentage based on game phase.
+fn default_min_percent(is_endgame: bool) -> u64 {
+    if is_endgame {
+        MIN_PERCENT_ENDGAME
+    } else {
+        MIN_PERCENT_NORMAL
+    }
+}
+
 /// Time control mode for a game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimeControlMode {
@@ -209,19 +218,7 @@ impl TimeManager {
             TimeControlMode::Infinite => (u64::MAX, u64::MAX, u64::MAX),
 
             TimeControlMode::Byoyomi { time_per_move_ms } => {
-                let available = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
-                let mini_pct = if is_endgame {
-                    MIN_PERCENT_ENDGAME
-                } else {
-                    MIN_PERCENT_NORMAL
-                };
-                Self::compute_limits(
-                    available,
-                    available,
-                    mini_pct,
-                    BYOYOMI_MAX_PERCENT,
-                    available,
-                )
+                Self::byoyomi_limits(time_per_move_ms, is_endgame)
             }
 
             TimeControlMode::Fischer {
@@ -230,29 +227,23 @@ impl TimeManager {
             } => {
                 let hard_limit = Self::calculate_safe_time(main_time_ms, n_empties);
                 let budget = Self::allocate_budget(main_time_ms, increment_ms, n_empties);
-                let mini_pct = if is_endgame {
-                    MIN_PERCENT_ENDGAME
-                } else {
-                    MIN_PERCENT_NORMAL
-                };
-
-                Self::compute_limits(budget, budget, mini_pct, FISCHER_MAX_PERCENT, hard_limit)
+                Self::compute_limits(
+                    budget,
+                    budget,
+                    default_min_percent(is_endgame),
+                    FISCHER_MAX_PERCENT,
+                    hard_limit,
+                )
             }
 
             TimeControlMode::MovesToGo { time_ms, moves } => {
                 let hard_limit = time_ms.saturating_sub(TIME_BUFFER_MS);
                 let moves = moves.max(1) as u64;
                 let time_per_move = time_ms / moves;
-                let mini_pct = if is_endgame {
-                    MIN_PERCENT_ENDGAME
-                } else {
-                    MIN_PERCENT_NORMAL
-                };
-
                 Self::compute_limits(
                     time_per_move,
                     time_per_move,
-                    mini_pct,
+                    default_min_percent(is_endgame),
                     MOVESTOGO_MAX_PERCENT,
                     hard_limit,
                 )
@@ -263,31 +254,15 @@ impl TimeManager {
                 time_per_move_ms,
             } => {
                 if main_time_ms == 0 {
-                    // Already in byoyomi
-                    let available = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
-                    let mini_pct = if is_endgame {
-                        MIN_PERCENT_ENDGAME
-                    } else {
-                        MIN_PERCENT_NORMAL
-                    };
-                    Self::compute_limits(
-                        available,
-                        available,
-                        mini_pct,
-                        BYOYOMI_MAX_PERCENT,
-                        available,
-                    )
+                    Self::byoyomi_limits(time_per_move_ms, is_endgame)
                 } else {
-                    // Main time phase
                     let hard_limit = Self::calculate_safe_time(main_time_ms, n_empties);
                     let allocated_time = Self::allocate_budget(main_time_ms, 0, n_empties);
-
                     let mini_pct = if is_endgame {
                         JP_BYO_MAIN_MIN_PERCENT_ENDGAME
                     } else {
                         JP_BYO_MAIN_MIN_PERCENT_NORMAL
                     };
-
                     Self::compute_limits(allocated_time, allocated_time, mini_pct, 100, hard_limit)
                 }
             }
@@ -324,6 +299,18 @@ impl TimeManager {
         let maxi = allocated_maxi.min(hard_limit);
 
         (mini, maxi, hard_limit)
+    }
+
+    /// Calculates time limits for byoyomi-style time control.
+    fn byoyomi_limits(time_per_move_ms: u64, is_endgame: bool) -> (u64, u64, u64) {
+        let available = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
+        Self::compute_limits(
+            available,
+            available,
+            default_min_percent(is_endgame),
+            BYOYOMI_MAX_PERCENT,
+            available,
+        )
     }
 
     /// Starts the timer for a new search.
