@@ -519,7 +519,7 @@ fn main() {
     let mut search = search::Search::new(&search_options);
     let level = Level {
         mid_depth: args.depth,
-        end_depth: [args.depth; 6],
+        end_depth: [args.depth; 4],
     };
     let selectivity = Selectivity::from_u8(args.selectivity);
 

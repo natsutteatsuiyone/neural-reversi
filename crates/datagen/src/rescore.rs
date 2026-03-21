@@ -121,7 +121,7 @@ pub fn execute(
     let mut search = search::Search::new(&options);
     let level = Level {
         mid_depth: 60,
-        end_depth: [empties, empties, empties, empties, empties - 2, empties - 4],
+        end_depth: [empties, empties, empties - 2, empties - 4],
     };
     let run_options = SearchRunOptions::with_level(level, Selectivity::None);
 

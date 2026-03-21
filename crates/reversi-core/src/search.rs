@@ -174,7 +174,7 @@ impl Search {
             if n_empties > endgame_start_n_empties {
                 self.endgame_start_n_empties = None;
             } else {
-                effective_level.end_depth = [60; 6];
+                effective_level.end_depth = [60; 4];
             }
         }
 

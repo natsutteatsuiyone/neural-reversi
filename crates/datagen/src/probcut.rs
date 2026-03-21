@@ -174,7 +174,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                     } else {
                         cache_misses += 1;
                         let mut level = get_level(depth);
-                        level.end_depth = [depth as Depth; 6];
+                        level.end_depth = [depth as Depth; 4];
                         let run_options = SearchRunOptions::with_level(level, SELECTIVITY);
                         let result = search.run(&board, &run_options);
                         score_cache.insert(cache_key, result.score);
@@ -320,7 +320,7 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
                     .filter(|depth| *depth < n_empties as usize)
                     .map(|depth| {
                         let mut level = get_level(depth);
-                        level.end_depth = [depth as Depth; 6];
+                        level.end_depth = [depth as Depth; 4];
                         let run_options = SearchRunOptions::with_level(level, Selectivity::None)
                             .with_eval_mode(EvalMode::Small);
                         let result = search.run(&board, &run_options);

@@ -77,6 +77,22 @@ impl Selectivity {
         }
     }
 
+    /// Returns the index into [`Level::end_depth`] for the endgame selectivity sequence.
+    ///
+    /// Maps the four selectivity levels used in endgame search to indices 0-3.
+    ///
+    /// [`Level::end_depth`]: crate::level::Level::end_depth
+    #[inline]
+    pub fn end_depth_index(self) -> usize {
+        match self {
+            Selectivity::Level1 => 0,
+            Selectivity::Level3 => 1,
+            Selectivity::Level5 => 2,
+            Selectivity::None => 3,
+            _ => unreachable!(),
+        }
+    }
+
     /// Returns `true` if ProbCut is enabled at this selectivity level.
     #[inline]
     pub fn is_enabled(self) -> bool {
