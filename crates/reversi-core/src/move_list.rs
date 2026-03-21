@@ -207,13 +207,7 @@ impl MoveList {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
 
-                let score = match sort_depth {
-                    0 => -midgame::evaluate(ctx, &next),
-                    1 => -midgame::evaluate_depth1(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
-                    2 => -midgame::evaluate_depth2(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
-                    _ => unreachable!(),
-                };
-                mv.value = score.value();
+                mv.value = shallow_search_score(ctx, &next, sort_depth).value();
 
                 ctx.undo(mv.sq);
                 best_sort_value = best_sort_value.max(mv.value);
@@ -272,13 +266,7 @@ impl MoveList {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
 
-                let score = match sort_depth {
-                    0 => -midgame::evaluate(ctx, &next),
-                    1 => -midgame::evaluate_depth1(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
-                    2 => -midgame::evaluate_depth2(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
-                    _ => unreachable!(),
-                };
-                mv.value = score.value();
+                mv.value = shallow_search_score(ctx, &next, sort_depth).value();
 
                 const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
                 const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
@@ -365,6 +353,19 @@ impl MoveList {
         // Clear wipeout shortcut if that move was excluded
         self.wipeout_move
             .take_if(|sq| !self.moves.iter().any(|mv| mv.sq == *sq));
+    }
+}
+
+/// Evaluates a position using a shallow search at the specified depth.
+///
+/// Used for move ordering in both midgame and endgame evaluation.
+#[inline(always)]
+fn shallow_search_score(ctx: &mut SearchContext, next: &Board, sort_depth: i32) -> ScaledScore {
+    match sort_depth {
+        0 => -midgame::evaluate(ctx, next),
+        1 => -midgame::evaluate_depth1(ctx, next, -ScaledScore::INF, ScaledScore::INF),
+        2 => -midgame::evaluate_depth2(ctx, next, -ScaledScore::INF, ScaledScore::INF),
+        _ => unreachable!(),
     }
 }
 
