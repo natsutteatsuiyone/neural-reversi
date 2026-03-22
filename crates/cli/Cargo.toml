@@ -7,6 +7,7 @@ edition.workspace = true
 clap = { version = "4", features = ["derive"] }
 colored = "3"
 crossterm = { version = "0.29", features = ["event-stream"] }
+num-format = "0.4"
 ratatui = "0.30"
 reversi-core = { path = "../reversi-core" }
 rustyline = "17"

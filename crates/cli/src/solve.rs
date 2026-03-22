@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::time::Duration;
 
+use num_format::{Locale, ToFormattedString};
 use reversi_core::search::options::SearchOptions;
 use reversi_core::{
     board::Board,
@@ -24,6 +25,10 @@ pub fn solve(
     eval_sm_path: Option<&Path>,
     exact: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Count lines to determine # column width
+    let line_count = BufReader::new(File::open(file_path)?).lines().count();
+    let num_width = line_count.to_string().len().max(3);
+
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
@@ -38,12 +43,14 @@ pub fn solve(
         get_level(level)
     };
 
+    let dashes = "-".repeat(num_width);
     println!(
-        "| {:^3} | {:^6} | {:^5} | {:^9} | {:^12} | {:^10} | {:^23} |",
+        "| {:^num_width$} | {:^6} | {:^5} | {:^9} | {:^19} | {:^13} | {:^23} |",
         "#", "Depth", "Score", "Time", "Nodes", "N/s", "Principal Variation"
     );
     println!(
-        "|-----|--------|-------|-----------|--------------|------------|-------------------------|"
+        "|{dashes:->nw$}--|--------|-------|-----------|---------------------|---------------|-------------------------|",
+        nw = num_width
     );
 
     let mut total_time = Duration::ZERO;
@@ -72,6 +79,7 @@ pub fn solve(
                     level_config,
                     selectivity,
                     line_num + 1,
+                    num_width,
                 );
                 total_time += elapsed;
                 total_nodes += nodes;
@@ -91,8 +99,10 @@ pub fn solve(
         0.0
     };
     println!(
-        "Total: {:.3}s, {} nodes, {:.0} N/s",
-        total_secs, total_nodes, total_nps
+        "Total: {:.3}s, {} nodes, {} N/s",
+        total_secs,
+        total_nodes.to_formatted_string(&Locale::en),
+        (total_nps.round() as u64).to_formatted_string(&Locale::en)
     );
 
     Ok(())
@@ -132,6 +142,7 @@ fn solve_position(
     level: reversi_core::level::Level,
     selectivity: Selectivity,
     position_num: usize,
+    num_width: usize,
 ) -> (Duration, u64) {
     use std::time::Instant;
 
@@ -140,8 +151,8 @@ fn solve_position(
     if is_pass && !board.switch_players().has_legal_moves() {
         let score = board.solve(board.get_empty_count());
         println!(
-            "| {:^3} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>12} | {:>10.0} | {:23} |",
-            position_num, "END", score, 0, 0.0, 0, 0.0, "--"
+            "| {:>num_width$} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>19} | {:>13} | {:23} |",
+            position_num, "END", score, 0, 0.0, "0", "0", "--"
         );
         return (Duration::ZERO, 0);
     }
@@ -192,14 +203,14 @@ fn solve_position(
     };
 
     println!(
-        "| {:^3} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>12} | {:>10.0} | {:23} |",
+        "| {:>num_width$} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>19} | {:>13} | {:23} |",
         position_num,
         depth,
         score,
         elapsed.as_secs() / 60,
         elapsed.as_secs_f64() % 60.0,
-        result.n_nodes,
-        nodes_per_sec,
+        result.n_nodes.to_formatted_string(&Locale::en),
+        (nodes_per_sec.round() as u64).to_formatted_string(&Locale::en),
         pv_string
     );
 

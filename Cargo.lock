@@ -661,6 +661,7 @@ dependencies = [
  "clap",
  "colored",
  "crossterm",
+ "num-format",
  "ratatui",
  "reversi-core",
  "rustyline",
