@@ -53,6 +53,11 @@ impl TestCase {
         }
     }
 
+    /// Whether this is a pass position (no legal moves for the side to move)
+    pub fn is_pass(&self) -> bool {
+        self.best_moves.is_empty()
+    }
+
     /// Convert the test case into a playable Board instance
     pub fn get_board(&self) -> Board {
         Board::from_string(&self.board_str, self.side_to_move)

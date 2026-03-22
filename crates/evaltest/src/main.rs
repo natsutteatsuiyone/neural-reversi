@@ -78,32 +78,40 @@ fn round_duration(elapsed: std::time::Duration) -> std::time::Duration {
     std::time::Duration::from_micros(rounded_micros)
 }
 
+/// Format a ratio as "XX.X% (n/total)", or "N/A" when total is zero
+fn format_ratio(count: usize, total: usize) -> String {
+    if total > 0 {
+        format!(
+            "{:.1}% ({}/{})",
+            (count as f64 / total as f64) * 100.0,
+            count,
+            total
+        )
+    } else {
+        "N/A".to_string()
+    }
+}
+
 impl SearchStats {
     /// Update statistics with results from a single test case
-    fn update(
-        &mut self,
-        elapsed: std::time::Duration,
-        result: &SearchResult,
-        test_case: &TestCase,
-    ) {
-        self.total_time += round_duration(elapsed);
-        self.total_nodes += result.n_nodes;
+    fn update(&mut self, result: &TestResult) {
+        self.total_time += round_duration(result.elapsed);
+        self.total_nodes += result.nodes;
         self.total_count += 1;
 
-        let score_difference = (result.score - test_case.expected_score as Scoref).abs();
-        self.score_differences.push(score_difference);
+        self.score_differences.push(result.score_difference);
 
-        if score_difference <= SCORE_TOLERANCE_PERFECT {
+        if result.score_difference <= SCORE_TOLERANCE_PERFECT {
             self.perfect_score_count += 1;
         }
-        if score_difference <= SCORE_TOLERANCE_GOOD {
+        if result.score_difference <= SCORE_TOLERANCE_GOOD {
             self.good_score_count += 1;
         }
-        if score_difference <= SCORE_TOLERANCE_ACCEPTABLE {
+        if result.score_difference <= SCORE_TOLERANCE_ACCEPTABLE {
             self.acceptable_score_count += 1;
         }
 
-        match Self::classify_move(result, test_case) {
+        match result.move_accuracy {
             MoveAccuracy::Best => {
                 self.best_move_count += 1;
                 self.top2_move_count += 1;
@@ -204,57 +212,27 @@ impl SearchStats {
             ("NPS", nps.to_formatted_string(&Locale::en)),
             (
                 "Best move",
-                format!(
-                    "{:.1}% ({}/{})",
-                    (self.best_move_count as f64 / self.total_count as f64) * 100.0,
-                    self.best_move_count,
-                    self.total_count
-                ),
+                format_ratio(self.best_move_count, self.total_count),
             ),
             (
                 "Top 2 move",
-                format!(
-                    "{:.1}% ({}/{})",
-                    (self.top2_move_count as f64 / self.total_count as f64) * 100.0,
-                    self.top2_move_count,
-                    self.total_count
-                ),
+                format_ratio(self.top2_move_count, self.total_count),
             ),
             (
                 "Top 3 move",
-                format!(
-                    "{:.1}% ({}/{})",
-                    (self.top3_move_count as f64 / self.total_count as f64) * 100.0,
-                    self.top3_move_count,
-                    self.total_count
-                ),
+                format_ratio(self.top3_move_count, self.total_count),
             ),
             (
                 "Score ±3",
-                format!(
-                    "{:.1}% ({}/{})",
-                    (self.perfect_score_count as f64 / self.total_count as f64) * 100.0,
-                    self.perfect_score_count,
-                    self.total_count
-                ),
+                format_ratio(self.perfect_score_count, self.total_count),
             ),
             (
                 "Score ±6",
-                format!(
-                    "{:.1}% ({}/{})",
-                    (self.good_score_count as f64 / self.total_count as f64) * 100.0,
-                    self.good_score_count,
-                    self.total_count
-                ),
+                format_ratio(self.good_score_count, self.total_count),
             ),
             (
                 "Score ±9",
-                format!(
-                    "{:.1}% ({}/{})",
-                    (self.acceptable_score_count as f64 / self.total_count as f64) * 100.0,
-                    self.acceptable_score_count,
-                    self.total_count
-                ),
+                format_ratio(self.acceptable_score_count, self.total_count),
             ),
             ("MAE", format!("{mean_diff:.2}")),
             ("Std Dev.", format!("{std_dev:.2}")),
@@ -306,12 +284,12 @@ fn print_header() {
 }
 
 /// Format depth information including probability if not 100%
-fn format_depth(result: &SearchResult) -> String {
-    let probability = result.get_probability();
+fn format_depth(depth: Depth, selectivity: Selectivity) -> String {
+    let probability = selectivity.probability();
     if probability == 100 {
-        format!("{}", result.depth)
+        format!("{depth}")
     } else {
-        format!("{}@{}%", result.depth, probability)
+        format!("{depth}@{probability}%")
     }
 }
 
@@ -357,20 +335,36 @@ fn execute_test_case(
     selectivity: Selectivity,
 ) -> TestResult {
     let board = test_case.get_board();
+    // For pass positions, switch sides and search from the opponent's perspective
+    let search_board = if test_case.is_pass() {
+        board.switch_players()
+    } else {
+        board
+    };
     search.init();
 
     let start = Instant::now();
     let options = SearchRunOptions::with_level(level, selectivity);
-    let result = search.run(&board, &options);
+    let result = search.run(&search_board, &options);
     let elapsed = start.elapsed();
 
-    let score_difference = (result.score - test_case.expected_score as Scoref).abs();
-    let move_accuracy = SearchStats::classify_move(&result, test_case);
+    // For pass positions, negate the score back to the original player's perspective
+    let score = if test_case.is_pass() {
+        -result.score
+    } else {
+        result.score
+    };
+    let score_difference = (score - test_case.expected_score as Scoref).abs();
+    let move_accuracy = if test_case.is_pass() {
+        MoveAccuracy::Best // Pass positions don't have move choices
+    } else {
+        SearchStats::classify_move(&result, test_case)
+    };
 
     TestResult {
         elapsed,
         nodes: result.n_nodes,
-        score: result.score,
+        score,
         depth: result.depth,
         selectivity: result.selectivity,
         pv_line: result.pv_line,
@@ -391,21 +385,14 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
     };
     let nps_formatted = nps.to_formatted_string(&Locale::en);
 
-    let pv_line_str = format_pv_line(&result.pv_line, 3);
+    let pv_line_str = if test_case.is_pass() {
+        "PS".to_string()
+    } else {
+        format_pv_line(&result.pv_line, 3)
+    };
     let score_colored = colorize_score(result.score, result.score_difference);
     let pv_line_colored = colorize_move(pv_line_str, result.move_accuracy);
-    // Create a temporary SearchResult just for formatting depth
-    let temp_result = SearchResult {
-        score: result.score,
-        best_move: result.pv_line.first().copied(),
-        n_nodes: result.nodes,
-        pv_line: result.pv_line.clone(),
-        pv_moves: vec![],
-        depth: result.depth,
-        selectivity: result.selectivity,
-        is_endgame: true,
-    };
-    let depth_str = format_depth(&temp_result);
+    let depth_str = format_depth(result.depth, result.selectivity);
 
     println!(
         "| {:>3} | {:^6} | {:>9.4} | {:>15} | {:>13} | {:<8} | {:>6} | {:<32} |",
@@ -416,11 +403,15 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
         nps_formatted,
         pv_line_colored,
         score_colored,
-        format!(
-            "{:>3} : {}",
-            test_case.expected_score,
-            test_case.get_best_moves_str()
-        )
+        if test_case.is_pass() {
+            format!("{:>3} : PS", test_case.expected_score)
+        } else {
+            format!(
+                "{:>3} : {}",
+                test_case.expected_score,
+                test_case.get_best_moves_str()
+            )
+        }
     );
 }
 
@@ -439,17 +430,7 @@ fn execute_section(
 
     for test_case in test_cases {
         let result = execute_test_case(test_case, search, level, selectivity);
-        let search_result = SearchResult {
-            score: result.score,
-            best_move: result.pv_line.first().copied(),
-            n_nodes: result.nodes,
-            pv_line: result.pv_line.clone(),
-            pv_moves: vec![],
-            depth: result.depth,
-            selectivity: result.selectivity,
-            is_endgame: true,
-        };
-        stats.update(result.elapsed, &search_result, test_case);
+        stats.update(&result);
         print_test_result(test_case, &result);
     }
 

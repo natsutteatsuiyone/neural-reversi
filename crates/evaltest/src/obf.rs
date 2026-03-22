@@ -161,14 +161,31 @@ fn parse_obf_line(line: &str, line_number: usize) -> Result<TestCase, String> {
 
     // Parse move-score pairs
     let mut move_scores = Vec::new();
+    let mut pass_score = None;
     for segment in &segments[1..] {
         let segment = segment.trim();
         if segment.is_empty() {
             continue;
         }
+        if let Some(score) = parse_pass_score(segment) {
+            pass_score = Some(score);
+            continue;
+        }
         if let Some(ms) = parse_move_score(segment)? {
             move_scores.push(ms);
         }
+    }
+
+    if let Some(score) = pass_score {
+        return Ok(TestCase::new(
+            line_number,
+            board_str,
+            side_to_move,
+            score,
+            vec![],
+            vec![],
+            vec![],
+        ));
     }
 
     if move_scores.is_empty() {
@@ -210,24 +227,37 @@ fn parse_board_header(header: &str) -> Result<(String, Disc), String> {
     Ok((board_str.to_string(), side))
 }
 
+/// Parse a score string: strips leading '+' and parses as i32
+fn parse_score(s: &str) -> Result<i32, String> {
+    s.trim()
+        .trim_start_matches('+')
+        .parse()
+        .map_err(|e| format!("Invalid score '{s}': {e}"))
+}
+
+/// Parse a "PS:score" segment for pass positions, returning the score if matched
+fn parse_pass_score(segment: &str) -> Option<i32> {
+    let (key, value) = segment.split_once(':')?;
+    if key.trim().eq_ignore_ascii_case("PS") {
+        parse_score(value).ok()
+    } else {
+        None
+    }
+}
+
 /// Parse a single "move:score" segment, returning None for sentinel entries
 fn parse_move_score(segment: &str) -> Result<Option<MoveScore>, String> {
-    let parts: Vec<&str> = segment.splitn(2, ':').collect();
-    if parts.len() != 2 {
-        return Err(format!("Invalid move:score format: '{segment}'"));
-    }
-    let move_name = parts[0].trim();
-    let score_str = parts[1].trim();
+    let (move_name, score_str) = segment
+        .split_once(':')
+        .ok_or_else(|| format!("Invalid move:score format: '{segment}'"))?;
+    let move_name = move_name.trim();
 
     // Skip sentinel entries like "--:-127"
     if move_name == "--" {
         return Ok(None);
     }
 
-    let score: i32 = score_str
-        .trim_start_matches('+')
-        .parse()
-        .map_err(|e| format!("Invalid score '{score_str}': {e}"))?;
+    let score = parse_score(score_str)?;
 
     Ok(Some(MoveScore {
         move_name: move_name.to_string(),
