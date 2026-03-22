@@ -10,6 +10,7 @@ use reversi_core::{
     level::{Level, get_level},
     probcut::Selectivity,
     search::{Search, SearchRunOptions},
+    square::Square,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -127,19 +128,41 @@ fn parse_position_line(line: &str) -> Result<(Board, Disc), String> {
 fn solve_position(
     search: &mut Search,
     board: Board,
-    _side_to_move: Disc,
+    side_to_move: Disc,
     level: reversi_core::level::Level,
     selectivity: Selectivity,
     position_num: usize,
 ) -> (Duration, u64) {
     use std::time::Instant;
 
+    let is_pass = !board.has_legal_moves();
+
+    if is_pass && !board.switch_players().has_legal_moves() {
+        let score = board.solve(board.get_empty_count());
+        println!(
+            "| {:^3} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>12} | {:>10.0} | {:23} |",
+            position_num, "END", score, 0, 0.0, 0, 0.0, "--"
+        );
+        return (Duration::ZERO, 0);
+    }
+    let search_board = if is_pass {
+        board.switch_players()
+    } else {
+        board
+    };
+
     // search
     search.init();
     let start_time = Instant::now();
     let options = SearchRunOptions::with_level(level, selectivity);
-    let result = search.run(&board, &options);
+    let result = search.run(&search_board, &options);
     let elapsed = start_time.elapsed();
+
+    let score = if is_pass {
+        -(result.score as i32)
+    } else {
+        result.score as i32
+    };
 
     let depth = if result.get_probability() == 100 {
         format!("{}", result.depth)
@@ -155,23 +178,24 @@ fn solve_position(
     };
 
     // pv
-    let pv_string = if result.pv_line.is_empty() {
-        result.best_move.map_or("--".to_string(), |m| m.to_string())
+    let move_side = if is_pass {
+        side_to_move.opposite()
     } else {
+        side_to_move
+    };
+    let pv_string = if result.pv_line.is_empty() {
         result
-            .pv_line
-            .iter()
-            .take(8)
-            .map(|sq| sq.to_string())
-            .collect::<Vec<_>>()
-            .join(" ")
+            .best_move
+            .map_or("--".to_string(), |m| format_square(m, move_side))
+    } else {
+        format_pv_with_passes(&board, side_to_move, &result.pv_line, 8)
     };
 
     println!(
         "| {:^3} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>12} | {:>10.0} | {:23} |",
         position_num,
         depth,
-        result.score as i32,
+        score,
         elapsed.as_secs() / 60,
         elapsed.as_secs_f64() % 60.0,
         result.n_nodes,
@@ -180,4 +204,56 @@ fn solve_position(
     );
 
     (elapsed, result.n_nodes)
+}
+
+fn format_pv_with_passes(
+    board: &Board,
+    side_to_move: Disc,
+    pv_line: &[Square],
+    max_tokens: usize,
+) -> String {
+    let mut result = String::new();
+    let mut current = *board;
+    let mut side = side_to_move;
+    let mut count = 0;
+
+    for &sq in pv_line {
+        if count >= max_tokens {
+            break;
+        }
+        if !current.has_legal_moves() {
+            if !result.is_empty() {
+                result.push(' ');
+            }
+            result.push_str(format_pass(side));
+            current = current.switch_players();
+            side = side.opposite();
+            count += 1;
+            if count >= max_tokens {
+                break;
+            }
+        }
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        result.push_str(&format_square(sq, side));
+        current = current.make_move(sq);
+        side = side.opposite();
+        count += 1;
+    }
+
+    result
+}
+
+fn format_square(sq: Square, side: Disc) -> String {
+    let s = sq.to_string();
+    if side == Disc::White {
+        s.to_uppercase()
+    } else {
+        s
+    }
+}
+
+fn format_pass(side: Disc) -> &'static str {
+    if side == Disc::White { "PS" } else { "ps" }
 }
