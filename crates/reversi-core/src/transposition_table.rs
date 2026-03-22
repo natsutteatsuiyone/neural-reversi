@@ -507,17 +507,6 @@ impl TTEntry {
             .store(expected_seq.wrapping_add(2), Ordering::Release);
         true
     }
-
-    #[inline(always)]
-    fn clear(&self) {
-        // `TranspositionTable::clear` is currently only used for quiescent
-        // resets between searches/games, so bypass the SeqLock protocol and
-        // zero the entry directly.
-        self.player.store(0, Ordering::Relaxed);
-        self.opponent.store(0, Ordering::Relaxed);
-        self.data.store(0, Ordering::Relaxed);
-        self.seq.store(0, Ordering::Relaxed);
-    }
 }
 
 /// Shared transposition table.
@@ -552,10 +541,16 @@ impl TranspositionTable {
         }
     }
 
-    /// Clears all entries.
+    /// Clears all entries. Must be called with no concurrent readers or writers.
     pub fn clear(&self) {
-        for entry in &*self.entries {
-            entry.clear();
+        // SAFETY: All TTEntry fields are AtomicU64 (interior-mutable via UnsafeCell),
+        // and zeroing bytes is equivalent to AtomicU64::new(0).
+        unsafe {
+            std::ptr::write_bytes(
+                self.entries.as_ptr() as *mut u8,
+                0,
+                self.entries.len() * mem::size_of::<TTEntry>(),
+            );
         }
     }
 
