@@ -273,13 +273,14 @@ impl SearchStats {
 }
 
 /// Print the table header for test results
-fn print_header() {
+fn print_header(num_width: usize) {
     println!(
-        "| {:^3} | {:^6} | {:^9} | {:^15} | {:^13} | {:^8} | {:^6} | {:<32} |",
+        "| {:^num_width$} | {:^6} | {:^9} | {:^15} | {:^13} | {:^8} | {:^6} | {:<32} |",
         "#", "Depth", "Time(s)", "Nodes", "NPS", "Line", "Score", "Expected"
     );
+    let dashes = "-".repeat(num_width);
     println!(
-        "|----:|-------:|----------:|----------------:|--------------:|:---------|-------:|:---------------------------------|"
+        "|{dashes}-:|-------:|----------:|----------------:|--------------:|:---------|-------:|:---------------------------------|"
     );
 }
 
@@ -374,7 +375,7 @@ fn execute_test_case(
 }
 
 /// Print a single test result row
-fn print_test_result(test_case: &TestCase, result: &TestResult) {
+fn print_test_result(test_case: &TestCase, result: &TestResult, num_width: usize) {
     let nodes_formatted = result.nodes.to_formatted_string(&Locale::en);
     let rounded_time = round_duration(result.elapsed);
     let rounded_secs = rounded_time.as_secs_f64();
@@ -395,7 +396,7 @@ fn print_test_result(test_case: &TestCase, result: &TestResult) {
     let depth_str = format_depth(result.depth, result.selectivity);
 
     println!(
-        "| {:>3} | {:^6} | {:>9.4} | {:>15} | {:>13} | {:<8} | {:>6} | {:<32} |",
+        "| {:>num_width$} | {:^6} | {:>9.4} | {:>15} | {:>13} | {:<8} | {:>6} | {:<32} |",
         test_case.line_number,
         depth_str,
         rounded_secs,
@@ -424,14 +425,22 @@ fn execute_section(
     selectivity: Selectivity,
 ) -> SearchStats {
     println!("\n## {section_name} ({} cases)\n", test_cases.len());
-    print_header();
+
+    let max_num = test_cases
+        .iter()
+        .map(|tc| tc.line_number)
+        .max()
+        .unwrap_or(0);
+    let num_width = max_num.to_string().len().max(3);
+
+    print_header(num_width);
 
     let mut stats = SearchStats::default();
 
     for test_case in test_cases {
         let result = execute_test_case(test_case, search, level, selectivity);
         stats.update(&result);
-        print_test_result(test_case, &result);
+        print_test_result(test_case, &result, num_width);
     }
 
     stats.print();
