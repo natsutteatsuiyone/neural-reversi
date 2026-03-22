@@ -16,8 +16,10 @@ use glob::glob;
 use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rand::{SeedableRng, rngs::SmallRng, seq::SliceRandom};
 
+use crate::record;
+
 /// Size of each game record in bytes
-const RECORD_SIZE: usize = 24;
+const RECORD_SIZE: usize = record::RECORD_SIZE as usize;
 
 /// Buffer size for reading files (in number of records)
 const READ_BUFFER_RECORDS: usize = 4096;

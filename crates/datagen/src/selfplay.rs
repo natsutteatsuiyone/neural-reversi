@@ -8,9 +8,8 @@ use rand::RngExt;
 use rand::seq::IteratorRandom;
 use regex::Regex;
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
 use reversi_core::game_state::GameState;
-use reversi_core::level::{Level, get_level};
+use reversi_core::level::Level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
@@ -18,11 +17,13 @@ use reversi_core::square::Square;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::opening;
-use crate::record::{GameRecord, count_records_in_file, write_records_to_file};
+use crate::record::{
+    GameRecord, read_last_game_id, truncate_incomplete_record, write_records_to_file,
+};
 
 /// Minimum number of random moves at the start of each game
 const MIN_RANDOM_MOVES: u8 = 10;
@@ -36,14 +37,114 @@ const FILE_ID_DIGITS: usize = 5;
 /// Maximum size of the record cache
 const MAX_CACHE_SIZE: usize = 1_000_000;
 
+/// Tracks file rotation state across games to avoid re-scanning the output directory.
+struct FileState {
+    prefix: String,
+    output_dir: String,
+    games_per_file: u32,
+    file_id: u32,
+    game_id: u16,
+}
+
+impl FileState {
+    fn new(prefix: &str, output_dir: &str, games_per_file: u32) -> io::Result<Self> {
+        let escaped_prefix = regex::escape(prefix);
+        let pattern = format!(r"^{escaped_prefix}_\d{{{FILE_ID_DIGITS}}}\.bin$");
+        let re = Regex::new(&pattern).unwrap();
+        let latest_file_entry = fs::read_dir(output_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                re.is_match(&name)
+            })
+            .max_by_key(|entry| entry.file_name());
+
+        let mut file_id: u32 = 0;
+        let mut game_id: u16 = 0;
+
+        if let Some(entry) = latest_file_entry {
+            let path = entry.path();
+            file_id = path
+                .file_stem()
+                .and_then(|stem| {
+                    stem.to_string_lossy()
+                        .split('_')
+                        .next_back()
+                        .and_then(|id_str| id_str.parse::<u32>().ok())
+                })
+                .unwrap_or(0);
+
+            // Remove any trailing incomplete record left by a previous interrupted run
+            truncate_incomplete_record(&path)?;
+
+            if let Some(last_id) = read_last_game_id(&path)? {
+                let game_count = last_id as u32 + 1;
+                if game_count >= games_per_file {
+                    file_id += 1;
+                } else {
+                    game_id = last_id + 1;
+                }
+            }
+        }
+
+        Ok(Self {
+            prefix: prefix.to_owned(),
+            output_dir: output_dir.to_owned(),
+            games_per_file,
+            file_id,
+            game_id,
+        })
+    }
+
+    fn file_path(&self, file_id: u32) -> PathBuf {
+        Path::new(&self.output_dir)
+            .join(format!("{}_{:0FILE_ID_DIGITS$}.bin", self.prefix, file_id))
+    }
+
+    fn next_game_id(&mut self) -> u16 {
+        let id = self.game_id;
+        self.game_id += 1;
+        id
+    }
+
+    fn rotate(&mut self) {
+        self.file_id += 1;
+        self.game_id = 0;
+    }
+
+    fn is_full(&self) -> bool {
+        self.game_id as u32 >= self.games_per_file
+    }
+
+    /// Counts the total number of games written across all files.
+    fn total_games(&self) -> io::Result<usize> {
+        let mut total = 0usize;
+        for fid in 0..self.file_id {
+            match read_last_game_id(&self.file_path(fid)) {
+                Ok(Some(last_id)) => total += last_id as usize + 1,
+                Ok(None) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
+        total += self.game_id as usize;
+        Ok(total)
+    }
+
+    fn write_records(&mut self, game_records: &[GameRecord]) -> io::Result<()> {
+        let file_path = self.file_path(self.file_id);
+        write_records_to_file(&file_path, game_records)
+    }
+}
+
 /// Executes self-play with random openings to generate training data.
 ///
 /// # Arguments
 ///
 /// * `num_games` - Number of games to generate
-/// * `records_per_file` - Maximum records per output file
+/// * `games_per_file` - Maximum games per output file
 /// * `hash_size` - Transposition table size in MB
-/// * `level` - Search depth level
+/// * `level` - Search level configuration
 /// * `selectivity` - Search selectivity parameter
 /// * `prefix` - Output file prefix
 /// * `output_dir` - Directory for output files
@@ -53,9 +154,9 @@ const MAX_CACHE_SIZE: usize = 1_000_000;
 /// Returns `Ok(())` on success, or an error if file operations fail.
 pub fn execute(
     num_games: u32,
-    records_per_file: u32,
+    games_per_file: u32,
     hash_size: usize,
-    level: usize,
+    level: Level,
     selectivity: Selectivity,
     prefix: &str,
     output_dir: &str,
@@ -64,27 +165,36 @@ pub fn execute(
 
     let options = SearchOptions::new(hash_size);
 
-    let lv = get_level(level);
     let mut search = search::Search::new(&options);
-    let mut record_cache: HashMap<u64, GameRecord> = HashMap::new();
+    let mut record_cache: HashMap<Board, GameRecord> = HashMap::new();
+    let mut file_state = FileState::new(prefix, output_dir, games_per_file)?;
 
-    for game_id in 0..num_games {
+    for _ in 0..num_games {
+        if file_state.is_full() {
+            file_state.rotate();
+        }
+        let game_id = file_state.next_game_id();
+
         // Generate random opening for this game
-        let num_random = rand::rng().random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES);
+        let mut rng = rand::rng();
+        let num_random = std::cmp::min(
+            rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
+            rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
+        );
         let opening_sequence = generate_random_opening(num_random);
 
         // Play the game using the common function
         let game_records = play_game(
             &opening_sequence,
             &mut search,
-            lv,
+            level,
             selectivity,
-            game_id as usize,
+            game_id,
             &mut record_cache,
         );
 
         // Save the game records
-        save_game(game_records, prefix, output_dir, records_per_file)?;
+        file_state.write_records(&game_records)?;
     }
     Ok(())
 }
@@ -95,9 +205,9 @@ pub fn execute(
 ///
 /// * `openings_path` - Path to file containing opening sequences
 /// * `resume` - Whether to resume from last processed opening
-/// * `records_per_file` - Maximum records per output file
+/// * `games_per_file` - Maximum games per output file
 /// * `hash_size` - Transposition table size in MB
-/// * `level` - Search depth level
+/// * `level` - Search level configuration
 /// * `selectivity` - Search selectivity parameter
 /// * `prefix` - Output file prefix
 /// * `output_dir` - Directory for output files
@@ -109,9 +219,9 @@ pub fn execute(
 pub fn execute_with_openings(
     openings_path: &str,
     resume: bool,
-    records_per_file: u32,
+    games_per_file: u32,
     hash_size: usize,
-    level: usize,
+    level: Level,
     selectivity: Selectivity,
     prefix: &str,
     output_dir: &str,
@@ -120,9 +230,9 @@ pub fn execute_with_openings(
 
     let options = SearchOptions::new(hash_size);
 
-    let lv = get_level(level);
     let mut search = search::Search::new(&options);
-    let mut record_cache: HashMap<u64, GameRecord> = HashMap::new();
+    let mut record_cache: HashMap<Board, GameRecord> = HashMap::new();
+    let mut file_state = FileState::new(prefix, output_dir, games_per_file)?;
 
     let opening_sequences = opening::load_openings(openings_path)?;
 
@@ -134,63 +244,46 @@ pub fn execute_with_openings(
         ));
     }
 
-    // Determine the starting game ID
-    let mut start_game_id = 0;
-    if resume {
-        // Read the last game ID from resume.txt file
-        let resume_file_path = format!("{output_dir}/resume.txt");
-        if Path::new(&resume_file_path).exists() {
-            match fs::read_to_string(&resume_file_path) {
-                Ok(content) => {
-                    let last_game_id = content
-                        .lines()
-                        .next()
-                        .and_then(|line| line.parse::<usize>().ok());
-                    if let Some(id) = last_game_id {
-                        start_game_id = id + 1; // Start from the next game
-                        println!("Resuming from game ID: {start_game_id}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to read resume.txt: {e}");
-                }
-            }
+    // Determine the starting opening index from the last written record
+    let start_index = if resume {
+        let total = file_state.total_games()?;
+        if total > 0 {
+            println!("Resuming from opening index: {total}");
         }
-    }
+        total
+    } else {
+        0
+    };
 
-    // Start iteration from the specified game ID
-    for (game_id, opening_sequence) in opening_sequences.iter().enumerate().skip(start_game_id) {
+    for opening_sequence in opening_sequences.iter().skip(start_index) {
+        if file_state.is_full() {
+            file_state.rotate();
+        }
+        let game_id = file_state.next_game_id();
         let game_records = play_game(
             opening_sequence,
             &mut search,
-            lv,
+            level,
             selectivity,
             game_id,
             &mut record_cache,
         );
 
         // Save the game records
-        save_game(game_records, prefix, output_dir, records_per_file)?;
-
-        // Save the current game ID (progress) to resume.txt
-        if resume {
-            let resume_file_path = format!("{output_dir}/resume.txt");
-            fs::write(&resume_file_path, format!("{game_id}"))?;
-        }
+        file_state.write_records(&game_records)?;
     }
     Ok(())
 }
 
 /// Generates a random opening sequence for a game.
 ///
-/// This function creates a sequence of random moves for the start of a game.
-/// The generated sequence ensures that the position after the opening
-/// is always Black's turn to move, by making the total number of moves even.
+/// Creates a sequence of random moves for the start of a game.
+/// The sequence may end with either player to move.
 ///
 /// # Arguments
 ///
-/// * `num_moves` - The minimum number of random moves to generate. If this is
-///   an odd number, one extra move will be added to make the total even.
+/// * `num_moves` - The number of random moves to generate. May be fewer
+///   if the game ends before this many moves have been played.
 ///
 /// # Returns
 ///
@@ -251,8 +344,8 @@ fn play_game(
     search: &mut search::Search,
     lv: Level,
     selectivity: Selectivity,
-    game_id: usize,
-    record_cache: &mut HashMap<u64, GameRecord>,
+    game_id: u16,
+    record_cache: &mut HashMap<Board, GameRecord>,
 ) -> Vec<GameRecord> {
     let game_start = Instant::now();
     search.init();
@@ -276,11 +369,8 @@ fn play_game(
 
         let board = *game.board();
         let side_to_move = game.side_to_move();
-        let key = board.hash();
 
-        let record = if let Some(cached_record) = record_cache.get(&key)
-            && cached_record.board == board
-        {
+        let mut record = if let Some(cached_record) = record_cache.get(&board) {
             cached_record.clone()
         } else {
             let options = SearchRunOptions::with_level(lv, selectivity);
@@ -288,17 +378,20 @@ fn play_game(
             let ply = 60 - board.get_empty_count() as u8;
 
             let record = GameRecord {
+                game_id,
                 ply,
                 board,
                 score: result.score,
                 game_score: 0,
                 side_to_move,
-                is_random: true, // Opening moves are considered "random"
+                is_random: true,
                 sq,
             };
-            record_cache.insert(board.hash(), record.clone());
+            record_cache.insert(board, record.clone());
             record
         };
+        record.game_id = game_id;
+        record.sq = sq;
 
         game_records.push(record);
 
@@ -325,6 +418,7 @@ fn play_game(
         let best_move = result.best_move.unwrap();
 
         let record = GameRecord {
+            game_id,
             ply,
             board,
             score: result.score,
@@ -340,29 +434,29 @@ fn play_game(
 
     // Calculate final game scores
     if !game_records.is_empty() {
-        let final_board = *game.board();
         let final_side_to_move = game.side_to_move();
+        let final_board = *game.board();
         let final_score = final_board.solve(final_board.get_empty_count()) as i8;
 
         for record in game_records.iter_mut() {
-            let score = match record.side_to_move {
-                Disc::Black | Disc::White => {
-                    if record.side_to_move == final_side_to_move {
-                        final_score
-                    } else {
-                        -final_score
-                    }
-                }
-                Disc::Empty => unreachable!("record side_to_move should never be empty"),
+            record.game_score = if record.side_to_move == final_side_to_move {
+                final_score
+            } else {
+                -final_score
             };
-            record.game_score = score;
         }
     }
 
+    let random_moves = game_records.iter().filter(|r| r.is_random).count();
+    let total_moves = game_records.len();
+    let black_score = game_records.first().map_or(0, |r| r.game_score);
     let duration = game_start.elapsed();
     println!(
-        "Game {} completed in {:.2} seconds",
+        "Game {}: score {:+}, moves {}/{} (random/total), {:.2}s",
         game_id + 1,
+        black_score,
+        random_moves,
+        total_moves,
         duration.as_secs_f64()
     );
 
@@ -373,90 +467,4 @@ fn play_game(
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     board.get_moves().iter().choose(&mut rng).unwrap()
-}
-
-/// Saves game records to output files with automatic file rotation.
-///
-/// Records are distributed across multiple files, creating new files
-/// when the record limit is reached.
-fn save_game(
-    game_records: Vec<GameRecord>,
-    prefix: &str,
-    output_dir: &str,
-    records_per_file: u32,
-) -> io::Result<()> {
-    let pattern = format!(r"^{prefix}_\d{{{FILE_ID_DIGITS}}}\.bin$");
-    let re = Regex::new(&pattern).unwrap();
-    let latest_file_entry = fs::read_dir(output_dir)?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            re.is_match(&name)
-        })
-        .max_by_key(|entry| entry.file_name());
-
-    let mut current_file_id: u32 = 0;
-    let mut current_record_count: u32 = 0;
-    let mut current_file_path_str: String;
-
-    if let Some(entry) = latest_file_entry {
-        let path = entry.path();
-        current_file_path_str = path.to_string_lossy().to_string();
-        current_file_id = Path::new(&current_file_path_str)
-            .file_stem()
-            .and_then(|stem| {
-                stem.to_string_lossy()
-                    .split('_')
-                    .next_back()
-                    .and_then(|id_str| id_str.parse::<u32>().ok())
-            })
-            .unwrap_or(0);
-
-        if path.exists() {
-            current_record_count = count_records_in_file(&path)?;
-            if current_record_count >= records_per_file {
-                current_file_id += 1;
-                current_record_count = 0;
-            }
-        } else {
-            current_record_count = 0;
-        }
-    }
-
-    current_file_path_str = format!("{output_dir}/{prefix}_{current_file_id:0FILE_ID_DIGITS$}.bin");
-
-    let mut records_processed = 0;
-    while records_processed < game_records.len() {
-        let remaining_capacity = records_per_file.saturating_sub(current_record_count);
-
-        if remaining_capacity == 0 {
-            current_file_id += 1;
-            current_file_path_str =
-                format!("{output_dir}/{prefix}_{current_file_id:0FILE_ID_DIGITS$}.bin");
-            current_record_count = 0;
-            continue;
-        }
-
-        let records_to_write_now = std::cmp::min(
-            remaining_capacity as usize,
-            game_records.len() - records_processed,
-        );
-
-        if records_to_write_now > 0 {
-            let start_index = records_processed;
-            let end_index = records_processed + records_to_write_now;
-            write_records_to_file(
-                Path::new(&current_file_path_str),
-                &game_records[start_index..end_index],
-            )?;
-
-            current_record_count += records_to_write_now as u32;
-            records_processed += records_to_write_now;
-        } else {
-            eprintln!("Warning: No records processed in loop iteration. Breaking.");
-            break;
-        }
-    }
-
-    Ok(())
 }

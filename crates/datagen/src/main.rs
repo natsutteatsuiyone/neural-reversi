@@ -6,6 +6,7 @@ mod selfplay;
 mod shuffle;
 
 use clap::{Parser, Subcommand};
+use reversi_core::level::Level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::types::Depth;
 
@@ -21,20 +22,25 @@ enum SubCommands {
         #[arg(long, default_value = "100000000")]
         games: u32,
 
-        #[arg(long, default_value = "1000000")]
-        records_per_file: u32,
+        #[arg(long, default_value = "10000")]
+        games_per_file: u32,
 
         #[arg(long, default_value = "512")]
         hash_size: usize,
 
-        #[arg(long, default_value = "12")]
-        level: usize,
+        #[arg(long, default_value = "12", value_parser = clap::value_parser!(u32).range(1..=60),
+            help = "Midgame search depth")]
+        mid_depth: u32,
+
+        #[arg(long, default_value = "21", value_parser = parse_end_depth,
+            help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values (Level1,Level3,Level5,None)")]
+        end_depth: [Depth; 4],
 
         #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=5))]
         selectivity: u8,
 
-        #[arg(long, default_value = "game")]
-        prefix: String,
+        #[arg(long, help = "Output file prefix [default: hostname]")]
+        prefix: Option<String>,
 
         #[arg(short, long)]
         output_dir: String,
@@ -96,25 +102,55 @@ enum SubCommands {
     },
 }
 
+fn parse_end_depth(s: &str) -> Result<[Depth; 4], String> {
+    let values: Vec<Depth> = s
+        .split(',')
+        .map(|v| {
+            v.trim()
+                .parse::<Depth>()
+                .map_err(|e| format!("invalid value '{v}': {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for &v in &values {
+        if !(1..=60).contains(&v) {
+            return Err(format!("value {v} out of range, expected 1..=60"));
+        }
+    }
+
+    match values.len() {
+        1 => Ok([values[0]; 4]),
+        4 => Ok(values.try_into().unwrap()),
+        n => Err(format!("expected 1 or 4 values, got {n}")),
+    }
+}
+
 fn main() {
     let args = Cli::parse();
     match args.command {
         SubCommands::Selfplay {
             games,
-            records_per_file,
+            games_per_file,
             hash_size,
-            level,
+            mid_depth,
+            end_depth,
             selectivity,
             prefix,
             output_dir,
             openings,
             resume,
         } => {
+            let prefix =
+                prefix.unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned());
+            let level = Level {
+                mid_depth,
+                end_depth,
+            };
             if let Some(openings_path) = openings {
                 selfplay::execute_with_openings(
                     &openings_path,
                     resume,
-                    records_per_file,
+                    games_per_file,
                     hash_size,
                     level,
                     Selectivity::from_u8(selectivity),
@@ -125,7 +161,7 @@ fn main() {
             } else {
                 selfplay::execute(
                     games,
-                    records_per_file,
+                    games_per_file,
                     hash_size,
                     level,
                     Selectivity::from_u8(selectivity),

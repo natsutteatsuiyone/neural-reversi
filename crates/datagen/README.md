@@ -13,13 +13,13 @@ Generates game data through AI self-play for neural network training. The self-p
 - Each position is recorded with evaluation scores and game outcome information
 
 ```bash
-datagen selfplay --games 100000 --hash-size 128 --level 12 --selectivity 0 --prefix game --output-dir ./data
+datagen selfplay --games 100000 --hash-size 128 --mid-depth 12 --end-depth 21 --selectivity 0 --prefix game --output-dir ./data
 ```
 
 To use predefined openings:
 
 ```bash
-datagen selfplay --openings openings.txt --resume --hash-size 128 --level 12 --selectivity 0 --prefix game --output-dir ./data
+datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12 --end-depth 21 --selectivity 0 --prefix game --output-dir ./data
 ```
 
 #### Options
@@ -27,7 +27,8 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --level 12 --s
 - `--games`: Number of games to generate (ignored if `--openings` is used). Default: 100,000,000.
 - `--records_per_file`: Number of records to store in each output file (default: 1,000,000)
 - `--hash-size`: Transposition table size in MB for the search algorithm (default: 128)
-- `--level`: Search depth level - higher values result in stronger play but slower generation (default: 12)
+- `--mid-depth`: Midgame search depth (1-60, default: 12)
+- `--end-depth`: Endgame search depth. Single value for all selectivities, or 6 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,Level4,Level5,None) (default: 21)
 - `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--prefix`: Output file prefix for generated data files (default: "game")
 - `--output-dir`: Output directory where game data will be stored

@@ -8,15 +8,16 @@ use reversi_core::square::Square;
 use reversi_core::types::Scoref;
 use std::fs;
 use std::fs::OpenOptions;
-use std::io::{self, BufReader, BufWriter, Write};
+use std::io::{self, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
 
 /// Size of each record in bytes
-pub const RECORD_SIZE: u64 = 24;
+pub const RECORD_SIZE: u64 = 27;
 
 /// Represents a single position record from a self-play game.
 #[derive(Clone)]
 pub struct GameRecord {
+    pub game_id: u16,
     pub ply: u8,
     pub board: Board,
     pub score: Scoref,
@@ -44,28 +45,62 @@ pub fn write_records(writer: &mut impl Write, records: &[GameRecord]) -> io::Res
         writer.write_u8(record.ply)?;
         writer.write_u8(if record.is_random { 1 } else { 0 })?;
         writer.write_u8(record.sq as u8)?;
+        writer.write_u8(if record.side_to_move == Disc::Black {
+            0
+        } else {
+            1
+        })?;
+        writer.write_u16::<LittleEndian>(record.game_id)?;
     }
     Ok(())
 }
 
-/// Counts the number of records in a binary file.
+/// Counts the number of complete records in a binary file.
 pub fn count_records_in_file(path: &Path) -> io::Result<u32> {
-    if !path.exists() {
-        return Ok(0);
+    match fs::metadata(path) {
+        Ok(metadata) => Ok((metadata.len() / RECORD_SIZE) as u32),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(0),
+        Err(e) => Err(e),
     }
-    let metadata = fs::metadata(path)?;
-    let file_size = metadata.len();
+}
 
-    if file_size % RECORD_SIZE != 0 {
+/// Truncates any trailing incomplete record from a binary file.
+///
+/// If the file size is not a multiple of `RECORD_SIZE`, the trailing
+/// bytes are removed so that only complete records remain.
+pub fn truncate_incomplete_record(path: &Path) -> io::Result<()> {
+    let file = match OpenOptions::new().write(true).open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let file_size = file.metadata()?.len();
+    let remainder = file_size % RECORD_SIZE;
+    if remainder != 0 {
+        let aligned = file_size - remainder;
+        file.set_len(aligned)?;
         eprintln!(
-            "Warning: File size {} is not a multiple of RECORD_SIZE {} for file {}. File might be corrupted.",
+            "Warning: Truncated {} trailing bytes from {} (file size {} was not aligned to record size {})",
+            remainder,
+            path.display(),
             file_size,
             RECORD_SIZE,
-            path.display()
         );
     }
+    Ok(())
+}
 
-    Ok((file_size / RECORD_SIZE) as u32)
+/// Reads the `game_id` of the last complete record in a binary file.
+pub fn read_last_game_id(path: &Path) -> io::Result<Option<u16>> {
+    let mut file = fs::File::open(path)?;
+    let file_size = file.metadata()?.len();
+    let aligned = file_size - file_size % RECORD_SIZE;
+    if aligned < RECORD_SIZE {
+        return Ok(None);
+    }
+    // game_id is the last 2 bytes of each complete record
+    file.seek(SeekFrom::Start(aligned - 2))?;
+    Ok(Some(file.read_u16::<LittleEndian>()?))
 }
 
 /// Reads all game records from a binary file.
@@ -98,12 +133,11 @@ pub fn read_records_from_file(path: &Path) -> io::Result<Vec<GameRecord>> {
         let ply = reader.read_u8()?;
         let is_random_byte = reader.read_u8()?;
         let sq_byte = reader.read_u8()?;
+        let side_to_move_byte = reader.read_u8()?;
+        let game_id = reader.read_u16::<LittleEndian>()?;
 
         let board = Board::from_bitboards(Bitboard::new(player), Bitboard::new(opponent));
-        // Note: side_to_move cannot be faithfully reconstructed from the binary format
-        // (passes are not recorded). This approximation is sufficient for rescore
-        // since side_to_move is not serialized back to the output.
-        let side_to_move = if ply % 2 == 0 {
+        let side_to_move = if side_to_move_byte == 0 {
             Disc::Black
         } else {
             Disc::White
@@ -116,6 +150,7 @@ pub fn read_records_from_file(path: &Path) -> io::Result<Vec<GameRecord>> {
         })?;
 
         records.push(GameRecord {
+            game_id,
             ply,
             board,
             score,
