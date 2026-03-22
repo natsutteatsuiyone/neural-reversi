@@ -1,43 +1,84 @@
-//! Lightweight hash table for endgame search results,
+//! Lightweight hash table for endgame search bounds,
 //! separate from the main transposition table.
 //!
-//! Stores exact NWS results keyed by (board, alpha). Since the endgame
-//! NWS is deterministic for a given (position, alpha), entries are valid
-//! across selectivity levels without requiring generation tracking.
+//! Stores endgame NWS lower/upper bounds per position.
 
 use crate::board::Board;
-use crate::{square::Square, types::Score};
+use crate::{
+    constants::{SCORE_MAX, SCORE_MIN},
+    square::Square,
+    types::Score,
+};
 
 /// Result of probing the endgame cache.
 #[derive(Clone, Copy)]
 pub struct EndGameCacheProbe {
-    /// The exact NWS score, available only when alpha matches.
+    /// Cached lower/upper bound if it cuts at this alpha.
     pub score: Option<Score>,
     /// The best move from any previous search of this position.
     pub best_move: Square,
 }
 
-/// Raw entry stored in the hash table.
-///
-/// Uses `repr(C, packed)` to achieve 19-byte entries (no padding).
+/// Raw cache entry.
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 struct RawEntry {
     player: u64,
     opponent: u64,
-    alpha: i8,
-    score: i8,
+    lower: i8,
+    upper: i8,
     best_move: u8,
 }
 
 impl RawEntry {
+    const LOWER_UNSET: i8 = (SCORE_MIN - 1) as i8;
+    const UPPER_UNSET: i8 = (SCORE_MAX + 1) as i8;
+
     const EMPTY: Self = RawEntry {
         player: 0,
         opponent: 0,
-        alpha: i8::MIN,
-        score: 0,
+        lower: Self::LOWER_UNSET,
+        upper: Self::UPPER_UNSET,
         best_move: Square::None as u8,
     };
+
+    #[inline(always)]
+    fn score_for_alpha(self, alpha: Score) -> Option<Score> {
+        let lower = self.lower as Score;
+        if lower > alpha {
+            return Some(lower);
+        }
+
+        let upper = self.upper as Score;
+        if upper <= alpha {
+            return Some(upper);
+        }
+
+        None
+    }
+
+    #[inline(always)]
+    fn store_nws_result(&mut self, alpha: Score, score: Score, best_move: Square) {
+        if score > alpha {
+            self.lower = self.lower.max(score as i8);
+        } else {
+            self.upper = self.upper.min(score as i8);
+        }
+
+        if best_move != Square::None {
+            self.best_move = best_move as u8;
+        }
+    }
+
+    #[inline(always)]
+    fn overwrite(&mut self, board: &Board, alpha: Score, score: Score, best_move: Square) {
+        self.player = board.player.bits();
+        self.opponent = board.opponent.bits();
+        self.lower = Self::LOWER_UNSET;
+        self.upper = Self::UPPER_UNSET;
+        self.best_move = Square::None as u8;
+        self.store_nws_result(alpha, score, best_move);
+    }
 }
 
 /// Hash table for caching endgame search results.
@@ -65,9 +106,8 @@ impl EndGameCache {
 
     /// Probes the cache for a position.
     ///
-    /// Returns the exact score when (player, opponent, alpha) all match.
-    /// Returns only the best move when the position matches but alpha differs.
-    /// Returns `None` when the position doesn't match.
+    /// Returns a cached cutoff score if usable at `alpha`.
+    /// Otherwise returns only the cached best move for a matching position.
     #[inline(always)]
     pub fn probe(&self, key: u64, board: &Board, alpha: Score) -> Option<EndGameCacheProbe> {
         let idx = self.index(key);
@@ -78,16 +118,12 @@ impl EndGameCache {
         }
 
         Some(EndGameCacheProbe {
-            score: if entry.alpha == alpha as i8 {
-                Some(entry.score as Score)
-            } else {
-                None
-            },
+            score: entry.score_for_alpha(alpha),
             best_move: Square::from_u8_unchecked(entry.best_move),
         })
     }
 
-    /// Stores an entry, overwriting any existing entry at the same index.
+    /// Stores or merges an entry.
     #[inline(always)]
     pub fn store(
         &mut self,
@@ -98,13 +134,12 @@ impl EndGameCache {
         best_move: Square,
     ) {
         let idx = self.index(key);
-        self.table[idx] = RawEntry {
-            player: board.player.bits(),
-            opponent: board.opponent.bits(),
-            alpha: alpha as i8,
-            score: score as i8,
-            best_move: best_move as u8,
-        };
+        let entry = &mut self.table[idx];
+        if entry.player == board.player.bits() && entry.opponent == board.opponent.bits() {
+            entry.store_nws_result(alpha, score, best_move);
+        } else {
+            entry.overwrite(board, alpha, score, best_move);
+        }
     }
 
     /// Clears all entries.
@@ -148,10 +183,54 @@ mod tests {
 
         cache.store(key, &board, 11, 12, Square::D3);
 
-        // Same position, different alpha → score is None, best_move still available
-        let probe = cache.probe(key, &board, 5).unwrap();
+        // Lower bound from alpha=11 does not cut at alpha=12.
+        let probe = cache.probe(key, &board, 12).unwrap();
         assert_eq!(probe.score, None);
         assert_eq!(probe.best_move, Square::D3);
+    }
+
+    #[test]
+    fn test_probe_reuses_lower_bound_for_wider_window() {
+        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+
+        cache.store(key, &board, 11, 12, Square::D3);
+
+        let probe = cache.probe(key, &board, 5).unwrap();
+        assert_eq!(probe.score, Some(12));
+        assert_eq!(probe.best_move, Square::D3);
+    }
+
+    #[test]
+    fn test_probe_reuses_upper_bound_for_higher_alpha() {
+        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+
+        cache.store(key, &board, 11, 8, Square::D3);
+
+        let probe = cache.probe(key, &board, 12).unwrap();
+        assert_eq!(probe.score, Some(8));
+        assert_eq!(probe.best_move, Square::D3);
+    }
+
+    #[test]
+    fn test_store_merges_bounds_for_same_board() {
+        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let board = make_board(0x0000000810000000, 0x0000001008000000);
+        let key = board.hash();
+
+        cache.store(key, &board, 8, 11, Square::D3);
+        cache.store(key, &board, 11, 11, Square::None);
+
+        let low_probe = cache.probe(key, &board, 10).unwrap();
+        assert_eq!(low_probe.score, Some(11));
+        assert_eq!(low_probe.best_move, Square::D3);
+
+        let exact_probe = cache.probe(key, &board, 11).unwrap();
+        assert_eq!(exact_probe.score, Some(11));
+        assert_eq!(exact_probe.best_move, Square::D3);
     }
 
     #[test]
@@ -196,6 +275,7 @@ mod tests {
         let probe = cache.probe(key, &board, 63).unwrap();
         assert_eq!(probe.score, Some(64));
 
+        cache.clear();
         cache.store(key, &board, -65, -64, Square::A1);
         let probe = cache.probe(key, &board, -65).unwrap();
         assert_eq!(probe.score, Some(-64));
