@@ -2,7 +2,7 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c>
 
-use std::cell::UnsafeCell;
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::bitboard::Bitboard;
@@ -60,27 +60,22 @@ const INTER_SELECTIVITY_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
 /// Initial aspiration window widening delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
 
+struct EndGameCaches {
+    ec: EndGameCache,
+    shallow: EndGameCache,
+}
+
+impl EndGameCaches {
+    fn new() -> Self {
+        Self {
+            ec: EndGameCache::new(EC_CACHE_BYTES),
+            shallow: EndGameCache::new(SHALLOW_CACHE_BYTES),
+        }
+    }
+}
+
 thread_local! {
-    static EC_CACHE: UnsafeCell<EndGameCache> =
-        UnsafeCell::new(EndGameCache::new(EC_CACHE_BYTES));
-    static SHALLOW_CACHE: UnsafeCell<EndGameCache> =
-        UnsafeCell::new(EndGameCache::new(SHALLOW_CACHE_BYTES));
-}
-
-/// # Safety
-/// Thread-local ensures no cross-thread aliasing. Caller must not hold
-/// overlapping references within the same thread.
-#[inline(always)]
-unsafe fn ec_cache() -> &'static mut EndGameCache {
-    EC_CACHE.with(|cell| unsafe { &mut *cell.get() })
-}
-
-/// # Safety
-/// Thread-local ensures no cross-thread aliasing. Caller must not hold
-/// overlapping references within the same thread.
-#[inline(always)]
-unsafe fn shallow_cache() -> &'static mut EndGameCache {
-    SHALLOW_CACHE.with(|cell| unsafe { &mut *cell.get() })
+    static ENDGAME_CACHES: RefCell<EndGameCaches> = RefCell::new(EndGameCaches::new());
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
@@ -307,9 +302,9 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
     let n_empties = ctx.empty_list.count();
 
     if n_empties > DEPTH_TO_SHALLOW_SEARCH {
-        let ec = unsafe { ec_cache() };
-        let sc = unsafe { shallow_cache() };
-        return null_window_search_with_ec(ctx, board, alpha, ec, sc);
+        return ENDGAME_CACHES.with_borrow_mut(|caches| {
+            null_window_search_with_ec(ctx, board, alpha, &mut caches.ec, &mut caches.shallow)
+        });
     }
 
     match n_empties {
@@ -333,10 +328,8 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
             solve4(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
-        _ => {
-            let sc = unsafe { shallow_cache() };
-            shallow_search(ctx, board, alpha, sc)
-        }
+        _ => ENDGAME_CACHES
+            .with_borrow_mut(|caches| shallow_search(ctx, board, alpha, &mut caches.shallow)),
     }
 }
 
