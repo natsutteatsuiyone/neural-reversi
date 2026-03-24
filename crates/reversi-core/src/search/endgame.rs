@@ -43,12 +43,12 @@ const SELECTIVITY_SEQUENCE: [Selectivity; 4] = [
 pub const DEPTH_TO_NWS: Depth = 11;
 
 /// Depth threshold for switching to specialized shallow search.
-const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
+const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 
-/// Memory budget for the EC cache (8-11 empties), in bytes.
+/// Memory budget for the EC cache, in bytes.
 const EC_CACHE_BYTES: usize = 128 * 1024;
 
-/// Memory budget for the shallow cache (4-7 empties), in bytes.
+/// Memory budget for the shallow cache, in bytes.
 const SHALLOW_CACHE_BYTES: usize = 128 * 1024;
 
 /// Initial aspiration window half-width.
@@ -577,6 +577,35 @@ fn shallow_search(
     best_score
 }
 
+/// Searches all moves in a bitboard subset for shallow search, returning on beta cutoff.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn shallow_search_moves(
+    ctx: &mut SearchContext,
+    board: &Board,
+    moves: Bitboard,
+    key: u64,
+    beta: Score,
+    best_score: &mut Score,
+    best_move: &mut Square,
+    sc: &mut EndGameCache,
+) -> Option<Score> {
+    for sq in moves.iter() {
+        let score = shallow_search_move(ctx, board, sq, beta, sc);
+
+        if score > *best_score {
+            if score >= beta {
+                sc.store(key, board, beta - 1, score, sq);
+                return Some(score);
+            }
+            *best_move = sq;
+            *best_score = score;
+        }
+    }
+
+    None
+}
+
 /// Evaluates a single move in shallow search.
 #[inline(always)]
 fn shallow_search_move(
@@ -608,35 +637,6 @@ fn shallow_search_move(
     };
     ctx.undo_endgame(sq);
     score
-}
-
-/// Searches all moves in a bitboard subset for shallow search, returning on beta cutoff.
-#[allow(clippy::too_many_arguments)]
-#[inline(always)]
-fn shallow_search_moves(
-    ctx: &mut SearchContext,
-    board: &Board,
-    moves: Bitboard,
-    key: u64,
-    beta: Score,
-    best_score: &mut Score,
-    best_move: &mut Square,
-    sc: &mut EndGameCache,
-) -> Option<Score> {
-    for sq in moves.iter() {
-        let score = shallow_search_move(ctx, board, sq, beta, sc);
-
-        if score > *best_score {
-            if score >= beta {
-                sc.store(key, board, beta - 1, score, sq);
-                return Some(score);
-            }
-            *best_move = sq;
-            *best_score = score;
-        }
-    }
-
-    None
 }
 
 /// Sorts the last four empty squares so that odd-parity quadrants are searched first.

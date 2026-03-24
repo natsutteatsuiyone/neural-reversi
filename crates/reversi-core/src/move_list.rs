@@ -298,8 +298,7 @@ impl MoveList {
         ];
 
         const SQUARE_VALUE_WEIGHT: i32 = 128;
-        const CORNER_STABILITY_WEIGHT: i32 = 4096;
-        const POTENTIAL_MOBILITY_WEIGHT: i32 = 2048;
+        const CORNER_STABILITY_WEIGHT: i32 = 2048;
         const MOBILITY_WEIGHT: i32 = 16384;
 
         for mv in self.iter_mut() {
@@ -312,13 +311,12 @@ impl MoveList {
             } else {
                 ctx.increment_nodes();
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                let (moves, potential) = next.get_moves_and_potential();
-                let potential_mobility = potential.corner_weighted_count() as i32;
+                let moves = next.get_moves();
                 let corner_stability = next.opponent.corner_stability() as i32;
                 let weighted_mobility = moves.corner_weighted_count() as i32;
-                let mut value = SQUARE_VALUE[mv.sq.index()] * SQUARE_VALUE_WEIGHT;
+                let mut value =
+                    unsafe { SQUARE_VALUE.get_unchecked(mv.sq.index()) } * SQUARE_VALUE_WEIGHT;
                 value += corner_stability * CORNER_STABILITY_WEIGHT;
-                value += (36 - potential_mobility) * POTENTIAL_MOBILITY_WEIGHT;
                 value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
                 value
             }
