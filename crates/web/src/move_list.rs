@@ -8,10 +8,7 @@ pub use reversi_core::move_list::MoveList;
 
 use reversi_core::{board::Board, square::Square, types::Depth};
 
-use crate::{
-    probcut,
-    search::{self, search_context::SearchContext},
-};
+use crate::search::{self, search_context::SearchContext};
 
 /// Ordering value assigned to wipeout moves.
 const WIPEOUT_VALUE: i32 = 1 << 30;
@@ -68,8 +65,6 @@ fn evaluate_moves_midgame(
     let mut sort_depth = (depth as i32 - 15) / 3;
     sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
 
-    let mut best_sort_value = i32::MIN;
-
     for mv in move_list.iter_mut() {
         if mv.flipped == board.opponent {
             // Wipeout move
@@ -91,32 +86,6 @@ fn evaluate_moves_midgame(
             mv.value = score.value();
 
             ctx.undo(mv.sq);
-            best_sort_value = best_sort_value.max(mv.value);
-        }
-    }
-
-    if best_sort_value == i32::MIN || !ctx.selectivity.is_enabled() {
-        return;
-    }
-
-    // Score-Based Reduction: reduce depth for poor moves
-    // This implements a form of late move reduction based on evaluation scores,
-    // using the same statistical error model as ProbCut.
-    let sigma = probcut::get_sigma(ctx.ply(), sort_depth as Depth, depth);
-    let sbr_margin = (ctx.selectivity.t_value() * sigma).ceil() as i32;
-    if sbr_margin == 0 {
-        return;
-    }
-
-    // best_lower_bound = best_sort_value - sbr_margin
-    // other_upper_bound = mv.value + sbr_margin
-    // Condition: best_lower_bound > other_upper_bound
-    //         => best_sort_value - sbr_margin > mv.value + sbr_margin
-    //         => mv.value < best_sort_value - 2 * sbr_margin
-    let reduction_threshold = best_sort_value - 2 * sbr_margin;
-    for mv in move_list.iter_mut() {
-        if mv.value < reduction_threshold {
-            mv.reduction_depth = 1;
         }
     }
 }

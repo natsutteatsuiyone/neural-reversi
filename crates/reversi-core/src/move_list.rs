@@ -9,7 +9,6 @@ use std::sync::atomic;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
-use crate::probcut;
 use crate::search::midgame;
 use crate::search::search_context::SearchContext;
 use crate::search::search_strategy::SearchStrategy;
@@ -34,8 +33,6 @@ pub struct Move {
     pub flipped: Bitboard,
     /// Evaluation score for move ordering (higher = better).
     pub value: i32,
-    /// Suggested depth reduction for this move in search.
-    pub reduction_depth: Depth,
 }
 
 impl Move {
@@ -49,7 +46,6 @@ impl Move {
             sq,
             flipped,
             value: 0,
-            reduction_depth: 0,
         }
     }
 }
@@ -193,8 +189,6 @@ impl MoveList {
         let mut sort_depth = (depth as i32 - 15) / 3;
         sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
 
-        let mut best_sort_value = i32::MIN;
-
         for mv in self.iter_mut() {
             if mv.flipped == board.opponent {
                 // Wipeout move
@@ -206,36 +200,8 @@ impl MoveList {
                 // Evaluate using shallow search
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
-
                 mv.value = shallow_search_score(ctx, &next, sort_depth).value();
-
                 ctx.undo(mv.sq);
-                best_sort_value = best_sort_value.max(mv.value);
-            }
-        }
-
-        if best_sort_value == i32::MIN || !ctx.selectivity.is_enabled() {
-            return;
-        }
-
-        // Score-Based Reduction: reduce depth for poor moves
-        // This implements a form of late move reduction based on evaluation scores,
-        // using the same statistical error model as ProbCut.
-        let sigma = probcut::get_sigma(ctx.ply(), sort_depth as Depth, depth);
-        let sbr_margin = (ctx.selectivity.t_value() * sigma).ceil() as i32;
-        if sbr_margin == 0 {
-            return;
-        }
-
-        // best_lower_bound = best_sort_value - sbr_margin
-        // other_upper_bound = mv.value + sbr_margin
-        // Condition: best_lower_bound > other_upper_bound
-        //         => best_sort_value - sbr_margin > mv.value + sbr_margin
-        //         => mv.value < best_sort_value - 2 * sbr_margin
-        let reduction_threshold = best_sort_value - 2 * sbr_margin;
-        for mv in self.iter_mut() {
-            if mv.value < reduction_threshold {
-                mv.reduction_depth = 1;
             }
         }
     }
@@ -564,7 +530,6 @@ mod tests {
         for mv in move_list.iter() {
             assert!(!mv.flipped.is_empty());
             assert_eq!(mv.value, i32::MIN); // Initial value
-            assert_eq!(mv.reduction_depth, 0);
         }
     }
 
@@ -588,7 +553,6 @@ mod tests {
         assert_eq!(mv.sq, sq);
         assert_eq!(mv.flipped, flipped);
         assert_eq!(mv.value, 0);
-        assert_eq!(mv.reduction_depth, 0);
     }
 
     /// Tests first() method.

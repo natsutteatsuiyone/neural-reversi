@@ -103,12 +103,6 @@ fn calc_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
     tbl[ply][shallow as usize][deep as usize]
 }
 
-/// Returns the pre-computed sigma value for Score-Based Reduction in move ordering.
-#[inline]
-pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
-    calc_sigma(ply, shallow, deep)
-}
-
 /// Determines the shallow search depth for ProbCut from the given deep search depth.
 fn determine_probcut_depth(depth: Depth) -> Depth {
     let mut probcut_depth = 2 * (depth as f64 * 0.2).floor() as Depth + (depth & 1);

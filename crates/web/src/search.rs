@@ -390,13 +390,7 @@ pub fn search<NT: NodeType>(
         ctx.update(mv.sq, mv.flipped);
 
         let mut score = -ScaledScore::INF;
-        if depth >= 2 && mv.reduction_depth > 0 {
-            let d = depth - 1 - mv.reduction_depth.min(depth - 1);
-            score = -search::<NonPV>(ctx, &next, d, -(alpha + 1), -alpha, is_endgame);
-            if score > alpha {
-                score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, is_endgame);
-            }
-        } else if !NT::PV_NODE || move_count > 1 {
+        if !NT::PV_NODE || move_count > 1 {
             score = -search::<NonPV>(ctx, &next, depth - 1, -(alpha + 1), -alpha, is_endgame);
         }
 

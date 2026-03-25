@@ -14,9 +14,6 @@ pub trait SearchStrategy: Copy + Clone + 'static {
     /// Whether this is an endgame search (used for TT storage flag).
     const IS_ENDGAME: bool;
 
-    /// Whether to use Score-Based Reduction (SBR).
-    const USE_SBR: bool;
-
     /// Minimum depth for Enhanced Transposition Cutoff (0 = always apply).
     const MIN_ETC_DEPTH: Depth;
 
@@ -63,7 +60,6 @@ pub struct EndGameStrategy;
 
 impl SearchStrategy for MidGameStrategy {
     const IS_ENDGAME: bool = false;
-    const USE_SBR: bool = true;
     const MIN_ETC_DEPTH: Depth = 6;
     const MIN_PROBCUT_DEPTH: Depth = 4;
     const DEPTH_TO_SHALLOW: Depth = 3;
@@ -104,7 +100,6 @@ impl SearchStrategy for MidGameStrategy {
 
 impl SearchStrategy for EndGameStrategy {
     const IS_ENDGAME: bool = true;
-    const USE_SBR: bool = false;
     const MIN_ETC_DEPTH: Depth = endgame::DEPTH_TO_NWS + 4;
     const MIN_PROBCUT_DEPTH: Depth = endgame::DEPTH_TO_NWS + 1;
     const DEPTH_TO_SHALLOW: Depth = endgame::DEPTH_TO_NWS;

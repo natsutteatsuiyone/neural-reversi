@@ -588,14 +588,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         let mut score = -ScaledScore::INF;
 
-        // Score-based Reduction (midgame only)
-        if SS::USE_SBR && depth >= 2 && mv.reduction_depth > 0 {
-            let d = (depth - 1).saturating_sub(mv.reduction_depth);
-            score = -search::<NonPV, SS>(ctx, &next, d, -(alpha + 1), -alpha, thread);
-            if score > alpha {
-                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
-            }
-        } else if !NT::PV_NODE || move_count > 1 {
+        if !NT::PV_NODE || move_count > 1 {
             score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
         }
 
@@ -679,15 +672,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         let alpha = split_point.state().alpha();
         let mut score = -ScaledScore::INF;
 
-        // Score-based Reduction (midgame only)
-        if SS::USE_SBR && depth >= 2 && mv.reduction_depth > 0 {
-            let d = (depth - 1).saturating_sub(mv.reduction_depth);
-            score = -search::<NonPV, SS>(ctx, &next, d, -(alpha + 1), -alpha, thread);
-            if score > alpha {
-                let alpha = split_point.state().alpha();
-                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
-            }
-        } else if !NT::PV_NODE || move_count > 1 {
+        if !NT::PV_NODE || move_count > 1 {
             score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
         }
 
