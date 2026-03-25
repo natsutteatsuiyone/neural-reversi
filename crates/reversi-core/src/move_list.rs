@@ -265,8 +265,8 @@ impl MoveList {
                 // Evaluate using shallow search
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
-
                 mv.value = shallow_search_score(ctx, &next, sort_depth).value();
+                ctx.undo(mv.sq);
 
                 const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
                 const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
@@ -276,8 +276,6 @@ impl MoveList {
                 let potential_mobility = potential.corner_weighted_count() as i32;
                 mv.value -= mobility * MOBILITY_SCALE;
                 mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
-
-                ctx.undo(mv.sq);
             };
         }
     }
