@@ -18,8 +18,7 @@ use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::endgame_cache::EndGameCache;
-use crate::search::node_type::NonPV;
-use crate::search::node_type::Root;
+use crate::search::node_type::{NonPV, Root};
 use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
@@ -213,7 +212,7 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> Sca
 
     ctx.eval_mode = EvalMode::Main;
     if ctx.empty_list.count() >= 20 {
-        return midgame::evaluate_depth3(ctx, board, -ScaledScore::INF, ScaledScore::INF);
+        return midgame::evaluate_depth2(ctx, board, -ScaledScore::INF, ScaledScore::INF);
     }
 
     midgame::evaluate(ctx, board)

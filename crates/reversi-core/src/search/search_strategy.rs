@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::search::endgame;
 use crate::search::midgame;
+use crate::search::node_type::NonPV;
 use crate::search::search_context::SearchContext;
 use crate::search::threading::Thread;
 use crate::types::{Depth, ScaledScore};
@@ -82,7 +83,7 @@ impl SearchStrategy for MidGameStrategy {
             0 => midgame::evaluate(ctx, board),
             1 => midgame::evaluate_depth1(ctx, board, alpha, beta),
             2 => midgame::evaluate_depth2(ctx, board, alpha, beta),
-            _ => midgame::evaluate_depth3(ctx, board, alpha, beta),
+            _ => midgame::evaluate_depth3::<NonPV>(ctx, board, alpha, beta),
         }
     }
 

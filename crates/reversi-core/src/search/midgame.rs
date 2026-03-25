@@ -11,8 +11,7 @@ use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
-use crate::search::node_type::NonPV;
-use crate::search::node_type::Root;
+use crate::search::node_type::{NodeType, NonPV, Root};
 use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::MidGameStrategy;
@@ -20,6 +19,7 @@ use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
 use crate::search::{SearchProgress, SearchTask, search};
 use crate::square::Square;
+use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
 
 /// Initial aspiration window delta.
@@ -267,23 +267,40 @@ pub fn probcut(
 }
 
 /// Specialized alpha-beta search for positions at depth 3.
-pub fn evaluate_depth3(
+pub fn evaluate_depth3<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
     mut alpha: ScaledScore,
     beta: ScaledScore,
 ) -> ScaledScore {
+    let org_alpha = alpha;
+
+    let tt_key = board.hash();
+    ctx.tt.prefetch(tt_key);
+
     let moves = board.get_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -evaluate_depth3(ctx, &next, -beta, -alpha);
+            let score = -evaluate_depth3::<NT>(ctx, &next, -beta, -alpha);
             ctx.undo_pass();
             return score;
         } else {
             return board.solve_scaled(ctx.empty_list.count());
         }
+    }
+
+    let tt_probe_result = ctx.tt.probe(board, tt_key);
+    let tt_move = tt_probe_result.best_move();
+
+    if !NT::PV_NODE
+        && let Some(tt_data) = tt_probe_result.data()
+        && tt_data.depth() >= 3
+        && tt_data.selectivity() >= ctx.selectivity
+        && tt_data.can_cut(beta)
+    {
+        return tt_data.score();
     }
 
     let mut move_list = MoveList::with_moves(board, moves);
@@ -292,10 +309,11 @@ pub fn evaluate_depth3(
     }
 
     if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(ctx, board, Square::None);
+        move_list.evaluate_moves_fast(ctx, board, tt_move);
     }
 
     let mut best_score = -ScaledScore::INF;
+    let mut best_move = Square::None;
     for mv in move_list.into_best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -306,13 +324,26 @@ pub fn evaluate_depth3(
         if score > best_score {
             best_score = score;
             if score >= beta {
+                best_move = mv.sq;
                 break;
             }
             if score > alpha {
+                best_move = mv.sq;
                 alpha = score;
             }
         }
     }
+
+    ctx.tt.store(
+        tt_probe_result.index(),
+        board,
+        best_score,
+        Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
+        3,
+        best_move,
+        ctx.selectivity,
+        false,
+    );
 
     best_score
 }
