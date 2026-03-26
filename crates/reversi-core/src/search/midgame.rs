@@ -39,23 +39,19 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
 
-    // Apply forced eval mode if specified
     if let Some(mode) = task.eval_mode {
         ctx.eval_mode = mode;
     }
 
     if ctx.root_moves_count() == 0 {
-        // Handle no legal moves
         return SearchResult::new_no_moves(false);
     }
 
     let n_empties = ctx.empty_list.count();
     if n_empties == 60 && !task.multi_pv {
-        // Handle opening position with random move
         return SearchResult::new_random_move(random_move(&board));
     }
 
-    // Search configuration
     let pv_count = if task.multi_pv {
         ctx.root_moves_count()
     } else {
@@ -65,14 +61,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     let mut depth = compute_start_depth(max_depth);
     while depth <= max_depth {
-        // Save previous iteration scores for aspiration windows
         ctx.save_previous_scores();
 
-        // Multi-PV loop: search each PV line with its own aspiration window
         for pv_idx in 0..pv_count {
             ctx.set_pv_idx(pv_idx);
 
-            // Set up aspiration window based on previous score at this PV index
             let (mut alpha, mut beta) = ctx
                 .get_current_pv_root_move()
                 .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
@@ -86,14 +79,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             let score = aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
 
-            // Stable sort moves from pv_idx to end, bringing best to pv_idx position
             ctx.sort_root_moves_from_pv_idx();
 
             if thread.is_search_aborted() {
                 break;
             }
 
-            // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(ref callback) = task.callback
                 && let Some(rm) = ctx.get_current_pv_root_move()
             {
@@ -110,18 +101,15 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
         }
 
-        // Sort all root moves by score for consistent ordering
         ctx.sort_all_root_moves();
         let best_move = ctx
             .get_best_root_move()
             .expect("internal error: no root moves after search");
 
-        // Notify time manager about search progress
         if let Some(ref tm) = time_manager {
             tm.report_iteration(best_move.sq, best_move.score.to_disc_diff_f32(), depth);
         }
 
-        // Check termination conditions
         if thread.is_search_aborted() || should_stop_iteration(&time_manager) {
             return SearchResult::from_root_move(
                 &ctx.root_moves,
@@ -133,10 +121,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             );
         }
 
-        // Advance to next depth
         depth = next_iteration_depth(depth, max_depth, &mut ctx.selectivity, use_time_control);
         if depth == 0 {
-            break; // selectivity maxed out, exit loop
+            break;
         }
     }
 
@@ -199,17 +186,15 @@ fn next_iteration_depth(
     selectivity: &mut Selectivity,
     use_time_control: bool,
 ) -> Depth {
-    // At max_depth - 1 with time control, try increasing selectivity instead of depth
     if use_time_control && current_depth == max_depth - 1 {
         if selectivity.is_enabled() {
             *selectivity = Selectivity::from_u8(selectivity.as_u8() + 1);
-            return current_depth; // Stay at same depth with higher selectivity
+            return current_depth;
         } else {
-            return 0; // Signal to exit
+            return 0;
         }
     }
 
-    // Normal depth progression: +2 for shallow, +1 for deep
     if current_depth <= DEPTH_STEP_THRESHOLD {
         current_depth + 2
     } else {
@@ -438,14 +423,12 @@ pub fn evaluate_depth1(
 
     let mut best_score = -ScaledScore::INF;
 
-    // Process corner moves first
     for sq in moves.corners().iter() {
         if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
             return score;
         }
     }
 
-    // Process non-corner moves
     for sq in moves.non_corners().iter() {
         if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
             return score;
