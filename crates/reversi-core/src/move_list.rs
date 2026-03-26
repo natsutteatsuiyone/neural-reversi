@@ -165,7 +165,7 @@ impl MoveList {
             9,  9,  9,  9,  9,  9,  9,  9    // 56-63 empty squares
         ];
 
-        if depth <= MIN_DEPTH[ctx.empty_list.count() as usize] {
+        if depth < MIN_DEPTH[ctx.empty_list.count() as usize] {
             self.evaluate_moves_fast(ctx, board, tt_move);
             return;
         }
@@ -215,8 +215,8 @@ impl MoveList {
         tt_move: Square,
     ) {
         let sort_depth = match depth {
-            0..=18 => 0,
-            19..=26 => 1,
+            0..=19 => 0,
+            20..=28 => 1,
             _ => 2,
         };
 
