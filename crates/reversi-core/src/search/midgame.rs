@@ -358,42 +358,25 @@ pub fn evaluate_depth2(
         return ScaledScore::MAX;
     }
 
-    let mut best_score = -ScaledScore::INF;
-    if move_list.count() >= 3 {
+    if move_list.count() >= 2 {
         move_list.evaluate_moves_fast(ctx, board, Square::None);
-        for mv in move_list.into_best_first_iter() {
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+    }
 
-            ctx.update(mv.sq, mv.flipped);
-            let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-            ctx.undo(mv.sq);
+    let mut best_score = -ScaledScore::INF;
+    for mv in move_list.into_best_first_iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
-            if score > best_score {
-                best_score = score;
-                if score >= beta {
-                    break;
-                }
-                if score > alpha {
-                    alpha = score;
-                }
+        ctx.update(mv.sq, mv.flipped);
+        let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
+        ctx.undo(mv.sq);
+
+        if score > best_score {
+            best_score = score;
+            if score >= beta {
+                break;
             }
-        }
-    } else {
-        for mv in move_list.iter() {
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-
-            ctx.update(mv.sq, mv.flipped);
-            let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-            ctx.undo(mv.sq);
-
-            if score > best_score {
-                best_score = score;
-                if score >= beta {
-                    break;
-                }
-                if score > alpha {
-                    alpha = score;
-                }
+            if score > alpha {
+                alpha = score;
             }
         }
     }
