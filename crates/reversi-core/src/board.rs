@@ -73,18 +73,18 @@ impl Board {
             return Err(BoardError::InvalidPlayer);
         }
 
-        let chars: Vec<char> = board_string.chars().collect();
+        let char_count = board_string.chars().count();
 
-        if chars.len() < 64 {
+        if char_count < 64 {
             return Err(BoardError::TooShort {
                 expected: 64,
-                actual: chars.len(),
+                actual: char_count,
             });
         }
-        if chars.len() > 64 {
+        if char_count > 64 {
             return Err(BoardError::TooLong {
                 expected: 64,
-                actual: chars.len(),
+                actual: char_count,
             });
         }
 
@@ -94,7 +94,7 @@ impl Board {
         let mut player = Bitboard::new(0);
         let mut opponent = Bitboard::new(0);
 
-        for (square, &c) in Square::iter().zip(chars.iter()) {
+        for (square, c) in Square::iter().zip(board_string.chars()) {
             if c == player_char {
                 player = player.set(square);
             } else if c == opponent_char {
