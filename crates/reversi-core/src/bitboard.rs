@@ -91,7 +91,8 @@ impl Bitboard {
         if self.0 == 0 {
             None
         } else {
-            Some(Square::from_u32_unchecked(self.0.trailing_zeros()))
+            // SAFETY: bitboard is non-empty, so trailing_zeros() is 0..=63.
+            Some(unsafe { Square::from_u32_unchecked(self.0.trailing_zeros()) })
         }
     }
 
@@ -106,7 +107,8 @@ impl Bitboard {
             !self.is_empty(),
             "lsb_square_unchecked called on empty bitboard"
         );
-        Square::from_u32_unchecked(self.0.trailing_zeros())
+        // SAFETY: caller ensures non-empty; trailing_zeros() on a non-zero u64 is 0..=63.
+        unsafe { Square::from_u32_unchecked(self.0.trailing_zeros()) }
     }
 
     /// Removes and returns the least significant set bit as a [`Square`],
@@ -1184,7 +1186,7 @@ mod tests {
         let count = bitboard.count_ones();
         let mut iterator = BitboardIterator::new(Bitboard(bitboard));
         for i in 0..count {
-            assert_eq!(iterator.next(), Some(Square::from_u32_unchecked(i)));
+            assert_eq!(iterator.next(), Square::from_u32(i));
         }
         assert_eq!(iterator.next(), None);
     }
@@ -1708,7 +1710,7 @@ mod tests {
 
         // Verify equivalence with Square::bitboard()
         for i in 0..64 {
-            let sq = Square::from_u32_unchecked(i);
+            let sq = Square::from_u32(i).unwrap();
             assert_eq!(Bitboard::from_square(sq), sq.bitboard());
         }
     }

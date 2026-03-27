@@ -119,7 +119,8 @@ impl EndGameCache {
 
         Some(EndGameCacheProbe {
             score: entry.score_for_alpha(alpha),
-            best_move: Square::from_u8_unchecked(entry.best_move),
+            // SAFETY: best_move was stored as a valid Square index (0..=64).
+            best_move: unsafe { Square::from_u8_unchecked(entry.best_move) },
         })
     }
 

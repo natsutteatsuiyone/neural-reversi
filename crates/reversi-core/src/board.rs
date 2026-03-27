@@ -94,9 +94,7 @@ impl Board {
         let mut player = Bitboard::new(0);
         let mut opponent = Bitboard::new(0);
 
-        for (sq, &c) in chars.iter().enumerate() {
-            // Note: sq is guaranteed to be < 64 because chars.len() == 64
-            let square = Square::from_usize_unchecked(sq);
+        for (square, &c) in Square::iter().zip(chars.iter()) {
             if c == player_char {
                 player = player.set(square);
             } else if c == opponent_char {
@@ -104,7 +102,7 @@ impl Board {
             } else if c != '-' {
                 return Err(BoardError::InvalidChar {
                     char: c,
-                    position: sq,
+                    position: square.index(),
                 });
             }
         }

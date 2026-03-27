@@ -527,7 +527,7 @@ impl App {
             return;
         }
 
-        let sq = Square::from_usize_unchecked(self.cursor.0 * 8 + self.cursor.1);
+        let sq = Square::from_file_rank(self.cursor.1 as u8, self.cursor.0 as u8);
         if self.game.board().is_legal_move(sq) {
             self.game.make_move(sq);
             self.last_ai_result = None;

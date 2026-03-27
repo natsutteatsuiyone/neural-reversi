@@ -162,7 +162,8 @@ impl TTEntryData {
     #[inline(always)]
     pub fn best_move(&self) -> Square {
         let val = ((self.raw >> TTEntry::BEST_MOVE_SHIFT) & TTEntry::BEST_MOVE_MASK) as u8;
-        Square::from_u8_unchecked(val)
+        // SAFETY: only valid Square indices (0..=64) are stored.
+        unsafe { Square::from_u8_unchecked(val) }
     }
 
     /// Returns the [`Bound`] type of this entry.
@@ -733,7 +734,7 @@ mod tests {
     use crate::search::node_type::{NonPV, PV};
 
     fn sq(idx: usize) -> Square {
-        Square::from_usize_unchecked(idx)
+        Square::from_usize(idx).unwrap()
     }
 
     fn make_board(player: u64, opponent: u64) -> Board {

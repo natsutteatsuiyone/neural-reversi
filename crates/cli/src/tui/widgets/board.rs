@@ -98,7 +98,7 @@ impl Widget for BoardWidget<'_> {
             buf.set_string(area.x, y, &row_num, Style::default().fg(Color::Cyan));
 
             for col in 0..8 {
-                let sq = Square::from_usize_unchecked(row * 8 + col);
+                let sq = Square::from_file_rank(col as u8, row as u8);
                 let piece = self.board.get_disc_at(sq, self.side_to_move);
                 let is_legal = legal_moves.contains(sq);
                 let is_cursor = self.cursor == (row, col);
@@ -148,7 +148,7 @@ impl Widget for BoardWidget<'_> {
         buf.set_string(area.x, area.y + 17, bottom_border, Style::default());
 
         // Cursor position indicator
-        let cursor_sq = Square::from_usize_unchecked(self.cursor.0 * 8 + self.cursor.1);
+        let cursor_sq = Square::from_file_rank(self.cursor.1 as u8, self.cursor.0 as u8);
         let cursor_info = format!("  Cursor: {}", cursor_sq);
         buf.set_string(
             area.x,

@@ -114,7 +114,7 @@ impl GameState {
             let _ = write!(result, "{} |", y + 1);
 
             for x in 0..8 {
-                let sq = Square::from_usize_unchecked(y * 8 + x);
+                let sq = Square::from_file_rank(x as u8, y as u8);
                 let piece = board.get_disc_at(sq, side_to_move);
                 let symbol = match piece {
                     Disc::Black => "X",

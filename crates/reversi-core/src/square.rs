@@ -73,11 +73,11 @@ impl Square {
     ///
     /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
     ///
-    /// # Panics
+    /// # Safety
     ///
-    /// Panics in debug mode if `index` > 64.
+    /// `index` must be <= 64.
     #[inline]
-    pub fn from_u8_unchecked(index: u8) -> Square {
+    pub unsafe fn from_u8_unchecked(index: u8) -> Square {
         debug_assert!(
             index <= 64,
             "Index out of bounds for Square enum. index: {index:?}"
@@ -92,7 +92,8 @@ impl Square {
     #[inline]
     pub fn from_u8(index: u8) -> Option<Square> {
         if index <= 64 {
-            Some(Square::from_u8_unchecked(index))
+            // SAFETY: index is checked to be <= 64 above.
+            Some(unsafe { Square::from_u8_unchecked(index) })
         } else {
             None
         }
@@ -102,12 +103,16 @@ impl Square {
     ///
     /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
     ///
-    /// # Panics
+    /// # Safety
     ///
-    /// Panics in debug mode if `index` > 64.
+    /// `index` must be <= 64.
     #[inline]
-    pub fn from_u32_unchecked(index: u32) -> Square {
-        Self::from_u8_unchecked(index as u8)
+    pub unsafe fn from_u32_unchecked(index: u32) -> Square {
+        debug_assert!(
+            index <= 64,
+            "Index out of bounds for Square enum. index: {index:?}"
+        );
+        unsafe { Self::from_u8_unchecked(index as u8) }
     }
 
     /// Safely converts a `u32` index to a [`Square`].
@@ -117,7 +122,8 @@ impl Square {
     #[inline]
     pub fn from_u32(index: u32) -> Option<Square> {
         if index <= 64 {
-            Some(Self::from_u8_unchecked(index as u8))
+            // SAFETY: index is checked to be <= 64 above.
+            Some(unsafe { Self::from_u8_unchecked(index as u8) })
         } else {
             None
         }
@@ -127,12 +133,16 @@ impl Square {
     ///
     /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
     ///
-    /// # Panics
+    /// # Safety
     ///
-    /// Panics in debug mode if `index` > 64.
+    /// `index` must be <= 64.
     #[inline]
-    pub fn from_usize_unchecked(index: usize) -> Square {
-        Self::from_u8_unchecked(index as u8)
+    pub unsafe fn from_usize_unchecked(index: usize) -> Square {
+        debug_assert!(
+            index <= 64,
+            "Index out of bounds for Square enum. index: {index:?}"
+        );
+        unsafe { Self::from_u8_unchecked(index as u8) }
     }
 
     /// Safely converts a `usize` index to a [`Square`].
@@ -142,7 +152,8 @@ impl Square {
     #[inline]
     pub fn from_usize(index: usize) -> Option<Square> {
         if index <= 64 {
-            Some(Self::from_u8_unchecked(index as u8))
+            // SAFETY: index is checked to be <= 64 above.
+            Some(unsafe { Self::from_u8_unchecked(index as u8) })
         } else {
             None
         }
@@ -177,10 +188,12 @@ impl Square {
     /// # Panics
     ///
     /// Panics if either `file` or `rank` is >= 8.
+    #[inline]
     pub fn from_file_rank(file: u8, rank: u8) -> Square {
         assert!(file < BOARD_SIZE as u8, "Invalid file: {file}");
         assert!(rank < BOARD_SIZE as u8, "Invalid rank: {rank}");
-        Self::from_usize_unchecked(rank as usize * BOARD_SIZE + file as usize)
+        // SAFETY: file < 8 and rank < 8 are asserted above, so rank * 8 + file <= 63.
+        unsafe { Self::from_usize_unchecked(rank as usize * BOARD_SIZE + file as usize) }
     }
 
     /// Returns an iterator over all 64 valid squares from A1 to H8.
@@ -188,7 +201,8 @@ impl Square {
     /// Does not include [`Square::None`].
     #[inline]
     pub fn iter() -> impl Iterator<Item = Square> {
-        (0..TOTAL_SQUARES as u8).map(Square::from_u8_unchecked)
+        // SAFETY: 0..64 are all valid square indices.
+        (0..TOTAL_SQUARES as u8).map(|i| unsafe { Square::from_u8_unchecked(i) })
     }
 }
 
@@ -285,24 +299,24 @@ mod tests {
 
     #[test]
     fn test_from_usize() {
-        assert_eq!(Square::from_usize_unchecked(0), Square::A1);
-        assert_eq!(Square::from_usize_unchecked(1), Square::B1);
-        assert_eq!(Square::from_usize_unchecked(2), Square::C1);
-        assert_eq!(Square::from_usize_unchecked(3), Square::D1);
-        assert_eq!(Square::from_usize_unchecked(4), Square::E1);
-        assert_eq!(Square::from_usize_unchecked(5), Square::F1);
-        assert_eq!(Square::from_usize_unchecked(6), Square::G1);
-        assert_eq!(Square::from_usize_unchecked(7), Square::H1);
-        assert_eq!(Square::from_usize_unchecked(8), Square::A2);
-        assert_eq!(Square::from_usize_unchecked(63), Square::H8);
+        assert_eq!(Square::from_usize(0), Some(Square::A1));
+        assert_eq!(Square::from_usize(1), Some(Square::B1));
+        assert_eq!(Square::from_usize(2), Some(Square::C1));
+        assert_eq!(Square::from_usize(3), Some(Square::D1));
+        assert_eq!(Square::from_usize(4), Some(Square::E1));
+        assert_eq!(Square::from_usize(5), Some(Square::F1));
+        assert_eq!(Square::from_usize(6), Some(Square::G1));
+        assert_eq!(Square::from_usize(7), Some(Square::H1));
+        assert_eq!(Square::from_usize(8), Some(Square::A2));
+        assert_eq!(Square::from_usize(63), Some(Square::H8));
     }
 
     #[test]
     fn test_iter() {
         let squares: Vec<Square> = Square::iter().collect();
         assert_eq!(squares.len(), 64);
-        assert_eq!(squares[0], Square::from_usize_unchecked(0));
-        assert_eq!(squares[63], Square::from_usize_unchecked(63));
+        assert_eq!(squares[0], Square::A1);
+        assert_eq!(squares[63], Square::H8);
     }
 
     #[test]
@@ -498,29 +512,15 @@ mod tests {
     }
 
     #[test]
-    fn test_unchecked_conversions() {
-        // Test u8 unchecked
-        assert_eq!(Square::from_u8_unchecked(0), Square::A1);
-        assert_eq!(Square::from_u8_unchecked(63), Square::H8);
-        assert_eq!(Square::from_u8_unchecked(64), Square::None);
-
-        // Test u32 unchecked
-        assert_eq!(Square::from_u32_unchecked(0), Square::A1);
-        assert_eq!(Square::from_u32_unchecked(63), Square::H8);
-        assert_eq!(Square::from_u32_unchecked(64), Square::None);
-    }
-
-    #[test]
     fn test_roundtrip_conversions() {
-        // Test that index() and from_*_unchecked are inverses
         for i in 0..=64 {
-            let square = Square::from_usize_unchecked(i);
+            let square = Square::from_usize(i).unwrap();
             assert_eq!(square.index(), i);
 
-            let square_u8 = Square::from_u8_unchecked(i as u8);
+            let square_u8 = Square::from_u8(i as u8).unwrap();
             assert_eq!(square_u8.index(), i);
 
-            let square_u32 = Square::from_u32_unchecked(i as u32);
+            let square_u32 = Square::from_u32(i as u32).unwrap();
             assert_eq!(square_u32.index(), i);
         }
     }

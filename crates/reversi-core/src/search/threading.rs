@@ -145,7 +145,8 @@ impl SplitPointState {
     /// Returns the best move.
     #[inline]
     pub fn best_move(&self) -> Square {
-        Square::from_u8_unchecked(self.best_move.load(Ordering::Relaxed))
+        // SAFETY: best_move is always set via `Square as u8` (0..=64).
+        unsafe { Square::from_u8_unchecked(self.best_move.load(Ordering::Relaxed)) }
     }
 
     /// Sets the best move.
