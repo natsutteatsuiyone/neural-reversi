@@ -28,6 +28,7 @@ fn get_quadrant_id(sq: Square) -> u8 {
         4, 4, 4, 4, 8, 8, 8, 8,
         0, // Square::None
     ];
+    // SAFETY: sq.index() returns 0..=64 and QUADRANT_ID has 65 elements.
     unsafe { *QUADRANT_ID.get_unchecked(sq.index()) }
 }
 
@@ -142,6 +143,7 @@ impl EmptyList {
             sq == Square::None || self.nodes[self.nodes[sq.index()].prev.index()].next == sq,
             "Square {sq:?} is not in the empty list"
         );
+        // SAFETY: sq.index() returns 0..=64 and self.nodes has 65 elements.
         unsafe { self.nodes.get_unchecked(sq.index()).next }
     }
 
@@ -164,6 +166,8 @@ impl EmptyList {
         );
 
         let sq_idx = sq.index();
+        // SAFETY: All Square indices are 0..=64 and self.nodes has 65 elements.
+        // prev and next are copied out before any mutable access, so no aliasing.
         unsafe {
             let node = self.nodes.get_unchecked(sq_idx);
             let prev = node.prev;
@@ -183,13 +187,15 @@ impl EmptyList {
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
         debug_assert!(sq != Square::None, "Cannot restore Square::None");
-        debug_assert!(self.count < 60, "Cannot restore: list is already full");
+        debug_assert!(self.count < INITIAL_EMPTY_COUNT as u32, "Cannot restore: list is already full");
         debug_assert!(
             self.nodes[self.nodes[sq.index()].prev.index()].next != sq,
             "Square {sq:?} is already in the empty list"
         );
 
         let idx = sq.index();
+        // SAFETY: All Square indices are 0..=64 and self.nodes has 65 elements.
+        // prev_idx and next_idx are copied out before any mutable access, so no aliasing.
         unsafe {
             let node = self.nodes.get_unchecked(idx);
             let prev_idx = node.prev.index();
