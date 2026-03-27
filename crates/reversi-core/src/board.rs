@@ -194,6 +194,11 @@ impl Board {
     /// The caller must pass the actual empty count; no validation is performed.
     #[inline(always)]
     pub fn solve(&self, n_empties: u32) -> Score {
+        debug_assert!(
+            n_empties == self.get_empty_count(),
+            "n_empties ({n_empties}) does not match actual empty count ({})",
+            self.get_empty_count()
+        );
         let score = self.disc_score();
         let diff = score + n_empties as Score;
 
