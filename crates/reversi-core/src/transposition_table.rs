@@ -77,6 +77,10 @@ impl Bound {
     /// Converts a 2-bit value to a [`Bound`].
     #[inline]
     pub fn from_u8(value: u8) -> Bound {
+        debug_assert!(
+            value <= 3,
+            "Bound::from_u8 called with out-of-range value: {value}"
+        );
         match value {
             0 => Bound::None,
             1 => Bound::Lower,
@@ -593,6 +597,8 @@ impl TranspositionTable {
     #[inline]
     pub fn prefetch(&self, key: u64) {
         #[cfg(target_arch = "x86_64")]
+        // SAFETY: `get_cluster_idx` returns an index within `entries`, so `.add(index)`
+        // stays within the allocation.
         unsafe {
             let index = self.get_cluster_idx(key);
             let addr = self.entries.as_ptr().add(index) as *const i8;
@@ -611,6 +617,7 @@ impl TranspositionTable {
         let cluster_idx = self.get_cluster_idx(key);
 
         for i in 0..CLUSTER_SIZE {
+            // SAFETY: `cluster_idx + i < cluster_count * CLUSTER_SIZE == entries.len()`.
             let entry = unsafe { self.entries.get_unchecked(cluster_idx + i) };
             if let Some(data) = entry.read(board) {
                 return Some(data);
@@ -643,6 +650,7 @@ impl TranspositionTable {
 
             for i in 0..CLUSTER_SIZE {
                 let idx = cluster_idx + i;
+                // SAFETY: `cluster_idx + i < cluster_count * CLUSTER_SIZE == entries.len()`.
                 let entry = unsafe { self.entries.get_unchecked(idx) };
                 let Some((player, opponent, tt_data)) = entry.try_load_snapshot() else {
                     saw_in_flight_writer = true;
@@ -707,6 +715,8 @@ impl TranspositionTable {
             "TT store index {} out of bounds",
             entry_index
         );
+        // SAFETY: `entry_index` originates from `probe`, which only returns
+        // indices within `entries`.
         let entry = unsafe { self.entries.get_unchecked(entry_index) };
         entry.save(
             board,
