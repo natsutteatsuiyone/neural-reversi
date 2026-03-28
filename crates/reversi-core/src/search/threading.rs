@@ -226,6 +226,9 @@ pub struct SplitPoint {
     state: UnsafeCell<SplitPointState>,
 }
 
+// SAFETY: All access to the inner `UnsafeCell<SplitPointState>` is mediated by
+// the spinlock (`state()`/`state_mut()` callers must hold it), or through atomic
+// fields that are safe to access concurrently.
 unsafe impl Sync for SplitPoint {}
 
 impl Default for SplitPoint {
@@ -263,6 +266,8 @@ impl SplitPoint {
     /// access, to avoid data races on non-atomic fields.
     #[inline]
     pub fn state(&self) -> &SplitPointState {
+        // SAFETY: Caller must hold the split point lock or guarantee exclusive
+        // access. Non-atomic fields must not be concurrently written.
         unsafe { &*self.state.get() }
     }
 
@@ -272,6 +277,7 @@ impl SplitPoint {
     #[inline]
     #[allow(clippy::mut_from_ref)]
     pub fn state_mut(&self) -> &mut SplitPointState {
+        // SAFETY: Caller holds the split point lock.
         unsafe { &mut *self.state.get() }
     }
 
@@ -284,6 +290,7 @@ impl SplitPoint {
     /// Releases the split point's lock.
     #[inline]
     pub fn unlock(&self) {
+        // SAFETY: Caller has previously called lock().
         unsafe { self.mutex.unlock() };
     }
 }
@@ -339,6 +346,9 @@ pub struct Thread {
     exit: AtomicBool,
 }
 
+// SAFETY: All access to the inner `UnsafeCell<ThreadState>` is mediated by
+// `mutex_for_state`. Atomic fields (`searching`, `exit`, `ready`) are safe
+// to access concurrently.
 unsafe impl Sync for Thread {}
 
 impl Thread {
@@ -379,6 +389,7 @@ impl Thread {
 
     /// Releases the thread's state lock.
     pub fn unlock(&self) {
+        // SAFETY: Caller has previously called lock().
         unsafe { self.mutex_for_state.unlock() };
     }
 
@@ -414,6 +425,7 @@ impl Thread {
     /// Returns an immutable reference to the thread state.
     #[inline]
     pub fn state(&self) -> &ThreadState {
+        // SAFETY: Caller holds the thread lock, or access is to atomic fields only.
         unsafe { &*self.state.get() }
     }
 
@@ -421,6 +433,7 @@ impl Thread {
     #[inline]
     #[allow(clippy::mut_from_ref)]
     fn state_mut(&self) -> &mut ThreadState {
+        // SAFETY: Caller holds the thread lock.
         unsafe { &mut *self.state.get() }
     }
 
@@ -1110,7 +1123,6 @@ impl ThreadPool {
     pub fn wait_for_think_finished(&self) {
         const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
-        // Use Relaxed ordering for polling - we just need eventual visibility
         while self.thinking.load(Ordering::Acquire) {
             sleep(POLL_INTERVAL);
         }
