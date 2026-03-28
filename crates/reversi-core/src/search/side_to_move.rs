@@ -11,6 +11,7 @@ pub enum SideToMove {
 
 impl SideToMove {
     /// Returns the opposite side to move.
+    #[inline(always)]
     pub fn switch(self) -> Self {
         match self {
             SideToMove::Player => SideToMove::Opponent,
