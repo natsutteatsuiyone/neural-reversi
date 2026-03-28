@@ -36,9 +36,6 @@ impl SearchStack {
     pub fn update_pv(&mut self, sq: Square, ply: usize) {
         debug_assert!(ply + 1 < MAX_PLY, "ply out of range: {ply}");
         self.stack[ply].pv[0] = sq;
-        if ply == 0 {
-            return;
-        }
         let mut idx = 0;
         while idx < self.stack[ply + 1].pv.len() && self.stack[ply + 1].pv[idx] != Square::None {
             self.stack[ply].pv[idx + 1] = self.stack[ply + 1].pv[idx];
@@ -54,6 +51,18 @@ impl SearchStack {
     #[inline]
     pub fn clear_pv(&mut self, ply: usize) {
         self.stack[ply].pv[0] = Square::None;
+    }
+
+    /// Clears the PV buffers for the given ply and its child ply.
+    ///
+    /// PV searches clear both slots up front so early returns cannot leak a stale
+    /// continuation from a previous sibling or root move.
+    #[inline]
+    pub fn prepare_pv(&mut self, ply: usize) {
+        self.clear_pv(ply);
+        if ply + 1 < MAX_PLY {
+            self.clear_pv(ply + 1);
+        }
     }
 
     /// Returns the principal variation at the given ply.
@@ -82,12 +91,16 @@ mod tests {
     }
 
     #[test]
-    fn update_pv_at_ply_zero_sets_first_entry_only() {
+    fn update_pv_at_ply_zero_propagates_child_pv() {
         let mut stack = SearchStack::new();
+        stack.stack[1].pv[0] = Square::E3;
+
         stack.update_pv(Square::D3, 0);
 
         let pv = stack.get_pv(0);
         assert_eq!(pv[0], Square::D3);
+        assert_eq!(pv[1], Square::E3);
+        assert_eq!(pv[2], Square::None);
     }
 
     #[test]
@@ -95,10 +108,6 @@ mod tests {
         let mut stack = SearchStack::new();
 
         // Simulate a 3-ply PV built bottom-up: ply 3 → ply 2 → ply 1
-        // Leaf: ply 3 has no children, set directly
-        stack.update_pv(Square::C5, 0);
-
-        // Ply 3: set move at leaf
         stack.stack[3].pv[0] = Square::F6;
         stack.stack[3].pv[1] = Square::None;
 
@@ -128,6 +137,22 @@ mod tests {
 
         stack.clear_pv(0);
         assert_eq!(stack.get_pv(0)[0], Square::None);
+    }
+
+    #[test]
+    fn prepare_pv_clears_current_and_child_only() {
+        let mut stack = SearchStack::new();
+        stack.stack[0].pv[0] = Square::C4;
+        stack.stack[1].pv[0] = Square::D3;
+        stack.stack[2].pv[0] = Square::E3;
+        stack.stack[3].pv[0] = Square::F6;
+
+        stack.prepare_pv(1);
+
+        assert_eq!(stack.get_pv(0)[0], Square::C4);
+        assert_eq!(stack.get_pv(1)[0], Square::None);
+        assert_eq!(stack.get_pv(2)[0], Square::None);
+        assert_eq!(stack.get_pv(3)[0], Square::F6);
     }
 
     #[test]

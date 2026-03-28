@@ -177,8 +177,7 @@ impl SearchContext {
             self.update_pv(sq);
         }
 
-        self.root_moves
-            .update(sq, score, is_pv, self.get_pv());
+        self.root_moves.update(sq, score, is_pv, self.get_pv());
     }
 
     /// Returns the root move at the current PV index, or [`None`] if out of bounds.
@@ -233,6 +232,12 @@ impl SearchContext {
     #[inline]
     pub fn clear_pv(&mut self) {
         self.stack.clear_pv(self.ply());
+    }
+
+    /// Clears the PV buffers at the current ply and its child ply.
+    #[inline]
+    pub fn prepare_pv(&mut self) {
+        self.stack.prepare_pv(self.ply());
     }
 
     /// Returns the principal variation at the current ply.

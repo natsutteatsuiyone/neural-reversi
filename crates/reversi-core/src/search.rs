@@ -222,10 +222,7 @@ impl Search {
             });
         }
 
-        if is_time_mode
-            && self.endgame_start_n_empties.is_none()
-            && result.depth + 1 >= n_empties
-        {
+        if is_time_mode && self.endgame_start_n_empties.is_none() && result.depth + 1 >= n_empties {
             self.endgame_start_n_empties = Some(n_empties - 1);
         }
 
@@ -424,6 +421,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     let org_alpha = alpha;
 
     if NT::PV_NODE {
+        ctx.prepare_pv();
         if depth == 0 {
             return SS::evaluate(ctx, board);
         }
@@ -613,7 +611,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         // PV re-search
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
-            ctx.clear_pv();
             score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread);
         }
 
@@ -697,7 +694,6 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
         // PV re-search
         if NT::PV_NODE && score > alpha {
-            ctx.clear_pv();
             let alpha = split_point.state().alpha();
             score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread);
         }

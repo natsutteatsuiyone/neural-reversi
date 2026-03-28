@@ -69,13 +69,7 @@ impl RootMoves {
     /// # Panics
     ///
     /// Panics if `sq` is not found in the root move list.
-    pub fn update(
-        &self,
-        sq: Square,
-        score: ScaledScore,
-        is_pv: bool,
-        pv: &[Square; MAX_PLY],
-    ) {
+    pub fn update(&self, sq: Square, score: ScaledScore, is_pv: bool, pv: &[Square; MAX_PLY]) {
         let mut moves = self.moves.lock().unwrap();
         let rm = moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
         rm.average_score = if rm.average_score == -ScaledScore::INF {
