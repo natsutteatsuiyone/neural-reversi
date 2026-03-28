@@ -35,7 +35,7 @@ use crate::types::{Depth, ScaledScore, Score};
 pub const DEPTH_TO_NWS: Depth = 11;
 
 /// Depth threshold for switching to specialized shallow search.
-const DEPTH_TO_SHALLOW_SEARCH: Depth = 7;
+const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 
 /// Memory budget for the EC cache, in bytes.
 const EC_CACHE_BYTES: usize = 128 * 1024;
