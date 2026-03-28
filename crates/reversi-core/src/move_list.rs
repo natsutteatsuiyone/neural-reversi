@@ -77,6 +77,8 @@ impl MoveList {
             mv.value = i32::MIN;
 
             debug_assert!(moves.len() < moves.capacity());
+            // SAFETY: Reversi positions have at most MAX_MOVES (34) legal moves,
+            // so the ArrayVec capacity is never exceeded.
             unsafe { moves.push_unchecked(mv) };
 
             if flipped == board.opponent {
@@ -278,6 +280,8 @@ impl MoveList {
                 let moves = next.get_moves();
                 let corner_stability = next.opponent.corner_stability() as i32;
                 let weighted_mobility = moves.corner_weighted_count() as i32;
+                // SAFETY: mv.sq is always a valid square (0..=63) from move generation
+                // (Move::new asserts sq != Square::None), so the index is in bounds.
                 let mut value =
                     unsafe { SQUARE_VALUE.get_unchecked(mv.sq.index()) } * SQUARE_VALUE_WEIGHT;
                 value += corner_stability * CORNER_STABILITY_WEIGHT;
@@ -436,9 +440,9 @@ impl Iterator for BestFirstMoveIterator {
 
     /// Returns the next best move, consuming it.
     ///
-    /// This performs a partial selection sort: finds the maximum among
-    /// remaining elements, swaps it to the current position, and returns it.
-    #[inline]
+    /// This performs a partial selection step: finds the maximum among the
+    /// remaining elements and returns it.
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let len = self.moves.len();
         let current = self.current;
@@ -446,6 +450,8 @@ impl Iterator for BestFirstMoveIterator {
             return None;
         }
 
+        // SAFETY: `current < len`, all derived pointers stay within the
+        // initialized `0..len` range, and `Move` is `Copy`.
         unsafe {
             let base_ptr = self.moves.as_mut_ptr();
             let current_ptr = base_ptr.add(current);
@@ -465,12 +471,11 @@ impl Iterator for BestFirstMoveIterator {
                 ptr = ptr.add(1);
             }
 
-            // Swap if needed
+            let result = *max_ptr;
             if max_ptr != current_ptr {
-                std::ptr::swap(current_ptr, max_ptr);
+                *max_ptr = *current_ptr;
             }
 
-            let result = *current_ptr;
             self.current = current + 1;
             Some(result)
         }
