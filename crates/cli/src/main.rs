@@ -55,6 +55,8 @@ enum SubCommands {
         #[command(flatten)]
         engine_params: EngineParams,
     },
+    /// Display version information
+    Version,
 }
 
 fn main() {
@@ -105,6 +107,9 @@ fn main() {
             ) {
                 eprintln!("Error solving game: {e}");
             }
+        }
+        Some(SubCommands::Version) => {
+            println!("neural-reversi {} ({})", env!("CARGO_PKG_VERSION"), env!("TARGET"));
         }
         None => {
             validate_weight_paths(
