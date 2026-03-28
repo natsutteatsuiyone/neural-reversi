@@ -3,21 +3,11 @@
 //!
 //! Stores endgame NWS lower/upper bounds per position.
 
-use crate::board::Board;
 use crate::{
+    board::Board,
     constants::{SCORE_MAX, SCORE_MIN},
-    square::Square,
     types::Score,
 };
-
-/// Result of probing the endgame cache.
-#[derive(Clone, Copy)]
-pub struct EndGameCacheProbe {
-    /// Cached lower/upper bound if it cuts at this alpha.
-    pub score: Option<Score>,
-    /// The best move from any previous search of this position.
-    pub best_move: Square,
-}
 
 /// Raw cache entry.
 #[derive(Clone, Copy)]
@@ -27,7 +17,6 @@ struct RawEntry {
     opponent: u64,
     lower: i8,
     upper: i8,
-    best_move: u8,
 }
 
 impl RawEntry {
@@ -39,7 +28,6 @@ impl RawEntry {
         opponent: 0,
         lower: Self::LOWER_UNSET,
         upper: Self::UPPER_UNSET,
-        best_move: Square::None as u8,
     };
 
     #[inline(always)]
@@ -58,26 +46,21 @@ impl RawEntry {
     }
 
     #[inline(always)]
-    fn store_nws_result(&mut self, alpha: Score, score: Score, best_move: Square) {
+    fn store_nws_result(&mut self, alpha: Score, score: Score) {
         if score > alpha {
             self.lower = self.lower.max(score as i8);
         } else {
             self.upper = self.upper.min(score as i8);
         }
-
-        if best_move != Square::None {
-            self.best_move = best_move as u8;
-        }
     }
 
     #[inline(always)]
-    fn overwrite(&mut self, board: &Board, alpha: Score, score: Score, best_move: Square) {
+    fn overwrite(&mut self, board: &Board, alpha: Score, score: Score) {
         self.player = board.player.bits();
         self.opponent = board.opponent.bits();
         self.lower = Self::LOWER_UNSET;
         self.upper = Self::UPPER_UNSET;
-        self.best_move = Square::None as u8;
-        self.store_nws_result(alpha, score, best_move);
+        self.store_nws_result(alpha, score);
     }
 }
 
@@ -106,10 +89,9 @@ impl EndGameCache {
 
     /// Probes the cache for a position.
     ///
-    /// Returns a cached cutoff score if usable at `alpha`.
-    /// Otherwise returns only the cached best move for a matching position.
+    /// Returns a cached cutoff score if the stored bounds cut at `alpha`.
     #[inline(always)]
-    pub fn probe(&self, key: u64, board: &Board, alpha: Score) -> Option<EndGameCacheProbe> {
+    pub fn probe(&self, key: u64, board: &Board, alpha: Score) -> Option<Score> {
         let idx = self.index(key);
         let entry = self.table[idx];
 
@@ -117,29 +99,18 @@ impl EndGameCache {
             return None;
         }
 
-        Some(EndGameCacheProbe {
-            score: entry.score_for_alpha(alpha),
-            // SAFETY: best_move was stored as a valid Square index (0..=64).
-            best_move: unsafe { Square::from_u8_unchecked(entry.best_move) },
-        })
+        entry.score_for_alpha(alpha)
     }
 
     /// Stores or merges an entry.
     #[inline(always)]
-    pub fn store(
-        &mut self,
-        key: u64,
-        board: &Board,
-        alpha: Score,
-        score: Score,
-        best_move: Square,
-    ) {
+    pub fn store(&mut self, key: u64, board: &Board, alpha: Score, score: Score) {
         let idx = self.index(key);
         let entry = &mut self.table[idx];
         if entry.player == board.player.bits() && entry.opponent == board.opponent.bits() {
-            entry.store_nws_result(alpha, score, best_move);
+            entry.store_nws_result(alpha, score);
         } else {
-            entry.overwrite(board, alpha, score, best_move);
+            entry.overwrite(board, alpha, score);
         }
     }
 
@@ -151,6 +122,8 @@ impl EndGameCache {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+
     use super::*;
     use crate::bitboard::Bitboard;
 
@@ -163,86 +136,72 @@ mod tests {
 
     #[test]
     fn test_store_and_probe_hit() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 11, 12, Square::D3);
+        cache.store(key, &board, 11, 12);
 
         let result = cache.probe(key, &board, 11);
-        assert!(result.is_some());
-        let probe = result.unwrap();
-        assert_eq!(probe.score, Some(12));
-        assert_eq!(probe.best_move, Square::D3);
+        assert_eq!(result, Some(12));
     }
 
     #[test]
-    fn test_probe_different_alpha_returns_best_move_only() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+    fn test_probe_no_cutoff_returns_none() {
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 11, 12, Square::D3);
+        cache.store(key, &board, 11, 12);
 
         // Lower bound from alpha=11 does not cut at alpha=12.
-        let probe = cache.probe(key, &board, 12).unwrap();
-        assert_eq!(probe.score, None);
-        assert_eq!(probe.best_move, Square::D3);
+        assert_eq!(cache.probe(key, &board, 12), None);
     }
 
     #[test]
     fn test_probe_reuses_lower_bound_for_wider_window() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 11, 12, Square::D3);
+        cache.store(key, &board, 11, 12);
 
-        let probe = cache.probe(key, &board, 5).unwrap();
-        assert_eq!(probe.score, Some(12));
-        assert_eq!(probe.best_move, Square::D3);
+        assert_eq!(cache.probe(key, &board, 5), Some(12));
     }
 
     #[test]
     fn test_probe_reuses_upper_bound_for_higher_alpha() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 11, 8, Square::D3);
+        cache.store(key, &board, 11, 8);
 
-        let probe = cache.probe(key, &board, 12).unwrap();
-        assert_eq!(probe.score, Some(8));
-        assert_eq!(probe.best_move, Square::D3);
+        assert_eq!(cache.probe(key, &board, 12), Some(8));
     }
 
     #[test]
     fn test_store_merges_bounds_for_same_board() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 8, 11, Square::D3);
-        cache.store(key, &board, 11, 11, Square::None);
+        cache.store(key, &board, 8, 11);
+        cache.store(key, &board, 11, 11);
 
-        let low_probe = cache.probe(key, &board, 10).unwrap();
-        assert_eq!(low_probe.score, Some(11));
-        assert_eq!(low_probe.best_move, Square::D3);
-
-        let exact_probe = cache.probe(key, &board, 11).unwrap();
-        assert_eq!(exact_probe.score, Some(11));
-        assert_eq!(exact_probe.best_move, Square::D3);
+        assert_eq!(cache.probe(key, &board, 10), Some(11));
+        assert_eq!(cache.probe(key, &board, 11), Some(11));
     }
 
     #[test]
     fn test_store_and_probe_miss_different_board() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board1 = make_board(0x0000000810000000, 0x0000001008000000);
         let board2 = make_board(0x0000001008000000, 0x0000000810000000);
         let key1 = board1.hash();
         let key2 = board2.hash();
 
-        cache.store(key1, &board1, 11, 12, Square::D3);
+        cache.store(key1, &board1, 11, 12);
 
         assert!(cache.probe(key2, &board2, 11).is_none());
     }
@@ -255,40 +214,36 @@ mod tests {
         let key1 = board1.hash();
         let key2 = board2.hash();
 
-        cache.store(key1, &board1, 11, 12, Square::D3);
+        cache.store(key1, &board1, 11, 12);
         assert!(cache.probe(key2, &board2, -8).is_none());
 
-        cache.store(key2, &board2, -8, -8, Square::A1);
+        cache.store(key2, &board2, -8, -8);
 
         assert!(cache.probe(key1, &board1, 11).is_none());
-        let probe = cache.probe(key2, &board2, -8).unwrap();
-        assert_eq!(probe.score, Some(-8));
-        assert_eq!(probe.best_move, Square::A1);
+        assert_eq!(cache.probe(key2, &board2, -8), Some(-8));
     }
 
     #[test]
     fn test_store_extreme_scores() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x1234, 0x5678);
         let key = board.hash();
 
-        cache.store(key, &board, 63, 64, Square::H8);
-        let probe = cache.probe(key, &board, 63).unwrap();
-        assert_eq!(probe.score, Some(64));
+        cache.store(key, &board, 63, 64);
+        assert_eq!(cache.probe(key, &board, 63), Some(64));
 
         cache.clear();
-        cache.store(key, &board, -65, -64, Square::A1);
-        let probe = cache.probe(key, &board, -65).unwrap();
-        assert_eq!(probe.score, Some(-64));
+        cache.store(key, &board, -65, -64);
+        assert_eq!(cache.probe(key, &board, -65), Some(-64));
     }
 
     #[test]
     fn test_clear() {
-        let mut cache = EndGameCache::new((1 << 14) * 24);
+        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
 
-        cache.store(key, &board, 11, 12, Square::D3);
+        cache.store(key, &board, 11, 12);
         assert!(cache.probe(key, &board, 11).is_some());
 
         cache.clear();
@@ -297,6 +252,6 @@ mod tests {
 
     #[test]
     fn test_entry_size() {
-        assert_eq!(std::mem::size_of::<RawEntry>(), 19);
+        assert_eq!(std::mem::size_of::<RawEntry>(), 18);
     }
 }
