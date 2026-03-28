@@ -225,7 +225,6 @@ impl Search {
         if is_time_mode
             && self.endgame_start_n_empties.is_none()
             && result.depth + 1 >= n_empties
-            && result.selectivity >= Selectivity::Level3
         {
             self.endgame_start_n_empties = Some(n_empties - 1);
         }
