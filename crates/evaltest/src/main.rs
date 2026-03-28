@@ -764,7 +764,10 @@ fn print_verbose_test_case(
         test_case.get_best_moves_str()
     };
 
-    println!("- score: {} (expected: {:>+.1})", score_colored, test_case.expected_score as Scoref);
+    println!(
+        "- score: {} (expected: {:>+.1})",
+        score_colored, test_case.expected_score as Scoref
+    );
     println!("- move: {} (expected: {})", pv_colored, expect_moves);
     println!(
         "- nodes: {}  time: {:.4}s  NPS: {}",

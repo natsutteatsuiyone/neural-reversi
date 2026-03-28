@@ -10,7 +10,7 @@
 
 use reversi_core::{
     disc::Disc,
-    level::{get_level, MAX_LEVEL},
+    level::{MAX_LEVEL, get_level},
     probcut::Selectivity,
     search::{self, SearchRunOptions, options::SearchOptions, time_control::TimeControlMode},
     square::Square,

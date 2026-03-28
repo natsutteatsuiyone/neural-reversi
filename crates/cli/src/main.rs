@@ -109,7 +109,11 @@ fn main() {
             }
         }
         Some(SubCommands::Version) => {
-            println!("neural-reversi {} ({})", env!("CARGO_PKG_VERSION"), env!("TARGET"));
+            println!(
+                "neural-reversi {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                env!("TARGET")
+            );
         }
         None => {
             validate_weight_paths(
