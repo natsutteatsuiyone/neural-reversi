@@ -14,6 +14,7 @@ use crate::count_last_flip::count_last_flip;
 use crate::count_last_flip::count_last_flip_double;
 use crate::eval::EvalMode;
 use crate::flip;
+use crate::level::Level;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
@@ -29,14 +30,6 @@ use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore, Score};
-
-/// Selectivity sequence for endgame search.
-const SELECTIVITY_SEQUENCE: [Selectivity; 4] = [
-    Selectivity::Level1,
-    Selectivity::Level3,
-    Selectivity::Level5,
-    Selectivity::None,
-];
 
 /// Depth threshold for switching to null window search in endgame.
 pub const DEPTH_TO_NWS: Depth = 11;
@@ -128,7 +121,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         };
 
         // Iterative selectivity loop
-        for selectivity in SELECTIVITY_SEQUENCE {
+        for selectivity in Level::ENDGAME_SELECTIVITY {
             // Check depth limit when not using time control
             if !use_time_control && task.level.get_end_depth(selectivity) < n_empties {
                 break;

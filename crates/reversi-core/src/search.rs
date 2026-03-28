@@ -358,7 +358,7 @@ impl Search {
 /// number of empty squares. If the endgame depth covers all empties, delegates
 /// to the endgame solver; otherwise delegates to the midgame search.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
-    let min_end_depth = task.level.get_end_depth(Selectivity::Level1);
+    let min_end_depth = task.level.min_end_depth();
     let n_empties = task.board.get_empty_count();
 
     if min_end_depth >= n_empties {

@@ -7,24 +7,28 @@ use crate::types::Depth;
 ///
 /// Each level defines:
 /// - A midgame search depth for the middle portion of the game
-/// - Endgame depths for the 4 selectivity levels used in endgame search
+/// - Endgame depths for each step in [`Self::ENDGAME_SELECTIVITY`]
 ///
 /// Higher levels generally correspond to deeper searches and stronger play.
 #[derive(Copy, Clone)]
 pub struct Level {
     /// Search depth used during the midgame phase.
     pub mid_depth: Depth,
-    /// Endgame search depths indexed by [`Selectivity::end_depth_index`].
-    ///
-    /// The array has 4 elements, where:
-    /// - Index 0: [`Selectivity::Level1`] (most aggressive ProbCut)
-    /// - Index 1: [`Selectivity::Level3`]
-    /// - Index 2: [`Selectivity::Level5`]
-    /// - Index 3: [`Selectivity::None`] (ProbCut disabled)
+    /// Endgame search depths, one per [`Self::ENDGAME_SELECTIVITY`] entry.
     pub end_depth: [Depth; 4],
 }
 
 impl Level {
+    /// Selectivity sequence for iterative endgame search.
+    ///
+    /// Progresses from aggressive pruning to exact solving.
+    pub const ENDGAME_SELECTIVITY: [Selectivity; 4] = [
+        Selectivity::Level1,
+        Selectivity::Level3,
+        Selectivity::Level5,
+        Selectivity::None,
+    ];
+
     /// Creates a [`Level`] for time-controlled search.
     ///
     /// Sets `mid_depth` to 60 (effectively unlimited) and `end_depth` to 14.
@@ -48,8 +52,21 @@ impl Level {
     }
 
     /// Returns the endgame search depth for a given [`Selectivity`] level.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `selectivity` is not in [`Self::ENDGAME_SELECTIVITY`].
     pub fn get_end_depth(&self, selectivity: Selectivity) -> Depth {
-        self.end_depth[selectivity.end_depth_index()]
+        let index = Self::ENDGAME_SELECTIVITY
+            .iter()
+            .position(|&s| s == selectivity)
+            .unwrap();
+        self.end_depth[index]
+    }
+
+    /// Returns the minimum endgame search depth (the first/most aggressive selectivity).
+    pub fn min_end_depth(&self) -> Depth {
+        self.end_depth[0]
     }
 }
 
@@ -127,9 +144,29 @@ mod tests {
     }
 
     #[test]
+    fn test_min_end_depth() {
+        let level = Level {
+            mid_depth: 10,
+            end_depth: [18, 20, 22, 24],
+        };
+        assert_eq!(level.min_end_depth(), 18);
+    }
+
+    #[test]
+    fn test_endgame_selectivity_matches_end_depth() {
+        let level = Level {
+            mid_depth: 10,
+            end_depth: [10, 20, 30, 40],
+        };
+        for (i, &sel) in Level::ENDGAME_SELECTIVITY.iter().enumerate() {
+            assert_eq!(level.get_end_depth(sel), level.end_depth[i]);
+        }
+    }
+
+    #[test]
     fn test_level_progression() {
         // Verify that levels generally increase in difficulty
-        for i in 0..21 {
+        for i in 0..LEVELS.len() - 1 {
             let current = get_level(i);
             let next = get_level(i + 1);
 

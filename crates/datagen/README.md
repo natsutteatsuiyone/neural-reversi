@@ -28,7 +28,7 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12
 - `--records_per_file`: Number of records to store in each output file (default: 1,000,000)
 - `--hash-size`: Transposition table size in MB for the search algorithm (default: 128)
 - `--mid-depth`: Midgame search depth (1-60, default: 12)
-- `--end-depth`: Endgame search depth. Single value for all selectivities, or 6 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,Level4,Level5,None) (default: 21)
+- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level3,Level5,None) (default: 21)
 - `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--prefix`: Output file prefix for generated data files (default: "game")
 - `--output-dir`: Output directory where game data will be stored
