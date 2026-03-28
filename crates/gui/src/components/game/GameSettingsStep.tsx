@@ -82,7 +82,7 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
           <Slider
             value={[settings.aiLevel]}
             min={1}
-            max={24}
+            max={30}
             step={1}
             onValueChange={([value]) => onChange({ aiLevel: value })}
           />

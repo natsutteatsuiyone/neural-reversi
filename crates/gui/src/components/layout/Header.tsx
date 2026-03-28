@@ -82,7 +82,7 @@ export function Header() {
                   value={hintLevel.toString()}
                   onValueChange={(v) => setHintLevel(parseInt(v))}
                 >
-                  {[1, 4, 8, 12, 16, 20, 22, 24].map((level) => (
+                  {[1, 4, 8, 12, 16, 20, 24, 28, 30].map((level) => (
                     <DropdownMenuRadioItem
                       key={level}
                       value={level.toString()}

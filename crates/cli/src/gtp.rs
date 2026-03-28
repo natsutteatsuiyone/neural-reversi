@@ -10,7 +10,7 @@
 
 use reversi_core::{
     disc::Disc,
-    level::get_level,
+    level::{get_level, MAX_LEVEL},
     probcut::Selectivity,
     search::{self, SearchRunOptions, options::SearchOptions, time_control::TimeControlMode},
     square::Square,
@@ -614,7 +614,7 @@ impl GtpEngine {
         let time_control = self.get_current_time_control();
         let options = match time_control {
             TimeControlMode::Infinite => {
-                let level_idx = self.level.min(24); // clamp to available levels
+                let level_idx = self.level.min(MAX_LEVEL);
                 SearchRunOptions::with_level(get_level(level_idx), self.selectivity)
             }
             mode => SearchRunOptions::with_time(mode, self.selectivity),
@@ -730,16 +730,16 @@ impl GtpEngine {
     /// and time allocation.
     ///
     /// # Arguments
-    /// * `level` - The strength level (1-20, where 20 is strongest)
+    /// * `level` - The strength level (1 to [`MAX_LEVEL`])
     ///
     /// # Returns
-    /// Success if level is valid (1-20), error otherwise
+    /// Success if level is valid, error otherwise
     fn handle_set_level(&mut self, level: usize) -> GtpResponse {
-        if level > 0 && level <= 20 {
+        if level > 0 && level <= MAX_LEVEL {
             self.level = level;
             GtpResponse::Success("".to_string())
         } else {
-            GtpResponse::Error("level must be between 1 and 20".to_string())
+            GtpResponse::Error(format!("level must be between 1 and {MAX_LEVEL}"))
         }
     }
 
