@@ -73,12 +73,9 @@ impl RootMoves {
         &self,
         sq: Square,
         score: ScaledScore,
-        move_count: usize,
-        alpha: ScaledScore,
+        is_pv: bool,
         pv: &[Square; MAX_PLY],
     ) {
-        let is_pv = move_count == 1 || score > alpha;
-
         let mut moves = self.moves.lock().unwrap();
         let rm = moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
         rm.average_score = if rm.average_score == -ScaledScore::INF {

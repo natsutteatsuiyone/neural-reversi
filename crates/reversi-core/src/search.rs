@@ -465,7 +465,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {
-            ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
+            ctx.update_root_move(sq, ScaledScore::MAX, true);
         } else if NT::PV_NODE {
             ctx.update_pv(sq);
         }
@@ -626,7 +626,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         // Root move update
         if NT::ROOT_NODE {
-            ctx.update_root_move(mv.sq, score, move_count, alpha);
+            ctx.update_root_move(mv.sq, score, move_count == 1 || score > alpha);
         }
 
         // Best score update
@@ -715,7 +715,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
         // Root move update
         if NT::ROOT_NODE {
-            ctx.update_root_move(mv.sq, score, move_count, sp.alpha());
+            ctx.update_root_move(mv.sq, score, move_count == 1 || score > sp.alpha());
         }
 
         // Best score update

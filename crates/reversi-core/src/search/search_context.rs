@@ -172,20 +172,13 @@ impl SearchContext {
     }
 
     /// Updates a root move with its search results.
-    pub fn update_root_move(
-        &mut self,
-        sq: Square,
-        score: ScaledScore,
-        move_count: usize,
-        alpha: ScaledScore,
-    ) {
-        let is_pv = move_count == 1 || score > alpha;
+    pub fn update_root_move(&mut self, sq: Square, score: ScaledScore, is_pv: bool) {
         if is_pv {
             self.update_pv(sq);
         }
 
-        let pv = *self.stack.get_pv(self.ply());
-        self.root_moves.update(sq, score, move_count, alpha, &pv);
+        self.root_moves
+            .update(sq, score, is_pv, self.get_pv());
     }
 
     /// Returns the root move at the current PV index, or [`None`] if out of bounds.
