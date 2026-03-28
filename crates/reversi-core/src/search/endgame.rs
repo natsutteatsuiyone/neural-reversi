@@ -266,7 +266,12 @@ pub fn probcut(
         return None;
     }
 
-    let pc_depth = (2.0 * ((depth as f64).sqrt() * 0.30).floor()) as Depth;
+    let pc_depth = match depth {
+        45.. => 4,
+        12.. => 2,
+        _ => 1,
+    };
+
     let mean = probcut::get_mean_end(pc_depth, depth);
     let sigma = probcut::get_sigma_end(pc_depth, depth);
     let t = ctx.selectivity.t_value();
