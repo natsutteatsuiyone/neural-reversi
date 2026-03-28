@@ -559,7 +559,7 @@ impl TimeManager {
     /// Checks whether abort has been signaled.
     #[inline]
     pub fn is_aborted(&self) -> bool {
-        self.abort_flag.load(Ordering::Relaxed)
+        self.abort_flag.load(Ordering::Acquire)
     }
 
     /// Checks whether time is up and signals abort if so.
