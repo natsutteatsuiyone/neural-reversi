@@ -224,7 +224,7 @@ pub fn probcut(
     }
 
     let ply = ctx.ply();
-    let pc_depth = 2 * (depth as f64 * 0.2).floor() as Depth;
+    let pc_depth = 2 * (depth / 5);
     let mean = probcut::get_mean(ply, pc_depth, depth);
     let sigma = probcut::get_sigma(ply, pc_depth, depth);
     let t = ctx.selectivity.t_value();
