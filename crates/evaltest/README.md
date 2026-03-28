@@ -8,10 +8,11 @@ Evaluation test suite runner for measuring the endgame search performance of Rev
 |--------|-------------|---------|
 | `--depth` or `-d` | Maximum search depth in plies | 60 |
 | `--selectivity` | Search selectivity level: 0: 73% (fastest, less accurate) 1: 87% 2: 95% 3: 98% 4: 99% 5: 100% (complete search) | 0 |
-| `--hash-size` | Transposition table size in MB | 512 |
+| `--hash-size` | Transposition table size in MB | 1024 |
 | `--threads` | Number of parallel search threads | System default |
 | `--problem` | Problem set to run: preset name or `.obf` file path. Repeatable. | All `.obf` files in problem directory |
 | `--problem-dir` | Path to the directory containing `.obf` problem files | Auto-discovered |
+| `--verbose` or `-v` | Enable verbose output with per-iteration search statistics | Off |
 
 ### Presets
 
@@ -20,11 +21,8 @@ The `--problem` option accepts the following preset names:
 | Preset | Description |
 |--------|-------------|
 | `fforum` | Loads all FFO Forum files (`fforum-1-19.obf` through `fforum-60-79.obf`) |
-| `hard-20` | Loads `hard-20.obf` |
-| `hard-25` | Loads `hard-25.obf` |
-| `hard-30` | Loads `hard-30.obf` |
 
-You can also pass a direct path to any `.obf` file.
+Any other name is treated as `<name>.obf` in the problem directory. You can also pass a direct path to any `.obf` file.
 
 ### Problem Directory Discovery
 
@@ -74,10 +72,10 @@ cargo run -p evaltest --release -- --problem fforum --problem hard-20
 cargo run -p evaltest --release -- --problem /path/to/custom.obf
 ```
 
-### Quick test with shallow search
+### Verbose output with per-iteration details
 
 ```bash
-cargo run -p evaltest --release -- --depth 8 --selectivity 0
+cargo run -p evaltest --release -- --problem fforum -v
 ```
 
 ## Output Format
@@ -94,6 +92,24 @@ Results are displayed per file, each with a tabular section:
 - **Expected**: The known optimal score and best moves
 
 When multiple files are loaded, an overall statistics summary is printed at the end.
+
+### Verbose Mode
+
+With `-v`/`--verbose`, each test case displays:
+
+- The board position
+- A per-iteration table showing delta values for each iterative deepening step:
+  - **depth**: Search depth (with selectivity percentage if < 100%)
+  - **score**: Best score at this iteration
+  - **best**: Best move found
+  - **nodes**: Nodes searched in this iteration (not cumulative)
+  - **TT%**: TT hit rate (hits / probes)
+  - **ProbCut%**: ProbCut cutoff rate
+  - **ETC%**: Enhanced Transposition Cutoff rate
+  - **Stab**: Stability cutoff count
+- A **total** row with cumulative values for the entire search
+- A **result** line including TT fill rate (sampled)
+- Aggregate search counter statistics (TT hit rate, ProbCut rate, ETC rate, stability cuts)
 
 ## Performance Metrics
 

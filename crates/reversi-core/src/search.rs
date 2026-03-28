@@ -10,6 +10,7 @@ pub mod node_type;
 pub mod options;
 pub mod root_move;
 pub mod search_context;
+pub mod search_counters;
 pub mod search_result;
 pub mod search_stack;
 pub mod search_strategy;
@@ -30,6 +31,7 @@ use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::options::SearchOptions;
 use crate::search::search_context::SearchContext;
+use crate::search::search_counters::SearchCounters;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::SearchStrategy;
 use crate::search::threading::{SplitPoint, Thread, ThreadPool};
@@ -98,6 +100,8 @@ pub struct SearchProgress {
     pub pv_line: Vec<Square>,
     /// Whether the search is in endgame phase.
     pub is_endgame: bool,
+    /// Snapshot of search counters at this point.
+    pub counters: SearchCounters,
 }
 
 /// Callback invoked to report [`SearchProgress`] during a search.
@@ -133,6 +137,11 @@ impl Search {
             eval: Arc::new(eval),
             endgame_start_n_empties: None,
         }
+    }
+
+    /// Returns a reference to the transposition table.
+    pub fn tt(&self) -> &Arc<TranspositionTable> {
+        &self.tt
     }
 
     /// Resets the search state for a new game.
@@ -209,6 +218,7 @@ impl Search {
                 nodes: result.n_nodes,
                 pv_line: result.pv_line.clone(),
                 is_endgame: result.is_endgame,
+                counters: result.counters.clone(),
             });
         }
 
@@ -307,6 +317,7 @@ impl Search {
                 selectivity: Selectivity::None,
                 is_endgame: false,
                 pv_moves: vec![],
+                counters: SearchCounters::default(),
             };
         }
 
@@ -336,6 +347,7 @@ impl Search {
             selectivity: Selectivity::None,
             is_endgame: false,
             pv_moves: vec![],
+            counters: SearchCounters::default(),
         }
     }
 }
@@ -422,6 +434,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
 
         if let Some(score) = stability_cutoff(board, ctx.empty_list.count(), alpha.to_disc_diff()) {
+            ctx.counters.stability_cuts += 1;
             return ScaledScore::from_disc_diff(score);
         }
     }
@@ -462,6 +475,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // Transposition table probe
     let tt_probe_result = ctx.tt.probe(board, tt_key);
+    ctx.counters.tt_probes += 1;
     let tt_move = tt_probe_result.best_move();
 
     // NonPV cutoffs
@@ -472,28 +486,33 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             && tt_data.selectivity() >= ctx.selectivity
             && tt_data.can_cut(beta)
         {
+            ctx.counters.tt_hits += 1;
             return tt_data.score();
         }
 
         // Enhanced Transposition Cutoff
-        if depth >= SS::MIN_ETC_DEPTH
-            && let Some(score) = enhanced_transposition_cutoff::<SS>(
+        if depth >= SS::MIN_ETC_DEPTH {
+            ctx.counters.etc_attempts += 1;
+            if let Some(score) = enhanced_transposition_cutoff::<SS>(
                 ctx,
                 board,
                 &move_list,
                 depth,
                 alpha,
                 tt_probe_result.index(),
-            )
-        {
-            return score;
+            ) {
+                ctx.counters.etc_cuts += 1;
+                return score;
+            }
         }
 
         // ProbCut
-        if depth >= SS::MIN_PROBCUT_DEPTH
-            && let Some(score) = SS::probcut(ctx, board, depth, beta, thread)
-        {
-            return score;
+        if depth >= SS::MIN_PROBCUT_DEPTH {
+            ctx.counters.probcut_attempts += 1;
+            if let Some(score) = SS::probcut(ctx, board, depth, beta, thread) {
+                ctx.counters.probcut_cuts += 1;
+                return score;
+            }
         }
     }
 
@@ -557,7 +576,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             && thread.can_split()
         {
             let move_iter = Arc::new(ConcurrentMoveIterator::from_offset(move_list, move_count));
-            let (s, m, n) = thread.split(
+            let (s, m, n, split_counters) = thread.split(
                 ctx,
                 board,
                 alpha,
@@ -572,6 +591,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             best_score = s;
             best_move = m;
             ctx.n_nodes += n;
+            ctx.counters.merge(&split_counters);
 
             if thread.cutoff_occurred() || thread.is_search_aborted() {
                 return ScaledScore::ZERO;

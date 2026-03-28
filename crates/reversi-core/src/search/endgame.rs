@@ -162,6 +162,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                     nodes: ctx.n_nodes,
                     pv_line: rm.pv.clone(),
                     is_endgame: true,
+                    counters: ctx.counters.clone(),
                 });
             }
 
@@ -184,6 +185,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 n_empties,
                 ctx.selectivity,
                 true,
+                ctx.counters.clone(),
             );
         }
     }
@@ -199,6 +201,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         n_empties,
         ctx.selectivity,
         true,
+        ctx.counters.clone(),
     )
 }
 
@@ -344,6 +347,7 @@ fn null_window_search_with_ec(
     let beta = alpha + 1;
 
     if let Some(score) = stability_cutoff(board, n_empties, alpha) {
+        ctx.counters.stability_cuts += 1;
         return score;
     }
 
@@ -460,6 +464,7 @@ fn shallow_search(
     let beta = alpha + 1;
 
     if let Some(score) = stability_cutoff(board, n_empties, alpha) {
+        ctx.counters.stability_cuts += 1;
         return score;
     }
 
@@ -624,6 +629,7 @@ fn shallow_search_move(
         {
             -score
         } else if let Some(score) = stability_cutoff(&next, 4, next_alpha) {
+            ctx.counters.stability_cuts += 1;
             -score
         } else {
             let (sq1, sq2, sq3, sq4) = sort_last4(ctx);

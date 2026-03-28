@@ -4,6 +4,7 @@ use crate::{
     constants::SCORE_INF,
     probcut::Selectivity,
     search::root_move::{RootMove, RootMoves},
+    search::search_counters::SearchCounters,
     square::Square,
     types::{Depth, Scoref},
 };
@@ -27,6 +28,8 @@ pub struct SearchResult {
     pub is_endgame: bool,
     /// All evaluated moves with scores (populated in Multi-PV mode).
     pub pv_moves: Vec<PvMove>,
+    /// Diagnostic counters accumulated during search.
+    pub counters: SearchCounters,
 }
 
 impl SearchResult {
@@ -41,6 +44,7 @@ impl SearchResult {
             selectivity: Selectivity::None,
             is_endgame: false,
             pv_moves: vec![],
+            counters: SearchCounters::default(),
         }
     }
 
@@ -55,6 +59,7 @@ impl SearchResult {
             selectivity: Selectivity::None,
             is_endgame,
             pv_moves: vec![],
+            counters: SearchCounters::default(),
         }
     }
 
@@ -66,6 +71,7 @@ impl SearchResult {
         depth: Depth,
         selectivity: Selectivity,
         is_endgame: bool,
+        counters: SearchCounters,
     ) -> Self {
         let pv_moves: Vec<PvMove> = root_moves.map(|rm| PvMove {
             sq: rm.sq,
@@ -82,6 +88,7 @@ impl SearchResult {
             selectivity,
             is_endgame,
             pv_moves,
+            counters,
         }
     }
 

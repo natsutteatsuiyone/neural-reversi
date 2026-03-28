@@ -559,6 +559,31 @@ impl TranspositionTable {
         }
     }
 
+    /// Estimates the fraction of occupied entries by sampling.
+    ///
+    /// Samples up to 1024 clusters uniformly across the table and returns
+    /// the ratio of occupied entries as a value in `[0.0, 1.0]`.
+    pub fn usage_rate(&self) -> f64 {
+        let cluster_count = self.cluster_count as usize;
+        if cluster_count == 0 {
+            return 0.0;
+        }
+        let sample_clusters = 1024.min(cluster_count);
+        let step = cluster_count / sample_clusters;
+        let mut occupied = 0u64;
+        for i in 0..sample_clusters {
+            let base = i * step * CLUSTER_SIZE;
+            for j in 0..CLUSTER_SIZE {
+                if let Some((_, _, data)) = self.entries[base + j].try_load_snapshot()
+                    && data.is_occupied()
+                {
+                    occupied += 1;
+                }
+            }
+        }
+        occupied as f64 / (sample_clusters * CLUSTER_SIZE) as f64
+    }
+
     /// Returns the current generation counter value.
     #[inline]
     pub fn generation(&self) -> u8 {

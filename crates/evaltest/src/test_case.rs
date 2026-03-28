@@ -83,4 +83,9 @@ impl TestCase {
     pub fn get_best_moves_str(&self) -> String {
         self.best_moves.join(",")
     }
+
+    /// Returns the side to move for this test case.
+    pub fn side_to_move(&self) -> Disc {
+        self.side_to_move
+    }
 }

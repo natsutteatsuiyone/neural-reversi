@@ -97,6 +97,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                     nodes: ctx.n_nodes,
                     pv_line: rm.pv.clone(),
                     is_endgame: false,
+                    counters: ctx.counters.clone(),
                 });
             }
         }
@@ -118,6 +119,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 depth.min(n_empties),
                 ctx.selectivity,
                 false,
+                ctx.counters.clone(),
             );
         }
 
@@ -137,6 +139,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         max_depth.min(n_empties),
         ctx.selectivity,
         false,
+        ctx.counters.clone(),
     )
 }
 

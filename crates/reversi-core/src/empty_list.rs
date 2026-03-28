@@ -187,7 +187,10 @@ impl EmptyList {
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
         debug_assert!(sq != Square::None, "Cannot restore Square::None");
-        debug_assert!(self.count < INITIAL_EMPTY_COUNT as u32, "Cannot restore: list is already full");
+        debug_assert!(
+            self.count < INITIAL_EMPTY_COUNT as u32,
+            "Cannot restore: list is already full"
+        );
         debug_assert!(
             self.nodes[self.nodes[sq.index()].prev.index()].next != sq,
             "Square {sq:?} is already in the empty list"

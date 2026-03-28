@@ -11,6 +11,7 @@ use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
 use crate::search::root_move::{RootMove, RootMoves};
+use crate::search::search_counters::SearchCounters;
 use crate::search::search_stack::SearchStack;
 use crate::search::side_to_move::SideToMove;
 use crate::search::threading::SplitPoint;
@@ -24,6 +25,8 @@ pub use crate::search::search_stack::StackRecord;
 pub struct SearchContext {
     /// Number of nodes searched in this context
     pub n_nodes: u64,
+    /// Diagnostic counters for search statistics (adjacent to n_nodes for cache locality).
+    pub counters: SearchCounters,
     /// Current side to move
     pub side_to_move: SideToMove,
     /// Selectivity level
@@ -56,6 +59,7 @@ impl SearchContext {
         let ply = empty_list.ply();
         SearchContext {
             n_nodes: 0,
+            counters: SearchCounters::default(),
             side_to_move: SideToMove::Player,
             selectivity,
             empty_list,
@@ -79,6 +83,7 @@ impl SearchContext {
             PatternFeatures::from_features(ply, &task.p_feature, &task.o_feature);
         SearchContext {
             n_nodes: 0,
+            counters: SearchCounters::default(),
             side_to_move: task.side_to_move,
             empty_list,
             selectivity: task.selectivity,

@@ -22,6 +22,7 @@ use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::root_move::RootMoves;
 use crate::search::search_context::SearchContext;
+use crate::search::search_counters::SearchCounters;
 use crate::search::search_result::SearchResult;
 use crate::search::search_split_point;
 use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
@@ -79,6 +80,9 @@ pub struct SplitPointState {
 
     /// Total number of nodes searched by all threads at this split point.
     n_nodes: AtomicU64,
+
+    /// Accumulated search counters from all helper threads.
+    counters: std::sync::Mutex<SearchCounters>,
 
     /// Task data containing the position and search context.
     pub task: Option<SplitPointTask>,
@@ -242,6 +246,7 @@ impl Default for SplitPoint {
                 helpers_mask: AtomicBitSet::new(),
                 depth: 0,
                 n_nodes: AtomicU64::new(0),
+                counters: std::sync::Mutex::new(SearchCounters::default()),
                 task: None,
                 parent_split_point: None,
                 pv: [Square::None; MAX_PLY],
@@ -499,7 +504,7 @@ impl Thread {
         move_iter: &Arc<ConcurrentMoveIterator>,
         node_type: u32,
         is_endgame: bool,
-    ) -> (ScaledScore, Square, u64) {
+    ) -> (ScaledScore, Square, u64, SearchCounters) {
         let th_state = self.state();
         // Pick the next available split point
         let sp = &th_state.split_points[th_state.split_points_size];
@@ -522,10 +527,13 @@ impl Thread {
         // Copy PV from split point back to coordinator's stack
         ctx.set_pv(sp_state.pv());
 
+        let counters = std::mem::take(&mut *sp_state.counters.lock().unwrap());
+
         (
             sp_state.best_score(),
             sp_state.best_move(),
             sp_state.n_nodes(),
+            counters,
         )
     }
 
@@ -579,6 +587,7 @@ impl Thread {
             o_feature: *ctx.pattern_features.o_feature(ply),
         });
         sp_state.n_nodes.store(0, Ordering::Relaxed);
+        *sp_state.counters.lock().unwrap() = SearchCounters::default();
         sp_state.set_cutoff(false);
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
         sp_state.copy_pv(ctx.get_pv()); // Initialize PV from coordinator's current PV
@@ -671,6 +680,7 @@ impl Thread {
                 sp_state.helpers_mask.reset(self.idx);
                 sp_state.set_all_helpers_searching(false);
                 sp_state.add_nodes(ctx.n_nodes);
+                sp_state.counters.lock().unwrap().merge(&ctx.counters);
 
                 // After releasing the lock we can't access any SplitPoint related data
                 // in a safe way because it could have been released under our feet by
