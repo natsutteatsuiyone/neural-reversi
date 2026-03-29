@@ -19,6 +19,11 @@ pub struct RawSpinLock {
     state: AtomicBool,
 }
 
+// SAFETY: This implementation satisfies RawMutex's contract:
+// - `lock()` spins until the CAS succeeds, guaranteeing mutual exclusion.
+// - `try_lock()` returns true only when CAS atomically transitions false→true.
+// - `unlock()` uses Release store, pairing with Acquire CAS in lock paths to
+//   establish a happens-before relationship for all data protected by the lock.
 unsafe impl RawMutex for RawSpinLock {
     #[allow(clippy::declare_interior_mutable_const)]
     const INIT: Self = RawSpinLock {
