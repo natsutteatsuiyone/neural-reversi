@@ -605,8 +605,22 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         let mut score = -ScaledScore::INF;
 
+        let reduction =
+            compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
+
         if !NT::PV_NODE || move_count > 1 {
-            score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+            score = -search::<NonPV, SS>(
+                ctx,
+                &next,
+                depth - 1 - reduction,
+                -(alpha + 1),
+                -alpha,
+                thread,
+            );
+
+            if reduction > 0 && score > alpha {
+                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+            }
         }
 
         // PV re-search
@@ -678,6 +692,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 ) -> ScaledScore {
     let beta = split_point.state().beta;
     let move_iter = split_point.state().move_iter.clone().unwrap();
+    let n_moves = move_iter.count();
 
     while let Some((mv, move_count)) = move_iter.next() {
         split_point.unlock();
@@ -688,8 +703,22 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         let alpha = split_point.state().alpha();
         let mut score = -ScaledScore::INF;
 
+        let reduction =
+            compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
+
         if !NT::PV_NODE || move_count > 1 {
-            score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+            score = -search::<NonPV, SS>(
+                ctx,
+                &next,
+                depth - 1 - reduction,
+                -(alpha + 1),
+                -alpha,
+                thread,
+            );
+
+            if reduction > 0 && score > alpha {
+                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+            }
         }
 
         // PV re-search
@@ -741,4 +770,28 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     }
 
     split_point.state().best_score()
+}
+
+/// Computes the LMR depth reduction for late moves.
+///
+/// Disabled for endgame search, PV nodes, and ProbCut verification search
+/// (selectivity disabled).
+#[inline(always)]
+fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
+    selectivity: Selectivity,
+    depth: Depth,
+    move_count: usize,
+    n_moves: usize,
+) -> Depth {
+    if !SS::IS_ENDGAME
+        && !NT::PV_NODE
+        && selectivity.is_enabled()
+        && depth >= 4
+        && move_count > 2
+        && n_moves >= 4
+    {
+        if depth >= 8 && move_count > 5 { 2 } else { 1 }
+    } else {
+        0
+    }
 }
