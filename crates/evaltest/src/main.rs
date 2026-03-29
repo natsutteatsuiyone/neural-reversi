@@ -424,12 +424,13 @@ fn execute_test_case(
     let result = search.run(&search_board, &options);
     let elapsed = start.elapsed();
 
-    // For pass positions, negate the score back to the original player's perspective
+    // For pass positions, negate the score back to the original player's perspective.
     let score = if test_case.is_pass() {
         -result.score
     } else {
         result.score
     };
+    let score = (score * 10.0).round() / 10.0;
     let score_difference = (score - test_case.expected_score as Scoref).abs();
     let move_accuracy = if test_case.is_pass() {
         MoveAccuracy::Best // Pass positions don't have move choices
