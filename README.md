@@ -13,15 +13,9 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 
 ### Search Accuracy
 
-[Hard-30 (depth 15)](docs/6.0.0-dev/hard-30-depth15.md) — 289 problems evaluated at depth 15
-
-| Metric | Value |
-|:--|--:|
-| Time | 4.2156s |
-| Nodes | 157,847,499 |
-| Move accuracy | 81.3% (235/289) |
-| Score ±3 | 88.2% (255/289) |
-| MAE | 1.65 |
+| Test | Problems | Depth | Time | Nodes | NPS | Move Acc. | Score ±3 | MAE |
+|:--|:-:|:-:|--:|--:|--:|--:|--:|--:|
+| [Hard-30](docs/6.0.0-dev/hard-30-depth15.md) | 289 | 15 | 4.22s | 157,847,499 | 37,443,661 | 81.3% | 88.2% | 1.65 |
 
 ### Endgame Solving
 
