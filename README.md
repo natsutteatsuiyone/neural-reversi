@@ -4,6 +4,35 @@ This is an experimental project to develop a high-accuracy neural network evalua
 
 Play it online (Lite version): [https://neural-reversi.net/](https://neural-reversi.net/)
 
+## Benchmark
+
+### Environment
+
+- **CPU:** AMD Ryzen 9 9950X3D (no overclock)
+- **Hash size:** 1024MB
+
+### Search Accuracy
+
+[Hard-30 (depth 15)](docs/6.0.0-dev/hard-30-depth15.md) — 289 problems evaluated at depth 15
+
+| Metric | Value |
+|:--|--:|
+| Time | 4.2156s |
+| Nodes | 157,847,499 |
+| Move accuracy | 81.3% (235/289) |
+| Score ±3 | 88.2% (255/289) |
+| MAE | 1.65 |
+
+### Endgame Solving
+
+| Test | Problems | Depth | Time | Nodes | NPS |
+|:--|:-:|:-:|--:|--:|--:|
+| [FFO #40–59](docs/6.0.0-dev/fforum-40-59.md) | 20 | 20–34 | 7.85s | 12,816,866,056 | 1,632,243,554 |
+| [FFO #60–79](docs/6.0.0-dev/fforum-60-79.md) | 20 | 24–36 | 246.10s | 344,382,051,901 | 1,399,342,843 |
+| [Hard-20](docs/6.0.0-dev/hard-20.md) | 276 | 20 | 2.65s | 1,685,702,316 | 635,131,425 |
+| [Hard-25](docs/6.0.0-dev/hard-25.md) | 311 | 25 | 33.02s | 46,181,908,759 | 1,398,748,168 |
+| [Hard-30](docs/6.0.0-dev/hard-30.md) | 289 | 30 | 936.21s | 1,479,391,622,235 | 1,580,200,514 |
+
 ## Crates
 
 - **reversi-core**: Core library implementing the AI search algorithms.
