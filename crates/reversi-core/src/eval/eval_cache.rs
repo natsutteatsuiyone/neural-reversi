@@ -23,10 +23,7 @@ impl EvalCache {
         let size = 1usize << size_log2;
         let mask = size as u64 - 1;
 
-        let mut table = Vec::with_capacity(size);
-        for _ in 0..size {
-            table.push(AtomicU64::new(0));
-        }
+        let table = (0..size).map(|_| AtomicU64::new(0)).collect::<Vec<_>>();
 
         EvalCache {
             table: table.into_boxed_slice(),
