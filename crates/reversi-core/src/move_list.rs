@@ -188,8 +188,11 @@ impl MoveList {
         tt_move: Square,
     ) {
         const MAX_SORT_DEPTH: i32 = 2;
-        let mut sort_depth = (depth as i32 - 15) / 3;
-        sort_depth = sort_depth.clamp(0, MAX_SORT_DEPTH);
+        let sort_depth = match depth {
+            0..=15 => 0,
+            16..=25 => 1,
+            _ => MAX_SORT_DEPTH,
+        };
 
         for mv in self.iter_mut() {
             if mv.flipped == board.opponent {
