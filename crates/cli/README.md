@@ -14,7 +14,7 @@ cli [options]
 
 Options:
 
-- `--hash-size <size>` - Set the transposition table size in MB (default: 64)
+- `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI difficulty level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
@@ -48,7 +48,7 @@ cli gtp [options]
 
 Options:
 
-- `--hash-size <size>` - Set the transposition table size in MB (default: 64)
+- `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `--level <level>` - Set the AI search level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
@@ -104,7 +104,7 @@ Options:
 
 - `<file>` - Path to the position file (required)
 - `--exact` - Solve for exact score with perfect play (ignores level setting)
-- `--hash-size <size>` - Set the transposition table size in MB (default: 64)
+- `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI search level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
