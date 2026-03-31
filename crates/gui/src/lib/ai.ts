@@ -74,6 +74,14 @@ export async function initializeAI(): Promise<void> {
   }
 }
 
+export async function resizeTT(hashSize: number): Promise<void> {
+  try {
+    await invoke("resize_tt_command", { hashSize });
+  } catch (error) {
+    console.error("Failed to resize TT:", error);
+  }
+}
+
 export async function abortAISearch(): Promise<void> {
   try {
     await invoke("abort_ai_search_command");

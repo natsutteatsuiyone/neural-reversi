@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
 import type { ReversiState, SettingsSlice } from "./types";
 import { saveSetting } from "@/lib/settings-store";
+import { resizeTT } from "@/lib/ai";
 
 export const createSettingsSlice: StateCreator<
     ReversiState,
@@ -12,6 +13,7 @@ export const createSettingsSlice: StateCreator<
     timeLimit: 1,
     gameTimeLimit: 60, // 1 minute
     hintLevel: 21,
+    hashSize: 512,
     aiAnalysisPanelOpen: false,
 
     setGameMode: (mode) => {
@@ -38,6 +40,12 @@ export const createSettingsSlice: StateCreator<
         if (get().isHintMode) {
             get().analyzeBoard();
         }
+    },
+
+    setHashSize: (size) => {
+        set({ hashSize: size });
+        void saveSetting("hashSize", size);
+        void resizeTT(size);
     },
 
     setAIAnalysisPanelOpen: (open) => {

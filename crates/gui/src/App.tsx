@@ -1,6 +1,7 @@
 import { GameLayout } from "@/components/layout/GameLayout";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { loadSettings } from "@/lib/settings-store";
+import { resizeTT } from "@/lib/ai";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Trophy, Info } from "lucide-react";
@@ -23,6 +24,7 @@ function App() {
   const setTimeLimit = useReversiStore((state) => state.setTimeLimit);
   const setGameTimeLimit = useReversiStore((state) => state.setGameTimeLimit);
   const setHintLevel = useReversiStore((state) => state.setHintLevel);
+  const setHashSize = useReversiStore((state) => state.setHashSize);
   const setAIAnalysisPanelOpen = useReversiStore((state) => state.setAIAnalysisPanelOpen);
   const startGame = useReversiStore((state) => state.startGame);
 
@@ -42,8 +44,10 @@ function App() {
       setTimeLimit(settings.timeLimit);
       setGameTimeLimit(settings.gameTimeLimit);
       setHintLevel(settings.hintLevel);
+      setHashSize(settings.hashSize);
       setAIAnalysisPanelOpen(settings.aiAnalysisPanelOpen);
 
+      await resizeTT(settings.hashSize);
       await startGame();
       setIsInitialized(true);
     };

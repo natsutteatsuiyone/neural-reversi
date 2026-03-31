@@ -54,6 +54,7 @@
   },
   "settings": {
     "language": "言語",
+    "hashSize": "ハッシュサイズ",
     "auto": "自動",
     "english": "English",
     "japanese": "日本語"

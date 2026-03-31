@@ -66,11 +66,13 @@ export interface SettingsSlice {
     timeLimit: number;
     gameTimeLimit: number;
     hintLevel: number;
+    hashSize: number;
     aiAnalysisPanelOpen: boolean;
     setGameMode: (mode: GameMode) => void;
     setTimeLimit: (limit: number) => void;
     setGameTimeLimit: (limit: number) => void;
     setHintLevel: (level: number) => void;
+    setHashSize: (size: number) => void;
     setAIAnalysisPanelOpen: (open: boolean) => void;
 }
 

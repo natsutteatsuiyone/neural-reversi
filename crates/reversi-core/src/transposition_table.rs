@@ -546,6 +546,12 @@ impl TranspositionTable {
         }
     }
 
+    /// Returns the table size in MiB.
+    pub fn mb_size(&self) -> usize {
+        let cluster_byte_size = mem::size_of::<TTEntry>() * CLUSTER_SIZE;
+        ((self.cluster_count * cluster_byte_size as u64) / (1024 * 1024)) as usize
+    }
+
     /// Clears all entries. Must be called with no concurrent readers or writers.
     pub fn clear(&self) {
         // SAFETY: All TTEntry fields are AtomicU64 (interior-mutable via UnsafeCell),

@@ -1,4 +1,4 @@
-import { Menu, Play, Lightbulb, Globe } from "lucide-react";
+import { Menu, Play, Lightbulb, Globe, HardDrive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -22,6 +22,8 @@ export function Header() {
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const hintLevel = useReversiStore((state) => state.hintLevel);
   const setHintLevel = useReversiStore((state) => state.setHintLevel);
+  const hashSize = useReversiStore((state) => state.hashSize);
+  const setHashSize = useReversiStore((state) => state.setHashSize);
   const setNewGameModalOpen = useReversiStore((state) => state.setNewGameModalOpen);
   const isHintMode = useReversiStore((state) => state.isHintMode);
   const setHintMode = useReversiStore((state) => state.setHintMode);
@@ -89,6 +91,29 @@ export function Header() {
                       className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10"
                     >
                       {t('player.level')}{level}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10">
+                <HardDrive className="w-4 h-4 mr-2" />
+                {t('settings.hashSize')}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="bg-popover border-white/20">
+                <DropdownMenuRadioGroup
+                  value={hashSize.toString()}
+                  onValueChange={(v) => setHashSize(parseInt(v))}
+                >
+                  {[64, 128, 256, 512, 1024, 2048, 4096].map((size) => (
+                    <DropdownMenuRadioItem
+                      key={size}
+                      value={size.toString()}
+                      className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10"
+                    >
+                      {size} MB
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>

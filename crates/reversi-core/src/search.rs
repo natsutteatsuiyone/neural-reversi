@@ -155,6 +155,16 @@ impl Search {
         self.endgame_start_n_empties = None;
     }
 
+    /// Resizes the transposition table to `mb_size` MiB.
+    ///
+    /// Replaces the table only when the requested size differs from the
+    /// current one, avoiding unnecessary reallocation.
+    pub fn resize_tt(&mut self, mb_size: usize) {
+        if self.tt.mb_size() != mb_size {
+            self.tt = Arc::new(TranspositionTable::new(mb_size));
+        }
+    }
+
     /// Runs a search on the given board position.
     ///
     /// Selects the appropriate search strategy based on the constraint (fixed level

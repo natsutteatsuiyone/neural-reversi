@@ -46,16 +46,34 @@ pub struct SearchProgressPayload {
 }
 
 #[tauri::command]
-fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
+async fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
     let search_arc = state.search.clone();
 
-    match search_arc.lock() {
+    tauri::async_runtime::spawn_blocking(move || match search_arc.lock() {
         Ok(mut search) => {
             search.init();
             Ok(())
         }
         Err(e) => Err(format!("Failed to initialize search: {e}")),
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn resize_tt_command(state: State<'_, AppState>, hash_size: usize) -> Result<(), String> {
+    let hash_size = hash_size.clamp(1, 16384);
+    let search_arc = state.search.clone();
+
+    tauri::async_runtime::spawn_blocking(move || match search_arc.lock() {
+        Ok(mut search) => {
+            search.resize_tt(hash_size);
+            Ok(())
+        }
+        Err(e) => Err(format!("Failed to resize TT: {e}")),
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -229,6 +247,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ai_move_command,
             init_ai_command,
+            resize_tt_command,
             abort_ai_search_command,
             analyze_command
         ])
