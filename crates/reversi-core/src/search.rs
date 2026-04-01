@@ -796,11 +796,15 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     if !SS::IS_ENDGAME
         && !NT::PV_NODE
         && selectivity.is_enabled()
-        && depth >= 4
+        && depth >= midgame::LMR_MIN_DEPTH
         && move_count > 2
         && n_moves >= 4
     {
-        if depth >= 8 && move_count > 5 { 2 } else { 1 }
+        if depth >= midgame::LMR_DEEPER_DEPTH && move_count > 5 {
+            2
+        } else {
+            1
+        }
     } else {
         0
     }

@@ -31,6 +31,12 @@ const ASPIRATION_MIN_DEPTH: Depth = 5;
 /// Depth threshold for switching iteration step from +2 to +1.
 const DEPTH_STEP_THRESHOLD: Depth = 10;
 
+/// Minimum depth to enable Late Move Reductions.
+pub const LMR_MIN_DEPTH: Depth = 4;
+
+/// Depth threshold for deeper LMR (reduction = 2).
+pub const LMR_DEEPER_DEPTH: Depth = 8;
+
 /// Performs the root search using iterative deepening with aspiration windows.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;

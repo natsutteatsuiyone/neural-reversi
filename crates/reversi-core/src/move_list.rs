@@ -153,10 +153,8 @@ impl MoveList {
         depth: Depth,
         tt_move: Square,
     ) {
-        // Minimum depth required for shallow search evaluation based on empty squares
-        // When depth is at or below this threshold, use fast heuristic evaluation instead
         #[rustfmt::skip]
-        const MIN_DEPTH: [u32; 64] = [
+        const ENDGAME_MIN_SORT_DEPTH: [u32; 64] = [
             19, 18, 18, 18, 17, 17, 17, 16,  // 0-7 empty squares
             16, 16, 15, 15, 15, 14, 14, 14,  // 8-15 empty squares
             13, 13, 13, 12, 12, 12, 11, 11,  // 16-23 empty squares
@@ -167,7 +165,13 @@ impl MoveList {
             9,  9,  9,  9,  9,  9,  9,  9    // 56-63 empty squares
         ];
 
-        if depth < MIN_DEPTH[ctx.empty_list.count() as usize] {
+        let use_fast = if SS::IS_ENDGAME {
+            depth < ENDGAME_MIN_SORT_DEPTH[ctx.empty_list.count() as usize]
+        } else {
+            depth < midgame::LMR_MIN_DEPTH
+        };
+
+        if use_fast {
             self.evaluate_moves_fast(ctx, board, tt_move);
             return;
         }
