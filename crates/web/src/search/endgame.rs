@@ -7,12 +7,12 @@ use reversi_core::probcut::Selectivity;
 use reversi_core::search::endgame_cache::EndGameCache;
 use reversi_core::search::node_type::NonPV;
 use reversi_core::square::Square;
-use reversi_core::transposition_table::Bound;
 use reversi_core::types::{Depth, ScaledScore, Score};
 use reversi_core::{bitboard, stability};
 
 use crate::move_list::{MoveList, evaluate_moves_fast};
 use crate::search::search_context::SearchContext;
+use crate::transposition_table::Bound;
 
 /// Quadrant masks for move ordering in shallow search.
 #[rustfmt::skip]
@@ -57,16 +57,16 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 
     // transposition table lookup
     let tt_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(board, tt_key);
+    let tt_probe_result = ctx.tt.probe(tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if let Some(tt_data) = tt_probe_result.data()
-        && tt_data.is_endgame()
-        && tt_data.depth() >= n_empties
-        && tt_data.selectivity() >= ctx.selectivity
+        && tt_data.is_endgame
+        && tt_data.depth >= n_empties
+        && tt_data.selectivity >= ctx.selectivity
         && tt_data.can_cut(ScaledScore::from_disc_diff(beta))
     {
-        return tt_data.score().to_disc_diff();
+        return tt_data.score.to_disc_diff();
     }
 
     let mut best_score = -SCORE_INF;
@@ -108,7 +108,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 
     ctx.tt.store(
         tt_probe_result.index(),
-        board,
+        tt_key,
         ScaledScore::from_disc_diff(best_score),
         Bound::classify_score::<NonPV>(best_score, alpha, beta),
         n_empties,

@@ -10,9 +10,10 @@ use reversi_core::{
     probcut::Selectivity,
     search::{root_move::RootMove, search_context::StackRecord, side_to_move::SideToMove},
     square::Square,
-    transposition_table::TranspositionTable,
     types::{Depth, ScaledScore, Scoref},
 };
+
+use crate::transposition_table::TranspositionTable;
 
 use crate::{eval::Eval, move_list::MoveList};
 use wasm_bindgen::JsValue;

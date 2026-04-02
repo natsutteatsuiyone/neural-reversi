@@ -10,12 +10,9 @@ use std::rc::Rc;
 use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
-use reversi_core::{
-    board::Board, disc::Disc, probcut::Selectivity, square::Square,
-    transposition_table::TranspositionTable, types::Depth,
-};
+use reversi_core::{board::Board, disc::Disc, probcut::Selectivity, square::Square, types::Depth};
 
-use crate::{eval::Eval, level::Level, search::Search};
+use crate::{eval::Eval, level::Level, search::Search, transposition_table::TranspositionTable};
 
 /// Transposition table size in MB for search.
 const TT_SIZE_MB: usize = 64;

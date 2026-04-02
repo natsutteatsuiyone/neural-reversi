@@ -15,9 +15,10 @@ use reversi_core::{
     search::node_type::{NodeType, NonPV, PV, Root},
     square::Square,
     stability,
-    transposition_table::{Bound, TranspositionTable},
     types::{Depth, ScaledScore},
 };
+
+use crate::transposition_table::{Bound, TranspositionTable};
 
 use crate::{
     eval::Eval,
@@ -70,7 +71,6 @@ impl Search {
 
     #[allow(dead_code)]
     pub fn init(&mut self) {
-        self.tt.reset_generation();
         self.tt.clear();
     }
 }
@@ -255,13 +255,13 @@ fn estimate_aspiration_base_score(
     let midgame_depth = n_empties / 2;
 
     let hash_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(board, hash_key);
+    let tt_probe_result = ctx.tt.probe(hash_key);
 
     if let Some(tt_data) = tt_probe_result.data()
-        && tt_data.bound() == Bound::Exact
-        && tt_data.depth() >= midgame_depth
+        && tt_data.bound == Bound::Exact
+        && tt_data.depth >= midgame_depth
     {
-        return tt_data.score();
+        return tt_data.score;
     }
 
     if n_empties >= 16 {
@@ -345,17 +345,17 @@ pub fn search<NT: NodeType>(
 
     // Look up position in transposition table
     let tt_key = board.hash();
-    let tt_probe_result = ctx.tt.probe(board, tt_key);
+    let tt_probe_result = ctx.tt.probe(tt_key);
     let tt_move = tt_probe_result.best_move();
 
     if !NT::PV_NODE {
         if let Some(tt_data) = tt_probe_result.data()
-            && (!is_endgame || tt_data.is_endgame())
-            && tt_data.depth() >= depth
-            && tt_data.selectivity() >= ctx.selectivity
+            && (!is_endgame || tt_data.is_endgame)
+            && tt_data.depth >= depth
+            && tt_data.selectivity >= ctx.selectivity
             && tt_data.can_cut(beta)
         {
-            return tt_data.score();
+            return tt_data.score;
         }
 
         if depth >= MIN_ETC_DEPTH
@@ -365,6 +365,7 @@ pub fn search<NT: NodeType>(
                 &move_list,
                 depth,
                 alpha,
+                tt_key,
                 tt_probe_result.index(),
                 is_endgame,
             )
@@ -426,7 +427,7 @@ pub fn search<NT: NodeType>(
 
     ctx.tt.store(
         tt_probe_result.index(),
-        board,
+        tt_key,
         best_score,
         Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
         depth,
@@ -553,6 +554,7 @@ fn enhanced_transposition_cutoff(
     move_list: &MoveList,
     depth: u32,
     alpha: ScaledScore,
+    tt_key: u64,
     tt_entry_index: usize,
     is_endgame: bool,
 ) -> Option<ScaledScore> {
@@ -562,18 +564,18 @@ fn enhanced_transposition_cutoff(
         ctx.increment_nodes();
 
         let etc_tt_key = next.hash();
-        if let Some(etc_tt_data) = ctx.tt.lookup(&next, etc_tt_key)
-            && (!is_endgame || etc_tt_data.is_endgame())
-            && etc_tt_data.depth() >= etc_depth
-            && etc_tt_data.selectivity() >= ctx.selectivity
+        if let Some(etc_tt_data) = ctx.tt.lookup(etc_tt_key)
+            && (!is_endgame || etc_tt_data.is_endgame)
+            && etc_tt_data.depth >= etc_depth
+            && etc_tt_data.selectivity >= ctx.selectivity
         {
-            let score = -etc_tt_data.score();
-            if (etc_tt_data.bound() == Bound::Exact || etc_tt_data.bound() == Bound::Upper)
+            let score = -etc_tt_data.score;
+            if (etc_tt_data.bound == Bound::Exact || etc_tt_data.bound == Bound::Upper)
                 && score > alpha
             {
                 ctx.tt.store(
                     tt_entry_index,
-                    board,
+                    tt_key,
                     score,
                     Bound::Lower,
                     depth,
