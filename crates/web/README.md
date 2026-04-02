@@ -5,7 +5,7 @@ WebAssembly version of Neural Reversi, running the Rust AI engine in the browser
 ## Requirements
 
 - [Rust](https://www.rust-lang.org/) (1.88.0+)
-- [Node.js](https://nodejs.org/) and npm
+- [Bun](https://bun.sh/)
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/)
 - clang (for zstd compilation)
 
@@ -26,8 +26,8 @@ rustup target add wasm32-unknown-unknown
 ### Development
 
 ```bash
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Open http://127.0.0.1:8080 in your browser.
@@ -35,7 +35,7 @@ Open http://127.0.0.1:8080 in your browser.
 ### Production
 
 ```bash
-npm run build
+bun run build
 ```
 
 Output will be in the `dist/` directory.
@@ -47,7 +47,7 @@ Generate ProbCut training data from game sequences using the WebAssembly engine.
 ### Build
 
 ```bash
-npm run build:wasm:node
+bun run build:wasm:node
 ```
 
 ### Usage

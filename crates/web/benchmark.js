@@ -1,4 +1,4 @@
-import init, { BenchmarkRunner } from './dist/pkg/web.js';
+import init, { BenchmarkRunner } from './pkg/web.js';
 
 // Constants
 const UI_UPDATE_DELAY = 100;

@@ -1,16 +1,40 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { readFileSync } from 'fs';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
+function serveWasm() {
+  return {
+    name: 'serve-wasm',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.endsWith('.wasm')) {
+          const filePath = resolve(__dirname, req.url.slice(1));
+          try {
+            const data = readFileSync(filePath);
+            res.setHeader('Content-Type', 'application/wasm');
+            res.end(data);
+            return;
+          } catch {
+            // fall through to next middleware
+          }
+        }
+        next();
+      });
+    }
+  };
+}
+
 export default defineConfig({
   plugins: [
+    serveWasm(),
     wasm(),
     topLevelAwait()
   ],
   resolve: {
     alias: {
-      '/dist/pkg': resolve(__dirname, 'dist/pkg')
+      '/pkg': resolve(__dirname, 'pkg')
     }
   },
   build: {
