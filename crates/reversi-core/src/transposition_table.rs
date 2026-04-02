@@ -74,19 +74,19 @@ impl Bound {
         Bound::Upper
     }
 
-    /// Converts a 2-bit value to a [`Bound`].
+    /// Converts a `u8` value to a [`Bound`].
+    ///
+    /// # Safety
+    ///
+    /// `value` must be in `0..=3`.
     #[inline]
-    pub fn from_u8(value: u8) -> Bound {
+    pub(crate) unsafe fn from_u8_unchecked(value: u8) -> Bound {
         debug_assert!(
             value <= 3,
-            "Bound::from_u8 called with out-of-range value: {value}"
+            "Bound::from_u8_unchecked called with out-of-range value: {value}"
         );
-        match value {
-            0 => Bound::None,
-            1 => Bound::Lower,
-            2 => Bound::Upper,
-            _ => Bound::Exact,
-        }
+        // SAFETY: Bound is #[repr(u8)] with contiguous variants 0–3.
+        unsafe { mem::transmute(value) }
     }
 }
 
@@ -141,10 +141,74 @@ impl TTProbeResult {
     }
 }
 
+/// Byte-aligned fields packed into 64 bits for atomic load/store.
+///
+/// Each field occupies a full byte (or two for `score`), eliminating
+/// bit-shift/mask operations on the hot read path.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TTDataFields {
+    score: i16,
+    best_move: u8,
+    bound: u8,
+    depth: u8,
+    selectivity: u8,
+    generation: u8,
+    is_endgame: u8,
+}
+
+const _: () = assert!(mem::size_of::<TTDataFields>() == 8);
+
+impl TTDataFields {
+    #[inline(always)]
+    fn to_u64(self) -> u64 {
+        // SAFETY: TTDataFields is #[repr(C)], 8 bytes, no padding.
+        unsafe { mem::transmute(self) }
+    }
+
+    #[inline(always)]
+    fn from_u64(raw: u64) -> Self {
+        // SAFETY: TTDataFields is #[repr(C)] with no padding (static-asserted
+        // to be exactly 8 bytes), so every u64 bit pattern maps to a valid
+        // instance whose individual integer fields accept all bit patterns.
+        unsafe { mem::transmute(raw) }
+    }
+
+    #[inline(always)]
+    fn new(
+        score: ScaledScore,
+        best_move: Square,
+        bound: Bound,
+        depth: Depth,
+        selectivity: Selectivity,
+        generation: u8,
+        is_endgame: bool,
+    ) -> Self {
+        Self {
+            score: score.value() as i16,
+            best_move: best_move as u8,
+            bound: bound as u8,
+            depth: depth as u8,
+            selectivity: selectivity.as_u8(),
+            generation: generation & TTEntry::GENERATION_MASK,
+            is_endgame: is_endgame as u8,
+        }
+    }
+
+    /// Creates a new `TTDataFields` with a substituted best move.
+    #[inline(always)]
+    fn with_best_move(self, best_move: Square) -> Self {
+        Self {
+            best_move: best_move as u8,
+            ..self
+        }
+    }
+}
+
 /// Packed metadata from a validated transposition-table entry.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TTEntryData {
-    raw: u64,
+    fields: TTDataFields,
     seq: u64,
 }
 
@@ -158,48 +222,45 @@ impl TTEntryData {
     /// Returns the cached search score.
     #[inline(always)]
     pub fn score(&self) -> ScaledScore {
-        let raw = ((self.raw >> TTEntry::SCORE_SHIFT) & TTEntry::SCORE_MASK) as i16 as i32;
-        ScaledScore::from_raw(raw)
+        ScaledScore::from_raw(self.fields.score as i32)
     }
 
     /// Returns the best move found for this position.
     #[inline(always)]
     pub fn best_move(&self) -> Square {
-        let val = ((self.raw >> TTEntry::BEST_MOVE_SHIFT) & TTEntry::BEST_MOVE_MASK) as u8;
         // SAFETY: only valid Square indices (0..=64) are stored.
-        unsafe { Square::from_u8_unchecked(val) }
+        unsafe { Square::from_u8_unchecked(self.fields.best_move) }
     }
 
     /// Returns the [`Bound`] type of this entry.
     #[inline(always)]
     pub fn bound(&self) -> Bound {
-        let val = ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) as u8;
-        Bound::from_u8(val)
+        // SAFETY: bound was stored from a valid Bound enum discriminant (0–3).
+        unsafe { Bound::from_u8_unchecked(self.fields.bound) }
     }
 
     /// Returns the search depth at which this entry was computed.
     #[inline(always)]
     pub fn depth(&self) -> Depth {
-        ((self.raw >> TTEntry::DEPTH_SHIFT) & TTEntry::DEPTH_MASK) as u8 as Depth
+        self.fields.depth as Depth
     }
 
     /// Returns the [`Selectivity`] level used during search.
     #[inline(always)]
     pub fn selectivity(&self) -> Selectivity {
-        let val = ((self.raw >> TTEntry::SELECTIVITY_SHIFT) & TTEntry::SELECTIVITY_MASK) as u8;
-        Selectivity::from_u8(val)
+        Selectivity::from_u8(self.fields.selectivity)
     }
 
     /// Returns the generation counter when this entry was stored.
     #[inline(always)]
     pub fn generation(&self) -> u8 {
-        ((self.raw >> TTEntry::GENERATION_SHIFT) & TTEntry::GENERATION_MASK) as u8
+        self.fields.generation
     }
 
     /// Returns `true` if this entry is from an endgame search.
     #[inline(always)]
     pub fn is_endgame(&self) -> bool {
-        ((self.raw >> TTEntry::IS_ENDGAME_SHIFT) & TTEntry::IS_ENDGAME_MASK) != 0
+        self.fields.is_endgame != 0
     }
 
     /// Returns whether this entry allows an immediate return in a null-window
@@ -211,28 +272,24 @@ impl TTEntryData {
     ///   an upper or exact bound.
     #[inline(always)]
     pub fn can_cut(&self, beta: ScaledScore) -> bool {
-        let score = self.score();
-        let bound_raw = ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) as u8;
-
-        let required = if score >= beta {
+        let required = if self.score() >= beta {
             Bound::Lower as u8
         } else {
             Bound::Upper as u8
         };
-
-        (bound_raw & required) != 0
+        (self.fields.bound & required) != 0
     }
 
     /// Returns `true` if the entry contains initialized metadata.
     #[inline(always)]
     pub fn is_occupied(&self) -> bool {
-        ((self.raw >> TTEntry::BOUND_SHIFT) & TTEntry::BOUND_MASK) != 0
+        self.fields.bound != 0
     }
 
     /// Returns the age distance in the 7-bit generation ring.
     #[inline(always)]
     fn relative_age(&self, generation: u8) -> i32 {
-        ((generation.wrapping_sub(self.generation())) & (TTEntry::GENERATION_MASK as u8)) as i32
+        (generation.wrapping_sub(self.fields.generation) & TTEntry::GENERATION_MASK) as i32
     }
 }
 
@@ -245,14 +302,7 @@ impl TTEntryData {
 ///
 /// - `player`: Player bitboard (AtomicU64)
 /// - `opponent`: Opponent bitboard (AtomicU64)
-/// - `data`: Packed data word with the following bit layout:
-///   - 16 bits: Evaluation score
-///   - 7 bits: Best move square
-///   - 2 bits: Bound type (none/lower/upper/exact)
-///   - 6 bits: Search depth
-///   - 3 bits: Selectivity level
-///   - 7 bits: Generation counter for aging
-///   - 1 bit: Endgame flag
+/// - `data`: [`TTDataFields`] stored as AtomicU64 via transmute
 /// - `seq`: 64-bit SeqLock sequence number
 #[repr(C)]
 pub struct TTEntry {
@@ -274,57 +324,11 @@ impl Default for TTEntry {
 }
 
 impl TTEntry {
-    // Bit layout constants for packing data into 64 bits
-    const SCORE_SIZE: i32 = 16;
-    const SCORE_SHIFT: i32 = 0;
-    const SCORE_MASK: u64 = (1 << Self::SCORE_SIZE) - 1;
-
-    const BEST_MOVE_SIZE: i32 = 7;
-    const BEST_MOVE_SHIFT: i32 = Self::SCORE_SHIFT + Self::SCORE_SIZE;
-    const BEST_MOVE_MASK: u64 = (1 << Self::BEST_MOVE_SIZE) - 1;
-
-    const BOUND_SIZE: i32 = 2;
-    const BOUND_SHIFT: i32 = Self::BEST_MOVE_SHIFT + Self::BEST_MOVE_SIZE;
-    const BOUND_MASK: u64 = (1 << Self::BOUND_SIZE) - 1;
-
-    const DEPTH_SIZE: i32 = 6;
-    const DEPTH_SHIFT: i32 = Self::BOUND_SHIFT + Self::BOUND_SIZE;
-    const DEPTH_MASK: u64 = (1 << Self::DEPTH_SIZE) - 1;
-
-    const SELECTIVITY_SIZE: i32 = 3;
-    const SELECTIVITY_SHIFT: i32 = Self::DEPTH_SHIFT + Self::DEPTH_SIZE;
-    const SELECTIVITY_MASK: u64 = (1 << Self::SELECTIVITY_SIZE) - 1;
-
-    const GENERATION_SIZE: i32 = 7;
-    const GENERATION_SHIFT: i32 = Self::SELECTIVITY_SHIFT + Self::SELECTIVITY_SIZE;
-    const GENERATION_MASK: u64 = (1 << Self::GENERATION_SIZE) - 1;
-
-    const IS_ENDGAME_SHIFT: i32 = Self::GENERATION_SHIFT + Self::GENERATION_SIZE;
-    const IS_ENDGAME_MASK: u64 = 1;
-
     /// Weight applied to the generation age difference in the replacement score.
     const AGE_WEIGHT: i32 = 8;
 
-    /// Builds the packed data word from all fields.
-    #[allow(clippy::too_many_arguments)]
-    #[inline(always)]
-    fn pack_data(
-        score: ScaledScore,
-        best_move: u8,
-        bound: u8,
-        depth: u8,
-        selectivity: u8,
-        generation: u8,
-        is_endgame: bool,
-    ) -> u64 {
-        (((score.value() as u16) as u64) << Self::SCORE_SHIFT)
-            | ((best_move as u64) << Self::BEST_MOVE_SHIFT)
-            | ((bound as u64) << Self::BOUND_SHIFT)
-            | ((depth as u64) << Self::DEPTH_SHIFT)
-            | ((selectivity as u64) << Self::SELECTIVITY_SHIFT)
-            | (((generation & Self::GENERATION_MASK as u8) as u64) << Self::GENERATION_SHIFT)
-            | ((is_endgame as u64) << Self::IS_ENDGAME_SHIFT)
-    }
+    /// 7-bit generation mask for the generation ring.
+    const GENERATION_MASK: u8 = 0x7F;
 
     /// Attempts to read a stable snapshot of the slot.
     #[inline(always)]
@@ -348,7 +352,14 @@ impl TTEntry {
             return None;
         }
 
-        Some((player, opponent, TTEntryData { raw, seq: seq1 }))
+        Some((
+            player,
+            opponent,
+            TTEntryData {
+                fields: TTDataFields::from_u64(raw),
+                seq: seq1,
+            },
+        ))
     }
 
     /// Reads the slot and returns metadata if it matches `board`.
@@ -376,25 +387,13 @@ impl TTEntry {
     /// non-exact results replace when depth regression is at most two plies, selectivity is
     /// higher, or generation changed. If `best_move` is [`Square::None`], the
     /// existing move is preserved for same-board non-exact updates.
-    #[allow(clippy::too_many_arguments)]
-    pub fn save(
-        &self,
-        board: &Board,
-        score: ScaledScore,
-        bound: Bound,
-        depth: Depth,
-        best_move: Square,
-        selectivity: Selectivity,
-        generation: u8,
-        is_endgame: bool,
-    ) {
+    pub(crate) fn save(&self, board: &Board, data: TTDataFields) {
         let new_player = board.player.bits();
         let new_opponent = board.opponent.bits();
-
-        let best_move_u8 = best_move as u8;
-        let bound_u8 = bound as u8;
-        let depth_u8 = depth as u8;
-        let selectivity_u8 = selectivity.as_u8();
+        // SAFETY: data was constructed by TTDataFields::new(), which stores
+        // valid Bound and Square discriminants.
+        let bound = unsafe { Bound::from_u8_unchecked(data.bound) };
+        let best_move = unsafe { Square::from_u8_unchecked(data.best_move) };
 
         // Retry the full replacement policy if another writer wins the race
         // between snapshot acquisition and the claim CAS.
@@ -409,42 +408,26 @@ impl TTEntry {
             let should_replace = if bound == Bound::Exact || !same_board {
                 true
             } else {
-                let stored_depth = stored_data.depth() as i8;
-                let stored_selectivity = stored_data.selectivity().as_u8();
-                let stored_generation = stored_data.generation();
-
                 // Replace if ANY of these conditions hold:
                 // 1. New depth is at most 2 plies below stored depth (allows slight depth regression)
                 // 2. New selectivity is higher (more conservative search is more valuable)
                 // 3. Different generation (prioritize current search's entries)
-                (depth as i8) >= stored_depth.saturating_sub(2)
-                    || selectivity_u8 > stored_selectivity
-                    || generation != stored_generation
+                (data.depth as i8) >= (stored_data.depth() as i8).saturating_sub(2)
+                    || data.selectivity > stored_data.selectivity().as_u8()
+                    || data.generation != stored_data.generation()
             };
 
             if !should_replace {
                 return;
             }
 
-            let write_best_move =
-                if best_move != Square::None || bound == Bound::Exact || !same_board {
-                    best_move_u8
-                } else {
-                    stored_data.best_move() as u8
-                };
+            let write_data = if best_move != Square::None || bound == Bound::Exact || !same_board {
+                data
+            } else {
+                data.with_best_move(stored_data.best_move())
+            };
 
-            if self.seqlock_write(
-                stored_data.seq,
-                new_player,
-                new_opponent,
-                write_best_move,
-                score,
-                bound_u8,
-                depth_u8,
-                selectivity_u8,
-                generation,
-                is_endgame,
-            ) {
+            if self.seqlock_write(stored_data.seq, new_player, new_opponent, write_data) {
                 return;
             }
 
@@ -453,20 +436,13 @@ impl TTEntry {
     }
 
     /// Tries to claim the slot from a specific stable snapshot and publish a new value.
-    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn seqlock_write(
         &self,
         expected_seq: u64,
         player: u64,
         opponent: u64,
-        best_move: u8,
-        score: ScaledScore,
-        bound: u8,
-        depth: u8,
-        selectivity: u8,
-        generation: u8,
-        is_endgame: bool,
+        data: TTDataFields,
     ) -> bool {
         debug_assert_eq!(expected_seq & 1, 0, "expected stable snapshot");
 
@@ -485,29 +461,16 @@ impl TTEntry {
 
         // We now hold exclusive write access (sequence is odd).
         //
-        // The sequence counter lives in a separate atomic from the payload, so
-        // writers must publish the odd sequence value before any split payload
-        // stores become visible. Otherwise, a reader that uses relaxed payload
-        // loads plus a final acquire fence could still observe the old even
-        // sequence around partially updated fields and accept a corrupt
-        // snapshot on a weakly ordered CPU.
+        // The release fence ensures that, on weakly ordered architectures,
+        // the odd-sequence CAS store is visible to other cores before any
+        // payload store below. Without it a reader could observe new payload
+        // values while still seeing the old even sequence on both its
+        // validation loads, accepting a torn snapshot as consistent.
         fence(Ordering::Release);
 
-        // Step 1: Store player and opponent
         self.player.store(player, Ordering::Relaxed);
         self.opponent.store(opponent, Ordering::Relaxed);
-
-        // Step 2: Publish the new payload, then release the lock with the next even sequence.
-        let final_data = Self::pack_data(
-            score,
-            best_move,
-            bound,
-            depth,
-            selectivity,
-            generation,
-            is_endgame,
-        );
-        self.data.store(final_data, Ordering::Relaxed);
+        self.data.store(data.to_u64(), Ordering::Relaxed);
         self.seq
             .store(expected_seq.wrapping_add(2), Ordering::Release);
         true
@@ -590,26 +553,19 @@ impl TranspositionTable {
         occupied as f64 / (sample_clusters * CLUSTER_SIZE) as f64
     }
 
-    /// Returns the current generation counter value.
+    /// Returns the current generation counter value (7-bit, `0..=127`).
     #[inline]
     pub fn generation(&self) -> u8 {
-        self.generation.load(Ordering::Relaxed)
+        self.generation.load(Ordering::Relaxed) & TTEntry::GENERATION_MASK
     }
 
     /// Increments the generation counter and returns the new value.
     ///
-    /// The counter wraps at 128 (7-bit range) to match the packed storage width
-    /// in [`TTEntry`], preventing overflow into the `is_endgame` flag.
-    ///
-    /// # Concurrency
-    ///
-    /// This performs a non-atomic read-modify-write. It is safe only because
-    /// the sole call site (`Search::execute_search`) holds `&mut self`,
-    /// guaranteeing no concurrent callers.
+    /// The counter wraps at 128 (7-bit range) to match [`TTDataFields::generation`].
     #[inline]
     pub fn increment_generation(&self) -> u8 {
-        let new = self.generation.load(Ordering::Relaxed).wrapping_add(1)
-            & (TTEntry::GENERATION_MASK as u8);
+        let new =
+            self.generation.load(Ordering::Relaxed).wrapping_add(1) & TTEntry::GENERATION_MASK;
         self.generation.store(new, Ordering::Relaxed);
         new
     }
@@ -728,8 +684,8 @@ impl TranspositionTable {
     /// # Panics
     ///
     /// Panics in debug builds if `entry_index` is out of bounds.
-    #[inline(always)]
     #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
     pub fn store(
         &self,
         entry_index: usize,
@@ -746,19 +702,19 @@ impl TranspositionTable {
             "TT store index {} out of bounds",
             entry_index
         );
-        // SAFETY: `entry_index` originates from `probe`, which only returns
-        // indices within `entries`.
-        let entry = unsafe { self.entries.get_unchecked(entry_index) };
-        entry.save(
-            board,
+        let data = TTDataFields::new(
             score,
+            best_move,
             bound,
             depth,
-            best_move,
             selectivity,
             self.generation(),
             is_endgame,
         );
+        // SAFETY: `entry_index` originates from `probe`, which only returns
+        // indices within `entries`.
+        let entry = unsafe { self.entries.get_unchecked(entry_index) };
+        entry.save(board, data);
     }
 
     /// Returns the first entry index of the cluster selected by `key`.
@@ -785,30 +741,6 @@ mod tests {
         }
     }
 
-    fn store_entry(
-        tt: &TranspositionTable,
-        board: &Board,
-        score: ScaledScore,
-        bound: Bound,
-        depth: Depth,
-        best_move: usize,
-        selectivity: Selectivity,
-    ) -> usize {
-        let key = board.hash();
-        let idx = tt.probe(board, key).index();
-        tt.store(
-            idx,
-            board,
-            score,
-            bound,
-            depth,
-            sq(best_move),
-            selectivity,
-            false,
-        );
-        idx
-    }
-
     /// Tests that TTEntry correctly packs and unpacks all fields.
     #[test]
     fn test_ttentry_store_and_read() {
@@ -823,13 +755,15 @@ mod tests {
 
         entry.save(
             &board,
-            test_score,
-            test_bound,
-            test_depth,
-            test_best_move,
-            test_selectivity,
-            test_generation,
-            false,
+            TTDataFields::new(
+                test_score,
+                test_best_move,
+                test_bound,
+                test_depth,
+                test_selectivity,
+                test_generation,
+                false,
+            ),
         );
 
         let data = entry.read(&board).expect("should hit");
@@ -850,13 +784,15 @@ mod tests {
 
         entry.save(
             &board1,
-            ScaledScore::from_raw(50),
-            Bound::Exact,
-            10,
-            sq(5),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(50),
+                sq(5),
+                Bound::Exact,
+                10,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
 
         assert!(entry.read(&board1).is_some());
@@ -872,13 +808,15 @@ mod tests {
         // Initial save
         entry.save(
             &board,
-            ScaledScore::from_raw(50),
-            Bound::Lower,
-            10,
-            sq(5),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(50),
+                sq(5),
+                Bound::Lower,
+                10,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 10);
@@ -886,13 +824,15 @@ mod tests {
         // Slightly shallower (within 2 plies) - should replace
         entry.save(
             &board,
-            ScaledScore::from_raw(60),
-            Bound::Lower,
-            8,
-            sq(6),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(60),
+                sq(6),
+                Bound::Lower,
+                8,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 8);
@@ -901,13 +841,15 @@ mod tests {
         // Deeper - should replace
         entry.save(
             &board,
-            ScaledScore::from_raw(70),
-            Bound::Lower,
-            12,
-            sq(7),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(70),
+                sq(7),
+                Bound::Lower,
+                12,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 12);
@@ -915,13 +857,15 @@ mod tests {
         // Exact bound - always replaces
         entry.save(
             &board,
-            ScaledScore::from_raw(80),
-            Bound::Exact,
-            5,
-            sq(8),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(80),
+                sq(8),
+                Bound::Exact,
+                5,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.depth(), 5);
@@ -931,13 +875,15 @@ mod tests {
         let board2 = make_board(300, 400);
         entry.save(
             &board2,
-            ScaledScore::from_raw(90),
-            Bound::Upper,
-            3,
-            sq(9),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(90),
+                sq(9),
+                Bound::Upper,
+                3,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
         let data = entry.read(&board2).unwrap();
         assert_eq!(data.score().value(), 90);
@@ -946,13 +892,15 @@ mod tests {
         // Newer generation - should replace
         entry.save(
             &board2,
-            ScaledScore::from_raw(100),
-            Bound::Lower,
-            2,
-            sq(10),
-            Selectivity::Level2,
-            5,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(100),
+                sq(10),
+                Bound::Lower,
+                2,
+                Selectivity::Level2,
+                5,
+                false,
+            ),
         );
         let data = entry.read(&board2).unwrap();
         assert_eq!(data.generation(), 5);
@@ -966,24 +914,28 @@ mod tests {
 
         entry.save(
             &board,
-            ScaledScore::from_raw(30),
-            Bound::Lower,
-            12,
-            sq(11),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(30),
+                sq(11),
+                Bound::Lower,
+                12,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
 
         entry.save(
             &board,
-            ScaledScore::from_raw(40),
-            Bound::Lower,
-            11,
-            Square::None,
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(40),
+                Square::None,
+                Bound::Lower,
+                11,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
 
         let data = entry.read(&board).unwrap();
@@ -1034,52 +986,60 @@ mod tests {
         // After storing with Lower bound
         entry.save(
             &board,
-            s(0),
-            Bound::Lower,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            0,
-            false,
+            TTDataFields::new(
+                s(0),
+                Square::None,
+                Bound::Lower,
+                0,
+                Selectivity::Level1,
+                0,
+                false,
+            ),
         );
         assert!(entry.read(&board).unwrap().is_occupied());
 
         // can_cut tests
         entry.save(
             &board,
-            s(100),
-            Bound::Lower,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            0,
-            false,
+            TTDataFields::new(
+                s(100),
+                Square::None,
+                Bound::Lower,
+                0,
+                Selectivity::Level1,
+                0,
+                false,
+            ),
         );
         assert!(entry.read(&board).unwrap().can_cut(s(50)));
         assert!(!entry.read(&board).unwrap().can_cut(s(150)));
 
         entry.save(
             &board,
-            s(30),
-            Bound::Upper,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            0,
-            false,
+            TTDataFields::new(
+                s(30),
+                Square::None,
+                Bound::Upper,
+                0,
+                Selectivity::Level1,
+                0,
+                false,
+            ),
         );
         assert!(entry.read(&board).unwrap().can_cut(s(50)));
         assert!(!entry.read(&board).unwrap().can_cut(s(20)));
 
         entry.save(
             &board,
-            s(30),
-            Bound::Exact,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            0,
-            false,
+            TTDataFields::new(
+                s(30),
+                Square::None,
+                Bound::Exact,
+                0,
+                Selectivity::Level1,
+                0,
+                false,
+            ),
         );
         assert!(entry.read(&board).unwrap().can_cut(s(50)));
         assert!(entry.read(&board).unwrap().can_cut(s(20)));
@@ -1139,14 +1099,16 @@ mod tests {
 
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let key = board.hash();
-        store_entry(
-            &tt,
+        let idx = tt.probe(&board, key).index();
+        tt.store(
+            idx,
             &board,
             ScaledScore::from_raw(100),
             Bound::Exact,
             20,
-            10,
+            sq(10),
             Selectivity::Level1,
+            false,
         );
 
         assert!(tt.probe(&board, key).is_hit());
@@ -1347,13 +1309,15 @@ mod tests {
         // Store entry at generation 126
         entry.save(
             &board,
-            ScaledScore::from_raw(0),
-            Bound::Exact,
-            0,
-            Square::None,
-            Selectivity::Level1,
-            126,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(0),
+                Square::None,
+                Bound::Exact,
+                0,
+                Selectivity::Level1,
+                126,
+                false,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 126);
@@ -1368,22 +1332,24 @@ mod tests {
         assert_eq!(data.relative_age(126), 0);
     }
 
-    /// Tests that pack_data does not corrupt the is_endgame flag even with large generation values.
+    /// Tests that the is_endgame flag is not corrupted even with large generation values.
     #[test]
-    fn test_pack_data_no_endgame_corruption() {
+    fn test_no_endgame_corruption() {
         let entry = TTEntry::default();
         let board = make_board(42, 84);
 
         // Store with generation=127, is_endgame=false
         entry.save(
             &board,
-            ScaledScore::from_raw(50),
-            Bound::Exact,
-            10,
-            sq(5),
-            Selectivity::Level1,
-            127,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(50),
+                sq(5),
+                Bound::Exact,
+                10,
+                Selectivity::Level1,
+                127,
+                false,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 127);
@@ -1392,13 +1358,15 @@ mod tests {
         // Store with generation=127, is_endgame=true
         entry.save(
             &board,
-            ScaledScore::from_raw(50),
-            Bound::Exact,
-            10,
-            sq(5),
-            Selectivity::Level1,
-            127,
-            true,
+            TTDataFields::new(
+                ScaledScore::from_raw(50),
+                sq(5),
+                Bound::Exact,
+                10,
+                Selectivity::Level1,
+                127,
+                true,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 127);
@@ -1407,13 +1375,15 @@ mod tests {
         // Defense-in-depth: even if generation=255 is passed (should be masked to 127)
         entry.save(
             &board,
-            ScaledScore::from_raw(50),
-            Bound::Exact,
-            10,
-            sq(5),
-            Selectivity::Level1,
-            255,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(50),
+                sq(5),
+                Bound::Exact,
+                10,
+                Selectivity::Level1,
+                255,
+                false,
+            ),
         );
         let data = entry.read(&board).unwrap();
         assert_eq!(data.generation(), 127);
@@ -1431,26 +1401,30 @@ mod tests {
 
         entry.save(
             &board,
-            ScaledScore::from_raw(10),
-            Bound::Lower,
-            5,
-            sq(1),
-            Selectivity::Level1,
-            0,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(10),
+                sq(1),
+                Bound::Lower,
+                5,
+                Selectivity::Level1,
+                0,
+                false,
+            ),
         );
         let v1 = entry.read(&board).unwrap().sequence();
         assert!(v1 & 1 == 0, "sequence should be even after save");
 
         entry.save(
             &board,
-            ScaledScore::from_raw(20),
-            Bound::Exact,
-            6,
-            sq(2),
-            Selectivity::Level1,
-            0,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(20),
+                sq(2),
+                Bound::Exact,
+                6,
+                Selectivity::Level1,
+                0,
+                false,
+            ),
         );
         let v2 = entry.read(&board).unwrap().sequence();
         assert!(v2 > v1, "sequence should increment");
@@ -1466,38 +1440,44 @@ mod tests {
 
         entry.save(
             &board1,
-            ScaledScore::from_raw(10),
-            Bound::Exact,
-            5,
-            sq(1),
-            Selectivity::Level1,
-            0,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(10),
+                sq(1),
+                Bound::Exact,
+                5,
+                Selectivity::Level1,
+                0,
+                false,
+            ),
         );
         let (_, _, snapshot) = entry.try_load_snapshot().unwrap();
 
         entry.save(
             &board2,
-            ScaledScore::from_raw(20),
-            Bound::Exact,
-            6,
-            sq(2),
-            Selectivity::Level2,
-            1,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(20),
+                sq(2),
+                Bound::Exact,
+                6,
+                Selectivity::Level2,
+                1,
+                false,
+            ),
         );
 
         assert!(!entry.seqlock_write(
             snapshot.seq,
             1,
             2,
-            sq(3) as u8,
-            ScaledScore::from_raw(30),
-            Bound::Exact as u8,
-            7,
-            Selectivity::Level3.as_u8(),
-            2,
-            false,
+            TTDataFields::new(
+                ScaledScore::from_raw(30),
+                sq(3),
+                Bound::Exact,
+                7,
+                Selectivity::Level3,
+                2,
+                false,
+            ),
         ));
 
         assert!(entry.read(&board1).is_none());
