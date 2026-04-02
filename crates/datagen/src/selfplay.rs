@@ -385,13 +385,12 @@ fn play_game(
                 game_score: 0,
                 side_to_move,
                 is_random: true,
-                sq,
+                sq: result.best_move.unwrap_or(sq),
             };
             record_cache.insert(board, record.clone());
             record
         };
         record.game_id = game_id;
-        record.sq = sq;
 
         game_records.push(record);
 
