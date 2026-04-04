@@ -50,7 +50,13 @@
     "score": "Score",
     "pvLine": "PV Line",
     "waitingForAI": "Waiting for AI turn",
-    "move": "Move"
+    "move": "Move",
+    "analyze": "Analyze",
+    "analysisLevel": "Analysis Lv.",
+    "abort": "Abort",
+    "analyzing": "Analyzing... ({{current}}/{{total}})",
+    "bestMoveLabel": "Best: {{move}} ({{score}})",
+    "lossLabel": "Loss: {{loss}}"
   },
   "settings": {
     "language": "Language",

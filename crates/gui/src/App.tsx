@@ -24,6 +24,7 @@ function App() {
   const setTimeLimit = useReversiStore((state) => state.setTimeLimit);
   const setGameTimeLimit = useReversiStore((state) => state.setGameTimeLimit);
   const setHintLevel = useReversiStore((state) => state.setHintLevel);
+  const setGameAnalysisLevel = useReversiStore((state) => state.setGameAnalysisLevel);
   const setHashSize = useReversiStore((state) => state.setHashSize);
   const setAIAnalysisPanelOpen = useReversiStore((state) => state.setAIAnalysisPanelOpen);
   const startGame = useReversiStore((state) => state.startGame);
@@ -44,6 +45,7 @@ function App() {
       setTimeLimit(settings.timeLimit);
       setGameTimeLimit(settings.gameTimeLimit);
       setHintLevel(settings.hintLevel);
+      setGameAnalysisLevel(settings.gameAnalysisLevel);
       setHashSize(settings.hashSize);
       setAIAnalysisPanelOpen(settings.aiAnalysisPanelOpen);
 

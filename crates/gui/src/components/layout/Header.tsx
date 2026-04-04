@@ -1,4 +1,5 @@
 import { Menu, Play, Lightbulb, Globe, HardDrive } from "lucide-react";
+import { ANALYSIS_LEVELS } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -84,7 +85,7 @@ export function Header() {
                   value={hintLevel.toString()}
                   onValueChange={(v) => setHintLevel(parseInt(v))}
                 >
-                  {[1, 4, 8, 12, 16, 20, 24, 28, 30].map((level) => (
+                  {ANALYSIS_LEVELS.map((level) => (
                     <DropdownMenuRadioItem
                       key={level}
                       value={level.toString()}

@@ -34,6 +34,19 @@ function serializeBoardForAI(board: Board, player: Player): string {
     .join("");
 }
 
+async function withEventListener<T, R>(
+  event: string,
+  callback: (ev: Event<T>) => void,
+  fn: () => Promise<R>
+): Promise<R> {
+  const unlisten = await listen<T>(event, callback);
+  try {
+    return await fn();
+  } finally {
+    unlisten();
+  }
+}
+
 export async function getAIMove(
   board: Board,
   player: Player,
@@ -47,21 +60,19 @@ export async function getAIMove(
 
   const boardString = serializeBoardForAI(board, player);
 
-  const unlisten = await listen<AIMoveProgress>("ai-move-progress", (data) => {
-    callback(data);
-  });
-
   try {
-    return await invoke<AIMoveResult>("ai_move_command", {
-      boardString,
-      level,
-      timeLimit,
-      remainingTime,
-    });
+    return await withEventListener<AIMoveProgress, AIMoveResult>(
+      "ai-move-progress",
+      callback,
+      () => invoke<AIMoveResult>("ai_move_command", {
+        boardString,
+        level,
+        timeLimit,
+        remainingTime,
+      }),
+    );
   } catch {
     return null;
-  } finally {
-    unlisten();
   }
 }
 
@@ -101,16 +112,42 @@ export async function analyze(
 
   const boardString = serializeBoardForAI(board, player);
 
-  const unlisten = await listen<AIMoveProgress>("ai-move-progress", (data) => {
-    callback(data);
-  });
+  await withEventListener<AIMoveProgress, void>(
+    "ai-move-progress",
+    callback,
+    () => invoke("analyze_command", { boardString, level }),
+  );
+}
 
+export type GameAnalysisProgress = {
+  moveIndex: number;
+  bestMove: string;
+  bestScore: number;
+  playedScore: number;
+  scoreLoss: number;
+  depth: number;
+};
+
+export async function analyzeGame(
+  board: Board,
+  player: Player,
+  moves: string[],
+  level: number,
+  callback: (event: Event<GameAnalysisProgress>) => void
+): Promise<void> {
+  const boardString = serializeBoardForAI(board, player);
+
+  await withEventListener<GameAnalysisProgress, void>(
+    "game-analysis-progress",
+    callback,
+    () => invoke("analyze_game_command", { boardString, moves, level }),
+  );
+}
+
+export async function abortGameAnalysis(): Promise<void> {
   try {
-    await invoke<AIMoveResult>("analyze_command", {
-      boardString,
-      level,
-    });
-  } finally {
-    unlisten();
+    await invoke("abort_game_analysis_command");
+  } catch (error) {
+    console.error("Failed to abort game analysis:", error);
   }
 }

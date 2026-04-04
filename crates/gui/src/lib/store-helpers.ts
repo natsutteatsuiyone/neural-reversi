@@ -121,6 +121,7 @@ export function createGameStartState(
     searchTimer: null,
     validMoves: gameStatus === "playing" ? getValidMoves(board, currentPlayer) : [],
     skipAnimation: true,
+    gameAnalysisResult: null,
   };
 }
 
@@ -204,4 +205,3 @@ export function getRedoCount(
   }
   return count;
 }
-

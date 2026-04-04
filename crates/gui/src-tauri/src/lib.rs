@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use reversi_core::disc::Disc;
@@ -5,17 +6,18 @@ use reversi_core::level::get_level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{SearchRunOptions, time_control::TimeControlMode};
+use reversi_core::square::Square;
 use reversi_core::types::Scoref;
 use reversi_core::{board, search};
-use tauri::{AppHandle, Emitter, Manager, State};
-
 use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const SELECTIVITY: Selectivity = Selectivity::Level1;
 
 struct AppState {
     search: Arc<Mutex<search::Search>>,
     thread_pool: Arc<search::threading::ThreadPool>,
+    game_analysis_abort: Arc<AtomicBool>,
 }
 
 #[derive(Serialize)]
@@ -43,6 +45,21 @@ pub struct SearchProgressPayload {
     pub nodes: u64,
     pub pv_line: String,
     pub is_endgame: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAnalysisProgressPayload {
+    pub move_index: usize,
+    pub best_move: String,
+    pub best_score: Scoref,
+    pub played_score: Scoref,
+    pub score_loss: Scoref,
+    pub depth: u32,
+}
+
+fn round_score(score: Scoref) -> Scoref {
+    (score * 10.0).round() / 10.0
 }
 
 #[tauri::command]
@@ -76,18 +93,19 @@ async fn resize_tt_command(state: State<'_, AppState>, hash_size: usize) -> Resu
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-async fn abort_ai_search_command(state: State<'_, AppState>) -> Result<(), String> {
-    state.thread_pool.abort_search();
-
-    let thread_pool = state.thread_pool.clone();
+async fn abort_and_wait(thread_pool: Arc<search::threading::ThreadPool>) -> Result<(), String> {
+    thread_pool.abort_search();
     tauri::async_runtime::spawn_blocking(move || {
         thread_pool.wait_for_think_finished();
     })
     .await
     .map_err(|e| e.to_string())?;
-
     Ok(())
+}
+
+#[tauri::command]
+async fn abort_ai_search_command(state: State<'_, AppState>) -> Result<(), String> {
+    abort_and_wait(state.thread_pool.clone()).await
 }
 
 #[tauri::command]
@@ -114,7 +132,7 @@ async fn ai_move_command(
             let payload = SearchProgressPayload {
                 depth: progress.depth,
                 target_depth: progress.target_depth,
-                score: (progress.score * 10.0).round() / 10.0,
+                score: round_score(progress.score),
                 best_move: format!("{}", progress.best_move),
                 row: (progress.best_move as i32 / 8),
                 col: (progress.best_move as i32 % 8),
@@ -167,7 +185,7 @@ async fn ai_move_command(
                 .best_move
                 .map(|square| square as i32 % 8)
                 .unwrap_or(-1),
-            score: (result.score * 10.0).round() / 10.0,
+            score: round_score(result.score),
             depth: result.depth,
             acc: result.get_probability(),
             time_taken: time_taken_ms,
@@ -198,7 +216,7 @@ async fn analyze_command(
             let payload = SearchProgressPayload {
                 depth: progress.depth,
                 target_depth: progress.target_depth,
-                score: (progress.score * 10.0).round() / 10.0,
+                score: round_score(progress.score),
                 best_move: format!("{}", progress.best_move),
                 row: (progress.best_move as i32 / 8),
                 col: (progress.best_move as i32 % 8),
@@ -224,6 +242,105 @@ async fn analyze_command(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn analyze_game_command(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    board_string: String,
+    moves: Vec<String>,
+    level: usize,
+) -> Result<(), String> {
+    let search_arc = state.search.clone();
+    let abort_flag = state.game_analysis_abort.clone();
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        abort_flag.store(false, Ordering::Release);
+        let initial_board = board::Board::from_string(&board_string, Disc::Black)
+            .map_err(|e| format!("Invalid board string: {e}"))?;
+        let lv = get_level(level);
+
+        let mut boards: Vec<board::Board> = Vec::with_capacity(moves.len() + 1);
+        let mut is_pass: Vec<bool> = Vec::with_capacity(moves.len());
+        let mut current = initial_board;
+        boards.push(current);
+
+        for move_notation in &moves {
+            if move_notation == "--" {
+                is_pass.push(true);
+                current = current.switch_players();
+            } else {
+                is_pass.push(false);
+                let sq: Square = move_notation
+                    .parse()
+                    .map_err(|e| format!("Invalid move notation '{move_notation}': {e}"))?;
+                current = current.make_move(sq);
+            }
+            boards.push(current);
+        }
+
+        if abort_flag.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        let options = SearchRunOptions::with_level(lv, SELECTIVITY);
+        let final_board = boards.last().unwrap();
+        let mut score: Scoref = if !final_board.get_moves().is_empty() {
+            let mut guard = search_arc.lock().unwrap();
+            let result = guard.run(final_board, &options);
+            round_score(result.score)
+        } else {
+            final_board.solve(final_board.get_empty_count()) as Scoref
+        };
+
+        for i in (0..moves.len()).rev() {
+            if abort_flag.load(Ordering::Acquire) {
+                break;
+            }
+
+            if is_pass[i] {
+                score = -score;
+                continue;
+            }
+
+            let board = &boards[i];
+            let mut search_guard = search_arc.lock().unwrap();
+            let result = search_guard.run(board, &options);
+            drop(search_guard);
+
+            let best_move_str = result
+                .best_move
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let best_score = round_score(result.score);
+
+            let played_score = -score;
+            let score_loss = (best_score - played_score).max(0.0);
+
+            let payload = GameAnalysisProgressPayload {
+                move_index: i,
+                best_move: best_move_str,
+                best_score,
+                played_score,
+                score_loss,
+                depth: result.depth,
+            };
+            let _ = app.emit("game-analysis-progress", payload);
+
+            score = best_score.max(played_score);
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn abort_game_analysis_command(state: State<'_, AppState>) -> Result<(), String> {
+    state.game_analysis_abort.store(true, Ordering::Release);
+    abort_and_wait(state.thread_pool.clone()).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let search_options = SearchOptions::default();
@@ -240,6 +357,7 @@ pub fn run() {
             app.manage(AppState {
                 search,
                 thread_pool,
+                game_analysis_abort: Arc::new(AtomicBool::new(false)),
             });
             Ok(())
         })
@@ -249,7 +367,9 @@ pub fn run() {
             init_ai_command,
             resize_tt_command,
             abort_ai_search_command,
-            analyze_command
+            analyze_command,
+            analyze_game_command,
+            abort_game_analysis_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

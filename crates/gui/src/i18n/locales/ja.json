@@ -50,7 +50,13 @@
     "score": "評価",
     "pvLine": "読み筋",
     "waitingForAI": "AIの手番です",
-    "move": "手"
+    "move": "手",
+    "analyze": "解析",
+    "analysisLevel": "解析Lv.",
+    "abort": "中止",
+    "analyzing": "解析中... ({{current}}/{{total}})",
+    "bestMoveLabel": "最善: {{move}} ({{score}})",
+    "lossLabel": "損失: {{loss}}"
   },
   "settings": {
     "language": "言語",

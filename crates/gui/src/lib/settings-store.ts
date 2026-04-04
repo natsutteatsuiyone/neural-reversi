@@ -8,6 +8,7 @@ export interface AppSettings {
   timeLimit: number;
   gameTimeLimit: number;
   hintLevel: number;
+  gameAnalysisLevel: number;
   hashSize: number;
   aiAnalysisPanelOpen: boolean;
   language: Language | null;
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   timeLimit: 1,
   gameTimeLimit: 60,
   hintLevel: 21,
+  gameAnalysisLevel: 20,
   hashSize: 512,
   aiAnalysisPanelOpen: false,
   language: null,
@@ -43,11 +45,12 @@ export async function loadSettings(): Promise<AppSettings> {
     const timeLimit = await s.get<number>("timeLimit") ?? DEFAULT_SETTINGS.timeLimit;
     const gameTimeLimit = await s.get<number>("gameTimeLimit") ?? DEFAULT_SETTINGS.gameTimeLimit;
     const hintLevel = await s.get<number>("hintLevel") ?? DEFAULT_SETTINGS.hintLevel;
+    const gameAnalysisLevel = await s.get<number>("gameAnalysisLevel") ?? DEFAULT_SETTINGS.gameAnalysisLevel;
     const hashSize = await s.get<number>("hashSize") ?? DEFAULT_SETTINGS.hashSize;
     const aiAnalysisPanelOpen = await s.get<boolean>("aiAnalysisPanelOpen") ?? DEFAULT_SETTINGS.aiAnalysisPanelOpen;
     const language = await s.get<Language | null>("language") ?? DEFAULT_SETTINGS.language;
 
-    return { gameMode, aiLevel, aiMode, timeLimit, gameTimeLimit, hintLevel, hashSize, aiAnalysisPanelOpen, language };
+    return { gameMode, aiLevel, aiMode, timeLimit, gameTimeLimit, hintLevel, gameAnalysisLevel, hashSize, aiAnalysisPanelOpen, language };
   } catch (error) {
     console.error("Failed to load settings:", error);
     return DEFAULT_SETTINGS;

@@ -49,16 +49,31 @@ export interface AISlice {
     clearAiThinkingHistory: () => void;
 }
 
+export interface MoveAnalysis {
+    moveIndex: number;
+    player: "black" | "white";
+    playedMove: string;
+    playedScore: number;
+    bestMove: string;
+    bestScore: number;
+    scoreLoss: number;
+    depth: number;
+}
+
 export interface UISlice {
     showPassNotification: "black" | "white" | null;
     isAnalyzing: boolean;
     analyzeResults: Map<string, AIMoveProgress> | null;
     isNewGameModalOpen: boolean;
     isHintMode: boolean;
+    isGameAnalyzing: boolean;
+    gameAnalysisResult: MoveAnalysis[] | null;
     hidePassNotification: () => void;
     analyzeBoard: () => Promise<void>;
     setNewGameModalOpen: (open: boolean) => void;
     setHintMode: (enabled: boolean) => void;
+    analyzeGame: () => Promise<void>;
+    abortGameAnalysis: () => Promise<void>;
 }
 
 export interface SettingsSlice {
@@ -66,12 +81,14 @@ export interface SettingsSlice {
     timeLimit: number;
     gameTimeLimit: number;
     hintLevel: number;
+    gameAnalysisLevel: number;
     hashSize: number;
     aiAnalysisPanelOpen: boolean;
     setGameMode: (mode: GameMode) => void;
     setTimeLimit: (limit: number) => void;
     setGameTimeLimit: (limit: number) => void;
     setHintLevel: (level: number) => void;
+    setGameAnalysisLevel: (level: number) => void;
     setHashSize: (size: number) => void;
     setAIAnalysisPanelOpen: (open: boolean) => void;
 }

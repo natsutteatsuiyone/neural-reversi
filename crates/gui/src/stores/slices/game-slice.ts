@@ -307,6 +307,9 @@ export const createGameSlice: StateCreator<
         if (get().isAIThinking || get().isAnalyzing) {
             await get().abortAIMove();
         }
+        if (get().isGameAnalyzing) {
+            await get().abortGameAnalysis();
+        }
 
         const { searchTimer } = get();
         if (searchTimer) {

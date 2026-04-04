@@ -13,6 +13,7 @@ export const createSettingsSlice: StateCreator<
     timeLimit: 1,
     gameTimeLimit: 60, // 1 minute
     hintLevel: 21,
+    gameAnalysisLevel: 20,
     hashSize: 512,
     aiAnalysisPanelOpen: false,
 
@@ -40,6 +41,11 @@ export const createSettingsSlice: StateCreator<
         if (get().isHintMode) {
             get().analyzeBoard();
         }
+    },
+
+    setGameAnalysisLevel: (level) => {
+        set({ gameAnalysisLevel: level });
+        void saveSetting("gameAnalysisLevel", level);
     },
 
     setHashSize: (size) => {

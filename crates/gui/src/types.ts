@@ -43,3 +43,5 @@ export type GameMode = "ai-black" | "ai-white";
 export type GameStatus = "waiting" | "playing" | "finished";
 export type AIMode = "level" | "time" | "game-time";
 
+export const ANALYSIS_LEVELS = [1, 4, 8, 12, 16, 20, 24, 28, 30] as const;
+
