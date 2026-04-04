@@ -307,10 +307,7 @@ async fn analyze_game_command(
             let result = search_guard.run(board, &options);
             drop(search_guard);
 
-            let best_move_str = result
-                .best_move
-                .map(|s| s.to_string())
-                .unwrap_or_default();
+            let best_move_str = result.best_move.map(|s| s.to_string()).unwrap_or_default();
             let best_score = round_score(result.score);
 
             let played_score = -score;

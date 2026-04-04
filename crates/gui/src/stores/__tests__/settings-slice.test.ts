@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, type Mock } from "vitest";
 import { create } from "zustand";
 import { createGameSlice } from "@/stores/slices/game-slice";
 import { createAISlice } from "@/stores/slices/ai-slice";
@@ -20,6 +20,8 @@ vi.mock("@/lib/settings-store", () => ({
   loadSettings: vi.fn().mockResolvedValue({}),
 }));
 
+const saveSettingMock = saveSetting as unknown as Mock;
+
 function createTestStore() {
   return create<ReversiState>()((...a) => ({
     ...createGameSlice(...a),
@@ -31,7 +33,7 @@ function createTestStore() {
 }
 
 beforeEach(() => {
-  vi.mocked(saveSetting).mockClear();
+  saveSettingMock.mockClear();
 });
 
 describe("initial state", () => {
