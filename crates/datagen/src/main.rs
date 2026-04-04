@@ -84,6 +84,28 @@ enum SubCommands {
         #[arg(short = 'm', long, default_value_t = 0)]
         min_ply: u8,
     },
+    ScoreOpenings {
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=20),
+            help = "Number of plies to enumerate from the initial position")]
+        depth: u8,
+
+        #[arg(long, default_value = "512")]
+        hash_size: usize,
+
+        #[arg(long, default_value = "16", value_parser = clap::value_parser!(u32).range(1..=60),
+            help = "Midgame search depth")]
+        mid_depth: u32,
+
+        #[arg(long, default_value = "24", value_parser = parse_end_depth,
+            help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values")]
+        end_depth: [Depth; 4],
+
+        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=5))]
+        selectivity: u8,
+
+        #[arg(short, long)]
+        output: String,
+    },
     Rescore {
         #[arg(short, long)]
         input: String,
@@ -203,6 +225,27 @@ fn main() {
                 min_ply,
             )
             .unwrap();
+        }
+        SubCommands::ScoreOpenings {
+            depth,
+            hash_size,
+            mid_depth,
+            end_depth,
+            selectivity,
+            output,
+        } => {
+            let level = Level {
+                mid_depth,
+                end_depth,
+            };
+            selfplay::execute_score_openings(
+                depth,
+                hash_size,
+                level,
+                Selectivity::from_u8(selectivity),
+                &output,
+            )
+            .expect("Failed to execute score-openings");
         }
         SubCommands::Rescore {
             input,
