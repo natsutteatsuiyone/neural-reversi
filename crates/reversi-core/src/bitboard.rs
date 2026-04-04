@@ -485,10 +485,10 @@ fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
         | (get_some_moves(player, opponent & VERTICAL_MASK, 8) & empty)
 }
 
-/// Propagates flipped discs in a specific direction for move generation.
+/// Propagates flipped discs bidirectionally along a given axis for move generation.
 ///
-/// Calculates flip propagation along a ray direction; the result is then
-/// used to determine where legal moves exist.
+/// Shifts in both `<< dir` and `>> dir` simultaneously, so a single call
+/// covers both directions of an axis (e.g., left and right for horizontal).
 #[inline(always)]
 #[allow(dead_code)]
 fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
