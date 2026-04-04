@@ -1,9 +1,19 @@
-# ───────────────────────────────────────────────────────────────
-#  Global Configuration
-# ───────────────────────────────────────────────────────────────
+env_scripts = [
+'''
+#!@duckscript
+text = readfile Cargo.toml
+pos = indexof ${text} "version = \""
+len = strlen "version = \""
+start = calc ${pos} + ${len}
+rest = substring ${text} ${start}
+end_pos = indexof ${rest} "\""
+version = substring ${rest} 0 ${end_pos}
+set_env VERSION ${version}
+'''
+]
 
-[env]
-VERSION = "5.0.0"
+[config]
+default_to_workspace = false
 
 # ───────────────────────────────────────────────────────────────
 #  Development Tasks
@@ -18,12 +28,14 @@ command = "cargo"
 args = ["test", "--workspace"]
 
 [tasks.clippy]
+clear = true
 command = "cargo"
 args = [
     "clippy",
     "--workspace",
     "--all-targets",
     "--all-features",
+    "--",
     "-D",
     "warnings",
 ]
@@ -32,12 +44,34 @@ args = [
 command = "cargo"
 args = ["fmt"]
 
+[tasks.fmt-check]
+command = "cargo"
+args = ["fmt", "--check"]
+
+[tasks.lint]
+description = "Run fmt check and clippy"
+run_task = { name = ["fmt-check", "clippy"] }
+
+[tasks.bench]
+command = "cargo"
+args = ["bench", "-p", "reversi-core"]
+
+[tasks.clean]
+description = "Clean build artifacts and dist directory"
+script_runner = "@duckscript"
+script = [
+    "exec --fail-on-error cargo clean",
+    "dist_exists = is_path_exists dist",
+    "if ${dist_exists}",
+    "    rm -r dist",
+    "end",
+]
+
 # ───────────────────────────────────────────────────────────────
 #  Distribution Preparation
 # ───────────────────────────────────────────────────────────────
 
 [tasks.prepare-dist]
-workspace = false
 description = "Initialize distribution directory"
 script_runner = "@duckscript"
 script = [
@@ -48,12 +82,11 @@ script = [
 ]
 
 # ═══════════════════════════════════════════════════════════════
-#  CLI Binary Builds
+#  Unified Build Task
 # ═══════════════════════════════════════════════════════════════
 
-[tasks.build-cli-tier]
-workspace = false
-description = "Build CLI binary for specified CPU tier"
+[tasks.build-tier]
+description = "Build binary for specified CPU tier and build type"
 script_runner = "@duckscript"
 script = [
     "tier = get_env CPU_TIER",
@@ -82,7 +115,16 @@ script = [
     "",
     "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
     "set_env RUSTFLAGS ${rustflags}",
-    "exec --fail-on-error cargo build --release -p cli --target ${target_triple}",
+    "build_type = get_env BUILD_TYPE",
+    "if eq ${build_type} gui",
+    "    workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
+    "    gui_dir = join_path ${workspace_root} crates gui",
+    "    cd ${gui_dir}",
+    "    exec --fail-on-error bun run tauri build --target ${target_triple}",
+    "    cd ${workspace_root}",
+    "else",
+    "    exec --fail-on-error cargo build --release -p cli --target ${target_triple}",
+    "end",
     "unset_env RUSTFLAGS",
     "",
     "version = get_env VERSION",
@@ -94,11 +136,15 @@ script = [
     "echo ✓ Built: ${dest_name}",
 ]
 
+# ═══════════════════════════════════════════════════════════════
+#  CLI Binary Builds
+# ═══════════════════════════════════════════════════════════════
+
 [tasks.build-cli-base]
-workspace = false
 description = "Base task for CLI builds"
 dependencies = ["prepare-dist"]
-run_task = { name = ["build-cli-tier"] }
+env = { BUILD_TYPE = "cli" }
+run_task = { name = ["build-tier"] }
 
 # ───────────────────────────────────────────────────────────────
 #  Windows CLI Builds
@@ -125,7 +171,6 @@ description = "Build Windows native CLI"
 env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-cli-windows]
-workspace = false
 description = "Build all Windows CLI binaries"
 run_task = { name = [
     "build-cli-windows-v2",
@@ -158,7 +203,6 @@ description = "Build Linux native CLI"
 env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-cli-linux]
-workspace = false
 description = "Build all Linux CLI binaries"
 run_task = { name = [
     "build-cli-linux-v2",
@@ -170,55 +214,11 @@ run_task = { name = [
 #  GUI Application Builds
 # ═══════════════════════════════════════════════════════════════
 
-[tasks.build-gui-tier]
-workspace = false
-description = "Build GUI application for specified CPU tier"
-cwd = "crates/gui"
-script_runner = "@duckscript"
-script = [
-    "tier = get_env CPU_TIER",
-    "rust_tier = get_env RUST_CPU_TIER",
-    "target_triple = get_env TARGET_TRIPLE",
-    "binary_basename = get_env BINARY_BASENAME",
-    "source_file = get_env SOURCE_FILE",
-    "dest_ext = get_env DEST_EXT",
-    "filename_suffix = get_env FILENAME_SUFFIX",
-    "suffix_missing = is_empty ${filename_suffix}",
-    "if ${suffix_missing}",
-    "    prefix = get_env FILENAME_PREFIX",
-    "    prefix_missing = is_empty ${prefix}",
-    "    sanitized_tier = concat ${tier} \"\"",
-    "    if not ${prefix_missing}",
-    "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
-    "        tier_delimiter_missing = is_empty ${tier_delimiter}",
-    "        if not ${tier_delimiter_missing}",
-    "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
-    "        end",
-    "        filename_suffix = concat ${prefix} ${sanitized_tier}",
-    "    else",
-    "        filename_suffix = concat ${sanitized_tier} \"\"",
-    "    end",
-    "end",
-    "",
-    "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
-    "set_env RUSTFLAGS ${rustflags}",
-    "exec --fail-on-error bun run tauri build --target ${target_triple}",
-    "unset_env RUSTFLAGS",
-    "",
-    "version = get_env VERSION",
-    "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
-    "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-    "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
-    "dest = join_path ${workspace_root} dist ${dest_name}",
-    "cp ${source} ${dest}",
-    "echo ✓ Built: ${dest_name}",
-]
-
 [tasks.build-gui-base]
-workspace = false
 description = "Base task for GUI builds"
 dependencies = ["prepare-dist"]
-run_task = { name = ["build-gui-tier"] }
+env = { BUILD_TYPE = "gui" }
+run_task = { name = ["build-tier"] }
 
 # ───────────────────────────────────────────────────────────────
 #  Windows GUI Builds
@@ -245,7 +245,6 @@ description = "Build Windows native GUI"
 env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-windows]
-workspace = false
 description = "Build all Windows GUI binaries"
 run_task = { name = [
     "build-gui-windows-v2",
@@ -278,7 +277,6 @@ description = "Build Linux native GUI"
 env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux]
-workspace = false
 description = "Build all Linux GUI binaries"
 run_task = { name = [
     "build-gui-linux-v2",
@@ -291,7 +289,6 @@ run_task = { name = [
 # ═══════════════════════════════════════════════════════════════
 
 [tasks.build-native]
-workspace = false
 description = "Build native CLI and GUI for all platforms"
 run_task = { name = [
     "build-cli-windows-native",
