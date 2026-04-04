@@ -1,40 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { create } from "zustand";
-import { createGameSlice } from "@/stores/slices/game-slice";
-import { createAISlice } from "@/stores/slices/ai-slice";
-import { createUISlice } from "@/stores/slices/ui-slice";
-import { createSettingsSlice } from "@/stores/slices/settings-slice";
-import { createSetupSlice } from "@/stores/slices/setup-slice";
+import { createMockAIService } from "@/services/mock-ai-service";
 import { createEmptyBoard } from "@/lib/game-logic";
-import type { ReversiState } from "@/stores/slices/types";
-
-vi.mock("@/lib/ai", () => ({
-  initializeAI: vi.fn().mockResolvedValue(undefined),
-  abortAISearch: vi.fn().mockResolvedValue(undefined),
-  getAIMove: vi.fn().mockResolvedValue(null),
-  analyze: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("@/lib/settings-store", () => ({
-  saveSetting: vi.fn(),
-  loadSettings: vi.fn().mockResolvedValue({}),
-}));
-
-type TestStore = ReturnType<typeof createTestStore>;
-
-function createTestStore() {
-  return create<ReversiState>()((...a) => ({
-    ...createGameSlice(...a),
-    ...createAISlice(...a),
-    ...createUISlice(...a),
-    ...createSettingsSlice(...a),
-    ...createSetupSlice(...a),
-  }));
-}
+import { createTestStore, type TestStore } from "./test-helpers";
 
 describe("resetSetup", () => {
   it("has correct initial state", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     const s = store.getState();
     expect(s.setupCurrentPlayer).toBe("black");
     expect(s.setupTab).toBe("manual");
@@ -44,7 +15,7 @@ describe("resetSetup", () => {
   });
 
   it("resets modified state back to initial", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.setState({
       setupTab: "transcript",
       setupCurrentPlayer: "white",
@@ -65,13 +36,13 @@ describe("resetSetup", () => {
 
 describe("setSetupCurrentPlayer", () => {
   it("changes player", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().setSetupCurrentPlayer("white");
     expect(store.getState().setupCurrentPlayer).toBe("white");
   });
 
   it("clears setupError", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.setState({ setupError: "someError" });
     store.getState().setSetupCurrentPlayer("white");
     expect(store.getState().setupError).toBeNull();
@@ -80,7 +51,7 @@ describe("setSetupCurrentPlayer", () => {
 
 describe("setSetupBoard", () => {
   it("sets board directly", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     const board = createEmptyBoard();
     board[0][0] = { color: "black" };
     store.getState().setSetupBoard(board);
@@ -90,7 +61,7 @@ describe("setSetupBoard", () => {
 
 describe("clearSetupBoard", () => {
   it("sets all cells to null", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     // Initial board has stones at center
     store.getState().clearSetupBoard();
     const board = store.getState().setupBoard;
@@ -102,7 +73,7 @@ describe("clearSetupBoard", () => {
   });
 
   it("clears setupError", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.setState({ setupError: "someError" });
     store.getState().clearSetupBoard();
     expect(store.getState().setupError).toBeNull();
@@ -111,7 +82,7 @@ describe("clearSetupBoard", () => {
 
 describe("resetSetupToInitial", () => {
   it("restores initial Reversi position", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().clearSetupBoard();
     store.getState().resetSetupToInitial();
     const board = store.getState().setupBoard;
@@ -123,7 +94,7 @@ describe("resetSetupToInitial", () => {
   });
 
   it("resets currentPlayer to black", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.setState({ setupCurrentPlayer: "white" });
     store.getState().resetSetupToInitial();
     expect(store.getState().setupCurrentPlayer).toBe("black");
@@ -132,14 +103,14 @@ describe("resetSetupToInitial", () => {
 
 describe("setSetupCellColor", () => {
   it("cycles null to black", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().clearSetupBoard();
     store.getState().setSetupCellColor(0, 0);
     expect(store.getState().setupBoard[0][0].color).toBe("black");
   });
 
   it("cycles black to white", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().clearSetupBoard();
     store.getState().setSetupCellColor(0, 0); // null -> black
     store.getState().setSetupCellColor(0, 0); // black -> white
@@ -147,7 +118,7 @@ describe("setSetupCellColor", () => {
   });
 
   it("cycles white to null", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().clearSetupBoard();
     store.getState().setSetupCellColor(0, 0); // null -> black
     store.getState().setSetupCellColor(0, 0); // black -> white
@@ -158,7 +129,7 @@ describe("setSetupCellColor", () => {
 
 describe("setSetupTab", () => {
   it("switches to manual tab and uses setupBoard as-is", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     const boardBefore = JSON.stringify(store.getState().setupBoard);
     store.getState().setSetupTab("manual");
     expect(store.getState().setupTab).toBe("manual");
@@ -167,7 +138,7 @@ describe("setSetupTab", () => {
   });
 
   it("switches to transcript tab and resolves board from valid transcript", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.setState({ transcriptInput: "F5D6" });
     store.getState().setSetupTab("transcript");
     expect(store.getState().setupTab).toBe("transcript");
@@ -178,7 +149,7 @@ describe("setSetupTab", () => {
   });
 
   it("switches to transcript tab and sets error on invalid transcript", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.setState({ transcriptInput: "Z" });
     store.getState().setSetupTab("transcript");
     expect(store.getState().setupTab).toBe("transcript");
@@ -186,7 +157,7 @@ describe("setSetupTab", () => {
   });
 
   it("switches to boardString tab and resolves board from valid string", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     const boardStr = "X" + "-".repeat(63);
     store.setState({ boardStringInput: boardStr });
     store.getState().setSetupTab("boardString");
@@ -196,7 +167,7 @@ describe("setSetupTab", () => {
   });
 
   it("switches to boardString tab and sets error on invalid string", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.setState({ boardStringInput: "invalid" });
     store.getState().setSetupTab("boardString");
     expect(store.getState().setupTab).toBe("boardString");
@@ -206,7 +177,7 @@ describe("setSetupTab", () => {
 
 describe("setTranscriptInput", () => {
   it("updates board and player on valid input", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().setTranscriptInput("F5D6");
     const s = store.getState();
     expect(s.transcriptInput).toBe("F5D6");
@@ -216,7 +187,7 @@ describe("setTranscriptInput", () => {
   });
 
   it("sets setupError on invalid input", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().setTranscriptInput("Z");
     const s = store.getState();
     expect(s.transcriptInput).toBe("Z");
@@ -224,7 +195,7 @@ describe("setTranscriptInput", () => {
   });
 
   it("resets to initial board on empty string", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().setTranscriptInput("F5D6");
     store.getState().setTranscriptInput("");
     const s = store.getState();
@@ -238,7 +209,7 @@ describe("setTranscriptInput", () => {
 
 describe("setBoardStringInput", () => {
   it("updates board on valid input", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     const boardStr = "-".repeat(27) + "OX------XO" + "-".repeat(27);
     store.getState().setBoardStringInput(boardStr);
     const s = store.getState();
@@ -249,13 +220,13 @@ describe("setBoardStringInput", () => {
   });
 
   it("sets setupError on invalid input", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().setBoardStringInput("too-short");
     expect(store.getState().setupError).not.toBeNull();
   });
 
   it("clears previous error on valid input", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().setBoardStringInput("too-short");
     expect(store.getState().setupError).not.toBeNull();
     store.getState().setBoardStringInput("-".repeat(64));
@@ -267,7 +238,7 @@ describe("startFromSetup", () => {
   let store: TestStore;
 
   beforeEach(() => {
-    store = createTestStore();
+    ({ store } = createTestStore());
   });
 
   it("starts game from manual tab", async () => {
@@ -311,9 +282,11 @@ describe("startFromSetup", () => {
   });
 
   it("sets setupError to aiInitFailed when AI init fails", async () => {
-    const { initializeAI } = await import("@/lib/ai");
-    (initializeAI as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("init failed"));
-
+    ({ store } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+      }),
+    }));
     await store.getState().startFromSetup();
     expect(store.getState().setupError).toBe("aiInitFailed");
   });

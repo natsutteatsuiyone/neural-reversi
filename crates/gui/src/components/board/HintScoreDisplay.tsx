@@ -1,4 +1,4 @@
-import type { AIMoveProgress } from "@/lib/ai";
+import type { AIMoveProgress } from "@/services/types";
 import { cn } from "@/lib/utils";
 
 interface HintScoreDisplayProps {

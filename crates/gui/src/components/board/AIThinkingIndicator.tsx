@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Bot } from "lucide-react";
-import type { AIMoveProgress } from "@/lib/ai";
+import type { AIMoveProgress } from "@/services/types";
 
 interface MoveHistoryItem {
   row: number;

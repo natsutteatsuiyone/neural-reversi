@@ -1,43 +1,43 @@
 import { StateCreator } from "zustand";
 import type { ReversiState, SettingsSlice } from "./types";
-import { saveSetting } from "@/lib/settings-store";
-import { resizeTT } from "@/lib/ai";
+import { DEFAULT_SETTINGS, type Services } from "@/services/types";
 
-export const createSettingsSlice: StateCreator<
+export function createSettingsSlice(services: Services): StateCreator<
     ReversiState,
     [],
     [],
     SettingsSlice
-> = (set, get) => ({
-    gameMode: "ai-white",
-    timeLimit: 1,
-    gameTimeLimit: 60, // 1 minute
-    hintLevel: 21,
-    gameAnalysisLevel: 20,
-    hashSize: 512,
-    aiAnalysisPanelOpen: false,
+> {
+  return (set, get) => ({
+    gameMode: DEFAULT_SETTINGS.gameMode,
+    timeLimit: DEFAULT_SETTINGS.timeLimit,
+    gameTimeLimit: DEFAULT_SETTINGS.gameTimeLimit,
+    hintLevel: DEFAULT_SETTINGS.hintLevel,
+    gameAnalysisLevel: DEFAULT_SETTINGS.gameAnalysisLevel,
+    hashSize: DEFAULT_SETTINGS.hashSize,
+    aiAnalysisPanelOpen: DEFAULT_SETTINGS.aiAnalysisPanelOpen,
 
     setGameMode: (mode) => {
         set({
             gameMode: mode,
             analyzeResults: null
         });
-        void saveSetting("gameMode", mode);
+        void services.settings.saveSetting("gameMode", mode);
     },
 
     setTimeLimit: (limit) => {
         set({ timeLimit: limit });
-        void saveSetting("timeLimit", limit);
+        void services.settings.saveSetting("timeLimit", limit);
     },
 
     setGameTimeLimit: (limit) => {
         set({ gameTimeLimit: limit });
-        void saveSetting("gameTimeLimit", limit);
+        void services.settings.saveSetting("gameTimeLimit", limit);
     },
 
     setHintLevel: (level) => {
         set({ hintLevel: level, analyzeResults: null });
-        void saveSetting("hintLevel", level);
+        void services.settings.saveSetting("hintLevel", level);
         if (get().isHintMode) {
             get().analyzeBoard();
         }
@@ -45,17 +45,18 @@ export const createSettingsSlice: StateCreator<
 
     setGameAnalysisLevel: (level) => {
         set({ gameAnalysisLevel: level });
-        void saveSetting("gameAnalysisLevel", level);
+        void services.settings.saveSetting("gameAnalysisLevel", level);
     },
 
     setHashSize: (size) => {
         set({ hashSize: size });
-        void saveSetting("hashSize", size);
-        void resizeTT(size);
+        void services.settings.saveSetting("hashSize", size);
+        void services.ai.resizeTT(size);
     },
 
     setAIAnalysisPanelOpen: (open) => {
         set({ aiAnalysisPanelOpen: open });
-        void saveSetting("aiAnalysisPanelOpen", open);
+        void services.settings.saveSetting("aiAnalysisPanelOpen", open);
     },
-});
+  });
+}

@@ -2,7 +2,7 @@ import { OrthographicCamera } from "@react-three/drei";
 import { useThree, useFrame } from "@react-three/fiber";
 import { useRef, useMemo } from "react";
 import type { OrthographicCamera as ThreeOrthographicCamera } from "three";
-import type { AIMoveProgress } from "@/lib/ai";
+import type { AIMoveProgress } from "@/services/types";
 import type { Board } from "@/types";
 import { AIThinkingIndicator } from "./AIThinkingIndicator";
 import { BoardFrame } from "./BoardFrame";

@@ -1,12 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { loadSettings } from "./lib/settings-store";
+import { defaultServices } from "./services";
 import { initI18n } from "./i18n";
 
 async function bootstrap() {
   try {
-    const settings = await loadSettings();
+    const settings = await defaultServices.settings.loadSettings();
     await initI18n(settings.language);
 
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

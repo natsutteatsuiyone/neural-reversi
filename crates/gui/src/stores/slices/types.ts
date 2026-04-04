@@ -1,4 +1,4 @@
-import type { AIMoveProgress, AIMoveResult } from "@/lib/ai";
+import type { AIMoveProgress, AIMoveResult } from "@/services/types";
 import type { MoveHistory } from "@/lib/move-history";
 import type { AIMode, Board, GameMode, Player } from "@/types";
 import type { Move } from "@/lib/store-helpers";

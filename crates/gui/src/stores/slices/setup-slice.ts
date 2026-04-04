@@ -2,8 +2,8 @@ import { StateCreator } from "zustand";
 import { createEmptyBoard, initializeBoard } from "@/lib/game-logic";
 import { cloneBoard, createGameStartState } from "@/lib/store-helpers";
 import { parseTranscript, parseBoardString, validateBoard } from "@/lib/board-parser";
-import { initializeAI } from "@/lib/ai";
 import type { Board, Player } from "@/types";
+import type { Services } from "@/services/types";
 import type { ReversiState, SetupSlice, SetupTab } from "./types";
 import { triggerAutomation } from "./game-slice";
 
@@ -35,12 +35,13 @@ function resolveSetupPositionForTab(
     return { ok: true, board: setupBoard, currentPlayer: setupCurrentPlayer };
 }
 
-export const createSetupSlice: StateCreator<
+export function createSetupSlice(services: Services): StateCreator<
     ReversiState,
     [],
     [],
     SetupSlice
-> = (set, get) => ({
+> {
+  return (set, get) => ({
     setupBoard: initializeBoard(),
     setupCurrentPlayer: "black" as Player,
     setupTab: "manual" as const,
@@ -181,7 +182,7 @@ export const createSetupSlice: StateCreator<
         }
 
         try {
-            await initializeAI();
+            await services.ai.initialize();
         } catch {
             set({ setupError: "aiInitFailed" });
             return;
@@ -198,4 +199,5 @@ export const createSetupSlice: StateCreator<
 
         triggerAutomation(get);
     },
-});
+  });
+}

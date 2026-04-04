@@ -1,7 +1,6 @@
 import { GameLayout } from "@/components/layout/GameLayout";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { loadSettings } from "@/lib/settings-store";
-import { resizeTT } from "@/lib/ai";
+import { defaultServices } from "@/services";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Trophy, Info } from "lucide-react";
@@ -38,10 +37,10 @@ function App() {
   // Load settings and auto-start game on mount
   useEffect(() => {
     const initApp = async () => {
-      const settings = await loadSettings();
+      const settings = await defaultServices.settings.loadSettings();
       setGameMode("ai-white"); // Always start with player black / AI white
       setAILevelChange(settings.aiLevel);
-      setAIMode(settings.aiMode as "level" | "time" | "game-time");
+      setAIMode(settings.aiMode);
       setTimeLimit(settings.timeLimit);
       setGameTimeLimit(settings.gameTimeLimit);
       setHintLevel(settings.hintLevel);
@@ -49,7 +48,6 @@ function App() {
       setHashSize(settings.hashSize);
       setAIAnalysisPanelOpen(settings.aiAnalysisPanelOpen);
 
-      await resizeTT(settings.hashSize);
       await startGame();
       setIsInitialized(true);
     };

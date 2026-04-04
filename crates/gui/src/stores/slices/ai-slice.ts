@@ -1,7 +1,6 @@
 import { StateCreator } from "zustand";
-import { abortAISearch, getAIMove } from "@/lib/ai";
 import type { AISlice, ReversiState } from "./types";
-import { saveSetting } from "@/lib/settings-store";
+import { DEFAULT_SETTINGS, type Services } from "@/services/types";
 
 function clearSearchTimer(
     get: () => ReversiState,
@@ -14,33 +13,26 @@ function clearSearchTimer(
     }
 }
 
-export const createAISlice: StateCreator<
+export function createAISlice(services: Services): StateCreator<
     ReversiState,
     [],
     [],
     AISlice
-> = (set, get) => ({
-    aiLevel: 21,
+> {
+  return (set, get) => ({
+    aiLevel: DEFAULT_SETTINGS.aiLevel,
     aiMoveProgress: null,
     aiThinkingHistory: [],
     aiSearchStartTime: null,
     isAIThinking: false,
     lastAIMove: null,
-    aiMode: "game-time",
+    aiMode: DEFAULT_SETTINGS.aiMode,
     aiRemainingTime: 600000,
     searchTimer: null,
 
     makeAIMove: async () => {
         set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime: Date.now() });
-        const player = get().currentPlayer;
-        const board = get().board;
-        const { aiLevel, aiMode, timeLimit, aiRemainingTime } = get();
-
-        // Check if time is up for game-time mode
-        if (aiMode === "game-time" && aiRemainingTime <= 0) {
-            // Time is up! Make a random/quick move or just pass 0 time to let backend handle it (if it supports 0 time)
-            // For now, we'll just proceed with 0 time, but ideally we should handle timeout.
-        }
+        const { currentPlayer: player, board, aiLevel, aiMode, timeLimit, aiRemainingTime } = get();
 
         // Start timer for game-time mode
         if (aiMode === "game-time") {
@@ -54,14 +46,13 @@ export const createAISlice: StateCreator<
         }
 
         try {
-            const aiMove = await getAIMove(
+            const aiMove = await services.ai.getAIMove(
                 board,
                 player,
                 aiLevel,
                 aiMode === "time" ? timeLimit * 1000 : undefined,
                 aiMode === "game-time" ? aiRemainingTime : undefined,
-                (ev) => {
-                    const progress = ev.payload;
+                (progress) => {
                     set((state) => {
                         // Skip duplicate entries
                         const last = state.aiThinkingHistory[state.aiThinkingHistory.length - 1];
@@ -115,8 +106,9 @@ export const createAISlice: StateCreator<
     },
 
     abortAIMove: async () => {
-        if (get().isAIThinking || get().isAnalyzing) {
-            await abortAISearch();
+        const { isAIThinking, isAnalyzing } = get();
+        if (isAIThinking || isAnalyzing) {
+            await services.ai.abortSearch();
 
             clearSearchTimer(get, set);
 
@@ -130,13 +122,14 @@ export const createAISlice: StateCreator<
 
     setAILevelChange: (level) => {
         set({ aiLevel: level });
-        void saveSetting("aiLevel", level);
+        void services.settings.saveSetting("aiLevel", level);
     },
 
     setAIMode: (mode) => {
         set({ aiMode: mode });
-        void saveSetting("aiMode", mode);
+        void services.settings.saveSetting("aiMode", mode);
     },
 
     clearAiThinkingHistory: () => set({ aiThinkingHistory: [] }),
-});
+  });
+}

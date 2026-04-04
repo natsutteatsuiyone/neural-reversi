@@ -1,39 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { create } from "zustand";
-import { createGameSlice, triggerAutomation } from "@/stores/slices/game-slice";
-import { createAISlice } from "@/stores/slices/ai-slice";
-import { createUISlice } from "@/stores/slices/ui-slice";
-import { createSettingsSlice } from "@/stores/slices/settings-slice";
-import { createSetupSlice } from "@/stores/slices/setup-slice";
-import type { ReversiState } from "@/stores/slices/types";
-
-vi.mock("@/lib/ai", () => ({
-  initializeAI: vi.fn().mockResolvedValue(undefined),
-  abortAISearch: vi.fn().mockResolvedValue(undefined),
-  getAIMove: vi.fn().mockResolvedValue(null),
-  analyze: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("@/lib/settings-store", () => ({
-  saveSetting: vi.fn(),
-  loadSettings: vi.fn().mockResolvedValue({}),
-}));
-
-type TestStore = ReturnType<typeof createTestStore>;
-
-function createTestStore() {
-  return create<ReversiState>()((...a) => ({
-    ...createGameSlice(...a),
-    ...createAISlice(...a),
-    ...createUISlice(...a),
-    ...createSettingsSlice(...a),
-    ...createSetupSlice(...a),
-  }));
-}
+import { createMockAIService } from "@/services/mock-ai-service";
+import { triggerAutomation } from "@/stores/slices/game-slice";
+import { createTestStore, type TestStore } from "./test-helpers";
+import type { Services } from "@/services/types";
 
 describe("triggerAutomation", () => {
   it("does nothing when gameStatus is not playing", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
@@ -44,7 +17,7 @@ describe("triggerAutomation", () => {
   });
 
   it("calls makeAIMove when it is AI's turn", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     store.setState({ gameMode: "ai-black" });
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
@@ -55,7 +28,7 @@ describe("triggerAutomation", () => {
   });
 
   it("calls analyzeBoard when hint mode is enabled", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     store.setState({ isHintMode: true });
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
@@ -66,7 +39,7 @@ describe("triggerAutomation", () => {
   });
 
   it("does nothing when not AI turn and hint mode is off", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
@@ -80,7 +53,7 @@ describe("triggerAutomation", () => {
 
 describe("getScores", () => {
   it("returns { black: 2, white: 2 } for initial board", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     expect(store.getState().getScores()).toEqual({ black: 2, white: 2 });
   });
 });
@@ -89,7 +62,7 @@ describe("isAITurn", () => {
   let store: TestStore;
 
   beforeEach(async () => {
-    store = createTestStore();
+    ({ store } = createTestStore());
     await store.getState().startGame();
   });
 
@@ -126,19 +99,19 @@ describe("isAITurn", () => {
 
 describe("isValidMove", () => {
   it("returns false when gameStatus is waiting", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     expect(store.getState().isValidMove(2, 3)).toBe(false);
   });
 
   it("returns true for a valid move coordinate during play", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     // Initial board: black can play at (2,3), (3,2), (4,5), (5,4)
     expect(store.getState().isValidMove(2, 3)).toBe(true);
   });
 
   it("returns false for an invalid move coordinate during play", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     expect(store.getState().isValidMove(0, 0)).toBe(false);
   });
@@ -146,9 +119,10 @@ describe("isValidMove", () => {
 
 describe("makeMove", () => {
   let store: TestStore;
+  let services: Services;
 
   beforeEach(async () => {
-    store = createTestStore();
+    ({ store, services } = createTestStore());
     await store.getState().startGame();
   });
 
@@ -201,11 +175,10 @@ describe("makeMove", () => {
   });
 
   it("aborts analysis when a user move is made during analysis", async () => {
-    const { abortAISearch } = await import("@/lib/ai");
     store.setState({ isAnalyzing: true });
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     expect(store.getState().isAnalyzing).toBe(false);
-    expect(abortAISearch).toHaveBeenCalled();
+    expect(services.ai.abortSearch).toHaveBeenCalled();
   });
 
   it("sets gameStatus to finished when game is over", async () => {
@@ -258,7 +231,7 @@ describe("makePass", () => {
   let store: TestStore;
 
   beforeEach(async () => {
-    store = createTestStore();
+    ({ store } = createTestStore());
     await store.getState().startGame();
   });
 
@@ -296,7 +269,7 @@ describe("undoMove", () => {
   let store: TestStore;
 
   beforeEach(async () => {
-    store = createTestStore();
+    ({ store } = createTestStore());
     await store.getState().startGame();
   });
 
@@ -344,7 +317,7 @@ describe("redoMove", () => {
   let store: TestStore;
 
   beforeEach(async () => {
-    store = createTestStore();
+    ({ store } = createTestStore());
     await store.getState().startGame();
   });
 
@@ -420,7 +393,7 @@ describe("redoMove", () => {
 
 describe("resetGame", () => {
   it("resets to initial board state", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
 
@@ -437,7 +410,7 @@ describe("resetGame", () => {
   });
 
   it("clears AI-related state", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     store.setState({
       isAIThinking: true,
@@ -455,7 +428,7 @@ describe("resetGame", () => {
   });
 
   it("calls abortAIMove when AI is thinking", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
     store.setState({ isAIThinking: true });
     const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
@@ -467,7 +440,7 @@ describe("resetGame", () => {
 
 describe("startGame", () => {
   it("sets gameStatus to playing on success", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
 
     const s = store.getState();
@@ -478,7 +451,7 @@ describe("startGame", () => {
   });
 
   it("computes validMoves for initial board", async () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     await store.getState().startGame();
 
     const s = store.getState();
@@ -490,10 +463,11 @@ describe("startGame", () => {
   });
 
   it("does not change gameStatus when initializeAI fails", async () => {
-    const { initializeAI } = await import("@/lib/ai");
-    (initializeAI as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("init failed"));
-
-    const store = createTestStore();
+    const { store } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+      }),
+    });
     await store.getState().startGame();
 
     expect(store.getState().gameStatus).toBe("waiting");
@@ -502,7 +476,7 @@ describe("startGame", () => {
 
 describe("setGameStatus", () => {
   it("sets gameStatus to the given value", () => {
-    const store = createTestStore();
+    const { store } = createTestStore();
     store.getState().setGameStatus("playing");
     expect(store.getState().gameStatus).toBe("playing");
 

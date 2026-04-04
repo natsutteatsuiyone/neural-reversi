@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { saveSetting } from "@/lib/settings-store";
+import { defaultServices } from "@/services";
 import { changeLanguage, resolveLanguage, isLanguage, type Language } from "@/i18n";
 
 export function useLanguage() {
@@ -27,7 +27,7 @@ export function useLanguage() {
 
     try {
       const resolved = await changeLanguage(newSavedLanguage);
-      const saved = await saveSetting("language", newSavedLanguage);
+      const saved = await defaultServices.settings.saveSetting("language", newSavedLanguage);
       if (!saved) {
         console.warn("Language preference could not be saved");
       }

@@ -18,10 +18,9 @@ import {
     reconstructBoardFromMoves,
 } from "@/lib/store-helpers";
 import { MoveHistory } from "@/lib/move-history";
-import { abortAISearch } from "@/lib/ai";
 import type { Board, MoveRecord, Player } from "@/types";
 import type { GameSlice, ReversiState } from "./types";
-import { initializeAI } from "@/lib/ai";
+import type { Services } from "@/services/types";
 import { FLIP_DURATION_S } from "@/components/board/board3d-utils";
 
 function toLastMove(moves: readonly MoveRecord[]): Move | null {
@@ -115,18 +114,18 @@ export function triggerAutomation(getState: () => ReversiState): void {
         return;
     }
 
-    // Re-fetch state to ensure we have the latest isHintMode value
-    if (getState().isHintMode) {
+    if (state.isHintMode) {
         void state.analyzeBoard();
     }
 }
 
-export const createGameSlice: StateCreator<
+export function createGameSlice(services: Services): StateCreator<
     ReversiState,
     [],
     [],
     GameSlice
-> = (set, get) => ({
+> {
+  return (set, get) => ({
     board: initializeBoard(),
     historyStartBoard: initializeBoard(),
     historyStartPlayer: "black",
@@ -164,7 +163,7 @@ export const createGameSlice: StateCreator<
         // Abort analysis in background if it's a user move (don't await to avoid blocking)
         if (!move.isAI && get().isAnalyzing) {
             set({ isAnalyzing: false });
-            void abortAISearch();
+            void services.ai.abortSearch();
         }
 
         const oldBoard = get().board;
@@ -304,14 +303,14 @@ export const createGameSlice: StateCreator<
     },
 
     resetGame: async () => {
-        if (get().isAIThinking || get().isAnalyzing) {
+        const { isAIThinking, isAnalyzing, isGameAnalyzing, searchTimer } = get();
+        if (isAIThinking || isAnalyzing) {
             await get().abortAIMove();
         }
-        if (get().isGameAnalyzing) {
+        if (isGameAnalyzing) {
             await get().abortGameAnalysis();
         }
 
-        const { searchTimer } = get();
         if (searchTimer) {
             clearInterval(searchTimer);
         }
@@ -322,7 +321,7 @@ export const createGameSlice: StateCreator<
 
     startGame: async () => {
         try {
-            await initializeAI();
+            await services.ai.initialize();
         } catch {
             return;
         }
@@ -334,4 +333,5 @@ export const createGameSlice: StateCreator<
     },
 
     setGameStatus: (status) => set({ gameStatus: status }),
-});
+  });
+}

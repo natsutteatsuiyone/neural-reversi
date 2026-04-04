@@ -1,6 +1,6 @@
 import { Canvas } from "@react-three/fiber";
 import { Board3DScene } from "./Board3DScene";
-import type { AIMoveProgress } from "@/lib/ai";
+import type { AIMoveProgress } from "@/services/types";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
