@@ -132,7 +132,8 @@ impl LayerStack {
 
     #[inline(always)]
     fn forward_output(&self, buffers: &NetworkBuffers) -> ScaledScore {
-        let score = self.lo.forward(buffers.output_segments()) >> OUTPUT_WEIGHT_SCALE_BITS;
+        let score = (self.lo.forward(buffers.output_segments()) >> OUTPUT_WEIGHT_SCALE_BITS)
+            .clamp(-ScaledScore::INF.value(), ScaledScore::INF.value());
         ScaledScore::from_raw(score)
     }
 }
