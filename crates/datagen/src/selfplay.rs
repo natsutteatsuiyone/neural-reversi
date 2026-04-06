@@ -525,7 +525,7 @@ pub fn execute_score_openings(
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({per_sec}) ETA:{eta_precise}",
         )
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+        .map_err(io::Error::other)?
         .progress_chars("#>-"),
     );
     pb.enable_steady_tick(Duration::from_millis(100));
