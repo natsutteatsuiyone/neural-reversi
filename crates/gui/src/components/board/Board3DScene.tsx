@@ -13,7 +13,7 @@ import { CellInteraction } from "./CellInteraction";
 import { HintScoreDisplay } from "./HintScoreDisplay";
 import { MoveIndicators } from "./MoveIndicators";
 import { Disc3D } from "./Disc3D";
-import { CELL_SIZE, FRAME_WIDTH } from "./board3d-utils";
+import { CELL_SIZE, FRAME_WIDTH, createEnvironmentTexture } from "./board3d-utils";
 
 interface MoveHistoryItem {
   row: number;
@@ -88,6 +88,8 @@ export function Board3DScene({
     return moves;
   }, [board, gameOver, aiTurnActive, isValidMove, analyzeResults]);
 
+  const envMap = useMemo(() => createEnvironmentTexture(), []);
+
   // Track previous board state to detect which stones actually changed color
   const prevBoard = useRef(board);
   const flipDelays = useMemo(() => {
@@ -121,9 +123,23 @@ export function Board3DScene({
         rotation={[-Math.PI / 2, 0, 0]}
       />
 
-      <ambientLight intensity={1.2} />
-      <directionalLight position={[2, 10, 2]} intensity={0.5} />
-      <directionalLight position={[-2, 8, -2]} intensity={0.2} />
+      <primitive attach="environment" object={envMap} />
+      <ambientLight intensity={0.25} />
+      <directionalLight
+        position={[5, 6, 4]}
+        intensity={1.1}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-7}
+        shadow-camera-right={7}
+        shadow-camera-top={7}
+        shadow-camera-bottom={-7}
+        shadow-camera-near={0.5}
+        shadow-camera-far={20}
+        shadow-normalBias={0.02}
+      />
+      <directionalLight position={[-5, 6, -2]} intensity={0.35} />
+      <directionalLight position={[0, 3, -8]} intensity={0.5} />
 
       <BoardFrame />
       <BoardSurface />

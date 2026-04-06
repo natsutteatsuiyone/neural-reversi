@@ -102,6 +102,7 @@ export function NewGameModal() {
   return (
     <Dialog open={isNewGameModalOpen} onOpenChange={setNewGameModalOpen}>
       <DialogContent
+        aria-describedby={undefined}
         className={cn(
           "bg-card border-white/10",
           step === 1 ? "sm:max-w-md" : "sm:max-w-lg"
@@ -123,40 +124,33 @@ export function NewGameModal() {
             onValueChange={(v) => setSetupTab(v as SetupTab)}
             className="py-4"
           >
-            <TabsList className="w-full bg-white/10">
-              <TabsTrigger
-                value="manual"
-                className="flex-1 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary"
-              >
+            <TabsList className="w-full">
+              <TabsTrigger value="manual" className="flex-1">
                 {t("setup.tabs.manual")}
               </TabsTrigger>
-              <TabsTrigger
-                value="transcript"
-                className="flex-1 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary"
-              >
+              <TabsTrigger value="transcript" className="flex-1">
                 {t("setup.tabs.transcript")}
               </TabsTrigger>
-              <TabsTrigger
-                value="boardString"
-                className="flex-1 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary"
-              >
+              <TabsTrigger value="boardString" className="flex-1">
                 {t("setup.tabs.boardString")}
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="manual" className="mt-4">
-              <ManualSetupTab />
-            </TabsContent>
-            <TabsContent value="transcript" className="mt-4">
-              <TranscriptTab />
-            </TabsContent>
-            <TabsContent value="boardString" className="mt-4">
-              <BoardStringTab />
-            </TabsContent>
+            <div className="grid mt-4">
+              <TabsContent forceMount value="manual" className="col-start-1 row-start-1 data-[state=inactive]:invisible">
+                <ManualSetupTab />
+              </TabsContent>
+              <TabsContent forceMount value="transcript" className="col-start-1 row-start-1 data-[state=inactive]:invisible">
+                <TranscriptTab />
+              </TabsContent>
+              <TabsContent forceMount value="boardString" className="col-start-1 row-start-1 data-[state=inactive]:invisible">
+                <BoardStringTab />
+              </TabsContent>
+            </div>
           </Tabs>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="flex-row items-center gap-2">
           {step === 1 ? (
             <>
               <Button
@@ -166,13 +160,7 @@ export function NewGameModal() {
               >
                 {t('game.cancel')}
               </Button>
-              <Button
-                onClick={() => void handleStartGame()}
-                className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
-              >
-                <Play className="w-4 h-4" />
-                {t('game.startGame')}
-              </Button>
+              <div className="flex-1" />
               <Button
                 variant="outline"
                 onClick={() => setStep(2)}
@@ -180,6 +168,13 @@ export function NewGameModal() {
               >
                 {t('game.nextStep')}
                 <ChevronRight className="w-4 h-4" />
+              </Button>
+              <Button
+                onClick={() => void handleStartGame()}
+                className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
+              >
+                <Play className="w-4 h-4" />
+                {t('game.startGame')}
               </Button>
             </>
           ) : (
@@ -191,6 +186,7 @@ export function NewGameModal() {
               >
                 {t('game.cancel')}
               </Button>
+              <div className="flex-1" />
               <Button
                 variant="ghost"
                 onClick={() => setStep(1)}

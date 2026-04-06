@@ -35,7 +35,7 @@ export function HintScoreDisplay({
       <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none p-1">
         <div className="w-[70%] h-1 bg-black/40 rounded-full mt-0.5 overflow-hidden">
           <div
-            className="h-full rounded-full bg-cyan-400 transition-all"
+            className="h-full rounded-full bg-accent-blue transition-all"
             style={{ width: "0%" }}
           />
         </div>
@@ -76,7 +76,7 @@ export function HintScoreDisplay({
       {!isSearchComplete && (
         <div className="w-[70%] h-1 bg-black/40 rounded-full mt-0.5 overflow-hidden">
           <div
-            className="h-full rounded-full bg-cyan-400 transition-all"
+            className="h-full rounded-full bg-accent-blue transition-all"
             style={{ width: `${searchProgress}%` }}
           />
         </div>

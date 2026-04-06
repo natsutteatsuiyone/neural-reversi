@@ -65,6 +65,10 @@
   --chart-3: #b8956c;
   --chart-4: #8c7bae;
   --chart-5: #ae7b8c;
+
+  /* Semantic chart markers */
+  --chart-blunder: #ef4444;
+  --chart-dubious: #eab308;
   
   /* Radius */
   --radius: 0.625rem;
@@ -117,6 +121,8 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-blunder: var(--chart-blunder);
+  --color-chart-dubious: var(--chart-dubious);
   --color-board-surface: var(--board-surface);
   --color-board-cell: var(--board-cell);
   --color-board-cell-hover: var(--board-cell-hover);

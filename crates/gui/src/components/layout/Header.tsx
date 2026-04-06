@@ -74,13 +74,13 @@ export function Header() {
               <Menu className="w-5 h-5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48 bg-popover border-white/20">
+          <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10">
+              <DropdownMenuSubTrigger>
                 <Lightbulb className="w-4 h-4 mr-2" />
                 {t('hint.hintLevel')}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="bg-popover border-white/20">
+              <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
                   value={hintLevel.toString()}
                   onValueChange={(v) => setHintLevel(parseInt(v))}
@@ -89,7 +89,6 @@ export function Header() {
                     <DropdownMenuRadioItem
                       key={level}
                       value={level.toString()}
-                      className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10"
                     >
                       {t('player.level')}{level}
                     </DropdownMenuRadioItem>
@@ -99,11 +98,11 @@ export function Header() {
             </DropdownMenuSub>
 
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10">
+              <DropdownMenuSubTrigger>
                 <HardDrive className="w-4 h-4 mr-2" />
                 {t('settings.hashSize')}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="bg-popover border-white/20">
+              <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
                   value={hashSize.toString()}
                   onValueChange={(v) => setHashSize(parseInt(v))}
@@ -112,7 +111,6 @@ export function Header() {
                     <DropdownMenuRadioItem
                       key={size}
                       value={size.toString()}
-                      className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10"
                     >
                       {size} MB
                     </DropdownMenuRadioItem>
@@ -122,31 +120,22 @@ export function Header() {
             </DropdownMenuSub>
 
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10">
+              <DropdownMenuSubTrigger>
                 <Globe className="w-4 h-4 mr-2" />
                 {t('settings.language')}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="bg-popover border-white/20">
+              <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
                   value={language}
                   onValueChange={(v) => void setLanguage(v)}
                 >
-                  <DropdownMenuRadioItem
-                    value="auto"
-                    className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10"
-                  >
+                  <DropdownMenuRadioItem value="auto">
                     {t('settings.auto')}
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="en"
-                    className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10"
-                  >
+                  <DropdownMenuRadioItem value="en">
                     {t('settings.english')}
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="ja"
-                    className="text-foreground-secondary hover:text-foreground focus:text-foreground focus:bg-white/10"
-                  >
+                  <DropdownMenuRadioItem value="ja">
                     {t('settings.japanese')}
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>

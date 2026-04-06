@@ -30,11 +30,14 @@ interface ChartDataItem {
 
 const DUBIOUS_THRESHOLD = 2;
 const BLUNDER_THRESHOLD = 6;
-const LINE_COLOR = "#3d9970";
+const STYLE = getComputedStyle(document.documentElement);
+const LINE_COLOR = STYLE.getPropertyValue("--primary").trim() || "#3d9970";
+const BLUNDER_COLOR = STYLE.getPropertyValue("--chart-blunder").trim() || "#ef4444";
+const DUBIOUS_COLOR = STYLE.getPropertyValue("--chart-dubious").trim() || "#eab308";
 
 function getMarkerColor(scoreLoss: number): string | null {
-  if (scoreLoss > BLUNDER_THRESHOLD) return "#ef4444"; // red
-  if (scoreLoss > DUBIOUS_THRESHOLD) return "#eab308"; // yellow
+  if (scoreLoss > BLUNDER_THRESHOLD) return BLUNDER_COLOR;
+  if (scoreLoss > DUBIOUS_THRESHOLD) return DUBIOUS_COLOR;
   return null;
 }
 
@@ -50,8 +53,8 @@ function DiscIndicatorBar() {
 
   return (
     <g>
-      <rect x={barX} y={plotArea.y} width={barWidth} height={zeroY - plotArea.y} rx={r} ry={r} fill="#1a1a1a" stroke="rgba(255,255,255,0.3)" strokeWidth={0.5} />
-      <rect x={barX} y={zeroY} width={barWidth} height={plotArea.y + plotArea.height - zeroY} rx={r} ry={r} fill="#d4d4d4" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} />
+      <rect x={barX} y={plotArea.y} width={barWidth} height={zeroY - plotArea.y} rx={r} ry={r} fill="var(--stone-black-to)" stroke="rgba(255,255,255,0.3)" strokeWidth={0.5} />
+      <rect x={barX} y={zeroY} width={barWidth} height={plotArea.y + plotArea.height - zeroY} rx={r} ry={r} fill="var(--stone-white-to)" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} />
     </g>
   );
 }

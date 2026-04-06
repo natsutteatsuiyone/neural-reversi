@@ -40,7 +40,9 @@ export function GameControls() {
       <div className="flex-1" />
 
       <div className="flex items-center gap-2">
-        <Lightbulb className={`w-4 h-4 ${isHintMode ? 'text-accent-gold' : 'text-foreground-muted'}`} />
+        <div className={`p-1 rounded ${isHintMode ? 'bg-accent-gold/15' : ''}`}>
+          <Lightbulb className={`w-4 h-4 transition-colors ${isHintMode ? 'text-accent-gold' : 'text-foreground-muted'}`} />
+        </div>
         <Switch
           id="hint-mode"
           checked={isHintMode}
@@ -49,7 +51,7 @@ export function GameControls() {
         />
         <Label
           htmlFor="hint-mode"
-          className="text-sm font-medium text-foreground-secondary cursor-pointer"
+          className={`text-sm font-medium cursor-pointer transition-colors ${isHintMode ? 'text-foreground' : 'text-foreground-secondary'}`}
         >
           {t('hint.hint')}
         </Label>

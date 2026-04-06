@@ -30,23 +30,24 @@ const MAX_FRAME_DELTA = 1 / 30;
 // Tiny offset above y=0 to prevent Z-fighting between disc bottom and board surface.
 const DISC_Y_OFFSET = 0.001;
 
-const ROUGHNESS = 0.7;
-const METALNESS = 0.05;
-
 const sharedGeometry = new THREE.CylinderGeometry(
   DISC_RADIUS - 0.02, DISC_RADIUS, DISC_HEIGHT, SEGMENTS,
 );
 
+function discMaterial(color: string, clearcoat: number) {
+  return new THREE.MeshPhysicalMaterial({ color, roughness: 0.55, metalness: 0, clearcoat, clearcoatRoughness: 0.15 });
+}
+
 const BLACK_MATERIALS = [
-  new THREE.MeshStandardMaterial({ color: DISC_COLOR_BLACK, roughness: ROUGHNESS, metalness: METALNESS }),
-  new THREE.MeshStandardMaterial({ color: DISC_COLOR_BLACK, roughness: ROUGHNESS, metalness: METALNESS }),
-  new THREE.MeshStandardMaterial({ color: DISC_COLOR_WHITE, roughness: ROUGHNESS, metalness: METALNESS }),
+  discMaterial(DISC_COLOR_BLACK, 0.6),
+  discMaterial(DISC_COLOR_BLACK, 0.6),
+  discMaterial(DISC_COLOR_WHITE, 0.4),
 ];
 
 const WHITE_MATERIALS = [
-  new THREE.MeshStandardMaterial({ color: DISC_COLOR_WHITE, roughness: ROUGHNESS, metalness: METALNESS }),
-  new THREE.MeshStandardMaterial({ color: DISC_COLOR_WHITE, roughness: ROUGHNESS, metalness: METALNESS }),
-  new THREE.MeshStandardMaterial({ color: DISC_COLOR_BLACK, roughness: ROUGHNESS, metalness: METALNESS }),
+  discMaterial(DISC_COLOR_WHITE, 0.4),
+  discMaterial(DISC_COLOR_WHITE, 0.4),
+  discMaterial(DISC_COLOR_BLACK, 0.6),
 ];
 
 // "settling" is a one-frame transitional state after the flip animation completes.
@@ -146,6 +147,13 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }:
   });
 
   return (
-    <mesh ref={meshRef} position={[x, DISC_HEIGHT / 2 + DISC_Y_OFFSET, z]} material={materials} geometry={sharedGeometry} />
+    <mesh
+      ref={meshRef}
+      position={[x, DISC_HEIGHT / 2 + DISC_Y_OFFSET, z]}
+      material={materials}
+      geometry={sharedGeometry}
+      castShadow
+      receiveShadow
+    />
   );
 }

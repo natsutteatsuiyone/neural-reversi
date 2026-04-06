@@ -6,6 +6,7 @@ import { useReversiStore } from "@/stores/use-reversi-store";
 import { ANALYSIS_LEVELS } from "@/types";
 import { AIThinkingLog } from "./AIThinkingLog";
 import { EvaluationChart } from "./EvaluationChart";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
@@ -52,6 +53,7 @@ export function AIAnalysisPanel() {
       {/* Trigger */}
       <button
         type="button"
+        aria-expanded={isOpen}
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "flex w-full items-center justify-between gap-3 px-4 py-3 transition-colors cursor-pointer hover:bg-white/5",
@@ -78,9 +80,21 @@ export function AIAnalysisPanel() {
             </span>
           )}
           {!isAIThinking && !isGameAnalyzing && latestEntry && (
-            <span className="max-w-full truncate text-xs font-mono font-semibold text-primary">
-              {t('analysis.best')} {latestEntry.bestMove} ({latestEntry.score > 0 ? "+" : ""}{latestEntry.score}) {latestEntry.acc === 100 ? latestEntry.depth : `${latestEntry.depth}@${latestEntry.acc}%`}
-            </span>
+            <div className="flex items-center gap-2 text-xs font-mono">
+              <span className="text-foreground-muted">{t('analysis.best')}</span>
+              <span className="font-semibold text-primary">{latestEntry.bestMove}</span>
+              <span className="text-white/20">|</span>
+              <span className={cn(
+                "font-semibold",
+                latestEntry.score > 0 ? "text-primary" : latestEntry.score < 0 ? "text-destructive" : "text-foreground"
+              )}>
+                {latestEntry.score > 0 ? "+" : ""}{latestEntry.score}
+              </span>
+              <span className="text-white/20">|</span>
+              <span className="text-foreground-muted">
+                {latestEntry.acc === 100 ? latestEntry.depth : `${latestEntry.depth}@${latestEntry.acc}%`}
+              </span>
+            </div>
           )}
         </div>
         {isOpen ? (
@@ -103,18 +117,12 @@ export function AIAnalysisPanel() {
             <div className="p-4 pb-6">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="h-[240px]">
                 <div className="flex items-center justify-between">
-                  <TabsList className="bg-white/10">
-                    <TabsTrigger
-                      value="log"
-                      className="gap-1.5 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary"
-                    >
+                  <TabsList>
+                    <TabsTrigger value="log">
                       <Activity className="w-3.5 h-3.5" />
                       {t('analysis.thinkingLog')}
                     </TabsTrigger>
-                    <TabsTrigger
-                      value="chart"
-                      className="gap-1.5 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary"
-                    >
+                    <TabsTrigger value="chart">
                       <BarChart3 className="w-3.5 h-3.5" />
                       {t('analysis.evaluation')}
                     </TabsTrigger>
@@ -140,24 +148,26 @@ export function AIAnalysisPanel() {
                       </Select>
                     </div>
                     {isGameAnalyzing ? (
-                      <button
-                        type="button"
+                      <Button
+                        variant="soft"
+                        size="sm"
                         onClick={abortGameAnalysis}
-                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors cursor-pointer"
+                        className="gap-1.5 h-7 px-3 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30"
                       >
                         <Square className="w-3 h-3" />
                         {t('analysis.abort')}
-                      </button>
+                      </Button>
                     ) : (
-                      <button
-                        type="button"
+                      <Button
+                        variant="soft"
+                        size="sm"
                         onClick={handleAnalyzeGame}
                         disabled={!canAnalyze}
-                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-accent-blue/20 text-accent-blue hover:bg-accent-blue/30 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="gap-1.5 h-7 px-3 text-xs bg-accent-blue/20 text-accent-blue hover:bg-accent-blue/30"
                       >
                         <Search className="w-3 h-3" />
                         {t('analysis.analyze')}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>

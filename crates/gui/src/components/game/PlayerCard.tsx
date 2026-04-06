@@ -54,7 +54,7 @@ export function PlayerCard({
         </div>
 
         {/* Score */}
-        <div className="text-3xl font-bold text-foreground">{score}</div>
+        <div className="text-3xl font-bold text-foreground tabular-nums">{score}</div>
 
         {/* Player label */}
         <div className="flex items-center gap-1.5">
@@ -79,7 +79,7 @@ export function PlayerCard({
 
         {/* Timer */}
         {showTimer && (
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded text-sm font-mono font-medium text-foreground-muted bg-white/5">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded text-sm font-mono font-medium text-foreground-muted bg-white/5 tabular-nums">
             <Clock className="w-3.5 h-3.5" />
             {formatTime(aiRemainingTime)}
           </div>
@@ -94,7 +94,7 @@ export function PlayerCard({
       {/* Thinking row */}
       {isThinking && (
         <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/10">
-          <div className="flex items-center gap-1.5 text-cyan-400">
+          <div className="flex items-center gap-1.5 text-accent-blue">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span className="text-sm font-medium">{t('ai.thinking')}</span>
           </div>

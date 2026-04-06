@@ -42,15 +42,69 @@ function createFeltTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+/** Generate a procedural normal map for the felt surface (independent noise, tileable) */
+function createFeltNormalTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+
+  // Build a grayscale height field first
+  const height = new Float32Array(size * size);
+  for (let i = 0; i < height.length; i++) {
+    height[i] = Math.random();
+  }
+
+  // Convert height field to tangent-space normals via central differences
+  const imageData = ctx.createImageData(size, size);
+  const data = imageData.data;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const l = height[y * size + ((x - 1 + size) % size)];
+      const r = height[y * size + ((x + 1) % size)];
+      const u = height[((y - 1 + size) % size) * size + x];
+      const d = height[((y + 1) % size) * size + x];
+      const dx = (r - l) * 0.5;
+      const dy = (d - u) * 0.5;
+      // Tangent-space normal: nx = -dx, ny = +dy (compensates for CanvasTexture flipY=true),
+      // nz = 1, normalized, remapped to [0, 255].
+      const nx = -dx;
+      const ny = dy;
+      const nz = 1;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      const idx = (y * size + x) * 4;
+      data[idx] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
+      data[idx + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
+      data[idx + 2] = Math.round(((nz / len) * 0.5 + 0.5) * 255);
+      data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(3, 3);
+  return texture;
+}
+
 /** Green felt playing surface with grid grooves */
 export function BoardSurface() {
   const feltTexture = useMemo(() => createFeltTexture(), []);
+  const feltNormal = useMemo(() => createFeltNormalTexture(), []);
 
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[BOARD_WORLD_SIZE, BOARD_WORLD_SIZE]} />
-        <meshStandardMaterial map={feltTexture} roughness={0.92} metalness={0} />
+        <meshStandardMaterial
+          map={feltTexture}
+          normalMap={feltNormal}
+          normalScale={new THREE.Vector2(0.3, 0.3)}
+          roughness={0.92}
+          metalness={0}
+        />
       </mesh>
       <GridGrooves />
     </group>

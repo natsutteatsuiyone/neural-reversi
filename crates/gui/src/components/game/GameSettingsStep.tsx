@@ -34,7 +34,7 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
       {/* Game Mode Selection */}
       <div className="space-y-3">
         <Label className="text-sm font-medium text-foreground-secondary">{t('game.youPlay')}</Label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label={t('game.youPlay')}>
           <GameModeOption
             selected={settings.gameMode === "ai-white"}
             onClick={() => onChange({ gameMode: "ai-white" })}
@@ -57,12 +57,12 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
           value={settings.aiMode}
           onValueChange={(v) => onChange({ aiMode: v as AIMode })}
         >
-          <TabsList className="w-full bg-white/10">
-            <TabsTrigger value="game-time" className="flex-1 gap-2 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary">
+          <TabsList className="w-full">
+            <TabsTrigger value="game-time" className="flex-1 gap-2">
               <Timer className="w-4 h-4" />
               {t('ai.timed')}
             </TabsTrigger>
-            <TabsTrigger value="level" className="flex-1 gap-2 data-[state=active]:bg-white/15 data-[state=active]:text-foreground text-foreground-secondary">
+            <TabsTrigger value="level" className="flex-1 gap-2">
               <Zap className="w-4 h-4" />
               {t('ai.level')}
             </TabsTrigger>
@@ -106,9 +106,10 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
             step={30}
             onValueChange={([value]) => onChange({ gameTimeLimit: value })}
           />
-          <div className="flex justify-between text-xs text-foreground-muted">
-            <span>30s</span>
-            <span>10m</span>
+          <div className="relative h-4 text-xs text-foreground-muted">
+            <span className="absolute left-0">30s</span>
+            <span className="absolute -translate-x-1/2" style={{ left: "47.4%" }}>5m</span>
+            <span className="absolute right-0">10m</span>
           </div>
         </div>
       )}
@@ -130,9 +131,11 @@ function GameModeOption({
   return (
     <button
       type="button"
+      role="radio"
+      aria-checked={selected}
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all",
+        "flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all cursor-pointer",
         selected
           ? "border-primary bg-primary/10"
           : "border-white/20 hover:border-white/30 hover:bg-white/5"

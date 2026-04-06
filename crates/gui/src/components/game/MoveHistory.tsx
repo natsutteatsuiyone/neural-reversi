@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect } from "react";
-import { Bot, Check, Copy, RotateCcw, RotateCw } from "lucide-react";
+import { Bot, Check, Copy, List, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Stone } from "@/components/board/Stone";
@@ -86,7 +86,8 @@ export function MoveHistory() {
         className="flex-1 overflow-y-auto p-2 scrollbar-thin"
       >
         {moves.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex flex-col items-center justify-center h-full gap-2">
+            <List className="w-5 h-5 text-foreground-muted/50" />
             <p className="text-sm text-foreground-muted">{t('history.noMoves')}</p>
           </div>
         ) : (
@@ -96,20 +97,16 @@ export function MoveHistory() {
                 key={move.id}
                 className={cn(
                   "grid grid-cols-[28px_1fr] gap-1 text-sm rounded-md",
-                  index === moves.length - 1 && "bg-white/10"
+                  index === moves.length - 1 && "bg-primary/15"
                 )}
               >
                 {/* Move number */}
-                <div className="text-foreground-muted font-mono text-xs flex items-center justify-center">
+                <div className="text-foreground-muted font-mono text-xs flex items-center justify-center tabular-nums">
                   {index + 1}.
                 </div>
 
                 {/* Move details */}
-                <div
-                  className={cn(
-                    "flex items-center gap-1.5 px-2 py-1 rounded",
-                    index === moves.length - 1 && "bg-primary/20"
-                  )}
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded"
                 >
                   <Stone color={move.player} size="sm" />
                   <span className="font-medium text-foreground">{move.notation}</span>

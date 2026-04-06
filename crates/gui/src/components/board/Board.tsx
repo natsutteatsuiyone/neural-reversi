@@ -98,7 +98,7 @@ export function Board() {
 
   return (
     <div className="h-full w-full">
-      <Canvas frameloop="demand" resize={{ debounce: { scroll: 50, resize: 100 } }}>
+      <Canvas frameloop="demand" shadows resize={{ debounce: { scroll: 50, resize: 100 } }}>
         <Suspense fallback={null}>
           <Board3DScene
             board={board}

@@ -43,16 +43,16 @@ export const SetupMiniBoard = memo(function SetupMiniBoard({
         </div>
 
         {/* Board grid */}
-        <div className="bg-board-surface p-1.5 rounded-md w-56 h-56">
-          <div className="grid grid-cols-8 grid-rows-8 gap-px h-full w-full">
+        <div className="bg-board-surface p-1.5 rounded-lg border border-board-border inline-block">
+          <div className="grid grid-cols-8 grid-rows-8">
             {board.map((row, rowIndex) =>
               row.map((cell, colIndex) => (
                 <button
                   key={`${colIndex}-${rowIndex}`}
                   type="button"
                   className={cn(
-                    "w-full h-full relative flex items-center justify-center",
-                    "bg-board-cell",
+                    "w-[27px] h-[27px] relative flex items-center justify-center",
+                    "bg-board-cell border-r border-b border-board-surface",
                     editable && "hover:bg-board-cell-hover cursor-pointer",
                     !editable && "cursor-default"
                   )}
