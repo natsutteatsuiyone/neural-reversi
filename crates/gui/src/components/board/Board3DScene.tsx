@@ -166,7 +166,7 @@ export function Board3DScene({
       <CellInteraction
         onCellClick={onCellClick}
         isValidMove={isValidMove}
-        disabled={gameOver || aiTurnActive}
+        isDisabled={isAITurn}
       />
 
       {board.map((row, rowIndex) =>

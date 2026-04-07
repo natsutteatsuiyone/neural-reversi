@@ -1,8 +1,10 @@
 import { PlayerCard } from "@/components/game/PlayerCard";
 import { MoveHistory } from "@/components/game/MoveHistory";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { useTranslation } from "react-i18next";
 
 export function Sidebar() {
+  const { t } = useTranslation();
   const currentPlayer = useReversiStore((state) => state.currentPlayer);
   const gameMode = useReversiStore((state) => state.gameMode);
   const gameStatus = useReversiStore((state) => state.gameStatus);
@@ -13,6 +15,7 @@ export function Sidebar() {
   const abortAIMove = useReversiStore((state) => state.abortAIMove);
 
   const scores = getScores();
+  const isPvP = gameMode === "pvp";
   const blackIsAI = gameMode === "ai-black";
   const whiteIsAI = gameMode === "ai-white";
 
@@ -33,6 +36,7 @@ export function Sidebar() {
           isThinking={blackIsAI && currentPlayer === "black" && gameStatus === "playing"}
           aiMode={aiMode}
           aiRemainingTime={aiRemainingTime}
+          playerLabel={isPvP ? t('colors.black') : undefined}
           onStop={blackIsAI ? handleStop : undefined}
         />
         <PlayerCard
@@ -44,6 +48,7 @@ export function Sidebar() {
           isThinking={whiteIsAI && currentPlayer === "white" && gameStatus === "playing"}
           aiMode={aiMode}
           aiRemainingTime={aiRemainingTime}
+          playerLabel={isPvP ? t('colors.white') : undefined}
           onStop={whiteIsAI ? handleStop : undefined}
         />
       </div>

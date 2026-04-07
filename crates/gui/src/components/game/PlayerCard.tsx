@@ -13,6 +13,7 @@ interface PlayerCardProps {
   isThinking: boolean;
   aiMode: string;
   aiRemainingTime: number;
+  playerLabel?: string;
   onStop?: () => void;
 }
 
@@ -32,6 +33,7 @@ export function PlayerCard({
   isThinking,
   aiMode,
   aiRemainingTime,
+  playerLabel,
   onStop,
 }: PlayerCardProps) {
   const { t } = useTranslation();
@@ -69,7 +71,7 @@ export function PlayerCard({
             <>
               <User className="w-4 h-4 text-foreground-secondary" />
               <span className="text-sm font-medium text-foreground-secondary">
-                {t('player.you')}
+                {playerLabel ?? t('player.you')}
               </span>
             </>
           )}

@@ -5,7 +5,7 @@ import {
   initializeBoard,
   opponentPlayer as nextPlayer,
 } from "@/lib/game-logic";
-import type { Board, MoveRecord, Player } from "@/types";
+import type { Board, GameMode, MoveRecord, Player } from "@/types";
 import { MoveHistory } from "@/lib/move-history";
 
 export interface Move {
@@ -165,11 +165,11 @@ function isPlayerTurn(
 
 export function getUndoCount(
   currentMoves: readonly MoveRecord[],
-  gameMode: "analyze" | "ai-black" | "ai-white",
+  gameMode: GameMode | "analyze",
   historyStartPlayer: Player = "black"
 ): number {
   if (currentMoves.length === 0) return 0;
-  if (gameMode === "analyze") return 1;
+  if (gameMode === "analyze" || gameMode === "pvp") return 1;
 
   const currentIsPlayerTurn = isPlayerTurn(
     currentMoves as MoveRecord[],
@@ -185,11 +185,11 @@ export function getUndoCount(
 export function getRedoCount(
   currentMoves: readonly MoveRecord[],
   allMoves: readonly MoveRecord[],
-  gameMode: "analyze" | "ai-black" | "ai-white",
+  gameMode: GameMode | "analyze",
   historyStartPlayer: Player = "black"
 ): number {
   if (currentMoves.length >= allMoves.length) return 0;
-  if (gameMode === "analyze") return 1;
+  if (gameMode === "analyze" || gameMode === "pvp") return 1;
 
   const simulated = [...currentMoves] as MoveRecord[];
   let count = 0;

@@ -144,10 +144,10 @@ export function createGameSlice(services: Services): StateCreator<
 
     isAITurn: () => {
         const { gameMode, gameOver, currentPlayer } = get();
+        if (gameOver || gameMode === "pvp") return false;
         return (
-            !gameOver &&
-            ((gameMode === "ai-black" && currentPlayer === "black") ||
-             (gameMode === "ai-white" && currentPlayer === "white"))
+            (gameMode === "ai-black" && currentPlayer === "black") ||
+            (gameMode === "ai-white" && currentPlayer === "white")
         );
     },
 

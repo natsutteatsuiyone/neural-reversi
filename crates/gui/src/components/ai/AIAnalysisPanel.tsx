@@ -13,7 +13,6 @@ import { useTranslation } from "react-i18next";
 
 export function AIAnalysisPanel() {
   const { t } = useTranslation();
-  const gameMode = useReversiStore((state) => state.gameMode);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const aiThinkingHistory = useReversiStore((state) => state.aiThinkingHistory);
   const isOpen = useReversiStore((state) => state.aiAnalysisPanelOpen);
@@ -39,11 +38,6 @@ export function AIAnalysisPanel() {
     }
     return count;
   }, [moveHistory.allMoves]);
-
-  // Only show for AI games
-  if (gameMode !== "ai-black" && gameMode !== "ai-white") {
-    return null;
-  }
 
   const latestEntry = aiThinkingHistory[aiThinkingHistory.length - 1];
   const canAnalyze = totalMoves > 0 && !isAIThinking && !isGameAnalyzing;

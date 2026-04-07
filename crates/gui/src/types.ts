@@ -39,7 +39,7 @@ export type GameState = {
   moves: MoveRecord[];
 };
 
-export type GameMode = "ai-black" | "ai-white";
+export type GameMode = "ai-black" | "ai-white" | "pvp";
 export type GameStatus = "waiting" | "playing" | "finished";
 export type AIMode = "level" | "time" | "game-time";
 

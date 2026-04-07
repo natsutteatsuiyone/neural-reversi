@@ -22,7 +22,6 @@ export function CellHtmlOverlay({
       style={{
         width: `${cellPixelSize}px`,
         height: `${cellPixelSize}px`,
-        position: "relative",
         pointerEvents: "none",
         zIndex,
       }}
