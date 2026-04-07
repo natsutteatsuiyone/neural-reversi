@@ -16,6 +16,23 @@ export function createSettingsSlice(services: Services): StateCreator<
     gameAnalysisLevel: DEFAULT_SETTINGS.gameAnalysisLevel,
     hashSize: DEFAULT_SETTINGS.hashSize,
     aiAnalysisPanelOpen: DEFAULT_SETTINGS.aiAnalysisPanelOpen,
+    language: DEFAULT_SETTINGS.language,
+
+    hydrateSettings: (settings) => {
+        set({
+            gameMode: settings.gameMode,
+            timeLimit: settings.timeLimit,
+            gameTimeLimit: settings.gameTimeLimit,
+            hintLevel: settings.hintLevel,
+            gameAnalysisLevel: settings.gameAnalysisLevel,
+            hashSize: settings.hashSize,
+            aiAnalysisPanelOpen: settings.aiAnalysisPanelOpen,
+            aiLevel: settings.aiLevel,
+            aiMode: settings.aiMode,
+            language: settings.language,
+            analyzeResults: null,
+        });
+    },
 
     setGameMode: (mode) => {
         set({
@@ -57,6 +74,11 @@ export function createSettingsSlice(services: Services): StateCreator<
     setAIAnalysisPanelOpen: (open) => {
         set({ aiAnalysisPanelOpen: open });
         void services.settings.saveSetting("aiAnalysisPanelOpen", open);
+    },
+
+    setLanguagePreference: async (language) => {
+        set({ language });
+        return services.settings.saveSetting("language", language);
     },
   });
 }

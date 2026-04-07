@@ -243,8 +243,9 @@ describe("startFromSetup", () => {
 
   it("starts game from manual tab", async () => {
     // Default setupBoard is initial position — valid
-    await store.getState().startFromSetup();
+    const started = await store.getState().startFromSetup();
     const s = store.getState();
+    expect(started).toBe(true);
     expect(s.gameStatus).toBe("playing");
     expect(s.gameOver).toBe(false);
     expect(s.setupError).toBeNull();
@@ -254,8 +255,9 @@ describe("startFromSetup", () => {
   it("starts game from transcript tab", async () => {
     store.getState().setTranscriptInput("F5D6");
     store.setState({ setupTab: "transcript" });
-    await store.getState().startFromSetup();
+    const started = await store.getState().startFromSetup();
     const s = store.getState();
+    expect(started).toBe(true);
     expect(s.gameStatus).toBe("playing");
     expect(s.board[4][5].color).toBe("black");
     expect(s.setupError).toBeNull();
@@ -265,8 +267,9 @@ describe("startFromSetup", () => {
     const boardStr = "-".repeat(27) + "OX------XO" + "-".repeat(27);
     store.getState().setBoardStringInput(boardStr);
     store.setState({ setupTab: "boardString" });
-    await store.getState().startFromSetup();
+    const started = await store.getState().startFromSetup();
     const s = store.getState();
+    expect(started).toBe(true);
     expect(s.gameStatus).toBe("playing");
     expect(s.setupError).toBeNull();
   });
@@ -276,7 +279,8 @@ describe("startFromSetup", () => {
     const board = createEmptyBoard();
     board[0][0] = { color: "black" };
     store.setState({ setupBoard: board });
-    await store.getState().startFromSetup();
+    const started = await store.getState().startFromSetup();
+    expect(started).toBe(false);
     expect(store.getState().setupError).toBe("needBothColors");
     expect(store.getState().gameStatus).not.toBe("playing");
   });
@@ -287,7 +291,8 @@ describe("startFromSetup", () => {
         initialize: vi.fn().mockRejectedValue(new Error("init failed")),
       }),
     }));
-    await store.getState().startFromSetup();
+    const started = await store.getState().startFromSetup();
+    expect(started).toBe(false);
     expect(store.getState().setupError).toBe("aiInitFailed");
   });
 
@@ -305,6 +310,25 @@ describe("startFromSetup", () => {
     expect(abortSpy).toHaveBeenCalled();
   });
 
+  it("forces a pass immediately when the selected player has no legal move", async () => {
+    const board = createEmptyBoard();
+    board[0][1].color = "white";
+    board[0][2].color = "black";
+    board[6][4].color = "white";
+    board[7][4].color = "black";
+    store.setState({ setupBoard: board, setupCurrentPlayer: "white" });
+
+    const started = await store.getState().startFromSetup();
+    const s = store.getState();
+
+    expect(started).toBe(true);
+    expect(s.showPassNotification).toBe("white");
+    expect(s.currentPlayer).toBe("black");
+    expect(s.isPass).toBe(true);
+    expect(s.moveHistory.length).toBe(1);
+    expect(s.moveHistory.lastMove?.notation).toBe("Pass");
+  });
+
   it("sets setupError when neither player has valid moves", async () => {
     // Board with adjacent black and white but no empty cells adjacent that create flanks
     // Fill entire board: black on left half of row 0, white on right half
@@ -316,7 +340,8 @@ describe("startFromSetup", () => {
     }
     store.setState({ setupBoard: board, setupCurrentPlayer: "black" });
 
-    await store.getState().startFromSetup();
+    const started = await store.getState().startFromSetup();
+    expect(started).toBe(false);
     expect(store.getState().setupError).toBe("noValidMoves");
     expect(store.getState().gameStatus).not.toBe("playing");
   });

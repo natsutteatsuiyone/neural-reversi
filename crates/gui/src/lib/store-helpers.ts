@@ -65,7 +65,7 @@ export function createPassMove(moveId: number, player: Player, remainingTime?: n
 }
 
 export function reconstructBoardFromMoves(
-  moves: MoveRecord[],
+  moves: readonly MoveRecord[],
   historyStartBoard: Board = initializeBoard(),
   historyStartPlayer: Player = "black"
 ): {
@@ -122,6 +122,7 @@ export function createGameStartState(
     validMoves: gameStatus === "playing" ? getValidMoves(board, currentPlayer) : [],
     skipAnimation: true,
     paused: false,
+    automationTimer: null,
     gameAnalysisResult: null,
   };
 }

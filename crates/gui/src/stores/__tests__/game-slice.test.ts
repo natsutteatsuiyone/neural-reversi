@@ -224,6 +224,42 @@ describe("makeMove", () => {
     const s = store.getState();
     expect(s.board[0][0].color).toBe("black");
     expect(s.showPassNotification).toBe("white");
+    expect(s.currentPlayer).toBe("black");
+    expect(s.isPass).toBe(true);
+    expect(s.moveHistory.length).toBe(2);
+    expect(s.moveHistory.lastMove?.notation).toBe("Pass");
+  });
+
+  it("waits for the pass notification before letting AI play again", async () => {
+    vi.useFakeTimers();
+    try {
+      const { createEmptyBoard } = await import("@/lib/game-logic");
+      store.setState({ gameMode: "ai-black" });
+
+      const board = createEmptyBoard();
+      board[0][1].color = "white";
+      board[0][2].color = "black";
+      board[6][4].color = "white";
+      board[7][4].color = "black";
+      store.setState({
+        board,
+        currentPlayer: "black",
+        validMoves: [[0, 0]],
+      });
+
+      const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
+      await store.getState().makeMove({ row: 0, col: 0, isAI: true });
+
+      expect(makeAIMoveSpy).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(makeAIMoveSpy).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -319,6 +355,31 @@ describe("undoMove", () => {
     store.setState({ analyzeResults: new Map([["2,3", {} as never]]) });
     store.getState().undoMove();
     expect(store.getState().analyzeResults).toBeNull();
+  });
+
+  it("does not re-apply a forced pass when undoing a pass move", async () => {
+    const { createEmptyBoard } = await import("@/lib/game-logic");
+    const board = createEmptyBoard();
+    board[0][1].color = "white";
+    board[0][2].color = "black";
+    board[6][4].color = "white";
+    board[7][4].color = "black";
+    store.setState({
+      board,
+      currentPlayer: "black",
+      validMoves: [[0, 0]],
+    });
+
+    await store.getState().makeMove({ row: 0, col: 0, isAI: false });
+    expect(store.getState().moveHistory.length).toBe(2);
+
+    store.getState().undoMove();
+
+    const s = store.getState();
+    expect(s.moveHistory.length).toBe(1);
+    expect(s.currentPlayer).toBe("white");
+    expect(s.showPassNotification).toBeNull();
+    expect(s.paused).toBe(false);
   });
 });
 
@@ -453,14 +514,30 @@ describe("resetGame", () => {
     await store.getState().resetGame();
     expect(abortSpy).toHaveBeenCalled();
   });
+
+  it("clears pending automation timer", async () => {
+    vi.useFakeTimers();
+    try {
+      const { store } = createTestStore();
+      const timer = setTimeout(() => {}, 1000);
+      store.setState({ automationTimer: timer });
+
+      await store.getState().resetGame();
+
+      expect(store.getState().automationTimer).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("startGame", () => {
   it("sets gameStatus to playing on success", async () => {
     const { store } = createTestStore();
-    await store.getState().startGame();
+    const started = await store.getState().startGame();
 
     const s = store.getState();
+    expect(started).toBe(true);
     expect(s.gameStatus).toBe("playing");
     expect(s.currentPlayer).toBe("black");
     expect(s.gameOver).toBe(false);
@@ -485,8 +562,9 @@ describe("startGame", () => {
         initialize: vi.fn().mockRejectedValue(new Error("init failed")),
       }),
     });
-    await store.getState().startGame();
+    const started = await store.getState().startGame();
 
+    expect(started).toBe(false);
     expect(store.getState().gameStatus).toBe("waiting");
   });
 });

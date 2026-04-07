@@ -21,6 +21,9 @@ import type { GameSlice, ReversiState } from "./types";
 import type { Services } from "@/services/types";
 import { FLIP_DURATION_S } from "@/components/board/board3d-utils";
 
+const FLIP_DURATION_MS = FLIP_DURATION_S * 1000;
+export const PASS_NOTIFICATION_DURATION_MS = 1500;
+
 function toLastMove(moves: readonly MoveRecord[]): Move | null {
     const last = moves.length > 0 ? moves[moves.length - 1] : undefined;
     if (!last || last.row < 0 || last.col < 0) {
@@ -46,7 +49,7 @@ function deriveStateFromMoves(
     lastMove: Move | null;
 } {
     const { board, currentPlayer } = reconstructBoardFromMoves(
-        moves as MoveRecord[],
+        moves,
         historyStartBoard,
         historyStartPlayer,
     );
@@ -97,10 +100,65 @@ function finalizeNavigation(
 ): void {
     const state = get();
     if (state.gameStatus !== "playing") return;
-    set({ paused: state.isAITurn() });
-    if (state.isHintMode) {
+
+    const canResumeAI = state.isAITurn() && state.validMoves.length > 0;
+    set({ paused: canResumeAI });
+    if (state.isHintMode && state.validMoves.length > 0) {
         void state.analyzeBoard();
     }
+}
+
+function clearAutomationTimer(
+    get: () => ReversiState,
+    set: (partial: Partial<ReversiState>) => void,
+): void {
+    const { automationTimer } = get();
+    if (automationTimer) {
+        clearTimeout(automationTimer);
+        set({ automationTimer: null });
+    }
+}
+
+function scheduleAutomation(
+    get: () => ReversiState,
+    set: (partial: Partial<ReversiState>) => void,
+    delayMs: number,
+): void {
+    clearAutomationTimer(get, set);
+    const timer = setTimeout(() => {
+        set({ automationTimer: null });
+        triggerAutomation(get);
+    }, delayMs);
+    set({ automationTimer: timer });
+}
+
+function hasFlippedDiscs(oldBoard: Board, newBoard: Board): boolean {
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const oldCell = oldBoard[r][c];
+            const newCell = newBoard[r][c];
+            if (oldCell.color && newCell.color && oldCell.color !== newCell.color) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function applyPassState(state: ReversiState, passingPlayer: Player): Partial<ReversiState> {
+    const passMove = createPassMove(state.moveHistory.length, passingPlayer, state.aiRemainingTime);
+    const nextPlayerTurn = nextPlayer(passingPlayer);
+    const boardClone = cloneBoard(state.board);
+
+    return {
+        board: boardClone,
+        moveHistory: state.moveHistory.append(passMove),
+        currentPlayer: nextPlayerTurn,
+        validMoves: getValidMoves(boardClone, nextPlayerTurn),
+        isPass: true,
+        analyzeResults: null,
+    };
 }
 
 export function triggerAutomation(getState: () => ReversiState): void {
@@ -143,6 +201,7 @@ export function createGameSlice(services: Services): StateCreator<
     validMoves: [],
     skipAnimation: false,
     paused: false,
+    automationTimer: null,
 
     getScores: () => {
         return calculateScores(get().board);
@@ -166,6 +225,8 @@ export function createGameSlice(services: Services): StateCreator<
     },
 
     makeMove: async (move: Move) => {
+        clearAutomationTimer(get, set);
+
         // Abort analysis in background if it's a user move (don't await to avoid blocking)
         if (!move.isAI && get().isAnalyzing) {
             set({ isAnalyzing: false });
@@ -201,57 +262,35 @@ export function createGameSlice(services: Services): StateCreator<
         }
 
         if (shouldPass) {
-            set({ showPassNotification: updatedState.currentPlayer });
+            set((state) => ({
+                ...applyPassState(state, updatedState.currentPlayer),
+                showPassNotification: updatedState.currentPlayer,
+            }));
+
+            scheduleAutomation(get, set, PASS_NOTIFICATION_DURATION_MS);
             return;
         }
 
-        // Wait for flip animation to complete before triggering AI
-        const FLIP_DURATION_MS = FLIP_DURATION_S * 1000;
-        if (!move.isAI) {
-            const newBoard = updatedState.board;
-            let hasFlipped = false;
-            for (let r = 0; r < 8 && !hasFlipped; r++) {
-                for (let c = 0; c < 8 && !hasFlipped; c++) {
-                    const oldCell = oldBoard[r][c];
-                    const newCell = newBoard[r][c];
-                    if (oldCell.color && newCell.color && oldCell.color !== newCell.color) {
-                        hasFlipped = true;
-                    }
-                }
-            }
-            if (hasFlipped) {
-                setTimeout(() => triggerAutomation(get), FLIP_DURATION_MS);
-                return;
-            }
+        if (!move.isAI && hasFlippedDiscs(oldBoard, updatedState.board)) {
+            scheduleAutomation(get, set, FLIP_DURATION_MS);
+        } else {
+            triggerAutomation(get);
         }
-
-        triggerAutomation(get);
     },
 
     makePass: () => {
-        set((state) => {
-            const currentPlayer = state.currentPlayer;
-            const passMove = createPassMove(state.moveHistory.length, currentPlayer, state.aiRemainingTime);
-            const nextPlayerTurn = nextPlayer(currentPlayer);
-            const boardClone = cloneBoard(state.board);
-
-            return {
-                board: boardClone,
-                moveHistory: state.moveHistory.append(passMove),
-                currentPlayer: nextPlayerTurn,
-                validMoves: getValidMoves(boardClone, nextPlayerTurn),
-                isPass: true,
-                analyzeResults: null,
-            };
-        });
+        clearAutomationTimer(get, set);
+        set((state) => applyPassState(state, state.currentPlayer));
     },
 
     undoMove: () => {
+        clearAutomationTimer(get, set);
         set((state) => applyHistoryNavigation(state, "undo") ?? state);
         finalizeNavigation(set, get);
     },
 
     redoMove: () => {
+        clearAutomationTimer(get, set);
         set((state) => applyHistoryNavigation(state, "redo") ?? state);
         finalizeNavigation(set, get);
     },
@@ -262,6 +301,7 @@ export function createGameSlice(services: Services): StateCreator<
     },
 
     goToMove: (position: number) => {
+        clearAutomationTimer(get, set);
         const state = get();
         if (state.isAIThinking || state.isAnalyzing) return;
 
@@ -295,19 +335,12 @@ export function createGameSlice(services: Services): StateCreator<
         });
 
         if (!gameOver && newGameStatus === "playing") {
-            const updated = get();
-            if (updated.validMoves.length === 0) {
-                const result = checkGameOver(updated.board, updated.currentPlayer);
-                if (result.shouldPass) {
-                    set({ showPassNotification: updated.currentPlayer });
-                    return;
-                }
-            }
             finalizeNavigation(set, get);
         }
     },
 
     resetGame: async () => {
+        clearAutomationTimer(get, set);
         const { isAIThinking, isAnalyzing, isGameAnalyzing, searchTimer } = get();
         if (isAIThinking || isAnalyzing) {
             await get().abortAIMove();
@@ -325,16 +358,18 @@ export function createGameSlice(services: Services): StateCreator<
     },
 
     startGame: async () => {
+        clearAutomationTimer(get, set);
         try {
             await services.ai.initialize();
         } catch {
-            return;
+            return false;
         }
 
         const board = initializeBoard();
         set(createGameStartState(board, "black", "playing", get().gameTimeLimit * 1000));
 
         triggerAutomation(get);
+        return true;
     },
 
     setGameStatus: (status) => set({ gameStatus: status }),

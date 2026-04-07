@@ -2,7 +2,6 @@ import { StateCreator } from "zustand";
 import type { AIMoveProgress } from "@/services/types";
 import type { Services } from "@/services/types";
 import type { ReversiState, UISlice, MoveAnalysis } from "./types";
-import { triggerAutomation } from "./game-slice";
 import { getNotation } from "@/lib/game-logic";
 
 export function createUISlice(services: Services): StateCreator<
@@ -25,18 +24,13 @@ export function createUISlice(services: Services): StateCreator<
     setHintMode: (enabled) => {
         set({ isHintMode: enabled, analyzeResults: null });
         if (enabled) {
-            get().analyzeBoard();
+            void get().analyzeBoard();
         } else {
-            get().abortAIMove();
+            void get().abortAIMove();
         }
     },
 
-    hidePassNotification: () => {
-        set({ showPassNotification: null });
-        const { makePass } = get();
-        makePass();
-        triggerAutomation(get);
-    },
+    hidePassNotification: () => set({ showPassNotification: null }),
 
     analyzeBoard: async () => {
         const { isHintMode, gameStatus, isAIThinking, isAITurn, isAnalyzing } = get();

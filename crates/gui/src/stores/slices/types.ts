@@ -2,6 +2,8 @@ import type { AIMoveProgress, AIMoveResult } from "@/services/types";
 import type { MoveHistory } from "@/lib/move-history";
 import type { AIMode, Board, GameMode, Player } from "@/types";
 import type { Move } from "@/lib/store-helpers";
+import type { Language } from "@/i18n";
+import type { AppSettings } from "@/services/types";
 
 export interface GameSlice {
     board: Board;
@@ -16,6 +18,7 @@ export interface GameSlice {
     validMoves: [number, number][];
     skipAnimation: boolean;
     paused: boolean;
+    automationTimer: ReturnType<typeof setTimeout> | null;
     getScores: () => { black: number; white: number };
     isAITurn: () => boolean;
     isValidMove: (row: number, col: number) => boolean;
@@ -26,7 +29,7 @@ export interface GameSlice {
     goToMove: (position: number) => void;
     resumeAI: () => void;
     resetGame: () => Promise<void>;
-    startGame: () => Promise<void>;
+    startGame: () => Promise<boolean>;
     setGameStatus: (status: "waiting" | "playing" | "finished") => void;
 }
 
@@ -86,6 +89,8 @@ export interface SettingsSlice {
     gameAnalysisLevel: number;
     hashSize: number;
     aiAnalysisPanelOpen: boolean;
+    language: Language | null;
+    hydrateSettings: (settings: AppSettings) => void;
     setGameMode: (mode: GameMode) => void;
     setTimeLimit: (limit: number) => void;
     setGameTimeLimit: (limit: number) => void;
@@ -93,6 +98,7 @@ export interface SettingsSlice {
     setGameAnalysisLevel: (level: number) => void;
     setHashSize: (size: number) => void;
     setAIAnalysisPanelOpen: (open: boolean) => void;
+    setLanguagePreference: (language: Language | null) => Promise<boolean>;
 }
 
 export type SetupTab = "manual" | "transcript" | "boardString";
@@ -113,7 +119,7 @@ export interface SetupSlice {
     setBoardStringInput: (input: string) => void;
     clearSetupBoard: () => void;
     resetSetupToInitial: () => void;
-    startFromSetup: () => Promise<void>;
+    startFromSetup: () => Promise<boolean>;
 }
 
 export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice & SetupSlice;

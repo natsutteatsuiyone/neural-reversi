@@ -106,7 +106,7 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
                 min={1}
                 max={30}
                 step={1}
-                onValueChange={([value]) => onChange({ aiLevel: value })}
+                onValueChange={([value]: number[]) => onChange({ aiLevel: value })}
               />
               <div className="flex justify-between text-xs text-foreground-muted">
                 <span>{t('ai.easy')}</span>
@@ -126,7 +126,7 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
                 min={30}
                 max={600}
                 step={30}
-                onValueChange={([value]) => onChange({ gameTimeLimit: value })}
+                onValueChange={([value]: number[]) => onChange({ gameTimeLimit: value })}
               />
               <div className="relative h-4 text-xs text-foreground-muted">
                 <span className="absolute left-0">30s</span>

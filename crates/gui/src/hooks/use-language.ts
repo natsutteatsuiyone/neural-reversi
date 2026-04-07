@@ -1,25 +1,12 @@
-import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { defaultServices } from "@/services";
-import { changeLanguage, resolveLanguage, isLanguage, type Language } from "@/i18n";
+import { useReversiStore } from "@/stores/use-reversi-store";
+import { changeLanguage, resolveLanguage, isLanguage } from "@/i18n";
 
 export function useLanguage() {
   const { i18n } = useTranslation();
-  const [savedLanguage, setSavedLanguage] = useState<Language | null>(null);
-
-  // Determine display value: "auto" if null, otherwise the saved language
+  const savedLanguage = useReversiStore((state) => state.language);
+  const setLanguagePreference = useReversiStore((state) => state.setLanguagePreference);
   const language = savedLanguage ?? "auto";
-
-  useEffect(() => {
-    // Initialize from current i18n language
-    // If the current language matches the detected language, assume "auto"
-    const detected = resolveLanguage(null);
-    if (i18n.language === detected) {
-      setSavedLanguage(null);
-    } else if (isLanguage(i18n.language)) {
-      setSavedLanguage(i18n.language);
-    }
-  }, [i18n.language]);
 
   const setLanguage = async (value: string) => {
     const newSavedLanguage = value === "auto" ? null :
@@ -27,14 +14,16 @@ export function useLanguage() {
 
     try {
       const resolved = await changeLanguage(newSavedLanguage);
-      const saved = await defaultServices.settings.saveSetting("language", newSavedLanguage);
+      const saved = await setLanguagePreference(newSavedLanguage);
       if (!saved) {
         console.warn("Language preference could not be saved");
       }
-      setSavedLanguage(newSavedLanguage);
       return resolved;
     } catch (error) {
       console.error("Failed to change language:", error);
+      if (isLanguage(i18n.language)) {
+        return i18n.language;
+      }
       return resolveLanguage(savedLanguage);
     }
   };

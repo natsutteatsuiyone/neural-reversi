@@ -77,8 +77,10 @@ export function NewGameModal() {
     try {
       commitAISettings();
       await abortAIMove();
-      await startGame();
-      setNewGameModalOpen(false);
+      const started = await startGame();
+      if (started) {
+        setNewGameModalOpen(false);
+      }
     } catch (error) {
       console.error("Failed to start game:", error);
     }
@@ -89,8 +91,8 @@ export function NewGameModal() {
       // Settings must be committed before startFromSetup because it reads
       // gameMode and gameTimeLimit from the store synchronously.
       commitAISettings();
-      await startFromSetup();
-      if (!useReversiStore.getState().setupError) {
+      const started = await startFromSetup();
+      if (started) {
         setNewGameModalOpen(false);
       }
     } catch (error) {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { createTestStore } from "./test-helpers";
+import type { AppSettings } from "@/services/types";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -14,6 +15,40 @@ describe("initial state", () => {
     expect(s.gameTimeLimit).toBe(60);
     expect(s.hintLevel).toBe(21);
     expect(s.aiAnalysisPanelOpen).toBe(false);
+    expect(s.language).toBeNull();
+  });
+});
+
+describe("hydrateSettings", () => {
+  it("hydrates loaded settings without persisting them again", () => {
+    const { store, services } = createTestStore();
+    const settings: AppSettings = {
+      gameMode: "ai-black",
+      aiLevel: 18,
+      aiMode: "level",
+      timeLimit: 3,
+      gameTimeLimit: 180,
+      hintLevel: 12,
+      gameAnalysisLevel: 16,
+      hashSize: 1024,
+      aiAnalysisPanelOpen: true,
+      language: "ja",
+    };
+
+    store.getState().hydrateSettings(settings);
+
+    const s = store.getState();
+    expect(s.gameMode).toBe("ai-black");
+    expect(s.aiLevel).toBe(18);
+    expect(s.aiMode).toBe("level");
+    expect(s.timeLimit).toBe(3);
+    expect(s.gameTimeLimit).toBe(180);
+    expect(s.hintLevel).toBe(12);
+    expect(s.gameAnalysisLevel).toBe(16);
+    expect(s.hashSize).toBe(1024);
+    expect(s.aiAnalysisPanelOpen).toBe(true);
+    expect(s.language).toBe("ja");
+    expect(services.settings.saveSetting).not.toHaveBeenCalled();
   });
 });
 
@@ -116,5 +151,19 @@ describe("setAIAnalysisPanelOpen", () => {
     const { store, services } = createTestStore();
     store.getState().setAIAnalysisPanelOpen(true);
     expect(services.settings.saveSetting).toHaveBeenCalledWith("aiAnalysisPanelOpen", true);
+  });
+});
+
+describe("setLanguagePreference", () => {
+  it("updates language state", async () => {
+    const { store } = createTestStore();
+    await store.getState().setLanguagePreference("en");
+    expect(store.getState().language).toBe("en");
+  });
+
+  it("calls saveSetting with language", async () => {
+    const { store, services } = createTestStore();
+    await store.getState().setLanguagePreference("ja");
+    expect(services.settings.saveSetting).toHaveBeenCalledWith("language", "ja");
   });
 });

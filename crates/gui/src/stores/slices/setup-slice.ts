@@ -5,7 +5,7 @@ import { parseTranscript, parseBoardString, validateBoard } from "@/lib/board-pa
 import type { Board, Player } from "@/types";
 import type { Services } from "@/services/types";
 import type { ReversiState, SetupSlice, SetupTab } from "./types";
-import { triggerAutomation } from "./game-slice";
+import { PASS_NOTIFICATION_DURATION_MS, triggerAutomation } from "./game-slice";
 
 type ResolvedSetupPosition =
     | { ok: true; board: Board; currentPlayer: Player }
@@ -43,8 +43,8 @@ export function createSetupSlice(services: Services): StateCreator<
 > {
   return (set, get) => ({
     setupBoard: initializeBoard(),
-    setupCurrentPlayer: "black" as Player,
-    setupTab: "manual" as const,
+    setupCurrentPlayer: "black",
+    setupTab: "manual",
     transcriptInput: "",
     boardStringInput: "",
     setupError: null,
@@ -149,6 +149,12 @@ export function createSetupSlice(services: Services): StateCreator<
     },
 
     startFromSetup: async () => {
+        const { automationTimer } = get();
+        if (automationTimer) {
+            clearTimeout(automationTimer);
+            set({ automationTimer: null });
+        }
+
         const state = get();
         const resolved = resolveSetupPositionForTab(
             state.setupTab,
@@ -159,14 +165,14 @@ export function createSetupSlice(services: Services): StateCreator<
         );
         if (!resolved.ok) {
             set({ setupError: resolved.error });
-            return;
+            return false;
         }
         const { board: resolvedBoard, currentPlayer: resolvedCurrentPlayer } = resolved;
 
         const error = validateBoard(resolvedBoard, resolvedCurrentPlayer);
         if (error) {
             set({ setupError: error });
-            return;
+            return false;
         }
 
         if (get().isAIThinking || get().isAnalyzing) {
@@ -185,7 +191,7 @@ export function createSetupSlice(services: Services): StateCreator<
             await services.ai.initialize();
         } catch {
             set({ setupError: "aiInitFailed" });
-            return;
+            return false;
         }
 
         const board = cloneBoard(resolvedBoard);
@@ -194,10 +200,17 @@ export function createSetupSlice(services: Services): StateCreator<
 
         if (startState.validMoves.length === 0) {
             set({ showPassNotification: resolvedCurrentPlayer });
-            return;
+            get().makePass();
+            const timer = setTimeout(() => {
+                set({ automationTimer: null });
+                triggerAutomation(get);
+            }, PASS_NOTIFICATION_DURATION_MS);
+            set({ automationTimer: timer });
+            return true;
         }
 
         triggerAutomation(get);
+        return true;
     },
   });
 }

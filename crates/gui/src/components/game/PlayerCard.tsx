@@ -39,7 +39,7 @@ export function PlayerCard({
   onResume,
 }: PlayerCardProps) {
   const { t } = useTranslation();
-  const showTimer = isAIControlled && aiMode === "game-time";
+  const showTimer = isAIControlled && aiMode === "game-time" && !onResume;
 
   return (
     <div
