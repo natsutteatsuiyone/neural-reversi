@@ -1,6 +1,6 @@
 import { OrthographicCamera } from "@react-three/drei";
 import { useThree, useFrame } from "@react-three/fiber";
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useEffect } from "react";
 import type { OrthographicCamera as ThreeOrthographicCamera } from "three";
 import type { AIMoveProgress } from "@/services/types";
 import type { Board } from "@/types";
@@ -91,20 +91,25 @@ export function Board3DScene({
   const envMap = useMemo(() => createEnvironmentTexture(), []);
 
   // Track previous board state to detect which stones actually changed color
-  const prevBoard = useRef(board);
+  const prevBoardRef = useRef(board);
   const flipDelays = useMemo(() => {
     const delays = new Map<string, number>();
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         const cell = board[row][col];
-        const prevCell = prevBoard.current[row]?.[col];
+        const prevCell = prevBoardRef.current[row]?.[col];
         if (cell.color && prevCell?.color && cell.color !== prevCell.color && !cell.isNew) {
           delays.set(`${row},${col}`, 0);
         }
       }
     }
-    prevBoard.current = board;
     return delays;
+  }, [board]);
+
+  // Update after commit so the next render compares against the last committed board,
+  // not the in-progress one from the current render.
+  useEffect(() => {
+    prevBoardRef.current = board;
   }, [board]);
 
   return (
