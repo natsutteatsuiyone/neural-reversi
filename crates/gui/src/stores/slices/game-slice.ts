@@ -65,7 +65,7 @@ function applyHistoryNavigation(
 ): Partial<ReversiState> | null {
     const isUndo = direction === "undo";
 
-    if (state.gameStatus !== "playing") return null;
+    if (state.gameStatus === "waiting") return null;
     if (isUndo ? !state.moveHistory.canUndo : !state.moveHistory.canRedo) return null;
 
     const newHistory = isUndo ? state.moveHistory.undo(1) : state.moveHistory.redo(1);
@@ -83,6 +83,7 @@ function applyHistoryNavigation(
         isPass: false,
         analyzeResults: null,
         gameOver,
+        gameStatus: gameOver ? "finished" : "playing",
         skipAnimation: true,
         aiRemainingTime: newHistory.length > 0
             ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
@@ -278,20 +279,22 @@ export function createGameSlice(services: Services): StateCreator<
             ? checkGameOver(derived.board, derived.currentPlayer).gameOver
             : false;
 
+        const newGameStatus = gameOver ? "finished" : (state.gameStatus === "finished" ? "playing" : state.gameStatus);
+
         set({
             ...derived,
             moveHistory: newHistory,
             isPass: false,
             analyzeResults: null,
             gameOver,
-            gameStatus: gameOver ? "finished" : state.gameStatus,
+            gameStatus: newGameStatus,
             skipAnimation: true,
             aiRemainingTime: newHistory.length > 0
                 ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
                 : state.gameTimeLimit * 1000,
         });
 
-        if (!gameOver && state.gameStatus === "playing") {
+        if (!gameOver && newGameStatus === "playing") {
             const updated = get();
             if (updated.validMoves.length === 0) {
                 const result = checkGameOver(updated.board, updated.currentPlayer);

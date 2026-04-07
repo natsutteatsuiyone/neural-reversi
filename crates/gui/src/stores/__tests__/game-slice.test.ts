@@ -281,11 +281,20 @@ describe("undoMove", () => {
     expect(stateAfter.currentPlayer).toBe(stateBefore.currentPlayer);
   });
 
-  it("does nothing when gameStatus is not playing", async () => {
+  it("does nothing when gameStatus is waiting", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.setState({ gameStatus: "waiting" });
     store.getState().undoMove();
     expect(store.getState().moveHistory.length).toBe(1);
+  });
+
+  it("resumes game when undoing from finished state", async () => {
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    store.setState({ gameStatus: "finished", gameOver: true });
+    store.getState().undoMove();
+    expect(store.getState().moveHistory.length).toBe(0);
+    expect(store.getState().gameStatus).toBe("playing");
+    expect(store.getState().gameOver).toBe(false);
   });
 
   it("restores board and currentPlayer after undo", async () => {
@@ -373,13 +382,21 @@ describe("redoMove", () => {
     expect(store.getState().gameOver).toBe(true);
   });
 
-  it("does nothing when gameStatus is not playing", async () => {
+  it("does nothing when gameStatus is waiting", async () => {
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    store.getState().undoMove();
+    store.setState({ gameStatus: "waiting" });
+    store.getState().redoMove();
+    expect(store.getState().moveHistory.length).toBe(0);
+  });
+
+  it("allows redo when gameStatus is finished", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.getState().undoMove();
     store.setState({ gameStatus: "finished" });
     store.getState().redoMove();
-    // Should still be undone state
-    expect(store.getState().moveHistory.length).toBe(0);
+    expect(store.getState().moveHistory.length).toBe(1);
+    expect(store.getState().gameStatus).toBe("playing");
   });
 
   it("clears analyzeResults", async () => {

@@ -20,8 +20,8 @@ export function MoveHistory() {
 
   const [copied, setCopied] = useState(false);
 
-  const canUndo = moveHistory.canUndo && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
-  const canRedo = moveHistory.canRedo && gameStatus === "playing" && !isAIThinking && !isAnalyzing;
+  const canUndo = moveHistory.canUndo && gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
+  const canRedo = moveHistory.canRedo && gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
 
   const copyTranscript = useCallback(() => {
     const transcript = moves
