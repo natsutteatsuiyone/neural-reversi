@@ -6,8 +6,6 @@ import {
   createPassMove,
   reconstructBoardFromMoves,
   checkGameOver,
-  getUndoCount,
-  getRedoCount,
   createGameStartState,
 } from "@/lib/store-helpers";
 import type { Move } from "@/lib/store-helpers";
@@ -257,76 +255,6 @@ describe("checkGameOver", () => {
   });
 });
 
-describe("getUndoCount", () => {
-  it("returns 0 for empty moves", () => {
-    expect(getUndoCount([], "analyze")).toBe(0);
-  });
-
-  it("returns 1 in analyze mode", () => {
-    const moves = [makeMoveRecord(1, "black", 4, 5), makeMoveRecord(2, "white", 5, 3)];
-    expect(getUndoCount(moves, "analyze")).toBe(1);
-  });
-
-  it("returns 2 in AI mode when player's turn", () => {
-    const moves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-      makeMoveRecord(3, "black", 2, 2),
-      makeMoveRecord(4, "white", 2, 3),
-    ];
-    expect(getUndoCount(moves, "ai-white")).toBe(2);
-  });
-
-  it("returns 1 in AI mode when AI's turn", () => {
-    const moves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-      makeMoveRecord(3, "black", 2, 2),
-    ];
-    expect(getUndoCount(moves, "ai-white")).toBe(1);
-  });
-
-  it("returns 0 when player's turn but only 1 move", () => {
-    const moves = [makeMoveRecord(1, "black", 4, 5)];
-    expect(getUndoCount(moves, "ai-black")).toBe(0);
-  });
-});
-
-describe("getRedoCount", () => {
-  it("returns 0 when at the end", () => {
-    const moves = [makeMoveRecord(1, "black", 4, 5)];
-    expect(getRedoCount(moves, moves, "analyze")).toBe(0);
-  });
-
-  it("returns 1 in analyze mode", () => {
-    const allMoves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-    ];
-    expect(getRedoCount([allMoves[0]], allMoves, "analyze")).toBe(1);
-  });
-
-  it("returns count until player's turn in AI mode", () => {
-    const allMoves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-      makeMoveRecord(3, "black", 2, 2),
-      makeMoveRecord(4, "white", 2, 3),
-    ];
-    expect(getRedoCount([allMoves[0]], allMoves, "ai-white")).toBe(1);
-  });
-
-  it("skips past pass moves in AI mode", () => {
-    const allMoves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-      makePassRecord(3, "black"),
-      makeMoveRecord(4, "white", 2, 2),
-    ];
-    expect(getRedoCount([allMoves[0], allMoves[1]], allMoves, "ai-white")).toBe(2);
-  });
-});
-
 describe("createGameStartState", () => {
   it("returns waiting state with empty validMoves", () => {
     const board = initializeBoard();
@@ -351,6 +279,7 @@ describe("createGameStartState", () => {
     expect(state.aiRemainingTime).toBe(60000);
     expect(state.searchTimer).toBeNull();
     expect(state.validMoves).toEqual([]);
+    expect(state.paused).toBe(false);
   });
 
   it("returns playing state with computed validMoves", () => {

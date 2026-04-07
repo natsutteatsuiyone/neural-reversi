@@ -5,7 +5,7 @@ import {
   initializeBoard,
   opponentPlayer as nextPlayer,
 } from "@/lib/game-logic";
-import type { Board, GameMode, MoveRecord, Player } from "@/types";
+import type { Board, MoveRecord, Player } from "@/types";
 import { MoveHistory } from "@/lib/move-history";
 
 export interface Move {
@@ -121,6 +121,7 @@ export function createGameStartState(
     searchTimer: null,
     validMoves: gameStatus === "playing" ? getValidMoves(board, currentPlayer) : [],
     skipAnimation: true,
+    paused: false,
     gameAnalysisResult: null,
   };
 }
@@ -142,66 +143,4 @@ export function checkGameOver(board: Board, currentPlayer: Player): {
   }
 
   return { gameOver: false, shouldPass: true };
-}
-
-// Helper function to determine whose turn it is from the actual move history.
-// Unlike modulo-based alternation, this correctly handles pass moves
-// where the same player may appear in consecutive move records.
-function getCurrentPlayer(moves: MoveRecord[], historyStartPlayer: Player): Player {
-  if (moves.length === 0) return historyStartPlayer;
-  return nextPlayer(moves[moves.length - 1].player);
-}
-
-// Helper function to check if it's the player's turn
-function isPlayerTurn(
-  moves: MoveRecord[],
-  gameMode: "ai-black" | "ai-white",
-  historyStartPlayer: Player
-): boolean {
-  const currentTurn = getCurrentPlayer(moves, historyStartPlayer);
-  const playerIsBlack = gameMode === "ai-white";
-  return (playerIsBlack && currentTurn === "black") || (!playerIsBlack && currentTurn === "white");
-}
-
-export function getUndoCount(
-  currentMoves: readonly MoveRecord[],
-  gameMode: GameMode | "analyze",
-  historyStartPlayer: Player = "black"
-): number {
-  if (currentMoves.length === 0) return 0;
-  if (gameMode === "analyze" || gameMode === "pvp") return 1;
-
-  const currentIsPlayerTurn = isPlayerTurn(
-    currentMoves as MoveRecord[],
-    gameMode,
-    historyStartPlayer
-  );
-  if (currentIsPlayerTurn) {
-    return currentMoves.length >= 2 ? 2 : 0;
-  }
-  return 1;
-}
-
-export function getRedoCount(
-  currentMoves: readonly MoveRecord[],
-  allMoves: readonly MoveRecord[],
-  gameMode: GameMode | "analyze",
-  historyStartPlayer: Player = "black"
-): number {
-  if (currentMoves.length >= allMoves.length) return 0;
-  if (gameMode === "analyze" || gameMode === "pvp") return 1;
-
-  const simulated = [...currentMoves] as MoveRecord[];
-  let count = 0;
-  let index = currentMoves.length;
-
-  while (index < allMoves.length) {
-    simulated.push(allMoves[index]);
-    index++;
-    count++;
-    if (isPlayerTurn(simulated, gameMode, historyStartPlayer)) {
-      break;
-    }
-  }
-  return count;
 }

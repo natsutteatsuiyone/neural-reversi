@@ -13,6 +13,9 @@ export function Sidebar() {
   const aiRemainingTime = useReversiStore((state) => state.aiRemainingTime);
   const getScores = useReversiStore((state) => state.getScores);
   const abortAIMove = useReversiStore((state) => state.abortAIMove);
+  const isAIThinking = useReversiStore((state) => state.isAIThinking);
+  const paused = useReversiStore((state) => state.paused);
+  const resumeAI = useReversiStore((state) => state.resumeAI);
 
   const scores = getScores();
   const isPvP = gameMode === "pvp";
@@ -22,6 +25,12 @@ export function Sidebar() {
   const handleStop = () => {
     void abortAIMove();
   };
+
+  const isAITurn = gameStatus === "playing" && !isPvP && (
+    (blackIsAI && currentPlayer === "black") ||
+    (whiteIsAI && currentPlayer === "white")
+  );
+  const showResume = paused && isAITurn;
 
   return (
     <aside className="flex w-full basis-72 min-h-0 shrink-0 flex-col border-t border-white/10 bg-background-secondary sm:basis-80 lg:w-80 lg:basis-auto lg:border-t-0 lg:border-l">
@@ -33,11 +42,12 @@ export function Sidebar() {
           isCurrent={currentPlayer === "black"}
           isAIControlled={blackIsAI}
           aiLevel={aiLevel}
-          isThinking={blackIsAI && currentPlayer === "black" && gameStatus === "playing"}
+          isThinking={isAIThinking && blackIsAI && currentPlayer === "black"}
           aiMode={aiMode}
           aiRemainingTime={aiRemainingTime}
           playerLabel={isPvP ? t('colors.black') : undefined}
           onStop={blackIsAI ? handleStop : undefined}
+          onResume={blackIsAI && showResume ? resumeAI : undefined}
         />
         <PlayerCard
           color="white"
@@ -45,11 +55,12 @@ export function Sidebar() {
           isCurrent={currentPlayer === "white"}
           isAIControlled={whiteIsAI}
           aiLevel={aiLevel}
-          isThinking={whiteIsAI && currentPlayer === "white" && gameStatus === "playing"}
+          isThinking={isAIThinking && whiteIsAI && currentPlayer === "white"}
           aiMode={aiMode}
           aiRemainingTime={aiRemainingTime}
           playerLabel={isPvP ? t('colors.white') : undefined}
           onStop={whiteIsAI ? handleStop : undefined}
+          onResume={whiteIsAI && showResume ? resumeAI : undefined}
         />
       </div>
 

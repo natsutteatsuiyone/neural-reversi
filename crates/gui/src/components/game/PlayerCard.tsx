@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Bot, Loader2, User, Clock, StopCircle } from "lucide-react";
+import { Bot, Loader2, User, Clock, StopCircle, Play } from "lucide-react";
 import { Stone } from "@/components/board/Stone";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,7 @@ interface PlayerCardProps {
   aiRemainingTime: number;
   playerLabel?: string;
   onStop?: () => void;
+  onResume?: () => void;
 }
 
 function formatTime(ms: number): string {
@@ -35,6 +36,7 @@ export function PlayerCard({
   aiRemainingTime,
   playerLabel,
   onStop,
+  onResume,
 }: PlayerCardProps) {
   const { t } = useTranslation();
   const showTimer = isAIControlled && aiMode === "game-time";
@@ -87,8 +89,21 @@ export function PlayerCard({
           </div>
         )}
 
-        {/* Turn indicator (when not thinking) */}
-        {isCurrent && !isThinking && (
+        {/* Resume button (replaces turn indicator when paused) */}
+        {onResume && !isThinking && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onResume}
+            className="gap-1.5 h-7 px-2.5 text-primary border-primary/40 hover:bg-primary/10 hover:text-primary"
+          >
+            <Play className="w-3.5 h-3.5" />
+            {t('game.resume')}
+          </Button>
+        )}
+
+        {/* Turn indicator (when not thinking or paused) */}
+        {isCurrent && !isThinking && !onResume && (
           <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
         )}
       </div>

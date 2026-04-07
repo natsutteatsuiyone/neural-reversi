@@ -13,8 +13,6 @@ import {
     createGameStartState,
     createMoveRecord,
     createPassMove,
-    getUndoCount,
-    getRedoCount,
     reconstructBoardFromMoves,
 } from "@/lib/store-helpers";
 import { MoveHistory } from "@/lib/move-history";
@@ -70,17 +68,7 @@ function applyHistoryNavigation(
     if (state.gameStatus !== "playing") return null;
     if (isUndo ? !state.moveHistory.canUndo : !state.moveHistory.canRedo) return null;
 
-    const count = isUndo
-        ? getUndoCount(state.moveHistory.currentMoves, state.gameMode, state.historyStartPlayer)
-        : getRedoCount(
-              state.moveHistory.currentMoves,
-              [...state.moveHistory.currentMoves, ...state.moveHistory.redoMoves],
-              state.gameMode,
-              state.historyStartPlayer,
-          );
-    if (count === 0) return null;
-
-    const newHistory = isUndo ? state.moveHistory.undo(count) : state.moveHistory.redo(count);
+    const newHistory = isUndo ? state.moveHistory.undo(1) : state.moveHistory.redo(1);
     const derived = deriveStateFromMoves(
         newHistory.currentMoves,
         state.historyStartBoard,
@@ -102,10 +90,26 @@ function applyHistoryNavigation(
     };
 }
 
+function finalizeNavigation(
+    set: (partial: Partial<ReversiState> | ((state: ReversiState) => Partial<ReversiState>)) => void,
+    get: () => ReversiState,
+): void {
+    const state = get();
+    if (state.gameStatus !== "playing") return;
+    set({ paused: state.isAITurn() });
+    if (state.isHintMode) {
+        void state.analyzeBoard();
+    }
+}
+
 export function triggerAutomation(getState: () => ReversiState): void {
     const state = getState();
 
     if (state.gameStatus !== "playing") {
+        return;
+    }
+
+    if (state.paused) {
         return;
     }
 
@@ -137,6 +141,7 @@ export function createGameSlice(services: Services): StateCreator<
     lastMove: null,
     validMoves: [],
     skipAnimation: false,
+    paused: false,
 
     getScores: () => {
         return calculateScores(get().board);
@@ -242,20 +247,17 @@ export function createGameSlice(services: Services): StateCreator<
 
     undoMove: () => {
         set((state) => applyHistoryNavigation(state, "undo") ?? state);
-
-        const state = get();
-        if (state.isHintMode && state.gameStatus === "playing") {
-            void state.analyzeBoard();
-        }
+        finalizeNavigation(set, get);
     },
 
     redoMove: () => {
         set((state) => applyHistoryNavigation(state, "redo") ?? state);
+        finalizeNavigation(set, get);
+    },
 
-        const state = get();
-        if (state.isHintMode && state.gameStatus === "playing") {
-            void state.analyzeBoard();
-        }
+    resumeAI: () => {
+        set({ paused: false });
+        triggerAutomation(get);
     },
 
     goToMove: (position: number) => {
@@ -298,7 +300,7 @@ export function createGameSlice(services: Services): StateCreator<
                     return;
                 }
             }
-            triggerAutomation(get);
+            finalizeNavigation(set, get);
         }
     },
 
