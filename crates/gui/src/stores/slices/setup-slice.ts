@@ -4,8 +4,8 @@ import { cloneBoard, createGameStartState } from "@/lib/store-helpers";
 import { parseTranscript, parseBoardString, validateBoard } from "@/lib/board-parser";
 import type { Board, Player } from "@/types";
 import type { Services } from "@/services/types";
-import type { ReversiState, SetupSlice, SetupTab } from "./types";
-import { PASS_NOTIFICATION_DURATION_MS, triggerAutomation } from "./game-slice";
+import type { NewGameSettings, ReversiState, SetupSlice, SetupTab } from "./types";
+import { prepareToReplaceGame, triggerAutomation } from "./game-slice";
 
 type ResolvedSetupPosition =
     | { ok: true; board: Board; currentPlayer: Player }
@@ -33,6 +33,18 @@ function resolveSetupPositionForTab(
     }
 
     return { ok: true, board: setupBoard, currentPlayer: setupCurrentPlayer };
+}
+
+function resolveNewGameSettings(
+    state: ReversiState,
+    overrides?: NewGameSettings,
+): NewGameSettings {
+    return {
+        gameMode: overrides?.gameMode ?? state.gameMode,
+        aiLevel: overrides?.aiLevel ?? state.aiLevel,
+        aiMode: overrides?.aiMode ?? state.aiMode,
+        gameTimeLimit: overrides?.gameTimeLimit ?? state.gameTimeLimit,
+    };
 }
 
 export function createSetupSlice(services: Services): StateCreator<
@@ -148,14 +160,9 @@ export function createSetupSlice(services: Services): StateCreator<
         });
     },
 
-    startFromSetup: async () => {
-        const { automationTimer } = get();
-        if (automationTimer) {
-            clearTimeout(automationTimer);
-            set({ automationTimer: null });
-        }
-
+    startFromSetup: async (settings) => {
         const state = get();
+        const nextSettings = resolveNewGameSettings(state, settings);
         const resolved = resolveSetupPositionForTab(
             state.setupTab,
             state.setupBoard,
@@ -175,39 +182,26 @@ export function createSetupSlice(services: Services): StateCreator<
             return false;
         }
 
-        if (get().isAIThinking || get().isAnalyzing) {
-            await get().abortAIMove();
-        }
-        if (get().isGameAnalyzing) {
-            await get().abortGameAnalysis();
-        }
-
-        const { searchTimer } = get();
-        if (searchTimer) {
-            clearInterval(searchTimer);
-        }
-
-        try {
-            await services.ai.initialize();
-        } catch {
+        if (!(await prepareToReplaceGame(services, get, set))) {
             set({ setupError: "aiInitFailed" });
             return false;
         }
 
         const board = cloneBoard(resolvedBoard);
-        const startState = createGameStartState(board, resolvedCurrentPlayer, "playing", get().gameTimeLimit * 1000);
-        set({ ...startState, setupError: null });
-
-        if (startState.validMoves.length === 0) {
-            set({ showPassNotification: resolvedCurrentPlayer });
-            get().makePass();
-            const timer = setTimeout(() => {
-                set({ automationTimer: null });
-                triggerAutomation(get);
-            }, PASS_NOTIFICATION_DURATION_MS);
-            set({ automationTimer: timer });
-            return true;
-        }
+        const startState = createGameStartState(
+            board,
+            resolvedCurrentPlayer,
+            "playing",
+            nextSettings.gameTimeLimit * 1000,
+        );
+        set({
+            ...startState,
+            gameMode: nextSettings.gameMode,
+            aiLevel: nextSettings.aiLevel,
+            aiMode: nextSettings.aiMode,
+            gameTimeLimit: nextSettings.gameTimeLimit,
+            setupError: null,
+        });
 
         triggerAutomation(get);
         return true;

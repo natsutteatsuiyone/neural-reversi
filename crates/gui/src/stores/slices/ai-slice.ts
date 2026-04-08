@@ -2,7 +2,7 @@ import { StateCreator } from "zustand";
 import type { AISlice, ReversiState } from "./types";
 import { DEFAULT_SETTINGS, type Services } from "@/services/types";
 
-function clearSearchTimer(
+export function clearSearchTimer(
     get: () => ReversiState,
     set: (partial: Partial<ReversiState>) => void,
 ): void {
@@ -29,6 +29,16 @@ export function createAISlice(services: Services): StateCreator<
     aiMode: DEFAULT_SETTINGS.aiMode,
     aiRemainingTime: 600000,
     searchTimer: null,
+
+    checkAIReady: async () => {
+      try {
+        await services.ai.checkReady();
+        return true;
+      } catch (error) {
+        console.error("AI readiness check failed:", error);
+        return false;
+      }
+    },
 
     makeAIMove: async () => {
         set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime: Date.now() });

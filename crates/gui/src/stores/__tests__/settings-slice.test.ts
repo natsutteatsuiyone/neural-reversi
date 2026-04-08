@@ -49,6 +49,7 @@ describe("hydrateSettings", () => {
     expect(s.aiAnalysisPanelOpen).toBe(true);
     expect(s.language).toBe("ja");
     expect(services.settings.saveSetting).not.toHaveBeenCalled();
+    expect(services.ai.resizeTT).toHaveBeenCalledWith(1024);
   });
 });
 

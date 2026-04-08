@@ -17,8 +17,9 @@ import {
 } from "@/lib/store-helpers";
 import { MoveHistory } from "@/lib/move-history";
 import type { Board, MoveRecord, Player } from "@/types";
-import type { GameSlice, ReversiState } from "./types";
+import type { GameSlice, NewGameSettings, ReversiState } from "./types";
 import type { Services } from "@/services/types";
+import { clearSearchTimer } from "./ai-slice";
 import { FLIP_DURATION_S } from "@/components/board/board3d-utils";
 
 const FLIP_DURATION_MS = FLIP_DURATION_S * 1000;
@@ -85,6 +86,7 @@ function applyHistoryNavigation(
         moveHistory: newHistory,
         isPass: false,
         analyzeResults: null,
+        showPassNotification: null,
         gameOver,
         gameStatus: gameOver ? "finished" : "playing",
         skipAnimation: true,
@@ -108,7 +110,7 @@ function finalizeNavigation(
     }
 }
 
-function clearAutomationTimer(
+export function clearAutomationTimer(
     get: () => ReversiState,
     set: (partial: Partial<ReversiState>) => void,
 ): void {
@@ -116,6 +118,62 @@ function clearAutomationTimer(
     if (automationTimer) {
         clearTimeout(automationTimer);
         set({ automationTimer: null });
+    }
+}
+
+export async function cleanupActiveOperations(
+    get: () => ReversiState,
+    set: (partial: Partial<ReversiState>) => void,
+): Promise<void> {
+    const state = get();
+    clearSearchTimer(get, set);
+    const aborts: Promise<void>[] = [];
+    if (state.isAIThinking || state.isAnalyzing) {
+        aborts.push(state.abortAIMove());
+    }
+    if (state.isGameAnalyzing) {
+        aborts.push(state.abortGameAnalysis());
+    }
+    await Promise.all(aborts);
+}
+
+function resolveNewGameSettings(
+    state: ReversiState,
+    overrides?: NewGameSettings,
+): NewGameSettings {
+    return {
+        gameMode: overrides?.gameMode ?? state.gameMode,
+        aiLevel: overrides?.aiLevel ?? state.aiLevel,
+        aiMode: overrides?.aiMode ?? state.aiMode,
+        gameTimeLimit: overrides?.gameTimeLimit ?? state.gameTimeLimit,
+    };
+}
+
+export async function prepareToReplaceGame(
+    services: Services,
+    get: () => ReversiState,
+    set: (partial: Partial<ReversiState>) => void,
+): Promise<boolean> {
+    if (!(await get().checkAIReady())) {
+        return false;
+    }
+
+    const shouldResumeGameAnalysis = get().isGameAnalyzing;
+
+    clearAutomationTimer(get, set);
+    await cleanupActiveOperations(get, set);
+
+    try {
+        await services.ai.initialize();
+        await services.ai.resizeTT(get().hashSize);
+        return true;
+    } catch (error) {
+        console.error("Failed to prepare AI for a new position:", error);
+        if (shouldResumeGameAnalysis) {
+            void get().analyzeGame();
+        }
+        triggerAutomation(get);
+        return false;
     }
 }
 
@@ -326,6 +384,7 @@ export function createGameSlice(services: Services): StateCreator<
             moveHistory: newHistory,
             isPass: false,
             analyzeResults: null,
+            showPassNotification: null,
             gameOver,
             gameStatus: newGameStatus,
             skipAnimation: true,
@@ -341,32 +400,26 @@ export function createGameSlice(services: Services): StateCreator<
 
     resetGame: async () => {
         clearAutomationTimer(get, set);
-        const { isAIThinking, isAnalyzing, isGameAnalyzing, searchTimer } = get();
-        if (isAIThinking || isAnalyzing) {
-            await get().abortAIMove();
-        }
-        if (isGameAnalyzing) {
-            await get().abortGameAnalysis();
-        }
-
-        if (searchTimer) {
-            clearInterval(searchTimer);
-        }
+        await cleanupActiveOperations(get, set);
 
         const board = initializeBoard();
         set(createGameStartState(board, "black", "waiting", get().gameTimeLimit * 1000));
     },
 
-    startGame: async () => {
-        clearAutomationTimer(get, set);
-        try {
-            await services.ai.initialize();
-        } catch {
+    startGame: async (settings) => {
+        const nextSettings = resolveNewGameSettings(get(), settings);
+        if (!(await prepareToReplaceGame(services, get, set))) {
             return false;
         }
 
         const board = initializeBoard();
-        set(createGameStartState(board, "black", "playing", get().gameTimeLimit * 1000));
+        set({
+            ...createGameStartState(board, "black", "playing", nextSettings.gameTimeLimit * 1000),
+            gameMode: nextSettings.gameMode,
+            aiLevel: nextSettings.aiLevel,
+            aiMode: nextSettings.aiMode,
+            gameTimeLimit: nextSettings.gameTimeLimit,
+        });
 
         triggerAutomation(get);
         return true;

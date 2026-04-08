@@ -33,6 +33,8 @@ export type GameAnalysisProgress = {
 };
 
 export interface AIService {
+  checkReady(): Promise<void>;
+
   getAIMove(
     board: Board,
     player: Player,

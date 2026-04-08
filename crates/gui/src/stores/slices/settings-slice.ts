@@ -19,6 +19,7 @@ export function createSettingsSlice(services: Services): StateCreator<
     language: DEFAULT_SETTINGS.language,
 
     hydrateSettings: (settings) => {
+        const shouldResizeTT = get().hashSize !== settings.hashSize;
         set({
             gameMode: settings.gameMode,
             timeLimit: settings.timeLimit,
@@ -32,6 +33,9 @@ export function createSettingsSlice(services: Services): StateCreator<
             language: settings.language,
             analyzeResults: null,
         });
+        if (shouldResizeTT) {
+            void services.ai.resizeTT(settings.hashSize);
+        }
     },
 
     setGameMode: (mode) => {

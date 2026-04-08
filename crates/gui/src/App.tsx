@@ -23,7 +23,7 @@ function App({ initialSettings }: AppProps) {
   const gameOver = useReversiStore((state) => state.gameOver);
   const getScores = useReversiStore((state) => state.getScores);
   const hydrateSettings = useReversiStore((state) => state.hydrateSettings);
-  const startGame = useReversiStore((state) => state.startGame);
+  const checkAIReady = useReversiStore((state) => state.checkAIReady);
 
   const scores = getScores();
   const winner = gameOver ? getWinner(scores) : null;
@@ -31,15 +31,14 @@ function App({ initialSettings }: AppProps) {
   // Enable keyboard navigation
   useKeyboardNavigation();
 
-  // Load settings and auto-start game on mount
   useEffect(() => {
     const initApp = async () => {
-      hydrateSettings({ ...initialSettings, gameMode: "ai-white" });
-      const started = await startGame();
-      setInitStatus(started ? "ready" : "error");
+      hydrateSettings(initialSettings);
+      const ready = await checkAIReady();
+      setInitStatus(ready ? "ready" : "error");
     };
     void initApp();
-  }, [hydrateSettings, initialSettings, startGame]);
+  }, [checkAIReady, hydrateSettings, initialSettings]);
 
   // Game over notification
   useEffect(() => {

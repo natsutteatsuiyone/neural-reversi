@@ -27,6 +27,15 @@ async function withEventListener<T, R>(
 }
 
 export class TauriAIService implements AIService {
+  async checkReady(): Promise<void> {
+    try {
+      await invoke("check_ai_ready_command");
+    } catch (error) {
+      console.error("AI backend is not ready:", error);
+      throw error;
+    }
+  }
+
   async getAIMove(
     board: Board,
     player: Player,

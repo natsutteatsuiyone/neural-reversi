@@ -5,6 +5,8 @@ import type { Move } from "@/lib/store-helpers";
 import type { Language } from "@/i18n";
 import type { AppSettings } from "@/services/types";
 
+export type NewGameSettings = Pick<AppSettings, "gameMode" | "aiLevel" | "aiMode" | "gameTimeLimit">;
+
 export interface GameSlice {
     board: Board;
     historyStartBoard: Board;
@@ -29,7 +31,7 @@ export interface GameSlice {
     goToMove: (position: number) => void;
     resumeAI: () => void;
     resetGame: () => Promise<void>;
-    startGame: () => Promise<boolean>;
+    startGame: (settings?: NewGameSettings) => Promise<boolean>;
     setGameStatus: (status: "waiting" | "playing" | "finished") => void;
 }
 
@@ -47,6 +49,7 @@ export interface AISlice {
     aiMode: AIMode;
     aiRemainingTime: number;
     searchTimer: ReturnType<typeof setInterval> | null;
+    checkAIReady: () => Promise<boolean>;
     makeAIMove: () => Promise<void>;
     abortAIMove: () => Promise<void>;
     setAILevelChange: (level: number) => void;
@@ -68,6 +71,8 @@ export interface MoveAnalysis {
 export interface UISlice {
     showPassNotification: "black" | "white" | null;
     isAnalyzing: boolean;
+    hintAnalysisAbortPending: boolean;
+    hintAnalysisRunId: number;
     analyzeResults: Map<string, AIMoveProgress> | null;
     isNewGameModalOpen: boolean;
     isHintMode: boolean;
@@ -119,7 +124,7 @@ export interface SetupSlice {
     setBoardStringInput: (input: string) => void;
     clearSetupBoard: () => void;
     resetSetupToInitial: () => void;
-    startFromSetup: () => Promise<boolean>;
+    startFromSetup: (settings?: NewGameSettings) => Promise<boolean>;
 }
 
 export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice & SetupSlice;

@@ -33,7 +33,6 @@ export function NewGameModal() {
   const isNewGameModalOpen = useReversiStore((state) => state.isNewGameModalOpen);
   const setNewGameModalOpen = useReversiStore((state) => state.setNewGameModalOpen);
   const startGame = useReversiStore((state) => state.startGame);
-  const abortAIMove = useReversiStore((state) => state.abortAIMove);
 
   // Setup slice
   const setupTab = useReversiStore((state) => state.setupTab);
@@ -66,19 +65,18 @@ export function NewGameModal() {
     }
   }, [isNewGameModalOpen, gameMode, aiLevel, aiMode, gameTimeLimit, resetSetup]);
 
-  const commitAISettings = () => {
-    setGameMode(settings.gameMode);
-    setAILevelChange(settings.aiLevel);
-    setAIMode(settings.aiMode);
-    setGameTimeLimit(settings.gameTimeLimit);
+  const persistAISettings = (nextSettings: GameSettings) => {
+    setGameMode(nextSettings.gameMode);
+    setAILevelChange(nextSettings.aiLevel);
+    setAIMode(nextSettings.aiMode);
+    setGameTimeLimit(nextSettings.gameTimeLimit);
   };
 
   const handleStartGame = async () => {
     try {
-      commitAISettings();
-      await abortAIMove();
-      const started = await startGame();
+      const started = await startGame(settings);
       if (started) {
+        persistAISettings(settings);
         setNewGameModalOpen(false);
       }
     } catch (error) {
@@ -88,11 +86,9 @@ export function NewGameModal() {
 
   const handleStartFromSetup = async () => {
     try {
-      // Settings must be committed before startFromSetup because it reads
-      // gameMode and gameTimeLimit from the store synchronously.
-      commitAISettings();
-      const started = await startFromSetup();
+      const started = await startFromSetup(settings);
       if (started) {
+        persistAISettings(settings);
         setNewGameModalOpen(false);
       }
     } catch (error) {

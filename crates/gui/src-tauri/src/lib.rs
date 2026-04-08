@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, TryLockError};
 
 use reversi_core::disc::Disc;
 use reversi_core::level::get_level;
@@ -75,6 +75,15 @@ async fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn check_ai_ready_command(state: State<'_, AppState>) -> Result<(), String> {
+    match state.search.try_lock() {
+        Ok(_search) => Ok(()),
+        Err(TryLockError::WouldBlock) => Ok(()),
+        Err(TryLockError::Poisoned(e)) => Err(format!("AI backend is unavailable: {e}")),
+    }
 }
 
 #[tauri::command]
@@ -361,6 +370,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             ai_move_command,
+            check_ai_ready_command,
             init_ai_command,
             resize_tt_command,
             abort_ai_search_command,

@@ -252,6 +252,23 @@ describe("startFromSetup", () => {
     expect(s.moveHistory.length).toBe(0);
   });
 
+  it("applies the provided settings when starting from setup", async () => {
+    const started = await store.getState().startFromSetup({
+      gameMode: "pvp",
+      aiLevel: 10,
+      aiMode: "level",
+      gameTimeLimit: 150,
+    });
+    const s = store.getState();
+
+    expect(started).toBe(true);
+    expect(s.gameMode).toBe("pvp");
+    expect(s.aiLevel).toBe(10);
+    expect(s.aiMode).toBe("level");
+    expect(s.gameTimeLimit).toBe(150);
+    expect(s.aiRemainingTime).toBe(150000);
+  });
+
   it("starts game from transcript tab", async () => {
     store.getState().setTranscriptInput("F5D6");
     store.setState({ setupTab: "transcript" });
@@ -285,15 +302,74 @@ describe("startFromSetup", () => {
     expect(store.getState().gameStatus).not.toBe("playing");
   });
 
-  it("sets setupError to aiInitFailed when AI init fails", async () => {
+  it("sets setupError to aiInitFailed when the AI readiness check fails", async () => {
     ({ store } = createTestStore({
       ai: createMockAIService({
-        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+        checkReady: vi.fn().mockRejectedValue(new Error("check failed")),
       }),
     }));
     const started = await store.getState().startFromSetup();
     expect(started).toBe(false);
     expect(store.getState().setupError).toBe("aiInitFailed");
+  });
+
+  it("does not abort the current game when the setup AI readiness check fails", async () => {
+    ({ store } = createTestStore({
+      ai: createMockAIService({
+        checkReady: vi.fn().mockRejectedValue(new Error("check failed")),
+      }),
+    }));
+    store.setState({
+      gameStatus: "playing",
+      gameMode: "ai-black",
+      currentPlayer: "black",
+      isAIThinking: true,
+    });
+    const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
+
+    const started = await store.getState().startFromSetup();
+
+    expect(started).toBe(false);
+    expect(store.getState().setupError).toBe("aiInitFailed");
+    expect(abortSpy).not.toHaveBeenCalled();
+    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().gameStatus).toBe("playing");
+  });
+
+  it("restores the current game when setup search reset fails", async () => {
+    ({ store } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+      }),
+    }));
+    store.setState({
+      gameStatus: "playing",
+      gameMode: "ai-black",
+      currentPlayer: "black",
+      isAIThinking: true,
+      aiLevel: 21,
+      aiMode: "game-time",
+      gameTimeLimit: 60,
+    });
+    const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
+    const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
+
+    const started = await store.getState().startFromSetup({
+      gameMode: "pvp",
+      aiLevel: 8,
+      aiMode: "level",
+      gameTimeLimit: 120,
+    });
+
+    expect(started).toBe(false);
+    expect(store.getState().setupError).toBe("aiInitFailed");
+    expect(abortSpy).toHaveBeenCalled();
+    expect(makeAIMoveSpy).toHaveBeenCalled();
+    expect(store.getState().gameStatus).toBe("playing");
+    expect(store.getState().gameMode).toBe("ai-black");
+    expect(store.getState().aiLevel).toBe(21);
+    expect(store.getState().aiMode).toBe("game-time");
+    expect(store.getState().gameTimeLimit).toBe(60);
   });
 
   it("computes validMoves after game start", async () => {
@@ -310,23 +386,20 @@ describe("startFromSetup", () => {
     expect(abortSpy).toHaveBeenCalled();
   });
 
-  it("forces a pass immediately when the selected player has no legal move", async () => {
+  it("sets setupError when the selected player has no legal move", async () => {
     const board = createEmptyBoard();
-    board[0][1].color = "white";
+    board[0][0].color = "black";
+    board[0][1].color = "black";
     board[0][2].color = "black";
     board[6][4].color = "white";
     board[7][4].color = "black";
     store.setState({ setupBoard: board, setupCurrentPlayer: "white" });
 
     const started = await store.getState().startFromSetup();
-    const s = store.getState();
 
-    expect(started).toBe(true);
-    expect(s.showPassNotification).toBe("white");
-    expect(s.currentPlayer).toBe("black");
-    expect(s.isPass).toBe(true);
-    expect(s.moveHistory.length).toBe(1);
-    expect(s.moveHistory.lastMove?.notation).toBe("Pass");
+    expect(started).toBe(false);
+    expect(store.getState().setupError).toBe("currentPlayerNoMoves");
+    expect(store.getState().gameStatus).not.toBe("playing");
   });
 
   it("sets setupError when neither player has valid moves", async () => {

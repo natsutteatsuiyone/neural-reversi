@@ -3,6 +3,7 @@ import type { AIService } from "./types";
 
 export function createMockAIService(overrides?: Partial<AIService>): AIService {
   return {
+    checkReady: vi.fn().mockResolvedValue(undefined),
     getAIMove: vi.fn().mockResolvedValue(null),
     analyze: vi.fn().mockResolvedValue(undefined),
     analyzeGame: vi.fn().mockResolvedValue(undefined),

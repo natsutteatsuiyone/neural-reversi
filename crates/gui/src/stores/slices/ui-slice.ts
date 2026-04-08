@@ -13,6 +13,8 @@ export function createUISlice(services: Services): StateCreator<
   return (set, get) => ({
     showPassNotification: null,
     isAnalyzing: false,
+    hintAnalysisAbortPending: false,
+    hintAnalysisRunId: 0,
     analyzeResults: null,
     isNewGameModalOpen: false,
     isHintMode: false,
@@ -22,34 +24,73 @@ export function createUISlice(services: Services): StateCreator<
     setNewGameModalOpen: (open) => set({ isNewGameModalOpen: open }),
 
     setHintMode: (enabled) => {
-        set({ isHintMode: enabled, analyzeResults: null });
         if (enabled) {
-            void get().analyzeBoard();
+            set({ isHintMode: true, analyzeResults: null });
+            const { isAnalyzing, hintAnalysisAbortPending } = get();
+            if (!isAnalyzing && !hintAnalysisAbortPending) {
+                void get().analyzeBoard();
+            }
         } else {
-            void get().abortAIMove();
+            const state = get();
+            const shouldAbortHintAnalysis = state.isAnalyzing && !state.isAIThinking;
+            const nextRunId = state.hintAnalysisRunId + 1;
+            set({
+                isHintMode: false,
+                analyzeResults: null,
+                hintAnalysisRunId: nextRunId,
+                ...(shouldAbortHintAnalysis ? { hintAnalysisAbortPending: true } : {}),
+            });
+            if (shouldAbortHintAnalysis) {
+                void (async () => {
+                    try {
+                        await services.ai.abortSearch();
+                    } finally {
+                        set({
+                            isAnalyzing: false,
+                            hintAnalysisAbortPending: false,
+                        });
+                        const currentState = get();
+                        if (currentState.isHintMode) {
+                            void currentState.analyzeBoard();
+                        }
+                    }
+                })();
+            }
         }
     },
 
     hidePassNotification: () => set({ showPassNotification: null }),
 
     analyzeBoard: async () => {
-        const { isHintMode, gameStatus, isAIThinking, isAITurn, isAnalyzing } = get();
+        const { isHintMode, gameStatus, isAIThinking, isAITurn, isAnalyzing, hintAnalysisAbortPending } = get();
 
         // Analyze only if Hint Mode is ON, game is playing, not AI thinking, not AI's turn, and not already analyzing
-        if (!isHintMode || gameStatus !== "playing" || isAIThinking || isAITurn() || isAnalyzing) {
+        if (
+            !isHintMode ||
+            gameStatus !== "playing" ||
+            isAIThinking ||
+            isAITurn() ||
+            isAnalyzing ||
+            hintAnalysisAbortPending
+        ) {
             return;
         }
 
         const board = get().board;
         const player = get().currentPlayer;
         const results = new Map<string, AIMoveProgress>();
+        const analysisRunId = get().hintAnalysisRunId + 1;
 
-        set({ analyzeResults: null, isAnalyzing: true });
+        set({
+            analyzeResults: null,
+            isAnalyzing: true,
+            hintAnalysisRunId: analysisRunId,
+        });
 
         try {
             await services.ai.analyze(board, player, get().hintLevel, (progress) => {
                 const s = get();
-                if (!s.isHintMode || !s.isAnalyzing) return;
+                if (!s.isHintMode || !s.isAnalyzing || s.hintAnalysisRunId !== analysisRunId) return;
 
                 if (progress.row !== undefined && progress.col !== undefined) {
                     const key = `${progress.row},${progress.col}`;
@@ -58,7 +99,9 @@ export function createUISlice(services: Services): StateCreator<
                 }
             });
         } finally {
-            set({ isAnalyzing: false });
+            if (get().hintAnalysisRunId === analysisRunId) {
+                set({ isAnalyzing: false });
+            }
         }
     },
 

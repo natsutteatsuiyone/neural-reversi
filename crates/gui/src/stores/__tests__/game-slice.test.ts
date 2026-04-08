@@ -359,6 +359,7 @@ describe("undoMove", () => {
 
   it("does not re-apply a forced pass when undoing a pass move", async () => {
     const { createEmptyBoard } = await import("@/lib/game-logic");
+    const { cloneBoard } = await import("@/lib/store-helpers");
     const board = createEmptyBoard();
     board[0][1].color = "white";
     board[0][2].color = "black";
@@ -366,6 +367,8 @@ describe("undoMove", () => {
     board[7][4].color = "black";
     store.setState({
       board,
+      historyStartBoard: cloneBoard(board),
+      historyStartPlayer: "black",
       currentPlayer: "black",
       validMoves: [[0, 0]],
     });
@@ -544,6 +547,24 @@ describe("startGame", () => {
     expect(s.moveHistory.length).toBe(0);
   });
 
+  it("applies the provided settings when starting a new game", async () => {
+    const { store } = createTestStore();
+    const started = await store.getState().startGame({
+      gameMode: "pvp",
+      aiLevel: 12,
+      aiMode: "level",
+      gameTimeLimit: 180,
+    });
+
+    const s = store.getState();
+    expect(started).toBe(true);
+    expect(s.gameMode).toBe("pvp");
+    expect(s.aiLevel).toBe(12);
+    expect(s.aiMode).toBe("level");
+    expect(s.gameTimeLimit).toBe(180);
+    expect(s.aiRemainingTime).toBe(180000);
+  });
+
   it("computes validMoves for initial board", async () => {
     const { store } = createTestStore();
     await store.getState().startGame();
@@ -556,16 +577,89 @@ describe("startGame", () => {
     expect(s.validMoves).toContainEqual([5, 4]);
   });
 
-  it("does not change gameStatus when initializeAI fails", async () => {
+  it("does not change gameStatus when the AI readiness check fails", async () => {
     const { store } = createTestStore({
       ai: createMockAIService({
-        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+        checkReady: vi.fn().mockRejectedValue(new Error("check failed")),
       }),
     });
     const started = await store.getState().startGame();
 
     expect(started).toBe(false);
     expect(store.getState().gameStatus).toBe("waiting");
+  });
+
+  it("does not abort the current game when the AI readiness check fails", async () => {
+    const { store } = createTestStore({
+      ai: createMockAIService({
+        checkReady: vi.fn().mockRejectedValue(new Error("check failed")),
+      }),
+    });
+    store.setState({
+      gameStatus: "playing",
+      gameMode: "ai-black",
+      currentPlayer: "black",
+      isAIThinking: true,
+    });
+    const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
+
+    const started = await store.getState().startGame();
+
+    expect(started).toBe(false);
+    expect(abortSpy).not.toHaveBeenCalled();
+    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().gameStatus).toBe("playing");
+  });
+
+  it("restores the current game when resetting the AI for a new game fails", async () => {
+    const { store } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+      }),
+    });
+    store.setState({
+      gameStatus: "playing",
+      gameMode: "ai-black",
+      currentPlayer: "black",
+      isAIThinking: true,
+      aiLevel: 21,
+      aiMode: "game-time",
+      gameTimeLimit: 60,
+    });
+    const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
+    const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
+
+    const started = await store.getState().startGame({
+      gameMode: "pvp",
+      aiLevel: 5,
+      aiMode: "level",
+      gameTimeLimit: 180,
+    });
+
+    expect(started).toBe(false);
+    expect(abortSpy).toHaveBeenCalled();
+    expect(makeAIMoveSpy).toHaveBeenCalled();
+    expect(store.getState().gameStatus).toBe("playing");
+    expect(store.getState().gameMode).toBe("ai-black");
+    expect(store.getState().aiLevel).toBe(21);
+    expect(store.getState().aiMode).toBe("game-time");
+    expect(store.getState().gameTimeLimit).toBe(60);
+  });
+
+  it("aborts ongoing game analysis before starting a new game", async () => {
+    const { store } = createTestStore();
+    store.setState({
+      isGameAnalyzing: true,
+      gameAnalysisResult: [{ moveIndex: 0 } as never],
+    });
+    const abortSpy = vi.spyOn(store.getState(), "abortGameAnalysis");
+
+    const started = await store.getState().startGame();
+
+    expect(started).toBe(true);
+    expect(abortSpy).toHaveBeenCalled();
+    expect(store.getState().isGameAnalyzing).toBe(false);
+    expect(store.getState().gameAnalysisResult).toBeNull();
   });
 });
 
