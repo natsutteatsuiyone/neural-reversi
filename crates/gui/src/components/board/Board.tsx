@@ -39,6 +39,8 @@ export function Board() {
     return highest;
   }, [analyzeResults]);
 
+  const isAITurnNow = useReversiStore((state) => state.isAITurn());
+
   useEffect(() => {
     if (
       aiMoveProgress &&
@@ -62,10 +64,10 @@ export function Board() {
 
         return [newMove, ...prev].slice(0, MAX_MOVE_HISTORY_SIZE);
       });
-    } else if (!isAITurn()) {
+    } else if (!isAITurnNow) {
       setMoveHistory([]);
     }
-  }, [aiMoveProgress, isAITurn]);
+  }, [aiMoveProgress, isAITurnNow]);
 
   useEffect(() => {
     if (lastMove?.isAI) {
@@ -81,6 +83,7 @@ export function Board() {
 
       return () => clearTimeout(timer);
     }
+    setLastAIMove(null);
   }, [lastMove]);
 
   const onCellClick = useCallback((row: number, col: number) => {

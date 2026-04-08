@@ -30,14 +30,24 @@ interface ChartDataItem {
 
 const DUBIOUS_THRESHOLD = 2;
 const BLUNDER_THRESHOLD = 6;
-const STYLE = getComputedStyle(document.documentElement);
-const LINE_COLOR = STYLE.getPropertyValue("--primary").trim() || "#3d9970";
-const BLUNDER_COLOR = STYLE.getPropertyValue("--chart-blunder").trim() || "#ef4444";
-const DUBIOUS_COLOR = STYLE.getPropertyValue("--chart-dubious").trim() || "#eab308";
+
+let _cachedColors: { line: string; blunder: string; dubious: string } | null = null;
+function getChartColors() {
+  if (!_cachedColors) {
+    const style = getComputedStyle(document.documentElement);
+    _cachedColors = {
+      line: style.getPropertyValue("--primary").trim() || "#3d9970",
+      blunder: style.getPropertyValue("--chart-blunder").trim() || "#ef4444",
+      dubious: style.getPropertyValue("--chart-dubious").trim() || "#eab308",
+    };
+  }
+  return _cachedColors;
+}
 
 function getMarkerColor(scoreLoss: number): string | null {
-  if (scoreLoss > BLUNDER_THRESHOLD) return BLUNDER_COLOR;
-  if (scoreLoss > DUBIOUS_THRESHOLD) return DUBIOUS_COLOR;
+  const colors = getChartColors();
+  if (scoreLoss > BLUNDER_THRESHOLD) return colors.blunder;
+  if (scoreLoss > DUBIOUS_THRESHOLD) return colors.dubious;
   return null;
 }
 
@@ -99,6 +109,7 @@ function CustomTooltip({
 }
 
 export function EvaluationChart() {
+  const lineColor = getChartColors().line;
   const moveHistory = useReversiStore((state) => state.moveHistory);
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const goToMove = useReversiStore((state) => state.goToMove);
@@ -217,7 +228,7 @@ export function EvaluationChart() {
       if (props.cx == null || props.cy == null || props.index == null) return null;
       const markerColor = getMarkerColor(chartData[props.index]?.analysis?.scoreLoss ?? 0);
       const r = markerColor ? 5 : 3;
-      const fill = markerColor ?? LINE_COLOR;
+      const fill = markerColor ?? lineColor;
       const stroke = markerColor ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.2)";
       const sw = markerColor ? 1.5 : 1;
       return (
@@ -232,7 +243,7 @@ export function EvaluationChart() {
         />
       );
     },
-    [chartData],
+    [chartData, lineColor],
   );
 
   if (gameStatus === "waiting") {
@@ -308,17 +319,17 @@ export function EvaluationChart() {
           <Line
             type="monotone"
             dataKey="score"
-            stroke={LINE_COLOR}
+            stroke={lineColor}
             strokeWidth={2}
             dot={hasAnalysis ? renderDot : {
-              fill: LINE_COLOR,
+              fill: lineColor,
               strokeWidth: 1,
               stroke: "rgba(255,255,255,0.2)",
               r: 3,
             }}
             activeDot={{
               r: 5,
-              fill: LINE_COLOR,
+              fill: lineColor,
               stroke: "rgba(255,255,255,0.5)",
               strokeWidth: 2,
             }}

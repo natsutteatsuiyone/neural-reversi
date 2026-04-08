@@ -10,8 +10,7 @@ export function useKeyboardNavigation() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only work during playing status
-      if (gameStatus !== "playing") return;
+      if (gameStatus === "waiting") return;
       
       // Don't work while AI is thinking or analyzing
       if (isAIThinking || isAnalyzing) return;
