@@ -27,7 +27,7 @@ pub fn solve(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Count lines to determine # column width
     let line_count = BufReader::new(File::open(file_path)?).lines().count();
-    let num_width = line_count.to_string().len().max(3);
+    let num_width = line_count.to_string().len().max(5);
 
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -45,11 +45,11 @@ pub fn solve(
 
     let dashes = "-".repeat(num_width);
     println!(
-        "| {:^num_width$} | {:^6} | {:^5} | {:^9} | {:^19} | {:^13} | {:^23} |",
+        "| {:^num_width$} | {:^6} | {:^5} | {:^11} | {:^19} | {:^13} | {:^23} |",
         "#", "Depth", "Score", "Time", "Nodes", "N/s", "Principal Variation"
     );
     println!(
-        "|{dashes:->nw$}--|--------|-------|-----------|---------------------|---------------|-------------------------|",
+        "|{dashes:->nw$}--|--------|-------|-------------|---------------------|---------------|-------------------------|",
         nw = num_width
     );
 
@@ -99,10 +99,14 @@ pub fn solve(
         0.0
     };
     println!(
-        "Total: {:.3}s, {} nodes, {} N/s",
-        total_secs,
+        "| {:>num_width$} | {:^6} | {:^5} | {:>11} | {:>19} | {:>13} | {:23} |",
+        "Total",
+        "",
+        "",
+        format_time(total_time),
         total_nodes.to_formatted_string(&Locale::en),
-        (total_nps.round() as u64).to_formatted_string(&Locale::en)
+        (total_nps.round() as u64).to_formatted_string(&Locale::en),
+        ""
     );
 
     Ok(())
@@ -150,9 +154,16 @@ fn solve_position(
 
     if is_pass && !board.switch_players().has_legal_moves() {
         let score = board.solve(board.get_empty_count());
+        let score_str = format!("{:+03}", score);
         println!(
-            "| {:>num_width$} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>19} | {:>13} | {:23} |",
-            position_num, "END", score, 0, 0.0, "0", "0", "--"
+            "| {:>num_width$} | {:^6} | {:^5} | {:>11} | {:>19} | {:>13} | {:23} |",
+            position_num,
+            "END",
+            score_str,
+            format_time(Duration::ZERO),
+            "0",
+            "0",
+            "--"
         );
         return (Duration::ZERO, 0);
     }
@@ -202,13 +213,13 @@ fn solve_position(
         format_pv_with_passes(&board, side_to_move, &result.pv_line, 8)
     };
 
+    let score_str = format!("{:+03}", score);
     println!(
-        "| {:>num_width$} | {:^6} | {:^+5} | {:>2}:{:06.3} | {:>19} | {:>13} | {:23} |",
+        "| {:>num_width$} | {:^6} | {:^5} | {:>11} | {:>19} | {:>13} | {:23} |",
         position_num,
         depth,
-        score,
-        elapsed.as_secs() / 60,
-        elapsed.as_secs_f64() % 60.0,
+        score_str,
+        format_time(elapsed),
         result.n_nodes.to_formatted_string(&Locale::en),
         (nodes_per_sec.round() as u64).to_formatted_string(&Locale::en),
         pv_string
@@ -254,6 +265,19 @@ fn format_pv_with_passes(
     }
 
     result
+}
+
+fn format_time(duration: Duration) -> String {
+    let total_secs = duration.as_secs();
+    let frac_secs = duration.as_secs_f64() % 60.0;
+    if total_secs >= 3600 {
+        let hours = total_secs / 3600;
+        let mins = (total_secs % 3600) / 60;
+        format!("{hours}:{mins:02}:{frac_secs:06.3}")
+    } else {
+        let mins = total_secs / 60;
+        format!("{mins}:{frac_secs:06.3}")
+    }
 }
 
 fn format_square(sq: Square, side: Disc) -> String {
