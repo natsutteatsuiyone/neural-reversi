@@ -1,7 +1,7 @@
 import { GameLayout } from "@/components/layout/GameLayout";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import type { AppSettings } from "@/services";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Trophy, Info } from "lucide-react";
 import { getWinner } from "@/lib/game-logic";
@@ -27,6 +27,8 @@ function App({ initialSettings }: AppProps) {
 
   const scores = getScores();
   const winner = gameOver ? getWinner(scores) : null;
+  const prevGameOverRef = useRef(gameOver);
+  const prevPassNotificationRef = useRef(showPassNotification);
 
   // Enable keyboard navigation
   useKeyboardNavigation();
@@ -42,7 +44,10 @@ function App({ initialSettings }: AppProps) {
 
   // Game over notification
   useEffect(() => {
-    if (gameOver && winner) {
+    const justFinished = gameOver && !prevGameOverRef.current;
+    prevGameOverRef.current = gameOver;
+
+    if (justFinished && winner) {
       const message =
         winner === "draw"
           ? t("notification.draw")
@@ -60,7 +65,10 @@ function App({ initialSettings }: AppProps) {
 
   // Pass notification
   useEffect(() => {
-    if (showPassNotification) {
+    const previousPassNotification = prevPassNotificationRef.current;
+    prevPassNotificationRef.current = showPassNotification;
+
+    if (showPassNotification && previousPassNotification !== showPassNotification) {
       toast(t("notification.passingTurn", { color: t(`colors.${showPassNotification}`) }), {
         icon: <Info className="w-4 h-4 text-accent-blue" />,
         duration: PASS_NOTIFICATION_DURATION_MS,

@@ -12,13 +12,13 @@ export function GameControls() {
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const abortAIMove = useReversiStore((state) => state.abortAIMove);
-  const setNewGameModalOpen = useReversiStore((state) => state.setNewGameModalOpen);
+  const openNewGameModal = useReversiStore((state) => state.openNewGameModal);
 
   return (
     <div className="p-4 flex items-center gap-3">
       <Button
         size="sm"
-        onClick={() => setNewGameModalOpen(true)}
+        onClick={openNewGameModal}
         className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
       >
         <Play className="w-4 h-4" />

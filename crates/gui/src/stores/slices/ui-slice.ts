@@ -17,11 +17,20 @@ export function createUISlice(services: Services): StateCreator<
     hintAnalysisRunId: 0,
     analyzeResults: null,
     isNewGameModalOpen: false,
+    newGameModalSession: 0,
     isHintMode: false,
     isGameAnalyzing: false,
     gameAnalysisResult: null,
 
-    setNewGameModalOpen: (open) => set({ isNewGameModalOpen: open }),
+    openNewGameModal: () => {
+        get().resetSetup();
+        set((state) => ({
+            isNewGameModalOpen: true,
+            newGameModalSession: state.newGameModalSession + 1,
+        }));
+    },
+
+    closeNewGameModal: () => set({ isNewGameModalOpen: false }),
 
     setHintMode: (enabled) => {
         if (enabled) {

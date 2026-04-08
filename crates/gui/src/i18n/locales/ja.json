@@ -73,7 +73,8 @@
     "wins": "{{color}}の勝ちです！",
     "score": "黒: {{black}} - 白: {{white}}",
     "noValidMoves": "打てる場所がありません",
-    "passingTurn": "{{color}}：パス"
+    "passingTurn": "{{color}}：パス",
+    "startGameFailed": "ゲームの開始に失敗しました"
   },
   "setup": {
     "title": "盤面設定",

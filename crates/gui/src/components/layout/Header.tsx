@@ -25,7 +25,7 @@ export function Header() {
   const setHintLevel = useReversiStore((state) => state.setHintLevel);
   const hashSize = useReversiStore((state) => state.hashSize);
   const setHashSize = useReversiStore((state) => state.setHashSize);
-  const setNewGameModalOpen = useReversiStore((state) => state.setNewGameModalOpen);
+  const openNewGameModal = useReversiStore((state) => state.openNewGameModal);
   const isHintMode = useReversiStore((state) => state.isHintMode);
   const setHintMode = useReversiStore((state) => state.setHintMode);
 
@@ -35,7 +35,7 @@ export function Header() {
       <div className="flex items-center gap-2">
         <Button
           size="sm"
-          onClick={() => setNewGameModalOpen(true)}
+          onClick={openNewGameModal}
           aria-label={t("game.newGame")}
           className="shrink-0 gap-2 bg-primary text-primary-foreground hover:bg-primary-hover max-[420px]:px-2"
         >

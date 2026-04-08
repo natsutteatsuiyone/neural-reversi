@@ -73,7 +73,8 @@
     "wins": "{{color}} wins!",
     "score": "Black: {{black}} - White: {{white}}",
     "noValidMoves": "No valid moves available",
-    "passingTurn": "{{color}}: Pass"
+    "passingTurn": "{{color}}: Pass",
+    "startGameFailed": "Failed to start game"
   },
   "setup": {
     "title": "Board Setup",

@@ -75,12 +75,14 @@ export interface UISlice {
     hintAnalysisRunId: number;
     analyzeResults: Map<string, AIMoveProgress> | null;
     isNewGameModalOpen: boolean;
+    newGameModalSession: number;
     isHintMode: boolean;
     isGameAnalyzing: boolean;
     gameAnalysisResult: MoveAnalysis[] | null;
     hidePassNotification: () => void;
     analyzeBoard: () => Promise<void>;
-    setNewGameModalOpen: (open: boolean) => void;
+    openNewGameModal: () => void;
+    closeNewGameModal: () => void;
     setHintMode: (enabled: boolean) => void;
     analyzeGame: () => Promise<void>;
     abortGameAnalysis: () => Promise<void>;
