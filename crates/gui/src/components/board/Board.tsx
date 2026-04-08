@@ -1,6 +1,5 @@
 import { Canvas } from "@react-three/fiber";
 import { Board3DScene } from "./Board3DScene";
-import type { AIMoveProgress } from "@/services/types";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -20,8 +19,8 @@ export function Board() {
   const isAITurn = useReversiStore((state) => state.isAITurn);
   const isValidMove = useReversiStore((state) => state.isValidMove);
   const makeMove = useReversiStore((state) => state.makeMove);
-  const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress) as AIMoveProgress | null;
-  const analyzeResults = useReversiStore((state) => state.analyzeResults) as Map<string, AIMoveProgress> | null;
+  const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress);
+  const analyzeResults = useReversiStore((state) => state.analyzeResults);
   const skipAnimation = useReversiStore((state) => state.skipAnimation);
 
   const [moveHistory, setMoveHistory] = useState<MoveHistoryItem[]>([]);

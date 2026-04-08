@@ -252,10 +252,12 @@ describe("makeMove", () => {
 
       expect(makeAIMoveSpy).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(1499);
+      vi.advanceTimersByTime(1499);
+      await Promise.resolve();
       expect(makeAIMoveSpy).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(1);
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
       expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

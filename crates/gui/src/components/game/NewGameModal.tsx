@@ -93,7 +93,6 @@ export function NewGameModal() {
       }
     } catch (error) {
       console.error("Failed to start game from setup:", error);
-      useReversiStore.setState({ setupError: "unexpectedError" });
     }
   };
 

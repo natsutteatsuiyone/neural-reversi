@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useLayoutEffect } from "react";
+import { useRef, useState, useCallback, useLayoutEffect, useEffect } from "react";
 import { Bot, Check, Copy, List, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
@@ -19,6 +19,9 @@ export function MoveHistory() {
   const prevMovesLengthRef = useRef(moves.length);
 
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
   const canUndo = moveHistory.canUndo && gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
   const canRedo = moveHistory.canRedo && gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
@@ -28,10 +31,14 @@ export function MoveHistory() {
       .filter((m) => m.row >= 0)
       .map((m) => m.notation.toLowerCase())
       .join("");
-    navigator.clipboard.writeText(transcript).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    clearTimeout(copyTimerRef.current);
+    navigator.clipboard.writeText(transcript).then(
+      () => {
+        setCopied(true);
+        copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
   }, [moves]);
 
   useLayoutEffect(() => {

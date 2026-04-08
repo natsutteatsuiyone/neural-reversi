@@ -25,6 +25,12 @@ import { FLIP_DURATION_S } from "@/components/board/board3d-utils";
 const FLIP_DURATION_MS = FLIP_DURATION_S * 1000;
 export const PASS_NOTIFICATION_DURATION_MS = 1500;
 
+function resolveAIRemainingTime(history: MoveHistory, gameTimeLimitMs: number): number {
+    return history.length > 0
+        ? (history.lastMove?.remainingTime ?? gameTimeLimitMs)
+        : gameTimeLimitMs;
+}
+
 function toLastMove(moves: readonly MoveRecord[]): Move | null {
     const last = moves.length > 0 ? moves[moves.length - 1] : undefined;
     if (!last || last.row < 0 || last.col < 0) {
@@ -90,9 +96,7 @@ function applyHistoryNavigation(
         gameOver,
         gameStatus: gameOver ? "finished" : "playing",
         skipAnimation: true,
-        aiRemainingTime: newHistory.length > 0
-            ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
-            : state.gameTimeLimit * 1000,
+        aiRemainingTime: resolveAIRemainingTime(newHistory, state.gameTimeLimit * 1000),
     };
 }
 
@@ -388,9 +392,7 @@ export function createGameSlice(services: Services): StateCreator<
             gameOver,
             gameStatus: newGameStatus,
             skipAnimation: true,
-            aiRemainingTime: newHistory.length > 0
-                ? (newHistory.lastMove!.remainingTime ?? state.gameTimeLimit * 1000)
-                : state.gameTimeLimit * 1000,
+            aiRemainingTime: resolveAIRemainingTime(newHistory, state.gameTimeLimit * 1000),
         });
 
         if (!gameOver && newGameStatus === "playing") {
