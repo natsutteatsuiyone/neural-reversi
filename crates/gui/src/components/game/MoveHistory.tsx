@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useLayoutEffect, useEffect } from "react";
+import { useRef, useState, useLayoutEffect, useEffect } from "react";
 import { Bot, Check, Copy, List, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
@@ -10,24 +10,26 @@ export function MoveHistory() {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const moveHistory = useReversiStore((state) => state.moveHistory);
-  const moves = moveHistory.currentMoves;
+  const moves = moveHistory.allMoves;
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const isAnalyzing = useReversiStore((state) => state.isAnalyzing);
   const undoMove = useReversiStore((state) => state.undoMove);
   const redoMove = useReversiStore((state) => state.redoMove);
-  const prevMovesLengthRef = useRef(moves.length);
+  const goToMove = useReversiStore((state) => state.goToMove);
+  const currentIndex = moveHistory.length;
+  const canNavigate = gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
 
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
-  const canUndo = moveHistory.canUndo && gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
-  const canRedo = moveHistory.canRedo && gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
+  const canUndo = moveHistory.canUndo && canNavigate;
+  const canRedo = moveHistory.canRedo && canNavigate;
 
-  const copyTranscript = useCallback(() => {
-    const transcript = moves
+  const copyTranscript = () => {
+    const transcript = moveHistory.currentMoves
       .filter((m) => m.row >= 0)
       .map((m) => m.notation.toLowerCase())
       .join("");
@@ -39,16 +41,14 @@ export function MoveHistory() {
       },
       () => {},
     );
-  }, [moves]);
+  };
 
   useLayoutEffect(() => {
-    if (prevMovesLengthRef.current !== moves.length) {
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
-      prevMovesLengthRef.current = moves.length;
+    if (scrollRef.current && currentIndex > 0) {
+      const activeEl = scrollRef.current.children[0]?.children[currentIndex - 1] as HTMLElement | undefined;
+      activeEl?.scrollIntoView({ block: "nearest" });
     }
-  });
+  }, [currentIndex]);
 
   return (
     <div className="h-full flex flex-col">
@@ -59,7 +59,7 @@ export function MoveHistory() {
             variant="ghost"
             size="icon-sm"
             onClick={copyTranscript}
-            disabled={moves.length === 0}
+            disabled={currentIndex === 0}
             aria-label={t('history.copy')}
             className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
           >
@@ -102,19 +102,18 @@ export function MoveHistory() {
             {moves.map((move, index) => (
               <div
                 key={move.id}
+                onClick={canNavigate ? () => goToMove(index + 1) : undefined}
                 className={cn(
-                  "grid grid-cols-[28px_1fr] gap-1 text-sm rounded-md",
-                  index === moves.length - 1 && "bg-primary/15"
+                  "grid grid-cols-[28px_1fr] gap-1 text-sm rounded-md transition-colors",
+                  canNavigate ? "cursor-pointer hover:bg-white/8" : "cursor-default",
+                  index === currentIndex - 1 ? "bg-primary/15" : "bg-transparent",
+                  index >= currentIndex && "opacity-40"
                 )}
               >
-                {/* Move number */}
                 <div className="text-foreground-muted font-mono text-xs flex items-center justify-center tabular-nums">
                   {index + 1}.
                 </div>
-
-                {/* Move details */}
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded"
-                >
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded">
                   <Stone color={move.player} size="sm" />
                   <span className="font-medium text-foreground">{move.notation}</span>
                   {move.isAI && (
