@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Play, ChevronRight, ChevronLeft } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
@@ -56,14 +56,16 @@ export function NewGameModal() {
     setSettings((prev) => ({ ...prev, ...partial }));
   }, []);
 
-  // Sync local state and reset step when modal opens
+  const prevOpenRef = useRef(false);
   useEffect(() => {
-    if (isNewGameModalOpen) {
+    if (isNewGameModalOpen && !prevOpenRef.current) {
       setSettings({ gameMode, aiMode, aiLevel, gameTimeLimit });
       setStep(1);
       resetSetup();
     }
-  }, [isNewGameModalOpen, gameMode, aiLevel, aiMode, gameTimeLimit, resetSetup]);
+    prevOpenRef.current = isNewGameModalOpen;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only fire on open transition
+  }, [isNewGameModalOpen]);
 
   const persistAISettings = (nextSettings: GameSettings) => {
     setGameMode(nextSettings.gameMode);
