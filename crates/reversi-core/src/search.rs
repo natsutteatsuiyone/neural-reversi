@@ -25,7 +25,7 @@ use crate::constants::MAX_THREADS;
 use crate::eval::{Eval, EvalMode};
 use crate::flip;
 use crate::level::Level;
-use crate::move_list::{ConcurrentMoveIterator, MoveList};
+use crate::move_list::MoveList;
 
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV};
@@ -582,7 +582,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             && (n_moves - move_count) >= 2
             && thread.can_split()
         {
-            let move_iter = Arc::new(ConcurrentMoveIterator::from_offset(move_list, move_count));
             let (s, m, n, split_counters) = thread.split(
                 ctx,
                 board,
@@ -591,7 +590,8 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 best_score,
                 best_move,
                 depth,
-                &move_iter,
+                move_list,
+                move_count,
                 NT::TYPE_ID,
                 SS::IS_ENDGAME,
             );
@@ -691,7 +691,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 /// Searches remaining moves at a split point in parallel search.
 ///
 /// Called by helper threads that join an existing split point. Picks moves from
-/// the shared [`ConcurrentMoveIterator`], searches them, and updates the split
+/// the shared move iterator, searches them, and updates the split
 /// point's best score/move under its lock.
 pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
@@ -701,7 +701,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     split_point: &Arc<SplitPoint>,
 ) -> ScaledScore {
     let beta = split_point.state().beta;
-    let move_iter = split_point.state().move_iter.clone().unwrap();
+    let move_iter = split_point.move_iter();
     let n_moves = move_iter.count();
 
     while let Some((mv, move_count)) = move_iter.next() {

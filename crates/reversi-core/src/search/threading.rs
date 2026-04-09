@@ -17,7 +17,7 @@ use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::EvalMode;
 use crate::eval::pattern_feature::PatternFeature;
-use crate::move_list::ConcurrentMoveIterator;
+use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV, Root};
 use crate::search::root_move::RootMoves;
@@ -59,9 +59,6 @@ pub struct SplitPointState {
 
     /// Best move found so far at this split point.
     best_move: AtomicU8,
-
-    /// Iterator over moves to be searched, shared among threads.
-    pub move_iter: Option<Arc<ConcurrentMoveIterator>>,
 
     /// Type of node (PV, NonPV, or Root) for search specialization.
     node_type: u32,
@@ -224,11 +221,17 @@ pub struct SplitPoint {
 
     /// Mutable state protected by the mutex.
     state: UnsafeCell<SplitPointState>,
+
+    /// Shared move iterator for the active split point.
+    ///
+    /// Stored separately from `state` so helpers can keep a reference to it
+    /// after releasing the split-point lock without aliasing `state_mut()`.
+    move_iter: UnsafeCell<Option<ConcurrentMoveIterator>>,
 }
 
-// SAFETY: All access to the inner `UnsafeCell<SplitPointState>` is mediated by
-// the spinlock (`state()`/`state_mut()` callers must hold it), or through atomic
-// fields that are safe to access concurrently.
+// SAFETY: `state` access is mediated by the spinlock or through atomic fields.
+// `move_iter` is initialized before helpers start and cleared only after all
+// finish (helpers reset `helpers_mask` with Release before the owner proceeds).
 unsafe impl Sync for SplitPoint {}
 
 impl Default for SplitPoint {
@@ -242,7 +245,6 @@ impl Default for SplitPoint {
                 beta: ScaledScore::from_raw(0),
                 best_score: AtomicI32::new(0),
                 best_move: std::sync::atomic::AtomicU8::new(Square::None as u8),
-                move_iter: None,
                 node_type: 0,
                 cutoff: AtomicBool::new(false),
                 owner_thread_idx: 0,
@@ -255,6 +257,7 @@ impl Default for SplitPoint {
                 pv: [Square::None; MAX_PLY],
                 is_endgame: false,
             }),
+            move_iter: UnsafeCell::new(None),
         }
     }
 }
@@ -279,6 +282,31 @@ impl SplitPoint {
     pub fn state_mut(&self) -> &mut SplitPointState {
         // SAFETY: Caller holds the split point lock.
         unsafe { &mut *self.state.get() }
+    }
+
+    /// Returns the shared move iterator for the active split point.
+    ///
+    /// Lives outside `SplitPointState` so callers may hold this reference
+    /// after releasing the split-point lock.
+    #[inline]
+    pub(super) fn move_iter(&self) -> &ConcurrentMoveIterator {
+        // SAFETY: Initialized before helpers start; valid until all finish.
+        unsafe { (&*self.move_iter.get()).as_ref().unwrap() }
+    }
+
+    /// Installs the move iterator for a new split point.
+    #[inline]
+    fn set_move_iter(&self, move_iter: ConcurrentMoveIterator) {
+        // SAFETY: Caller has exclusive access while initializing the split point.
+        unsafe { *self.move_iter.get() = Some(move_iter) };
+    }
+
+    /// Clears the move iterator after the split point has finished.
+    #[inline]
+    fn clear_move_iter(&self) {
+        // SAFETY: All `move_iter()` references are scoped to `search_split_point`,
+        // which completes before the helper resets its `helpers_mask` bit.
+        unsafe { *self.move_iter.get() = None };
     }
 
     /// Acquires the split point's lock.
@@ -515,7 +543,8 @@ impl Thread {
         best_score: ScaledScore,
         best_move: Square,
         depth: Depth,
-        move_iter: &Arc<ConcurrentMoveIterator>,
+        move_list: MoveList,
+        move_count: usize,
         node_type: u32,
         is_endgame: bool,
     ) -> (ScaledScore, Square, u64, SearchCounters) {
@@ -523,6 +552,7 @@ impl Thread {
         // Pick the next available split point
         let sp = &th_state.split_points[th_state.split_points_size.load(Ordering::Relaxed)];
 
+        let move_iter = ConcurrentMoveIterator::from_offset(move_list, move_count);
         // Initialize the split point with search parameters
         self.initialize_split_point(
             sp, ctx, depth, best_score, best_move, alpha, beta, node_type, move_iter, board,
@@ -564,16 +594,19 @@ impl Thread {
         alpha: ScaledScore,
         beta: ScaledScore,
         node_type: u32,
-        move_iter: &Arc<ConcurrentMoveIterator>,
+        move_iter: ConcurrentMoveIterator,
         board: &Board,
         is_endgame: bool,
     ) {
         let th_state = self.state_mut();
         debug_assert!(self.searching.load(Ordering::Acquire));
-        debug_assert!(th_state.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD);
+        debug_assert!(
+            th_state.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD
+        );
 
         sp.lock();
-        // No contention here until we don't increment splitPointsSize
+        sp.set_move_iter(move_iter);
+        // No contention here until splitPointsSize is incremented
         let sp_state = sp.state_mut();
         sp_state.owner_thread_idx = self.idx;
         sp_state.parent_split_point = th_state.active_split_point.clone();
@@ -586,7 +619,6 @@ impl Thread {
         sp_state.set_alpha(alpha);
         sp_state.beta = beta;
         sp_state.node_type = node_type;
-        sp_state.move_iter = Some(move_iter.clone());
         let ply = ctx.ply();
         sp_state.task = Some(SplitPointTask {
             board: *board,
@@ -644,6 +676,7 @@ impl Thread {
 
         // Clear task data after releasing thread lock to minimize lock duration
         sp.state_mut().task = None;
+        sp.clear_move_iter();
     }
 
     /// Main loop for worker threads.
