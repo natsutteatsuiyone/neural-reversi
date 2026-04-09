@@ -1,10 +1,16 @@
 # Neural Reversi
 
-This is an experimental project to develop a high-accuracy neural network evaluation function for Reversi (Othello).
+This is an experimental project to develop a highly accurate neural network evaluation function for Reversi (Othello).
 
-Play it online (Lite version): [https://neural-reversi.net/](https://neural-reversi.net/)
+**[Play online (Lite version)](https://neural-reversi.net/)**
 
-## Benchmark
+## Features
+
+- Neural network-based position evaluation
+- High-performance multi-threaded search
+- Supports CLI, desktop GUI (Tauri), and WebAssembly
+
+## Benchmark (v6.0.0-dev)
 
 ### Environment
 
@@ -29,13 +35,52 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 
 ## Crates
 
-- **reversi-core**: Core library implementing the AI search algorithms.
-- **cli**: Command-line interface for playing Reversi.
-- **gui**: Tauri-based graphical user interface for playing Reversi.
-- **web**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [https://neural-reversi.net](https://neural-reversi.net).
-- **match-runner**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
-- **datagen**: Tool for generating neural network training data, including self-play games and feature extraction.
-- **evaltest**: Evaluation test suite runner for benchmarking engine performance using OBF problem files (FFO Forum, Edax hard sets).
+- **[reversi-core](crates/reversi-core/)**: Core library implementing the AI search algorithms.
+- **[cli](crates/cli/)**: Command-line interface for playing Reversi.
+- **[gui](crates/gui/)**: Tauri-based graphical user interface for playing Reversi.
+- **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
+- **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
+- **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games and feature extraction.
+- **[evaltest](crates/evaltest/)**: Evaluation test suite runner for benchmarking engine performance using OBF problem files (FFO Forum, Edax hard sets).
+
+## Getting Started
+
+### Prerequisites
+
+- [Rust](https://www.rust-lang.org/tools/install) 1.92.0+
+- [cargo-make](https://github.com/sagiegurari/cargo-make) (recommended)
+- [Bun](https://bun.sh/) (for GUI and Web development)
+
+### Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/natsutteatsuiyone/neural-reversi.git
+   cd neural-reversi
+   ```
+
+2. Download the neural network weight files from the [latest release](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases/latest)
+   and place them in the project root directory:
+   - `eval-*.zst`
+   - `eval_sm-*.zst`
+   - `eval_wasm-*.zst`
+
+3. Run the interface you want to use:
+   ```bash
+   cargo run -p cli --release    # Play in the terminal (TUI)
+   ```
+
+   ```bash
+   cd crates/gui
+   bun install
+   bun run tauri dev             # Launch the desktop GUI in development mode
+   ```
+
+   ```bash
+   cd crates/web
+   bun install
+   bun run dev                   # Start the web version in development mode
+   ```
 
 ## Neural Network
 
@@ -51,19 +96,13 @@ Play it online (Lite version): [https://neural-reversi.net/](https://neural-reve
 
 ### Features
 
-- Mobility: Number of legal moves for the current player.
+- Mobility: The number of legal moves for the current player.
 - Patterns:  
   ![Pattern features](docs/5.0.0/pattern_features_5.0.0.svg)
 
 ### Training
 
 [neural-reversi-training](https://github.com/natsutteatsuiyone/neural-reversi-training)
-
-## Weight Files
-
-Neural network weight files (`eval*.zst`, `eval_sm*.zst`, and `eval_wasm*.zst`) can be downloaded from [here](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases/latest).
-
-When developing or running the application locally (for example, using `cargo run`), place the weight files in the project root directory.
 
 ## Build
 
