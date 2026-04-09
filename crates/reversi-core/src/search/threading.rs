@@ -3,7 +3,7 @@
 //! Reference: <https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp>
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{JoinHandle, sleep};
@@ -301,7 +301,7 @@ pub struct ThreadState {
     pub active_split_point: Option<Arc<SplitPoint>>,
 
     /// Number of split points in the split_points array.
-    pub split_points_size: usize,
+    pub split_points_size: AtomicUsize,
 
     /// Stack of split points created by this thread.
     split_points: [Arc<SplitPoint>; MAX_SPLITPOINTS_PER_THREAD],
@@ -347,8 +347,9 @@ pub struct Thread {
 }
 
 // SAFETY: All access to the inner `UnsafeCell<ThreadState>` is mediated by
-// `mutex_for_state`. Atomic fields (`searching`, `exit`, `ready`) are safe
-// to access concurrently.
+// `mutex_for_state`. Atomic fields (`searching`, `exit`, `ready`,
+// `split_points_size`) are safe to access concurrently. The `split_points`
+// array elements (Arc pointers) are immutable after construction.
 unsafe impl Sync for Thread {}
 
 impl Thread {
@@ -373,7 +374,7 @@ impl Thread {
             thinking,
             state: UnsafeCell::new(ThreadState {
                 active_split_point: None,
-                split_points_size: 0,
+                split_points_size: AtomicUsize::new(0),
                 split_points,
             }),
             ready: AtomicBool::new(false),
@@ -419,7 +420,7 @@ impl Thread {
             true
         };
 
-        cond && (th_state.split_points_size < MAX_SPLITPOINTS_PER_THREAD)
+        cond && (th_state.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD)
     }
 
     /// Returns an immutable reference to the thread state.
@@ -481,7 +482,7 @@ impl Thread {
         // Make a local copy to be sure it doesn't become zero under our feet while
         // testing next condition and so leading to an out of bounds access.
         let th_state = self.state();
-        let size = th_state.split_points_size;
+        let size = th_state.split_points_size.load(Ordering::Acquire);
 
         // No split points means available as helper for any thread
         if size == 0 {
@@ -520,7 +521,7 @@ impl Thread {
     ) -> (ScaledScore, Square, u64, SearchCounters) {
         let th_state = self.state();
         // Pick the next available split point
-        let sp = &th_state.split_points[th_state.split_points_size];
+        let sp = &th_state.split_points[th_state.split_points_size.load(Ordering::Relaxed)];
 
         // Initialize the split point with search parameters
         self.initialize_split_point(
@@ -569,7 +570,7 @@ impl Thread {
     ) {
         let th_state = self.state_mut();
         debug_assert!(self.searching.load(Ordering::Acquire));
-        debug_assert!(th_state.split_points_size < MAX_SPLITPOINTS_PER_THREAD);
+        debug_assert!(th_state.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD);
 
         sp.lock();
         // No contention here until we don't increment splitPointsSize
@@ -606,7 +607,7 @@ impl Thread {
         sp_state.copy_pv(ctx.get_pv()); // Initialize PV from coordinator's current PV
         sp_state.is_endgame = is_endgame;
 
-        th_state.split_points_size += 1;
+        th_state.split_points_size.fetch_add(1, Ordering::Release);
         th_state.active_split_point = Some(sp.clone());
 
         // Try to allocate available threads
@@ -636,7 +637,7 @@ impl Thread {
         // protection to avoid a race with Thread::can_join().
         self.searching.store(true, Ordering::Release);
         let th_state = self.state_mut();
-        th_state.split_points_size -= 1;
+        th_state.split_points_size.fetch_sub(1, Ordering::Release);
         th_state.active_split_point = sp.state().parent_split_point.clone();
 
         self.unlock();
@@ -688,12 +689,16 @@ impl Thread {
                 self.searching.store(false, Ordering::Release);
                 self.unlock();
 
-                // Update split point state
+                // Update split point state.
+                // n_nodes and counters must be written BEFORE clearing helpers_mask,
+                // because the owner uses helpers_mask.none() (Acquire) to decide when
+                // all helpers are done and then reads n_nodes / counters. The Release
+                // on reset() publishes the preceding writes to the Acquire reader.
                 let sp_state = sp.state_mut();
-                sp_state.helpers_mask.reset(self.idx);
-                sp_state.set_all_helpers_searching(false);
                 sp_state.add_nodes(ctx.n_nodes);
                 sp_state.counters.lock().unwrap().merge(&ctx.counters);
+                sp_state.set_all_helpers_searching(false);
+                sp_state.helpers_mask.reset(self.idx);
 
                 // After releasing the lock we can't access any SplitPoint related data
                 // in a safe way because it could have been released under our feet by
@@ -832,11 +837,14 @@ impl Thread {
         let mut min_level = i32::MAX;
 
         for th in &pool.threads {
-            let size = th.state().split_points_size;
+            // split_points_size is atomic; Acquire pairs with Release in split()/finalize_split_point().
+            let size = th.state().split_points_size.load(Ordering::Acquire);
             if size == 0 {
                 continue;
             }
 
+            // split_points[] elements are immutable Arc pointers (created once in Thread::new),
+            // so indexing with a valid size is safe without the thread lock.
             let sp = &th.state().split_points[size - 1];
             let sp_state = sp.state();
 
@@ -848,18 +856,19 @@ impl Thread {
                 continue;
             }
 
-            // Calculate level (depth in split point tree)
+            // Calculate level by walking the split point's parent chain.
+            // parent_split_point is immutable after initialization in split().
             let mut level = 0;
-            let mut active_sp = &th.state().active_split_point;
-            while let Some(p) = active_sp {
+            let mut ancestor = sp_state.parent_split_point.as_ref();
+            while let Some(p) = ancestor {
                 level += 1;
-                active_sp = &p.state().parent_split_point;
+                ancestor = p.state().parent_split_point.as_ref();
             }
 
             if level < min_level {
                 min_level = level;
                 best_sp = Some(sp);
-                if level <= 1 {
+                if level == 0 {
                     break;
                 }
             }
