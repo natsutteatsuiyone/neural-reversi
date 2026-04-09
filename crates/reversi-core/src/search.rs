@@ -197,15 +197,20 @@ impl Search {
             }
         }
 
-        let mut result = self.execute_search(
-            board,
-            effective_level,
-            options.selectivity,
-            options.multi_pv,
-            callback.clone(),
+        let task = SearchTask {
+            board: *board,
+            selectivity: options.selectivity,
+            tt: self.tt.clone(),
+            pool: self.threads.clone(),
+            eval: self.eval.clone(),
+            level: effective_level,
+            multi_pv: options.multi_pv,
+            callback: callback.clone(),
             time_manager,
-            options.eval_mode,
-        );
+            eval_mode: options.eval_mode,
+        };
+
+        let mut result = self.execute_search(task);
 
         // Fallback to quick_move if score is invalid
         // This can happen when search is aborted before completing any iteration
@@ -239,46 +244,22 @@ impl Search {
         result
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn execute_search(
-        &mut self,
-        board: &Board,
-        level: Level,
-        selectivity: Selectivity,
-        multi_pv: bool,
-        callback: Option<Arc<SearchProgressCallback>>,
-        time_manager: Option<Arc<TimeManager>>,
-        eval_mode: Option<EvalMode>,
-    ) -> SearchResult {
+    fn execute_search(&mut self, task: SearchTask) -> SearchResult {
         self.tt.increment_generation();
 
-        // Get deadline for timer thread
-        let timer_time_manager = time_manager.clone();
-
-        let task = SearchTask {
-            board: *board,
-            selectivity,
-            tt: self.tt.clone(),
-            pool: self.threads.clone(),
-            eval: self.eval.clone(),
-            level,
-            multi_pv,
-            callback,
-            time_manager,
-            eval_mode,
-        };
+        let board = task.board;
 
         // Start timer thread if we have a deadline
-        if let Some(tm) = timer_time_manager
+        if let Some(tm) = task.time_manager.as_ref()
             && tm.deadline().is_some()
         {
-            self.threads.start_timer(tm);
+            self.threads.start_timer(tm.clone());
         }
 
         let result_receiver = self.threads.start_thinking(task);
         let result = result_receiver.recv().unwrap_or_else(|_| {
             // Channel closed - search thread may have panicked. Return fallback.
-            self.quick_move(board)
+            self.quick_move(&board)
         });
 
         // Stop timer thread
