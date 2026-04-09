@@ -61,7 +61,6 @@ const PRESORTED: [Square; 64] = [
 
 /// Node in the doubly-linked list of empty squares.
 #[derive(Clone, Copy, Default)]
-#[repr(align(8))]
 struct EmptyNode {
     /// Next square in the linked list (Square::None if last)
     next: Square,
