@@ -161,7 +161,9 @@ fn pack_h1h8(x: u64) -> usize {
 /// Uses the pre-computed edge stability table for fast lookup.
 #[inline]
 fn get_stable_edge(p: u64, o: u64) -> u64 {
-    let table = EDGE_STABILITY.get().unwrap();
+    // SAFETY: `init()` is called once at startup before any search begins,
+    // guaranteeing the OnceLock is initialized.
+    let table = unsafe { EDGE_STABILITY.get().unwrap_unchecked() };
     table[((p & 0xff) * 256 + (o & 0xff)) as usize] as u64
         | (table[((p >> 56) * 256 + (o >> 56)) as usize] as u64) << 56
         | unpack_a2a7(table[pack_a1a8(p) * 256 + pack_a1a8(o)])
@@ -247,9 +249,8 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
 /// 2. Full-line detection (discs on completely filled lines)
 /// 3. Contact propagation (discs adjacent to already-stable discs)
 ///
-/// # Panics
-///
-/// Panics if [`init`] has not been called.
+/// Requires [`init`] to have been called beforehand.
+#[inline]
 pub fn get_stable_discs(player: Bitboard, opponent: Bitboard) -> Bitboard {
     let central_mask = player.bits() & 0x007e7e7e7e7e7e00;
     let mut full: [u64; 4] = [0; 4];
@@ -279,9 +280,8 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
 ///
 /// Returns [`None`] if the cutoff cannot be proven.
 ///
-/// # Panics
-///
-/// Panics if [`init`] has not been called.
+/// Requires [`init`] to have been called beforehand.
+#[inline(always)]
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
     if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
         let score = SCORE_MAX - 2 * board.switch_players().get_stability() as Score;
