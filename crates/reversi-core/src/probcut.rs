@@ -117,28 +117,17 @@ const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
 
 static MEAN_TABLE: OnceLock<Box<MidTable>> = OnceLock::new();
 static SIGMA_TABLE: OnceLock<Box<MidTable>> = OnceLock::new();
-static MEAN_TABLE_END: OnceLock<Box<EndTable>> = OnceLock::new();
-static SIGMA_TABLE_END: OnceLock<Box<EndTable>> = OnceLock::new();
-
-fn alloc_3d_table() -> Box<MidTable> {
-    vec![[[0.0f64; NUM_DEPTH]; NUM_DEPTH]; NUM_PLY]
-        .into_boxed_slice()
-        .try_into()
-        .unwrap()
-}
-
-fn alloc_2d_table() -> Box<EndTable> {
-    vec![[0.0f64; NUM_DEPTH]; NUM_DEPTH]
-        .into_boxed_slice()
-        .try_into()
-        .unwrap()
-}
+static MEAN_TABLE_END: OnceLock<EndTable> = OnceLock::new();
+static SIGMA_TABLE_END: OnceLock<EndTable> = OnceLock::new();
 
 /// Builds a 3D [ply][shallow][deep] table from midgame ProbCut parameters.
 ///
 /// Only populates entries where `shallow <= deep` (callers always satisfy this).
 fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MidTable> {
-    let mut tbl = alloc_3d_table();
+    let mut tbl: Box<MidTable> = vec![[[0.0f64; NUM_DEPTH]; NUM_DEPTH]; NUM_PLY]
+        .into_boxed_slice()
+        .try_into()
+        .unwrap();
     for ply in 0..NUM_PLY {
         let params = &PROBCUT_PARAMS[ply];
         for shallow in 0..NUM_DEPTH {
@@ -153,8 +142,9 @@ fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MidTable>
 /// Builds a 2D [shallow][deep] table from endgame ProbCut parameters.
 ///
 /// Only populates entries where `shallow <= deep` (callers always satisfy this).
-fn build_end_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<EndTable> {
-    let mut tbl = alloc_2d_table();
+fn build_end_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> EndTable {
+    let mut tbl = [[0.0f64; NUM_DEPTH]; NUM_DEPTH];
+    #[allow(clippy::needless_range_loop)]
     for shallow in 0..NUM_DEPTH {
         for deep in shallow..NUM_DEPTH {
             tbl[shallow][deep] =
@@ -162,12 +152,6 @@ fn build_end_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<EndTable>
         }
     }
     tbl
-}
-
-#[cold]
-#[inline(never)]
-fn probcut_not_initialized() -> ! {
-    panic!("probcut not initialized");
 }
 
 /// Initializes the ProbCut lookup tables.
@@ -181,61 +165,71 @@ pub fn init() {
     SIGMA_TABLE_END.get_or_init(|| build_end_table(ProbcutParams::sigma));
 }
 
-#[inline]
-fn lookup_mid(table: &OnceLock<Box<MidTable>>, ply: usize, shallow: Depth, deep: Depth) -> f64 {
+#[inline(always)]
+fn lookup_mid(tbl: &MidTable, ply: usize, shallow: Depth, deep: Depth) -> f64 {
     debug_assert!(ply < NUM_PLY);
     debug_assert!((shallow as usize) <= (deep as usize));
     debug_assert!((deep as usize) < NUM_DEPTH);
-    let tbl = table.get().unwrap_or_else(|| probcut_not_initialized());
     tbl[ply][shallow as usize][deep as usize]
 }
 
-#[inline]
-fn lookup_end(table: &OnceLock<Box<EndTable>>, shallow: Depth, deep: Depth) -> f64 {
+#[inline(always)]
+fn lookup_end(tbl: &EndTable, shallow: Depth, deep: Depth) -> f64 {
     debug_assert!((shallow as usize) <= (deep as usize));
     debug_assert!((deep as usize) < NUM_DEPTH);
-    let tbl = table.get().unwrap_or_else(|| probcut_not_initialized());
     tbl[shallow as usize][deep as usize]
 }
 
 /// Returns the pre-computed mean value for midgame positions.
 ///
-/// # Panics
+/// # Safety
 ///
-/// Panics if [`init`] has not been called.
-#[inline]
+/// [`init`] must have been called before this function.
+#[inline(always)]
 pub fn get_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
-    lookup_mid(&MEAN_TABLE, ply, shallow, deep)
+    // SAFETY: `init()` is called once at startup before any search begins,
+    // guaranteeing the OnceLock is initialized.
+    let tbl = unsafe { MEAN_TABLE.get().unwrap_unchecked() };
+    lookup_mid(tbl, ply, shallow, deep)
 }
 
 /// Returns the pre-computed sigma value for midgame positions.
 ///
-/// # Panics
+/// # Safety
 ///
-/// Panics if [`init`] has not been called.
-#[inline]
+/// [`init`] must have been called before this function.
+#[inline(always)]
 pub fn get_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
-    lookup_mid(&SIGMA_TABLE, ply, shallow, deep)
+    // SAFETY: `init()` is called once at startup before any search begins,
+    // guaranteeing the OnceLock is initialized.
+    let tbl = unsafe { SIGMA_TABLE.get().unwrap_unchecked() };
+    lookup_mid(tbl, ply, shallow, deep)
 }
 
 /// Returns the pre-computed mean value for endgame positions.
 ///
-/// # Panics
+/// # Safety
 ///
-/// Panics if [`init`] has not been called.
-#[inline]
+/// [`init`] must have been called before this function.
+#[inline(always)]
 pub fn get_mean_end(shallow: Depth, deep: Depth) -> f64 {
-    lookup_end(&MEAN_TABLE_END, shallow, deep)
+    // SAFETY: `init()` is called once at startup before any search begins,
+    // guaranteeing the OnceLock is initialized.
+    let tbl = unsafe { MEAN_TABLE_END.get().unwrap_unchecked() };
+    lookup_end(tbl, shallow, deep)
 }
 
 /// Returns the pre-computed sigma value for endgame positions.
 ///
-/// # Panics
+/// # Safety
 ///
-/// Panics if [`init`] has not been called.
-#[inline]
+/// [`init`] must have been called before this function.
+#[inline(always)]
 pub fn get_sigma_end(shallow: Depth, deep: Depth) -> f64 {
-    lookup_end(&SIGMA_TABLE_END, shallow, deep)
+    // SAFETY: `init()` is called once at startup before any search begins,
+    // guaranteeing the OnceLock is initialized.
+    let tbl = unsafe { SIGMA_TABLE_END.get().unwrap_unchecked() };
+    lookup_end(tbl, shallow, deep)
 }
 
 /// Computes the ProbCut beta threshold for verification search.
