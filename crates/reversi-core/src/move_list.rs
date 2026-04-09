@@ -251,7 +251,7 @@ impl MoveList {
                 let potential_mobility = potential.corner_weighted_count() as i32;
                 mv.value -= mobility * MOBILITY_SCALE;
                 mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
-            };
+            }
         }
     }
 
