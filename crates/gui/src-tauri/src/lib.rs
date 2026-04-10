@@ -354,7 +354,7 @@ pub fn run() {
 
     let thread_pool = {
         let search_guard = search.lock().unwrap();
-        search_guard.get_thread_pool()
+        search_guard.thread_pool()
     };
 
     tauri::Builder::default()

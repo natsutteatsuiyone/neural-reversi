@@ -6,7 +6,7 @@ use crate::{
     search::root_move::{RootMove, RootMoves},
     search::search_counters::SearchCounters,
     square::Square,
-    types::{Depth, Scoref},
+    types::{Depth, ScaledScore, Scoref},
 };
 
 /// Represents a single move with its evaluation score for Multi-PV results.
@@ -95,5 +95,14 @@ impl SearchResult {
     /// Returns the probability percentage based on selectivity.
     pub fn get_probability(&self) -> i32 {
         self.selectivity.probability()
+    }
+
+    /// Returns `true` if the search was aborted before completing any iteration.
+    ///
+    /// Before the first iteration finishes, the score still carries the
+    /// `-ScaledScore::INF` sentinel propagated from the initial root move;
+    /// any completed iteration overwrites it with a real evaluation.
+    pub fn is_invalid_sentinel(&self) -> bool {
+        self.score == (-ScaledScore::INF).to_disc_diff_f32()
     }
 }

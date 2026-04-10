@@ -119,7 +119,7 @@ impl Search {
     /// # Panics
     ///
     /// Panics if the evaluation weight files cannot be loaded.
-    pub fn new(options: &SearchOptions) -> Search {
+    pub fn new(options: &SearchOptions) -> Self {
         let n_threads = options.n_threads.min(num_cpus::get()).clamp(1, MAX_THREADS);
         let eval = Eval::with_weight_files(
             options.eval_path.as_deref(),
@@ -131,7 +131,7 @@ impl Search {
         probcut::init();
         stability::init();
 
-        Search {
+        Self {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
             threads: ThreadPool::new(n_threads),
             eval: Arc::new(eval),
@@ -172,29 +172,14 @@ impl Search {
     /// if the search is aborted before completing any iteration.
     pub fn run(&mut self, board: &Board, options: &SearchRunOptions) -> SearchResult {
         let callback = options.callback.clone();
-
-        // Configure time manager and level based on constraint
-        let (time_manager, mut effective_level) = match &options.constraint {
-            SearchConstraint::Level(level) => (None, *level),
-            SearchConstraint::Time(mode) => {
-                let tm = Arc::new(TimeManager::new(
-                    *mode,
-                    self.threads.get_abort_flag(),
-                    board.get_empty_count(),
-                ));
-                (Some(tm), Level::unlimited())
-            }
-        };
-
-        // In Time mode, automatically extend endgame search depth once endgame phase is reached
-        let is_time_mode = time_manager.is_some();
         let n_empties = board.get_empty_count();
-        if is_time_mode && let Some(endgame_start_n_empties) = self.endgame_start_n_empties {
-            if n_empties > endgame_start_n_empties {
-                self.endgame_start_n_empties = None;
-            } else {
-                effective_level.end_depth = [60; 4];
-            }
+
+        let (time_manager, mut effective_level) =
+            self.build_time_controls(n_empties, &options.constraint);
+        let is_time_mode = time_manager.is_some();
+
+        if is_time_mode {
+            self.maybe_extend_endgame_depth(n_empties, &mut effective_level);
         }
 
         let task = SearchTask {
@@ -211,37 +196,78 @@ impl Search {
         };
 
         let mut result = self.execute_search(task);
-
-        // Fallback to quick_move if score is invalid
-        // This can happen when search is aborted before completing any iteration
-        if result.score == (-ScaledScore::INF).to_disc_diff_f32() {
-            let fallback = self.quick_move(board);
-            result.score = fallback.score;
-            if result.best_move.is_none() {
-                result.best_move = fallback.best_move;
-                result.pv_line = fallback.pv_line;
-            }
-        }
+        self.apply_fallback_if_invalid(board, &mut result);
 
         if let Some(callback) = callback {
-            callback(SearchProgress {
-                depth: result.depth,
-                target_depth: result.depth,
-                score: result.score,
-                probability: result.get_probability(),
-                best_move: result.best_move.unwrap_or(Square::None),
-                nodes: result.n_nodes,
-                pv_line: result.pv_line.clone(),
-                is_endgame: result.is_endgame,
-                counters: result.counters.clone(),
-            });
+            callback(progress_from_result(&result));
         }
 
-        if is_time_mode && self.endgame_start_n_empties.is_none() && result.depth + 1 >= n_empties {
-            self.endgame_start_n_empties = Some(n_empties - 1);
+        if is_time_mode {
+            self.update_endgame_tracking(n_empties, &result);
         }
 
         result
+    }
+
+    fn build_time_controls(
+        &self,
+        n_empties: Depth,
+        constraint: &SearchConstraint,
+    ) -> (Option<Arc<TimeManager>>, Level) {
+        match constraint {
+            SearchConstraint::Level(level) => (None, *level),
+            SearchConstraint::Time(mode) => {
+                let tm = Arc::new(TimeManager::new(
+                    *mode,
+                    self.threads.get_abort_flag(),
+                    n_empties,
+                ));
+                (Some(tm), Level::unlimited())
+            }
+        }
+    }
+
+    /// Lifts the endgame depth cap to [`Level::perfect`] once a previous
+    /// time-controlled search has reached the endgame phase.
+    ///
+    /// Time-controlled searches default to [`Level::unlimited`], which caps the
+    /// endgame at 14 ply. Once the endgame has been entered, subsequent searches
+    /// should instead solve all the way to the end.
+    fn maybe_extend_endgame_depth(&mut self, n_empties: Depth, level: &mut Level) {
+        let Some(start) = self.endgame_start_n_empties else {
+            return;
+        };
+        if n_empties > start {
+            self.endgame_start_n_empties = None;
+        } else {
+            level.end_depth = Level::perfect().end_depth;
+        }
+    }
+
+    /// Replaces an aborted-search sentinel result with a shallow
+    /// [`Self::quick_move`] fallback.
+    ///
+    /// When the search is cancelled before finishing a single iteration the
+    /// result score is still the initial sentinel; in that case a minimal
+    /// best move must still be provided to the caller.
+    fn apply_fallback_if_invalid(&self, board: &Board, result: &mut SearchResult) {
+        if !result.is_invalid_sentinel() {
+            return;
+        }
+        let fallback = self.quick_move(board);
+        result.score = fallback.score;
+        if result.best_move.is_none() {
+            result.best_move = fallback.best_move;
+            result.pv_line = fallback.pv_line;
+        }
+    }
+
+    /// Records the empty-square count at which the endgame phase first became
+    /// reachable, so future time-controlled searches know to extend their end depth.
+    fn update_endgame_tracking(&mut self, n_empties: Depth, result: &SearchResult) {
+        if self.endgame_start_n_empties.is_none() && result.depth + 1 >= n_empties {
+            self.endgame_start_n_empties = Some(n_empties - 1);
+        }
     }
 
     fn execute_search(&mut self, task: SearchTask) -> SearchResult {
@@ -249,7 +275,6 @@ impl Search {
 
         let board = task.board;
 
-        // Start timer thread if we have a deadline
         if let Some(tm) = task.time_manager.as_ref()
             && tm.deadline().is_some()
         {
@@ -262,7 +287,6 @@ impl Search {
             self.quick_move(&board)
         });
 
-        // Stop timer thread
         self.threads.stop_timer();
 
         result
@@ -282,7 +306,7 @@ impl Search {
     /// Returns the [`ThreadPool`] used by this search engine.
     ///
     /// [`ThreadPool`]: threading::ThreadPool
-    pub fn get_thread_pool(&self) -> Arc<threading::ThreadPool> {
+    pub fn thread_pool(&self) -> Arc<threading::ThreadPool> {
         self.threads.clone()
     }
 
@@ -294,7 +318,6 @@ impl Search {
     pub fn quick_move(&self, board: &Board) -> SearchResult {
         let moves = board.get_moves();
         if moves.is_empty() {
-            // No legal moves - return pass
             return SearchResult {
                 score: 0.0,
                 best_move: None,
@@ -311,12 +334,9 @@ impl Search {
         let mut best_move = Square::None;
         let mut best_score = -ScaledScore::INF;
 
-        // Evaluate each move with depth-1 search
         for sq in moves.iter() {
             let flipped = flip::flip(sq, board.player, board.opponent);
             let next = board.make_move_with_flipped(flipped, sq);
-
-            // Evaluate the resulting position (negamax)
             let score = -self.eval.evaluate_simple(&next);
 
             if score > best_score {
@@ -336,6 +356,20 @@ impl Search {
             pv_moves: vec![],
             counters: SearchCounters::default(),
         }
+    }
+}
+
+fn progress_from_result(result: &SearchResult) -> SearchProgress {
+    SearchProgress {
+        depth: result.depth,
+        target_depth: result.depth,
+        score: result.score,
+        probability: result.get_probability(),
+        best_move: result.best_move.unwrap_or(Square::None),
+        nodes: result.n_nodes,
+        pv_line: result.pv_line.clone(),
+        is_endgame: result.is_endgame,
+        counters: result.counters.clone(),
     }
 }
 
