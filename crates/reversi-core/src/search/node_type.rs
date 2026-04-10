@@ -1,5 +1,13 @@
 //! Node type definitions for the alpha-beta search algorithm.
 
+/// Runtime identifier for dispatching node-type-specialized search code.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum NodeTypeId {
+    NonPv,
+    Pv,
+    Root,
+}
+
 /// Non-PV (non-principal variation) node type.
 ///
 /// These are nodes that are not part of the principal variation and can be searched
@@ -21,24 +29,24 @@ pub trait NodeType {
     const PV_NODE: bool;
     /// Whether this is the root node.
     const ROOT_NODE: bool;
-    /// Unique identifier for the node type (used in transposition table entries).
-    const TYPE_ID: u32;
+    /// Runtime identifier for dispatching node-type-specialized code paths.
+    const ID: NodeTypeId;
 }
 
 impl NodeType for NonPV {
     const PV_NODE: bool = false;
     const ROOT_NODE: bool = false;
-    const TYPE_ID: u32 = 1;
+    const ID: NodeTypeId = NodeTypeId::NonPv;
 }
 
 impl NodeType for PV {
     const PV_NODE: bool = true;
     const ROOT_NODE: bool = false;
-    const TYPE_ID: u32 = 2;
+    const ID: NodeTypeId = NodeTypeId::Pv;
 }
 
 impl NodeType for Root {
     const PV_NODE: bool = true;
     const ROOT_NODE: bool = true;
-    const TYPE_ID: u32 = 3;
+    const ID: NodeTypeId = NodeTypeId::Root;
 }

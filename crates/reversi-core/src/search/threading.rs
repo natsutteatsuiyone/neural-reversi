@@ -19,7 +19,7 @@ use crate::eval::EvalMode;
 use crate::eval::pattern_feature::PatternFeature;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::Selectivity;
-use crate::search::node_type::{NodeType, NonPV, PV, Root};
+use crate::search::node_type::{NodeTypeId, NonPV, PV, Root};
 use crate::search::root_move::RootMoves;
 use crate::search::search_context::SearchContext;
 use crate::search::search_counters::SearchCounters;
@@ -61,7 +61,7 @@ pub struct SplitPointState {
     best_move: AtomicU8,
 
     /// Type of node (PV, NonPV, or Root) for search specialization.
-    node_type: u32,
+    node_type: NodeTypeId,
 
     /// Flag indicating if a beta cutoff has occurred.
     cutoff: AtomicBool,
@@ -245,7 +245,7 @@ impl Default for SplitPoint {
                 beta: ScaledScore::from_raw(0),
                 best_score: AtomicI32::new(0),
                 best_move: std::sync::atomic::AtomicU8::new(Square::None as u8),
-                node_type: 0,
+                node_type: NodeTypeId::NonPv,
                 cutoff: AtomicBool::new(false),
                 owner_thread_idx: 0,
                 helpers_mask: AtomicBitSet::new(),
@@ -323,24 +323,12 @@ impl SplitPoint {
     }
 }
 
-/// State information for a worker thread.
-pub struct ThreadState {
-    /// The split point this thread is currently working on.
-    pub active_split_point: Option<Arc<SplitPoint>>,
-
-    /// Number of split points in the split_points array.
-    pub split_points_size: AtomicUsize,
-
-    /// Stack of split points created by this thread.
-    split_points: [Arc<SplitPoint>; MAX_SPLITPOINTS_PER_THREAD],
-}
-
 /// A worker thread in the thread pool.
 pub struct Thread {
     /// Mutex used with the condition variable for thread sleeping.
     mutex_for_sleep_condition: std::sync::Mutex<()>,
 
-    /// Spinlock protecting the thread state.
+    /// Spinlock protecting access to `active_split_point`.
     mutex_for_state: spinlock::RawSpinLock,
 
     /// Condition variable for waking up idle threads.
@@ -361,8 +349,17 @@ pub struct Thread {
     /// Shared flag indicating if the engine is thinking.
     thinking: Arc<AtomicBool>,
 
-    /// Mutable thread state protected by mutex_for_state.
-    state: UnsafeCell<ThreadState>,
+    /// Number of split points currently active for this thread.
+    /// Atomic because it is read lock-free by other threads in `can_join` / `try_late_join`.
+    split_points_size: AtomicUsize,
+
+    /// Stack of split points created by this thread.
+    /// Immutable after construction — each element is a pre-allocated `Arc<SplitPoint>`.
+    split_points: [Arc<SplitPoint>; MAX_SPLITPOINTS_PER_THREAD],
+
+    /// The split point this thread is currently working on.
+    /// Protected by `mutex_for_state`.
+    active_split_point: UnsafeCell<Option<Arc<SplitPoint>>>,
 
     /// Flag indicating if the thread has completed initialization.
     ready: AtomicBool,
@@ -374,10 +371,10 @@ pub struct Thread {
     exit: AtomicBool,
 }
 
-// SAFETY: All access to the inner `UnsafeCell<ThreadState>` is mediated by
-// `mutex_for_state`. Atomic fields (`searching`, `exit`, `ready`,
-// `split_points_size`) are safe to access concurrently. The `split_points`
-// array elements (Arc pointers) are immutable after construction.
+// SAFETY: `active_split_point` (the only `UnsafeCell`) is mediated by
+// `mutex_for_state`. All other concurrent fields are either atomic
+// (`searching`, `exit`, `ready`, `split_points_size`) or immutable after
+// construction (`split_points`).
 unsafe impl Sync for Thread {}
 
 impl Thread {
@@ -400,11 +397,9 @@ impl Thread {
             abort_flag,
             pool_size,
             thinking,
-            state: UnsafeCell::new(ThreadState {
-                active_split_point: None,
-                split_points_size: AtomicUsize::new(0),
-                split_points,
-            }),
+            split_points_size: AtomicUsize::new(0),
+            split_points,
+            active_split_point: UnsafeCell::new(None),
             ready: AtomicBool::new(false),
             searching: AtomicBool::new(false),
             exit: AtomicBool::new(false),
@@ -437,9 +432,7 @@ impl Thread {
             return false;
         }
 
-        let th_state = self.state();
-
-        let cond = if let Some(sp) = &th_state.active_split_point {
+        let cond = if let Some(sp) = self.active_split_point() {
             let sp_state = sp.state();
             !sp_state.all_helpers_searching()
                 || thread_pool_size > MAX_HELPERS_PER_SPLITPOINT
@@ -448,22 +441,28 @@ impl Thread {
             true
         };
 
-        cond && (th_state.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD)
+        cond && (self.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD)
     }
 
-    /// Returns an immutable reference to the thread state.
+    /// Returns an immutable reference to the active split point.
+    ///
+    /// Safe when called by the owning thread (which is the only writer).
+    /// When called from another thread, `mutex_for_state` must be held.
     #[inline]
-    pub fn state(&self) -> &ThreadState {
-        // SAFETY: Caller holds the thread lock, or access is to atomic fields only.
-        unsafe { &*self.state.get() }
+    pub fn active_split_point(&self) -> &Option<Arc<SplitPoint>> {
+        // SAFETY: Either called by the owning thread, or caller holds mutex_for_state.
+        unsafe { &*self.active_split_point.get() }
     }
 
-    /// Returns a mutable reference to the thread state.
+    /// Returns a mutable reference to the active split point.
+    ///
+    /// Safe when called by the owning thread or when `mutex_for_state` is held.
+    /// Only the owning thread ever writes to this field.
     #[inline]
     #[allow(clippy::mut_from_ref)]
-    fn state_mut(&self) -> &mut ThreadState {
-        // SAFETY: Caller holds the thread lock.
-        unsafe { &mut *self.state.get() }
+    fn active_split_point_mut(&self) -> &mut Option<Arc<SplitPoint>> {
+        // SAFETY: Either called by the owning thread, or caller holds mutex_for_state.
+        unsafe { &mut *self.active_split_point.get() }
     }
 
     /// Wakes up this thread when there is work to do.
@@ -475,7 +474,7 @@ impl Thread {
     /// Checks whether a beta cutoff has occurred in the current or ancestor split points.
     #[inline]
     pub fn cutoff_occurred(&self) -> bool {
-        let Some(sp) = self.state().active_split_point.as_ref() else {
+        let Some(sp) = self.active_split_point().as_ref() else {
             return false;
         };
         self.cutoff_occurred_slow(sp)
@@ -509,8 +508,7 @@ impl Thread {
 
         // Make a local copy to be sure it doesn't become zero under our feet while
         // testing next condition and so leading to an out of bounds access.
-        let th_state = self.state();
-        let size = th_state.split_points_size.load(Ordering::Acquire);
+        let size = self.split_points_size.load(Ordering::Acquire);
 
         // No split points means available as helper for any thread
         if size == 0 {
@@ -518,7 +516,7 @@ impl Thread {
         }
 
         // Apply "helpful owner" concept
-        let sp_state = th_state.split_points[size - 1].state();
+        let sp_state = self.split_points[size - 1].state();
         sp_state.helpers_mask.test(sp.state().owner_thread_idx)
     }
 
@@ -545,12 +543,11 @@ impl Thread {
         depth: Depth,
         move_list: MoveList,
         move_count: usize,
-        node_type: u32,
+        node_type: NodeTypeId,
         is_endgame: bool,
     ) -> (ScaledScore, Square, u64, SearchCounters) {
-        let th_state = self.state();
         // Pick the next available split point
-        let sp = &th_state.split_points[th_state.split_points_size.load(Ordering::Relaxed)];
+        let sp = &self.split_points[self.split_points_size.load(Ordering::Relaxed)];
 
         let move_iter = ConcurrentMoveIterator::from_offset(move_list, move_count);
         // Initialize the split point with search parameters
@@ -593,23 +590,20 @@ impl Thread {
         best_move: Square,
         alpha: ScaledScore,
         beta: ScaledScore,
-        node_type: u32,
+        node_type: NodeTypeId,
         move_iter: ConcurrentMoveIterator,
         board: &Board,
         is_endgame: bool,
     ) {
-        let th_state = self.state_mut();
         debug_assert!(self.searching.load(Ordering::Acquire));
-        debug_assert!(
-            th_state.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD
-        );
+        debug_assert!(self.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD);
 
         sp.lock();
         sp.set_move_iter(move_iter);
-        // No contention here until splitPointsSize is incremented
+        // No contention here until split_points_size is incremented
         let sp_state = sp.state_mut();
         sp_state.owner_thread_idx = self.idx;
-        sp_state.parent_split_point = th_state.active_split_point.clone();
+        sp_state.parent_split_point = self.active_split_point().clone();
         // Initialize split point state
         sp_state.helpers_mask.clear();
         sp_state.helpers_mask.set(self.idx);
@@ -639,8 +633,8 @@ impl Thread {
         sp_state.copy_pv(ctx.get_pv()); // Initialize PV from coordinator's current PV
         sp_state.is_endgame = is_endgame;
 
-        th_state.split_points_size.fetch_add(1, Ordering::Release);
-        th_state.active_split_point = Some(sp.clone());
+        self.split_points_size.fetch_add(1, Ordering::Release);
+        *self.active_split_point_mut() = Some(sp.clone());
 
         // Try to allocate available threads
         if let Some(pool) = self.pool.upgrade() {
@@ -665,12 +659,11 @@ impl Thread {
         self.lock();
 
         // We have returned from the idle loop, which means that all threads are
-        // finished. Note that decreasing splitPointsSize must be done under lock
+        // finished. Note that decreasing split_points_size must be done under lock
         // protection to avoid a race with Thread::can_join().
         self.searching.store(true, Ordering::Release);
-        let th_state = self.state_mut();
-        th_state.split_points_size.fetch_sub(1, Ordering::Release);
-        th_state.active_split_point = sp.state().parent_split_point.clone();
+        self.split_points_size.fetch_sub(1, Ordering::Release);
+        *self.active_split_point_mut() = sp.state().parent_split_point.clone();
 
         self.unlock();
 
@@ -689,9 +682,9 @@ impl Thread {
     /// 2. **Helper Mode**: If called at thread creation, waits for work assignments
     ///    and executes search tasks when assigned to split points
     fn idle_loop(self: &Arc<Self>) {
-        // Pointer 'this_sp' is not null only if we are called from split(), and not
-        // at the thread creation. This means we are the split point's owner.
-        let this_sp = self.state().active_split_point.clone();
+        // 'this_sp' is Some only when called from split() (not at thread creation).
+        // This means we are the split point's owner.
+        let this_sp = self.active_split_point().clone();
 
         // Main loop - continues until thread exit is signaled
         while !self.exit.load(Ordering::Acquire) {
@@ -705,7 +698,7 @@ impl Thread {
             // If this thread has been assigned work, launch a search
             while self.searching.load(Ordering::Acquire) {
                 self.lock();
-                let sp = self.state().active_split_point.clone().unwrap();
+                let sp = self.active_split_point().clone().unwrap();
                 self.unlock();
 
                 let (board, depth, node_type) = {
@@ -733,9 +726,8 @@ impl Thread {
                 sp_state.set_all_helpers_searching(false);
                 sp_state.helpers_mask.reset(self.idx);
 
-                // After releasing the lock we can't access any SplitPoint related data
-                // in a safe way because it could have been released under our feet by
-                // the sp owner.
+                // After clearing our helpers_mask bit, the owner may observe none() and
+                // tear down the split point, so we must not access sp data after this.
                 sp.unlock();
 
                 self.try_late_join();
@@ -770,7 +762,7 @@ impl Thread {
     /// 3. Executes the root search
     /// 4. Sends results back via the result channel
     /// 5. Handles shutdown requests
-    fn main_thread_loop(self: Arc<Self>, receiver: Arc<std::sync::Mutex<Receiver<Message>>>) {
+    fn main_thread_loop(self: Arc<Self>, receiver: Receiver<Message>) {
         loop {
             // Check exit flag before blocking on receive
             if self.exit.load(Ordering::Acquire) {
@@ -778,10 +770,7 @@ impl Thread {
             }
 
             // Block waiting for next message
-            let message = {
-                let receiver_guard = receiver.lock().unwrap();
-                receiver_guard.recv()
-            };
+            let message = receiver.recv();
 
             match message {
                 Ok(Message::StartThinking(task, thread, result_sender)) => {
@@ -823,31 +812,30 @@ impl Thread {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        node_type: u32,
+        node_type: NodeTypeId,
         sp: &Arc<SplitPoint>,
     ) {
         match (sp.state().is_endgame, node_type) {
             // Endgame searches
-            (true, NonPV::TYPE_ID) => {
+            (true, NodeTypeId::NonPv) => {
                 search_split_point::<NonPV, EndGameStrategy>(ctx, board, depth, self, sp);
             }
-            (true, PV::TYPE_ID) => {
+            (true, NodeTypeId::Pv) => {
                 search_split_point::<PV, EndGameStrategy>(ctx, board, depth, self, sp);
             }
-            (true, Root::TYPE_ID) => {
+            (true, NodeTypeId::Root) => {
                 search_split_point::<Root, EndGameStrategy>(ctx, board, depth, self, sp);
             }
             // Midgame searches
-            (false, NonPV::TYPE_ID) => {
+            (false, NodeTypeId::NonPv) => {
                 search_split_point::<NonPV, MidGameStrategy>(ctx, board, depth, self, sp);
             }
-            (false, PV::TYPE_ID) => {
+            (false, NodeTypeId::Pv) => {
                 search_split_point::<PV, MidGameStrategy>(ctx, board, depth, self, sp);
             }
-            (false, Root::TYPE_ID) => {
+            (false, NodeTypeId::Root) => {
                 search_split_point::<Root, MidGameStrategy>(ctx, board, depth, self, sp);
             }
-            _ => unreachable!("Invalid node type: {}", node_type),
         }
     }
 
@@ -871,14 +859,14 @@ impl Thread {
 
         for th in &pool.threads {
             // split_points_size is atomic; Acquire pairs with Release in split()/finalize_split_point().
-            let size = th.state().split_points_size.load(Ordering::Acquire);
+            let size = th.split_points_size.load(Ordering::Acquire);
             if size == 0 {
                 continue;
             }
 
             // split_points[] elements are immutable Arc pointers (created once in Thread::new),
             // so indexing with a valid size is safe without the thread lock.
-            let sp = &th.state().split_points[size - 1];
+            let sp = &th.split_points[size - 1];
             let sp_state = sp.state();
 
             if sp_state.cutoff()
@@ -922,7 +910,7 @@ impl Thread {
 
             if self.can_join(sp) {
                 sp_state.helpers_mask.set(self.idx);
-                self.state_mut().active_split_point = Some(sp.clone());
+                *self.active_split_point_mut() = Some(sp.clone());
                 self.searching.store(true, Ordering::Release);
             }
 
@@ -964,9 +952,6 @@ pub struct ThreadPool {
     /// Channel sender for sending messages to the main thread.
     sender: Arc<Sender<Message>>,
 
-    /// Channel receiver for the main thread (protected by mutex).
-    receiver: Arc<std::sync::Mutex<Receiver<Message>>>,
-
     /// Flag for aborting the current search.
     abort_flag: Arc<AtomicBool>,
 
@@ -990,26 +975,29 @@ impl ThreadPool {
                 size: n_threads,
                 thinking: Arc::new(AtomicBool::new(false)),
                 sender: Arc::new(sender),
-                receiver: Arc::new(Mutex::new(receiver)),
                 abort_flag: Arc::new(AtomicBool::new(false)),
                 timer_handle: Mutex::new(None),
                 timer_stop: Arc::new(AtomicBool::new(false)),
             };
 
-            pool.init(weak);
+            pool.init(weak, receiver);
             pool
         })
     }
 
     /// Initializes the thread pool by creating and starting all threads.
-    pub fn init(&mut self, pool: &std::sync::Weak<ThreadPool>) {
-        self.create_main_thread(pool);
+    fn init(&mut self, pool: &std::sync::Weak<ThreadPool>, receiver: Receiver<Message>) {
+        self.create_main_thread(pool, receiver);
         self.create_worker_threads(pool);
         self.wait_for_threads_ready();
     }
 
     /// Creates and starts the main thread that handles control messages.
-    fn create_main_thread(&mut self, pool: &std::sync::Weak<ThreadPool>) {
+    fn create_main_thread(
+        &mut self,
+        pool: &std::sync::Weak<ThreadPool>,
+        receiver: Receiver<Message>,
+    ) {
         let main_thread = Arc::new(Thread::new(
             0,
             self.thinking.clone(),
@@ -1018,9 +1006,8 @@ impl ThreadPool {
             pool.clone(),
         ));
         let main_thread_clone = main_thread.clone();
-        let receiver_clone = self.receiver.clone();
 
-        let handle = std::thread::spawn(move || main_thread_clone.main_thread_loop(receiver_clone));
+        let handle = std::thread::spawn(move || main_thread_clone.main_thread_loop(receiver));
 
         self.threads.push(main_thread);
         self.thread_handles.push(handle);
@@ -1115,7 +1102,7 @@ impl ThreadPool {
             thread.lock();
             if thread.can_join(sp) {
                 sp_state.helpers_mask.set(thread.idx);
-                thread.state_mut().active_split_point = Some(sp.clone());
+                *thread.active_split_point_mut() = Some(sp.clone());
                 thread.searching.store(true, Ordering::Release);
             }
             thread.unlock();
