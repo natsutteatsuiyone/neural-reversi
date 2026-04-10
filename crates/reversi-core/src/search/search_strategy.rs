@@ -42,7 +42,7 @@ pub trait SearchStrategy: Copy + Clone + 'static {
     ) -> ScaledScore;
 
     /// Calls the phase-specific probcut implementation.
-    fn probcut(
+    fn try_probcut(
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
@@ -88,14 +88,14 @@ impl SearchStrategy for MidGameStrategy {
     }
 
     #[inline(always)]
-    fn probcut(
+    fn try_probcut(
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
         beta: ScaledScore,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore> {
-        midgame::probcut(ctx, board, depth, beta, thread)
+        midgame::try_probcut(ctx, board, depth, beta, thread)
     }
 }
 
@@ -124,13 +124,13 @@ impl SearchStrategy for EndGameStrategy {
     }
 
     #[inline(always)]
-    fn probcut(
+    fn try_probcut(
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
         beta: ScaledScore,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore> {
-        endgame::probcut(ctx, board, depth, beta, thread)
+        endgame::try_probcut(ctx, board, depth, beta, thread)
     }
 }

@@ -248,7 +248,7 @@ fn aspiration_search(
 }
 
 /// Attempts ProbCut pruning for endgame positions.
-pub fn probcut(
+pub fn try_probcut(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,

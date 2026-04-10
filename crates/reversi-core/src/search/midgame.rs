@@ -218,7 +218,7 @@ fn random_move(board: &Board) -> Square {
 }
 
 /// Attempts ProbCut pruning for midgame positions.
-pub fn probcut(
+pub fn try_probcut(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
