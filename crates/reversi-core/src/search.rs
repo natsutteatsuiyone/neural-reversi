@@ -520,7 +520,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         let score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
         ctx.undo(tt_move);
 
-        if thread.cutoff_occurred() || thread.is_search_aborted() {
+        if thread.should_stop() {
             return ScaledScore::ZERO;
         }
 
@@ -581,7 +581,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.n_nodes += n;
             ctx.counters.merge(&split_counters);
 
-            if thread.cutoff_occurred() || thread.is_search_aborted() {
+            if thread.should_stop() {
                 return ScaledScore::ZERO;
             }
 
@@ -622,7 +622,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         ctx.undo(mv.sq);
 
         // Abort check
-        if thread.cutoff_occurred() || thread.is_search_aborted() {
+        if thread.should_stop() {
             return ScaledScore::ZERO;
         }
 
@@ -723,7 +723,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         split_point.lock();
 
         // Abort check
-        if thread.cutoff_occurred() || thread.is_search_aborted() {
+        if thread.should_stop() {
             return ScaledScore::ZERO;
         }
 

@@ -924,6 +924,14 @@ impl Thread {
     pub fn is_search_aborted(&self) -> bool {
         self.abort_flag.load(Ordering::Acquire)
     }
+
+    /// Returns `true` when the current branch should abandon its result —
+    /// either a beta cutoff has occurred on an ancestor split point, or the
+    /// whole search has been aborted.
+    #[inline]
+    pub fn should_stop(&self) -> bool {
+        self.cutoff_occurred() || self.is_search_aborted()
+    }
 }
 
 /// Messages that can be sent to the main thread.
