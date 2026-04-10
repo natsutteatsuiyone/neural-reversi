@@ -67,7 +67,6 @@ impl SearchResult {
     pub fn from_root_move(
         root_moves: &RootMoves,
         best_move: &RootMove,
-        n_nodes: u64,
         depth: Depth,
         selectivity: Selectivity,
         is_endgame: bool,
@@ -82,7 +81,7 @@ impl SearchResult {
         Self {
             score: best_move.score.to_disc_diff_f32(),
             best_move: Some(best_move.sq),
-            n_nodes,
+            n_nodes: counters.n_nodes,
             pv_line: best_move.pv.clone(),
             depth,
             selectivity,

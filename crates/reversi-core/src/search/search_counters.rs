@@ -6,6 +6,8 @@
 /// a search, enabling performance analysis without affecting search behavior.
 #[derive(Debug, Clone, Default)]
 pub struct SearchCounters {
+    /// Total number of nodes visited during search.
+    pub n_nodes: u64,
     /// Number of transposition table probes.
     pub tt_probes: u64,
     /// Number of transposition table cutoffs (probe succeeded and caused a cutoff).
@@ -25,6 +27,7 @@ pub struct SearchCounters {
 impl SearchCounters {
     /// Merges counters from another context (e.g. a parallel search thread).
     pub fn merge(&mut self, other: &SearchCounters) {
+        self.n_nodes += other.n_nodes;
         self.tt_probes += other.tt_probes;
         self.tt_hits += other.tt_hits;
         self.probcut_attempts += other.probcut_attempts;

@@ -597,7 +597,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             && (n_moves - move_count) >= 2
             && thread.can_split()
         {
-            let (s, m, n, split_counters) = thread.split(
+            let (s, m, split_counters) = thread.split(
                 ctx,
                 board,
                 alpha,
@@ -612,7 +612,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             );
             best_score = s;
             best_move = m;
-            ctx.n_nodes += n;
             ctx.counters.merge(&split_counters);
 
             if thread.should_stop() {

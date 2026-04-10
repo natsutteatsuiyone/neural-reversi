@@ -3,7 +3,7 @@
 //! Reference: <https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp>
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{JoinHandle, sleep};
@@ -75,10 +75,14 @@ pub struct SplitPointState {
     /// Search depth remaining from this position.
     depth: Depth,
 
-    /// Total number of nodes searched by all threads at this split point.
-    n_nodes: AtomicU64,
-
     /// Accumulated search counters from all helper threads.
+    ///
+    /// Wrapped in a `Mutex` to provide interior mutability on the paths that
+    /// can run concurrently with lock-free `&SplitPointState` borrows held by
+    /// `try_late_join`'s pre-check — namely helper publication in
+    /// `Thread::idle_loop` and post-idle_loop extraction in `Thread::split`.
+    /// A bare field would force `sp.state_mut()` on those paths and alias
+    /// with the concurrent shared borrows.
     counters: std::sync::Mutex<SearchCounters>,
 
     /// Task data containing the position and search context.
@@ -154,18 +158,6 @@ impl SplitPointState {
     #[inline]
     pub fn set_best_move(&self, value: Square) {
         self.best_move.store(value as u8, Ordering::Relaxed);
-    }
-
-    /// Returns the node count.
-    #[inline]
-    pub fn n_nodes(&self) -> u64 {
-        self.n_nodes.load(Ordering::Relaxed)
-    }
-
-    /// Adds to the node count.
-    #[inline]
-    pub fn add_nodes(&self, count: u64) {
-        self.n_nodes.fetch_add(count, Ordering::Relaxed);
     }
 
     /// Copies PV from source to the split point's internal PV storage.
@@ -250,7 +242,6 @@ impl Default for SplitPoint {
                 owner_thread_idx: 0,
                 helpers_mask: AtomicBitSet::new(),
                 depth: 0,
-                n_nodes: AtomicU64::new(0),
                 counters: std::sync::Mutex::new(SearchCounters::default()),
                 task: None,
                 parent_split_point: None,
@@ -530,7 +521,7 @@ impl Thread {
     /// 2. Finds idle threads and assigns them to help search
     /// 3. The calling thread also participates in the search (helpful owner)
     /// 4. Waits for all threads to complete their work
-    /// 5. Returns the best move, score, and node count
+    /// 5. Returns the best score, best move, and accumulated counters
     #[allow(clippy::too_many_arguments)]
     pub fn split(
         self: &Arc<Self>,
@@ -545,7 +536,7 @@ impl Thread {
         move_count: usize,
         node_type: NodeTypeId,
         is_endgame: bool,
-    ) -> (ScaledScore, Square, u64, SearchCounters) {
+    ) -> (ScaledScore, Square, SearchCounters) {
         // Pick the next available split point
         let sp = &self.split_points[self.split_points_size.load(Ordering::Relaxed)];
 
@@ -562,20 +553,16 @@ impl Thread {
         // Clean up the split point
         self.finalize_split_point(sp);
 
-        // Extract results - split point data is now immutable
+        // All helpers have finished this split point, but other threads may
+        // still hold brief lock-free `&SplitPointState` borrows via
+        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`) and rely on
+        // the `Mutex` around `counters` for interior mutability, matching the
+        // aliasing discipline used for the atomic fields.
         let sp_state = sp.state();
-
-        // Copy PV from split point back to coordinator's stack
         ctx.set_pv(sp_state.pv());
-
         let counters = std::mem::take(&mut *sp_state.counters.lock().unwrap());
 
-        (
-            sp_state.best_score(),
-            sp_state.best_move(),
-            sp_state.n_nodes(),
-            counters,
-        )
+        (sp_state.best_score(), sp_state.best_move(), counters)
     }
 
     /// Initializes a split point with search parameters and finds workers.
@@ -626,7 +613,6 @@ impl Thread {
             p_feature: *ctx.pattern_features.p_feature(ply),
             o_feature: *ctx.pattern_features.o_feature(ply),
         });
-        sp_state.n_nodes.store(0, Ordering::Relaxed);
         *sp_state.counters.lock().unwrap() = SearchCounters::default();
         sp_state.set_cutoff(false);
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
@@ -715,13 +701,13 @@ impl Thread {
                 self.searching.store(false, Ordering::Release);
                 self.unlock();
 
-                // Update split point state.
-                // n_nodes and counters must be written BEFORE clearing helpers_mask,
-                // because the owner uses helpers_mask.none() (Acquire) to decide when
-                // all helpers are done and then reads n_nodes / counters. The Release
-                // on reset() publishes the preceding writes to the Acquire reader.
-                let sp_state = sp.state_mut();
-                sp_state.add_nodes(ctx.n_nodes);
+                // Publish counters before clearing helpers_mask: the Release on
+                // reset() pairs with the owner's Acquire in helpers_mask.none().
+                // Stay on `sp.state()` (`&`): the Mutex provides interior
+                // mutability for `counters`, and the remaining writes are
+                // atomic — so this path stays aliasing-compatible with
+                // concurrent lock-free readers in `try_late_join`.
+                let sp_state = sp.state();
                 sp_state.counters.lock().unwrap().merge(&ctx.counters);
                 sp_state.set_all_helpers_searching(false);
                 sp_state.helpers_mask.reset(self.idx);
@@ -958,7 +944,7 @@ pub struct ThreadPool {
     thinking: Arc<AtomicBool>,
 
     /// Channel sender for sending messages to the main thread.
-    sender: Arc<Sender<Message>>,
+    sender: Sender<Message>,
 
     /// Flag for aborting the current search.
     abort_flag: Arc<AtomicBool>,
@@ -982,7 +968,7 @@ impl ThreadPool {
                 thread_handles: Vec::new(),
                 size: n_threads,
                 thinking: Arc::new(AtomicBool::new(false)),
-                sender: Arc::new(sender),
+                sender,
                 abort_flag: Arc::new(AtomicBool::new(false)),
                 timer_handle: Mutex::new(None),
                 timer_stop: Arc::new(AtomicBool::new(false)),
@@ -1081,12 +1067,10 @@ impl ThreadPool {
         // Ignore send error if receiver is already dropped
         let _ = self.sender.send(Message::Exit);
 
-        // Join all threads, collecting any panic information
-        for (_idx, thread_handle) in self.thread_handles.drain(..).enumerate() {
-            if let Err(_panic_info) = thread_handle.join() {
-                #[cfg(debug_assertions)]
-                eprintln!("Warning: Thread {} panicked during shutdown", _idx);
-            }
+        // Join all threads; panic info is absorbed (the panicking thread has
+        // already logged at the panic site).
+        for handle in self.thread_handles.drain(..) {
+            let _ = handle.join();
         }
 
         // Clear thread references
@@ -1127,7 +1111,7 @@ impl ThreadPool {
         let (result_sender, result_receiver) = std::sync::mpsc::channel();
 
         // Ensure clean state before starting new search
-        self.reset_abort_flag();
+        self.abort_flag.store(false, Ordering::Release);
 
         // Mark pool as actively thinking before sending message
         self.thinking.store(true, Ordering::Release);
@@ -1168,11 +1152,6 @@ impl ThreadPool {
     /// Signals all threads to abort the current search.
     pub fn abort_search(&self) {
         self.abort_flag.store(true, Ordering::Release);
-    }
-
-    /// Resets the abort flag for a new search.
-    fn reset_abort_flag(&self) {
-        self.abort_flag.store(false, Ordering::Release);
     }
 
     /// Checks whether the current search has been aborted.

@@ -23,9 +23,7 @@ pub use crate::search::search_stack::StackRecord;
 
 /// The search context that maintains all state during search operations.
 pub struct SearchContext {
-    /// Number of nodes searched in this context
-    pub n_nodes: u64,
-    /// Diagnostic counters for search statistics (adjacent to n_nodes for cache locality).
+    /// Diagnostic counters for search statistics.
     pub counters: SearchCounters,
     /// Current side to move
     pub side_to_move: SideToMove,
@@ -58,7 +56,6 @@ impl SearchContext {
         let empty_list = EmptyList::new(board);
         let ply = empty_list.ply();
         SearchContext {
-            n_nodes: 0,
             counters: SearchCounters::default(),
             side_to_move: SideToMove::Player,
             selectivity,
@@ -82,7 +79,6 @@ impl SearchContext {
         let pattern_features =
             PatternFeatures::from_features(ply, &task.p_feature, &task.o_feature);
         SearchContext {
-            n_nodes: 0,
             counters: SearchCounters::default(),
             side_to_move: task.side_to_move,
             empty_list,
@@ -157,7 +153,7 @@ impl SearchContext {
     /// Increments the node counter for search statistics.
     #[inline]
     pub fn increment_nodes(&mut self) {
-        self.n_nodes += 1;
+        self.counters.n_nodes += 1;
     }
 
     /// Returns the current pattern feature for neural network evaluation.

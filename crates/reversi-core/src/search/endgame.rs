@@ -152,7 +152,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                     score: score.to_disc_diff_f32(),
                     best_move: rm.sq,
                     probability: ctx.selectivity.probability(),
-                    nodes: ctx.n_nodes,
+                    nodes: ctx.counters.n_nodes,
                     pv_line: rm.pv.clone(),
                     is_endgame: true,
                     counters: ctx.counters.clone(),
@@ -174,7 +174,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             return SearchResult::from_root_move(
                 &ctx.root_moves,
                 &best_move,
-                ctx.n_nodes,
                 n_empties,
                 ctx.selectivity,
                 true,
@@ -190,7 +189,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     SearchResult::from_root_move(
         &ctx.root_moves,
         &rm,
-        ctx.n_nodes,
         n_empties,
         ctx.selectivity,
         true,
