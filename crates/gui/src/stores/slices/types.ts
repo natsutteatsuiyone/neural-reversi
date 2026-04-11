@@ -1,4 +1,10 @@
-import type { AIMoveProgress, AIMoveResult } from "@/services/types";
+import type {
+    AIMoveProgress,
+    AIMoveResult,
+    SolverCandidate,
+    SolverProgressPayload,
+    SolverSelectivity,
+} from "@/services/types";
 import type { MoveHistory } from "@/lib/move-history";
 import type { AIMode, Board, GameMode, Player } from "@/types";
 import type { Move } from "@/lib/store-helpers";
@@ -96,6 +102,8 @@ export interface SettingsSlice {
     gameAnalysisLevel: number;
     hashSize: number;
     aiAnalysisPanelOpen: boolean;
+    rightPanelSize: number;
+    bottomPanelSize: number;
     language: Language | null;
     hydrateSettings: (settings: AppSettings) => void;
     setGameMode: (mode: GameMode) => void;
@@ -105,6 +113,8 @@ export interface SettingsSlice {
     setGameAnalysisLevel: (level: number) => void;
     setHashSize: (size: number) => void;
     setAIAnalysisPanelOpen: (open: boolean) => void;
+    setRightPanelSize: (size: number) => void;
+    setBottomPanelSize: (size: number) => void;
     setLanguagePreference: (language: Language | null) => Promise<boolean>;
 }
 
@@ -129,4 +139,53 @@ export interface SetupSlice {
     startFromSetup: (settings?: NewGameSettings) => Promise<boolean>;
 }
 
-export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice & SetupSlice;
+export interface SolverHistoryEntry {
+    board: Board;
+    player: Player;
+    /** `null` for the root entry; move notation (e.g. "d3") for subsequent steps. */
+    moveFrom: string | null;
+}
+
+export interface SolverSlice {
+    isSolverActive: boolean;
+    isSolverModalOpen: boolean;
+    solverRootBoard: Board | null;
+    solverRootPlayer: Player | null;
+    solverHistory: SolverHistoryEntry[];
+    solverCurrentBoard: Board | null;
+    solverCurrentPlayer: Player | null;
+    targetSelectivity: SolverSelectivity;
+    solverCandidates: Map<string, SolverCandidate>;
+    isSolverSearching: boolean;
+    /**
+     * True only while the current search has been explicitly paused by the
+     * user via `stopSolverSearch`. Cleared when any new search launches
+     * (navigation, selectivity change, resume, solver exit). Lets the UI
+     * offer Resume after a manual stop without offering it after a search
+     * completes naturally.
+     */
+    isSolverStopped: boolean;
+    /**
+     * Private generational counter used to drop the results of aborted /
+     * superseded searches. Every action that launches a new search increments
+     * this, and the catch branch of `runSolverSearch` only clears
+     * `isSolverSearching` if its captured id still matches the current value.
+     * Not exposed as an action — callers must not mutate this directly.
+     */
+    solverSearchRunId: number;
+
+    openSolverModal: () => void;
+    closeSolverModal: () => void;
+    startSolver: (board: Board, player: Player) => Promise<boolean>;
+    startSolverFromSetup: () => Promise<boolean>;
+    exitSolver: () => Promise<void>;
+    advanceSolver: (row: number, col: number) => Promise<void>;
+    undoSolver: () => Promise<void>;
+    resetSolverToRoot: () => Promise<void>;
+    setTargetSelectivity: (sel: SolverSelectivity) => Promise<void>;
+    stopSolverSearch: () => Promise<void>;
+    resumeSolverSearch: () => Promise<void>;
+    applySolverProgress: (payload: SolverProgressPayload) => void;
+}
+
+export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice & SetupSlice & SolverSlice;

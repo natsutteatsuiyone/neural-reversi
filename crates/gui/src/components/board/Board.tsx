@@ -1,6 +1,8 @@
 import { Canvas } from "@react-three/fiber";
 import { Board3DScene } from "./Board3DScene";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { getValidMoves } from "@/lib/game-logic";
+import type { AIMoveProgress } from "@/services/types";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 interface MoveHistoryItem {
@@ -11,6 +13,7 @@ interface MoveHistoryItem {
 
 const AI_MOVE_HIGHLIGHT_DURATION = 1200;
 const MAX_MOVE_HISTORY_SIZE = 3;
+const EMPTY_MOVE_HISTORY: MoveHistoryItem[] = [];
 
 export function Board() {
   const board = useReversiStore((state) => state.board);
@@ -23,21 +26,64 @@ export function Board() {
   const analyzeResults = useReversiStore((state) => state.analyzeResults);
   const skipAnimation = useReversiStore((state) => state.skipAnimation);
 
+  const isSolverActive = useReversiStore((state) => state.isSolverActive);
+  const solverCurrentBoard = useReversiStore((state) => state.solverCurrentBoard);
+  const solverCurrentPlayer = useReversiStore((state) => state.solverCurrentPlayer);
+  const solverCandidates = useReversiStore((state) => state.solverCandidates);
+  const advanceSolver = useReversiStore((state) => state.advanceSolver);
+
   const [moveHistory, setMoveHistory] = useState<MoveHistoryItem[]>([]);
   const [lastAIMove, setLastAIMove] = useState<{ row: number; col: number; timestamp: number } | null>(null);
 
+  const solverLegalMoves = useMemo(() => {
+    if (!isSolverActive || !solverCurrentBoard || !solverCurrentPlayer) {
+      return null;
+    }
+    return getValidMoves(solverCurrentBoard, solverCurrentPlayer);
+  }, [isSolverActive, solverCurrentBoard, solverCurrentPlayer]);
+
+  const isValidSolverMove = useCallback(
+    (row: number, col: number) => {
+      if (!solverLegalMoves) return false;
+      return solverLegalMoves.some(([r, c]) => r === row && c === col);
+    },
+    [solverLegalMoves],
+  );
+
+  // Force acc=100 on endgame completion so non-100 target selectivities still trip the "done" branch.
+  const solverAnalyzeResults = useMemo(() => {
+    if (!isSolverActive) return null;
+    const map = new Map<string, AIMoveProgress>();
+    for (const [key, candidate] of solverCandidates) {
+      map.set(key, {
+        bestMove: candidate.move,
+        row: candidate.row,
+        col: candidate.col,
+        score: candidate.score,
+        depth: candidate.depth,
+        targetDepth: candidate.targetDepth,
+        acc: candidate.isEndgame && candidate.isComplete ? 100 : candidate.acc,
+        nodes: 0,
+        pvLine: candidate.pvLine,
+        isEndgame: candidate.isEndgame,
+      });
+    }
+    return map;
+  }, [isSolverActive, solverCandidates]);
+
   const maxScore = useMemo(() => {
-    if (!analyzeResults || analyzeResults.size === 0) return null;
+    const source = isSolverActive ? solverAnalyzeResults : analyzeResults;
+    if (!source || source.size === 0) return null;
 
     let highest = Number.NEGATIVE_INFINITY;
-    for (const result of analyzeResults.values()) {
+    for (const result of source.values()) {
       const rounded = Math.round(result.score);
       if (rounded > highest) {
         highest = rounded;
       }
     }
     return highest;
-  }, [analyzeResults]);
+  }, [isSolverActive, solverAnalyzeResults, analyzeResults]);
 
   const isAITurnNow = useReversiStore((state) => state.isAITurn());
 
@@ -86,35 +132,57 @@ export function Board() {
     setLastAIMove(null);
   }, [lastMove]);
 
-  const onCellClick = useCallback((row: number, col: number) => {
-    if (isAITurn() || gameOver || !isValidMove(row, col)) {
-      return;
-    }
+  const onCellClick = useCallback(
+    (row: number, col: number) => {
+      if (isSolverActive) {
+        if (!isValidSolverMove(row, col)) return;
+        void advanceSolver(row, col);
+        return;
+      }
+      if (isAITurn() || gameOver || !isValidMove(row, col)) {
+        return;
+      }
 
-    makeMove({
-      row,
-      col,
-      isAI: false,
-    });
-  }, [isAITurn, gameOver, isValidMove, makeMove]);
+      makeMove({
+        row,
+        col,
+        isAI: false,
+      });
+    },
+    [isSolverActive, isValidSolverMove, advanceSolver, isAITurn, gameOver, isValidMove, makeMove],
+  );
+
+  const activeBoard = isSolverActive && solverCurrentBoard ? solverCurrentBoard : board;
+  const activeIsValidMove = isSolverActive ? isValidSolverMove : isValidMove;
+  const activeIsAITurn = useCallback(
+    () => (isSolverActive ? false : isAITurn()),
+    [isSolverActive, isAITurn],
+  );
+  const activeGameOver = isSolverActive ? false : gameOver;
+  const activeLastMove = isSolverActive ? null : lastMove;
+  const activeAiMoveProgress = isSolverActive ? null : aiMoveProgress;
+  const activeLastAIMove = isSolverActive ? null : lastAIMove;
+  const activeMoveHistory = isSolverActive ? EMPTY_MOVE_HISTORY : moveHistory;
+  const activeAnalyzeResults = isSolverActive ? solverAnalyzeResults : analyzeResults;
+  const activeSkipAnimation = isSolverActive ? true : skipAnimation;
 
   return (
     <div className="h-full w-full">
       <Canvas frameloop="demand" shadows resize={{ debounce: { scroll: 50, resize: 100 } }}>
         <Suspense fallback={null}>
           <Board3DScene
-            board={board}
-            lastMove={lastMove}
-            gameOver={gameOver}
-            isValidMove={isValidMove}
-            isAITurn={isAITurn}
+            board={activeBoard}
+            lastMove={activeLastMove}
+            gameOver={activeGameOver}
+            isValidMove={activeIsValidMove}
+            isAITurn={activeIsAITurn}
             onCellClick={onCellClick}
-            aiMoveProgress={aiMoveProgress}
-            lastAIMove={lastAIMove}
-            moveHistory={moveHistory}
-            analyzeResults={analyzeResults}
+            aiMoveProgress={activeAiMoveProgress}
+            lastAIMove={activeLastAIMove}
+            moveHistory={activeMoveHistory}
+            analyzeResults={activeAnalyzeResults}
             maxScore={maxScore}
-            skipAnimation={skipAnimation}
+            skipAnimation={activeSkipAnimation}
           />
         </Suspense>
       </Canvas>

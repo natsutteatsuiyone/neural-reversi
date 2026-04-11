@@ -2,16 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { type Event, listen } from "@tauri-apps/api/event";
 import type { Board, Player } from "@/types";
 import { getValidMoves } from "@/lib/game-logic";
+import { serializeBoardForAI } from "./board-serialization";
 import type { AIService, AIMoveResult, AIMoveProgress, GameAnalysisProgress } from "./types";
-
-function serializeBoardForAI(board: Board, player: Player): string {
-  return board
-    .flat()
-    .map((cell) =>
-      cell.color === player ? "X" : cell.color === null ? "-" : "O"
-    )
-    .join("");
-}
 
 async function withEventListener<T, R>(
   event: string,

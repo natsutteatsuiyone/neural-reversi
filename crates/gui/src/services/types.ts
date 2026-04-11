@@ -1,3 +1,4 @@
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { AIMode, Board, GameMode, Player } from "@/types";
 import type { Language } from "@/i18n";
 
@@ -75,7 +76,10 @@ export interface AppSettings {
   gameAnalysisLevel: number;
   hashSize: number;
   aiAnalysisPanelOpen: boolean;
+  rightPanelSize: number;
+  bottomPanelSize: number;
   language: Language | null;
+  solverTargetSelectivity: SolverSelectivity;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -88,7 +92,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   gameAnalysisLevel: 20,
   hashSize: 512,
   aiAnalysisPanelOpen: false,
+  rightPanelSize: 25,
+  bottomPanelSize: 30,
   language: null,
+  solverTargetSelectivity: 100,
 };
 
 export interface SettingsService {
@@ -96,7 +103,70 @@ export interface SettingsService {
   saveSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): Promise<boolean>;
 }
 
+export const SOLVER_SELECTIVITIES = [73, 95, 99, 100] as const;
+export type SolverSelectivity = typeof SOLVER_SELECTIVITIES[number];
+
+/**
+ * Maps UI selectivity percentages to the backend `u8` expected by
+ * `solver_search_command` (matches `reversi_core::probcut::Selectivity` discriminants).
+ */
+export const SOLVER_SELECTIVITY_TO_U8: Record<SolverSelectivity, 0 | 2 | 4 | 5> = {
+  73: 0,   // Level1
+  95: 2,   // Level3
+  99: 4,   // Level5
+  100: 5,  // None
+};
+
+/**
+ * Progress payload for solver searches. Mirrors {@link AIMoveProgress} but
+ * carries `runId` so the store can drop events emitted by a superseded run
+ * (e.g. one that was aborted before its queued events drained on the JS side).
+ */
+export type SolverProgressPayload = AIMoveProgress & {
+  runId: number;
+};
+
+/**
+ * A single candidate move in solver results, keyed by "row,col" in the store.
+ */
+export interface SolverCandidate {
+  move: string;
+  row: number;
+  col: number;
+  score: number;
+  depth: number;
+  targetDepth: number;
+  acc: number;
+  /** Space-separated move notation list, as received from the backend. */
+  pvLine: string;
+  /** True while this iteration deepens by selectivity rather than by depth. */
+  isEndgame: boolean;
+  isComplete: boolean;
+}
+
+export interface SolverService {
+  /**
+   * Kicks off a solver search on the given position. Returns once the command
+   * has been dispatched; results arrive asynchronously via the progress
+   * listener.
+   */
+  startSearch(
+    board: Board,
+    player: Player,
+    targetSelectivity: SolverSelectivity,
+    runId: number,
+  ): Promise<void>;
+  /** Aborts any in-flight search (shared with the main AI search mutex). */
+  abort(): Promise<void>;
+  /**
+   * Subscribes to `solver-progress` events. Returns an unsubscribe function
+   * that the caller MUST invoke when the listener is no longer needed.
+   */
+  onProgress(callback: (payload: SolverProgressPayload) => void): Promise<UnlistenFn>;
+}
+
 export interface Services {
   ai: AIService;
   settings: SettingsService;
+  solver: SolverService;
 }

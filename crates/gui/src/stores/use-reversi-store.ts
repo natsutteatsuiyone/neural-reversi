@@ -6,6 +6,7 @@ import { createAISlice } from "./slices/ai-slice";
 import { createUISlice } from "./slices/ui-slice";
 import { createSettingsSlice } from "./slices/settings-slice";
 import { createSetupSlice } from "./slices/setup-slice";
+import { createSolverSlice } from "./slices/solver-slice";
 import { defaultServices } from "@/services";
 
 export function createReversiStore(services: Services) {
@@ -15,6 +16,7 @@ export function createReversiStore(services: Services) {
     ...createUISlice(services)(...a),
     ...createSettingsSlice(services)(...a),
     ...createSetupSlice(services)(...a),
+    ...createSolverSlice(services)(...a),
   }));
 }
 

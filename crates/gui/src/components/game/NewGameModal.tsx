@@ -46,7 +46,10 @@ function NewGameModalContent({
   const [settings, setSettings] = useState<GameSettings>(initialSettings);
   const [step, setStep] = useState<1 | 2>(1);
   const activeRef = useRef(true);
-  useEffect(() => () => { activeRef.current = false; }, []);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
 
   const handleSettingsChange = useCallback((partial: Partial<GameSettings>) => {
     setSettings((prev) => ({ ...prev, ...partial }));

@@ -1,7 +1,20 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 import type { AIMode, GameMode } from "@/types";
 import type { Language } from "@/i18n";
-import { DEFAULT_SETTINGS, type AppSettings, type SettingsService } from "./types";
+import {
+  DEFAULT_SETTINGS,
+  SOLVER_SELECTIVITIES,
+  type AppSettings,
+  type SettingsService,
+  type SolverSelectivity,
+} from "./types";
+
+function isValidSolverSelectivity(value: unknown): value is SolverSelectivity {
+  return (
+    typeof value === "number" &&
+    (SOLVER_SELECTIVITIES as readonly number[]).includes(value)
+  );
+}
 
 export class TauriSettingsService implements SettingsService {
   private storePromise: Promise<Store> | null = null;
@@ -22,7 +35,8 @@ export class TauriSettingsService implements SettingsService {
       const s = await this.getStore();
       const [
         gameMode, aiLevel, aiMode, timeLimit, gameTimeLimit,
-        hintLevel, gameAnalysisLevel, hashSize, aiAnalysisPanelOpen, language,
+        hintLevel, gameAnalysisLevel, hashSize, aiAnalysisPanelOpen,
+        rightPanelSize, bottomPanelSize, language, solverTargetSelectivity,
       ] = await Promise.all([
         s.get<GameMode>("gameMode"),
         s.get<number>("aiLevel"),
@@ -33,7 +47,10 @@ export class TauriSettingsService implements SettingsService {
         s.get<number>("gameAnalysisLevel"),
         s.get<number>("hashSize"),
         s.get<boolean>("aiAnalysisPanelOpen"),
+        s.get<number>("rightPanelSize"),
+        s.get<number>("bottomPanelSize"),
         s.get<Language | null>("language"),
+        s.get<number>("solverTargetSelectivity"),
       ]);
 
       return {
@@ -46,7 +63,12 @@ export class TauriSettingsService implements SettingsService {
         gameAnalysisLevel: gameAnalysisLevel ?? DEFAULT_SETTINGS.gameAnalysisLevel,
         hashSize: hashSize ?? DEFAULT_SETTINGS.hashSize,
         aiAnalysisPanelOpen: aiAnalysisPanelOpen ?? DEFAULT_SETTINGS.aiAnalysisPanelOpen,
+        rightPanelSize: rightPanelSize ?? DEFAULT_SETTINGS.rightPanelSize,
+        bottomPanelSize: bottomPanelSize ?? DEFAULT_SETTINGS.bottomPanelSize,
         language: language ?? DEFAULT_SETTINGS.language,
+        solverTargetSelectivity: isValidSolverSelectivity(solverTargetSelectivity)
+          ? solverTargetSelectivity
+          : DEFAULT_SETTINGS.solverTargetSelectivity,
       };
     } catch (error) {
       console.error("Failed to load settings:", error);

@@ -16,6 +16,7 @@ describe("initial state", () => {
     expect(s.hintLevel).toBe(21);
     expect(s.aiAnalysisPanelOpen).toBe(false);
     expect(s.language).toBeNull();
+    expect(s.targetSelectivity).toBe(100);
   });
 });
 
@@ -32,7 +33,10 @@ describe("hydrateSettings", () => {
       gameAnalysisLevel: 16,
       hashSize: 1024,
       aiAnalysisPanelOpen: true,
+      rightPanelSize: 30,
+      bottomPanelSize: 35,
       language: "ja",
+      solverTargetSelectivity: 95,
     };
 
     store.getState().hydrateSettings(settings);
@@ -48,6 +52,7 @@ describe("hydrateSettings", () => {
     expect(s.hashSize).toBe(1024);
     expect(s.aiAnalysisPanelOpen).toBe(true);
     expect(s.language).toBe("ja");
+    expect(s.targetSelectivity).toBe(95);
     expect(services.settings.saveSetting).not.toHaveBeenCalled();
     expect(services.ai.resizeTT).toHaveBeenCalledWith(1024);
   });

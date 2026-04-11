@@ -410,8 +410,24 @@ export function createGameSlice(services: Services): StateCreator<
 
     startGame: async (settings) => {
         const nextSettings = resolveNewGameSettings(get(), settings);
+
+        // If solver mode is active, abort its search first (without tearing
+        // down solver state) so prepareToReplaceGame doesn't deadlock on the
+        // shared backend mutex. Solver state cleanup is deferred to AFTER
+        // setup succeeds so that a failed init leaves the user's solver
+        // session intact, matching how startGame preserves the current game
+        // state on errors.
+        const wasSolverActive = get().isSolverActive;
+        if (wasSolverActive) {
+            await services.solver.abort();
+        }
+
         if (!(await prepareToReplaceGame(services, get, set))) {
             return false;
+        }
+
+        if (wasSolverActive) {
+            await get().exitSolver();
         }
 
         const board = initializeBoard();

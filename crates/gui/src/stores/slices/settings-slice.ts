@@ -16,6 +16,8 @@ export function createSettingsSlice(services: Services): StateCreator<
     gameAnalysisLevel: DEFAULT_SETTINGS.gameAnalysisLevel,
     hashSize: DEFAULT_SETTINGS.hashSize,
     aiAnalysisPanelOpen: DEFAULT_SETTINGS.aiAnalysisPanelOpen,
+    rightPanelSize: DEFAULT_SETTINGS.rightPanelSize,
+    bottomPanelSize: DEFAULT_SETTINGS.bottomPanelSize,
     language: DEFAULT_SETTINGS.language,
 
     hydrateSettings: (settings) => {
@@ -28,9 +30,12 @@ export function createSettingsSlice(services: Services): StateCreator<
             gameAnalysisLevel: settings.gameAnalysisLevel,
             hashSize: settings.hashSize,
             aiAnalysisPanelOpen: settings.aiAnalysisPanelOpen,
+            rightPanelSize: settings.rightPanelSize,
+            bottomPanelSize: settings.bottomPanelSize,
             aiLevel: settings.aiLevel,
             aiMode: settings.aiMode,
             language: settings.language,
+            targetSelectivity: settings.solverTargetSelectivity,
             analyzeResults: null,
         });
         if (shouldResizeTT) {
@@ -78,6 +83,16 @@ export function createSettingsSlice(services: Services): StateCreator<
     setAIAnalysisPanelOpen: (open) => {
         set({ aiAnalysisPanelOpen: open });
         void services.settings.saveSetting("aiAnalysisPanelOpen", open);
+    },
+
+    setRightPanelSize: (size) => {
+        set({ rightPanelSize: size });
+        void services.settings.saveSetting("rightPanelSize", size);
+    },
+
+    setBottomPanelSize: (size) => {
+        set({ bottomPanelSize: size });
+        void services.settings.saveSetting("bottomPanelSize", size);
     },
 
     setLanguagePreference: async (language) => {

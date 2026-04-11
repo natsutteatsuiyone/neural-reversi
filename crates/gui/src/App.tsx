@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Trophy, Info } from "lucide-react";
 import { getWinner } from "@/lib/game-logic";
 import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation";
+import { useSolverProgressListener } from "@/hooks/useSolverProgressListener";
 import { useTranslation } from "react-i18next";
 import { PASS_NOTIFICATION_DURATION_MS } from "@/stores/slices/game-slice";
 import "./App.css";
@@ -32,6 +33,7 @@ function App({ initialSettings }: AppProps) {
 
   // Enable keyboard navigation
   useKeyboardNavigation();
+  useSolverProgressListener();
 
   useEffect(() => {
     const initApp = async () => {

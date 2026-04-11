@@ -47,6 +47,14 @@ pub struct SearchProgressPayload {
     pub is_endgame: bool,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SolverProgressPayload {
+    run_id: u64,
+    #[serde(flatten)]
+    progress: SearchProgressPayload,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GameAnalysisProgressPayload {
@@ -60,6 +68,46 @@ pub struct GameAnalysisProgressPayload {
 
 fn round_score(score: Scoref) -> Scoref {
     (score * 10.0).round() / 10.0
+}
+
+fn build_progress_payload(progress: &search::SearchProgress) -> SearchProgressPayload {
+    SearchProgressPayload {
+        depth: progress.depth,
+        target_depth: progress.target_depth,
+        score: round_score(progress.score),
+        best_move: format!("{}", progress.best_move),
+        row: progress.best_move as i32 / 8,
+        col: progress.best_move as i32 % 8,
+        acc: progress.probability,
+        nodes: progress.nodes,
+        pv_line: progress
+            .pv_line
+            .iter()
+            .map(|sq| format!("{}", sq))
+            .collect::<Vec<_>>()
+            .join(" "),
+        is_endgame: progress.is_endgame,
+    }
+}
+
+/// Builds a [`reversi_core::level::Level`] whose endgame iterative-deepening
+/// loop stops at `target`. Selectivities missing from
+/// [`reversi_core::level::Level::ENDGAME_SELECTIVITY`] round **down** to the
+/// next more-aggressive entry.
+fn solver_level(target: Selectivity) -> reversi_core::level::Level {
+    let mut end_depth = [0u32; 4];
+    for (i, &sel) in reversi_core::level::Level::ENDGAME_SELECTIVITY
+        .iter()
+        .enumerate()
+    {
+        if sel <= target {
+            end_depth[i] = 60;
+        }
+    }
+    reversi_core::level::Level {
+        mid_depth: 60,
+        end_depth,
+    }
 }
 
 #[tauri::command]
@@ -138,24 +186,8 @@ async fn ai_move_command(
 
         let mut search_guard = search_arc.lock().unwrap();
         let callback = move |progress: search::SearchProgress| {
-            let payload = SearchProgressPayload {
-                depth: progress.depth,
-                target_depth: progress.target_depth,
-                score: round_score(progress.score),
-                best_move: format!("{}", progress.best_move),
-                row: (progress.best_move as i32 / 8),
-                col: (progress.best_move as i32 % 8),
-                acc: progress.probability,
-                nodes: progress.nodes,
-                pv_line: progress
-                    .pv_line
-                    .iter()
-                    .map(|sq| format!("{}", sq))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                is_endgame: progress.is_endgame,
-            };
-            app.emit("ai-move-progress", payload).unwrap();
+            app.emit("ai-move-progress", build_progress_payload(&progress))
+                .unwrap();
         };
 
         let result = if let Some(remaining_ms) = remaining_time {
@@ -222,26 +254,54 @@ async fn analyze_command(
 
         let mut search_guard = search_arc.lock().unwrap();
         let callback = move |progress: search::SearchProgress| {
-            let payload = SearchProgressPayload {
-                depth: progress.depth,
-                target_depth: progress.target_depth,
-                score: round_score(progress.score),
-                best_move: format!("{}", progress.best_move),
-                row: (progress.best_move as i32 / 8),
-                col: (progress.best_move as i32 % 8),
-                acc: progress.probability,
-                nodes: progress.nodes,
-                pv_line: progress
-                    .pv_line
-                    .iter()
-                    .map(|sq| format!("{}", sq))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                is_endgame: progress.is_endgame,
-            };
-            app.emit("ai-move-progress", payload).unwrap();
+            app.emit("ai-move-progress", build_progress_payload(&progress))
+                .unwrap();
         };
         let options = SearchRunOptions::with_level(lv, SELECTIVITY)
+            .multi_pv(true)
+            .callback(callback);
+        search_guard.run(&board, &options);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn solver_search_command(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    board_string: String,
+    target_selectivity: u8,
+    run_id: u64,
+) -> Result<(), String> {
+    let search_arc = state.search.clone();
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        if target_selectivity > 5 {
+            return Err(format!(
+                "Invalid target_selectivity: {target_selectivity} (expected 0..=5)"
+            ));
+        }
+
+        let board = board::Board::from_string(&board_string, Disc::Black)
+            .map_err(|e| format!("Invalid board string: {e}"))?;
+
+        let selectivity = Selectivity::from_u8(target_selectivity);
+        let level = solver_level(selectivity);
+
+        let mut search_guard = search_arc.lock().unwrap();
+        let callback = move |progress: search::SearchProgress| {
+            let _ = app.emit(
+                "solver-progress",
+                SolverProgressPayload {
+                    run_id,
+                    progress: build_progress_payload(&progress),
+                },
+            );
+        };
+
+        let options = SearchRunOptions::with_level(level, selectivity)
             .multi_pv(true)
             .callback(callback);
         search_guard.run(&board, &options);
@@ -377,7 +437,50 @@ pub fn run() {
             analyze_command,
             analyze_game_command,
             abort_game_analysis_command,
+            solver_search_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solver_level_none_equals_perfect() {
+        let lvl = solver_level(Selectivity::None);
+        assert_eq!(lvl.mid_depth, 60);
+        assert_eq!(lvl.end_depth, [60, 60, 60, 60]);
+    }
+
+    #[test]
+    fn solver_level_level5_caps_last_entry() {
+        let lvl = solver_level(Selectivity::Level5);
+        assert_eq!(lvl.end_depth, [60, 60, 60, 0]);
+    }
+
+    #[test]
+    fn solver_level_level3_caps_after_level3() {
+        let lvl = solver_level(Selectivity::Level3);
+        assert_eq!(lvl.end_depth, [60, 60, 0, 0]);
+    }
+
+    #[test]
+    fn solver_level_level1_only_first() {
+        let lvl = solver_level(Selectivity::Level1);
+        assert_eq!(lvl.end_depth, [60, 0, 0, 0]);
+    }
+
+    #[test]
+    fn solver_level_level2_rounds_down_to_level1() {
+        let lvl = solver_level(Selectivity::Level2);
+        assert_eq!(lvl.end_depth, [60, 0, 0, 0]);
+    }
+
+    #[test]
+    fn solver_level_level4_rounds_down_to_level3() {
+        let lvl = solver_level(Selectivity::Level4);
+        assert_eq!(lvl.end_depth, [60, 60, 0, 0]);
+    }
 }

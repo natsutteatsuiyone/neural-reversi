@@ -104,5 +104,20 @@
       "aiInitFailed": "AIエンジンの初期化に失敗しました",
       "unexpectedError": "予期しないエラーが発生しました"
     }
+  },
+  "solver": {
+    "title": "ソルバー",
+    "openMenu": "ソルバー",
+    "start": "ソルバー開始",
+    "exit": "ソルバー終了",
+    "back": "戻る",
+    "backToStart": "初期局面に戻る",
+    "selectivity": "精度",
+    "searching": "探索中...",
+    "candidates": "候補手",
+    "noCandidates": "合法手がありません。戻るを押してください。",
+    "cancel": "キャンセル",
+    "stop": "停止",
+    "resume": "再開"
   }
 }

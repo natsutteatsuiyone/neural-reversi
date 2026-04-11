@@ -1,20 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTestStore } from "./test-helpers";
+import { createTestStore, createDeferred } from "./test-helpers";
 import { createMockAIService } from "@/services/mock-ai-service";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
-
-function createDeferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
 
 describe("setHintMode", () => {
   it("starts hint analysis when enabling hint mode", () => {

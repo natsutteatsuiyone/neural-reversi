@@ -33,7 +33,7 @@ export function Sidebar() {
   const showResume = paused && isAITurn;
 
   return (
-    <aside className="flex w-full basis-72 min-h-0 shrink-0 flex-col border-t border-white/10 bg-background-secondary sm:basis-80 lg:w-80 lg:basis-auto lg:border-t-0 lg:border-l">
+    <aside className="flex h-full min-h-0 min-w-0 flex-col bg-background-secondary">
       {/* Player Cards */}
       <div className="p-4 space-y-3 border-b border-white/10">
         <PlayerCard

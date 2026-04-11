@@ -104,5 +104,20 @@
       "aiInitFailed": "Failed to initialize AI engine",
       "unexpectedError": "An unexpected error occurred"
     }
+  },
+  "solver": {
+    "title": "Solver",
+    "openMenu": "Solver",
+    "start": "Start Solver",
+    "exit": "Exit Solver",
+    "back": "Back",
+    "backToStart": "Reset to Start",
+    "selectivity": "Selectivity",
+    "searching": "Solving...",
+    "candidates": "Candidates",
+    "noCandidates": "No legal moves. Use Back to step back.",
+    "cancel": "Cancel",
+    "stop": "Stop",
+    "resume": "Resume"
   }
 }

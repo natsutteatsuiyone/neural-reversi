@@ -11,7 +11,7 @@ type ResolvedSetupPosition =
     | { ok: true; board: Board; currentPlayer: Player }
     | { ok: false; error: string };
 
-function resolveSetupPositionForTab(
+export function resolveSetupPositionForTab(
     setupTab: SetupTab,
     setupBoard: Board,
     setupCurrentPlayer: Player,

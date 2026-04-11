@@ -648,6 +648,61 @@ describe("startGame", () => {
     expect(store.getState().gameTimeLimit).toBe(60);
   });
 
+  it("exits solver mode after a successful new-game start", async () => {
+    const { store, services } = createTestStore();
+    // Seed a solver session as if the user had been exploring a position.
+    store.setState({
+      isSolverActive: true,
+      solverCurrentBoard: store.getState().board,
+      solverCurrentPlayer: "black",
+      solverHistory: [{ board: store.getState().board, player: "black", moveFrom: null }],
+    });
+
+    const started = await store.getState().startGame();
+
+    expect(started).toBe(true);
+    // Solver teardown runs in the success path, and its abort is invoked
+    // first (pre-init) to release the shared backend mutex, then again by
+    // exitSolver for the actual state clear.
+    expect(services.solver.abort).toHaveBeenCalledTimes(2);
+    const s = store.getState();
+    expect(s.isSolverActive).toBe(false);
+    expect(s.solverCurrentBoard).toBeNull();
+    expect(s.solverHistory).toEqual([]);
+    expect(s.gameStatus).toBe("playing");
+  });
+
+  it("preserves solver state when new-game init fails", async () => {
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+      }),
+    });
+    const solverBoard = store.getState().board;
+    const rootEntry = { board: solverBoard, player: "black" as const, moveFrom: null };
+    store.setState({
+      isSolverActive: true,
+      solverRootBoard: solverBoard,
+      solverRootPlayer: "black",
+      solverHistory: [rootEntry],
+      solverCurrentBoard: solverBoard,
+      solverCurrentPlayer: "black",
+    });
+
+    const started = await store.getState().startGame();
+
+    expect(started).toBe(false);
+    // The pre-init abort released the backend mutex, but solver state must
+    // survive the failed replacement — matching how startGame preserves the
+    // current game state on errors.
+    expect(services.solver.abort).toHaveBeenCalledTimes(1);
+    const s = store.getState();
+    expect(s.isSolverActive).toBe(true);
+    expect(s.solverCurrentBoard).toBe(solverBoard);
+    expect(s.solverCurrentPlayer).toBe("black");
+    expect(s.solverHistory).toHaveLength(1);
+  });
+
   it("aborts ongoing game analysis before starting a new game", async () => {
     const { store } = createTestStore();
     store.setState({

@@ -1,5 +1,5 @@
 import { OrthographicCamera } from "@react-three/drei";
-import { useThree, useFrame } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import { useRef, useMemo, useEffect } from "react";
 import type { OrthographicCamera as ThreeOrthographicCamera } from "three";
 import type { AIMoveProgress } from "@/services/types";
@@ -42,26 +42,24 @@ export function Board3DScene({
   board, lastMove, gameOver, isValidMove, isAITurn, onCellClick,
   aiMoveProgress, lastAIMove, moveHistory, analyzeResults, maxScore, skipAnimation,
 }: Board3DSceneProps) {
-  const { size } = useThree();
+  const size = useThree((s) => s.size);
+  const invalidate = useThree((s) => s.invalidate);
   const cameraRef = useRef<ThreeOrthographicCamera>(null);
-  const lastAppliedSize = useRef({ width: 0, height: 0 });
 
-  useFrame(({ size: frameSize }) => {
+  // drei's <OrthographicCamera> rewrites l/r/t/b each render — reapply
+  // aspect correction here so <Html> overlays don't collapse on resize.
+  useEffect(() => {
     const cam = cameraRef.current;
-    if (!cam) return;
-
-    const { width, height } = frameSize;
-    if (width === lastAppliedSize.current.width && height === lastAppliedSize.current.height) return;
-    lastAppliedSize.current = { width, height };
-
-    const aspect = width / height;
+    if (!cam || !size.width || !size.height) return;
+    const aspect = size.width / size.height;
     const boardHalf = TOTAL_SIZE / 2;
     cam.left = -(aspect >= 1 ? boardHalf * aspect : boardHalf);
     cam.right = aspect >= 1 ? boardHalf * aspect : boardHalf;
     cam.top = aspect >= 1 ? boardHalf : boardHalf / aspect;
     cam.bottom = -(aspect >= 1 ? boardHalf : boardHalf / aspect);
     cam.updateProjectionMatrix();
-  });
+    invalidate();
+  }, [size.width, size.height, invalidate]);
 
   const aspect = size.width / size.height;
   const cellPixelSize = aspect >= 1

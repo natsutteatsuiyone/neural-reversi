@@ -1,4 +1,4 @@
-import { Menu, Play, Lightbulb, Globe, HardDrive } from "lucide-react";
+import { Menu, Play, Lightbulb, Globe, HardDrive, Calculator } from "lucide-react";
 import { ANALYSIS_LEVELS } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -26,12 +26,13 @@ export function Header() {
   const hashSize = useReversiStore((state) => state.hashSize);
   const setHashSize = useReversiStore((state) => state.setHashSize);
   const openNewGameModal = useReversiStore((state) => state.openNewGameModal);
+  const openSolverModal = useReversiStore((state) => state.openSolverModal);
   const isHintMode = useReversiStore((state) => state.isHintMode);
   const setHintMode = useReversiStore((state) => state.setHintMode);
 
   return (
     <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-background-secondary px-3 py-2 sm:h-12 sm:flex-nowrap sm:px-4 sm:py-0">
-      {/* Left: New Game */}
+      {/* Left: New Game + Solver */}
       <div className="flex items-center gap-2">
         <Button
           size="sm"
@@ -41,6 +42,16 @@ export function Header() {
         >
           <Play className="w-4 h-4" />
           <span className="max-[420px]:hidden">{t("game.newGame")}</span>
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={openSolverModal}
+          aria-label={t("solver.openMenu")}
+          className="shrink-0 gap-2 border-white/20 text-foreground-secondary hover:bg-white/10 hover:text-foreground max-[420px]:px-2"
+        >
+          <Calculator className="w-4 h-4" />
+          <span className="max-[420px]:hidden">{t("solver.openMenu")}</span>
         </Button>
       </div>
 
