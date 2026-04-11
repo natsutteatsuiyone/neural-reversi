@@ -13,6 +13,7 @@ Evaluation test suite runner for measuring the endgame search performance of Rev
 | `--problem` | Problem set to run: preset name or `.obf` file path. Repeatable. | All `.obf` files in problem directory |
 | `--problem-dir` | Path to the directory containing `.obf` problem files | Auto-discovered |
 | `--verbose` or `-v` | Enable verbose output with per-iteration search statistics | Off |
+| `--multipv` | Multi-PV mode: score every legal move and compare against OBF per-move scores | Off |
 
 ### Presets
 
@@ -78,6 +79,12 @@ cargo run -p evaltest --release -- --problem /path/to/custom.obf
 cargo run -p evaltest --release -- --problem fforum -v
 ```
 
+### Multi-PV per-move comparison
+
+```bash
+cargo run -p evaltest --release -- --problem fforum-1-19.obf --depth 12 --multipv
+```
+
 ## Output Format
 
 Results are displayed per file, each with a tabular section:
@@ -92,6 +99,35 @@ Results are displayed per file, each with a tabular section:
 - **Expected**: The known optimal score and best moves
 
 When multiple files are loaded, an overall statistics summary is printed at the end.
+
+### Multi-PV Mode
+
+With `--multipv`, every legal move at the root is scored (not just the best
+one) and compared against the per-move scores listed in the OBF entry. Each
+test case prints a markdown sub-table:
+
+- **Move**: The candidate move from the engine's Multi-PV output (already
+  sorted by descending searched score).
+- **Searched**: The engine's score for that move, color-coded by its
+  ±3 / ±6 / ±9 accuracy against the OBF expected score.
+- **Expected**: The OBF-listed score for that move, or `-` if the OBF entry
+  did not enumerate it.
+- **Δ**: Absolute difference between Searched and Expected, or `-` when not
+  comparable.
+
+An additional `### Multi-PV Statistics` block follows the section's existing
+summary, reporting the number of compared moves, per-move MAE, per-move
+±3 / ±6 / ±9 accuracy buckets, and the standard deviation of per-move errors.
+Non-OBF-listed moves are excluded from the aggregate.
+
+Notes:
+
+- Multi-PV multiplies root-move work by the branching factor, so pair it with
+  low `--depth` (e.g. 10–14) for interactive iteration.
+- When both `--multipv` and `--verbose` are set, the Multi-PV per-case format
+  wins and the verbose iteration table is suppressed.
+- Pass positions print a single `### #N (PS, ...)` line and are excluded from
+  Multi-PV statistics.
 
 ### Verbose Mode
 

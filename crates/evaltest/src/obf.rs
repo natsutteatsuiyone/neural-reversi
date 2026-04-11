@@ -185,6 +185,7 @@ fn parse_obf_line(line: &str, line_number: usize) -> Result<TestCase, String> {
             vec![],
             vec![],
             vec![],
+            vec![],
         ));
     }
 
@@ -195,6 +196,10 @@ fn parse_obf_line(line: &str, line_number: usize) -> Result<TestCase, String> {
     // Group moves by score rank
     let expected_score = move_scores[0].score;
     let (best, second_best, third_best) = group_moves_by_score(&move_scores);
+    let all_move_scores: Vec<(String, i32)> = move_scores
+        .iter()
+        .map(|ms| (ms.move_name.clone(), ms.score))
+        .collect();
 
     Ok(TestCase::new(
         line_number,
@@ -204,6 +209,7 @@ fn parse_obf_line(line: &str, line_number: usize) -> Result<TestCase, String> {
         best,
         second_best,
         third_best,
+        all_move_scores,
     ))
 }
 

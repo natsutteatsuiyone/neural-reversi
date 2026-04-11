@@ -22,8 +22,10 @@ use reversi_core::{
     level::Level,
     probcut::Selectivity,
     search::{
-        self, SearchProgress, SearchRunOptions, options::SearchOptions,
-        search_counters::SearchCounters, search_result::SearchResult,
+        self, SearchProgress, SearchRunOptions,
+        options::SearchOptions,
+        search_counters::SearchCounters,
+        search_result::{PvMove, SearchResult},
     },
     square::Square,
     types::{Depth, Scoref},
@@ -65,6 +67,7 @@ struct TestResult {
     score_difference: Scoref,
     move_accuracy: MoveAccuracy,
     counters: SearchCounters,
+    pv_moves: Vec<PvMove>,
 }
 
 /// Move accuracy classification
@@ -90,6 +93,29 @@ struct SearchStats {
     good_score_count: usize,
     acceptable_score_count: usize,
     total_counters: SearchCounters,
+    mpv_score_differences: Vec<Scoref>,
+    mpv_perfect_count: usize,
+    mpv_good_count: usize,
+    mpv_acceptable_count: usize,
+}
+
+/// Mean and population standard deviation of a slice of error samples.
+/// Returns `(0.0, 0.0)` for an empty slice.
+fn mean_stddev(samples: &[Scoref]) -> (f64, f64) {
+    if samples.is_empty() {
+        return (0.0, 0.0);
+    }
+    let n = samples.len() as f64;
+    let mean = samples.iter().map(|&d| d as f64).sum::<f64>() / n;
+    let variance = samples
+        .iter()
+        .map(|&d| {
+            let diff = d as f64 - mean;
+            diff * diff
+        })
+        .sum::<f64>()
+        / n;
+    (mean, variance.sqrt())
 }
 
 /// Round duration to 0.01ms precision for consistent display
@@ -150,6 +176,31 @@ impl SearchStats {
         self.total_counters.merge(&result.counters);
     }
 
+    /// Accumulate per-move error statistics against OBF-listed expected scores.
+    fn update_multipv(&mut self, result: &TestResult, test_case: &TestCase) {
+        if test_case.is_pass() {
+            return;
+        }
+        for pv in &result.pv_moves {
+            let move_str = format!("{:?}", pv.sq);
+            let Some(expected) = test_case.expected_score_for_move(&move_str) else {
+                continue;
+            };
+            let rounded = (pv.score * 10.0).round() / 10.0;
+            let diff = (rounded - expected as Scoref).abs();
+            self.mpv_score_differences.push(diff);
+            if diff <= SCORE_TOLERANCE_PERFECT {
+                self.mpv_perfect_count += 1;
+            }
+            if diff <= SCORE_TOLERANCE_GOOD {
+                self.mpv_good_count += 1;
+            }
+            if diff <= SCORE_TOLERANCE_ACCEPTABLE {
+                self.mpv_acceptable_count += 1;
+            }
+        }
+    }
+
     /// Classify the move accuracy based on the search result
     fn classify_move(result: &SearchResult, test_case: &TestCase) -> MoveAccuracy {
         if let Some(first_pv) = result.pv_line.first() {
@@ -170,28 +221,7 @@ impl SearchStats {
 
     /// Calculate mean and standard deviation of score differences
     fn calculate_statistics(&self) -> (f64, f64) {
-        if self.total_count == 0 {
-            return (0.0, 0.0);
-        }
-
-        let mean = self
-            .score_differences
-            .iter()
-            .map(|&d| d as f64)
-            .sum::<f64>()
-            / self.total_count as f64;
-
-        let variance = self
-            .score_differences
-            .iter()
-            .map(|&d| {
-                let diff = d as f64 - mean;
-                diff * diff
-            })
-            .sum::<f64>()
-            / self.total_count as f64;
-
-        (mean, variance.sqrt())
+        mean_stddev(&self.score_differences)
     }
 
     /// Merge another SearchStats into this one
@@ -207,10 +237,15 @@ impl SearchStats {
         self.good_score_count += other.good_score_count;
         self.acceptable_score_count += other.acceptable_score_count;
         self.total_counters.merge(&other.total_counters);
+        self.mpv_score_differences
+            .extend(&other.mpv_score_differences);
+        self.mpv_perfect_count += other.mpv_perfect_count;
+        self.mpv_good_count += other.mpv_good_count;
+        self.mpv_acceptable_count += other.mpv_acceptable_count;
     }
 
     /// Print formatted statistics summary with color coding
-    fn print(&self, verbose: bool) {
+    fn print(&self, verbose: bool, multipv: bool) {
         if self.total_count == 0 {
             println!("\n### No test cases were run");
             return;
@@ -302,6 +337,35 @@ impl SearchStats {
                 println!("- {label:<14}: {value}");
             }
         }
+
+        let mpv_count = self.mpv_score_differences.len();
+        if multipv && mpv_count > 0 {
+            let (mpv_mean, mpv_std) = mean_stddev(&self.mpv_score_differences);
+            let mpv_stats = [
+                ("Moves compared", mpv_count.to_formatted_string(&Locale::en)),
+                ("Move MAE", format!("{mpv_mean:.2}")),
+                ("Move ±3", format_ratio(self.mpv_perfect_count, mpv_count)),
+                ("Move ±6", format_ratio(self.mpv_good_count, mpv_count)),
+                (
+                    "Move ±9",
+                    format_ratio(self.mpv_acceptable_count, mpv_count),
+                ),
+                ("Move Std Dev", format!("{mpv_std:.2}")),
+            ];
+            let max_label_len = mpv_stats
+                .iter()
+                .map(|(label, _)| label.len())
+                .max()
+                .unwrap_or(0);
+            println!("\n### Multi-PV Statistics:");
+            for (label, value) in mpv_stats {
+                let formatted_value = match label {
+                    "Move ±3" | "Move ±6" | "Move ±9" => Self::colorize_percentage(&value),
+                    _ => value.normal(),
+                };
+                println!("- {label:<max_label_len$}: {formatted_value}");
+            }
+        }
     }
 
     /// Apply color coding to percentage values
@@ -384,6 +448,7 @@ fn execute_test_case(
     level: Level,
     selectivity: Selectivity,
     verbose: bool,
+    multipv: bool,
 ) -> (TestResult, Vec<IterationData>) {
     let board = test_case.get_board();
     // For pass positions, switch sides and search from the opponent's perspective
@@ -399,26 +464,23 @@ fn execute_test_case(
     } else {
         None
     };
-    let options = if let Some(ref iters) = iterations {
+    let mut options = SearchRunOptions::with_level(level, selectivity).multi_pv(multipv);
+    if let Some(ref iters) = iterations {
         let iter_clone = iters.clone();
         let tt = search.tt().clone();
-        SearchRunOptions::with_level(level, selectivity).callback(
-            move |progress: SearchProgress| {
-                let tt_fill = tt.usage_rate();
-                iter_clone.lock().unwrap().push(IterationData {
-                    depth: progress.depth,
-                    score: progress.score,
-                    best_move: progress.best_move,
-                    nodes: progress.nodes,
-                    probability: progress.probability,
-                    counters: progress.counters,
-                    tt_fill,
-                });
-            },
-        )
-    } else {
-        SearchRunOptions::with_level(level, selectivity)
-    };
+        options = options.callback(move |progress: SearchProgress| {
+            let tt_fill = tt.usage_rate();
+            iter_clone.lock().unwrap().push(IterationData {
+                depth: progress.depth,
+                score: progress.score,
+                best_move: progress.best_move,
+                nodes: progress.nodes,
+                probability: progress.probability,
+                counters: progress.counters,
+                tt_fill,
+            });
+        });
+    }
 
     let start = Instant::now();
     let result = search.run(&search_board, &options);
@@ -448,6 +510,7 @@ fn execute_test_case(
         score_difference,
         move_accuracy,
         counters: result.counters,
+        pv_moves: result.pv_moves,
     };
 
     let verbose_data = iterations
@@ -780,6 +843,134 @@ fn print_verbose_test_case(
     println!();
 }
 
+/// Print a per-case Multi-PV comparison table joining the engine's per-move
+/// scores against the OBF-listed expected scores.
+///
+/// Moves that the OBF entry did not enumerate render their Expected and Δ
+/// cells as `-` and are excluded from the aggregate statistics.
+fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
+    if test_case.is_pass() {
+        println!(
+            "### #{} (PS, expected: {:+})",
+            test_case.line_number, test_case.expected_score
+        );
+        println!();
+        return;
+    }
+
+    let best_diff = result.score_difference;
+    let best_score_colored = colorize_score(result.score, best_diff);
+    println!(
+        "### #{} (searched: {}, expected: {:+}, Δ: {:.1})",
+        test_case.line_number, best_score_colored, test_case.expected_score, best_diff,
+    );
+
+    struct Row {
+        move_str: String,
+        searched_plain: String,
+        searched_colored: colored::ColoredString,
+        expected: String,
+        delta: String,
+    }
+
+    let rows: Vec<Row> = result
+        .pv_moves
+        .iter()
+        .map(|pv| {
+            let move_str = format!("{:?}", pv.sq);
+            let rounded = (pv.score * 10.0).round() / 10.0;
+            // Match `colorize_score`'s `{:.1}` format so plain length matches
+            // the colored display width (ANSI escapes aside) used for padding.
+            let searched_plain = format!("{rounded:.1}");
+            let (expected, delta, searched_colored) =
+                match test_case.expected_score_for_move(&move_str) {
+                    Some(exp) => {
+                        let diff = (rounded - exp as Scoref).abs();
+                        (
+                            format!("{exp:+}"),
+                            format!("{diff:.1}"),
+                            colorize_score(rounded, diff),
+                        )
+                    }
+                    None => ("-".to_string(), "-".to_string(), searched_plain.normal()),
+                };
+            Row {
+                move_str,
+                searched_plain,
+                searched_colored,
+                expected,
+                delta,
+            }
+        })
+        .collect();
+
+    let move_w = rows
+        .iter()
+        .map(|r| r.move_str.len())
+        .max()
+        .unwrap_or(0)
+        .max("Move".len());
+    let searched_w = rows
+        .iter()
+        .map(|r| r.searched_plain.len())
+        .max()
+        .unwrap_or(0)
+        .max("Searched".len());
+    let expected_w = rows
+        .iter()
+        .map(|r| r.expected.len())
+        .max()
+        .unwrap_or(0)
+        .max("Expected".len());
+    let delta_w = rows
+        .iter()
+        .map(|r| r.delta.len())
+        .max()
+        .unwrap_or(0)
+        .max("Δ".chars().count());
+
+    println!(
+        "| {:<mw$} | {:>sw$} | {:>ew$} | {:>dw$} |",
+        "Move",
+        "Searched",
+        "Expected",
+        "Δ",
+        mw = move_w,
+        sw = searched_w,
+        ew = expected_w,
+        dw = delta_w,
+    );
+    println!(
+        "|{:-<mw$}|{:->sw$}:|{:->ew$}:|{:->dw$}:|",
+        "",
+        "",
+        "",
+        "",
+        mw = move_w + 2,
+        sw = searched_w + 1,
+        ew = expected_w + 1,
+        dw = delta_w + 1,
+    );
+    // The colored cell embeds ANSI escapes so its char width differs from the
+    // plain form. Pad using the plain width first, then swap in the colored
+    // version for display.
+    for row in &rows {
+        let searched_pad = " ".repeat(searched_w.saturating_sub(row.searched_plain.len()));
+        println!(
+            "| {:<mw$} | {pad}{searched} | {:>ew$} | {:>dw$} |",
+            row.move_str,
+            row.expected,
+            row.delta,
+            mw = move_w,
+            ew = expected_w,
+            dw = delta_w,
+            pad = searched_pad,
+            searched = row.searched_colored,
+        );
+    }
+    println!();
+}
+
 /// Execute a section of test cases and return aggregated statistics
 fn execute_section(
     section_name: &str,
@@ -788,12 +979,13 @@ fn execute_section(
     level: Level,
     selectivity: Selectivity,
     verbose: bool,
+    multipv: bool,
 ) -> SearchStats {
     println!("\n## {section_name} ({} cases)\n", test_cases.len());
 
     let mut stats = SearchStats::default();
 
-    let num_width = if verbose {
+    let num_width = if verbose || multipv {
         0
     } else {
         let max_num = test_cases
@@ -808,16 +1000,19 @@ fn execute_section(
 
     for test_case in test_cases {
         let (result, verbose_data) =
-            execute_test_case(test_case, search, level, selectivity, verbose);
+            execute_test_case(test_case, search, level, selectivity, verbose, multipv);
         stats.update(&result);
-        if verbose {
+        if multipv {
+            stats.update_multipv(&result, test_case);
+            print_multipv_test_result(test_case, &result);
+        } else if verbose {
             print_verbose_test_case(test_case, &result, &verbose_data);
         } else {
             print_test_result(test_case, &result, num_width);
         }
     }
 
-    stats.print(verbose);
+    stats.print(verbose, multipv);
     stats
 }
 
@@ -853,6 +1048,13 @@ struct Args {
     /// Enable verbose output with iterative deepening progress and search statistics
     #[arg(short, long)]
     verbose: bool,
+
+    /// Multi-PV: score every legal move and compare against the OBF per-move
+    /// expected scores. Prints a per-case comparison table and an aggregate
+    /// Multi-PV Statistics block. Overrides verbose per-case formatting when
+    /// both are set.
+    #[arg(long)]
+    multipv: bool,
 }
 
 fn main() {
@@ -901,12 +1103,13 @@ fn main() {
             level,
             selectivity,
             args.verbose,
+            args.multipv,
         );
         overall_stats.merge(&stats);
     }
 
     if problem_sets.len() > 1 {
         println!("\n## Overall ({} cases)", overall_stats.total_count);
-        overall_stats.print(args.verbose);
+        overall_stats.print(args.verbose, args.multipv);
     }
 }

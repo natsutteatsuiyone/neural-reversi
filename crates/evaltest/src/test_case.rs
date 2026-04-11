@@ -13,6 +13,9 @@ pub struct TestCase {
     best_moves: Vec<String>,
     second_best_moves: Vec<String>,
     third_best_moves: Vec<String>,
+    /// Every (move, expected score) pair from the OBF line, preserving OBF order
+    /// (descending score). Empty for pass positions.
+    all_move_scores: Vec<(String, i32)>,
 }
 
 impl fmt::Display for TestCase {
@@ -33,6 +36,7 @@ impl fmt::Display for TestCase {
 
 impl TestCase {
     /// Create a new test case from parsed OBF data
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         line_number: usize,
         board_str: String,
@@ -41,6 +45,7 @@ impl TestCase {
         best_moves: Vec<String>,
         second_best_moves: Vec<String>,
         third_best_moves: Vec<String>,
+        all_move_scores: Vec<(String, i32)>,
     ) -> Self {
         Self {
             line_number,
@@ -50,6 +55,7 @@ impl TestCase {
             best_moves,
             second_best_moves,
             third_best_moves,
+            all_move_scores,
         }
     }
 
@@ -87,5 +93,12 @@ impl TestCase {
     /// Returns the side to move for this test case.
     pub fn side_to_move(&self) -> Disc {
         self.side_to_move
+    }
+
+    pub fn expected_score_for_move(&self, move_str: &str) -> Option<i32> {
+        self.all_move_scores
+            .iter()
+            .find(|(m, _)| m == move_str)
+            .map(|(_, s)| *s)
     }
 }
