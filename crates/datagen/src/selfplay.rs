@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 
 use crate::opening;
 use crate::record::{
-    GameRecord, read_last_game_id, read_records_from_file, truncate_incomplete_record,
-    write_records_to_file,
+    GAME_SCORE_UNAVAILABLE, GameRecord, read_last_game_id, read_records_from_file,
+    truncate_incomplete_record, write_records_to_file,
 };
 
 /// Minimum number of random moves at the start of each game
@@ -40,9 +40,6 @@ const FILE_ID_DIGITS: usize = 5;
 
 /// Maximum size of the record cache
 const MAX_CACHE_SIZE: usize = 1_000_000;
-
-/// Sentinel value for `game_score` when the true game outcome is unavailable.
-const GAME_SCORE_UNAVAILABLE: i8 = i8::MIN;
 
 /// Tracks file rotation state across games to avoid re-scanning the output directory.
 struct FileState {

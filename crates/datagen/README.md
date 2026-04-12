@@ -88,6 +88,12 @@ Shuffles and redistributes game records from input files into a new set of outpu
 datagen shuffle --input-dir ./data --output-dir ./shuffled_data --pattern "*.bin" --files-per-chunk 10 --num-output-files 50
 ```
 
+To filter out lower-quality records while shuffling:
+
+```bash
+datagen shuffle --input-dir ./data --output-dir ./filtered_data --min-ply 8 --max-score-diff 12 --drop-random
+```
+
 #### Options
 
 - `--input-dir`: Input directory containing the game data files to be shuffled.
@@ -95,6 +101,11 @@ datagen shuffle --input-dir ./data --output-dir ./shuffled_data --pattern "*.bin
 - `--pattern`: Glob pattern to match input files within the `input-dir` (default: "*.bin").
 - `--files-per-chunk`: Number of input files to read and shuffle in memory at a time (default: 10). Adjust based on available memory and the size of your input files.
 - `--num-output-files`: Optional number of output files to create. If not specified, it defaults to the number of input files. The shuffled records will be distributed among these output files.
+- `--min-ply`: Drop records from earlier plies than this threshold. Useful for excluding highly unstable opening positions (default: 0).
+- `--max-score-diff`: Drop records where the absolute difference between the stored evaluation score and the final game score exceeds this threshold. Records with unavailable game scores are kept.
+- `--drop-random`: Drop records whose move was selected randomly during self-play instead of by search.
+
+Filtering is applied while reading the serialized records, so large datasets can be filtered without fully deserializing every record into an intermediate structure. The shuffle summary reports how many records were dropped by each filter.
 
 ### rescore
 

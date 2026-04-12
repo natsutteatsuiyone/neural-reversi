@@ -10,6 +10,8 @@ use reversi_core::level::Level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::types::Depth;
 
+use crate::shuffle::FilterConfig;
+
 #[derive(Parser, Debug)]
 struct Cli {
     #[command(subcommand)]
@@ -83,6 +85,20 @@ enum SubCommands {
 
         #[arg(short = 'm', long, default_value_t = 0)]
         min_ply: u8,
+
+        #[arg(
+            long,
+            value_parser = parse_score_diff_threshold,
+            help = "Drop records where |score - game_score| exceeds this threshold (in discs). Records with unavailable game_score are kept."
+        )]
+        max_score_diff: Option<f32>,
+
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Drop records whose move was chosen randomly (is_random = true)."
+        )]
+        drop_random: bool,
     },
     ScoreOpenings {
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=20),
@@ -122,6 +138,14 @@ enum SubCommands {
         #[arg(short, long, default_value = "false")]
         verbose: bool,
     },
+}
+
+fn parse_score_diff_threshold(s: &str) -> Result<f32, String> {
+    let v: f32 = s.parse().map_err(|e| format!("invalid f32 '{s}': {e}"))?;
+    if !v.is_finite() || v < 0.0 {
+        return Err(format!("expected a non-negative finite number, got {v}"));
+    }
+    Ok(v)
 }
 
 fn parse_end_depth(s: &str) -> Result<[Depth; 4], String> {
@@ -215,14 +239,21 @@ fn main() {
             files_per_chunk,
             num_output_files,
             min_ply,
+            max_score_diff,
+            drop_random,
         } => {
+            let filter = FilterConfig {
+                min_ply,
+                max_score_diff,
+                drop_random,
+            };
             shuffle::execute(
                 &input_dir,
                 &output_dir,
                 &pattern,
                 files_per_chunk,
                 num_output_files,
-                min_ply,
+                filter,
             )
             .unwrap();
         }

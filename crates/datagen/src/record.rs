@@ -14,6 +14,17 @@ use std::path::Path;
 /// Size of each record in bytes
 pub const RECORD_SIZE: u64 = 27;
 
+/// Byte offsets of individual fields inside a serialized `GameRecord`.
+/// Must stay in sync with the write order in `write_records`.
+pub const SCORE_OFFSET: usize = 16;
+pub const GAME_SCORE_OFFSET: usize = 20;
+pub const PLY_OFFSET: usize = 21;
+pub const IS_RANDOM_OFFSET: usize = 22;
+
+/// Sentinel value for `game_score` when the true game outcome is unavailable
+/// (e.g. positions produced by `score-openings` rather than a full self-play game).
+pub const GAME_SCORE_UNAVAILABLE: i8 = i8::MIN;
+
 /// Represents a single position record from a self-play game.
 #[derive(Clone)]
 pub struct GameRecord {

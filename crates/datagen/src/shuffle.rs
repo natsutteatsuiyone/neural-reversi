@@ -16,10 +16,25 @@ use glob::glob;
 use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rand::{SeedableRng, rngs::SmallRng, seq::SliceRandom};
 
-use crate::record;
+use crate::record::{
+    self, GAME_SCORE_OFFSET, GAME_SCORE_UNAVAILABLE, IS_RANDOM_OFFSET, PLY_OFFSET, SCORE_OFFSET,
+};
 
 /// Size of each game record in bytes
 const RECORD_SIZE: usize = record::RECORD_SIZE as usize;
+
+pub(crate) struct FilterConfig {
+    pub min_ply: u8,
+    pub max_score_diff: Option<f32>,
+    pub drop_random: bool,
+}
+
+#[derive(Default)]
+struct FilterStats {
+    dropped_min_ply: u64,
+    dropped_random: u64,
+    dropped_score_diff: u64,
+}
 
 /// Buffer size for reading files (in number of records)
 const READ_BUFFER_RECORDS: usize = 4096;
@@ -52,8 +67,10 @@ pub fn execute(
     pattern: &str,
     files_per_chunk: usize,
     num_output_files: Option<usize>,
-    min_ply: u8,
+    filter: FilterConfig,
 ) -> anyhow::Result<()> {
+    let mut stats = FilterStats::default();
+
     let input_dir_path = Path::new(input_dir);
     let output_dir_path = Path::new(output_dir);
 
@@ -74,7 +91,15 @@ pub fn execute(
     println!("Input files   : {}", input_files.len());
     println!("Output files  : {num_output_files}");
     println!("Files/chunk   : {files_per_chunk}");
-    println!("Min ply       : {min_ply}");
+    println!("Min ply       : {}", filter.min_ply);
+    println!(
+        "Drop random   : {}",
+        if filter.drop_random { "yes" } else { "no" }
+    );
+    match filter.max_score_diff {
+        Some(t) => println!("Max |Δscore|  : {t}"),
+        None => println!("Max |Δscore|  : off"),
+    }
     println!("----------------------------------------");
 
     let mp = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
@@ -97,7 +122,7 @@ pub fn execute(
         let mut chunk_records: Vec<Record> = Vec::new();
 
         for path in chunk {
-            read_records(path, &mut chunk_records, min_ply)?;
+            read_records(path, &mut chunk_records, &filter, &mut stats)?;
         }
 
         chunk_records.shuffle(&mut rng);
@@ -127,6 +152,11 @@ pub fn execute(
         total_records,
         HumanBytes(total_bytes)
     );
+    let total_dropped = stats.dropped_min_ply + stats.dropped_random + stats.dropped_score_diff;
+    println!("Dropped       : {total_dropped} recs");
+    println!("  min_ply     : {}", stats.dropped_min_ply);
+    println!("  random      : {}", stats.dropped_random);
+    println!("  score_diff  : {}", stats.dropped_score_diff);
     for (i, record_count) in records_per_output_file.iter().enumerate() {
         println!("shuffled_{i:0OUTPUT_FILE_DIGITS$}.bin : {record_count} recs");
     }
@@ -177,7 +207,12 @@ fn find_input_files(dir: &Path, pattern: &str, rng: &mut SmallRng) -> anyhow::Re
 /// # Returns
 ///
 /// Returns `Ok(())` on success, or an I/O error if reading fails.
-fn read_records(path: &Path, out: &mut Vec<Record>, min_ply: u8) -> io::Result<()> {
+fn read_records(
+    path: &Path,
+    out: &mut Vec<Record>,
+    filter: &FilterConfig,
+    stats: &mut FilterStats,
+) -> io::Result<()> {
     let md = metadata(path)?;
     if md.len() == 0 || md.len() % RECORD_SIZE as u64 != 0 {
         eprintln!(
@@ -192,17 +227,38 @@ fn read_records(path: &Path, out: &mut Vec<Record>, min_ply: u8) -> io::Result<(
     let mut reader = BufReader::new(file);
     let mut buffer = vec![0u8; RECORD_SIZE * READ_BUFFER_RECORDS];
 
-    loop {
-        let bytes_read = reader.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        let record_count = bytes_read / RECORD_SIZE;
-        for chunk in buffer[..record_count * RECORD_SIZE].chunks_exact(RECORD_SIZE) {
-            if chunk[21] >= min_ply {
-                out.push(chunk.try_into().expect("slice length == RECORD_SIZE"));
+    // `md.len()` is guaranteed to be a multiple of RECORD_SIZE by the check above,
+    // so we can read in exact record-batch-sized chunks without losing trailing bytes.
+    let mut records_remaining = (md.len() / RECORD_SIZE as u64) as usize;
+    while records_remaining > 0 {
+        let batch = records_remaining.min(READ_BUFFER_RECORDS);
+        let batch_bytes = batch * RECORD_SIZE;
+        reader.read_exact(&mut buffer[..batch_bytes])?;
+        for chunk in buffer[..batch_bytes].chunks_exact(RECORD_SIZE) {
+            if chunk[PLY_OFFSET] < filter.min_ply {
+                stats.dropped_min_ply += 1;
+                continue;
             }
+            if filter.drop_random && chunk[IS_RANDOM_OFFSET] != 0 {
+                stats.dropped_random += 1;
+                continue;
+            }
+            if let Some(threshold) = filter.max_score_diff {
+                let game_score = chunk[GAME_SCORE_OFFSET] as i8;
+                if game_score != GAME_SCORE_UNAVAILABLE {
+                    let score_bytes: [u8; 4] = chunk[SCORE_OFFSET..SCORE_OFFSET + 4]
+                        .try_into()
+                        .expect("4-byte score slice");
+                    let score = f32::from_le_bytes(score_bytes);
+                    if (score - f32::from(game_score)).abs() > threshold {
+                        stats.dropped_score_diff += 1;
+                        continue;
+                    }
+                }
+            }
+            out.push(chunk.try_into().expect("slice length == RECORD_SIZE"));
         }
+        records_remaining -= batch;
     }
     Ok(())
 }
