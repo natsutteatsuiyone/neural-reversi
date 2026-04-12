@@ -99,6 +99,13 @@ enum SubCommands {
             help = "Drop records whose move was chosen randomly (is_random = true)."
         )]
         drop_random: bool,
+
+        #[arg(
+            long,
+            value_parser = clap::value_parser!(u8).range(0..=60),
+            help = "Keep all records with ply >= this value, bypassing --drop-random and --max-score-diff filters."
+        )]
+        keep_above_ply: Option<u8>,
     },
     ScoreOpenings {
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=20),
@@ -241,11 +248,13 @@ fn main() {
             min_ply,
             max_score_diff,
             drop_random,
+            keep_above_ply,
         } => {
             let filter = FilterConfig {
                 min_ply,
                 max_score_diff,
                 drop_random,
+                keep_above_ply,
             };
             shuffle::execute(
                 &input_dir,

@@ -91,7 +91,7 @@ datagen shuffle --input-dir ./data --output-dir ./shuffled_data --pattern "*.bin
 To filter out lower-quality records while shuffling:
 
 ```bash
-datagen shuffle --input-dir ./data --output-dir ./filtered_data --min-ply 8 --max-score-diff 12 --drop-random
+datagen shuffle --input-dir ./data --output-dir ./filtered_data --min-ply 8 --max-score-diff 12 --drop-random --keep-above-ply 50
 ```
 
 #### Options
@@ -104,6 +104,7 @@ datagen shuffle --input-dir ./data --output-dir ./filtered_data --min-ply 8 --ma
 - `--min-ply`: Drop records from earlier plies than this threshold. Useful for excluding highly unstable opening positions (default: 0).
 - `--max-score-diff`: Drop records where the absolute difference between the stored evaluation score and the final game score exceeds this threshold. Records with unavailable game scores are kept.
 - `--drop-random`: Drop records whose move was selected randomly during self-play instead of by search.
+- `--keep-above-ply`: Keep all records with ply >= this value, bypassing `--drop-random` and `--max-score-diff` filters. Useful for preserving high-quality endgame solver results unconditionally. Note that `--min-ply` still applies independently.
 
 Filtering is applied while reading the serialized records, so large datasets can be filtered without fully deserializing every record into an intermediate structure. The shuffle summary reports how many records were dropped by each filter.
 

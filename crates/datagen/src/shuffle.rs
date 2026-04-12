@@ -27,6 +27,7 @@ pub(crate) struct FilterConfig {
     pub min_ply: u8,
     pub max_score_diff: Option<f32>,
     pub drop_random: bool,
+    pub keep_above_ply: Option<u8>,
 }
 
 #[derive(Default)]
@@ -99,6 +100,10 @@ pub fn execute(
     match filter.max_score_diff {
         Some(t) => println!("Max |Δscore|  : {t}"),
         None => println!("Max |Δscore|  : off"),
+    }
+    match filter.keep_above_ply {
+        Some(p) => println!("Keep above ply: {p}"),
+        None => println!("Keep above ply: off"),
     }
     println!("----------------------------------------");
 
@@ -235,24 +240,30 @@ fn read_records(
         let batch_bytes = batch * RECORD_SIZE;
         reader.read_exact(&mut buffer[..batch_bytes])?;
         for chunk in buffer[..batch_bytes].chunks_exact(RECORD_SIZE) {
-            if chunk[PLY_OFFSET] < filter.min_ply {
+            let ply = chunk[PLY_OFFSET];
+            if ply < filter.min_ply {
                 stats.dropped_min_ply += 1;
                 continue;
             }
-            if filter.drop_random && chunk[IS_RANDOM_OFFSET] != 0 {
-                stats.dropped_random += 1;
-                continue;
-            }
-            if let Some(threshold) = filter.max_score_diff {
-                let game_score = chunk[GAME_SCORE_OFFSET] as i8;
-                if game_score != GAME_SCORE_UNAVAILABLE {
-                    let score_bytes: [u8; 4] = chunk[SCORE_OFFSET..SCORE_OFFSET + 4]
-                        .try_into()
-                        .expect("4-byte score slice");
-                    let score = f32::from_le_bytes(score_bytes);
-                    if (score - f32::from(game_score)).abs() > threshold {
-                        stats.dropped_score_diff += 1;
-                        continue;
+            let dominated = filter
+                .keep_above_ply
+                .is_none_or(|threshold| ply < threshold);
+            if dominated {
+                if filter.drop_random && chunk[IS_RANDOM_OFFSET] != 0 {
+                    stats.dropped_random += 1;
+                    continue;
+                }
+                if let Some(threshold) = filter.max_score_diff {
+                    let game_score = chunk[GAME_SCORE_OFFSET] as i8;
+                    if game_score != GAME_SCORE_UNAVAILABLE {
+                        let score_bytes: [u8; 4] = chunk[SCORE_OFFSET..SCORE_OFFSET + 4]
+                            .try_into()
+                            .expect("4-byte score slice");
+                        let score = f32::from_le_bytes(score_bytes);
+                        if (score - f32::from(game_score)).abs() > threshold {
+                            stats.dropped_score_diff += 1;
+                            continue;
+                        }
                     }
                 }
             }
