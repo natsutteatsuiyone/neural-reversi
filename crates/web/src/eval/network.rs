@@ -2,7 +2,6 @@ use std::io::{self, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use reversi_core::{
-    board::Board,
     eval::pattern_feature::{
         INPUT_FEATURE_DIMS, NUM_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature,
     },
@@ -14,10 +13,7 @@ const NUM_OUTPUT_LAYERS: usize = 60;
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 7;
 
 #[repr(align(16))]
-struct AlignedBiases([i16; NN_DIMS]);
-
-#[repr(align(16))]
-struct AlignedOutputWeights([i16; NN_DIMS]);
+struct AlignedI16Array([i16; NN_DIMS]);
 
 struct AlignedWeights {
     ptr: *mut i8,
@@ -60,7 +56,7 @@ impl Drop for AlignedWeights {
 }
 
 struct InputLayer {
-    biases: AlignedBiases,
+    biases: AlignedI16Array,
     weights: AlignedWeights,
 }
 
@@ -73,7 +69,7 @@ impl InputLayer {
         reader.read_i8_into(weights.as_mut_slice())?;
 
         Ok(Self {
-            biases: AlignedBiases(biases_array),
+            biases: AlignedI16Array(biases_array),
             weights,
         })
     }
@@ -81,7 +77,7 @@ impl InputLayer {
 
 struct OutputLayer {
     bias: i32,
-    weights: AlignedOutputWeights,
+    weights: AlignedI16Array,
 }
 
 impl OutputLayer {
@@ -93,7 +89,7 @@ impl OutputLayer {
 
         Ok(Self {
             bias,
-            weights: AlignedOutputWeights(weights_array),
+            weights: AlignedI16Array(weights_array),
         })
     }
 }
@@ -106,6 +102,12 @@ pub struct Network {
 
 impl Network {
     /// Loads a network from zstd-compressed weight data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if decompression or deserialization fails.
+    ///
+    /// [`io::Error`]: std::io::Error
     pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
         let cursor = io::Cursor::new(bytes);
         Self::from_reader(cursor)
@@ -129,12 +131,11 @@ impl Network {
     }
 
     /// Evaluates a board position and returns the score for the current ply.
-    pub fn evaluate(
-        &self,
-        _board: &Board,
-        pattern_feature: &PatternFeature,
-        ply: usize,
-    ) -> ScaledScore {
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` is out of range for the output layers.
+    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
         let output_layer = &self.output_layers[ply];
         let score: i32;
 

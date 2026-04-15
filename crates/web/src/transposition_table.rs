@@ -10,13 +10,11 @@ use reversi_core::{
     probcut::Selectivity,
     search::node_type::NodeType,
     square::Square,
-    types::{Depth, ScaledScore, Score},
+    types::{Depth, ScaledScore},
 };
 
 /// Number of entries per cluster.
 const CLUSTER_SIZE: usize = 2;
-
-// ── Bound ────────────────────────────────────────────────────────────
 
 /// Bound type stored in a transposition-table entry.
 ///
@@ -34,22 +32,16 @@ pub enum Bound {
 }
 
 impl Bound {
+    /// Classifies a search result into a [`Bound`] from `best_score`, `alpha`, and `beta`.
+    ///
+    /// Returns [`Bound::Lower`] on a fail-high, [`Bound::Exact`] when the score
+    /// improves `alpha` inside a PV node, and [`Bound::Upper`] otherwise.
     #[inline(always)]
-    pub fn classify_scaled<NT: NodeType>(
+    pub fn classify<NT: NodeType>(
         best_score: ScaledScore,
         alpha: ScaledScore,
         beta: ScaledScore,
     ) -> Bound {
-        Self::classify_inner::<NT>(best_score.value(), alpha.value(), beta.value())
-    }
-
-    #[inline(always)]
-    pub fn classify_score<NT: NodeType>(best_score: Score, alpha: Score, beta: Score) -> Bound {
-        Self::classify_inner::<NT>(best_score, alpha, beta)
-    }
-
-    #[inline(always)]
-    fn classify_inner<NT: NodeType>(best_score: i32, alpha: i32, beta: i32) -> Bound {
         if best_score >= beta {
             return Bound::Lower;
         }
@@ -59,8 +51,6 @@ impl Bound {
         Bound::Upper
     }
 }
-
-// ── TTData / TTEntryData ─────────────────────────────────────────────
 
 /// Compact data stored inside each [`TTEntry`] slot (8 bytes).
 ///
@@ -120,15 +110,16 @@ impl From<TTData> for TTEntryData {
     }
 }
 
-// ── TTProbeResult ────────────────────────────────────────────────────
-
 /// Result of probing the transposition table.
 pub enum TTProbeResult {
+    /// A matching entry was found at `index`.
     Hit { data: TTEntryData, index: usize },
+    /// No matching entry exists; `index` points to the chosen replacement slot.
     Miss { index: usize },
 }
 
 impl TTProbeResult {
+    /// Returns the slot index associated with this probe result.
     #[inline(always)]
     pub fn index(&self) -> usize {
         match self {
@@ -136,6 +127,7 @@ impl TTProbeResult {
         }
     }
 
+    /// Returns the entry data on a hit, or [`None`] on a miss.
     #[inline(always)]
     pub fn data(&self) -> Option<TTEntryData> {
         match self {
@@ -144,6 +136,7 @@ impl TTProbeResult {
         }
     }
 
+    /// Returns the stored best move on a hit, or [`Square::None`] on a miss.
     #[inline(always)]
     pub fn best_move(&self) -> Square {
         match self {
@@ -152,8 +145,6 @@ impl TTProbeResult {
         }
     }
 }
-
-// ── TTEntry ──────────────────────────────────────────────────────────
 
 /// A single 16-byte transposition-table slot.
 ///
@@ -175,8 +166,6 @@ impl Default for TTEntry {
         }
     }
 }
-
-// ── TranspositionTable ───────────────────────────────────────────────
 
 /// Weight applied to the generation age difference in the replacement score.
 const AGE_WEIGHT: i32 = 8;
@@ -899,7 +888,7 @@ mod tests {
         use reversi_core::search::node_type::{NonPV, PV};
 
         assert_eq!(
-            Bound::classify_scaled::<PV>(
+            Bound::classify::<PV>(
                 ScaledScore::from_raw(100),
                 ScaledScore::from_raw(0),
                 ScaledScore::from_raw(50)
@@ -907,7 +896,7 @@ mod tests {
             Bound::Lower
         );
         assert_eq!(
-            Bound::classify_scaled::<PV>(
+            Bound::classify::<PV>(
                 ScaledScore::from_raw(30),
                 ScaledScore::from_raw(0),
                 ScaledScore::from_raw(50)
@@ -915,7 +904,7 @@ mod tests {
             Bound::Exact
         );
         assert_eq!(
-            Bound::classify_scaled::<NonPV>(
+            Bound::classify::<NonPV>(
                 ScaledScore::from_raw(30),
                 ScaledScore::from_raw(0),
                 ScaledScore::from_raw(50)
@@ -923,7 +912,7 @@ mod tests {
             Bound::Upper
         );
         assert_eq!(
-            Bound::classify_scaled::<PV>(
+            Bound::classify::<PV>(
                 ScaledScore::from_raw(-10),
                 ScaledScore::from_raw(0),
                 ScaledScore::from_raw(50)

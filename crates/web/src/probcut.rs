@@ -7,7 +7,7 @@ use reversi_core::{
     types::{Depth, ScaledScore},
 };
 
-use crate::search::{self, search_context::SearchContext};
+use crate::search::{self, search_context::SearchContext, search_strategy::MidGameStrategy};
 
 /// Holds statistical parameters for ProbCut prediction models.
 ///
@@ -83,7 +83,7 @@ fn build_sigma_table() -> Box<SigmaTable> {
     tbl
 }
 
-/// Initializes probcut lookup tables.
+/// Initializes the ProbCut lookup tables.
 pub fn init() {
     MEAN_TABLE.set(build_mean_table()).ok();
     SIGMA_TABLE.set(build_sigma_table()).ok();
@@ -114,8 +114,8 @@ fn determine_probcut_depth(depth: Depth) -> Depth {
 
 /// Attempts ProbCut pruning for midgame positions.
 ///
-/// Returns [`Some(score)`] if a beta cutoff is predicted, or [`None`] if the
-/// deep search should proceed.
+/// Returns [`Some`] with the cutoff score if a beta cutoff is predicted, or
+/// [`None`] if the deep search should proceed.
 pub fn probcut_midgame(
     ctx: &mut SearchContext,
     board: &Board,
@@ -139,7 +139,13 @@ pub fn probcut_midgame(
         if eval_score >= eval_beta && pc_beta < ScaledScore::MAX {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested ProbCut
-            let score = search::search::<NonPV>(ctx, board, pc_depth, pc_beta - 1, pc_beta, false);
+            let score = search::search::<NonPV, MidGameStrategy>(
+                ctx,
+                board,
+                pc_depth,
+                pc_beta - 1,
+                pc_beta,
+            );
             ctx.selectivity = current_selectivity; // Restore selectivity
             if score >= pc_beta {
                 return Some((beta + pc_beta) / 2);

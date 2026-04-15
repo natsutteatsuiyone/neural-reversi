@@ -932,30 +932,12 @@ mod tests {
     #[test]
     fn test_bound_classify() {
         let s = |v| ScaledScore::from_raw(v);
-        assert_eq!(
-            Bound::classify::<PV>(s(100), s(30), s(50)),
-            Bound::Lower
-        );
-        assert_eq!(
-            Bound::classify::<PV>(s(40), s(30), s(50)),
-            Bound::Exact
-        );
-        assert_eq!(
-            Bound::classify::<PV>(s(20), s(30), s(50)),
-            Bound::Upper
-        );
-        assert_eq!(
-            Bound::classify::<NonPV>(s(100), s(30), s(50)),
-            Bound::Lower
-        );
-        assert_eq!(
-            Bound::classify::<NonPV>(s(40), s(30), s(50)),
-            Bound::Upper
-        );
-        assert_eq!(
-            Bound::classify::<NonPV>(s(20), s(30), s(50)),
-            Bound::Upper
-        );
+        assert_eq!(Bound::classify::<PV>(s(100), s(30), s(50)), Bound::Lower);
+        assert_eq!(Bound::classify::<PV>(s(40), s(30), s(50)), Bound::Exact);
+        assert_eq!(Bound::classify::<PV>(s(20), s(30), s(50)), Bound::Upper);
+        assert_eq!(Bound::classify::<NonPV>(s(100), s(30), s(50)), Bound::Lower);
+        assert_eq!(Bound::classify::<NonPV>(s(40), s(30), s(50)), Bound::Upper);
+        assert_eq!(Bound::classify::<NonPV>(s(20), s(30), s(50)), Bound::Upper);
     }
 
     /// Tests TTEntryData occupancy and cutoff helpers.

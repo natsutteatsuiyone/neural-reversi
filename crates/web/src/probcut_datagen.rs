@@ -122,12 +122,21 @@ impl ProbCutDatagen {
     }
 
     /// Processes a single game sequence and generates training samples.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the game sequence contains an invalid move token.
     pub fn process_game(&mut self, game_sequence: &str) -> Result<ProbCutDatagenResult, JsValue> {
         let samples = self.process_game_internal(game_sequence)?;
         self.build_result(samples)
     }
 
     /// Processes multiple newline-separated game sequences with an optional progress callback.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any game sequence contains an invalid move token, or
+    /// if the progress callback invocation fails.
     pub fn process_games(
         &mut self,
         games: &str,

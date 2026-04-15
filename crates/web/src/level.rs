@@ -1,14 +1,12 @@
 use reversi_core::types::Depth;
 
 /// Holds search depth settings for each game phase.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Level {
-    /// Search depth for the midgame phase.
+    /// Search depth used during the midgame.
     pub mid_depth: Depth,
-
-    /// Search depth for the endgame phase.
+    /// Empty-square threshold at which endgame search begins.
     pub end_depth: Depth,
-
-    /// Search depth for the perfect-play phase.
+    /// Empty-square threshold at which exact (no-selectivity) search begins.
     pub perfect_depth: Depth,
 }

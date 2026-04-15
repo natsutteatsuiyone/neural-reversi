@@ -1,12 +1,11 @@
 mod network;
 
-use std::{env, io};
+use std::io;
 
 use reversi_core::{board::Board, eval::eval_cache::EvalCache, types::ScaledScore};
 
 use crate::{eval::network::Network, search::search_context::SearchContext};
 
-/// Expands to the WASM-specific evaluation weight file name.
 macro_rules! eval_weights_literal {
     () => {
         "eval_wasm-e6bbc4f6.zst"
@@ -20,13 +19,14 @@ pub struct Eval {
 }
 
 impl Eval {
-    /// Creates a new evaluator by loading the embedded weight file.
+    /// Creates a new evaluator by loading the embedded weight data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the weight data cannot be decompressed or parsed.
+    ///
+    /// [`io::Error`]: std::io::Error
     pub fn new() -> io::Result<Self> {
-        Self::with_weight_files()
-    }
-
-    /// Creates a new evaluator from the compile-time-embedded weight data.
-    pub fn with_weight_files() -> io::Result<Self> {
         let network = Network::from_bytes(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../",
@@ -46,9 +46,7 @@ impl Eval {
             return score_cache;
         }
 
-        let score = self
-            .network
-            .evaluate(board, ctx.get_pattern_feature(), ctx.ply());
+        let score = self.network.evaluate(ctx.get_pattern_feature(), ctx.ply());
 
         self.cache.store(key, score);
         score

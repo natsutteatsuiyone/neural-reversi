@@ -40,6 +40,39 @@ bun run build
 
 Output will be in the `dist/` directory.
 
+## Endgame Solver Benchmark
+
+Run FFO endgame test positions against the WebAssembly engine from the terminal.
+
+### Build
+
+```bash
+bun run build:wasm:node
+```
+
+### Usage
+
+```bash
+bun endgame-bench.js [options]
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `-p, --problem` | OBF file stem or path (default: `fforum-40-59`) |
+| `-t, --tt-size` | Transposition table size in MB (default: `32`) |
+| `-e, --max-empties` | Max empty squares to include (default: `24`) |
+| `-h, --help` | Show help message |
+
+### Examples
+
+```bash
+bun endgame-bench.js
+bun endgame-bench.js -p fforum-60-79 -t 64
+bun endgame-bench.js -p fforum-40-59 -e 20
+```
+
 ## ProbCut Training Data Generation
 
 Generate ProbCut training data from game sequences using the WebAssembly engine.

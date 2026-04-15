@@ -28,7 +28,7 @@ use reversi_core::types::Depth;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-const DEFAULT_TT_MB: usize = 32;
+const DEFAULT_TT_MB: usize = 64;
 const DEFAULT_MID_DEPTH: Depth = 7;
 const MIDGAME_SELECTIVITY: Selectivity = Selectivity::Level2;
 const MIN_MID_DEPTH: u8 = 1;
@@ -69,6 +69,7 @@ impl EngineState {
     }
 }
 
+/// Game session exposed to JavaScript that pairs a board with the AI engine.
 #[wasm_bindgen]
 pub struct Game {
     board: Board,
@@ -82,6 +83,7 @@ pub struct Game {
 
 #[wasm_bindgen]
 impl Game {
+    /// Creates a new game with the human playing the given color.
     #[wasm_bindgen(constructor)]
     pub fn new(human_is_black: bool) -> Game {
         console_error_panic_hook::set_once();
@@ -304,6 +306,7 @@ const FFO_40_EXPECTED_SCORE: i32 = 38;
 const FFO_41_BOARD_STR: &str = "-OOOOO----OOOOX--OOOOOO-XXXXXOO--XXOOX--OOXOXX----OXXO---OOO--O-";
 const FFO_41_EXPECTED_SCORE: i32 = 0;
 
+/// Aggregated timing statistics returned by a benchmark run.
 #[wasm_bindgen]
 pub struct BenchmarkResult {
     name: String,
@@ -341,6 +344,7 @@ impl BenchmarkResult {
     }
 }
 
+/// Driver that runs the WebAssembly micro-benchmarks against a fixed corpus.
 #[wasm_bindgen]
 pub struct BenchmarkRunner {
     eval: Rc<Eval>,
@@ -349,6 +353,11 @@ pub struct BenchmarkRunner {
 
 #[wasm_bindgen]
 impl BenchmarkRunner {
+    /// Creates a benchmark runner and pre-generates the test board corpus.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the evaluation network fails to load.
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<BenchmarkRunner, JsValue> {
         console_error_panic_hook::set_once();
@@ -474,7 +483,7 @@ impl BenchmarkRunner {
         };
 
         Self::measure_benchmark(&format!("Search (depth {})", depth), iterations, 1, || {
-            let _ = search.run(&board, level.clone(), MIDGAME_SELECTIVITY, None);
+            let _ = search.run(&board, level, MIDGAME_SELECTIVITY, None);
             tt.clear();
         })
     }
@@ -517,13 +526,13 @@ impl BenchmarkRunner {
 
                 // FFO #40
                 let start_40 = perf.now();
-                let result_40 = search.run(&board_40, level_40.clone(), MIDGAME_SELECTIVITY, None);
+                let result_40 = search.run(&board_40, level_40, MIDGAME_SELECTIVITY, None);
                 let elapsed_40 = perf.now() - start_40;
                 result_40_opt = Some((result_40, elapsed_40));
 
                 // FFO #41
                 let start_41 = perf.now();
-                let result_41 = search.run(&board_41, level_41.clone(), MIDGAME_SELECTIVITY, None);
+                let result_41 = search.run(&board_41, level_41, MIDGAME_SELECTIVITY, None);
                 let elapsed_41 = perf.now() - start_41;
                 result_41_opt = Some((result_41, elapsed_41));
             },
@@ -613,5 +622,97 @@ impl BenchmarkRunner {
             }
         }
         nodes
+    }
+}
+
+// Endgame solver for CLI benchmarking
+
+/// Outcome of a single endgame solve exposed to JavaScript.
+#[wasm_bindgen]
+pub struct EndgameSolveResult {
+    score: f32,
+    best_move: String,
+    n_nodes: f64,
+    depth: u32,
+}
+
+#[wasm_bindgen]
+impl EndgameSolveResult {
+    #[wasm_bindgen(getter)]
+    pub fn score(&self) -> f32 {
+        self.score
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn best_move(&self) -> String {
+        self.best_move.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn n_nodes(&self) -> f64 {
+        self.n_nodes
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+}
+
+/// Endgame solver entry point used by the CLI benchmarking front end.
+#[wasm_bindgen]
+pub struct EndgameSolver {
+    search: Search,
+    tt: Rc<TranspositionTable>,
+}
+
+#[wasm_bindgen]
+impl EndgameSolver {
+    /// Creates an endgame solver with the given transposition table size in MB.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the evaluation network fails to load.
+    #[wasm_bindgen(constructor)]
+    pub fn new(tt_mb: Option<u32>) -> Result<EndgameSolver, JsValue> {
+        console_error_panic_hook::set_once();
+
+        let tt_mb = tt_mb.unwrap_or(DEFAULT_TT_MB as u32) as usize;
+        let tt = Rc::new(TranspositionTable::new(tt_mb));
+        let eval = Rc::new(Eval::new().map_err(|e| {
+            JsValue::from_str(&format!("Failed to load evaluation network: {}", e))
+        })?);
+        let search = Search::new(Rc::clone(&tt), eval);
+
+        Ok(EndgameSolver { search, tt })
+    }
+
+    pub fn solve(&mut self, board_str: &str, side: u8) -> Result<EndgameSolveResult, JsValue> {
+        let disc = if side == 0 { Disc::Black } else { Disc::White };
+        let board = Board::from_string(board_str, disc)
+            .map_err(|e| JsValue::from_str(&format!("Invalid board: {}", e)))?;
+
+        let empty_count = board.get_empty_count() as Depth;
+        let level = Level {
+            mid_depth: empty_count,
+            end_depth: empty_count,
+            perfect_depth: empty_count,
+        };
+
+        let result = self.search.run(&board, level, MIDGAME_SELECTIVITY, None);
+
+        Ok(EndgameSolveResult {
+            score: result.score,
+            best_move: result
+                .best_move
+                .map(|sq| sq.to_string())
+                .unwrap_or_default(),
+            n_nodes: result.n_nodes as f64,
+            depth: result.depth,
+        })
+    }
+
+    pub fn clear_tt(&self) {
+        self.tt.clear();
     }
 }
