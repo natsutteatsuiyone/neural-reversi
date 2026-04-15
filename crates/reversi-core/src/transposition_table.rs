@@ -7,7 +7,7 @@ use crate::board::Board;
 use crate::probcut::Selectivity;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore, Score};
+use crate::types::{Depth, ScaledScore};
 use aligned_vec::{AVec, ConstAlign};
 use std::{
     mem,
@@ -43,26 +43,11 @@ impl Bound {
     /// - [`Bound::Exact`] if `alpha < best_score < beta` and node is PV.
     /// - [`Bound::Upper`] otherwise (fail-low or non-PV exact-ish value).
     #[inline(always)]
-    pub fn classify_scaled<NT: NodeType>(
+    pub fn classify<NT: NodeType>(
         best_score: ScaledScore,
         alpha: ScaledScore,
         beta: ScaledScore,
     ) -> Bound {
-        Self::classify_inner::<NT>(best_score.value(), alpha.value(), beta.value())
-    }
-
-    /// Classifies an endgame search result into a [`Bound`] type.
-    ///
-    /// - [`Bound::Lower`] if `best_score >= beta` (fail-high).
-    /// - [`Bound::Exact`] if `alpha < best_score < beta` and node is PV.
-    /// - [`Bound::Upper`] otherwise (fail-low or non-PV exact-ish value).
-    #[inline(always)]
-    pub fn classify_score<NT: NodeType>(best_score: Score, alpha: Score, beta: Score) -> Bound {
-        Self::classify_inner::<NT>(best_score, alpha, beta)
-    }
-
-    #[inline(always)]
-    fn classify_inner<NT: NodeType>(best_score: i32, alpha: i32, beta: i32) -> Bound {
         if best_score >= beta {
             return Bound::Lower;
         }
@@ -943,32 +928,32 @@ mod tests {
         assert_eq!(data.score().value(), 40);
     }
 
-    /// Tests Bound::classify_scaled for different node types.
+    /// Tests Bound::classify for different node types.
     #[test]
-    fn test_bound_classify_scaled() {
+    fn test_bound_classify() {
         let s = |v| ScaledScore::from_raw(v);
         assert_eq!(
-            Bound::classify_scaled::<PV>(s(100), s(30), s(50)),
+            Bound::classify::<PV>(s(100), s(30), s(50)),
             Bound::Lower
         );
         assert_eq!(
-            Bound::classify_scaled::<PV>(s(40), s(30), s(50)),
+            Bound::classify::<PV>(s(40), s(30), s(50)),
             Bound::Exact
         );
         assert_eq!(
-            Bound::classify_scaled::<PV>(s(20), s(30), s(50)),
+            Bound::classify::<PV>(s(20), s(30), s(50)),
             Bound::Upper
         );
         assert_eq!(
-            Bound::classify_scaled::<NonPV>(s(100), s(30), s(50)),
+            Bound::classify::<NonPV>(s(100), s(30), s(50)),
             Bound::Lower
         );
         assert_eq!(
-            Bound::classify_scaled::<NonPV>(s(40), s(30), s(50)),
+            Bound::classify::<NonPV>(s(40), s(30), s(50)),
             Bound::Upper
         );
         assert_eq!(
-            Bound::classify_scaled::<NonPV>(s(20), s(30), s(50)),
+            Bound::classify::<NonPV>(s(20), s(30), s(50)),
             Bound::Upper
         );
     }

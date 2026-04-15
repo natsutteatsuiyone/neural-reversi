@@ -330,7 +330,7 @@ pub fn evaluate_depth3<NT: NodeType>(
         tt_probe_result.index(),
         board,
         best_score,
-        Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
+        Bound::classify::<NT>(best_score, org_alpha, beta),
         3,
         best_move,
         Selectivity::None,

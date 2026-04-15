@@ -692,7 +692,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         tt_probe_result.index(),
         board,
         best_score,
-        Bound::classify_scaled::<NT>(best_score, org_alpha, beta),
+        Bound::classify::<NT>(best_score, org_alpha, beta),
         depth,
         best_move,
         ctx.selectivity,
