@@ -108,6 +108,27 @@ datagen shuffle --input-dir ./data --output-dir ./filtered_data --min-ply 8 --ma
 
 Filtering is applied while reading the serialized records, so large datasets can be filtered without fully deserializing every record into an intermediate structure. The shuffle summary reports how many records were dropped by each filter.
 
+### score-openings
+
+Enumerates every unique board position reachable within a given number of plies from the initial position and scores each one with the search algorithm. Symmetric positions are canonicalized via board uniqueness, so each equivalence class is evaluated only once. If the output file already exists, previously scored positions are loaded and skipped so the command can be resumed.
+
+```bash
+datagen score-openings --depth 9 --mid-depth 16 --end-depth 24 --selectivity 0 --hash-size 512 --output ./openings_scored.bin
+```
+
+#### Options
+
+- `--depth`: Number of plies to enumerate from the initial position (1-20).
+- `--hash-size`: Transposition table size in MB (default: 512).
+- `--mid-depth`: Midgame search depth (1-60, default: 16).
+- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level3,Level5,None) (default: 24).
+- `--selectivity`: Search selectivity parameter (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0).
+- `--output`: Output file path where scored positions are written.
+
+#### Data format
+
+Same binary record format as `selfplay`. The `game_score` field stores the rounded evaluation score (since no full game is played), and the random move flag is always 0.
+
 ### rescore
 
 Corrects training data scores by performing exact endgame solving. For positions with a specified number of empty squares or fewer, the evaluation score and game score are replaced with the exact disc difference from a perfect endgame search.

@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use crate::opening;
 use crate::record::{
-    GAME_SCORE_UNAVAILABLE, GameRecord, read_last_game_id, read_records_from_file,
+    GameRecord, read_last_game_id, read_records_from_file,
     truncate_incomplete_record, write_records_to_file,
 };
 
@@ -540,9 +540,9 @@ pub fn execute_score_openings(
             ply,
             board,
             score: result.score,
-            game_score: GAME_SCORE_UNAVAILABLE,
+            game_score: result.score.round() as i8,
             side_to_move,
-            is_random: true,
+            is_random: false,
             sq: result.best_move.unwrap_or(Square::A1),
         });
         new_count += 1;
@@ -582,14 +582,18 @@ fn enumerate_positions(
     if !visited.insert(canonical) {
         return;
     }
-    positions.push((canonical, side_to_move));
+
+    let move_list = MoveList::new(board);
+    let has_moves = move_list.count() > 0;
+    if has_moves {
+        positions.push((canonical, side_to_move));
+    }
 
     if depth == 0 {
         return;
     }
 
-    let move_list = MoveList::new(board);
-    if move_list.count() > 0 {
+    if has_moves {
         for m in move_list.iter() {
             let next = board.make_move_with_flipped(m.flipped, m.sq);
             enumerate_positions(
