@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 
 use crate::opening;
 use crate::record::{
-    GameRecord, read_last_game_id, read_records_from_file,
-    truncate_incomplete_record, write_records_to_file,
+    GameRecord, read_last_game_id, read_records_from_file, truncate_incomplete_record,
+    write_records_to_file,
 };
 
 /// Minimum number of random moves at the start of each game
