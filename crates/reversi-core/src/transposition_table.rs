@@ -4,6 +4,7 @@
 //! collisions only affect replacement and never produce a false hit.
 
 use crate::board::Board;
+use crate::constants::CACHE_LINE_SIZE;
 use crate::probcut::Selectivity;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
@@ -96,8 +97,7 @@ impl TTProbeResult {
     #[inline(always)]
     pub fn index(&self) -> usize {
         match self {
-            TTProbeResult::Hit { index, .. } => *index,
-            TTProbeResult::Miss { index } => *index,
+            TTProbeResult::Hit { index, .. } | TTProbeResult::Miss { index } => *index,
         }
     }
 
@@ -280,15 +280,9 @@ impl TTEntryData {
 
 /// One slot inside a transposition-table cluster.
 ///
-/// Stores the full board, packed metadata, and a 64-bit SeqLock sequence
-/// counter used to read the split payload consistently.
-///
-/// # Layout
-///
-/// - `player`: Player bitboard (AtomicU64)
-/// - `opponent`: Opponent bitboard (AtomicU64)
-/// - `data`: [`TTDataFields`] stored as AtomicU64 via transmute
-/// - `seq`: 64-bit SeqLock sequence number
+/// Stores the full board, [`TTDataFields`] (transmuted through an AtomicU64),
+/// and a 64-bit SeqLock sequence counter used to read the split payload
+/// consistently.
 #[repr(C)]
 pub struct TTEntry {
     player: AtomicU64,
@@ -314,6 +308,12 @@ impl TTEntry {
 
     /// 7-bit generation mask for the generation ring.
     const GENERATION_MASK: u8 = 0x7F;
+
+    /// Retry budget for reading a stable SeqLock snapshot when a writer is mid-update.
+    const READ_RETRIES: u32 = 3;
+
+    /// Retry budget for the save CAS loop when another writer wins the race.
+    const SAVE_RETRIES: u32 = 4;
 
     /// Attempts to read a stable snapshot of the slot.
     #[inline(always)]
@@ -352,7 +352,7 @@ impl TTEntry {
     pub fn read(&self, board: &Board) -> Option<TTEntryData> {
         let board_player = board.player.bits();
         let board_opponent = board.opponent.bits();
-        for _ in 0..3 {
+        for _ in 0..Self::READ_RETRIES {
             if let Some((player, opponent, data)) = self.try_load_snapshot() {
                 if player == board_player && opponent == board_opponent {
                     return Some(data);
@@ -382,7 +382,7 @@ impl TTEntry {
 
         // Retry the full replacement policy if another writer wins the race
         // between snapshot acquisition and the claim CAS.
-        for _ in 0..4 {
+        for _ in 0..Self::SAVE_RETRIES {
             let Some((stored_player, stored_opponent, stored_data)) = self.try_load_snapshot()
             else {
                 std::hint::spin_loop();
@@ -393,11 +393,9 @@ impl TTEntry {
             let should_replace = if bound == Bound::Exact || !same_board {
                 true
             } else {
-                // Replace if ANY of these conditions hold:
-                // 1. New depth is at most 2 plies below stored depth (allows slight depth regression)
-                // 2. New selectivity is higher (more conservative search is more valuable)
-                // 3. Different generation (prioritize current search's entries)
-                (data.depth as i8) >= (stored_data.depth() as i8).saturating_sub(2)
+                // Tolerate up to 2 plies of depth regression so aspiration re-searches
+                // and nearby-depth revisits can still overwrite the slot.
+                data.depth as u32 + 2 >= stored_data.depth()
                     || data.selectivity > stored_data.selectivity().as_u8()
                     || data.generation != stored_data.generation()
             };
@@ -465,7 +463,7 @@ impl TTEntry {
 /// Shared transposition table.
 pub struct TranspositionTable {
     /// Flat array of [`TTEntry`] values grouped into fixed-size clusters.
-    entries: AVec<TTEntry, ConstAlign<64>>,
+    entries: AVec<TTEntry, ConstAlign<CACHE_LINE_SIZE>>,
     /// Number of [`TTEntry`] clusters in the table.
     cluster_count: u64,
     /// Generation counter for entry aging (incremented each search).
@@ -473,6 +471,9 @@ pub struct TranspositionTable {
 }
 
 impl TranspositionTable {
+    /// Retry budget for `probe` when every slot in the cluster is in-flight.
+    const PROBE_RETRIES: u32 = 3;
+
     /// Creates a table with `mb_size` MiB of storage.
     ///
     /// The backing entry storage is exactly `mb_size` MiB when `mb_size > 0`.
@@ -488,7 +489,10 @@ impl TranspositionTable {
         let entries_size = cluster_count as usize * CLUSTER_SIZE;
 
         TranspositionTable {
-            entries: AVec::from_iter(64, (0..entries_size).map(|_| TTEntry::default())),
+            entries: AVec::from_iter(
+                CACHE_LINE_SIZE,
+                (0..entries_size).map(|_| TTEntry::default()),
+            ),
             cluster_count,
             generation: AtomicU8::new(0),
         }
@@ -615,7 +619,7 @@ impl TranspositionTable {
 
         // Retry the cluster when a slot is in-flight so a just-finished hit
         // can still win over a replacement miss.
-        for _ in 0..3 {
+        for _ in 0..Self::PROBE_RETRIES {
             let mut replace_idx = cluster_idx;
             let mut replace_score = i32::MAX;
             let mut saw_in_flight_writer = false;
