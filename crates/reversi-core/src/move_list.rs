@@ -18,11 +18,14 @@ use crate::types::{Depth, ScaledScore};
 /// Maximum number of moves possible in a Reversi position.
 const MAX_MOVES: usize = 34;
 
-/// Value assigned to wipeout moves (capturing all opponent discs).
-const WIPEOUT_VALUE: i32 = 1 << 30;
-
 /// Value assigned to moves suggested by the transposition table.
-const TT_MOVE_VALUE: i32 = 1 << 20;
+///
+/// Must be the highest ordering value so that callers relying on `tt_move`
+/// landing at index 0 after [`MoveList::sort`] remain correct.
+const TT_MOVE_VALUE: i32 = 1 << 30;
+
+/// Value assigned to wipeout moves (capturing all opponent discs).
+const WIPEOUT_VALUE: i32 = 1 << 20;
 
 /// Represents a single move.
 #[derive(Clone, Copy, Debug, Default)]
@@ -53,9 +56,7 @@ impl Move {
 /// Container for all legal moves in a position with evaluation and ordering capabilities.
 #[derive(Clone, Debug)]
 pub struct MoveList {
-    /// List of moves.
     moves: ArrayVec<Move, MAX_MOVES>,
-    /// The square of the wipeout move, if found.
     wipeout_move: Option<Square>,
 }
 
@@ -145,7 +146,7 @@ impl MoveList {
         BestFirstMoveIterator::new(self.moves)
     }
 
-    /// Evaluates all moves to assign ordering values and reduction depths.
+    /// Evaluates all moves and assigns ordering values.
     pub fn evaluate_moves<SS: SearchStrategy>(
         &mut self,
         ctx: &mut SearchContext,
@@ -176,81 +177,52 @@ impl MoveList {
             return;
         }
 
-        if SS::IS_ENDGAME {
-            self.evaluate_moves_endgame(ctx, board, depth, tt_move);
-        } else {
-            self.evaluate_moves_midgame(ctx, board, depth, tt_move);
-        }
+        self.evaluate_moves_by_search::<SS>(ctx, board, depth, tt_move);
     }
 
-    /// Evaluates moves specifically for midgame positions.
-    fn evaluate_moves_midgame(
+    /// Evaluates moves via shallow search, with an endgame-only mobility penalty.
+    fn evaluate_moves_by_search<SS: SearchStrategy>(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
         tt_move: Square,
     ) {
-        const MAX_SORT_DEPTH: i32 = 2;
-        let sort_depth = match depth {
-            0..=15 => 0,
-            16..=25 => 1,
-            _ => MAX_SORT_DEPTH,
-        };
-
-        for mv in self.iter_mut() {
-            if mv.flipped == board.opponent {
-                // Wipeout move
-                mv.value = WIPEOUT_VALUE;
-            } else if mv.sq == tt_move {
-                // Transposition table move
-                mv.value = TT_MOVE_VALUE;
-            } else {
-                // Evaluate using shallow search
-                let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                ctx.update(mv.sq, mv.flipped);
-                mv.value = shallow_search_score(ctx, &next, sort_depth).value();
-                ctx.undo(mv.sq);
+        let sort_depth = if SS::IS_ENDGAME {
+            match depth {
+                0..=19 => 0,
+                20..=28 => 1,
+                _ => 2,
             }
-        }
-    }
-
-    /// Evaluates moves specifically for endgame positions.
-    fn evaluate_moves_endgame(
-        &mut self,
-        ctx: &mut SearchContext,
-        board: &Board,
-        depth: Depth,
-        tt_move: Square,
-    ) {
-        let sort_depth = match depth {
-            0..=19 => 0,
-            20..=28 => 1,
-            _ => 2,
+        } else {
+            match depth {
+                0..=15 => 0,
+                16..=25 => 1,
+                _ => 2,
+            }
         };
 
         for mv in self.iter_mut() {
-            if mv.flipped == board.opponent {
-                // Wipeout move
-                mv.value = WIPEOUT_VALUE;
-            } else if mv.sq == tt_move {
-                // Transposition table move
+            if mv.sq == tt_move {
                 mv.value = TT_MOVE_VALUE;
+            } else if mv.flipped == board.opponent {
+                mv.value = WIPEOUT_VALUE;
             } else {
-                // Evaluate using shallow search
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
                 mv.value = shallow_search_score(ctx, &next, sort_depth).value();
                 ctx.undo(mv.sq);
 
-                const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
-                const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
+                if SS::IS_ENDGAME {
+                    const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
+                    const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
 
-                let (moves, potential) = next.get_moves_and_potential();
-                let mobility = moves.corner_weighted_count() as i32;
-                let potential_mobility = potential.corner_weighted_count() as i32;
-                mv.value -= mobility * MOBILITY_SCALE;
-                mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
+                    let (moves, potential) = next.get_moves_and_potential();
+                    let mobility = moves.corner_weighted_count() as i32;
+                    let potential_mobility = potential.corner_weighted_count() as i32;
+                    mv.value -= mobility * MOBILITY_SCALE;
+                    mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
+                }
             }
         }
     }
@@ -275,12 +247,10 @@ impl MoveList {
         const MOBILITY_WEIGHT: i32 = 16384;
 
         for mv in self.iter_mut() {
-            mv.value = if mv.flipped == board.opponent {
-                // Wipeout move (capture all opponent discs)
-                WIPEOUT_VALUE
-            } else if mv.sq == tt_move {
-                // Transposition table move
+            mv.value = if mv.sq == tt_move {
                 TT_MOVE_VALUE
+            } else if mv.flipped == board.opponent {
+                WIPEOUT_VALUE
             } else {
                 ctx.increment_nodes();
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -306,7 +276,7 @@ impl MoveList {
             0 | 1 => {}
             2 => sort2(&mut self.moves),
             3 => sort3(&mut self.moves),
-            _ => self.moves.sort_unstable_by_key(|m| -m.value),
+            _ => self.moves.sort_unstable_by(|a, b| b.value.cmp(&a.value)),
         }
     }
 
@@ -317,13 +287,12 @@ impl MoveList {
     /// that were already selected as the best move for earlier PV lines (indices 0..pv_idx).
     pub fn exclude_earlier_pv_moves(&mut self, ctx: &SearchContext) {
         if ctx.pv_idx() == 0 {
-            return; // No filtering needed for first PV line
+            return;
         }
 
         self.moves
             .retain(|mv| ctx.root_moves.contains_from_pv_idx(mv.sq));
 
-        // Clear wipeout shortcut if that move was excluded
         self.wipeout_move
             .take_if(|sq| !self.moves.iter().any(|mv| mv.sq == *sq));
     }
@@ -365,9 +334,7 @@ fn sort3(m: &mut [Move]) {
 
 /// Thread-safe iterator for distributing moves across multiple search threads.
 pub struct ConcurrentMoveIterator {
-    /// The move list being iterated over.
     move_list: MoveList,
-    /// Atomic counter tracking the next move index to return.
     current: atomic::AtomicUsize,
 }
 
@@ -424,7 +391,6 @@ impl ConcurrentMoveIterator {
 pub struct BestFirstMoveIterator {
     /// Owned moves array, partially sorted as iteration progresses.
     moves: ArrayVec<Move, MAX_MOVES>,
-    /// Current position in the iteration.
     current: usize,
 }
 
@@ -510,7 +476,6 @@ mod tests {
         let move_list = MoveList::new(&board);
         assert_eq!(move_list.count(), 4);
 
-        // Verify moves are at correct positions
         let moves: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
         assert!(moves.contains(&Square::D3));
         assert!(moves.contains(&Square::C4));
@@ -521,7 +486,6 @@ mod tests {
     /// Tests move generation with more complex position.
     #[test]
     fn test_move_list_generation_complex() {
-        // Create a position with known moves - use standard reversi position
         let board = Board::from_string(
             "--------\
              --------\
@@ -538,17 +502,15 @@ mod tests {
         let move_list = MoveList::new(&board);
         assert!(move_list.count() > 0);
 
-        // Verify all moves have valid flipped discs
         for mv in move_list.iter() {
             assert!(!mv.flipped.is_empty());
-            assert_eq!(mv.value, i32::MIN); // Initial value
+            assert_eq!(mv.value, i32::MIN);
         }
     }
 
     /// Tests move generation when no moves are available.
     #[test]
     fn test_move_list_no_moves() {
-        // Create position with no legal moves
         let board = Board::from_bitboards(u64::MAX, 0);
         let move_list = MoveList::new(&board);
         assert_eq!(move_list.count(), 0);
@@ -584,11 +546,9 @@ mod tests {
         let board = Board::new();
         let move_list = MoveList::new(&board);
 
-        // Test iter()
         let count_iter = move_list.iter().count();
         assert_eq!(count_iter, move_list.count());
 
-        // Test that iterator returns moves in order
         let squares: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
         assert_eq!(squares.len(), 4);
     }
@@ -599,7 +559,6 @@ mod tests {
         let board = Board::new();
         let mut move_list = MoveList::new(&board);
 
-        // Set values in non-sorted order
         move_list.moves[0].value = 10;
         move_list.moves[1].value = 30;
         move_list.moves[2].value = 20;
@@ -607,7 +566,6 @@ mod tests {
 
         move_list.sort();
 
-        // Verify sorted in descending order
         let values: Vec<i32> = move_list.iter().map(|m| m.value).collect();
         assert_eq!(values, vec![40, 30, 20, 10]);
     }
@@ -621,7 +579,6 @@ mod tests {
         move_list.moves[1].value = 5;
         move_list.moves[2].value = 15;
         move_list.moves[3].value = 2;
-        // move_list.count = 4; // Already 4 from new()
 
         let mut iter = move_list.into_best_first_iter();
         assert_eq!(iter.next().unwrap().value, 15);
@@ -637,7 +594,6 @@ mod tests {
         let board = Board::new();
         let mut move_list = MoveList::new(&board);
 
-        // Set all values equal
         for i in 0..move_list.count() {
             move_list.moves[i].value = 100;
         }
@@ -666,7 +622,6 @@ mod tests {
     /// Tests best-first iterator with single move.
     #[test]
     fn test_best_first_iter_single_move() {
-        // Create position with only one legal move
         let board = Board::from_string(
             "XXXXXXXX\
              XXXXXXXX\
@@ -694,7 +649,6 @@ mod tests {
         let board = Board::new();
         let mut move_list = MoveList::new(&board);
 
-        // Set unique values
         for i in 0..move_list.count() {
             move_list.moves[i].value = (i * 10) as i32;
         }
@@ -720,7 +674,6 @@ mod tests {
         assert_eq!(concurrent_iter.count(), 4);
         assert_eq!(concurrent_iter.remaining(), 4);
 
-        // Get all moves
         let mut moves = Vec::new();
         while let Some((mv, idx)) = concurrent_iter.next() {
             moves.push((mv.sq, idx));
@@ -728,12 +681,10 @@ mod tests {
 
         assert_eq!(moves.len(), 4);
         assert_eq!(concurrent_iter.remaining(), 0);
-        // Verify indices are 1-based and sequential
         for (i, (_, idx)) in moves.iter().enumerate() {
             assert_eq!(*idx, i + 1);
         }
 
-        // Verify no more moves
         assert!(concurrent_iter.next().is_none());
     }
 
@@ -742,7 +693,6 @@ mod tests {
         let board = Board::new();
         let move_list = MoveList::new(&board);
 
-        // get_move should return the same move as iter
         let moves_from_iter: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
         for (i, expected_sq) in moves_from_iter.iter().enumerate() {
             assert_eq!(move_list.get_move(i).sq, *expected_sq);
@@ -780,7 +730,6 @@ mod tests {
         let board = Board::new();
         let move_list = MoveList::new(&board);
 
-        // Offset 0 should behave identically to new()
         let concurrent_iter = ConcurrentMoveIterator::from_offset(move_list, 0);
         assert_eq!(concurrent_iter.remaining(), 4);
 
