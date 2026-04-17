@@ -336,34 +336,24 @@ impl App {
             Event::Quit => {
                 self.ui_mode = UiMode::ConfirmQuit;
             }
-            Event::CursorUp => {
-                if self.cursor.0 > 0 {
-                    self.cursor.0 -= 1;
-                }
+            Event::CursorUp if self.cursor.0 > 0 => {
+                self.cursor.0 -= 1;
             }
-            Event::CursorDown => {
-                if self.cursor.0 < 7 {
-                    self.cursor.0 += 1;
-                }
+            Event::CursorDown if self.cursor.0 < 7 => {
+                self.cursor.0 += 1;
             }
-            Event::CursorLeft => {
-                if self.cursor.1 > 0 {
-                    self.cursor.1 -= 1;
-                }
+            Event::CursorLeft if self.cursor.1 > 0 => {
+                self.cursor.1 -= 1;
             }
-            Event::CursorRight => {
-                if self.cursor.1 < 7 {
-                    self.cursor.1 += 1;
-                }
+            Event::CursorRight if self.cursor.1 < 7 => {
+                self.cursor.1 += 1;
             }
             Event::Select => {
                 self.try_make_move_at_cursor();
             }
-            Event::Click(row, col) => {
-                if row < 8 && col < 8 {
-                    self.cursor = (row, col);
-                    self.try_make_move_at_cursor();
-                }
+            Event::Click(row, col) if row < 8 && col < 8 => {
+                self.cursor = (row, col);
+                self.try_make_move_at_cursor();
             }
             Event::Undo => {
                 self.undo_move();
@@ -385,10 +375,8 @@ impl App {
                 self.level_input = self.level.to_string();
                 self.ui_mode = UiMode::LevelSelect;
             }
-            Event::EditBoard => {
-                if !self.ai_thinking {
-                    self.open_board_editor();
-                }
+            Event::EditBoard if !self.ai_thinking => {
+                self.open_board_editor();
             }
             _ => {}
         }
@@ -442,10 +430,8 @@ impl App {
                 self.ui_mode = UiMode::Normal;
                 self.level_input.clear();
             }
-            Event::Char(c) if c.is_ascii_digit() => {
-                if self.level_input.len() < 3 {
-                    self.level_input.push(c);
-                }
+            Event::Char(c) if c.is_ascii_digit() && self.level_input.len() < 3 => {
+                self.level_input.push(c);
             }
             Event::Backspace => {
                 self.level_input.pop();
@@ -463,15 +449,11 @@ impl App {
             Event::Quit => {
                 self.ui_mode = UiMode::Normal;
             }
-            Event::CursorUp => {
-                if self.mode_selection > 0 {
-                    self.mode_selection -= 1;
-                }
+            Event::CursorUp if self.mode_selection > 0 => {
+                self.mode_selection -= 1;
             }
-            Event::CursorDown => {
-                if self.mode_selection < 3 {
-                    self.mode_selection += 1;
-                }
+            Event::CursorDown if self.mode_selection < 3 => {
+                self.mode_selection += 1;
             }
             Event::Select => {
                 self.mode = GameMode::from_index(self.mode_selection);
@@ -714,15 +696,15 @@ impl App {
                     self.board_edit_error = None;
                 }
             }
-            Event::CursorUp => {
-                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus > 0 {
-                    self.board_edit_focus -= 1;
-                }
+            Event::CursorUp
+                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus > 0 =>
+            {
+                self.board_edit_focus -= 1;
             }
-            Event::CursorDown => {
-                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus < 2 {
-                    self.board_edit_focus += 1;
-                }
+            Event::CursorDown
+                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus < 2 =>
+            {
+                self.board_edit_focus += 1;
             }
             Event::CursorLeft | Event::CursorRight => {
                 let on_side_field = match self.board_edit_tab {

@@ -80,6 +80,27 @@ const LEFT_RIGHT_MASK: [V8DI; 66] = [
     V8DI { v: [0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000] },
 ];
 
+/// Emits a plain `vpsrlvq` and relies on the hardware-defined zero result for shift
+/// counts >= 64. Since Rust 1.93 (LLVM 21+) the `_mm256_srlv_epi64` intrinsic wrapper
+/// produces `vptestmq + vpsrlvq{k}{z}`, which is wasted work when the algorithm already
+/// tolerates the >=64 case (see `mm_flip`'s `lzcnt` → `srlv` pattern).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512cd,avx512vl")]
+#[inline]
+unsafe fn vpsrlvq_raw(src: __m256i, cnt: __m256i) -> __m256i {
+    let out: __m256i;
+    unsafe {
+        std::arch::asm!(
+            "vpsrlvq {out}, {src}, {cnt}",
+            out = lateout(ymm_reg) out,
+            src = in(ymm_reg) src,
+            cnt = in(ymm_reg) cnt,
+            options(pure, nomem, nostack, preserves_flags),
+        );
+    }
+    out
+}
+
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512cd,avx512vl")]
 fn mm_flip(op: __m128i, x: usize) -> __m128i {
@@ -91,7 +112,7 @@ fn mm_flip(op: __m128i, x: usize) -> __m128i {
 
     let mut t0 = _mm256_lzcnt_epi64(_mm256_andnot_si256(oo, right_mask));
     t0 = _mm256_and_si256(
-        _mm256_srlv_epi64(_mm256_set1_epi64x(0x8000_0000_0000_0000u64 as i64), t0),
+        unsafe { vpsrlvq_raw(_mm256_set1_epi64x(0x8000_0000_0000_0000u64 as i64), t0) },
         pp,
     );
     let right_flank = _mm256_ternarylogic_epi64(

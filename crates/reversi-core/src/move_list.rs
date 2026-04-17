@@ -276,7 +276,9 @@ impl MoveList {
             0 | 1 => {}
             2 => sort2(&mut self.moves),
             3 => sort3(&mut self.moves),
-            _ => self.moves.sort_unstable_by(|a, b| b.value.cmp(&a.value)),
+            _ => self
+                .moves
+                .sort_unstable_by_key(|m| std::cmp::Reverse(m.value)),
         }
     }
 

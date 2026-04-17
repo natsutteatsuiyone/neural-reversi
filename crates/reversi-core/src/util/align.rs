@@ -5,6 +5,7 @@ use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 /// Wrapper type ensuring 64-byte alignment for SIMD operations and cache line optimization.
 #[repr(C, align(64))]
+#[derive(Clone, Copy)]
 pub struct Align64<T>(pub T);
 
 impl<T> Align64<T> {
@@ -37,14 +38,6 @@ impl<T> DerefMut for Align64<T> {
         &mut self.0
     }
 }
-
-impl<T: Clone> Clone for Align64<T> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T: Copy> Copy for Align64<T> {}
 
 impl<T, I> Index<I> for Align64<T>
 where

@@ -134,14 +134,14 @@ impl RootMoves {
         let pv_idx = self.pv_idx();
         let mut moves = self.moves.lock().unwrap();
         if pv_idx < moves.len() {
-            moves[pv_idx..].sort_by(|a, b| b.score.cmp(&a.score));
+            moves[pv_idx..].sort_by_key(|m| std::cmp::Reverse(m.score));
         }
     }
 
     /// Sorts all root moves by score for final result ordering.
     pub fn sort_all(&self) {
         let mut moves = self.moves.lock().unwrap();
-        moves.sort_by(|a, b| b.score.cmp(&a.score));
+        moves.sort_by_key(|m| std::cmp::Reverse(m.score));
     }
 
     /// Returns the number of root moves available.

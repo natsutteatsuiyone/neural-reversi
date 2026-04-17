@@ -429,11 +429,7 @@ fn play_game(
         let has_time = player_time.use_time(elapsed_ms);
         if !has_time {
             let phase_str = if result.is_endgame { "End" } else { "Mid" };
-            let nps = if elapsed_ms > 0 {
-                result.n_nodes * 1000 / elapsed_ms
-            } else {
-                0
-            };
+            let nps = (result.n_nodes * 1000).checked_div(elapsed_ms).unwrap_or(0);
             println!(
                 "  {:>4} {:>6} {:>8} {:>10} {:>10} {:>8} {:>6} {:>7} {:>10} {:>10}",
                 move_num,
@@ -484,13 +480,11 @@ fn play_game(
                 "Mid".cyan()
             };
 
-            let (nps, nodes_str) = if elapsed_ms > 0 {
-                (
-                    result.n_nodes * 1000 / elapsed_ms,
-                    format!("{}", result.n_nodes),
-                )
+            let nps = (result.n_nodes * 1000).checked_div(elapsed_ms).unwrap_or(0);
+            let nodes_str = if elapsed_ms > 0 {
+                format!("{}", result.n_nodes)
             } else {
-                (0, "-".to_string())
+                "-".to_string()
             };
 
             // Format depth with selectivity probability (like evaltest)
