@@ -16,8 +16,6 @@
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
 
-use cfg_if::cfg_if;
-
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::{BOARD_SQUARES, MAX_PLY};
@@ -431,12 +429,14 @@ impl PatternFeatures {
         debug_assert!(!flipped.is_empty());
         debug_assert!(ply < MAX_PLY - 1);
 
-        cfg_if! {
-            if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+        cfg_select! {
+            all(target_arch = "x86_64", target_feature = "avx2") => {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
-            } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
+            }
+            all(target_arch = "wasm32", target_feature = "simd128") => {
                 self.update_wasm_simd(sq, flipped, ply, side_to_move)
-            } else {
+            }
+            _ => {
                 self.update_fallback(sq, flipped, ply, side_to_move);
             }
         }

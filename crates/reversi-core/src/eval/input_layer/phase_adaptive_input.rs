@@ -4,7 +4,6 @@ use std::io::{self, Read};
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
-use cfg_if::cfg_if;
 
 use crate::constants::CACHE_LINE_SIZE;
 use crate::eval::pattern_feature::PatternFeature;
@@ -108,12 +107,14 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     /// Performs a forward pass through the phase-adaptive input layer.
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        cfg_if! {
-            if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
+        cfg_select! {
+            all(target_arch = "x86_64", target_feature = "avx512bw") => {
                 unsafe { self.forward_avx512(pattern_feature, output) };
-            } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]  {
+            }
+            all(target_arch = "x86_64", target_feature = "avx2") => {
                 unsafe { self.forward_avx2(pattern_feature, output) };
-            } else {
+            }
+            _ => {
                 self.forward_fallback(pattern_feature, output);
             }
         }

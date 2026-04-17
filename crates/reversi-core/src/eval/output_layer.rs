@@ -48,24 +48,24 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 3]) -> i32 {
         #[cfg(target_arch = "x86_64")]
         {
-            use cfg_if::cfg_if;
-
-            cfg_if! {
-                if #[cfg(target_feature = "avx512bw")] {
+            cfg_select! {
+                target_feature = "avx512bw" => {
                     use std::arch::is_x86_feature_detected;
                     if is_x86_feature_detected!("avx512vnni") {
                         Self::forward_avx512_vnni
                     } else {
                         Self::forward_avx512_no_vnni
                     }
-                } else if #[cfg(target_feature = "avx2")] {
+                }
+                target_feature = "avx2" => {
                     use std::arch::is_x86_feature_detected;
                     if is_x86_feature_detected!("avxvnni") {
                         Self::forward_avx2_vnni
                     } else {
                         Self::forward_avx2_no_vnni
                     }
-                } else {
+                }
+                _ => {
                     Self::forward_scalar_wrapper
                 }
             }

@@ -130,21 +130,22 @@ impl NetworkSmall {
 
     /// Selects the optimal forward implementation based on CPU features.
     fn select_forward_fn() -> unsafe fn(&PatternFeature, &InputLayer, &OutputLayer) -> i32 {
-        use cfg_if::cfg_if;
-        cfg_if! {
-            if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
+        cfg_select! {
+            all(target_arch = "x86_64", target_feature = "avx512bw") => {
                 if is_x86_feature_detected!("avx512vnni") {
                     Self::forward_avx512_vnni
                 } else {
                     Self::forward_avx512_no_vnni
                 }
-            } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+            }
+            all(target_arch = "x86_64", target_feature = "avx2") => {
                 if is_x86_feature_detected!("avxvnni") {
                     Self::forward_avx2_vnni
                 } else {
                     Self::forward_avx2_no_vnni
                 }
-            } else {
+            }
+            _ => {
                 Self::forward_scalar_wrapper
             }
         }

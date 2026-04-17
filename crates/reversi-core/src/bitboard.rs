@@ -6,8 +6,6 @@
 #[cfg(target_arch = "wasm32")]
 use std::arch::wasm32::*;
 
-use cfg_if::cfg_if;
-
 use crate::square::Square;
 
 const A1_MASK: u64 = 0x0000000000000001;
@@ -460,14 +458,17 @@ impl std::fmt::Display for Bitboard {
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L822>
 #[inline(always)]
 fn get_moves(player: u64, opponent: u64) -> u64 {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512vl"))] {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512vl") => {
             unsafe { get_moves_avx512(player, opponent) }
-        } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+        }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { get_moves_avx2(player, opponent) }
-        } else if #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))] {
+        }
+        all(target_arch = "wasm32", target_feature = "simd128") => {
             get_moves_wasm(player, opponent)
-        } else {
+        }
+        _ => {
             get_moves_fallback(player, opponent)
         }
     }
@@ -714,12 +715,14 @@ fn get_potential_moves(p: u64, o: u64) -> u64 {
 /// Dispatches to the best available SIMD implementation at compile time.
 #[inline(always)]
 fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512vl"))] {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512vl") => {
             unsafe { get_moves_and_potential_avx512(player, opponent) }
-        } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+        }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { get_moves_and_potential_avx2(player, opponent) }
-        } else {
+        }
+        _ => {
             (get_moves(player, opponent), get_potential_moves(player, opponent))
         }
     }

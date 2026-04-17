@@ -4087,7 +4087,6 @@ dependencies = [
  "aligned-vec",
  "arrayvec",
  "byteorder",
- "cfg-if",
  "criterion",
  "lock_api",
  "num_cpus",

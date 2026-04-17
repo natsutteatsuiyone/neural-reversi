@@ -1,14 +1,13 @@
 //! Last move flip counting optimized for endgame.
 
-use cfg_if::cfg_if;
-
 use crate::bitboard::Bitboard;
 use crate::square::Square;
 
-cfg_if! {
-    if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
+cfg_select! {
+    all(target_arch = "x86_64", target_feature = "bmi2") => {
         mod count_last_flip_bmi2;
-    } else {
+    }
+    _ => {
         mod count_last_flip_kindergarten;
     }
 }
@@ -18,10 +17,11 @@ cfg_if! {
 /// Returns twice the actual flip count for optimization purposes.
 #[inline(always)]
 pub fn count_last_flip(player: Bitboard, sq: Square) -> i32 {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "bmi2") => {
             unsafe { count_last_flip_bmi2::count_last_flip(player.bits(), sq) }
-        } else {
+        }
+        _ => {
             count_last_flip_kindergarten::count_last_flip(player.bits(), sq)
         }
     }

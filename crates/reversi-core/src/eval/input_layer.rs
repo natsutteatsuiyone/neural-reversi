@@ -13,8 +13,6 @@ use crate::eval::util::feature_offset;
 mod simd_layout {
     use std::mem::size_of;
 
-    use cfg_if::cfg_if;
-
     const PERMUTE_WIDTH: usize = 8;
 
     unsafe fn permute_tile<T, const ORDER_LEN: usize>(tile: &mut [T], order: &[usize; ORDER_LEN])
@@ -59,13 +57,14 @@ mod simd_layout {
         }
     }
 
-    cfg_if! {
-        if #[cfg(target_feature = "avx512bw")] {
+    cfg_select! {
+        target_feature = "avx512bw" => {
             const AVX512_ORDER: [usize; PERMUTE_WIDTH] = [0, 2, 4, 6, 1, 3, 5, 7];
             pub fn permute_rows(data: &mut [i16], row_len: usize) {
                 unsafe { permute_rows_impl::<u128, PERMUTE_WIDTH>(data, row_len, &AVX512_ORDER) };
             }
-        } else if #[cfg(target_feature = "avx2")]  {
+        }
+        target_feature = "avx2" => {
             const AVX2_ORDER: [usize; PERMUTE_WIDTH] = [0, 1, 4, 5, 2, 3, 6, 7];
             pub fn permute_rows(data: &mut [i16], row_len: usize) {
                 unsafe { permute_rows_impl::<u64, PERMUTE_WIDTH>(data, row_len, &AVX2_ORDER) };

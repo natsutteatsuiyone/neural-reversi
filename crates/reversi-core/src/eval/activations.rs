@@ -4,14 +4,13 @@
 //! - [Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h)
 //! - [Squared Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h)
 
-use cfg_if::cfg_if;
-
-cfg_if! {
-    if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+cfg_select! {
+    all(target_arch = "x86_64", target_feature = "avx2") => {
         use std::arch::x86_64::*;
         const AVX2_SIMD_WIDTH: usize = std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
         const SSE2_SIMD_WIDTH: usize = std::mem::size_of::<__m128i>() / std::mem::size_of::<u8>();
     }
+    _ => {}
 }
 
 const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
@@ -25,10 +24,11 @@ const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 /// On x86-64 with AVX2, both `input` and `output` must be 32-byte aligned
 /// (or 16-byte aligned when `SIZE` is not a multiple of 32).
 pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { clipped_relu_avx2::<SIZE>(input, output) };
-        } else {
+        }
+        _ => {
             clipped_relu_fallback::<SIZE>(input, output, 0);
         }
     }
@@ -118,10 +118,11 @@ fn clipped_relu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], st
 /// for SSE2 loads/stores.
 #[inline(always)]
 pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) };
-        } else {
+        }
+        _ => {
             sqr_clipped_relu_fallback::<SIZE>(input, output, 0);
         }
     }
@@ -189,10 +190,11 @@ fn sqr_clipped_relu_fallback<const SIZE: usize>(
 /// (or 16-byte aligned when `SIZE` is not a multiple of 32).
 #[inline(always)]
 pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { screlu_avx2::<SIZE>(input, output) };
-        } else {
+        }
+        _ => {
             screlu_fallback::<SIZE>(input, output, 0);
         }
     }

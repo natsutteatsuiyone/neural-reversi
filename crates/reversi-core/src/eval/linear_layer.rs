@@ -6,7 +6,6 @@ use std::io::{self, Read};
 
 use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
-use cfg_if::cfg_if;
 
 use crate::constants::CACHE_LINE_SIZE;
 use crate::util::align::Align64;
@@ -76,8 +75,8 @@ impl<
     /// Selects the optimal forward implementation based on CPU features.
     fn select_forward_fn()
     -> ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS> {
-        cfg_if! {
-            if #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))] {
+        cfg_select! {
+            all(target_arch = "x86_64", target_feature = "avx512bw") => {
                 use std::arch::x86_64::__m512i;
                 use std::arch::is_x86_feature_detected;
 
@@ -95,14 +94,16 @@ impl<
                 } else {
                     Self::forward_avx512_no_vnni
                 }
-            }  else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+            }
+            all(target_arch = "x86_64", target_feature = "avx2") => {
                 use std::arch::is_x86_feature_detected;
                 if is_x86_feature_detected!("avxvnni") {
                     Self::forward_avx2_vnni
                 } else {
                     Self::forward_avx2_no_vnni
                 }
-            } else {
+            }
+            _ => {
                 Self::forward_fallback_wrapper
             }
         }

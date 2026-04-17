@@ -2,16 +2,18 @@
 
 use crate::bitboard::Bitboard;
 use crate::square::Square;
-use cfg_if::cfg_if;
 
-cfg_if! {
-    if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
+cfg_select! {
+    all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
         mod flip_avx512;
-    } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+    }
+    all(target_arch = "x86_64", target_feature = "avx2") => {
         mod flip_avx2;
-    } else if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
+    }
+    all(target_arch = "x86_64", target_feature = "bmi2") => {
         mod flip_bmi2;
-    } else {
+    }
+    _ => {
         mod flip_kindergarten;
     }
 }
@@ -22,14 +24,17 @@ cfg_if! {
 /// kindergarten bitboard).
 #[inline(always)]
 pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"))] {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             Bitboard::new(unsafe { flip_avx512::flip(sq, p.bits(), o.bits()) })
-        } else if #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))] {
+        }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
             Bitboard::new(unsafe { flip_avx2::flip(sq, p.bits(), o.bits()) })
-        } else if #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))] {
+        }
+        all(target_arch = "x86_64", target_feature = "bmi2") => {
             Bitboard::new(flip_bmi2::flip(sq, p.bits(), o.bits()))
-        } else {
+        }
+        _ => {
             Bitboard::new(flip_kindergarten::flip(sq, p.bits(), o.bits()))
         }
     }
