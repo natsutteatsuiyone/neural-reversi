@@ -47,7 +47,7 @@ This is an experimental project to develop a highly accurate neural network eval
 
 ### Prerequisites
 
-- [Rust](https://www.rust-lang.org/tools/install) 1.92.0+
+- [Rust](https://www.rust-lang.org/tools/install) 1.95.0+
 - [cargo-make](https://github.com/sagiegurari/cargo-make) (recommended)
 - [Bun](https://bun.sh/) (for GUI and Web development)
 
