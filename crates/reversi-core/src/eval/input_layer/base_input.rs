@@ -27,6 +27,8 @@ macro_rules! impl_base_input_apply_activation {
         $fn_name:ident,
         $target_feature:literal,
         $lane_ty:ty,
+        load = $load:path,
+        store = $store:path,
         set1 = $set1:path,
         setzero = $setzero:path,
         max = $max:path,
@@ -53,11 +55,11 @@ macro_rules! impl_base_input_apply_activation {
                 let iterations = num_regs / 4;
 
                 for _ in 0..iterations {
-                    let in00 = *in0_ptr;
-                    let in01 = *in0_ptr.add(1);
+                    let in00 = $load(in0_ptr);
+                    let in01 = $load(in0_ptr.add(1));
                     in0_ptr = in0_ptr.add(2);
-                    let in10 = *in1_ptr;
-                    let in11 = *in1_ptr.add(1);
+                    let in10 = $load(in1_ptr);
+                    let in11 = $load(in1_ptr.add(1));
                     in1_ptr = in1_ptr.add(2);
                     let clamp0a = $max($min(in00, one), zero);
                     let clamp0b = $max($min(in01, one), zero);
@@ -67,7 +69,7 @@ macro_rules! impl_base_input_apply_activation {
                     let sum1b = $min(in11, one);
                     let pa = $mulhi(sum0a, sum1a);
                     let pb = $mulhi(sum0b, sum1b);
-                    *output_ptr = $packus(pa, pb);
+                    $store(output_ptr, $packus(pa, pb));
                     output_ptr = output_ptr.add(1);
                 }
             }
@@ -149,12 +151,13 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         self.apply_activation_avx2(&acc, output);
     }
 
-    // AVX-512-optimized activation function.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     impl_base_input_apply_activation!(
         apply_activation_avx512,
         "avx512bw",
         __m512i,
+        load = _mm512_load_si512,
+        store = _mm512_store_si512,
         set1 = _mm512_set1_epi16,
         setzero = _mm512_setzero_si512,
         max = _mm512_max_epi16,
@@ -164,12 +167,13 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         packus = _mm512_packus_epi16
     );
 
-    // AVX2-optimized activation function.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     impl_base_input_apply_activation!(
         apply_activation_avx2,
         "avx2",
         __m256i,
+        load = _mm256_load_si256,
+        store = _mm256_store_si256,
         set1 = _mm256_set1_epi16,
         setzero = _mm256_setzero_si256,
         max = _mm256_max_epi16,
@@ -187,17 +191,11 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
 
         const { assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS) }
-        debug_assert!(output.len() >= OUTPUT_DIMS);
-        let acc_ptr = acc.0.as_ptr();
-        let out_ptr = output.as_mut_ptr();
-        unsafe {
-            for i in 0..OUTPUT_DIMS {
-                let v0 = *acc_ptr.add(i);
-                let v1 = *acc_ptr.add(i + OUTPUT_DIMS);
-                let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
-                let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
-                *out_ptr.add(i) = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
-            }
+        let (lo, hi) = acc.0.split_at(OUTPUT_DIMS);
+        for ((out, &v0), &v1) in output[..OUTPUT_DIMS].iter_mut().zip(lo).zip(hi) {
+            let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
+            let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
+            *out = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
         }
     }
 }

@@ -146,7 +146,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         self.apply_activation_avx2(&acc, output);
     }
 
-    // AVX-512-optimized activation function.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     impl_phase_input_apply_activation!(
         apply_activation_avx512,
@@ -163,7 +162,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         packus_epi16 = _mm512_packus_epi16
     );
 
-    // AVX2-optimized activation function.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     impl_phase_input_apply_activation!(
         apply_activation_avx2,
@@ -186,14 +184,9 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_scalar::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
 
-        debug_assert!(output.len() >= OUTPUT_DIMS);
-        let acc_ptr = acc.0.as_ptr();
-        let out_ptr = output.as_mut_ptr();
-        unsafe {
-            for i in 0..OUTPUT_DIMS {
-                let v = (*acc_ptr.add(i)).clamp(0, ACTIVATION_MAX) as u32;
-                *out_ptr.add(i) = ((v * v) >> ACTIVATION_SHIFT) as u8;
-            }
+        for (out, &acc_v) in output[..OUTPUT_DIMS].iter_mut().zip(acc.0.iter()) {
+            let v = acc_v.clamp(0, ACTIVATION_MAX) as u32;
+            *out = ((v * v) >> ACTIVATION_SHIFT) as u8;
         }
     }
 }
