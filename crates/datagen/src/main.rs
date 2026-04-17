@@ -1,7 +1,7 @@
 mod opening;
 mod probcut;
 mod record;
-mod rescore;
+mod score_openings;
 mod selfplay;
 mod shuffle;
 
@@ -128,22 +128,6 @@ enum SubCommands {
 
         #[arg(short, long)]
         output: String,
-    },
-    Rescore {
-        #[arg(short, long)]
-        input: String,
-
-        #[arg(short, long)]
-        output: String,
-
-        #[arg(short, long, value_parser = clap::value_parser!(u32).range(1..=60))]
-        empties: u32,
-
-        #[arg(long, default_value = "512")]
-        hash_size: usize,
-
-        #[arg(short, long, default_value = "false")]
-        verbose: bool,
     },
 }
 
@@ -278,7 +262,7 @@ fn main() {
                 mid_depth,
                 end_depth,
             };
-            selfplay::execute_score_openings(
+            score_openings::execute(
                 depth,
                 hash_size,
                 level,
@@ -286,16 +270,6 @@ fn main() {
                 &output,
             )
             .expect("Failed to execute score-openings");
-        }
-        SubCommands::Rescore {
-            input,
-            output,
-            empties,
-            hash_size,
-            verbose,
-        } => {
-            rescore::execute(&input, &output, empties, hash_size, verbose)
-                .expect("Failed to execute rescore");
         }
     }
 }

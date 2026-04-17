@@ -47,7 +47,7 @@ pub fn write_records_to_file(path: &Path, records: &[GameRecord]) -> io::Result<
 }
 
 /// Writes game records to the given writer.
-pub fn write_records(writer: &mut impl Write, records: &[GameRecord]) -> io::Result<()> {
+fn write_records(writer: &mut impl Write, records: &[GameRecord]) -> io::Result<()> {
     for record in records {
         writer.write_u64::<LittleEndian>(record.board.player.bits())?;
         writer.write_u64::<LittleEndian>(record.board.opponent.bits())?;
@@ -64,15 +64,6 @@ pub fn write_records(writer: &mut impl Write, records: &[GameRecord]) -> io::Res
         writer.write_u16::<LittleEndian>(record.game_id)?;
     }
     Ok(())
-}
-
-/// Counts the number of complete records in a binary file.
-pub fn count_records_in_file(path: &Path) -> io::Result<u32> {
-    match fs::metadata(path) {
-        Ok(metadata) => Ok((metadata.len() / RECORD_SIZE) as u32),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(0),
-        Err(e) => Err(e),
-    }
 }
 
 /// Truncates any trailing incomplete record from a binary file.

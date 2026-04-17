@@ -129,23 +129,7 @@ datagen score-openings --depth 9 --mid-depth 16 --end-depth 24 --selectivity 0 -
 
 Same binary record format as `selfplay`. The `game_score` field stores the rounded evaluation score (since no full game is played), and the random move flag is always 0.
 
-### rescore
-
-Corrects training data scores by performing exact endgame solving. For positions with a specified number of empty squares or fewer, the evaluation score and game score are replaced with the exact disc difference from a perfect endgame search.
-
-```bash
-datagen rescore --input ./data --output ./rescored_data --empties 16 --hash-size 512
-```
-
-#### Options
-
-- `--input`: Input file (.bin) or directory containing .bin files to rescore.
-- `--output`: Output directory where corrected files will be written with the same filenames.
-- `--empties`: Correct records with this many or fewer empty squares (1-60). Positions with more empty squares are left unchanged.
-- `--hash-size`: Transposition table size in MB (default: 512).
-
 ## Workflow
 
 1. Generate self-play data
-2. Rescore endgame positions with exact solving (optional)
-3. Train neural network using self-play data
+2. Train neural network using self-play data
