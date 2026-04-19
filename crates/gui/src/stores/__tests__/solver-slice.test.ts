@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred, createTestStore } from "./test-helpers";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createMockSolverService } from "@/services/mock-solver-service";
@@ -16,6 +16,12 @@ import type {
     SolverProgressPayload,
 } from "@/services/types";
 import type { SolverHistoryEntry } from "@/stores/slices/types";
+
+const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+afterAll(() => {
+    consoleErrorSpy.mockRestore();
+});
 
 // Allow individual tests to override `getValidMoves` (e.g. to simulate a
 // position with no legal moves for the next player). Tests that don't set a

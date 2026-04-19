@@ -103,6 +103,51 @@ describe("setHintMode", () => {
     expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores stale abort cleanup while a newer hint abort is pending", async () => {
+    const abortDeferred1 = createDeferred<void>();
+    const abortDeferred2 = createDeferred<void>();
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        abortSearch: vi
+          .fn()
+          .mockReturnValueOnce(abortDeferred1.promise)
+          .mockReturnValueOnce(abortDeferred2.promise),
+      }),
+    });
+    const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
+
+    store.setState({
+      isHintMode: true,
+      isAnalyzing: true,
+      isAIThinking: false,
+    });
+
+    store.getState().setHintMode(false);
+    store.getState().setHintMode(true);
+    store.getState().setHintMode(false);
+
+    expect(services.ai.abortSearch).toHaveBeenCalledTimes(2);
+    expect(store.getState().hintAnalysisAbortPending).toBe(true);
+
+    abortDeferred1.resolve();
+    await abortDeferred1.promise;
+    await Promise.resolve();
+
+    expect(store.getState().hintAnalysisAbortPending).toBe(true);
+    expect(store.getState().isAnalyzing).toBe(true);
+
+    store.getState().setHintMode(true);
+    expect(analyzeBoardSpy).not.toHaveBeenCalled();
+
+    abortDeferred2.resolve();
+    await abortDeferred2.promise;
+    await Promise.resolve();
+
+    expect(store.getState().hintAnalysisAbortPending).toBe(false);
+    expect(store.getState().isAnalyzing).toBe(false);
+    expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores stale hint progress after a cancelled analysis is re-enabled", async () => {
     const analyzeDeferred1 = createDeferred<void>();
     const analyzeDeferred2 = createDeferred<void>();

@@ -1,7 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createEmptyBoard } from "@/lib/game-logic";
 import { createTestStore, type TestStore } from "./test-helpers";
+
+const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+afterAll(() => {
+  consoleErrorSpy.mockRestore();
+});
 
 describe("resetSetup", () => {
   it("has correct initial state", () => {

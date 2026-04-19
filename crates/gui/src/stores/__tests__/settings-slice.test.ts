@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { createTestStore } from "./test-helpers";
+import { createTestStore, createDeferred } from "./test-helpers";
+import { createMockAIService } from "@/services/mock-ai-service";
 import type { AppSettings } from "@/services/types";
 
 beforeEach(() => {
@@ -140,6 +141,110 @@ describe("setHintLevel", () => {
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
     store.getState().setHintLevel(10);
     expect(analyzeBoardSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts running analyze and restarts with the new level", async () => {
+    const abortDeferred = createDeferred<void>();
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        abortSearch: vi.fn().mockReturnValue(abortDeferred.promise),
+      }),
+    });
+    store.setState({
+      isHintMode: true,
+      isAnalyzing: true,
+      isAIThinking: false,
+    });
+    const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
+
+    store.getState().setHintLevel(10);
+
+    expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
+    expect(store.getState().hintAnalysisAbortPending).toBe(true);
+    expect(analyzeBoardSpy).not.toHaveBeenCalled();
+
+    abortDeferred.resolve();
+    await abortDeferred.promise;
+    await Promise.resolve();
+
+    expect(store.getState().hintAnalysisAbortPending).toBe(false);
+    expect(store.getState().isAnalyzing).toBe(false);
+    expect(analyzeBoardSpy).toHaveBeenCalled();
+  });
+
+  it("does not queue a second hint restart while abort is pending", async () => {
+    const abortDeferred = createDeferred<void>();
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        abortSearch: vi.fn().mockReturnValue(abortDeferred.promise),
+      }),
+    });
+    store.setState({
+      isHintMode: true,
+      isAnalyzing: true,
+      isAIThinking: false,
+    });
+    const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
+
+    store.getState().setHintLevel(10);
+    store.getState().setHintLevel(12);
+
+    expect(store.getState().hintLevel).toBe(12);
+    expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
+    expect(store.getState().hintAnalysisAbortPending).toBe(true);
+    expect(analyzeBoardSpy).not.toHaveBeenCalled();
+
+    abortDeferred.resolve();
+    await abortDeferred.promise;
+    await Promise.resolve();
+
+    expect(store.getState().hintAnalysisAbortPending).toBe(false);
+    expect(store.getState().isAnalyzing).toBe(false);
+    expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the abort guard until a newer hint abort finishes", async () => {
+    const abortDeferred1 = createDeferred<void>();
+    const abortDeferred2 = createDeferred<void>();
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        abortSearch: vi
+          .fn()
+          .mockReturnValueOnce(abortDeferred1.promise)
+          .mockReturnValueOnce(abortDeferred2.promise),
+      }),
+    });
+    const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
+
+    store.setState({
+      isHintMode: true,
+      isAnalyzing: true,
+      isAIThinking: false,
+    });
+
+    store.getState().setHintLevel(10);
+    store.getState().setHintMode(false);
+
+    expect(services.ai.abortSearch).toHaveBeenCalledTimes(2);
+    expect(store.getState().hintAnalysisAbortPending).toBe(true);
+
+    abortDeferred1.resolve();
+    await abortDeferred1.promise;
+    await Promise.resolve();
+
+    expect(store.getState().hintAnalysisAbortPending).toBe(true);
+    expect(store.getState().isAnalyzing).toBe(true);
+
+    store.getState().setHintMode(true);
+    expect(analyzeBoardSpy).not.toHaveBeenCalled();
+
+    abortDeferred2.resolve();
+    await abortDeferred2.promise;
+    await Promise.resolve();
+
+    expect(store.getState().hintAnalysisAbortPending).toBe(false);
+    expect(store.getState().isAnalyzing).toBe(false);
+    expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
   });
 });
 

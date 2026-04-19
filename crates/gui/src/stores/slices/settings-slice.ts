@@ -62,10 +62,17 @@ export function createSettingsSlice(services: Services): StateCreator<
     },
 
     setHintLevel: (level) => {
+        if (level === get().hintLevel) return;
         set({ hintLevel: level, analyzeResults: null });
         void services.settings.saveSetting("hintLevel", level);
-        if (get().isHintMode) {
-            get().analyzeBoard();
+
+        const state = get();
+        if (!state.isHintMode || state.hintAnalysisAbortPending) return;
+
+        if (state.isAnalyzing && !state.isAIThinking) {
+            state.restartHintAnalysisAfterAbort();
+        } else {
+            void state.analyzeBoard();
         }
     },
 
@@ -75,6 +82,7 @@ export function createSettingsSlice(services: Services): StateCreator<
     },
 
     setHashSize: (size) => {
+        if (size === get().hashSize) return;
         set({ hashSize: size });
         void services.settings.saveSetting("hashSize", size);
         void services.ai.resizeTT(size);
@@ -86,11 +94,13 @@ export function createSettingsSlice(services: Services): StateCreator<
     },
 
     setRightPanelSize: (size) => {
+        if (size === get().rightPanelSize) return;
         set({ rightPanelSize: size });
         void services.settings.saveSetting("rightPanelSize", size);
     },
 
     setBottomPanelSize: (size) => {
+        if (size === get().bottomPanelSize) return;
         set({ bottomPanelSize: size });
         void services.settings.saveSetting("bottomPanelSize", size);
     },

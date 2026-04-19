@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 
 use reversi_core::disc::Disc;
@@ -17,7 +17,7 @@ const SELECTIVITY: Selectivity = Selectivity::Level1;
 struct AppState {
     search: Arc<Mutex<search::Search>>,
     thread_pool: Arc<search::threading::ThreadPool>,
-    game_analysis_abort: Arc<AtomicBool>,
+    game_analysis_run_id: Arc<AtomicU64>,
 }
 
 #[derive(Serialize)]
@@ -90,6 +90,28 @@ fn build_progress_payload(progress: &search::SearchProgress) -> SearchProgressPa
     }
 }
 
+fn is_current_game_analysis_run(current_run_id: &AtomicU64, run_id: u64) -> bool {
+    current_run_id.load(Ordering::Acquire) == run_id
+}
+
+fn lock_search(
+    search: &Arc<Mutex<search::Search>>,
+) -> Result<std::sync::MutexGuard<'_, search::Search>, String> {
+    search
+        .lock()
+        .map_err(|e| format!("AI backend unavailable: {e}"))
+}
+
+async fn spawn_blocking_result<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Builds a [`reversi_core::level::Level`] whose endgame iterative-deepening
 /// loop stops at `target`. Selectivities missing from
 /// [`reversi_core::level::Level::ENDGAME_SELECTIVITY`] round **down** to the
@@ -114,15 +136,11 @@ fn solver_level(target: Selectivity) -> reversi_core::level::Level {
 async fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
     let search_arc = state.search.clone();
 
-    tauri::async_runtime::spawn_blocking(move || match search_arc.lock() {
-        Ok(mut search) => {
-            search.init();
-            Ok(())
-        }
-        Err(e) => Err(format!("Failed to initialize search: {e}")),
+    spawn_blocking_result(move || {
+        lock_search(&search_arc)?.init();
+        Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -139,15 +157,11 @@ async fn resize_tt_command(state: State<'_, AppState>, hash_size: usize) -> Resu
     let hash_size = hash_size.clamp(1, 16384);
     let search_arc = state.search.clone();
 
-    tauri::async_runtime::spawn_blocking(move || match search_arc.lock() {
-        Ok(mut search) => {
-            search.resize_tt(hash_size);
-            Ok(())
-        }
-        Err(e) => Err(format!("Failed to resize TT: {e}")),
+    spawn_blocking_result(move || {
+        lock_search(&search_arc)?.resize_tt(hash_size);
+        Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 async fn abort_and_wait(thread_pool: Arc<search::threading::ThreadPool>) -> Result<(), String> {
@@ -175,19 +189,16 @@ async fn ai_move_command(
     remaining_time: Option<u64>,
 ) -> Result<AIMoveResult, String> {
     let search_arc = state.search.clone();
-    let board_string_clone = board_string.clone();
-    let level_clone = level;
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<AIMoveResult, String> {
-        let board = board::Board::from_string(&board_string_clone, Disc::Black)
+    spawn_blocking_result(move || {
+        let board = board::Board::from_string(&board_string, Disc::Black)
             .map_err(|e| format!("Invalid board string: {e}"))?;
-        let lv = get_level(level_clone);
+        let lv = get_level(level);
         let start_time = std::time::Instant::now();
 
-        let mut search_guard = search_arc.lock().unwrap();
+        let mut search_guard = lock_search(&search_arc)?;
         let callback = move |progress: search::SearchProgress| {
-            app.emit("ai-move-progress", build_progress_payload(&progress))
-                .unwrap();
+            let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
         };
 
         let result = if let Some(remaining_ms) = remaining_time {
@@ -233,7 +244,6 @@ async fn ai_move_command(
         })
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -244,18 +254,15 @@ async fn analyze_command(
     level: usize,
 ) -> Result<(), String> {
     let search_arc = state.search.clone();
-    let board_string_clone = board_string.clone();
-    let level_clone = level;
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let board = board::Board::from_string(&board_string_clone, Disc::Black)
+    spawn_blocking_result(move || {
+        let board = board::Board::from_string(&board_string, Disc::Black)
             .map_err(|e| format!("Invalid board string: {e}"))?;
-        let lv = get_level(level_clone);
+        let lv = get_level(level);
 
-        let mut search_guard = search_arc.lock().unwrap();
+        let mut search_guard = lock_search(&search_arc)?;
         let callback = move |progress: search::SearchProgress| {
-            app.emit("ai-move-progress", build_progress_payload(&progress))
-                .unwrap();
+            let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
         };
         let options = SearchRunOptions::with_level(lv, SELECTIVITY)
             .multi_pv(true)
@@ -264,7 +271,6 @@ async fn analyze_command(
         Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -277,7 +283,7 @@ async fn solver_search_command(
 ) -> Result<(), String> {
     let search_arc = state.search.clone();
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+    spawn_blocking_result(move || {
         if target_selectivity > 5 {
             return Err(format!(
                 "Invalid target_selectivity: {target_selectivity} (expected 0..=5)"
@@ -290,7 +296,7 @@ async fn solver_search_command(
         let selectivity = Selectivity::from_u8(target_selectivity);
         let level = solver_level(selectivity);
 
-        let mut search_guard = search_arc.lock().unwrap();
+        let mut search_guard = lock_search(&search_arc)?;
         let callback = move |progress: search::SearchProgress| {
             let _ = app.emit(
                 "solver-progress",
@@ -308,7 +314,6 @@ async fn solver_search_command(
         Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -319,11 +324,16 @@ async fn analyze_game_command(
     moves: Vec<String>,
     level: usize,
 ) -> Result<(), String> {
+    // Claim a unique run id. Any later call bumps the counter, making our
+    // guard checks observe a mismatch and this run bail.
+    let run_id = state
+        .game_analysis_run_id
+        .fetch_add(1, Ordering::AcqRel)
+        .wrapping_add(1);
     let search_arc = state.search.clone();
-    let abort_flag = state.game_analysis_abort.clone();
+    let current_run_id = state.game_analysis_run_id.clone();
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        abort_flag.store(false, Ordering::Release);
+    spawn_blocking_result(move || {
         let initial_board = board::Board::from_string(&board_string, Disc::Black)
             .map_err(|e| format!("Invalid board string: {e}"))?;
         let lv = get_level(level);
@@ -347,23 +357,29 @@ async fn analyze_game_command(
             boards.push(current);
         }
 
-        if abort_flag.load(Ordering::Acquire) {
+        if !is_current_game_analysis_run(&current_run_id, run_id) {
             return Ok(());
         }
 
         let options = SearchRunOptions::with_level(lv, SELECTIVITY);
         let final_board = boards.last().unwrap();
         let mut score: Scoref = if !final_board.get_moves().is_empty() {
-            let mut guard = search_arc.lock().unwrap();
+            let mut guard = lock_search(&search_arc)?;
             let result = guard.run(final_board, &options);
+            drop(guard);
+
+            if !is_current_game_analysis_run(&current_run_id, run_id) {
+                return Ok(());
+            }
+
             round_score(result.score)
         } else {
-            final_board.solve(final_board.get_empty_count()) as Scoref
+            round_score(final_board.solve(final_board.get_empty_count()) as Scoref)
         };
 
         for i in (0..moves.len()).rev() {
-            if abort_flag.load(Ordering::Acquire) {
-                break;
+            if !is_current_game_analysis_run(&current_run_id, run_id) {
+                return Ok(());
             }
 
             if is_pass[i] {
@@ -372,9 +388,13 @@ async fn analyze_game_command(
             }
 
             let board = &boards[i];
-            let mut search_guard = search_arc.lock().unwrap();
+            let mut search_guard = lock_search(&search_arc)?;
             let result = search_guard.run(board, &options);
             drop(search_guard);
+
+            if !is_current_game_analysis_run(&current_run_id, run_id) {
+                return Ok(());
+            }
 
             let best_move_str = result.best_move.map(|s| s.to_string()).unwrap_or_default();
             let best_score = round_score(result.score);
@@ -398,12 +418,12 @@ async fn analyze_game_command(
         Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn abort_game_analysis_command(state: State<'_, AppState>) -> Result<(), String> {
-    state.game_analysis_abort.store(true, Ordering::Release);
+    // Bumping the counter makes any in-flight run observe a mismatch and exit.
+    state.game_analysis_run_id.fetch_add(1, Ordering::AcqRel);
     abort_and_wait(state.thread_pool.clone()).await
 }
 
@@ -423,7 +443,7 @@ pub fn run() {
             app.manage(AppState {
                 search,
                 thread_pool,
-                game_analysis_abort: Arc::new(AtomicBool::new(false)),
+                game_analysis_run_id: Arc::new(AtomicU64::new(0)),
             });
             Ok(())
         })

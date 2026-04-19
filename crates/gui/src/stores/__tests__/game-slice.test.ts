@@ -1,8 +1,14 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { triggerAutomation } from "@/stores/slices/game-slice";
 import { createTestStore, type TestStore } from "./test-helpers";
 import type { Services } from "@/services/types";
+
+const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+afterAll(() => {
+  consoleErrorSpy.mockRestore();
+});
 
 describe("triggerAutomation", () => {
   it("does nothing when gameStatus is not playing", () => {

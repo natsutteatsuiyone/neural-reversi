@@ -41,20 +41,16 @@ export class TauriAIService implements AIService {
 
     const boardString = serializeBoardForAI(board, player);
 
-    try {
-      return await withEventListener<AIMoveProgress, AIMoveResult>(
-        "ai-move-progress",
-        callback,
-        () => invoke<AIMoveResult>("ai_move_command", {
-          boardString,
-          level,
-          timeLimit,
-          remainingTime,
-        }),
-      );
-    } catch {
-      return null;
-    }
+    return await withEventListener<AIMoveProgress, AIMoveResult>(
+      "ai-move-progress",
+      callback,
+      () => invoke<AIMoveResult>("ai_move_command", {
+        boardString,
+        level,
+        timeLimit,
+        remainingTime,
+      }),
+    );
   }
 
   async initialize(): Promise<void> {

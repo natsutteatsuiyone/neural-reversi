@@ -92,6 +92,13 @@ export interface UISlice {
     setHintMode: (enabled: boolean) => void;
     analyzeGame: () => Promise<void>;
     abortGameAnalysis: () => Promise<void>;
+    /**
+     * Aborts the current hint analysis and, once the abort resolves, restarts
+     * `analyzeBoard` if hint mode is still active. Intended for internal use
+     * by slices that need to restart a running analysis — not a user-facing
+     * action.
+     */
+    restartHintAnalysisAfterAbort: () => void;
 }
 
 export interface SettingsSlice {

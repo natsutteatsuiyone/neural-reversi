@@ -41,16 +41,34 @@ export function createAISlice(services: Services): StateCreator<
     },
 
     makeAIMove: async () => {
-        set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime: Date.now() });
+        const aiSearchStartTime = Date.now();
+        set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime });
         const { currentPlayer: player, board, aiLevel, aiMode, timeLimit, aiRemainingTime } = get();
+        const initialRemainingTime = aiRemainingTime;
+        const isGameTime = aiMode === "game-time";
+        // When another actor (undo/redo) writes `aiRemainingTime` during the
+        // search, stop our own updates so we don't clobber theirs.
+        let managing = isGameTime;
+        let lastWritten = initialRemainingTime;
 
-        // Start timer for game-time mode
-        if (aiMode === "game-time") {
-            const startTime = Date.now();
-            const initialRemaining = aiRemainingTime;
+        const applyManagedRemainingTime = (remainingTime: number) => {
+            if (!managing) return;
+            if (remainingTime === lastWritten) return;
+            if (get().aiRemainingTime !== lastWritten) {
+                managing = false;
+                clearSearchTimer(get, set);
+                return;
+            }
+            lastWritten = remainingTime;
+            set({ aiRemainingTime: remainingTime });
+        };
+
+        if (isGameTime) {
             const timer = setInterval(() => {
-                const elapsed = Date.now() - startTime;
-                set({ aiRemainingTime: Math.max(0, initialRemaining - elapsed) });
+                const elapsed = Date.now() - aiSearchStartTime;
+                const remaining = Math.max(0, initialRemainingTime - elapsed);
+                applyManagedRemainingTime(remaining);
+                if (remaining === 0) clearSearchTimer(get, set);
             }, 100);
             set({ searchTimer: timer });
         }
@@ -61,17 +79,19 @@ export function createAISlice(services: Services): StateCreator<
                 player,
                 aiLevel,
                 aiMode === "time" ? timeLimit * 1000 : undefined,
-                aiMode === "game-time" ? aiRemainingTime : undefined,
+                isGameTime ? aiRemainingTime : undefined,
                 (progress) => {
                     set((state) => {
-                        // Skip duplicate entries
                         const last = state.aiThinkingHistory[state.aiThinkingHistory.length - 1];
                         if (last &&
                             last.depth === progress.depth &&
                             last.score === progress.score &&
                             last.nodes === progress.nodes &&
                             last.pvLine === progress.pvLine) {
-                            return { aiMoveProgress: progress };
+                            // Same reference short-circuits zustand's listener
+                            // loop (Object.is), avoiding re-renders on no-op
+                            // engine re-emissions.
+                            return state;
                         }
 
                         // Calculate NPS at this moment
@@ -89,11 +109,8 @@ export function createAISlice(services: Services): StateCreator<
             );
 
             clearSearchTimer(get, set);
-
-            if (aiMove && aiMode === "game-time") {
-                set({
-                    aiRemainingTime: Math.max(0, aiRemainingTime - aiMove.timeTaken)
-                });
+            if (aiMove && isGameTime) {
+                applyManagedRemainingTime(Math.max(0, initialRemainingTime - aiMove.timeTaken));
             }
             set({ aiMoveProgress: null, isAIThinking: false });
             if (aiMove) {
@@ -117,16 +134,17 @@ export function createAISlice(services: Services): StateCreator<
 
     abortAIMove: async () => {
         const { isAIThinking, isAnalyzing } = get();
-        if (isAIThinking || isAnalyzing) {
+        if (!isAIThinking && !isAnalyzing) return;
+        try {
             await services.ai.abortSearch();
-
             clearSearchTimer(get, set);
-
             set({
                 isAIThinking: false,
                 isAnalyzing: false,
                 aiMoveProgress: null,
             });
+        } catch (error) {
+            console.error("AI abort failed:", error);
         }
     },
 

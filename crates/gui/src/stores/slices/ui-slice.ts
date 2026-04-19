@@ -42,30 +42,44 @@ export function createUISlice(services: Services): StateCreator<
         } else {
             const state = get();
             const shouldAbortHintAnalysis = state.isAnalyzing && !state.isAIThinking;
-            const nextRunId = state.hintAnalysisRunId + 1;
-            set({
-                isHintMode: false,
-                analyzeResults: null,
-                hintAnalysisRunId: nextRunId,
-                ...(shouldAbortHintAnalysis ? { hintAnalysisAbortPending: true } : {}),
-            });
+            set({ isHintMode: false, analyzeResults: null });
             if (shouldAbortHintAnalysis) {
-                void (async () => {
-                    try {
-                        await services.ai.abortSearch();
-                    } finally {
-                        set({
-                            isAnalyzing: false,
-                            hintAnalysisAbortPending: false,
-                        });
-                        const currentState = get();
-                        if (currentState.isHintMode) {
-                            void currentState.analyzeBoard();
-                        }
-                    }
-                })();
+                get().restartHintAnalysisAfterAbort();
+            } else {
+                // Invalidate any in-flight analyzeBoard so its finally clause
+                // won't clear `isAnalyzing` belonging to a future run.
+                set({ hintAnalysisRunId: state.hintAnalysisRunId + 1 });
             }
         }
+    },
+
+    restartHintAnalysisAfterAbort: () => {
+        const nextRunId = get().hintAnalysisRunId + 1;
+        set({
+            hintAnalysisRunId: nextRunId,
+            hintAnalysisAbortPending: true,
+        });
+        void (async () => {
+            try {
+                await services.ai.abortSearch();
+            } catch (error) {
+                console.error("Hint abort failed:", error);
+            } finally {
+                const currentState = get();
+                // A newer runId means a concurrent caller took over — let
+                // their cleanup finish without racing it.
+                if (currentState.hintAnalysisRunId !== nextRunId) {
+                    return;
+                }
+                set({
+                    isAnalyzing: false,
+                    hintAnalysisAbortPending: false,
+                });
+                if (currentState.isHintMode) {
+                    void currentState.analyzeBoard();
+                }
+            }
+        })();
     },
 
     hidePassNotification: () => set({ showPassNotification: null }),
@@ -103,6 +117,20 @@ export function createUISlice(services: Services): StateCreator<
 
                 if (progress.row !== undefined && progress.col !== undefined) {
                     const key = `${progress.row},${progress.col}`;
+                    const existing = results.get(key);
+                    // Drop no-op re-emits so downstream selectors don't see a
+                    // fresh Map reference each tick (mirrors solver-slice).
+                    if (
+                        existing &&
+                        existing.score === progress.score &&
+                        existing.depth === progress.depth &&
+                        existing.targetDepth === progress.targetDepth &&
+                        existing.acc === progress.acc &&
+                        existing.isEndgame === progress.isEndgame &&
+                        existing.pvLine === progress.pvLine
+                    ) {
+                        return;
+                    }
                     results.set(key, progress);
                     set({ analyzeResults: new Map(results) });
                 }
