@@ -69,34 +69,34 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
                 );
             }
             return;
-        } else {
-            let num_chunks = SIZE / SSE2_SIMD_WIDTH;
-            let input_ptr = input.as_ptr() as *const __m128i;
-            let output_ptr = output.as_mut_ptr() as *mut __m128i;
-            for i in 0..num_chunks {
-                let words0 = _mm_srli_epi16(
-                    _mm_packus_epi32(
-                        _mm_load_si128(input_ptr.add(i * 4)),
-                        _mm_load_si128(input_ptr.add(i * 4 + 1)),
-                    ),
-                    HIDDEN_WEIGHT_SCALE_BITS,
-                );
+        }
 
-                let words1 = _mm_srli_epi16(
-                    _mm_packus_epi32(
-                        _mm_load_si128(input_ptr.add(i * 4 + 2)),
-                        _mm_load_si128(input_ptr.add(i * 4 + 3)),
-                    ),
-                    HIDDEN_WEIGHT_SCALE_BITS,
-                );
+        let num_chunks = SIZE / SSE2_SIMD_WIDTH;
+        let input_ptr = input.as_ptr() as *const __m128i;
+        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+        for i in 0..num_chunks {
+            let words0 = _mm_srli_epi16(
+                _mm_packus_epi32(
+                    _mm_load_si128(input_ptr.add(i * 4)),
+                    _mm_load_si128(input_ptr.add(i * 4 + 1)),
+                ),
+                HIDDEN_WEIGHT_SCALE_BITS,
+            );
 
-                _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
-            }
+            let words1 = _mm_srli_epi16(
+                _mm_packus_epi32(
+                    _mm_load_si128(input_ptr.add(i * 4 + 2)),
+                    _mm_load_si128(input_ptr.add(i * 4 + 3)),
+                ),
+                HIDDEN_WEIGHT_SCALE_BITS,
+            );
+
+            _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
         }
     }
 
-    let start = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
-    clipped_relu_fallback(input, output, start);
+    let start_idx = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
+    clipped_relu_fallback(input, output, start_idx);
 }
 
 /// Clipped ReLU scalar fallback implementation.
@@ -201,8 +201,8 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 ///
 /// # Safety
 ///
-/// Both `input` and `output` must be 32-byte aligned for AVX2 loads/stores,
-/// or 16-byte aligned when falling back to SSE2.
+/// Both `input` and `output` must be 32-byte aligned for AVX2 loads/stores
+/// (or 16-byte aligned when `SIZE` is not a multiple of 32).
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
@@ -237,35 +237,37 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
                     _mm256_permutevar8x32_epi32(_mm256_packus_epi16(words0, words1), shuffle),
                 );
             }
-        } else {
-            let num_chunks = SIZE / SSE2_SIMD_WIDTH;
-            let input_ptr = input.as_ptr() as *const __m128i;
-            let output_ptr = output.as_mut_ptr() as *mut __m128i;
-            let max_val = _mm_set1_epi16(255 << HIDDEN_WEIGHT_SCALE_BITS);
+            return;
+        }
 
-            for i in 0..num_chunks {
-                let mut words0 = _mm_packus_epi32(
-                    _mm_load_si128(input_ptr.add(i * 4)),
-                    _mm_load_si128(input_ptr.add(i * 4 + 1)),
-                );
-                let mut words1 = _mm_packus_epi32(
-                    _mm_load_si128(input_ptr.add(i * 4 + 2)),
-                    _mm_load_si128(input_ptr.add(i * 4 + 3)),
-                );
+        let num_chunks = SIZE / SSE2_SIMD_WIDTH;
+        let input_ptr = input.as_ptr() as *const __m128i;
+        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+        let max_val = _mm_set1_epi16(255 << HIDDEN_WEIGHT_SCALE_BITS);
 
-                words0 = _mm_min_epi16(words0, max_val);
-                words1 = _mm_min_epi16(words1, max_val);
+        for i in 0..num_chunks {
+            let mut words0 = _mm_packus_epi32(
+                _mm_load_si128(input_ptr.add(i * 4)),
+                _mm_load_si128(input_ptr.add(i * 4 + 1)),
+            );
+            let mut words1 = _mm_packus_epi32(
+                _mm_load_si128(input_ptr.add(i * 4 + 2)),
+                _mm_load_si128(input_ptr.add(i * 4 + 3)),
+            );
 
-                const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
-                words0 = _mm_srli_epi16(_mm_mulhi_epu16(words0, words0), SHIFT);
-                words1 = _mm_srli_epi16(_mm_mulhi_epu16(words1, words1), SHIFT);
+            words0 = _mm_min_epi16(words0, max_val);
+            words1 = _mm_min_epi16(words1, max_val);
 
-                _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
-            }
-            let start_idx = num_chunks * SSE2_SIMD_WIDTH;
-            screlu_fallback(input, output, start_idx);
+            const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
+            words0 = _mm_srli_epi16(_mm_mulhi_epu16(words0, words0), SHIFT);
+            words1 = _mm_srli_epi16(_mm_mulhi_epu16(words1, words1), SHIFT);
+
+            _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
         }
     }
+
+    let start_idx = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
+    screlu_fallback(input, output, start_idx);
 }
 
 /// Squared Clipped ReLU scalar fallback implementation.
