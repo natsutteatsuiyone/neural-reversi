@@ -23,13 +23,14 @@ const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 ///
 /// On x86-64 with AVX2, both `input` and `output` must be 32-byte aligned
 /// (or 16-byte aligned when `SIZE` is not a multiple of 32).
+#[inline(always)]
 pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { clipped_relu_avx2::<SIZE>(input, output) };
         }
         _ => {
-            clipped_relu_fallback::<SIZE>(input, output, 0);
+            clipped_relu_fallback(input, output, 0);
         }
     }
 }
@@ -69,7 +70,7 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             }
             return;
         } else {
-            let num_chunks = input.len() / SSE2_SIMD_WIDTH;
+            let num_chunks = SIZE / SSE2_SIMD_WIDTH;
             let input_ptr = input.as_ptr() as *const __m128i;
             let output_ptr = output.as_mut_ptr() as *mut __m128i;
             for i in 0..num_chunks {
@@ -95,12 +96,12 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     }
 
     let start = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
-    clipped_relu_fallback::<SIZE>(input, output, start);
+    clipped_relu_fallback(input, output, start);
 }
 
 /// Clipped ReLU scalar fallback implementation.
 #[inline(always)]
-fn clipped_relu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
+fn clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let val = input[i] >> HIDDEN_WEIGHT_SCALE_BITS;
         output[i] = val.clamp(0, 255) as u8;
@@ -123,7 +124,7 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) };
         }
         _ => {
-            sqr_clipped_relu_fallback::<SIZE>(input, output, 0);
+            sqr_clipped_relu_fallback(input, output, 0);
         }
     }
 }
@@ -163,16 +164,12 @@ fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     }
 
     let start_idx = num_chunks * SSE2_SIMD_WIDTH;
-    sqr_clipped_relu_fallback::<SIZE>(input, output, start_idx);
+    sqr_clipped_relu_fallback(input, output, start_idx);
 }
 
 /// Square-clipped activation scalar fallback implementation.
 #[inline(always)]
-fn sqr_clipped_relu_fallback<const SIZE: usize>(
-    input: &[i32],
-    output: &mut [u8],
-    start_idx: usize,
-) {
+fn sqr_clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let val = ((input[i] * input[i]) as u64 >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)).min(255);
         output[i] = val as u8;
@@ -195,7 +192,7 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             unsafe { screlu_avx2::<SIZE>(input, output) };
         }
         _ => {
-            screlu_fallback::<SIZE>(input, output, 0);
+            screlu_fallback(input, output, 0);
         }
     }
 }
@@ -266,14 +263,14 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
                 _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
             }
             let start_idx = num_chunks * SSE2_SIMD_WIDTH;
-            screlu_fallback::<SIZE>(input, output, start_idx);
+            screlu_fallback(input, output, start_idx);
         }
     }
 }
 
 /// Squared Clipped ReLU scalar fallback implementation.
 #[inline(always)]
-fn screlu_fallback<const SIZE: usize>(input: &[i32], output: &mut [u8], start_idx: usize) {
+fn screlu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let clamped = input[i].clamp(0, 255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;
         const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8;
@@ -301,7 +298,7 @@ mod tests {
         let input = Align64(input_data);
         let mut output = Align64([0; SIZE]);
 
-        clipped_relu_fallback::<SIZE>(input.as_slice(), output.as_mut_slice(), 0);
+        clipped_relu_fallback(input.as_slice(), output.as_mut_slice(), 0);
 
         let expected = [1, 0, 3, 255, 0, 0];
         assert_eq!(output.as_ref(), &expected);
@@ -352,7 +349,7 @@ mod tests {
         let input = Align64(input_data);
         let mut output = Align64([0; SIZE]);
 
-        sqr_clipped_relu_fallback::<SIZE>(input.as_slice(), output.as_mut_slice(), 0);
+        sqr_clipped_relu_fallback(input.as_slice(), output.as_mut_slice(), 0);
 
         let expected = [0, 0, 0, 23, 23, 255];
         assert_eq!(output.as_ref(), &expected);
@@ -412,7 +409,7 @@ mod tests {
         let input = Align64(input_data);
         let mut output = Align64([0u8; SIZE]);
 
-        screlu_fallback::<SIZE>(input.as_slice(), output.as_mut_slice(), 0);
+        screlu_fallback(input.as_slice(), output.as_mut_slice(), 0);
 
         let mut expected = [0u8; SIZE];
         for (idx, value) in input_data.iter().enumerate() {
@@ -474,7 +471,7 @@ mod tests {
         let mut output_fallback = Align64([0u8; SIZE]);
 
         screlu::<SIZE>(input.as_slice(), output_main.as_mut_slice());
-        screlu_fallback::<SIZE>(input.as_slice(), output_fallback.as_mut_slice(), 0);
+        screlu_fallback(input.as_slice(), output_fallback.as_mut_slice(), 0);
 
         assert_eq!(output_main.as_ref(), output_fallback.as_ref());
     }
@@ -701,7 +698,7 @@ mod tests {
         let mut output_fallback = Align64([0; SIZE]);
 
         clipped_relu::<SIZE>(input.as_slice(), output_main.as_mut_slice());
-        clipped_relu_fallback::<SIZE>(input.as_slice(), output_fallback.as_mut_slice(), 0);
+        clipped_relu_fallback(input.as_slice(), output_fallback.as_mut_slice(), 0);
 
         assert_eq!(output_main.as_ref(), output_fallback.as_ref());
     }
@@ -721,7 +718,7 @@ mod tests {
         let mut output_fallback = Align64([0; SIZE]);
 
         sqr_clipped_relu::<SIZE>(input.as_slice(), output_main.as_mut_slice());
-        sqr_clipped_relu_fallback::<SIZE>(input.as_slice(), output_fallback.as_mut_slice(), 0);
+        sqr_clipped_relu_fallback(input.as_slice(), output_fallback.as_mut_slice(), 0);
 
         assert_eq!(output_main.as_ref(), output_fallback.as_ref());
     }
