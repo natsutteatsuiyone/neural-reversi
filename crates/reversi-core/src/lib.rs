@@ -1,5 +1,5 @@
-#![feature(stdarch_neon_dotprod)]
-#![feature(stdarch_neon_i8mm)]
+#![cfg_attr(target_arch = "aarch64", feature(stdarch_neon_dotprod))]
+#![cfg_attr(target_arch = "aarch64", feature(stdarch_neon_i8mm))]
 #![feature(hint_prefetch)]
 
 pub mod bitboard;
