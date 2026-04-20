@@ -1,3 +1,7 @@
+#![feature(stdarch_neon_dotprod)]
+#![feature(stdarch_neon_i8mm)]
+#![feature(hint_prefetch)]
+
 pub mod bitboard;
 pub mod board;
 pub mod constants;

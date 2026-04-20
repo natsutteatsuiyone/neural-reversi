@@ -103,6 +103,17 @@ impl<
                     Self::forward_avx2_no_vnni
                 }
             }
+            all(target_arch = "aarch64", target_feature = "neon") => {
+                use std::arch::is_aarch64_feature_detected;
+
+                if is_aarch64_feature_detected!("i8mm") {
+                    Self::forward_neon_i8mm_wrapper
+                } else if is_aarch64_feature_detected!("dotprod") {
+                    Self::forward_neon_dotprod_wrapper
+                } else {
+                    Self::forward_neon_wrapper
+                }
+            }
             _ => {
                 Self::forward_fallback_wrapper
             }
@@ -175,6 +186,39 @@ impl<
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
         self.forward_avx2::<false>(input, output)
+    }
+
+    /// ARM NEON forward pass (thin wrapper with the right `target_feature`).
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    fn forward_neon_wrapper(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_neon(input, output)
+    }
+
+    /// ARM NEON+dotprod forward pass (thin wrapper with the right `target_feature`).
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon,dotprod")]
+    fn forward_neon_dotprod_wrapper(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_neon_dotprod(input, output)
+    }
+
+    /// ARM NEON+i8mm forward pass (thin wrapper with the right `target_feature`).
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon,i8mm")]
+    fn forward_neon_i8mm_wrapper(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_neon_i8mm(input, output)
     }
 
     /// Wrapper for forward_fallback to match the unsafe fn signature.
@@ -264,6 +308,164 @@ impl<
             }
 
             copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
+        }
+    }
+
+    /// ARM NEON forward pass.
+    ///
+    /// Processes one input chunk of 4 `u8` values per outer iteration, broadcasting
+    /// it into a `uint8x16_t` and accumulating 4 output neurons per inner `int32x4_t`
+    /// register via `neon_dpbusd_s32`. Operates entirely within the pre-packed weight
+    /// layout produced by `get_weight_index`, matching the AVX2 kernel.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    #[inline]
+    fn forward_neon(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        use crate::eval::util::ceil_to_multiple;
+        use crate::eval::util::clone_biases;
+        use crate::eval::util::neon_dpbusd_s32;
+        use std::arch::aarch64::*;
+        use std::ptr::copy_nonoverlapping;
+
+        const OUTPUT_SIMD_WIDTH: usize = 4;
+
+        unsafe {
+            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
+            let acc_ptr = acc.as_mut_ptr() as *mut i32;
+
+            let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+            let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
+
+            let input32 = input.as_ptr() as *const i32;
+            for i in 0..num_chunks {
+                let packed = *input32.add(i);
+                let in0 = vreinterpretq_u8_s32(vdupq_n_s32(packed));
+                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4);
+
+                for j in 0..num_regs {
+                    let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
+                    let a = vld1q_s32(a_ptr);
+                    let w = vld1q_s8(col0.add(j * 16));
+                    let updated = neon_dpbusd_s32(a, in0, w);
+                    vst1q_s32(a_ptr, updated);
+                }
+            }
+
+            copy_nonoverlapping(
+                acc_ptr as *const i32,
+                output.as_mut_ptr() as *mut i32,
+                OUTPUT_DIMS,
+            );
+        }
+    }
+
+    /// ARM NEON forward pass using `SDOT` (FEAT_DotProd) with sign-correction emulation
+    /// of the missing `USDOT`. Picked when i8mm is unavailable but dotprod is present
+    /// (e.g. Apple M1, Cortex-A76..A78, Neoverse N1).
+    ///
+    /// Splits the unsigned input `a` into its low 7 bits and its sign bit: the latter,
+    /// reinterpreted as i8, contributes −128·msb·b under SDOT, which the final subtraction
+    /// undoes to yield +128·msb·b. The split depends only on `a`, so it is hoisted out
+    /// of the inner loop.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon,dotprod")]
+    #[inline]
+    fn forward_neon_dotprod(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        use crate::eval::util::ceil_to_multiple;
+        use crate::eval::util::clone_biases;
+        use std::arch::aarch64::*;
+        use std::ptr::copy_nonoverlapping;
+
+        const OUTPUT_SIMD_WIDTH: usize = 4;
+
+        unsafe {
+            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
+            let acc_ptr = acc.as_mut_ptr() as *mut i32;
+
+            let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+            let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
+
+            let high_bit = vdupq_n_u8(0x80);
+            let zero = vdupq_n_s32(0);
+
+            let input32 = input.as_ptr() as *const i32;
+            for i in 0..num_chunks {
+                let packed = *input32.add(i);
+                let in0 = vreinterpretq_u8_s32(vdupq_n_s32(packed));
+                let a_low7_s8 = vreinterpretq_s8_u8(vbicq_u8(in0, high_bit));
+                let a_msb_i8 = vreinterpretq_s8_u8(vandq_u8(in0, high_bit));
+                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4);
+
+                for j in 0..num_regs {
+                    let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
+                    let a = vld1q_s32(a_ptr);
+                    let w = vld1q_s8(col0.add(j * 16));
+                    let with_low = vdotq_s32(a, a_low7_s8, w);
+                    let neg_high = vdotq_s32(zero, a_msb_i8, w);
+                    vst1q_s32(a_ptr, vsubq_s32(with_low, neg_high));
+                }
+            }
+
+            copy_nonoverlapping(
+                acc_ptr as *const i32,
+                output.as_mut_ptr() as *mut i32,
+                OUTPUT_DIMS,
+            );
+        }
+    }
+
+    /// ARM NEON forward pass using the `USDOT` instruction via FEAT_I8MM.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon,i8mm")]
+    #[inline]
+    fn forward_neon_i8mm(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        use crate::eval::util::ceil_to_multiple;
+        use crate::eval::util::clone_biases;
+        use crate::eval::util::neon_dpbusd_s32_i8mm;
+        use std::arch::aarch64::*;
+        use std::ptr::copy_nonoverlapping;
+
+        const OUTPUT_SIMD_WIDTH: usize = 4;
+
+        unsafe {
+            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
+            let acc_ptr = acc.as_mut_ptr() as *mut i32;
+
+            let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
+            let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
+
+            let input32 = input.as_ptr() as *const i32;
+            for i in 0..num_chunks {
+                let packed = *input32.add(i);
+                let in0 = vreinterpretq_u8_s32(vdupq_n_s32(packed));
+                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4);
+
+                for j in 0..num_regs {
+                    let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
+                    let a = vld1q_s32(a_ptr);
+                    let w = vld1q_s8(col0.add(j * 16));
+                    let updated = neon_dpbusd_s32_i8mm(a, in0, w);
+                    vst1q_s32(a_ptr, updated);
+                }
+            }
+
+            copy_nonoverlapping(
+                acc_ptr as *const i32,
+                output.as_mut_ptr() as *mut i32,
+                OUTPUT_DIMS,
+            );
         }
     }
 
@@ -445,6 +647,96 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn neon_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
+        let layer = create_test_layer::<I, O, PI, PO>();
+        let mut input = Align64([0u8; PI]);
+        for (idx, v) in input.iter_mut().take(I).enumerate() {
+            *v = ((idx * 17 + 3) % 251) as u8;
+        }
+
+        let mut neon_out = Align64([0i32; PO]);
+        let mut fb_out = Align64([0i32; PO]);
+
+        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+        unsafe { layer.forward_neon(&input, &mut neon_out) };
+        layer.forward_fallback(&input, &mut fb_out);
+
+        assert_eq!(neon_out.as_ref(), fb_out.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_matches_fallback() {
+        // Exercise both num_regs=4 (L1-shaped) and num_regs=16 (L2-shaped) loops.
+        neon_cross_check::<32, 16, 32, 32>();
+        neon_cross_check::<64, 64, 64, 64>();
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn neon_dotprod_cross_check<
+        const I: usize,
+        const O: usize,
+        const PI: usize,
+        const PO: usize,
+    >() {
+        if !std::arch::is_aarch64_feature_detected!("dotprod") {
+            return;
+        }
+
+        let layer = create_test_layer::<I, O, PI, PO>();
+        let mut input = Align64([0u8; PI]);
+        // Cover the full u8 range so the msb sign-correction path gets exercised.
+        for (idx, v) in input.iter_mut().take(I).enumerate() {
+            *v = ((idx * 23 + 7) % 251) as u8;
+        }
+
+        let mut dp_out = Align64([0i32; PO]);
+        let mut fb_out = Align64([0i32; PO]);
+
+        // SAFETY: Guarded by runtime dotprod detection and the cfg above.
+        unsafe { layer.forward_neon_dotprod(&input, &mut dp_out) };
+        layer.forward_fallback(&input, &mut fb_out);
+
+        assert_eq!(dp_out.as_ref(), fb_out.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_dotprod_matches_fallback() {
+        neon_dotprod_cross_check::<32, 16, 32, 32>();
+        neon_dotprod_cross_check::<64, 64, 64, 64>();
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn neon_i8mm_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
+        if !std::arch::is_aarch64_feature_detected!("i8mm") {
+            return;
+        }
+
+        let layer = create_test_layer::<I, O, PI, PO>();
+        let mut input = Align64([0u8; PI]);
+        for (idx, v) in input.iter_mut().take(I).enumerate() {
+            *v = ((idx * 29 + 11) % 251) as u8;
+        }
+
+        let mut i8mm_out = Align64([0i32; PO]);
+        let mut fb_out = Align64([0i32; PO]);
+
+        // SAFETY: Guarded by runtime i8mm detection and the cfg above.
+        unsafe { layer.forward_neon_i8mm(&input, &mut i8mm_out) };
+        layer.forward_fallback(&input, &mut fb_out);
+
+        assert_eq!(i8mm_out.as_ref(), fb_out.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_i8mm_matches_fallback() {
+        neon_i8mm_cross_check::<32, 16, 32, 32>();
+        neon_i8mm_cross_check::<64, 64, 64, 64>();
     }
 
     #[test]

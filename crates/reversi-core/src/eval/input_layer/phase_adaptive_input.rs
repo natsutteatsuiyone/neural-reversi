@@ -18,6 +18,9 @@ use super::accumulate_avx512;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use super::accumulate_avx2;
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+use super::accumulate_neon;
+
 const ACTIVATION_MAX: i16 = 255 * 2;
 const ACTIVATION_SHIFT: u32 = 10;
 
@@ -114,6 +117,9 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
             all(target_arch = "x86_64", target_feature = "avx2") => {
                 unsafe { self.forward_avx2(pattern_feature, output) };
             }
+            all(target_arch = "aarch64", target_feature = "neon") => {
+                unsafe { self.forward_neon(pattern_feature, output) };
+            }
             _ => {
                 self.forward_fallback(pattern_feature, output);
             }
@@ -144,6 +150,19 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
         accumulate_avx2::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
         self.apply_activation_avx2(&acc, output);
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    #[allow(dead_code)]
+    fn forward_neon(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+        const {
+            assert!(OUTPUT_DIMS.is_multiple_of(16));
+        }
+
+        let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
+        accumulate_neon::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
+        self.apply_activation_neon(&acc, output);
     }
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
@@ -177,6 +196,49 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         mulhi_epu16 = _mm256_mulhi_epu16,
         packus_epi16 = _mm256_packus_epi16
     );
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    #[inline]
+    fn apply_activation_neon(&self, acc: &[i16; OUTPUT_DIMS], output: &mut [u8]) {
+        use std::arch::aarch64::*;
+
+        const LANES_PER_REG: usize = 8;
+        let num_regs = OUTPUT_DIMS / LANES_PER_REG;
+        let iterations = num_regs / 2;
+
+        unsafe {
+            let mut acc_ptr = acc.as_ptr();
+            let mut output_ptr = output.as_mut_ptr();
+            let one = vdupq_n_s16(ACTIVATION_MAX);
+            let zero = vdupq_n_s16(0);
+
+            for _ in 0..iterations {
+                let a1 = vld1q_s16(acc_ptr);
+                let a2 = vld1q_s16(acc_ptr.add(LANES_PER_REG));
+                acc_ptr = acc_ptr.add(2 * LANES_PER_REG);
+
+                let b1 = vmaxq_s16(vminq_s16(a1, one), zero);
+                let b2 = vmaxq_s16(vminq_s16(a2, one), zero);
+
+                let s1 = vshlq_n_s16::<6>(b1);
+                let s2 = vshlq_n_s16::<6>(b2);
+
+                // Emulate mulhi: full 32-bit signed product, take high 16 bits.
+                let prod_lo_1 = vmull_s16(vget_low_s16(s1), vget_low_s16(b1));
+                let prod_hi_1 = vmull_high_s16(s1, b1);
+                let c1 = vcombine_s16(vshrn_n_s32::<16>(prod_lo_1), vshrn_n_s32::<16>(prod_hi_1));
+
+                let prod_lo_2 = vmull_s16(vget_low_s16(s2), vget_low_s16(b2));
+                let prod_hi_2 = vmull_high_s16(s2, b2);
+                let c2 = vcombine_s16(vshrn_n_s32::<16>(prod_lo_2), vshrn_n_s32::<16>(prod_hi_2));
+
+                let packed = vcombine_u8(vqmovun_s16(c1), vqmovun_s16(c2));
+                vst1q_u8(output_ptr, packed);
+                output_ptr = output_ptr.add(2 * LANES_PER_REG);
+            }
+        }
+    }
 
     /// Fallback scalar implementation.
     #[allow(dead_code)]
@@ -218,5 +280,44 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
         let pa_index = ply / PA_INPUT_BUCKET_SIZE;
         let pa_input = &self.inputs[pa_index];
         pa_input.forward(pattern_feature, output);
+    }
+}
+
+#[cfg(test)]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+mod tests {
+    use super::*;
+    use aligned_vec::avec;
+
+    fn scalar_reference<const DIMS: usize>(acc: &[i16; DIMS], output: &mut [u8; DIMS]) {
+        for (o, &v) in output.iter_mut().zip(acc.iter()) {
+            let clamped = v.clamp(0, ACTIVATION_MAX) as u32;
+            *o = ((clamped * clamped) >> ACTIVATION_SHIFT) as u8;
+        }
+    }
+
+    #[test]
+    fn apply_activation_neon_matches_scalar() {
+        // OUTPUT_DIMS must be a multiple of 16 so (num_regs/2) iterates.
+        const OUT: usize = 32;
+
+        // apply_activation_neon only reads `acc`; biases/weights are untouched.
+        let layer: PhaseAdaptiveInputLayer<1, OUT> = PhaseAdaptiveInputLayer {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; OUT],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; OUT],
+        };
+
+        let mut acc = Align64([0i16; OUT]);
+        for (i, v) in acc.0.iter_mut().enumerate() {
+            // Cover negatives, zeros, mid-range, and > ACTIVATION_MAX.
+            *v = ((i as i32) * 83 - 700) as i16;
+        }
+
+        let mut neon_out = [0u8; OUT];
+        let mut scalar_out = [0u8; OUT];
+        unsafe { layer.apply_activation_neon(&acc.0, &mut neon_out) };
+        scalar_reference::<OUT>(&acc.0, &mut scalar_out);
+
+        assert_eq!(neon_out, scalar_out);
     }
 }

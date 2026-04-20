@@ -11,6 +11,7 @@ use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 use aligned_vec::{AVec, ConstAlign};
 use std::{
+    hint::{Locality, prefetch_read},
     mem,
     sync::atomic::{AtomicU8, AtomicU64, Ordering, fence},
 };
@@ -572,19 +573,11 @@ impl TranspositionTable {
     /// 64-byte aligned, so prefetching the cluster start covers the full cluster.
     #[inline]
     pub fn prefetch(&self, key: u64) {
-        #[cfg(target_arch = "x86_64")]
+        let index = self.get_cluster_idx(key);
         // SAFETY: `get_cluster_idx` returns an index within `entries`, so `.add(index)`
         // stays within the allocation.
-        unsafe {
-            let index = self.get_cluster_idx(key);
-            let addr = self.entries.as_ptr().add(index) as *const i8;
-            std::arch::x86_64::_mm_prefetch(addr, std::arch::x86_64::_MM_HINT_T0);
-        }
-
-        #[cfg(not(target_arch = "x86_64"))]
-        {
-            let _ = key;
-        }
+        let addr = unsafe { self.entries.as_ptr().add(index) };
+        prefetch_read(addr, Locality::L1);
     }
 
     /// Performs a read-only lookup without selecting a replacement slot.

@@ -209,6 +209,139 @@ impl_accumulate!(
     add = _mm256_add_epi16
 );
 
+/// Accumulates weights of active sparse features into the accumulator (ARM NEON).
+///
+/// Uses 128-bit `int16x8_t` lanes with 8-way, 4-way, and 1-way feature unrolling to
+/// mirror the x86 macro-generated variants.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[target_feature(enable = "neon")]
+#[inline]
+pub(super) fn accumulate_neon<const DIMS: usize>(
+    pattern_feature: &PatternFeature,
+    weights: &[i16],
+    acc: &mut [i16; DIMS],
+) {
+    use std::arch::aarch64::*;
+    const LANES_PER_REG: usize = 8;
+    const REGS_PER_STEP: usize = 2;
+    debug_assert!(DIMS.is_multiple_of(LANES_PER_REG));
+    let num_regs = DIMS / LANES_PER_REG;
+    debug_assert!(num_regs.is_multiple_of(REGS_PER_STEP));
+    let num_reg_steps = num_regs / REGS_PER_STEP;
+
+    unsafe {
+        let acc_ptr = acc.as_mut_ptr();
+        let weights_ptr = weights.as_ptr();
+
+        let mut base = 0;
+        while base + 8 <= NUM_FEATURES {
+            let idx0 = feature_offset(pattern_feature, base);
+            let idx1 = feature_offset(pattern_feature, base + 1);
+            let idx2 = feature_offset(pattern_feature, base + 2);
+            let idx3 = feature_offset(pattern_feature, base + 3);
+            let idx4 = feature_offset(pattern_feature, base + 4);
+            let idx5 = feature_offset(pattern_feature, base + 5);
+            let idx6 = feature_offset(pattern_feature, base + 6);
+            let idx7 = feature_offset(pattern_feature, base + 7);
+
+            let r0 = weights_ptr.add(idx0 * DIMS);
+            let r1 = weights_ptr.add(idx1 * DIMS);
+            let r2 = weights_ptr.add(idx2 * DIMS);
+            let r3 = weights_ptr.add(idx3 * DIMS);
+            let r4 = weights_ptr.add(idx4 * DIMS);
+            let r5 = weights_ptr.add(idx5 * DIMS);
+            let r6 = weights_ptr.add(idx6 * DIMS);
+            let r7 = weights_ptr.add(idx7 * DIMS);
+
+            for j in 0..num_reg_steps {
+                let off = j * REGS_PER_STEP * LANES_PER_REG;
+                let w0 = vld1q_s16_x2(r0.add(off));
+                let w1 = vld1q_s16_x2(r1.add(off));
+                let w2 = vld1q_s16_x2(r2.add(off));
+                let w3 = vld1q_s16_x2(r3.add(off));
+                let w4 = vld1q_s16_x2(r4.add(off));
+                let w5 = vld1q_s16_x2(r5.add(off));
+                let w6 = vld1q_s16_x2(r6.add(off));
+                let w7 = vld1q_s16_x2(r7.add(off));
+
+                let sum01_0 = vaddq_s16(w0.0, w1.0);
+                let sum01_1 = vaddq_s16(w0.1, w1.1);
+                let sum23_0 = vaddq_s16(w2.0, w3.0);
+                let sum23_1 = vaddq_s16(w2.1, w3.1);
+                let sum45_0 = vaddq_s16(w4.0, w5.0);
+                let sum45_1 = vaddq_s16(w4.1, w5.1);
+                let sum67_0 = vaddq_s16(w6.0, w7.0);
+                let sum67_1 = vaddq_s16(w6.1, w7.1);
+
+                let sum0123_0 = vaddq_s16(sum01_0, sum23_0);
+                let sum0123_1 = vaddq_s16(sum01_1, sum23_1);
+                let sum4567_0 = vaddq_s16(sum45_0, sum67_0);
+                let sum4567_1 = vaddq_s16(sum45_1, sum67_1);
+
+                let a_ptr = acc_ptr.add(off);
+                let acc_val = vld1q_s16_x2(a_ptr);
+                vst1q_s16_x2(
+                    a_ptr,
+                    int16x8x2_t(
+                        vaddq_s16(acc_val.0, vaddq_s16(sum0123_0, sum4567_0)),
+                        vaddq_s16(acc_val.1, vaddq_s16(sum0123_1, sum4567_1)),
+                    ),
+                );
+            }
+
+            base += 8;
+        }
+
+        while base + 4 <= NUM_FEATURES {
+            let idx0 = feature_offset(pattern_feature, base);
+            let idx1 = feature_offset(pattern_feature, base + 1);
+            let idx2 = feature_offset(pattern_feature, base + 2);
+            let idx3 = feature_offset(pattern_feature, base + 3);
+
+            let r0 = weights_ptr.add(idx0 * DIMS);
+            let r1 = weights_ptr.add(idx1 * DIMS);
+            let r2 = weights_ptr.add(idx2 * DIMS);
+            let r3 = weights_ptr.add(idx3 * DIMS);
+
+            for j in 0..num_reg_steps {
+                let off = j * REGS_PER_STEP * LANES_PER_REG;
+                let w0 = vld1q_s16_x2(r0.add(off));
+                let w1 = vld1q_s16_x2(r1.add(off));
+                let w2 = vld1q_s16_x2(r2.add(off));
+                let w3 = vld1q_s16_x2(r3.add(off));
+
+                let sum0 = vaddq_s16(vaddq_s16(w0.0, w1.0), vaddq_s16(w2.0, w3.0));
+                let sum1 = vaddq_s16(vaddq_s16(w0.1, w1.1), vaddq_s16(w2.1, w3.1));
+
+                let a_ptr = acc_ptr.add(off);
+                let acc_val = vld1q_s16_x2(a_ptr);
+                vst1q_s16_x2(
+                    a_ptr,
+                    int16x8x2_t(vaddq_s16(acc_val.0, sum0), vaddq_s16(acc_val.1, sum1)),
+                );
+            }
+
+            base += 4;
+        }
+
+        while base < NUM_FEATURES {
+            let idx = feature_offset(pattern_feature, base);
+            let row_ptr = weights_ptr.add(idx * DIMS);
+            for j in 0..num_reg_steps {
+                let off = j * REGS_PER_STEP * LANES_PER_REG;
+                let w = vld1q_s16_x2(row_ptr.add(off));
+                let a_ptr = acc_ptr.add(off);
+                let acc_val = vld1q_s16_x2(a_ptr);
+                vst1q_s16_x2(
+                    a_ptr,
+                    int16x8x2_t(vaddq_s16(acc_val.0, w.0), vaddq_s16(acc_val.1, w.1)),
+                );
+            }
+            base += 1;
+        }
+    }
+}
+
 /// Accumulates weights of active sparse features into the accumulator (scalar fallback).
 #[inline(always)]
 fn accumulate_scalar<const DIMS: usize>(
@@ -239,5 +372,47 @@ fn accumulate_scalar<const DIMS: usize>(
                 j += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+mod tests {
+    use super::*;
+
+    fn build_weights<const DIMS: usize>() -> Vec<i16> {
+        let mut weights = vec![0i16; crate::eval::pattern_feature::INPUT_FEATURE_DIMS * DIMS];
+        for (i, w) in weights.iter_mut().enumerate() {
+            *w = ((i as i32 * 17 + 13) % 21 - 10) as i16;
+        }
+        weights
+    }
+
+    fn check_accumulate<const DIMS: usize>() {
+        let pattern_feature = PatternFeature::new();
+        let weights = build_weights::<DIMS>();
+        let mut scalar = [0i16; DIMS];
+        let mut neon = [0i16; DIMS];
+
+        for (i, (s, n)) in scalar.iter_mut().zip(neon.iter_mut()).enumerate() {
+            let init = ((i as i32 * 7 + 5) % 41 - 20) as i16;
+            *s = init;
+            *n = init;
+        }
+
+        accumulate_scalar::<DIMS>(&pattern_feature, &weights, &mut scalar);
+        unsafe { accumulate_neon::<DIMS>(&pattern_feature, &weights, &mut neon) };
+
+        assert_eq!(neon, scalar);
+    }
+
+    #[test]
+    fn accumulate_neon_matches_scalar_base_dims() {
+        check_accumulate::<256>();
+    }
+
+    #[test]
+    fn accumulate_neon_matches_scalar_phase_adaptive_dims() {
+        check_accumulate::<128>();
     }
 }

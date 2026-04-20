@@ -145,6 +145,9 @@ impl NetworkSmall {
                     Self::forward_avx2_no_vnni
                 }
             }
+            all(target_arch = "aarch64", target_feature = "neon") => {
+                Self::forward_neon
+            }
             _ => {
                 Self::forward_scalar_wrapper
             }
@@ -509,6 +512,162 @@ impl NetworkSmall {
         }
     }
 
+    /// NEON implementation of the forward pass.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Accumulate input weights based on pattern features into 16 × `int16x8_t`
+    /// 2. Clamp values to [0, 1023] (10-bit range)
+    /// 3. Apply squared activation: `(v * v) >> 10` via `sqdmulh((v << 5), v)`
+    ///    (mathematically identical to the x86 `mulhi_epu16((v<<6), v)` form)
+    /// 4. Compute dot product with output weights using four `int32x4_t` accumulators
+    ///    for instruction-level parallelism
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    #[inline]
+    fn forward_neon(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        use std::arch::aarch64::*;
+
+        // Compile-time assertion: NEON uses 16 registers (128-bit each) for 128 dimensions
+        const NUM_REGS: usize = PA_OUTPUT_DIMS / 8;
+        const _: () = assert!(NUM_REGS == 16, "NEON implementation assumes 16 registers");
+
+        let weights_ptr = input_layer.weights.as_ptr();
+        let bias_ptr = input_layer.biases.as_ptr() as *const i16;
+
+        unsafe {
+            let mut acc0 = vld1q_s16(bias_ptr);
+            let mut acc1 = vld1q_s16(bias_ptr.add(8));
+            let mut acc2 = vld1q_s16(bias_ptr.add(16));
+            let mut acc3 = vld1q_s16(bias_ptr.add(24));
+            let mut acc4 = vld1q_s16(bias_ptr.add(32));
+            let mut acc5 = vld1q_s16(bias_ptr.add(40));
+            let mut acc6 = vld1q_s16(bias_ptr.add(48));
+            let mut acc7 = vld1q_s16(bias_ptr.add(56));
+            let mut acc8 = vld1q_s16(bias_ptr.add(64));
+            let mut acc9 = vld1q_s16(bias_ptr.add(72));
+            let mut acc10 = vld1q_s16(bias_ptr.add(80));
+            let mut acc11 = vld1q_s16(bias_ptr.add(88));
+            let mut acc12 = vld1q_s16(bias_ptr.add(96));
+            let mut acc13 = vld1q_s16(bias_ptr.add(104));
+            let mut acc14 = vld1q_s16(bias_ptr.add(112));
+            let mut acc15 = vld1q_s16(bias_ptr.add(120));
+
+            macro_rules! accumulate_feature {
+                ($feat:expr) => {{
+                    let idx = feature_offset(pattern_feature, $feat) * NUM_REGS;
+                    let base = weights_ptr.add(idx * 8);
+                    let w0 = vld1q_s16_x4(base);
+                    let w1 = vld1q_s16_x4(base.add(32));
+                    let w2 = vld1q_s16_x4(base.add(64));
+                    let w3 = vld1q_s16_x4(base.add(96));
+                    acc0 = vaddq_s16(acc0, w0.0);
+                    acc1 = vaddq_s16(acc1, w0.1);
+                    acc2 = vaddq_s16(acc2, w0.2);
+                    acc3 = vaddq_s16(acc3, w0.3);
+                    acc4 = vaddq_s16(acc4, w1.0);
+                    acc5 = vaddq_s16(acc5, w1.1);
+                    acc6 = vaddq_s16(acc6, w1.2);
+                    acc7 = vaddq_s16(acc7, w1.3);
+                    acc8 = vaddq_s16(acc8, w2.0);
+                    acc9 = vaddq_s16(acc9, w2.1);
+                    acc10 = vaddq_s16(acc10, w2.2);
+                    acc11 = vaddq_s16(acc11, w2.3);
+                    acc12 = vaddq_s16(acc12, w3.0);
+                    acc13 = vaddq_s16(acc13, w3.1);
+                    acc14 = vaddq_s16(acc14, w3.2);
+                    acc15 = vaddq_s16(acc15, w3.3);
+                }};
+            }
+
+            accumulate_feature!(0);
+            accumulate_feature!(1);
+            accumulate_feature!(2);
+            accumulate_feature!(3);
+            accumulate_feature!(4);
+            accumulate_feature!(5);
+            accumulate_feature!(6);
+            accumulate_feature!(7);
+            accumulate_feature!(8);
+            accumulate_feature!(9);
+            accumulate_feature!(10);
+            accumulate_feature!(11);
+            accumulate_feature!(12);
+            accumulate_feature!(13);
+            accumulate_feature!(14);
+            accumulate_feature!(15);
+            accumulate_feature!(16);
+            accumulate_feature!(17);
+            accumulate_feature!(18);
+            accumulate_feature!(19);
+            accumulate_feature!(20);
+            accumulate_feature!(21);
+            accumulate_feature!(22);
+            accumulate_feature!(23);
+            accumulate_feature!(24);
+            accumulate_feature!(25);
+            accumulate_feature!(26);
+            accumulate_feature!(27);
+            accumulate_feature!(28);
+            accumulate_feature!(29);
+            accumulate_feature!(30);
+            accumulate_feature!(31);
+
+            // Clamp values to [0, ACTIVATION_CLAMP_MAX] for squared clipped ReLU
+            let zero = vdupq_n_s16(0);
+            let clamp_max = vdupq_n_s16(ACTIVATION_CLAMP_MAX);
+
+            // Squared activation: v² >> 10.
+            // For non-negative v <= 1023, sqdmulh((v << 5), v) computes:
+            // ((2 * (v << 5) * v) >> 16) = (v² >> 10) without widening.
+            macro_rules! clamp_and_square {
+                ($acc:ident) => {{
+                    let v = vminq_s16(vmaxq_s16($acc, zero), clamp_max);
+                    vqdmulhq_s16(vshlq_n_s16::<5>(v), v)
+                }};
+            }
+
+            let out_w_ptr = output_layer.weights.as_ptr() as *const i16;
+
+            // Four independent i32x4 accumulators to expose ILP across SIMD issue ports
+            let mut s0 = vdupq_n_s32(0);
+            let mut s1 = vdupq_n_s32(0);
+            let mut s2 = vdupq_n_s32(0);
+            let mut s3 = vdupq_n_s32(0);
+
+            macro_rules! dot_block {
+                ($base:expr, $a0:ident, $a1:ident, $a2:ident, $a3:ident) => {{
+                    let act0 = clamp_and_square!($a0);
+                    let act1 = clamp_and_square!($a1);
+                    let act2 = clamp_and_square!($a2);
+                    let act3 = clamp_and_square!($a3);
+                    let ow = vld1q_s16_x4(out_w_ptr.add($base * 8));
+                    s0 = vmlal_s16(s0, vget_low_s16(act0), vget_low_s16(ow.0));
+                    s0 = vmlal_high_s16(s0, act0, ow.0);
+                    s1 = vmlal_s16(s1, vget_low_s16(act1), vget_low_s16(ow.1));
+                    s1 = vmlal_high_s16(s1, act1, ow.1);
+                    s2 = vmlal_s16(s2, vget_low_s16(act2), vget_low_s16(ow.2));
+                    s2 = vmlal_high_s16(s2, act2, ow.2);
+                    s3 = vmlal_s16(s3, vget_low_s16(act3), vget_low_s16(ow.3));
+                    s3 = vmlal_high_s16(s3, act3, ow.3);
+                }};
+            }
+
+            dot_block!(0, acc0, acc1, acc2, acc3);
+            dot_block!(4, acc4, acc5, acc6, acc7);
+            dot_block!(8, acc8, acc9, acc10, acc11);
+            dot_block!(12, acc12, acc13, acc14, acc15);
+
+            let sum01 = vaddq_s32(s0, s1);
+            let sum23 = vaddq_s32(s2, s3);
+            vaddvq_s32(vaddq_s32(sum01, sum23))
+        }
+    }
+
     /// Scalar fallback implementation for non-SIMD architectures or testing.
     fn forward_scalar(
         pattern_feature: &PatternFeature,
@@ -611,6 +770,17 @@ mod tests {
                 "avx2(no_vnni) and avx2(vnni) mismatch"
             );
         }
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_matches_scalar() {
+        let (pattern_feature, input_layer, output_layer) = build_test_fixture();
+        let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
+        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+        let neon =
+            unsafe { NetworkSmall::forward_neon(&pattern_feature, &input_layer, &output_layer) };
+        assert_eq!(scalar, neon, "scalar and neon mismatch");
     }
 
     #[test]

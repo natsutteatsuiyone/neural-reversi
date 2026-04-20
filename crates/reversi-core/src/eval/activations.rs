@@ -10,6 +10,9 @@ cfg_select! {
         const AVX2_SIMD_WIDTH: usize = std::mem::size_of::<__m256i>() / std::mem::size_of::<u8>();
         const SSE2_SIMD_WIDTH: usize = std::mem::size_of::<__m128i>() / std::mem::size_of::<u8>();
     }
+    all(target_arch = "aarch64", target_feature = "neon") => {
+        const NEON_SIMD_WIDTH: usize = 16;
+    }
     _ => {}
 }
 
@@ -28,6 +31,9 @@ pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { clipped_relu_avx2::<SIZE>(input, output) };
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            unsafe { clipped_relu_neon::<SIZE>(input, output) };
         }
         _ => {
             clipped_relu_fallback(input, output, 0);
@@ -99,6 +105,40 @@ fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     clipped_relu_fallback(input, output, start_idx);
 }
 
+/// Clipped ReLU with ARM NEON SIMD optimization.
+///
+/// Processes 16 `i32` elements per iteration into a single `uint8x16_t` store,
+/// then hands the remainder off to `clipped_relu_fallback`.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[target_feature(enable = "neon")]
+#[inline]
+fn clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+    use std::arch::aarch64::*;
+    let num_chunks = SIZE / NEON_SIMD_WIDTH;
+    unsafe {
+        let input_ptr = input.as_ptr();
+        let output_ptr = output.as_mut_ptr();
+        for i in 0..num_chunks {
+            let base = i * NEON_SIMD_WIDTH;
+            let v0 = vld1q_s32(input_ptr.add(base));
+            let v1 = vld1q_s32(input_ptr.add(base + 4));
+            let v2 = vld1q_s32(input_ptr.add(base + 8));
+            let v3 = vld1q_s32(input_ptr.add(base + 12));
+
+            let w0 = vcombine_u16(vqmovun_s32(v0), vqmovun_s32(v1));
+            let w1 = vcombine_u16(vqmovun_s32(v2), vqmovun_s32(v3));
+
+            let w0 = vshrq_n_u16::<HIDDEN_WEIGHT_SCALE_BITS>(w0);
+            let w1 = vshrq_n_u16::<HIDDEN_WEIGHT_SCALE_BITS>(w1);
+
+            let bytes = vcombine_u8(vqmovn_u16(w0), vqmovn_u16(w1));
+            vst1q_u8(output_ptr.add(base), bytes);
+        }
+    }
+    let start_idx = num_chunks * NEON_SIMD_WIDTH;
+    clipped_relu_fallback(input, output, start_idx);
+}
+
 /// Clipped ReLU scalar fallback implementation.
 #[inline(always)]
 fn clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
@@ -122,6 +162,9 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) };
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            unsafe { sqr_clipped_relu_neon::<SIZE>(input, output) };
         }
         _ => {
             sqr_clipped_relu_fallback(input, output, 0);
@@ -167,6 +210,52 @@ fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     sqr_clipped_relu_fallback(input, output, start_idx);
 }
 
+/// Square-clipped activation with ARM NEON SIMD optimization.
+///
+/// Processes 16 `i32` elements per iteration. Signed-saturating pack to i16,
+/// full-width signed square (`vmull_s16` / `vmull_high_s16`), arithmetic shift
+/// right by `2 * HIDDEN_WEIGHT_SCALE_BITS + 8`, then saturating narrow to u8.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[target_feature(enable = "neon")]
+#[inline]
+fn sqr_clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+    use std::arch::aarch64::*;
+    let num_chunks = SIZE / NEON_SIMD_WIDTH;
+    const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8;
+    unsafe {
+        let input_ptr = input.as_ptr();
+        let output_ptr = output.as_mut_ptr();
+        for i in 0..num_chunks {
+            let base = i * NEON_SIMD_WIDTH;
+            let v0 = vld1q_s32(input_ptr.add(base));
+            let v1 = vld1q_s32(input_ptr.add(base + 4));
+            let v2 = vld1q_s32(input_ptr.add(base + 8));
+            let v3 = vld1q_s32(input_ptr.add(base + 12));
+
+            let s0 = vcombine_s16(vqmovn_s32(v0), vqmovn_s32(v1));
+            let s1 = vcombine_s16(vqmovn_s32(v2), vqmovn_s32(v3));
+
+            let p0_lo = vmull_s16(vget_low_s16(s0), vget_low_s16(s0));
+            let p0_hi = vmull_high_s16(s0, s0);
+            let p1_lo = vmull_s16(vget_low_s16(s1), vget_low_s16(s1));
+            let p1_hi = vmull_high_s16(s1, s1);
+
+            // Squares are non-negative, so arithmetic >> equals logical >>.
+            let q0_lo = vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p0_lo));
+            let q0_hi = vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p0_hi));
+            let q1_lo = vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p1_lo));
+            let q1_hi = vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p1_hi));
+
+            let w0 = vcombine_u16(vqmovn_u32(q0_lo), vqmovn_u32(q0_hi));
+            let w1 = vcombine_u16(vqmovn_u32(q1_lo), vqmovn_u32(q1_hi));
+            let bytes = vcombine_u8(vqmovn_u16(w0), vqmovn_u16(w1));
+            vst1q_u8(output_ptr.add(base), bytes);
+        }
+    }
+    let start_idx = num_chunks * NEON_SIMD_WIDTH;
+    sqr_clipped_relu_fallback(input, output, start_idx);
+}
+
 /// Square-clipped activation scalar fallback implementation.
 #[inline(always)]
 fn sqr_clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
@@ -190,6 +279,9 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { screlu_avx2::<SIZE>(input, output) };
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            unsafe { screlu_neon::<SIZE>(input, output) };
         }
         _ => {
             screlu_fallback(input, output, 0);
@@ -267,6 +359,54 @@ fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     }
 
     let start_idx = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
+    screlu_fallback(input, output, start_idx);
+}
+
+/// Squared Clipped ReLU with ARM NEON SIMD optimization.
+///
+/// Processes 16 `i32` elements per iteration. Unsigned-saturating pack to u16,
+/// unsigned clamp to `[0, 255 << HIDDEN_WEIGHT_SCALE_BITS]`, full-width unsigned
+/// square, logical shift right by `2 * HIDDEN_WEIGHT_SCALE_BITS + 8`, then
+/// narrow to u8.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[target_feature(enable = "neon")]
+#[inline]
+fn screlu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+    use std::arch::aarch64::*;
+    let num_chunks = SIZE / NEON_SIMD_WIDTH;
+    const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8;
+    unsafe {
+        let input_ptr = input.as_ptr();
+        let output_ptr = output.as_mut_ptr();
+        let max_val = vdupq_n_u16((255 << HIDDEN_WEIGHT_SCALE_BITS) as u16);
+        for i in 0..num_chunks {
+            let base = i * NEON_SIMD_WIDTH;
+            let v0 = vld1q_s32(input_ptr.add(base));
+            let v1 = vld1q_s32(input_ptr.add(base + 4));
+            let v2 = vld1q_s32(input_ptr.add(base + 8));
+            let v3 = vld1q_s32(input_ptr.add(base + 12));
+
+            let w0 = vminq_u16(vcombine_u16(vqmovun_s32(v0), vqmovun_s32(v1)), max_val);
+            let w1 = vminq_u16(vcombine_u16(vqmovun_s32(v2), vqmovun_s32(v3)), max_val);
+
+            let p0_lo = vmull_u16(vget_low_u16(w0), vget_low_u16(w0));
+            let p0_hi = vmull_high_u16(w0, w0);
+            let p1_lo = vmull_u16(vget_low_u16(w1), vget_low_u16(w1));
+            let p1_hi = vmull_high_u16(w1, w1);
+
+            let n0 = vcombine_u16(
+                vqmovn_u32(vshrq_n_u32::<SHIFT>(p0_lo)),
+                vqmovn_u32(vshrq_n_u32::<SHIFT>(p0_hi)),
+            );
+            let n1 = vcombine_u16(
+                vqmovn_u32(vshrq_n_u32::<SHIFT>(p1_lo)),
+                vqmovn_u32(vshrq_n_u32::<SHIFT>(p1_hi)),
+            );
+            let bytes = vcombine_u8(vqmovn_u16(n0), vqmovn_u16(n1));
+            vst1q_u8(output_ptr.add(base), bytes);
+        }
+    }
+    let start_idx = num_chunks * NEON_SIMD_WIDTH;
     screlu_fallback(input, output, start_idx);
 }
 
@@ -703,6 +843,72 @@ mod tests {
         clipped_relu_fallback(input.as_slice(), output_fallback.as_mut_slice(), 0);
 
         assert_eq!(output_main.as_ref(), output_fallback.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn clipped_relu_neon_matches_fallback() {
+        fn run<const SIZE: usize>(seed: usize) {
+            let mut input_data = [0i32; SIZE];
+            for (i, v) in input_data.iter_mut().enumerate() {
+                *v = ((i * 13 + seed) as i32 * 257).wrapping_sub(12_000);
+            }
+            let input = Align64(input_data);
+            let mut out_neon = Align64([0u8; SIZE]);
+            let mut out_fb = Align64([0u8; SIZE]);
+            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+            unsafe { clipped_relu_neon::<SIZE>(input.as_slice(), out_neon.as_mut_slice()) };
+            clipped_relu_fallback(input.as_slice(), out_fb.as_mut_slice(), 0);
+            assert_eq!(out_neon.as_ref(), out_fb.as_ref());
+        }
+        run::<32>(1);
+        run::<80>(7);
+        run::<37>(11);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn sqr_clipped_relu_neon_matches_fallback() {
+        // Keep inputs under sqrt(i32::MAX) so the fallback's i32*i32 multiplication
+        // does not wrap (NEON pre-saturates to i16, producing a different result).
+        fn run<const SIZE: usize>(seed: usize) {
+            let mut input_data = [0i32; SIZE];
+            for (i, v) in input_data.iter_mut().enumerate() {
+                *v = ((i * 9 + seed) as i32 * 37).wrapping_sub(2_000);
+            }
+            let input = Align64(input_data);
+            let mut out_neon = Align64([0u8; SIZE]);
+            let mut out_fb = Align64([0u8; SIZE]);
+            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+            unsafe { sqr_clipped_relu_neon::<SIZE>(input.as_slice(), out_neon.as_mut_slice()) };
+            sqr_clipped_relu_fallback(input.as_slice(), out_fb.as_mut_slice(), 0);
+            assert_eq!(out_neon.as_ref(), out_fb.as_ref());
+        }
+        run::<16>(2);
+        run::<48>(5);
+        run::<23>(9);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn screlu_neon_matches_fallback() {
+        fn run<const SIZE: usize>(seed: usize) {
+            let mut input_data = [0i32; SIZE];
+            for (i, v) in input_data.iter_mut().enumerate() {
+                let raw = ((i * 9876 + seed) % (400 << HIDDEN_WEIGHT_SCALE_BITS)) as i32;
+                *v = raw - (200 << HIDDEN_WEIGHT_SCALE_BITS);
+            }
+            let input = Align64(input_data);
+            let mut out_neon = Align64([0u8; SIZE]);
+            let mut out_fb = Align64([0u8; SIZE]);
+            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+            unsafe { screlu_neon::<SIZE>(input.as_slice(), out_neon.as_mut_slice()) };
+            screlu_fallback(input.as_slice(), out_fb.as_mut_slice(), 0);
+            assert_eq!(out_neon.as_ref(), out_fb.as_ref());
+        }
+        run::<32>(4321);
+        run::<96>(1234);
+        run::<37>(777);
     }
 
     #[test]

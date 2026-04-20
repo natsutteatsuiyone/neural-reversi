@@ -117,6 +117,15 @@ impl PatternFeature {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+impl PatternFeature {
+    /// Returns a pointer to the internal data as an i16 pointer for NEON loads.
+    #[inline(always)]
+    unsafe fn as_neon_ptr(&self) -> *const i16 {
+        self.data.as_ptr() as *const i16
+    }
+}
+
 impl Index<usize> for PatternFeature {
     type Output = u16;
 
@@ -433,6 +442,9 @@ impl PatternFeatures {
             all(target_arch = "x86_64", target_feature = "avx2") => {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
             }
+            all(target_arch = "aarch64", target_feature = "neon") => {
+                unsafe { self.update_neon(sq, flipped, ply, side_to_move) }
+            }
             all(target_arch = "wasm32", target_feature = "simd128") => {
                 self.update_wasm_simd(sq, flipped, ply, side_to_move)
             }
@@ -674,6 +686,137 @@ impl PatternFeatures {
             v128_store(o_out_ptr.add(1), o_out1);
             v128_store(o_out_ptr.add(2), o_out2);
             v128_store(o_out_ptr.add(3), o_out3);
+        }
+    }
+
+    /// ARM NEON-optimized implementation of pattern feature update.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    fn update_neon(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
+        use std::arch::aarch64::*;
+
+        unsafe {
+            let ef = &EVAL_FEATURE;
+            let f_ptr = ef.get_unchecked(sq.index()).as_neon_ptr();
+            let f0 = vld1q_s16(f_ptr);
+            let f1 = vld1q_s16(f_ptr.add(8));
+            let f2 = vld1q_s16(f_ptr.add(16));
+            let f3 = vld1q_s16(f_ptr.add(24));
+
+            let first_idx = flipped.bits().trailing_zeros() as usize;
+            let mut bits = flipped.bits() & (flipped.bits() - 1);
+
+            let first_fp = ef.get_unchecked(first_idx).as_neon_ptr();
+            let mut sum0 = vld1q_s16(first_fp);
+            let mut sum1 = vld1q_s16(first_fp.add(8));
+            let mut sum2 = vld1q_s16(first_fp.add(16));
+            let mut sum3 = vld1q_s16(first_fp.add(24));
+
+            if bits != 0 {
+                loop {
+                    let idx1 = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    let fp1 = ef.get_unchecked(idx1).as_neon_ptr();
+                    sum0 = vaddq_s16(sum0, vld1q_s16(fp1));
+                    sum1 = vaddq_s16(sum1, vld1q_s16(fp1.add(8)));
+                    sum2 = vaddq_s16(sum2, vld1q_s16(fp1.add(16)));
+                    sum3 = vaddq_s16(sum3, vld1q_s16(fp1.add(24)));
+
+                    if bits == 0 {
+                        break;
+                    }
+
+                    let idx2 = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    let fp2 = ef.get_unchecked(idx2).as_neon_ptr();
+                    sum0 = vaddq_s16(sum0, vld1q_s16(fp2));
+                    sum1 = vaddq_s16(sum1, vld1q_s16(fp2.add(8)));
+                    sum2 = vaddq_s16(sum2, vld1q_s16(fp2.add(16)));
+                    sum3 = vaddq_s16(sum3, vld1q_s16(fp2.add(24)));
+
+                    if bits == 0 {
+                        break;
+                    }
+                }
+            }
+
+            let f2_0 = vshlq_n_s16::<1>(f0);
+            let f2_1 = vshlq_n_s16::<1>(f1);
+            let f2_2 = vshlq_n_s16::<1>(f2);
+            let f2_3 = vshlq_n_s16::<1>(f3);
+
+            let f_minus_sum_0 = vsubq_s16(f0, sum0);
+            let f_minus_sum_1 = vsubq_s16(f1, sum1);
+            let f_minus_sum_2 = vsubq_s16(f2, sum2);
+            let f_minus_sum_3 = vsubq_s16(f3, sum3);
+
+            let twof_plus_sum_0 = vaddq_s16(f2_0, sum0);
+            let twof_plus_sum_1 = vaddq_s16(f2_1, sum1);
+            let twof_plus_sum_2 = vaddq_s16(f2_2, sum2);
+            let twof_plus_sum_3 = vaddq_s16(f2_3, sum3);
+
+            let p_feats = &mut self.p_features;
+            let o_feats = &mut self.o_features;
+            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
+
+            let p_in0 = vld1q_s16(p_in_ptr);
+            let p_in1 = vld1q_s16(p_in_ptr.add(8));
+            let p_in2 = vld1q_s16(p_in_ptr.add(16));
+            let p_in3 = vld1q_s16(p_in_ptr.add(24));
+
+            let o_in0 = vld1q_s16(o_in_ptr);
+            let o_in1 = vld1q_s16(o_in_ptr.add(8));
+            let o_in2 = vld1q_s16(o_in_ptr.add(16));
+            let o_in3 = vld1q_s16(o_in_ptr.add(24));
+
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
+
+            let (delta_p0, delta_p1, delta_p2, delta_p3, delta_o0, delta_o1, delta_o2, delta_o3) =
+                if side_to_move == SideToMove::Player {
+                    (
+                        twof_plus_sum_0,
+                        twof_plus_sum_1,
+                        twof_plus_sum_2,
+                        twof_plus_sum_3,
+                        f_minus_sum_0,
+                        f_minus_sum_1,
+                        f_minus_sum_2,
+                        f_minus_sum_3,
+                    )
+                } else {
+                    (
+                        f_minus_sum_0,
+                        f_minus_sum_1,
+                        f_minus_sum_2,
+                        f_minus_sum_3,
+                        twof_plus_sum_0,
+                        twof_plus_sum_1,
+                        twof_plus_sum_2,
+                        twof_plus_sum_3,
+                    )
+                };
+
+            let p_out0 = vsubq_s16(p_in0, delta_p0);
+            let p_out1 = vsubq_s16(p_in1, delta_p1);
+            let p_out2 = vsubq_s16(p_in2, delta_p2);
+            let p_out3 = vsubq_s16(p_in3, delta_p3);
+
+            let o_out0 = vsubq_s16(o_in0, delta_o0);
+            let o_out1 = vsubq_s16(o_in1, delta_o1);
+            let o_out2 = vsubq_s16(o_in2, delta_o2);
+            let o_out3 = vsubq_s16(o_in3, delta_o3);
+
+            vst1q_s16(p_out_ptr, p_out0);
+            vst1q_s16(p_out_ptr.add(8), p_out1);
+            vst1q_s16(p_out_ptr.add(16), p_out2);
+            vst1q_s16(p_out_ptr.add(24), p_out3);
+
+            vst1q_s16(o_out_ptr, o_out0);
+            vst1q_s16(o_out_ptr.add(8), o_out1);
+            vst1q_s16(o_out_ptr.add(16), o_out2);
+            vst1q_s16(o_out_ptr.add(24), o_out3);
         }
     }
 
@@ -1749,6 +1892,184 @@ mod tests {
                 pf_fallback.o_feature(ply + 1)[i],
                 pf_avx2.o_feature(ply + 1)[i],
                 "AVX2 Opponent multi-flip o[{}] mismatch",
+                i
+            );
+        }
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[test]
+    fn test_neon_fallback_equivalence() {
+        let board = Board::new();
+        let ply = 0;
+
+        let sq = Square::D3;
+        let flipped = Bitboard::new(1u64 << Square::D4.index());
+
+        let mut pf_fallback = PatternFeatures::new(&board, ply);
+        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Player);
+
+        let mut pf_neon = PatternFeatures::new(&board, ply);
+        unsafe {
+            pf_neon.update_neon(sq, flipped, ply, SideToMove::Player);
+        }
+
+        for i in 0..NUM_PATTERN_FEATURES {
+            assert_eq!(
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_neon.p_feature(ply + 1)[i],
+                "NEON vs fallback p_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_neon.p_feature(ply + 1)[i]
+            );
+            assert_eq!(
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_neon.o_feature(ply + 1)[i],
+                "NEON vs fallback o_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_neon.o_feature(ply + 1)[i]
+            );
+        }
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[test]
+    fn test_neon_fallback_equivalence_multiple_positions() {
+        let test_cases = [
+            (
+                vec![Square::D5, Square::E4],
+                vec![Square::D4, Square::E5],
+                Square::C4,
+                vec![Square::D4],
+            ),
+            (
+                vec![Square::D5, Square::E4, Square::C4],
+                vec![Square::E5, Square::F4],
+                Square::G4,
+                vec![Square::F4],
+            ),
+        ];
+
+        for (player_sqs, opponent_sqs, move_sq, flip_sqs) in test_cases {
+            let mut player = 0u64;
+            for sq in &player_sqs {
+                player |= 1u64 << sq.index();
+            }
+            let mut opponent = 0u64;
+            for sq in &opponent_sqs {
+                opponent |= 1u64 << sq.index();
+            }
+            let mut flipped_bits = 0u64;
+            for sq in &flip_sqs {
+                flipped_bits |= 1u64 << sq.index();
+            }
+
+            let board = Board::from_bitboards(player, opponent);
+            let ply = 5;
+            let flipped = Bitboard::new(flipped_bits);
+
+            let mut pf_fallback = PatternFeatures::new(&board, ply);
+            pf_fallback.update_fallback(move_sq, flipped, ply, SideToMove::Player);
+
+            let mut pf_neon = PatternFeatures::new(&board, ply);
+            unsafe {
+                pf_neon.update_neon(move_sq, flipped, ply, SideToMove::Player);
+            }
+
+            for i in 0..NUM_PATTERN_FEATURES {
+                assert_eq!(
+                    pf_fallback.p_feature(ply + 1)[i],
+                    pf_neon.p_feature(ply + 1)[i],
+                    "NEON Player position {:?} feature {} p mismatch",
+                    move_sq,
+                    i
+                );
+                assert_eq!(
+                    pf_fallback.o_feature(ply + 1)[i],
+                    pf_neon.o_feature(ply + 1)[i],
+                    "NEON Player position {:?} feature {} o mismatch",
+                    move_sq,
+                    i
+                );
+            }
+        }
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[test]
+    fn test_neon_fallback_equivalence_opponent_move() {
+        let board = Board::new();
+        let ply = 0;
+
+        let sq = Square::D3;
+        let flipped = Bitboard::new(1u64 << Square::D5.index());
+
+        let mut pf_fallback = PatternFeatures::new(&board, ply);
+        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
+
+        let mut pf_neon = PatternFeatures::new(&board, ply);
+        unsafe {
+            pf_neon.update_neon(sq, flipped, ply, SideToMove::Opponent);
+        }
+
+        for i in 0..NUM_PATTERN_FEATURES {
+            assert_eq!(
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_neon.p_feature(ply + 1)[i],
+                "NEON Opponent vs fallback p_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_neon.p_feature(ply + 1)[i]
+            );
+            assert_eq!(
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_neon.o_feature(ply + 1)[i],
+                "NEON Opponent vs fallback o_features[{}] mismatch: {} != {}",
+                i,
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_neon.o_feature(ply + 1)[i]
+            );
+        }
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[test]
+    fn test_neon_fallback_equivalence_opponent_multiple_flips() {
+        let player = (1u64 << Square::B1.index())
+            | (1u64 << Square::C1.index())
+            | (1u64 << Square::D1.index());
+        let opponent = 1u64 << Square::A1.index();
+        let board = Board::from_bitboards(player, opponent);
+        let ply = 5;
+
+        let sq = Square::E1;
+        let flipped = Bitboard::new(
+            (1u64 << Square::B1.index())
+                | (1u64 << Square::C1.index())
+                | (1u64 << Square::D1.index()),
+        );
+
+        let mut pf_fallback = PatternFeatures::new(&board, ply);
+        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
+
+        let mut pf_neon = PatternFeatures::new(&board, ply);
+        unsafe {
+            pf_neon.update_neon(sq, flipped, ply, SideToMove::Opponent);
+        }
+
+        for i in 0..NUM_PATTERN_FEATURES {
+            assert_eq!(
+                pf_fallback.p_feature(ply + 1)[i],
+                pf_neon.p_feature(ply + 1)[i],
+                "NEON Opponent multi-flip p[{}] mismatch",
+                i
+            );
+            assert_eq!(
+                pf_fallback.o_feature(ply + 1)[i],
+                pf_neon.o_feature(ply + 1)[i],
+                "NEON Opponent multi-flip o[{}] mismatch",
                 i
             );
         }

@@ -18,6 +18,9 @@ use super::accumulate_avx512;
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use super::accumulate_avx2;
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+use super::accumulate_neon;
+
 const ACTIVATION_MAX: i16 = 255 * 2;
 const ACTIVATION_SHIFT: u32 = 10;
 
@@ -117,6 +120,9 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
             all(target_arch = "x86_64", target_feature = "avx2") => {
                 unsafe { self.forward_avx2(pattern_feature, output) };
             }
+            all(target_arch = "aarch64", target_feature = "neon") => {
+                unsafe { self.forward_neon(pattern_feature, output) };
+            }
             _ => {
                 self.forward_fallback(pattern_feature, output);
             }
@@ -151,6 +157,20 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         self.apply_activation_avx2(&acc, output);
     }
 
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    #[allow(dead_code)]
+    fn forward_neon(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+        const {
+            assert!(HIDDEN_DIMS.is_multiple_of(32));
+            assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
+        }
+
+        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
+        accumulate_neon::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
+        self.apply_activation_neon(&acc, output);
+    }
+
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     impl_base_input_apply_activation!(
         apply_activation_avx512,
@@ -183,6 +203,53 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
         packus = _mm256_packus_epi16
     );
 
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    #[inline]
+    fn apply_activation_neon(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
+        use std::arch::aarch64::*;
+
+        const LANES_PER_REG: usize = 8;
+        let num_regs = HIDDEN_DIMS / LANES_PER_REG;
+        let iterations = num_regs / 4;
+
+        unsafe {
+            let acc_ptr = acc.as_ptr();
+            let mut output_ptr = output.as_mut_ptr();
+            let one = vdupq_n_s16(ACTIVATION_MAX);
+            let zero = vdupq_n_s16(0);
+            let mut in0_ptr = acc_ptr;
+            let mut in1_ptr = acc_ptr.add((num_regs / 2) * LANES_PER_REG);
+
+            for _ in 0..iterations {
+                let in00 = vld1q_s16(in0_ptr);
+                let in01 = vld1q_s16(in0_ptr.add(LANES_PER_REG));
+                in0_ptr = in0_ptr.add(2 * LANES_PER_REG);
+                let in10 = vld1q_s16(in1_ptr);
+                let in11 = vld1q_s16(in1_ptr.add(LANES_PER_REG));
+                in1_ptr = in1_ptr.add(2 * LANES_PER_REG);
+
+                let sum0a = vshlq_n_s16::<6>(vmaxq_s16(vminq_s16(in00, one), zero));
+                let sum0b = vshlq_n_s16::<6>(vmaxq_s16(vminq_s16(in01, one), zero));
+                let sum1a = vminq_s16(in10, one);
+                let sum1b = vminq_s16(in11, one);
+
+                // Emulate mulhi_epi16: full 32-bit signed product, then take high 16 bits.
+                let prod_lo_a = vmull_s16(vget_low_s16(sum0a), vget_low_s16(sum1a));
+                let prod_hi_a = vmull_high_s16(sum0a, sum1a);
+                let pa = vcombine_s16(vshrn_n_s32::<16>(prod_lo_a), vshrn_n_s32::<16>(prod_hi_a));
+
+                let prod_lo_b = vmull_s16(vget_low_s16(sum0b), vget_low_s16(sum1b));
+                let prod_hi_b = vmull_high_s16(sum0b, sum1b);
+                let pb = vcombine_s16(vshrn_n_s32::<16>(prod_lo_b), vshrn_n_s32::<16>(prod_hi_b));
+
+                let packed = vcombine_u8(vqmovun_s16(pa), vqmovun_s16(pb));
+                vst1q_u8(output_ptr, packed);
+                output_ptr = output_ptr.add(2 * LANES_PER_REG);
+            }
+        }
+    }
+
     /// Fallback scalar implementation.
     #[allow(dead_code)]
     fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
@@ -197,5 +264,51 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
             let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
             *out = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+mod tests {
+    use super::*;
+    use aligned_vec::avec;
+
+    fn scalar_reference<const HIDDEN: usize, const OUT: usize>(
+        acc: &[i16; HIDDEN],
+        output: &mut [u8; OUT],
+    ) {
+        assert_eq!(OUT * 2, HIDDEN);
+        let (lo, hi) = acc.split_at(OUT);
+        for ((o, &v0), &v1) in output.iter_mut().zip(lo).zip(hi) {
+            let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
+            let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
+            *o = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
+        }
+    }
+
+    #[test]
+    fn apply_activation_neon_matches_scalar() {
+        // HIDDEN must be a multiple of 32 so (num_regs/4) iterates.
+        const HIDDEN: usize = 64;
+        const OUT: usize = HIDDEN / 2;
+
+        // apply_activation_neon only reads `acc`; biases/weights are untouched.
+        let layer: BaseInput<1, OUT, HIDDEN> = BaseInput {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
+        };
+
+        let mut acc = Align64([0i16; HIDDEN]);
+        for (i, v) in acc.0.iter_mut().enumerate() {
+            // Mix negative, zero, mid, and > ACTIVATION_MAX values.
+            *v = ((i as i32) * 91 - 1500) as i16;
+        }
+
+        let mut neon_out = [0u8; OUT];
+        let mut scalar_out = [0u8; OUT];
+        unsafe { layer.apply_activation_neon(&acc.0, &mut neon_out) };
+        scalar_reference::<HIDDEN, OUT>(&acc.0, &mut scalar_out);
+
+        assert_eq!(neon_out, scalar_out);
     }
 }
