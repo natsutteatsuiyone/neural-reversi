@@ -83,6 +83,7 @@ const LRMASK:[V8DI; 66] = [
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+#[inline]
 fn mm_flip(op: __m128i, pos: usize) -> __m128i {
     let mut flip: __m256i;
     let mut mask: __m256i;
@@ -125,14 +126,10 @@ fn mm_flip(op: __m128i, pos: usize) -> __m128i {
 }
 
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
-///
-/// # Safety
-///
-/// The caller must ensure the CPU supports AVX2.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
-pub unsafe fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
+pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
     let op = _mm_set_epi64x(opponent as i64, player as i64);
     let flip = mm_flip(op, sq.index());
     _mm_cvtsi128_si64(_mm_or_si128(flip, _mm_shuffle_epi32(flip, 0x4e))) as u64
