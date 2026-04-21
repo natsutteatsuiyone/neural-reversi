@@ -106,14 +106,14 @@ This is an experimental project to develop a highly accurate neural network eval
 
 ## Build
 
-For best performance, build with native CPU optimizations. This enables CPU-specific instructions (BMI2, LZCNT, AVX2, AVX-512), which significantly improve evaluation and search speed.
+For best performance, build with native CPU optimizations. This enables CPU-specific instructions (BMI2, LZCNT, AVX2, AVX-512 on x86-64; NEON on Apple Silicon), which significantly improve evaluation and search speed.
 
 ### Using cargo-make
 
 Build native-optimized binaries for both CLI and GUI using [cargo-make](https://github.com/sagiegurari/cargo-make):
 
 ```bash
-# All platforms (Windows + Linux)
+# All platforms (Windows + Linux + macOS)
 cargo make build-native
 
 # Windows only
@@ -123,21 +123,27 @@ cargo make build-gui-windows-native
 # Linux only
 cargo make build-cli-linux-native
 cargo make build-gui-linux-native
+
+# macOS only (Apple Silicon)
+cargo make build-cli-macos-native
+cargo make build-gui-macos-native
 ```
 
-For portable release builds targeting multiple CPU tiers (x86-64-v2/v3/v4):
+For portable release builds (CPU tiers `x86-64-v2/v3/v4` on Windows/Linux, `apple-m1` on macOS):
 
 ```bash
 # CLI binaries
 cargo make build-cli-windows
 cargo make build-cli-linux
+cargo make build-cli-macos
 
 # GUI binaries
 cargo make build-gui-windows
 cargo make build-gui-linux
+cargo make build-gui-macos
 ```
 
-All cargo-make builds are placed under the `dist/` directory.
+All cargo-make builds are placed under the `dist/` directory. The macOS GUI build produces a `.dmg` installer (requires building on macOS).
 
 ## License
 

@@ -129,7 +129,13 @@ script = [
     "",
     "version = get_env VERSION",
     "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
-    "source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+    "source_subpath = get_env SOURCE_SUBPATH",
+    "subpath_missing = is_empty ${source_subpath}",
+    "if ${subpath_missing}",
+    "    source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+    "else",
+    "    source = join_path ${workspace_root} target ${target_triple} release ${source_subpath}",
+    "end",
     "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
     "dest = join_path ${workspace_root} dist ${dest_name}",
     "cp ${source} ${dest}",
@@ -210,6 +216,26 @@ run_task = { name = [
     "build-cli-linux-v4",
 ] }
 
+# ───────────────────────────────────────────────────────────────
+#  macOS CLI Builds
+# ───────────────────────────────────────────────────────────────
+
+[tasks.build-cli-macos-apple-m1]
+extend = "build-cli-base"
+description = "Build macOS Apple Silicon CLI"
+env = { CPU_TIER = "apple-m1", RUST_CPU_TIER = "apple-m1", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_SUFFIX = "aarch64-apple-darwin" }
+
+[tasks.build-cli-macos-native]
+extend = "build-cli-base"
+description = "Build macOS native CLI"
+env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_PREFIX = "macos-", FILENAME_TIER_DELIMITER = "_" }
+
+[tasks.build-cli-macos]
+description = "Build all macOS CLI binaries"
+run_task = { name = [
+    "build-cli-macos-apple-m1",
+] }
+
 # ═══════════════════════════════════════════════════════════════
 #  GUI Application Builds
 # ═══════════════════════════════════════════════════════════════
@@ -284,6 +310,26 @@ run_task = { name = [
     "build-gui-linux-v4",
 ] }
 
+# ───────────────────────────────────────────────────────────────
+#  macOS GUI Builds
+# ───────────────────────────────────────────────────────────────
+
+[tasks.build-gui-macos-apple-m1]
+extend = "build-gui-base"
+description = "Build macOS Apple Silicon GUI"
+env = { BUILD_TYPE = "gui", CPU_TIER = "apple-m1", RUST_CPU_TIER = "apple-m1", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-gui", SOURCE_SUBPATH = "bundle/dmg/neural-reversi_${VERSION}_aarch64.dmg", DEST_EXT = ".dmg", FILENAME_SUFFIX = "aarch64-apple-darwin" }
+
+[tasks.build-gui-macos-native]
+extend = "build-gui-base"
+description = "Build macOS native GUI"
+env = { BUILD_TYPE = "gui", CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-gui", SOURCE_SUBPATH = "bundle/dmg/neural-reversi_${VERSION}_aarch64.dmg", DEST_EXT = ".dmg", FILENAME_PREFIX = "macos-", FILENAME_TIER_DELIMITER = "_" }
+
+[tasks.build-gui-macos]
+description = "Build all macOS GUI binaries"
+run_task = { name = [
+    "build-gui-macos-apple-m1",
+] }
+
 # ═══════════════════════════════════════════════════════════════
 #  Native Builds (All Platforms)
 # ═══════════════════════════════════════════════════════════════
@@ -293,6 +339,8 @@ description = "Build native CLI and GUI for all platforms"
 run_task = { name = [
     "build-cli-windows-native",
     "build-cli-linux-native",
+    "build-cli-macos-native",
     "build-gui-windows-native",
     "build-gui-linux-native",
+    "build-gui-macos-native",
 ] }
