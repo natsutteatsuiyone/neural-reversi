@@ -739,6 +739,125 @@ mod tests {
         neon_i8mm_cross_check::<64, 64, 64, 64>();
     }
 
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn avx2_no_vnni_cross_check<
+        const I: usize,
+        const O: usize,
+        const PI: usize,
+        const PO: usize,
+    >() {
+        let layer = create_test_layer::<I, O, PI, PO>();
+        let mut input = Align64([0u8; PI]);
+        for (idx, v) in input.iter_mut().take(I).enumerate() {
+            *v = ((idx * 17 + 3) % 251) as u8;
+        }
+
+        let mut simd_out = Align64([0i32; PO]);
+        let mut fb_out = Align64([0i32; PO]);
+
+        // SAFETY: AVX2 is asserted by the cfg above.
+        unsafe { layer.forward_avx2_no_vnni(&input, &mut simd_out) };
+        layer.forward_fallback(&input, &mut fb_out);
+
+        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn forward_avx2_no_vnni_matches_fallback() {
+        avx2_no_vnni_cross_check::<32, 16, 32, 32>();
+        avx2_no_vnni_cross_check::<64, 64, 64, 64>();
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn avx2_vnni_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
+        if !std::arch::is_x86_feature_detected!("avxvnni") {
+            return;
+        }
+
+        let layer = create_test_layer::<I, O, PI, PO>();
+        let mut input = Align64([0u8; PI]);
+        // Cover the full u8 range so the VNNI path's u8×i8 semantics are exercised.
+        for (idx, v) in input.iter_mut().take(I).enumerate() {
+            *v = ((idx * 23 + 7) % 251) as u8;
+        }
+
+        let mut simd_out = Align64([0i32; PO]);
+        let mut fb_out = Align64([0i32; PO]);
+
+        // SAFETY: Guarded by runtime avxvnni detection and the cfg above.
+        unsafe { layer.forward_avx2_vnni(&input, &mut simd_out) };
+        layer.forward_fallback(&input, &mut fb_out);
+
+        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn forward_avx2_vnni_matches_fallback() {
+        avx2_vnni_cross_check::<32, 16, 32, 32>();
+        avx2_vnni_cross_check::<64, 64, 64, 64>();
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn avx512_no_vnni_cross_check<
+        const I: usize,
+        const O: usize,
+        const PI: usize,
+        const PO: usize,
+    >() {
+        let layer = create_test_layer::<I, O, PI, PO>();
+        let mut input = Align64([0u8; PI]);
+        for (idx, v) in input.iter_mut().take(I).enumerate() {
+            *v = ((idx * 17 + 3) % 251) as u8;
+        }
+
+        let mut simd_out = Align64([0i32; PO]);
+        let mut fb_out = Align64([0i32; PO]);
+
+        // SAFETY: AVX-512BW is asserted by the cfg above.
+        unsafe { layer.forward_avx512_no_vnni(&input, &mut simd_out) };
+        layer.forward_fallback(&input, &mut fb_out);
+
+        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn forward_avx512_no_vnni_matches_fallback() {
+        avx512_no_vnni_cross_check::<32, 16, 32, 32>();
+        avx512_no_vnni_cross_check::<64, 64, 64, 64>();
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn avx512_vnni_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
+        if !std::arch::is_x86_feature_detected!("avx512vnni") {
+            return;
+        }
+
+        let layer = create_test_layer::<I, O, PI, PO>();
+        let mut input = Align64([0u8; PI]);
+        for (idx, v) in input.iter_mut().take(I).enumerate() {
+            *v = ((idx * 23 + 7) % 251) as u8;
+        }
+
+        let mut simd_out = Align64([0i32; PO]);
+        let mut fb_out = Align64([0i32; PO]);
+
+        // SAFETY: Guarded by runtime avx512vnni detection and the cfg above.
+        unsafe { layer.forward_avx512_vnni(&input, &mut simd_out) };
+        layer.forward_fallback(&input, &mut fb_out);
+
+        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn forward_avx512_vnni_matches_fallback() {
+        avx512_vnni_cross_check::<32, 16, 32, 32>();
+        avx512_vnni_cross_check::<64, 64, 64, 64>();
+    }
+
     #[test]
     fn test_forward_sparse_input() {
         // Test the zero-skipping optimization

@@ -268,11 +268,18 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
 }
 
 #[cfg(test)]
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod tests {
     use super::*;
     use aligned_vec::avec;
 
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    use super::super::simd_layout::permute_rows;
+
+    /// Pair-wise multiplication on the natural-layout `acc`: clamp `acc[i]` and
+    /// `acc[OUT + i]` to `[0, ACTIVATION_MAX]`, multiply, and shift right by
+    /// `ACTIVATION_SHIFT` — the algebraic specification all SIMD paths and the
+    /// scalar fallback compute.
+    #[allow(dead_code)]
     fn scalar_reference<const HIDDEN: usize, const OUT: usize>(
         acc: &[i16; HIDDEN],
         output: &mut [u8; OUT],
@@ -286,29 +293,103 @@ mod tests {
         }
     }
 
-    #[test]
-    fn apply_activation_neon_matches_scalar() {
-        // HIDDEN must be a multiple of 32 so (num_regs/4) iterates.
-        const HIDDEN: usize = 64;
-        const OUT: usize = HIDDEN / 2;
-
-        // apply_activation_neon only reads `acc`; biases/weights are untouched.
-        let layer: BaseInput<1, OUT, HIDDEN> = BaseInput {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
-        };
-
+    /// Builds an `acc` covering negatives, zero, mid-range, > ACTIVATION_MAX,
+    /// and (for large `HIDDEN`) wraparound values near `i16::MIN` so that the
+    /// negative-saturation path of `packus`/`vqmovun_s16` is exercised.
+    #[allow(dead_code)]
+    fn make_acc<const HIDDEN: usize>(seed: i32) -> Align64<[i16; HIDDEN]> {
         let mut acc = Align64([0i16; HIDDEN]);
         for (i, v) in acc.0.iter_mut().enumerate() {
-            // Mix negative, zero, mid, and > ACTIVATION_MAX values.
-            *v = ((i as i32) * 91 - 1500) as i16;
+            *v = ((i as i32) * 91 + seed * 11 - 1500) as i16;
         }
+        acc
+    }
 
-        let mut neon_out = [0u8; OUT];
-        let mut scalar_out = [0u8; OUT];
-        unsafe { layer.apply_activation_neon(&acc.0, &mut neon_out) };
-        scalar_reference::<HIDDEN, OUT>(&acc.0, &mut scalar_out);
+    /// `apply_activation_*` only reads `acc`; bias/weight contents are irrelevant
+    /// for these tests.
+    #[allow(dead_code)]
+    fn make_layer<const HIDDEN: usize, const OUT: usize>() -> BaseInput<1, OUT, HIDDEN> {
+        BaseInput {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
+        }
+    }
 
-        assert_eq!(neon_out, scalar_out);
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn apply_activation_neon_matches_scalar() {
+        fn run<const HIDDEN: usize, const OUT: usize>(seed: i32) {
+            const { assert!(HIDDEN == OUT * 2) };
+            let layer: BaseInput<1, OUT, HIDDEN> = make_layer();
+            let acc = make_acc::<HIDDEN>(seed);
+
+            let mut neon_out = [0u8; OUT];
+            let mut expected = [0u8; OUT];
+            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+            unsafe { layer.apply_activation_neon(&acc.0, &mut neon_out) };
+            scalar_reference::<HIDDEN, OUT>(&acc.0, &mut expected);
+            assert_eq!(neon_out, expected);
+        }
+        // HIDDEN must be a multiple of 32 so num_regs/4 iterates at least once.
+        run::<64, 32>(1);
+        run::<128, 64>(7);
+        run::<256, 128>(13);
+    }
+
+    #[test]
+    #[cfg(all(
+        target_arch = "x86_64",
+        target_feature = "avx2",
+        not(target_feature = "avx512bw"),
+    ))]
+    fn apply_activation_avx2_matches_scalar() {
+        fn run<const HIDDEN: usize, const OUT: usize>(seed: i32) {
+            const { assert!(HIDDEN == OUT * 2) };
+            let layer: BaseInput<1, OUT, HIDDEN> = make_layer();
+            let acc_natural = make_acc::<HIDDEN>(seed);
+
+            // The AVX2 path reads `acc` in pre-permuted layout — match the
+            // bias/weight permutation that `BaseInput::load` applies, so the
+            // SIMD output recovers the natural pairing.
+            let mut acc_permuted = acc_natural;
+            permute_rows(&mut acc_permuted.0, HIDDEN);
+
+            let mut simd_out = Align64([0u8; OUT]);
+            let mut expected = [0u8; OUT];
+            // SAFETY: AVX2 is asserted by the cfg above; output is 64-byte aligned.
+            unsafe { layer.apply_activation_avx2(&acc_permuted.0, &mut simd_out.0) };
+            scalar_reference::<HIDDEN, OUT>(&acc_natural.0, &mut expected);
+            assert_eq!(simd_out.0, expected);
+        }
+        // HIDDEN must be a multiple of 64 (AVX2 forward-pass requirement).
+        run::<64, 32>(1);
+        run::<128, 64>(7);
+        run::<256, 128>(13);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn apply_activation_avx512_matches_scalar() {
+        fn run<const HIDDEN: usize, const OUT: usize>(seed: i32) {
+            const { assert!(HIDDEN == OUT * 2) };
+            let layer: BaseInput<1, OUT, HIDDEN> = make_layer();
+            let acc_natural = make_acc::<HIDDEN>(seed);
+
+            // Same pre-permute trick as the AVX2 test, but `permute_rows`
+            // automatically picks the AVX-512 ordering when avx512bw is on.
+            let mut acc_permuted = acc_natural;
+            permute_rows(&mut acc_permuted.0, HIDDEN);
+
+            let mut simd_out = Align64([0u8; OUT]);
+            let mut expected = [0u8; OUT];
+            // SAFETY: AVX-512BW is asserted by the cfg above; output is 64-byte aligned.
+            unsafe { layer.apply_activation_avx512(&acc_permuted.0, &mut simd_out.0) };
+            scalar_reference::<HIDDEN, OUT>(&acc_natural.0, &mut expected);
+            assert_eq!(simd_out.0, expected);
+        }
+        // HIDDEN must be a multiple of 128 (AVX-512 forward-pass requirement).
+        run::<128, 64>(1);
+        run::<256, 128>(7);
+        run::<512, 256>(13);
     }
 }

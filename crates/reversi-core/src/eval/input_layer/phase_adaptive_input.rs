@@ -284,11 +284,17 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 }
 
 #[cfg(test)]
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod tests {
     use super::*;
     use aligned_vec::avec;
 
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    use super::super::simd_layout::permute_rows;
+
+    /// Squared activation on the natural-layout `acc`: clamp `acc[i]` to
+    /// `[0, ACTIVATION_MAX]`, square, and shift right by `ACTIVATION_SHIFT` —
+    /// the algebraic specification all SIMD paths and the scalar fallback compute.
+    #[allow(dead_code)]
     fn scalar_reference<const DIMS: usize>(acc: &[i16; DIMS], output: &mut [u8; DIMS]) {
         for (o, &v) in output.iter_mut().zip(acc.iter()) {
             let clamped = v.clamp(0, ACTIVATION_MAX) as u32;
@@ -296,28 +302,100 @@ mod tests {
         }
     }
 
-    #[test]
-    fn apply_activation_neon_matches_scalar() {
-        // OUTPUT_DIMS must be a multiple of 16 so (num_regs/2) iterates.
-        const OUT: usize = 32;
-
-        // apply_activation_neon only reads `acc`; biases/weights are untouched.
-        let layer: PhaseAdaptiveInputLayer<1, OUT> = PhaseAdaptiveInputLayer {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; OUT],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; OUT],
-        };
-
-        let mut acc = Align64([0i16; OUT]);
+    /// Builds an `acc` covering negatives, zero, mid-range, > ACTIVATION_MAX,
+    /// and (for large `DIMS`) wraparound values near `i16::MIN` so the
+    /// negative-saturation path of `packus`/`vqmovun_s16` is exercised.
+    #[allow(dead_code)]
+    fn make_acc<const DIMS: usize>(seed: i32) -> Align64<[i16; DIMS]> {
+        let mut acc = Align64([0i16; DIMS]);
         for (i, v) in acc.0.iter_mut().enumerate() {
-            // Cover negatives, zeros, mid-range, and > ACTIVATION_MAX.
-            *v = ((i as i32) * 83 - 700) as i16;
+            *v = ((i as i32) * 83 + seed * 11 - 700) as i16;
         }
+        acc
+    }
 
-        let mut neon_out = [0u8; OUT];
-        let mut scalar_out = [0u8; OUT];
-        unsafe { layer.apply_activation_neon(&acc.0, &mut neon_out) };
-        scalar_reference::<OUT>(&acc.0, &mut scalar_out);
+    /// `apply_activation_*` only reads `acc`; bias/weight contents are irrelevant
+    /// for these tests.
+    #[allow(dead_code)]
+    fn make_layer<const DIMS: usize>() -> PhaseAdaptiveInputLayer<1, DIMS> {
+        PhaseAdaptiveInputLayer {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; DIMS],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; DIMS],
+        }
+    }
 
-        assert_eq!(neon_out, scalar_out);
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn apply_activation_neon_matches_scalar() {
+        fn run<const DIMS: usize>(seed: i32) {
+            let layer: PhaseAdaptiveInputLayer<1, DIMS> = make_layer();
+            let acc = make_acc::<DIMS>(seed);
+
+            let mut neon_out = [0u8; DIMS];
+            let mut expected = [0u8; DIMS];
+            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+            unsafe { layer.apply_activation_neon(&acc.0, &mut neon_out) };
+            scalar_reference::<DIMS>(&acc.0, &mut expected);
+            assert_eq!(neon_out, expected);
+        }
+        // OUTPUT_DIMS must be a multiple of 16 so num_regs/2 iterates at least once.
+        run::<32>(1);
+        run::<64>(7);
+        run::<128>(13);
+    }
+
+    #[test]
+    #[cfg(all(
+        target_arch = "x86_64",
+        target_feature = "avx2",
+        not(target_feature = "avx512bw"),
+    ))]
+    fn apply_activation_avx2_matches_scalar() {
+        fn run<const DIMS: usize>(seed: i32) {
+            let layer: PhaseAdaptiveInputLayer<1, DIMS> = make_layer();
+            let acc_natural = make_acc::<DIMS>(seed);
+
+            // The AVX2 path reads `acc` in pre-permuted layout — match the
+            // bias/weight permutation that `PhaseAdaptiveInputLayer::load` applies,
+            // so the SIMD output recovers the natural ordering.
+            let mut acc_permuted = acc_natural;
+            permute_rows(&mut acc_permuted.0, DIMS);
+
+            let mut simd_out = Align64([0u8; DIMS]);
+            let mut expected = [0u8; DIMS];
+            // SAFETY: AVX2 is asserted by the cfg above; output is 64-byte aligned.
+            unsafe { layer.apply_activation_avx2(&acc_permuted.0, &mut simd_out.0) };
+            scalar_reference::<DIMS>(&acc_natural.0, &mut expected);
+            assert_eq!(simd_out.0, expected);
+        }
+        // OUTPUT_DIMS must be a multiple of 64 (AVX2 forward-pass requirement).
+        run::<64>(1);
+        run::<128>(7);
+        run::<256>(13);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn apply_activation_avx512_matches_scalar() {
+        fn run<const DIMS: usize>(seed: i32) {
+            let layer: PhaseAdaptiveInputLayer<1, DIMS> = make_layer();
+            let acc_natural = make_acc::<DIMS>(seed);
+
+            // Same pre-permute trick as the AVX2 test, but `permute_rows`
+            // automatically picks the AVX-512 ordering when avx512bw is on.
+            let mut acc_permuted = acc_natural;
+            permute_rows(&mut acc_permuted.0, DIMS);
+
+            let mut simd_out = Align64([0u8; DIMS]);
+            let mut expected = [0u8; DIMS];
+            // SAFETY: AVX-512BW is asserted by the cfg above; output is 64-byte aligned.
+            unsafe { layer.apply_activation_avx512(&acc_permuted.0, &mut simd_out.0) };
+            scalar_reference::<DIMS>(&acc_natural.0, &mut expected);
+            assert_eq!(simd_out.0, expected);
+        }
+        // OUTPUT_DIMS must be a multiple of 128 (AVX-512 forward-pass requirement).
+        run::<128>(1);
+        run::<256>(7);
+        run::<512>(13);
     }
 }

@@ -395,10 +395,13 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
 }
 
 #[cfg(test)]
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod tests {
     use super::*;
+    use crate::util::align::Align64;
 
+    /// `forward_fn` is unused by these tests (each calls a specific path directly),
+    /// so it points at the always-available scalar wrapper.
+    #[allow(dead_code)]
     fn build_layer<const INPUT: usize, const PADDED: usize>() -> OutputLayer<INPUT, PADDED> {
         let mut weights = avec![[CACHE_LINE_SIZE]|0i16; PADDED];
         for (i, w) in weights.iter_mut().enumerate().take(INPUT) {
@@ -408,27 +411,132 @@ mod tests {
         OutputLayer {
             bias: 12345,
             weights,
-            forward_fn: OutputLayer::<INPUT, PADDED>::forward_neon,
+            forward_fn: OutputLayer::<INPUT, PADDED>::forward_scalar_wrapper,
         }
     }
 
+    type Chunk16Segments = (Align64<[u8; 16]>, Align64<[u8; 32]>, Align64<[u8; 16]>);
+    type Chunk32Segments = (Align64<[u8; 32]>, Align64<[u8; 32]>);
+
+    /// Three segments totaling 64 bytes, each length divisible by 16 — matches
+    /// the NEON (CHUNK=16) and AVX2 (CHUNK=16) requirements. `Align64` ensures
+    /// the 16-byte alignment that AVX2 `_mm_load_si128` demands.
+    #[allow(dead_code)]
+    fn segments_chunk16() -> Chunk16Segments {
+        let seg0 = Align64([3u8; 16]);
+        let seg1 = Align64([
+            0, 1, 5, 9, 13, 17, 21, 25, 2, 6, 10, 14, 18, 22, 26, 30, 7, 11, 15, 19, 23, 27, 31,
+            35, 4, 8, 12, 16, 20, 24, 28, 32,
+        ]);
+        let seg2 = Align64([255, 200, 150, 100, 50, 25, 12, 6, 3, 1, 0, 7, 9, 11, 13, 15]);
+        (seg0, seg1, seg2)
+    }
+
+    /// Two segments totaling 64 bytes, each length divisible by 32 — matches the
+    /// AVX-512 (CHUNK=32) requirement. `Align64` ensures the 32-byte alignment
+    /// that `_mm256_load_si256` demands. The third slot is intentionally empty to
+    /// also exercise the zero-length segment path.
+    #[allow(dead_code)]
+    fn segments_chunk32() -> Chunk32Segments {
+        let seg0 = Align64([
+            3, 17, 31, 45, 59, 73, 87, 101, 115, 129, 143, 157, 171, 185, 199, 213, 227, 241, 255,
+            5, 19, 33, 47, 61, 75, 89, 103, 117, 131, 145, 159, 173,
+        ]);
+        let seg1 = Align64([
+            255, 200, 150, 100, 50, 25, 12, 6, 3, 1, 0, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27,
+            29, 31, 33, 35, 37, 39, 41, 43, 45, 47,
+        ]);
+        (seg0, seg1)
+    }
+
     #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     fn forward_neon_matches_scalar() {
         const INPUT: usize = 64;
         const PADDED: usize = 64;
 
         let layer = build_layer::<INPUT, PADDED>();
-        let seg0 = [3u8; 16];
-        let seg1 = [
-            0, 1, 5, 9, 13, 17, 21, 25, 2, 6, 10, 14, 18, 22, 26, 30, 7, 11, 15, 19, 23, 27, 31,
-            35, 4, 8, 12, 16, 20, 24, 28, 32,
-        ];
-        let seg2 = [255, 200, 150, 100, 50, 25, 12, 6, 3, 1, 0, 7, 9, 11, 13, 15];
-        let segments = [&seg0[..], &seg1[..], &seg2[..]];
+        let (seg0, seg1, seg2) = segments_chunk16();
+        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
 
         let scalar = layer.forward_scalar(segments);
+        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
         let neon = unsafe { layer.forward_neon(segments) };
 
         assert_eq!(neon, scalar);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn forward_avx2_no_vnni_matches_scalar() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+
+        let layer = build_layer::<INPUT, PADDED>();
+        let (seg0, seg1, seg2) = segments_chunk16();
+        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+
+        let scalar = layer.forward_scalar(segments);
+        // SAFETY: AVX2 is asserted by the cfg above; segments are 64-byte aligned.
+        let simd = unsafe { layer.forward_avx2_no_vnni(segments) };
+
+        assert_eq!(simd, scalar);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn forward_avx2_vnni_matches_scalar() {
+        if !std::arch::is_x86_feature_detected!("avxvnni") {
+            return;
+        }
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+
+        let layer = build_layer::<INPUT, PADDED>();
+        let (seg0, seg1, seg2) = segments_chunk16();
+        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+
+        let scalar = layer.forward_scalar(segments);
+        // SAFETY: Guarded by runtime avxvnni detection; segments are 64-byte aligned.
+        let simd = unsafe { layer.forward_avx2_vnni(segments) };
+
+        assert_eq!(simd, scalar);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn forward_avx512_no_vnni_matches_scalar() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+
+        let layer = build_layer::<INPUT, PADDED>();
+        let (seg0, seg1) = segments_chunk32();
+        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
+
+        let scalar = layer.forward_scalar(segments);
+        // SAFETY: AVX-512BW is asserted by the cfg above; segments are 64-byte aligned.
+        let simd = unsafe { layer.forward_avx512_no_vnni(segments) };
+
+        assert_eq!(simd, scalar);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn forward_avx512_vnni_matches_scalar() {
+        if !std::arch::is_x86_feature_detected!("avx512vnni") {
+            return;
+        }
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+
+        let layer = build_layer::<INPUT, PADDED>();
+        let (seg0, seg1) = segments_chunk32();
+        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
+
+        let scalar = layer.forward_scalar(segments);
+        // SAFETY: Guarded by runtime avx512vnni detection; segments are 64-byte aligned.
+        let simd = unsafe { layer.forward_avx512_vnni(segments) };
+
+        assert_eq!(simd, scalar);
     }
 }
