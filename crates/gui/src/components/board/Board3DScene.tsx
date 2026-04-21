@@ -140,6 +140,7 @@ export function Board3DScene({
         shadow-camera-near={0.5}
         shadow-camera-far={20}
         shadow-normalBias={0.02}
+        shadow-intensity={0.3}
       />
       <directionalLight position={[-5, 6, -2]} intensity={0.35} />
       <directionalLight position={[0, 3, -8]} intensity={0.5} />
