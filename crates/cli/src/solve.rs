@@ -36,6 +36,8 @@ pub fn solve(
         .with_threads(threads)
         .with_eval_paths(eval_path, eval_sm_path);
 
+    print_header(file_path, &search_options);
+
     let mut search = Search::new(&search_options);
     let level_config = if exact {
         Level::perfect()
@@ -108,8 +110,26 @@ pub fn solve(
         (total_nps.round() as u64).to_formatted_string(&Locale::en),
         ""
     );
+    println!();
 
     Ok(())
+}
+
+fn print_header(file_path: &Path, options: &SearchOptions) {
+    let file_name = file_path
+        .file_name()
+        .unwrap_or(file_path.as_os_str())
+        .to_string_lossy();
+    println!(
+        "Neural Reversi v{} ({})",
+        env!("CARGO_PKG_VERSION"),
+        env!("TARGET")
+    );
+    println!();
+    println!("- File:      {file_name}");
+    println!("- Hash size: {} MB", options.tt_mb_size);
+    println!("- Threads:   {}", options.n_threads);
+    println!();
 }
 
 fn parse_position_line(line: &str) -> Result<(Board, Disc), String> {
