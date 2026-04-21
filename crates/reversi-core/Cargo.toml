@@ -2,6 +2,7 @@
 name = "reversi-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 aligned-vec = "0.6"

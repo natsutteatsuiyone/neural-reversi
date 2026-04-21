@@ -128,3 +128,28 @@ Example position line:
 O--OOOOX-OOOOOOXOOXXOOOXOOXOOOXXOOOOOOXX---OOOOX----O--X-------- X; A2:+38
 -OOOOO----OOOOX--OOOOOO-XXXXXOO--XXOOX--OOXOXX----OXXO---OOO--O- X; H4:+0
 ```
+
+### License Information
+
+Print the GPL-3.0 license covering this program:
+
+```bash
+cli show-license
+```
+
+Print the license texts of all bundled third-party crates:
+
+```bash
+cli show-licenses
+```
+
+The CLI bundle is generated from the workspace-level `about.toml` +
+`about.hbs` by [cargo-about](https://github.com/EmbarkStudios/cargo-about).
+The GUI bundle additionally merges frontend npm-package licenses via
+[generate-license-file](https://github.com/TomerAberbach/generate-license-file)
+over `crates/gui/package.json`. Regenerate both bundles after changing
+dependencies with:
+
+```bash
+cargo make licenses
+```

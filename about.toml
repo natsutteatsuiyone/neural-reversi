@@ -1,0 +1,45 @@
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "GPL-3.0",
+    "GPL-3.0-or-later",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+]
+
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+no-clearly-defined = true
+
+# zstd-sys vendors the Zstandard C sources (zstd/lib/**/*.c) and compiles them
+# by default. Those sources are dual-licensed under BSD-3-Clause OR GPL-2.0;
+# we pick BSD-3-Clause (GPL-3.0-compatible) and embed that notice. Without
+# this clarification cargo-about reports only the crate's own MIT/Apache-2.0
+# license and misses the BSD notice required for the vendored C code.
+[zstd-sys.clarify]
+license = "(MIT OR Apache-2.0) AND BSD-3-Clause"
+
+[[zstd-sys.clarify.files]]
+path = 'LICENSE.Apache-2.0'
+checksum = '0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594'
+license = 'Apache-2.0'
+
+[[zstd-sys.clarify.files]]
+path = 'LICENSE.Mit'
+checksum = '129e8edef29e9abcd2ebabe252f4ef1b1289cdca356bf0040284a2fbccfb96c8'
+license = 'MIT'
+
+[[zstd-sys.clarify.files]]
+path = 'zstd/LICENSE'
+checksum = '7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8'
+license = 'BSD-3-Clause'

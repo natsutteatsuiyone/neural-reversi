@@ -82,6 +82,7 @@ export interface UISlice {
     analyzeResults: Map<string, AIMoveProgress> | null;
     isNewGameModalOpen: boolean;
     newGameModalSession: number;
+    isAboutModalOpen: boolean;
     isHintMode: boolean;
     isGameAnalyzing: boolean;
     gameAnalysisResult: MoveAnalysis[] | null;
@@ -89,6 +90,8 @@ export interface UISlice {
     analyzeBoard: () => Promise<void>;
     openNewGameModal: () => void;
     closeNewGameModal: () => void;
+    openAboutModal: () => void;
+    closeAboutModal: () => void;
     setHintMode: (enabled: boolean) => void;
     analyzeGame: () => Promise<void>;
     abortGameAnalysis: () => Promise<void>;

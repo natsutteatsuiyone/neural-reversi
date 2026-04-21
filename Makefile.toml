@@ -56,6 +56,44 @@ run_task = { name = ["fmt-check", "clippy"] }
 command = "cargo"
 args = ["bench", "-p", "reversi-core"]
 
+[tasks.licenses-cli]
+description = "Regenerate crates/cli/THIRD_PARTY_LICENSES.txt via cargo-about"
+command = "cargo"
+args = [
+    "about",
+    "generate",
+    "-m",
+    "crates/cli/Cargo.toml",
+    "-c",
+    "about.toml",
+    "about.hbs",
+    "-o",
+    "crates/cli/THIRD_PARTY_LICENSES.txt",
+]
+
+[tasks.licenses-gui]
+description = "Regenerate crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt (Rust + JS bundle)"
+script_runner = "@duckscript"
+script = [
+    "exec --fail-on-error cargo about generate -m crates/gui/src-tauri/Cargo.toml -c about.toml about.hbs -o crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt",
+    # Run bunx from crates/gui so Bun resolves the locked generate-license-file devDep
+    # from node_modules instead of pulling a fresh copy into a global cache.
+    "root = pwd",
+    "cd crates/gui",
+    "exec --fail-on-error bunx generate-license-file --input package.json --output src-tauri/_frontend_licenses.tmp --overwrite --ci",
+    "cd ${root}",
+    "rust_text = readfile crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt",
+    "js_text = readfile crates/gui/src-tauri/_frontend_licenses.tmp",
+    "separator = set \"\\n\\n================================================================\\nJavaScript / Node.js packages (frontend bundle)\\n================================================================\\n\\n\"",
+    "combined = concat ${rust_text} ${separator} ${js_text}",
+    "writefile crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt ${combined}",
+    "rm crates/gui/src-tauri/_frontend_licenses.tmp",
+]
+
+[tasks.licenses]
+description = "Regenerate CLI and GUI THIRD_PARTY_LICENSES.txt bundles"
+run_task = { name = ["licenses-cli", "licenses-gui"] }
+
 [tasks.clean]
 description = "Clean build artifacts and dist directory"
 script_runner = "@duckscript"

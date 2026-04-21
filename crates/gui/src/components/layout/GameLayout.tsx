@@ -7,6 +7,7 @@ import {
   AIAnalysisPanelHeader,
 } from "@/components/ai/AIAnalysisPanel";
 import { NewGameModal } from "@/components/game/NewGameModal";
+import { AboutModal } from "@/components/game/AboutModal";
 import { SolverModal, SolverPanel } from "@/components/solver";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -141,6 +142,7 @@ export function GameLayout() {
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
       <NewGameModal />
       <SolverModal />
+      <AboutModal />
       <Header />
 
       {isDesktop ? <DesktopLayout /> : <MobileLayout />}

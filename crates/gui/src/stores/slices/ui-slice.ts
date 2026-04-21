@@ -18,6 +18,7 @@ export function createUISlice(services: Services): StateCreator<
     analyzeResults: null,
     isNewGameModalOpen: false,
     newGameModalSession: 0,
+    isAboutModalOpen: false,
     isHintMode: false,
     isGameAnalyzing: false,
     gameAnalysisResult: null,
@@ -31,6 +32,10 @@ export function createUISlice(services: Services): StateCreator<
     },
 
     closeNewGameModal: () => set({ isNewGameModalOpen: false }),
+
+    openAboutModal: () => set({ isAboutModalOpen: true }),
+
+    closeAboutModal: () => set({ isAboutModalOpen: false }),
 
     setHintMode: (enabled) => {
         if (enabled) {

@@ -1,0 +1,36 @@
+Neural Reversi
+Copyright (C) 2025-2026 natsutteatsuiyone
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+================================================================
+Upstream projects incorporated under GPL v3
+================================================================
+
+This program incorporates code derived from the following GPL v3 projects.
+Their copyright holders retain their rights over the derived portions.
+
+  Edax (https://github.com/abulmo/edax-reversi)
+    Copyright (C) 1998-2024 Richard Delorme, Toshihiko Okuhara
+    Licensed under the GNU General Public License v3 or later.
+
+  Stockfish (https://github.com/official-stockfish/Stockfish)
+    Copyright (C) 2004-2026 The Stockfish developers
+    (see the upstream AUTHORS file for contributors)
+    Licensed under the GNU General Public License v3 or later.
+
+Individual source files derived from the above carry `//! Based on ...`
+or `//! Reference: ...` comments pointing to their upstream counterparts.
+
+The full text of the GNU General Public License v3 follows.

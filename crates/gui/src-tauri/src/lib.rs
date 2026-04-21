@@ -427,6 +427,23 @@ async fn abort_game_analysis_command(state: State<'_, AppState>) -> Result<(), S
     abort_and_wait(state.thread_pool.clone()).await
 }
 
+#[tauri::command]
+fn get_app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[tauri::command]
+fn get_license_text() -> String {
+    const NOTICE: &str = include_str!("../../../../NOTICE");
+    const LICENSE: &str = include_str!("../../../../LICENSE");
+    format!("{NOTICE}\n{LICENSE}")
+}
+
+#[tauri::command]
+fn get_third_party_licenses_text() -> &'static str {
+    include_str!("../THIRD_PARTY_LICENSES.txt")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let search_options = SearchOptions::default();
@@ -458,6 +475,9 @@ pub fn run() {
             analyze_game_command,
             abort_game_analysis_command,
             solver_search_command,
+            get_app_version,
+            get_license_text,
+            get_third_party_licenses_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

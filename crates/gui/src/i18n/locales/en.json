@@ -119,5 +119,14 @@
     "cancel": "Cancel",
     "stop": "Stop",
     "resume": "Resume"
+  },
+  "about": {
+    "menuLabel": "About",
+    "loading": "Loading...",
+    "loadFailed": "Failed to load license text.",
+    "tabs": {
+      "license": "License",
+      "thirdParty": "Third-Party"
+    }
   }
 }

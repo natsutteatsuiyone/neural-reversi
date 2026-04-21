@@ -1,4 +1,4 @@
-import { Menu, Play, Lightbulb, Globe, HardDrive, Calculator } from "lucide-react";
+import { Menu, Play, Lightbulb, Globe, HardDrive, Calculator, Info } from "lucide-react";
 import { ANALYSIS_LEVELS } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -12,6 +12,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { useTranslation } from "react-i18next";
@@ -27,6 +29,7 @@ export function Header() {
   const setHashSize = useReversiStore((state) => state.setHashSize);
   const openNewGameModal = useReversiStore((state) => state.openNewGameModal);
   const openSolverModal = useReversiStore((state) => state.openSolverModal);
+  const openAboutModal = useReversiStore((state) => state.openAboutModal);
   const isHintMode = useReversiStore((state) => state.isHintMode);
   const setHintMode = useReversiStore((state) => state.setHintMode);
 
@@ -152,6 +155,13 @@ export function Header() {
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem onSelect={openAboutModal}>
+              <Info className="w-4 h-4 mr-2" />
+              {t('about.menuLabel')}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

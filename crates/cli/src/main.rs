@@ -100,6 +100,10 @@ enum SubCommands {
     },
     #[command(about = "Display version information")]
     Version,
+    #[command(about = "Print the GPL-3.0 license covering Neural Reversi itself")]
+    ShowLicense,
+    #[command(about = "Print license texts of all bundled third-party crates")]
+    ShowLicenses,
 }
 
 fn main() {
@@ -152,6 +156,14 @@ fn main() {
                 env!("CARGO_PKG_VERSION"),
                 env!("TARGET")
             );
+        }
+        Some(SubCommands::ShowLicense) => {
+            print!("{}", include_str!("../../../NOTICE"));
+            println!();
+            print!("{}", include_str!("../../../LICENSE"));
+        }
+        Some(SubCommands::ShowLicenses) => {
+            print!("{}", include_str!("../THIRD_PARTY_LICENSES.txt"));
         }
         None => {
             validate_weight_paths(
