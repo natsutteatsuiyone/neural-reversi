@@ -1,11 +1,12 @@
 //! Application state and main loop for the TUI.
 
 use std::path::Path;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Duration;
 
 use ratatui::DefaultTerminal;
+use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level;
 use reversi_core::probcut::Selectivity;
@@ -153,31 +154,32 @@ pub enum UiMode {
     BoardEdit,
 }
 
-/// Result from AI search thread.
-pub struct AiResult {
-    pub search_result: SearchResult,
-    pub best_move: Option<Square>,
-}
+/// Payload sent back from a worker thread: the borrowed [`search::Search`] is
+/// returned alongside the raw [`SearchResult`] so `App` can resume ownership.
+type SearchChannelItem = (search::Search, SearchResult);
 
-/// Result from hint search thread.
-pub struct HintResult {
-    pub pv_moves: Vec<PvMove>,
+/// Spawns a worker thread that runs `search` on `board` with `options`, then
+/// returns both the engine and the raw result through the channel.
+fn spawn_search_worker(
+    mut search: search::Search,
+    board: Board,
+    options: SearchRunOptions,
+) -> Receiver<SearchChannelItem> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let result = search.run(&board, &options);
+        let _ = tx.send((search, result));
+    });
+    rx
 }
 
 /// Main application state.
 pub struct App {
     /// Current game state
     pub game: GameState,
-    /// Search engine instance
-    search: search::Search,
-    /// Hash size for creating new search instances
-    hash_size: usize,
-    /// Number of threads for search
-    threads: Option<usize>,
-    /// Path to evaluation weights
-    eval_path: Option<std::path::PathBuf>,
-    /// Path to small evaluation weights
-    eval_sm_path: Option<std::path::PathBuf>,
+    /// Shared search engine. `None` while a worker thread temporarily owns it;
+    /// the thread returns it through the result channel when the search finishes.
+    search: Option<search::Search>,
     /// Current AI level
     pub level: usize,
     /// Search selectivity
@@ -190,15 +192,20 @@ pub struct App {
     pub cursor: (usize, usize),
     /// Whether the application should quit
     pub should_quit: bool,
-    /// AI search result receiver
-    ai_receiver: Option<Receiver<AiResult>>,
+    /// AI search result receiver; also returns the borrowed `Search` instance.
+    ai_receiver: Option<Receiver<SearchChannelItem>>,
     /// Whether AI is currently thinking
     pub ai_thinking: bool,
     /// Last AI search result for display
     pub last_ai_result: Option<SearchResult>,
-    /// Hint search result receiver
-    hint_receiver: Option<Receiver<HintResult>>,
-    /// Whether hint search is in progress
+    /// Hint search result receiver; also returns the borrowed `Search` instance.
+    /// Present while a worker thread is still running, even after the user
+    /// dismisses the dialog — the `Search` must be returned before the next
+    /// search can start.
+    hint_receiver: Option<Receiver<SearchChannelItem>>,
+    /// True while the user is still waiting for hints. Cleared both on result
+    /// receipt and on dialog dismissal; `check_hint_result` uses it to decide
+    /// whether to display the incoming result or silently discard it.
     pub hint_thinking: bool,
     /// Current hint results
     pub hints: Vec<PvMove>,
@@ -239,11 +246,7 @@ impl App {
 
         Ok(Self {
             game: GameState::new(),
-            search,
-            hash_size,
-            threads,
-            eval_path: eval_path.map(|p| p.to_path_buf()),
-            eval_sm_path: eval_sm_path.map(|p| p.to_path_buf()),
+            search: Some(search),
             level: initial_level,
             selectivity,
             mode: GameMode::HumanVsAi,
@@ -375,7 +378,7 @@ impl App {
                 self.level_input = self.level.to_string();
                 self.ui_mode = UiMode::LevelSelect;
             }
-            Event::EditBoard if !self.ai_thinking => {
+            Event::EditBoard if self.is_engine_available() => {
                 self.open_board_editor();
             }
             _ => {}
@@ -389,8 +392,9 @@ impl App {
                 self.should_quit = true;
             }
             Event::Quit | Event::Hint => {
-                // Cancel hint search and return to normal mode
-                self.hint_receiver = None;
+                // The worker still owns `self.search` and must finish so the
+                // engine can be returned. Clearing `hint_thinking` signals
+                // `check_hint_result` to discard the eventual result.
                 self.hint_thinking = false;
                 self.ui_mode = UiMode::Normal;
             }
@@ -497,10 +501,31 @@ impl App {
         }
     }
 
+    /// Returns true when the main thread owns the search engine and is free
+    /// to mutate game state. False while any worker thread still holds it —
+    /// including the window between the user dismissing a hint dialog and the
+    /// worker actually returning, where `ai_thinking` / `hint_thinking` are
+    /// both false but `self.search` is still `None`.
+    fn is_engine_available(&self) -> bool {
+        self.search.is_some()
+    }
+
+    /// Status-bar message for "you can't do that right now; the engine is
+    /// still owned by a worker thread". `ai_thinking` is threaded through
+    /// so the message distinguishes an in-flight AI move from a hint search
+    /// that the user has already dismissed.
+    fn engine_busy_message(ai_thinking: bool) -> String {
+        if ai_thinking {
+            "AI is thinking...".to_string()
+        } else {
+            "Engine is busy; try again shortly".to_string()
+        }
+    }
+
     /// Tries to make a move at the current cursor position.
     fn try_make_move_at_cursor(&mut self) {
-        if self.ai_thinking {
-            self.status_message = Some("AI is thinking...".to_string());
+        if !self.is_engine_available() {
+            self.status_message = Some(Self::engine_busy_message(self.ai_thinking));
             return;
         }
 
@@ -521,8 +546,8 @@ impl App {
 
     /// Undoes the last move.
     fn undo_move(&mut self) {
-        if self.ai_thinking {
-            self.status_message = Some("Cannot undo while AI is thinking".to_string());
+        if !self.is_engine_available() {
+            self.status_message = Some(Self::engine_busy_message(self.ai_thinking));
             return;
         }
 
@@ -552,8 +577,12 @@ impl App {
 
     /// Starts a new game.
     fn new_game(&mut self) {
+        let Some(search) = self.search.as_mut() else {
+            self.status_message = Some(Self::engine_busy_message(self.ai_thinking));
+            return;
+        };
         self.game = GameState::new();
-        self.search.init();
+        search.init();
         self.last_ai_result = None;
         self.hints.clear();
         self.cursor = (3, 3);
@@ -562,8 +591,8 @@ impl App {
 
     /// Shows move hints (starts background search).
     fn show_hints(&mut self) {
-        if self.ai_thinking || self.hint_thinking {
-            self.status_message = Some("Search in progress...".to_string());
+        if !self.is_engine_available() {
+            self.status_message = Some(Self::engine_busy_message(self.ai_thinking));
             return;
         }
 
@@ -582,38 +611,21 @@ impl App {
 
     /// Starts hint search in a background thread.
     fn start_hint_search(&mut self) {
-        let board = *self.game.board();
-        let level = self.level;
-        let selectivity = self.selectivity;
+        let Some(search) = self.search.take() else {
+            self.status_message = Some("Engine is busy; try again shortly".to_string());
+            return;
+        };
 
-        let hash_size = self.hash_size;
-        let threads = self.threads;
-        let eval_path = self.eval_path.clone();
-        let eval_sm_path = self.eval_sm_path.clone();
-
-        let (tx, rx): (Sender<HintResult>, Receiver<HintResult>) = mpsc::channel();
-        self.hint_receiver = Some(rx);
+        let options = SearchRunOptions::with_level(level::get_level(self.level), self.selectivity)
+            .multi_pv(true);
+        self.hint_receiver = Some(spawn_search_worker(search, *self.game.board(), options));
         self.hint_thinking = true;
         self.ui_mode = UiMode::HintsLoading;
-
-        thread::spawn(move || {
-            let search_options = SearchOptions::new(hash_size)
-                .with_threads(threads)
-                .with_eval_paths(eval_path.as_deref(), eval_sm_path.as_deref());
-            let mut search = search::Search::new(&search_options);
-            let options =
-                SearchRunOptions::with_level(level::get_level(level), selectivity).multi_pv(true);
-            let result = search.run(&board, &options);
-
-            let _ = tx.send(HintResult {
-                pv_moves: result.pv_moves,
-            });
-        });
     }
 
     /// Forces AI to make a move.
     fn force_ai_move(&mut self) {
-        if self.ai_thinking {
+        if !self.is_engine_available() {
             return;
         }
 
@@ -624,34 +636,16 @@ impl App {
 
     /// Starts AI search in a background thread.
     fn start_ai_search(&mut self) {
-        let board = *self.game.board();
-        let level = self.level;
-        let selectivity = self.selectivity;
+        let Some(search) = self.search.take() else {
+            // A previous worker thread still owns the engine (e.g. a cancelled
+            // hint search that has not yet returned). Skip this tick; the main
+            // loop retries every frame.
+            return;
+        };
 
-        // Clone parameters for the thread
-        let hash_size = self.hash_size;
-        let threads = self.threads;
-        let eval_path = self.eval_path.clone();
-        let eval_sm_path = self.eval_sm_path.clone();
-
-        let (tx, rx): (Sender<AiResult>, Receiver<AiResult>) = mpsc::channel();
-        self.ai_receiver = Some(rx);
+        let options = SearchRunOptions::with_level(level::get_level(self.level), self.selectivity);
+        self.ai_receiver = Some(spawn_search_worker(search, *self.game.board(), options));
         self.ai_thinking = true;
-
-        thread::spawn(move || {
-            let search_options = SearchOptions::new(hash_size)
-                .with_threads(threads)
-                .with_eval_paths(eval_path.as_deref(), eval_sm_path.as_deref());
-            let mut search = search::Search::new(&search_options);
-            let options = SearchRunOptions::with_level(level::get_level(level), selectivity);
-            let result = search.run(&board, &options);
-
-            let best_move = result.best_move;
-            let _ = tx.send(AiResult {
-                search_result: result,
-                best_move,
-            });
-        });
     }
 
     /// Opens the board editor dialog.
@@ -815,7 +809,9 @@ impl App {
         match result {
             Ok(game) => {
                 self.game = game;
-                self.search.init();
+                if let Some(ref mut search) = self.search {
+                    search.init();
+                }
                 self.last_ai_result = None;
                 self.hints.clear();
                 self.ui_mode = UiMode::Normal;
@@ -830,13 +826,14 @@ impl App {
     /// Checks for AI search results.
     fn check_ai_result(&mut self) {
         if let Some(ref rx) = self.ai_receiver
-            && let Ok(result) = rx.try_recv()
+            && let Ok((search, result)) = rx.try_recv()
         {
+            self.search = Some(search);
             self.ai_thinking = false;
             self.ai_receiver = None;
-            self.last_ai_result = Some(result.search_result);
-
-            if let Some(mv) = result.best_move {
+            let best_move = result.best_move;
+            self.last_ai_result = Some(result);
+            if let Some(mv) = best_move {
                 self.game.make_move(mv);
             }
         }
@@ -845,12 +842,17 @@ impl App {
     /// Checks for hint search results.
     fn check_hint_result(&mut self) {
         if let Some(ref rx) = self.hint_receiver
-            && let Ok(result) = rx.try_recv()
+            && let Ok((search, result)) = rx.try_recv()
         {
-            self.hint_thinking = false;
+            self.search = Some(search);
             self.hint_receiver = None;
-            self.hints = result.pv_moves;
-            self.ui_mode = UiMode::Hints;
+            // `hint_thinking` is cleared both on normal receipt and on
+            // dialog dismissal; only the former still wants the result.
+            if self.hint_thinking {
+                self.hints = result.pv_moves;
+                self.ui_mode = UiMode::Hints;
+                self.hint_thinking = false;
+            }
         }
     }
 }
