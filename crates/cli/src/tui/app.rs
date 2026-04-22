@@ -717,7 +717,7 @@ impl App {
             Event::Select => {
                 self.apply_board_edit();
             }
-            Event::Char(c) => {
+            Event::Char(c) if !c.is_control() => {
                 self.board_edit_error = None;
                 let target = self.active_board_edit_input();
                 if target.len() < 128 {

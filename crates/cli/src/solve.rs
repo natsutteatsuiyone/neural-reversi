@@ -140,12 +140,21 @@ fn parse_position_line(line: &str) -> Result<(Board, Disc), String> {
     }
 
     let board_field = fields[0].trim();
+    if !board_field.is_ascii() {
+        return Err("Board field must be ASCII".to_string());
+    }
     if board_field.len() < 65 {
-        return Err("Invalid board format".to_string());
+        return Err("Invalid board format (expected 64 board chars + side-to-move)".to_string());
     }
 
     let board_str = &board_field[..64];
-    let side_char = board_field.chars().nth(65).unwrap_or('X');
+    // Accept both `<64-char board> <side>` (standard FFO, whitespace separator)
+    // and `<64-char board><side>` (compact, no separator).
+    let side_char = board_field[64..]
+        .trim_start()
+        .chars()
+        .next()
+        .ok_or_else(|| "Missing side-to-move marker".to_string())?;
 
     let side_to_move = match side_char {
         'X' => Disc::Black,

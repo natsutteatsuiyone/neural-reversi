@@ -562,17 +562,16 @@ impl GtpEngine {
     /// # Returns
     /// Success if the move was played, error if invalid
     fn handle_play(&mut self, color: &str, move_str: &str) -> GtpResponse {
-        if move_str == "pass" {
-            if !self.game.board().has_legal_moves() {
-                self.game.make_pass();
-                return GtpResponse::Success("".to_string());
-            } else {
-                return GtpResponse::Error("pass not allowed when legal moves exist".to_string());
-            }
-        }
-
         if let Err(msg) = self.validate_color(color) {
             return GtpResponse::Error(msg);
+        }
+
+        if move_str == "pass" {
+            if self.game.board().has_legal_moves() {
+                return GtpResponse::Error("pass not allowed when legal moves exist".to_string());
+            }
+            self.game.make_pass();
+            return GtpResponse::Success("".to_string());
         }
 
         match move_str.parse::<Square>() {
@@ -623,7 +622,7 @@ impl GtpEngine {
 
         if let Some(computer_move) = result.best_move {
             self.game.make_move(computer_move);
-            GtpResponse::Success(format!("{computer_move:?}"))
+            GtpResponse::Success(format!("{computer_move}"))
         } else {
             GtpResponse::Error("failed to generate move".to_string())
         }

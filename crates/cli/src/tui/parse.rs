@@ -10,6 +10,9 @@ pub fn parse_move_string(input: &str) -> Result<Vec<Square>, String> {
     if input.is_empty() {
         return Err("Empty input".to_string());
     }
+    if !input.is_ascii() {
+        return Err("Input must be ASCII (a-h, 1-8)".to_string());
+    }
     if !input.len().is_multiple_of(2) {
         return Err("Input length must be even (each move is 2 characters)".to_string());
     }
