@@ -40,12 +40,21 @@ macro_rules! impl_base_input_apply_activation {
         mulhi = $mulhi:path,
         packus = $packus:path
     ) => {
+        /// # Safety
+        ///
+        /// `output` must be aligned to the SIMD lane width (32 bytes for AVX2,
+        /// 64 bytes for AVX-512) for aligned SIMD stores.
         #[cfg(target_arch = "x86_64")]
         #[target_feature(enable = $target_feature)]
         #[inline]
         fn $fn_name(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
             use std::arch::x86_64::*;
-            use std::mem::size_of;
+            use std::mem::{align_of, size_of};
+            debug_assert!(
+                (output.as_ptr() as usize).is_multiple_of(align_of::<$lane_ty>()),
+                "output must be {}-byte aligned",
+                align_of::<$lane_ty>(),
+            );
             unsafe {
                 let acc_ptr = acc.as_ptr() as *const $lane_ty;
                 let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
