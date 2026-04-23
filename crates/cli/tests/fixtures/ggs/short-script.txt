@@ -1,0 +1,3 @@
+login alice testpass
+tell /os open 5
+tell /os client integration-test

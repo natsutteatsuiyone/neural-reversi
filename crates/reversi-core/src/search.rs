@@ -54,6 +54,20 @@ pub struct Search {
     endgame_start_n_empties: Option<Depth>,
 }
 
+/// Shared heavyweight search resources that can back multiple [`Search`]
+/// engines concurrently.
+///
+/// Engines created from the same resource bundle share the transposition table
+/// and evaluation network, but each engine gets its own thread pool and
+/// endgame-tracking state. This is useful for callers that sometimes need more
+/// than one independent search in flight at once, such as GGS synchro child
+/// games, without reloading neural-network weights for every worker.
+pub struct SearchSharedResources {
+    tt: Arc<TranspositionTable>,
+    eval: Arc<Eval>,
+    n_threads: usize,
+}
+
 /// Task descriptor passed to search threads.
 ///
 /// Contains all shared state needed for a search thread to independently
@@ -110,11 +124,8 @@ pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static
 // Re-export SearchConstraint and SearchRunOptions for external use
 pub use options::{SearchConstraint, SearchRunOptions};
 
-impl Search {
-    /// Creates a new search engine with the given options.
-    ///
-    /// Initializes the evaluation function, transposition table, and thread pool.
-    /// The number of threads is clamped to the available CPU count and [`MAX_THREADS`].
+impl SearchSharedResources {
+    /// Creates a reusable search-resource bundle from search options.
     ///
     /// # Panics
     ///
@@ -127,14 +138,38 @@ impl Search {
         )
         .unwrap_or_else(|err| panic!("failed to load evaluation weights: {err}"));
 
-        // Ensure that dependent modules are initialized
+        // Ensure that dependent modules are initialized before any engine is spawned.
         probcut::init();
         stability::init();
 
         Self {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
-            threads: ThreadPool::new(n_threads),
             eval: Arc::new(eval),
+            n_threads,
+        }
+    }
+}
+
+impl Search {
+    /// Creates a new search engine with the given options.
+    ///
+    /// Initializes the evaluation function, transposition table, and thread pool.
+    /// The number of threads is clamped to the available CPU count and [`MAX_THREADS`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the evaluation weight files cannot be loaded.
+    pub fn new(options: &SearchOptions) -> Self {
+        let shared = SearchSharedResources::new(options);
+        Self::from_shared_resources(&shared)
+    }
+
+    /// Creates a new search engine from a shared-resource bundle.
+    pub fn from_shared_resources(shared: &SearchSharedResources) -> Self {
+        Self {
+            tt: shared.tt.clone(),
+            threads: ThreadPool::new(shared.n_threads),
+            eval: shared.eval.clone(),
             endgame_start_n_empties: None,
         }
     }

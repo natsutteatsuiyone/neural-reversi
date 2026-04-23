@@ -92,6 +92,42 @@ time_left white 300 0
 genmove black
 ```
 
+### GGS Mode
+
+Connect to the Othello [Generic Game Server](https://skatgame.net/mburo/ggs/) and play `/os` matches. The engine plays moves on your turn; login, matchmaking, and chat are driven by the init script or your own stdin input.
+
+```bash
+cli ggs --user <name> --script <path> [options]
+```
+
+Options:
+
+- `--user <name>` - GGS login name (must match the login used in `--script`).
+- `--script <path>` - Init script; each line is sent verbatim after connect.
+- `--host <host>` - GGS server hostname. Default: `localhost`.
+- `--port <port>` - GGS server port. Default: `5000`.
+- `--hash-size <size>` - Transposition table size in MB. Default: `512`.
+- `-l, --level <level>` - Fallback search level when server time is unparseable. Default: `21`.
+- `--selectivity <0-5>` - Search selectivity. Default: `0`.
+- `--threads <n>` - Number of search threads. Default: CPU count.
+
+A template lives at `crates/cli/init.ggs.example`. Copy it to `init.ggs`, fill in your credentials, and pass it via `--script`. The first two lines answer the `Enter login` / `Enter your password` prompts:
+
+```text
+myname
+mypassword
+mso
+ts rated -
+ts open 3
+```
+
+Notes:
+
+- Server output is echoed to stdout and stdin is forwarded to the server verbatim. The engine additionally auto-sends moves, `accept`/`decline` for incoming ask offers, and a periodic `tell /os continue` keepalive.
+- Only one concurrent match is supported; further ask offers are auto-declined, and any extra match that still materializes must be ended manually (e.g. `tell /os .N resign`).
+- Clocks are parsed from server lines; matches without byoyomi fall back to Fischer, and unparseable clocks use `--level`.
+- If the search panics, the cause is logged to stderr and the in-flight flag is cleared so the next state update retries the move.
+
 ### Solve Mode
 
 Run the CLI in solve mode to analyze positions from a file:

@@ -1,0 +1,59 @@
+# Neural Reversi — GGS init script (example).
+#
+# Usage:
+#
+#   cli ggs --user MYLOGIN --script init.ggs
+#
+# Each line is sent verbatim to GGS right after the TCP handshake. GGS is
+# prompt-driven: the FIRST line is consumed by the `Enter login` prompt,
+# the SECOND line by the `Enter your password` prompt. There is no
+# `login` keyword — do not write `login MYLOGIN MYPASS` on one line, or
+# GGS will reject the whole line as a login name and every subsequent
+# script line will be consumed as the next prompt in sequence, usually
+# logging you in under the wrong account.
+#
+# The --user flag you pass on the command line MUST match the login name
+# used on the first script line, otherwise the engine cannot recognise
+# which side in a match is ours and will decline to play.
+#
+# GGS login constraints (from the live server):
+#   - 2–8 characters
+#   - cannot start with `.` or `_`
+#   - cannot contain `,` or `\`
+# -----------------------------------------------------------------------
+
+# 1. Login name (answers the `Enter login` prompt).
+MYLOGIN
+
+# 2. Password (answers the `Enter your password` prompt).
+MYPASS
+
+# 3. Select the Othello service so the `ts`, `tp`, `ta`, `tw`, ...
+#    shorthand aliases resolve to `/os`. Equivalent to `var _service /os`.
+mso
+
+# 4. Default to unrated. Flip to `ts rated +` once you're ready.
+ts rated -
+
+# 5. Accept up to 3 pending ask offers at a time (pending, not concurrent —
+#    this engine only auto-plays one match at a time).
+ts open 3
+
+# 6. Dump the list of currently-online /os players so you can see who's
+#    around as soon as the session starts.
+ts who 8
+
+# -----------------------------------------------------------------------
+# From here on, drive the session by typing into stdin, e.g.:
+#
+#   ta ant                   # challenge the built-in `ant` bot
+#   ts ask 8 2:00 ant        # explicit 8x8, 2-minute match vs ant
+#   ts accept .5             # accept incoming ask .5
+#   ts decline .5            # decline incoming ask .5
+#   ts resign                # resign the current match
+#   t someone hello          # private tell
+#
+# The engine auto-plays moves once a match starts, derives its own
+# thinking time from the server clock, and sends PASS automatically
+# when it has no legal moves.
+# -----------------------------------------------------------------------

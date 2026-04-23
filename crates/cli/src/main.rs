@@ -1,4 +1,5 @@
 mod game;
+mod ggs;
 mod gtp;
 mod solve;
 mod tui;
@@ -98,6 +99,37 @@ enum SubCommands {
         #[command(flatten)]
         engine_params: EngineParams,
     },
+    #[command(about = "Connect to a GGS server (default localhost:5000) and play via /os")]
+    Ggs {
+        #[arg(
+            long,
+            value_name = "FILE",
+            value_hint = clap::ValueHint::FilePath,
+            help = "Path to GGS init script (lines sent verbatim after connect)"
+        )]
+        script: PathBuf,
+
+        #[arg(long, default_value = "localhost", help = "GGS server hostname")]
+        host: String,
+
+        #[arg(
+            long,
+            default_value = "5000",
+            value_parser = clap::value_parser!(u16),
+            help = "GGS server port"
+        )]
+        port: u16,
+
+        #[arg(
+            long,
+            value_name = "NAME",
+            help = "GGS login name (must match the login used in --script); used to identify our side in match events"
+        )]
+        user: String,
+
+        #[command(flatten)]
+        engine_params: EngineParams,
+    },
     #[command(about = "Display version information")]
     Version,
     #[command(about = "Print the GPL-3.0 license covering Neural Reversi itself")]
@@ -148,6 +180,33 @@ fn main() {
                 exact,
             ) {
                 eprintln!("Error solving game: {e}");
+            }
+        }
+        Some(SubCommands::Ggs {
+            script,
+            host,
+            port,
+            user,
+            engine_params,
+        }) => {
+            validate_weight_paths(
+                engine_params.eval_file.as_deref(),
+                engine_params.eval_sm_file.as_deref(),
+            );
+            if let Err(e) = ggs::run_ggs(
+                &script,
+                &host,
+                port,
+                &user,
+                engine_params.hash_size,
+                engine_params.level,
+                Selectivity::from_u8(engine_params.selectivity),
+                engine_params.threads,
+                engine_params.eval_file.as_deref(),
+                engine_params.eval_sm_file.as_deref(),
+            ) {
+                eprintln!("GGS session error: {e}");
+                std::process::exit(1);
             }
         }
         Some(SubCommands::Version) => {

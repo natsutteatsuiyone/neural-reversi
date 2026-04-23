@@ -1,0 +1,211 @@
+
+
+Generic Game Server (GGS) 
+located at the University of Alberta, Edmonton, Canada
+------------------------------------------------------
+
+Multiplexors on:
+opal.cs.ualberta.ca (129.128.4.58) @ 5000/1/2, 4000/1/2, SSL: 5006
+ftp.nj.nec.com      (138.15.10.2)  @ 4000/1/2, 5000/1/2, SSL: 5006
+
+(C) Igor Durdanovic igord@research.nj.nec.com 
+                    http://ftp.nj.nec.com/homepages/igord/
+(C) Michael Buro    mburo@cs.ualberta.ca 
+                    http://www.cs.ualberta.ca/~mburo/
+
+: Enter login (yours, or one you'd like to use).
+: Enter your password.
+READY
+: help faq
+Frequently Asked Questions
+--------------------------
+
+1) Why is my graphical client no longer working?
+ = This is not IOS anymore .. different protocols.
+
+2) Where can I get a (new) graphical client?
+ = GGS Applet: http://www.neci.nj.nec.com/homepages/mic/ggsa
+
+3) I don't have Java .. what can I do, it seems like lots of typing?
+ = Yes and No. It will take you some time to grasp the power of
+   aliases, but once you have mastered system aliases (type: help alias)
+   your life here will become much easier. You can even write your own
+   aliases!
+
+4) I just want to play Othello, how do I do it? 
+ = You have to talk to Othello Service Server .. (type: tell /os help)
+   If you haven't mastered (system) aliases yet go back to (3).
+
+5) I want to se Othello top list, I type tell /os top and get error?
+ = /os implements all kinds of variants of Othello, you have to tell it
+   what variant you are interested in (type: tell /os top 8)
+
+6) What other games are available?
+ = /os = Othello, /ams = Amazons, /cks = Checkers.
+
+7) What other documentation is available?
+ = Read the help files .. (type: help) they are pretty long .. or read
+   them on the web: http://external.nj.nec.com/homepages/igord/gsa-ggs.htm
+   For service specific help files request them from service!
+   for example type: tell /ams help.    
+READY
+: help help
+Generic Game Server help files
+-------------+----------------------------------------
+file         | description
+-------------+----------------------------------------
+alias          Introduction to system aliases
+cmds           A list of all commands
+faq            Frequently Asked Questions
+format         Format of messages, parsing specification (outdated)
+ghost          Ghost player concept for tournaments
+gui            List of Graphical and other clients for GGS
+help           This file
+news           Latest news
+old.news       Archived news
+ssl            How to connect to GGS using encrypted channel
+
+Full Docs: http://external.nj.nec.com/homepages/igord/gsa-ggs.htm
+Mic's GGSApplet: http://www.neci.nj.nec.com/homepages/mic/ggsa
+ 
+READY
+: help news
+GGS News ( also "help old.news" )
+
+25/Apr/2004    New GGSA version (thanks Daniel). See http://www.cs.ualberta.ca/~mburo/ggsa
+25/June/2007   GGS has moved to bodo1.cs.ualberta.ca .
+5/July/2010    GGS has moved to skatgame.net, ports 4000 & 5000
+
+** To REGISTER: give your name & email to an admin (type: group _admin)
+** GUIs & Clients (help gui), Secure Socket Layer (help ssl)
+** Source and game-archives: http://www.cs.ualberta.ca/~mburo/GGS
+READY
+: +ack:  var _service /os => var _service /os
+READY
+: who    3        idle      online         ip-addr hostname
+/os      +    00:01:00    00:43:46
+alice    -    00:00:00    00:00:06 127.000.000.001  <=
+bob      -    00:00:02    00:00:06
+: +ack:  who => who
+READY
+: +ack:  tell $_service open 5 => tell /os open 5
+READY
+: +ack:  tell $_service ask 8B 1:00 bob => tell /os ask 8B 1:00 bob
+READY
+
+/os: +   .8 1720.0 alice    01:00//02:00       8b U 1720.0 bob
+READY
+
+/os: + match .5 1720 alice 1720 bob 8b U
+READY
+
+/os: join .5 8b K?
+|0 move(s)
+|  0: PASS
+|alice    (1720.0 *) 00:59,0:0//02:00,0:0
+|bob      (1720.0 O) 01:00,0:0//02:00,0:0
+|
+|   A B C D E F G H
+| 1 - - - - - - - - 1 
+| 2 - - - - - - - - 2 
+| 3 - - - - - - - - 3 
+| 4 - - - O * - - - 4 
+| 5 - - - * O - - - 5 
+| 6 - - - - - - - - 6 
+| 7 - - - - - - - - 7 
+| 8 - - - - - - - - 8 
+|   A B C D E F G H
+|
+|* to move
+READY
+
+/os: -   .8 1720.0 alice    01:00//02:00       8b U 1720.0 bob
+READY
+: +ack:  tell $_service play f5 => tell /os play f5
+READY
+
+/os: update .5 8b K?
+|  1: f5//3.47
+|alice    (1720.0 *) 00:56,1:0//02:00,1:0
+|bob      (1720.0 O) 01:00,0:0//02:00,0:0
+|
+|   A B C D E F G H
+| 1 - - - - - - - - 1 
+| 2 - - - - - - - - 2 
+| 3 - - - - - - - - 3 
+| 4 - - - O * - - - 4 
+| 5 - - - * * * - - 5 
+| 6 - - - - - - - - 6 
+| 7 - - - - - - - - 7 
+| 8 - - - - - - - - 8 
+|   A B C D E F G H
+|
+|O to move
+READY
+
+/os: update .5 8b K?
+|  2: f6//1.50
+|alice    (1720.0 *) 00:56,1:0//02:00,1:0
+|bob      (1720.0 O) 00:58,1:0//02:00,1:0
+|
+|   A B C D E F G H
+| 1 - - - - - - - - 1 
+| 2 - - - - - - - - 2 
+| 3 - - - - - - - - 3 
+| 4 - - - O * - - - 4 
+| 5 - - - * O * - - 5 
+| 6 - - - - - O - - 6 
+| 7 - - - - - - - - 7 
+| 8 - - - - - - - - 8 
+|   A B C D E F G H
+|
+|* to move
+READY
+: +ack:  tell $_service play e6 => tell /os play e6
+READY
+
+/os: update .5 8b K?
+|  3: e6//1.51
+|alice    (1720.0 *) 00:55,2:0//02:00,2:0
+|bob      (1720.0 O) 00:58,1:0//02:00,1:0
+|
+|   A B C D E F G H
+| 1 - - - - - - - - 1 
+| 2 - - - - - - - - 2 
+| 3 - - - - - - - - 3 
+| 4 - - - O * - - - 4 
+| 5 - - - * * * - - 5 
+| 6 - - - - * O - - 6 
+| 7 - - - - - - - - 7 
+| 8 - - - - - - - - 8 
+|   A B C D E F G H
+|
+|O to move
+READY
+
+/os: update .5 8b K?
+|  4: f4//1.50
+|alice    (1720.0 *) 00:55,2:0//02:00,2:0
+|bob      (1720.0 O) 00:56,2:0//02:00,2:0
+|
+|   A B C D E F G H
+| 1 - - - - - - - - 1 
+| 2 - - - - - - - - 2 
+| 3 - - - - - - - - 3 
+| 4 - - - O O O - - 4 
+| 5 - - - * * O - - 5 
+| 6 - - - - * O - - 6 
+| 7 - - - - - - - - 7 
+| 8 - - - - - - - - 8 
+|   A B C D E F G H
+|
+|* to move
+READY
+
+/os: .5 A 1720 bob: good game
+READY
+: +ack:  tell $_service resign => tell /os resign
+READY
+
+/os: - match .5 1720 alice 1720 bob 8b U -64.00
+READY
