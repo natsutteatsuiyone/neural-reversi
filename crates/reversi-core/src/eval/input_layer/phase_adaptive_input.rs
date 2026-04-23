@@ -221,17 +221,14 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
                 let b1 = vmaxq_s16(vminq_s16(a1, one), zero);
                 let b2 = vmaxq_s16(vminq_s16(a2, one), zero);
 
-                let s1 = vshlq_n_s16::<6>(b1);
-                let s2 = vshlq_n_s16::<6>(b2);
+                // SQDMULH computes sat((x*y*2) >> 16), so pre-shift by 5 (not 6)
+                // to match mulhi(b<<6, b). b <= ACTIVATION_MAX keeps the result
+                // well within saturation bounds.
+                let s1 = vshlq_n_s16::<5>(b1);
+                let s2 = vshlq_n_s16::<5>(b2);
 
-                // Emulate mulhi: full 32-bit signed product, take high 16 bits.
-                let prod_lo_1 = vmull_s16(vget_low_s16(s1), vget_low_s16(b1));
-                let prod_hi_1 = vmull_high_s16(s1, b1);
-                let c1 = vcombine_s16(vshrn_n_s32::<16>(prod_lo_1), vshrn_n_s32::<16>(prod_hi_1));
-
-                let prod_lo_2 = vmull_s16(vget_low_s16(s2), vget_low_s16(b2));
-                let prod_hi_2 = vmull_high_s16(s2, b2);
-                let c2 = vcombine_s16(vshrn_n_s32::<16>(prod_lo_2), vshrn_n_s32::<16>(prod_hi_2));
+                let c1 = vqdmulhq_s16(s1, b1);
+                let c2 = vqdmulhq_s16(s2, b2);
 
                 let packed = vcombine_u8(vqmovun_s16(c1), vqmovun_s16(c2));
                 vst1q_u8(output_ptr, packed);

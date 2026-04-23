@@ -229,19 +229,16 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
                 let in11 = vld1q_s16(in1_ptr.add(LANES_PER_REG));
                 in1_ptr = in1_ptr.add(2 * LANES_PER_REG);
 
-                let sum0a = vshlq_n_s16::<6>(vmaxq_s16(vminq_s16(in00, one), zero));
-                let sum0b = vshlq_n_s16::<6>(vmaxq_s16(vminq_s16(in01, one), zero));
+                // SQDMULH computes sat((x*y*2) >> 16), so pre-shift sum0 by 5 (not 6)
+                // to match the x86 mulhi(sum0<<6, sum1) semantics. Inputs stay well
+                // within saturation bounds (|sum0*sum1*2| < 2^31, |>>16| < 2^15).
+                let sum0a = vshlq_n_s16::<5>(vmaxq_s16(vminq_s16(in00, one), zero));
+                let sum0b = vshlq_n_s16::<5>(vmaxq_s16(vminq_s16(in01, one), zero));
                 let sum1a = vminq_s16(in10, one);
                 let sum1b = vminq_s16(in11, one);
 
-                // Emulate mulhi_epi16: full 32-bit signed product, then take high 16 bits.
-                let prod_lo_a = vmull_s16(vget_low_s16(sum0a), vget_low_s16(sum1a));
-                let prod_hi_a = vmull_high_s16(sum0a, sum1a);
-                let pa = vcombine_s16(vshrn_n_s32::<16>(prod_lo_a), vshrn_n_s32::<16>(prod_hi_a));
-
-                let prod_lo_b = vmull_s16(vget_low_s16(sum0b), vget_low_s16(sum1b));
-                let prod_hi_b = vmull_high_s16(sum0b, sum1b);
-                let pb = vcombine_s16(vshrn_n_s32::<16>(prod_lo_b), vshrn_n_s32::<16>(prod_hi_b));
+                let pa = vqdmulhq_s16(sum0a, sum1a);
+                let pb = vqdmulhq_s16(sum0b, sum1b);
 
                 let packed = vcombine_u8(vqmovun_s16(pa), vqmovun_s16(pb));
                 vst1q_u8(output_ptr, packed);
