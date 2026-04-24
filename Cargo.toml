@@ -21,3 +21,9 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = false
+lto = "thin"
