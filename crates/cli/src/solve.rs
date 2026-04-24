@@ -1,7 +1,8 @@
+use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use num_format::{Locale, ToFormattedString};
 use reversi_core::search::options::SearchOptions;
@@ -14,6 +15,8 @@ use reversi_core::{
     square::Square,
 };
 
+const NUM_WIDTH: usize = 5;
+
 #[allow(clippy::too_many_arguments)]
 pub fn solve(
     file_path: &Path,
@@ -25,10 +28,6 @@ pub fn solve(
     eval_sm_path: Option<&Path>,
     exact: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Count lines to determine # column width
-    let line_count = BufReader::new(File::open(file_path)?).lines().count();
-    let num_width = line_count.to_string().len().max(5);
-
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
@@ -45,34 +44,27 @@ pub fn solve(
         get_level(level)
     };
 
-    let dashes = "-".repeat(num_width);
+    let dashes = "-".repeat(NUM_WIDTH);
     println!(
-        "| {:^num_width$} | {:^6} | {:^5} | {:^11} | {:^19} | {:^13} | {:^23} |",
+        "| {:^NUM_WIDTH$} | {:^6} | {:^5} | {:^11} | {:^19} | {:^13} | {:^23} |",
         "#", "Depth", "Score", "Time", "Nodes", "N/s", "Principal Variation"
     );
     println!(
         "|{dashes:->nw$}--|--------|-------|-------------|---------------------|---------------|-------------------------|",
-        nw = num_width
+        nw = NUM_WIDTH
     );
 
     let mut total_time = Duration::ZERO;
     let mut total_nodes: u64 = 0;
 
     for (line_num, line) in reader.lines().enumerate() {
-        let line = line?;
-
-        let line = if let Some(comment_pos) = line.find('%') {
-            &line[..comment_pos]
-        } else {
-            &line
-        };
-
-        let line = line.trim();
-        if line.is_empty() {
+        let raw = line?;
+        let trimmed = raw.split('%').next().unwrap_or("").trim();
+        if trimmed.is_empty() {
             continue;
         }
 
-        match parse_position_line(line) {
+        match parse_position_line(trimmed) {
             Ok((board, side_to_move)) => {
                 let (elapsed, nodes) = solve_position(
                     &mut search,
@@ -81,7 +73,6 @@ pub fn solve(
                     level_config,
                     selectivity,
                     line_num + 1,
-                    num_width,
                 );
                 total_time += elapsed;
                 total_nodes += nodes;
@@ -93,22 +84,20 @@ pub fn solve(
         }
     }
 
-    // Print summary
     let total_secs = total_time.as_secs_f64();
     let total_nps = if total_secs > 0.0 {
         total_nodes as f64 / total_secs
     } else {
         0.0
     };
-    println!(
-        "| {:>num_width$} | {:^6} | {:^5} | {:>11} | {:>19} | {:>13} | {:23} |",
+    print_row(
         "Total",
         "",
         "",
         format_time(total_time),
         total_nodes.to_formatted_string(&Locale::en),
         (total_nps.round() as u64).to_formatted_string(&Locale::en),
-        ""
+        "",
     );
     println!();
 
@@ -133,13 +122,7 @@ fn print_header(file_path: &Path, options: &SearchOptions) {
 }
 
 fn parse_position_line(line: &str) -> Result<(Board, Disc), String> {
-    let fields: Vec<&str> = line.split(';').collect();
-
-    if fields.is_empty() {
-        return Err("Empty line".to_string());
-    }
-
-    let board_field = fields[0].trim();
+    let board_field = line.split(';').next().unwrap_or("").trim();
     if !board_field.is_ascii() {
         return Err("Board field must be ASCII".to_string());
     }
@@ -172,27 +155,22 @@ fn solve_position(
     search: &mut Search,
     board: Board,
     side_to_move: Disc,
-    level: reversi_core::level::Level,
+    level: Level,
     selectivity: Selectivity,
     position_num: usize,
-    num_width: usize,
 ) -> (Duration, u64) {
-    use std::time::Instant;
-
     let is_pass = !board.has_legal_moves();
 
     if is_pass && !board.switch_players().has_legal_moves() {
         let score = board.solve(board.get_empty_count());
-        let score_str = format!("{:+03}", score);
-        println!(
-            "| {:>num_width$} | {:^6} | {:^5} | {:>11} | {:>19} | {:>13} | {:23} |",
+        print_row(
             position_num,
             "END",
-            score_str,
+            format!("{:+03}", score),
             format_time(Duration::ZERO),
             "0",
             "0",
-            "--"
+            "--",
         );
         return (Duration::ZERO, 0);
     }
@@ -202,7 +180,6 @@ fn solve_position(
         board
     };
 
-    // search
     search.init();
     let start_time = Instant::now();
     let options = SearchRunOptions::with_level(level, selectivity);
@@ -221,14 +198,12 @@ fn solve_position(
         format!("{}@{}%", result.depth, result.get_probability())
     };
 
-    // N/s
     let nodes_per_sec = if elapsed.as_secs_f64() > 0.0 {
         result.n_nodes as f64 / elapsed.as_secs_f64()
     } else {
         0.0
     };
 
-    // pv
     let move_side = if is_pass {
         side_to_move.opposite()
     } else {
@@ -242,19 +217,31 @@ fn solve_position(
         format_pv_with_passes(&board, side_to_move, &result.pv_line, 8)
     };
 
-    let score_str = format!("{:+03}", score);
-    println!(
-        "| {:>num_width$} | {:^6} | {:^5} | {:>11} | {:>19} | {:>13} | {:23} |",
+    print_row(
         position_num,
         depth,
-        score_str,
+        format!("{:+03}", score),
         format_time(elapsed),
         result.n_nodes.to_formatted_string(&Locale::en),
         (nodes_per_sec.round() as u64).to_formatted_string(&Locale::en),
-        pv_string
+        pv_string,
     );
 
     (elapsed, result.n_nodes)
+}
+
+fn print_row(
+    num: impl Display,
+    depth: impl Display,
+    score: impl Display,
+    time: impl Display,
+    nodes: impl Display,
+    nps: impl Display,
+    pv: impl Display,
+) {
+    println!(
+        "| {num:>NUM_WIDTH$} | {depth:^6} | {score:^5} | {time:>11} | {nodes:>19} | {nps:>13} | {pv:<23} |"
+    );
 }
 
 fn format_pv_with_passes(
@@ -263,6 +250,13 @@ fn format_pv_with_passes(
     pv_line: &[Square],
     max_tokens: usize,
 ) -> String {
+    let push_token = |s: &mut String, t: &str| {
+        if !s.is_empty() {
+            s.push(' ');
+        }
+        s.push_str(t);
+    };
+
     let mut result = String::new();
     let mut current = *board;
     let mut side = side_to_move;
@@ -273,10 +267,7 @@ fn format_pv_with_passes(
             break;
         }
         if !current.has_legal_moves() {
-            if !result.is_empty() {
-                result.push(' ');
-            }
-            result.push_str(format_pass(side));
+            push_token(&mut result, format_pass(side));
             current = current.switch_players();
             side = side.opposite();
             count += 1;
@@ -284,10 +275,7 @@ fn format_pv_with_passes(
                 break;
             }
         }
-        if !result.is_empty() {
-            result.push(' ');
-        }
-        result.push_str(&format_square(sq, side));
+        push_token(&mut result, &format_square(sq, side));
         current = current.make_move(sq);
         side = side.opposite();
         count += 1;
