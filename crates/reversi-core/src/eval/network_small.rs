@@ -522,6 +522,15 @@ impl NetworkSmall {
     ///    (mathematically identical to the x86 `mulhi_epu16((v<<6), v)` form)
     /// 4. Compute dot product with output weights using four `int32x4_t` accumulators
     ///    for instruction-level parallelism
+    ///
+    /// # Load strategy
+    ///
+    /// Structured loads (`vld1q_s16_x4`) constrain the register allocator to
+    /// four consecutive NEON registers per quad load. With 16 live i16×8
+    /// accumulators the compiler can't satisfy that and decomposes them into
+    /// individual loads, often rematerialising the base pointer between them.
+    /// Using plain `vld1q_s16` with explicit element offsets frees the
+    /// allocator and lets LLVM fuse pairs into `ldp` with a resident base.
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     #[inline]
@@ -557,30 +566,28 @@ impl NetworkSmall {
             let mut acc14 = vld1q_s16(bias_ptr.add(112));
             let mut acc15 = vld1q_s16(bias_ptr.add(120));
 
+            // Fully unrolled so PATTERN_FEATURE_OFFSETS[feat] constant-folds
+            // into each load's immediate; a runtime loop regresses by ~5%.
             macro_rules! accumulate_feature {
                 ($feat:expr) => {{
                     let idx = feature_offset(pattern_feature, $feat) * NUM_REGS;
                     let base = weights_ptr.add(idx * 8);
-                    let w0 = vld1q_s16_x4(base);
-                    let w1 = vld1q_s16_x4(base.add(32));
-                    let w2 = vld1q_s16_x4(base.add(64));
-                    let w3 = vld1q_s16_x4(base.add(96));
-                    acc0 = vaddq_s16(acc0, w0.0);
-                    acc1 = vaddq_s16(acc1, w0.1);
-                    acc2 = vaddq_s16(acc2, w0.2);
-                    acc3 = vaddq_s16(acc3, w0.3);
-                    acc4 = vaddq_s16(acc4, w1.0);
-                    acc5 = vaddq_s16(acc5, w1.1);
-                    acc6 = vaddq_s16(acc6, w1.2);
-                    acc7 = vaddq_s16(acc7, w1.3);
-                    acc8 = vaddq_s16(acc8, w2.0);
-                    acc9 = vaddq_s16(acc9, w2.1);
-                    acc10 = vaddq_s16(acc10, w2.2);
-                    acc11 = vaddq_s16(acc11, w2.3);
-                    acc12 = vaddq_s16(acc12, w3.0);
-                    acc13 = vaddq_s16(acc13, w3.1);
-                    acc14 = vaddq_s16(acc14, w3.2);
-                    acc15 = vaddq_s16(acc15, w3.3);
+                    acc0 = vaddq_s16(acc0, vld1q_s16(base));
+                    acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
+                    acc2 = vaddq_s16(acc2, vld1q_s16(base.add(16)));
+                    acc3 = vaddq_s16(acc3, vld1q_s16(base.add(24)));
+                    acc4 = vaddq_s16(acc4, vld1q_s16(base.add(32)));
+                    acc5 = vaddq_s16(acc5, vld1q_s16(base.add(40)));
+                    acc6 = vaddq_s16(acc6, vld1q_s16(base.add(48)));
+                    acc7 = vaddq_s16(acc7, vld1q_s16(base.add(56)));
+                    acc8 = vaddq_s16(acc8, vld1q_s16(base.add(64)));
+                    acc9 = vaddq_s16(acc9, vld1q_s16(base.add(72)));
+                    acc10 = vaddq_s16(acc10, vld1q_s16(base.add(80)));
+                    acc11 = vaddq_s16(acc11, vld1q_s16(base.add(88)));
+                    acc12 = vaddq_s16(acc12, vld1q_s16(base.add(96)));
+                    acc13 = vaddq_s16(acc13, vld1q_s16(base.add(104)));
+                    acc14 = vaddq_s16(acc14, vld1q_s16(base.add(112)));
+                    acc15 = vaddq_s16(acc15, vld1q_s16(base.add(120)));
                 }};
             }
 
@@ -645,15 +652,18 @@ impl NetworkSmall {
                     let act1 = clamp_and_square!($a1);
                     let act2 = clamp_and_square!($a2);
                     let act3 = clamp_and_square!($a3);
-                    let ow = vld1q_s16_x4(out_w_ptr.add($base * 8));
-                    s0 = vmlal_s16(s0, vget_low_s16(act0), vget_low_s16(ow.0));
-                    s0 = vmlal_high_s16(s0, act0, ow.0);
-                    s1 = vmlal_s16(s1, vget_low_s16(act1), vget_low_s16(ow.1));
-                    s1 = vmlal_high_s16(s1, act1, ow.1);
-                    s2 = vmlal_s16(s2, vget_low_s16(act2), vget_low_s16(ow.2));
-                    s2 = vmlal_high_s16(s2, act2, ow.2);
-                    s3 = vmlal_s16(s3, vget_low_s16(act3), vget_low_s16(ow.3));
-                    s3 = vmlal_high_s16(s3, act3, ow.3);
+                    let ow0 = vld1q_s16(out_w_ptr.add($base * 8));
+                    let ow1 = vld1q_s16(out_w_ptr.add($base * 8 + 8));
+                    let ow2 = vld1q_s16(out_w_ptr.add($base * 8 + 16));
+                    let ow3 = vld1q_s16(out_w_ptr.add($base * 8 + 24));
+                    s0 = vmlal_s16(s0, vget_low_s16(act0), vget_low_s16(ow0));
+                    s0 = vmlal_high_s16(s0, act0, ow0);
+                    s1 = vmlal_s16(s1, vget_low_s16(act1), vget_low_s16(ow1));
+                    s1 = vmlal_high_s16(s1, act1, ow1);
+                    s2 = vmlal_s16(s2, vget_low_s16(act2), vget_low_s16(ow2));
+                    s2 = vmlal_high_s16(s2, act2, ow2);
+                    s3 = vmlal_s16(s3, vget_low_s16(act3), vget_low_s16(ow3));
+                    s3 = vmlal_high_s16(s3, act3, ow3);
                 }};
             }
 
