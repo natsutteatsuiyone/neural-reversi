@@ -13,6 +13,7 @@ pub mod flip;
 pub mod game_state;
 pub mod level;
 pub mod move_list;
+pub mod obf;
 pub mod perft;
 pub mod probcut;
 pub mod search;

@@ -9,7 +9,6 @@
 //! - Search performance (time and nodes)
 //! - Move selection quality (best move percentage)
 
-mod obf;
 mod test_case;
 
 use clap::Parser;
@@ -32,7 +31,7 @@ use reversi_core::{
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use test_case::TestCase;
+use test_case::{TestCase, find_problem_dir, load_all_problems, load_problems};
 
 /// Score tolerance levels for evaluation
 const SCORE_TOLERANCE_PERFECT: Scoref = 3.0;
@@ -182,8 +181,7 @@ impl SearchStats {
             return;
         }
         for pv in &result.pv_moves {
-            let move_str = format!("{:?}", pv.sq);
-            let Some(expected) = test_case.expected_score_for_move(&move_str) else {
+            let Some(expected) = test_case.expected_score_for_move(pv.sq) else {
                 continue;
             };
             let rounded = (pv.score * 10.0).round() / 10.0;
@@ -203,19 +201,14 @@ impl SearchStats {
 
     /// Classify the move accuracy based on the search result
     fn classify_move(result: &SearchResult, test_case: &TestCase) -> MoveAccuracy {
-        if let Some(first_pv) = result.pv_line.first() {
-            let move_str = format!("{first_pv:?}");
-            if test_case.is_best_move(&move_str) {
-                MoveAccuracy::Best
-            } else if test_case.is_second_best_move(&move_str) {
-                MoveAccuracy::SecondBest
-            } else if test_case.is_third_best_move(&move_str) {
-                MoveAccuracy::ThirdBest
-            } else {
-                MoveAccuracy::Other
-            }
-        } else {
-            MoveAccuracy::Other
+        let Some(&first_pv) = result.pv_line.first() else {
+            return MoveAccuracy::Other;
+        };
+        match test_case.rank_of(first_pv) {
+            Some(0) => MoveAccuracy::Best,
+            Some(1) => MoveAccuracy::SecondBest,
+            Some(2) => MoveAccuracy::ThirdBest,
+            _ => MoveAccuracy::Other,
         }
     }
 
@@ -450,7 +443,7 @@ fn execute_test_case(
     verbose: bool,
     multipv: bool,
 ) -> (TestResult, Vec<IterationData>) {
-    let board = test_case.get_board();
+    let board = test_case.board();
     // For pass positions, switch sides and search from the opponent's perspective
     let search_board = if test_case.is_pass() {
         board.switch_players()
@@ -493,7 +486,7 @@ fn execute_test_case(
         result.score
     };
     let score = (score * 10.0).round() / 10.0;
-    let score_difference = (score - test_case.expected_score as Scoref).abs();
+    let score_difference = (score - test_case.expected_score() as Scoref).abs();
     let move_accuracy = if test_case.is_pass() {
         MoveAccuracy::Best // Pass positions don't have move choices
     } else {
@@ -547,6 +540,11 @@ fn print_test_result(test_case: &TestCase, result: &TestResult, num_width: usize
     let nodes_formatted = result.nodes.to_formatted_string(&Locale::en);
     let nps_formatted = nps.to_formatted_string(&Locale::en);
     let depth_str = format_depth(result.depth, result.selectivity);
+    let expected = format!(
+        "{:>3} : {}",
+        test_case.expected_score(),
+        test_case.expected_moves_str()
+    );
 
     println!(
         "| {:>num_width$} | {:^6} | {:>9.4} | {:>15} | {:>13} | {:<8} | {:>6} | {:<32} |",
@@ -557,15 +555,7 @@ fn print_test_result(test_case: &TestCase, result: &TestResult, num_width: usize
         nps_formatted,
         pv_line_colored,
         score_colored,
-        if test_case.is_pass() {
-            format!("{:>3} : PS", test_case.expected_score)
-        } else {
-            format!(
-                "{:>3} : {}",
-                test_case.expected_score,
-                test_case.get_best_moves_str()
-            )
-        }
+        expected
     );
 }
 
@@ -807,7 +797,7 @@ fn print_verbose_test_case(
 ) {
     println!("--- #{} ---", test_case.line_number);
 
-    let board = test_case.get_board();
+    let board = test_case.board();
     print!(
         "{}",
         format_board_with_coords(&board, test_case.side_to_move())
@@ -822,15 +812,12 @@ fn print_verbose_test_case(
         .map(|i| format!("{:.1}%", i.tt_fill * 100.0))
         .unwrap_or_else(|| "-".to_string());
 
-    let expect_moves = if test_case.is_pass() {
-        "PS".to_string()
-    } else {
-        test_case.get_best_moves_str()
-    };
+    let expect_moves = test_case.expected_moves_str();
 
     println!(
         "- score: {} (expected: {:>+.1})",
-        score_colored, test_case.expected_score as Scoref
+        score_colored,
+        test_case.expected_score() as Scoref
     );
     println!("- move: {} (expected: {})", pv_colored, expect_moves);
     println!(
@@ -852,7 +839,8 @@ fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
     if test_case.is_pass() {
         println!(
             "### #{} (PS, expected: {:+})",
-            test_case.line_number, test_case.expected_score
+            test_case.line_number,
+            test_case.expected_score()
         );
         println!();
         return;
@@ -862,7 +850,10 @@ fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
     let best_score_colored = colorize_score(result.score, best_diff);
     println!(
         "### #{} (searched: {}, expected: {:+}, Δ: {:.1})",
-        test_case.line_number, best_score_colored, test_case.expected_score, best_diff,
+        test_case.line_number,
+        best_score_colored,
+        test_case.expected_score(),
+        best_diff,
     );
 
     struct Row {
@@ -882,18 +873,18 @@ fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
             // Match `colorize_score`'s `{:.1}` format so plain length matches
             // the colored display width (ANSI escapes aside) used for padding.
             let searched_plain = format!("{rounded:.1}");
-            let (expected, delta, searched_colored) =
-                match test_case.expected_score_for_move(&move_str) {
-                    Some(exp) => {
-                        let diff = (rounded - exp as Scoref).abs();
-                        (
-                            format!("{exp:+}"),
-                            format!("{diff:.1}"),
-                            colorize_score(rounded, diff),
-                        )
-                    }
-                    None => ("-".to_string(), "-".to_string(), searched_plain.normal()),
-                };
+            let expected_score = test_case.expected_score_for_move(pv.sq);
+            let (expected, delta, searched_colored) = match expected_score {
+                Some(exp) => {
+                    let diff = (rounded - exp as Scoref).abs();
+                    (
+                        format!("{exp:+}"),
+                        format!("{diff:.1}"),
+                        colorize_score(rounded, diff),
+                    )
+                }
+                None => ("-".to_string(), "-".to_string(), searched_plain.normal()),
+            };
             Row {
                 move_str,
                 searched_plain,
@@ -1068,16 +1059,16 @@ fn main() {
         }
         path
     } else {
-        obf::find_problem_dir().unwrap_or_else(|| {
+        find_problem_dir().unwrap_or_else(|| {
             eprintln!("Error: Cannot find problem directory. Use --problem-dir to specify.");
             std::process::exit(1);
         })
     };
 
     let problem_sets = if args.problem.is_empty() {
-        obf::load_all_problems(&problem_dir)
+        load_all_problems(&problem_dir)
     } else {
-        obf::load_problems(&args.problem, &problem_dir)
+        load_problems(&args.problem, &problem_dir)
     };
 
     if problem_sets.is_empty() || problem_sets.iter().all(|ps| ps.cases.is_empty()) {

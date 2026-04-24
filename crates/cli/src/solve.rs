@@ -5,13 +5,13 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use num_format::{Locale, ToFormattedString};
-use reversi_core::search::options::SearchOptions;
 use reversi_core::{
     board::Board,
     disc::Disc,
     level::{Level, get_level},
+    obf::ObfPosition,
     probcut::Selectivity,
-    search::{Search, SearchRunOptions},
+    search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
 };
 
@@ -59,29 +59,24 @@ pub fn solve(
 
     for (line_num, line) in reader.lines().enumerate() {
         let raw = line?;
-        let trimmed = raw.split('%').next().unwrap_or("").trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        match parse_position_line(trimmed) {
-            Ok((board, side_to_move)) => {
-                let (elapsed, nodes) = solve_position(
-                    &mut search,
-                    board,
-                    side_to_move,
-                    level_config,
-                    selectivity,
-                    line_num + 1,
-                );
-                total_time += elapsed;
-                total_nodes += nodes;
-            }
+        let pos = match ObfPosition::parse(&raw) {
+            Ok(Some(pos)) => pos,
+            Ok(None) => continue,
             Err(e) => {
                 eprintln!("Error parsing line {}: {}", line_num + 1, e);
                 continue;
             }
-        }
+        };
+        let (elapsed, nodes) = solve_position(
+            &mut search,
+            pos.board,
+            pos.side_to_move,
+            level_config,
+            selectivity,
+            line_num + 1,
+        );
+        total_time += elapsed;
+        total_nodes += nodes;
     }
 
     let total_secs = total_time.as_secs_f64();
@@ -119,36 +114,6 @@ fn print_header(file_path: &Path, options: &SearchOptions) {
     println!("- Hash size: {} MB", options.tt_mb_size);
     println!("- Threads:   {}", options.n_threads);
     println!();
-}
-
-fn parse_position_line(line: &str) -> Result<(Board, Disc), String> {
-    let board_field = line.split(';').next().unwrap_or("").trim();
-    if !board_field.is_ascii() {
-        return Err("Board field must be ASCII".to_string());
-    }
-    if board_field.len() < 65 {
-        return Err("Invalid board format (expected 64 board chars + side-to-move)".to_string());
-    }
-
-    let board_str = &board_field[..64];
-    // Accept both `<64-char board> <side>` (standard FFO, whitespace separator)
-    // and `<64-char board><side>` (compact, no separator).
-    let side_char = board_field[64..]
-        .trim_start()
-        .chars()
-        .next()
-        .ok_or_else(|| "Missing side-to-move marker".to_string())?;
-
-    let side_to_move = match side_char {
-        'X' => Disc::Black,
-        'O' => Disc::White,
-        _ => return Err(format!("Invalid side to move: {side_char}")),
-    };
-
-    let board = Board::from_string(board_str, side_to_move)
-        .map_err(|e| format!("Invalid board string: {e}"))?;
-
-    Ok((board, side_to_move))
 }
 
 fn solve_position(
