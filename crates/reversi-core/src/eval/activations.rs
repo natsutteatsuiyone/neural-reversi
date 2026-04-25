@@ -27,6 +27,7 @@ const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 /// On x86-64 with AVX2, both `input` and `output` must be 32-byte aligned
 /// (or 16-byte aligned when `SIZE` is not a multiple of 32).
 #[inline(always)]
+#[allow(dead_code)]
 pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx2") => {
@@ -49,6 +50,7 @@ pub fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     unsafe {
         if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
@@ -141,6 +143,7 @@ fn clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 
 /// Clipped ReLU scalar fallback implementation.
 #[inline(always)]
+#[allow(dead_code)]
 fn clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let val = input[i] >> HIDDEN_WEIGHT_SCALE_BITS;
@@ -158,6 +161,7 @@ fn clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
 /// On x86-64 with AVX2, both `input` and `output` must be 16-byte aligned
 /// for SSE2 loads/stores.
 #[inline(always)]
+#[allow(dead_code)]
 pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx2") => {
@@ -172,6 +176,64 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     }
 }
 
+/// Applies `sqr_clipped_relu::<16>` followed by `clipped_relu::<16>` into a
+/// single 32-byte output buffer.
+///
+/// The first 16 bytes receive the square-clipped output, and the next 16 bytes
+/// receive the clipped-ReLU output.
+#[inline(always)]
+pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
+    debug_assert!(input.len() >= 16);
+    debug_assert!(output.len() >= 32);
+
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            unsafe { sqr_clipped_and_clipped_relu_16_avx2(input, output) };
+        }
+        _ => {
+            let (sqr_out, relu_out) = output[..32].split_at_mut(16);
+            sqr_clipped_relu::<16>(input, sqr_out);
+            clipped_relu::<16>(input, relu_out);
+        }
+    }
+}
+
+/// Combined L1 activation for the main network.
+///
+/// # Safety
+///
+/// `input` must contain at least 16 `i32` values and be 16-byte aligned.
+/// `output` must contain at least 32 bytes and be 16-byte aligned.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[target_feature(enable = "avx2")]
+#[inline]
+fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8]) {
+    unsafe {
+        let input_ptr = input.as_ptr() as *const __m128i;
+        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+
+        let in0 = _mm_load_si128(input_ptr);
+        let in1 = _mm_load_si128(input_ptr.add(1));
+        let in2 = _mm_load_si128(input_ptr.add(2));
+        let in3 = _mm_load_si128(input_ptr.add(3));
+
+        let sqr_words0 = _mm_packs_epi32(in0, in1);
+        let sqr_words1 = _mm_packs_epi32(in2, in3);
+
+        const SQR_SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
+        let sqr_words0 = _mm_srli_epi16(_mm_mulhi_epi16(sqr_words0, sqr_words0), SQR_SHIFT);
+        let sqr_words1 = _mm_srli_epi16(_mm_mulhi_epi16(sqr_words1, sqr_words1), SQR_SHIFT);
+        _mm_store_si128(output_ptr, _mm_packus_epi16(sqr_words0, sqr_words1));
+
+        let relu_words0 = _mm_srli_epi16(_mm_packus_epi32(in0, in1), HIDDEN_WEIGHT_SCALE_BITS);
+        let relu_words1 = _mm_srli_epi16(_mm_packus_epi32(in2, in3), HIDDEN_WEIGHT_SCALE_BITS);
+        _mm_store_si128(
+            output_ptr.add(1),
+            _mm_packus_epi16(relu_words0, relu_words1),
+        );
+    }
+}
+
 /// Square-clipped activation with AVX2 SIMD optimization.
 ///
 /// Uses SSE2 instructions (128-bit) for processing.
@@ -182,6 +244,7 @@ pub fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     let num_chunks = SIZE / SSE2_SIMD_WIDTH;
 
@@ -258,6 +321,7 @@ fn sqr_clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 
 /// Square-clipped activation scalar fallback implementation.
 #[inline(always)]
+#[allow(dead_code)]
 fn sqr_clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
         let val = ((input[i] * input[i]) as u64 >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)).min(255);
@@ -532,6 +596,27 @@ mod tests {
         let mut output = Align64([0; SIZE]);
         sqr_clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
         assert_eq!(output.as_ref(), &expected);
+    }
+
+    #[test]
+    fn test_combined_l1_activation_matches_separate_paths() {
+        const SIZE: usize = 16;
+        let mut input_data = [0i32; SIZE];
+
+        for (idx, value) in input_data.iter_mut().enumerate() {
+            *value = ((idx as i32 * 3571) % 40_000) - 20_000;
+        }
+
+        let input = Align64(input_data);
+        let mut combined = Align64([0u8; SIZE * 2]);
+        let mut expected = Align64([0u8; SIZE * 2]);
+        let (expected_sqr, expected_relu) = expected.0.split_at_mut(SIZE);
+
+        sqr_clipped_and_clipped_relu_16(input.as_slice(), combined.as_mut_slice());
+        sqr_clipped_relu::<SIZE>(input.as_slice(), expected_sqr);
+        clipped_relu::<SIZE>(input.as_slice(), expected_relu);
+
+        assert_eq!(combined.as_ref(), expected.as_ref());
     }
 
     #[test]

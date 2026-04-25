@@ -5,7 +5,7 @@ use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 use crate::board::Board;
-use crate::eval::activations::{clipped_relu, screlu, sqr_clipped_relu};
+use crate::eval::activations::{screlu, sqr_clipped_and_clipped_relu_16};
 use crate::eval::input_layer::{BaseInput, PhaseAdaptiveInput};
 use crate::eval::linear_layer::LinearLayer;
 use crate::eval::output_layer::OutputLayer;
@@ -20,13 +20,13 @@ const PA_OUTPUT_DIMS: usize = 128;
 const L1_INPUT_DIMS: usize = BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS + 1;
 const L1_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_INPUT_DIMS, 32);
 const L1_OUTPUT_DIMS: usize = 16;
+const _: () = assert!(L1_OUTPUT_DIMS == 16);
 const L1_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_OUTPUT_DIMS, 32);
 
 const L2_INPUT_DIMS: usize = L1_OUTPUT_DIMS * 2;
 const L2_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L2_INPUT_DIMS, 32);
 const L2_OUTPUT_DIMS: usize = 64;
 const L2_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L2_OUTPUT_DIMS, 32);
-const L2_INPUT_DIMS_HALF: usize = L2_INPUT_DIMS / 2;
 
 const LO_INPUT_DIMS: usize = L2_OUTPUT_DIMS + BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS;
 const LO_PADDED_INPUT_DIMS: usize = ceil_to_multiple(LO_INPUT_DIMS, 32);
@@ -116,9 +116,7 @@ impl LayerStack {
     fn forward_l1(&self, buffers: &mut NetworkBuffers) {
         self.l1.forward(&buffers.l1_input, &mut buffers.l1_li_out);
         let l1_out = &buffers.l1_li_out[..L1_OUTPUT_DIMS];
-        let (sqr_out, relu_out) = buffers.l1_out[..L2_INPUT_DIMS].split_at_mut(L2_INPUT_DIMS_HALF);
-        sqr_clipped_relu::<L1_OUTPUT_DIMS>(l1_out, sqr_out);
-        clipped_relu::<L1_OUTPUT_DIMS>(l1_out, relu_out);
+        sqr_clipped_and_clipped_relu_16(l1_out, &mut buffers.l1_out[..L2_INPUT_DIMS]);
     }
 
     #[inline(always)]
