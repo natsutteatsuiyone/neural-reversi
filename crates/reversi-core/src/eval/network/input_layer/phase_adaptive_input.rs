@@ -6,9 +6,9 @@ use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
-use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 #[allow(unused_imports)]
 use crate::eval::pattern_feature::NUM_FEATURES;
+use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 use crate::eval::util::clone_biases;
 #[allow(unused_imports)]
 use crate::eval::util::feature_offset;

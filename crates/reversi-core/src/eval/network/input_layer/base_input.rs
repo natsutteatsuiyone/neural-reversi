@@ -6,9 +6,9 @@ use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
-use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 #[allow(unused_imports)]
 use crate::eval::pattern_feature::NUM_FEATURES;
+use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 use crate::eval::util::clone_biases;
 #[allow(unused_imports)]
 use crate::eval::util::feature_offset;
@@ -251,7 +251,7 @@ impl BaseInput {
             let weights_ptr = self.weights.as_ptr();
             let bias_ptr = self.biases.as_ptr();
             let mut lo_acc = Align64([0i16; OUTPUT_DIMS]);
-            let lo_acc_ptr = lo_acc.as_mut_ptr();
+            let lo_acc_ptr = lo_acc.as_mut_ptr() as *mut i16;
 
             let mut acc0 = vld1q_s16(bias_ptr);
             let mut acc1 = vld1q_s16(bias_ptr.add(8));
