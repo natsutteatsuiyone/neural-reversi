@@ -11,7 +11,12 @@ env:
 
 jobs:
   rust-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
 
     steps:
     - uses: actions/checkout@v4
