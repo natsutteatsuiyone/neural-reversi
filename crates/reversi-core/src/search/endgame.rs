@@ -818,8 +818,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, player: Bitboard, _alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
-    let opponent = !player;
-    let (p_flip, o_flip) = count_last_flip_double(player, opponent, sq);
+    let (p_flip, o_flip) = count_last_flip_double(player, sq);
 
     let base = 2 * player.count() as Score - 64;
 
@@ -834,7 +833,11 @@ fn solve1(ctx: &mut SearchContext, player: Bitboard, _alpha: Score, sq: Square) 
     if b1 { x1 } else { ax }
 }
 
-/// Specialized solver for positions with exactly 1 empty square (fallback version).
+/// Specialized solver for positions with exactly 1 empty square (portable fallback).
+///
+/// Alpha-pruning lets the second `count_last_flip` call be skipped, which beats
+/// the branchless `count_last_flip_double` variant here — the kindergarten path
+/// is too heavy to amortize the always-on opponent-side work.
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -> Score {

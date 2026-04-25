@@ -2,6 +2,8 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use reversi_core::bitboard::Bitboard;
 use reversi_core::count_last_flip::count_last_flip;
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+use reversi_core::count_last_flip::count_last_flip_double;
 use reversi_core::square::Square;
 use std::hint::black_box;
 
@@ -30,6 +32,18 @@ fn criterion_benchmark(c: &mut Criterion) {
             let mut acc = 0i32;
             for &(sq, p) in &cases {
                 acc ^= count_last_flip(Bitboard::new(p), sq);
+            }
+            black_box(acc)
+        })
+    });
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+    c.bench_function("count_last_flip_double::random_4096", |b| {
+        b.iter(|| {
+            let mut acc = 0i32;
+            for &(sq, p) in &cases {
+                let (a, b) = count_last_flip_double(Bitboard::new(p), sq);
+                acc ^= a ^ b;
             }
             black_box(acc)
         })

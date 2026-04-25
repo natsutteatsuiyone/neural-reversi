@@ -20,17 +20,21 @@ mod flip_avx512;
 #[allow(dead_code)]
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 mod flip_bmi2;
+#[allow(dead_code)]
+mod flip_kindergarten;
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod flip_neon;
 #[allow(dead_code)]
 #[cfg(any(
     all(target_arch = "x86_64", target_feature = "avx2"),
-    all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"),
+    all(
+        target_arch = "x86_64",
+        target_feature = "avx512cd",
+        target_feature = "avx512vl"
+    ),
     all(target_arch = "aarch64", target_feature = "neon"),
 ))]
 mod lrmask;
-#[allow(dead_code)]
-mod flip_kindergarten;
 
 /// Calculates which opponent discs would be flipped by placing a disc at `sq`.
 ///

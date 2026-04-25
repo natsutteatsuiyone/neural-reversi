@@ -185,14 +185,66 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
     }
 }
 
+/// Per-square "full" PEXT pattern for `mask0`/`mask1`/`mask2`, computed against
+/// the union mask `mask3`.
+///
+/// Since PEXT is bit-by-bit and `count_last_flip_double` extracts from
+/// `masked_p = player & mask3` (not `player`), the relation that holds is
+/// `_pext(masked_o, m) = _pext(mask3, m) ^ _pext(masked_p, m)` when
+/// `opp = !player`. Some squares' direction masks include "padding" bits not
+/// present in `mask3` (e.g. c4's `mask1` has a1, which is on `mask3`'s
+/// complement), so naive `(1<<popcount(m))-1` would set those bits in the
+/// opponent index even though `masked_o` always has 0 there — corrupting
+/// COUNT_FLIP lookups at those positions. `_pext(mask3, m)` zeros padding bits,
+/// matching what `masked_o` actually produces.
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+const FULL_BMI2: [[u8; 3]; 64] = {
+    const fn pext_const(src: u64, mask: u64) -> u64 {
+        let mut result = 0u64;
+        let mut bb = mask;
+        let mut out_bit = 1u64;
+        while bb != 0 {
+            let lsb = bb & bb.wrapping_neg();
+            if src & lsb != 0 {
+                result |= out_bit;
+            }
+            bb ^= lsb;
+            out_bit <<= 1;
+        }
+        result
+    }
+    let mut out = [[0u8; 3]; 64];
+    let mut i = 0;
+    while i < 64 {
+        let m = MASK_X[i];
+        out[i] = [
+            pext_const(m[3], m[0]) as u8,
+            pext_const(m[3], m[1]) as u8,
+            pext_const(m[3], m[2]) as u8,
+        ];
+        i += 1;
+    }
+    out
+};
+
 /// Counts flipped discs for both players simultaneously using BMI2 PEXT.
+///
+/// **Precondition**: callers must satisfy the "last move" invariant — `sq` is empty
+/// and every other square is occupied by exactly one player's disc, so on each line
+/// `opponent = !player` for every non-`sq` bit.
 ///
 /// Returns a `(player_flipped, opponent_flipped)` tuple where each value is twice the
 /// actual flip count.
+///
+/// Under the precondition, the opponent's per-direction PEXT index equals
+/// `full_d ^ p_idx_d`, where `full_d` is `_pext(mask3, mask_d)` — the bit pattern
+/// that PEXT would produce if every square in `mask_d` were occupied. This lets the
+/// opponent path reuse the player's PEXT results instead of recomputing them, and
+/// the COUNT_FLIP table ignores the move-square bit so the XOR at `sq` is harmless.
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[target_feature(enable = "bmi2")]
 #[inline]
-pub fn count_last_flip_double(player: u64, opponent: u64, sq: Square) -> (i32, i32) {
+pub fn count_last_flip_double(player: u64, sq: Square) -> (i32, i32) {
     unsafe {
         let sq_idx = sq.index();
 
@@ -203,29 +255,28 @@ pub fn count_last_flip_double(player: u64, opponent: u64, sq: Square) -> (i32, i
         let mask3 = *mask_ptr.add(3);
 
         let masked_p = player & mask3;
-        let masked_o = opponent & mask3;
+        let full = *FULL_BMI2.as_ptr().add(sq_idx);
 
         let count_x = COUNT_FLIP.as_ptr().add(sq_idx & 7) as *const u8;
         let count_y = COUNT_FLIP.as_ptr().add(sq_idx >> 3) as *const u8;
 
         let row_shift = sq_idx & 0x38;
         let p_h = ((masked_p >> row_shift) & 0xFF) as usize;
-        let o_h = ((masked_o >> row_shift) & 0xFF) as usize;
-
         let p_v = _pext_u64(masked_p, mask0) as usize;
-        let o_v = _pext_u64(masked_o, mask0) as usize;
         let p_d7 = _pext_u64(masked_p, mask1) as usize;
-        let o_d7 = _pext_u64(masked_o, mask1) as usize;
         let p_d9 = _pext_u64(masked_p, mask2) as usize;
-        let o_d9 = _pext_u64(masked_o, mask2) as usize;
 
-        // Player flips
+        // H direction spans the full row, so its `full` value is always 0xFF.
+        let o_h = 0xFF ^ p_h;
+        let o_v = full[0] as usize ^ p_v;
+        let o_d7 = full[1] as usize ^ p_d7;
+        let o_d9 = full[2] as usize ^ p_d9;
+
         let p_flipped = *count_x.add(p_h) as u32
             + *count_y.add(p_v) as u32
             + *count_y.add(p_d7) as u32
             + *count_y.add(p_d9) as u32;
 
-        // Opponent flips
         let o_flipped = *count_x.add(o_h) as u32
             + *count_y.add(o_v) as u32
             + *count_y.add(o_d7) as u32
