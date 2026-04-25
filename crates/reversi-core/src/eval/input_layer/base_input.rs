@@ -6,88 +6,14 @@ use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
-use crate::eval::pattern_feature::PatternFeature;
-use crate::eval::util::clone_biases;
+use crate::eval::pattern_feature::{NUM_FEATURES, PatternFeature};
+use crate::eval::util::{clone_biases, feature_offset};
 use crate::util::align::Align64;
 
 use super::accumulate_scalar;
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-use super::accumulate_avx512;
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-use super::accumulate_avx2;
-
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-use super::accumulate_neon;
-
 const ACTIVATION_MAX: i16 = 255 * 2;
 const ACTIVATION_SHIFT: u32 = 10;
-
-#[allow(unused_macros)]
-macro_rules! impl_base_input_apply_activation {
-    (
-        $fn_name:ident,
-        $target_feature:literal,
-        $lane_ty:ty,
-        load = $load:path,
-        store = $store:path,
-        set1 = $set1:path,
-        setzero = $setzero:path,
-        max = $max:path,
-        min = $min:path,
-        slli = $slli:path,
-        mulhi = $mulhi:path,
-        packus = $packus:path
-    ) => {
-        /// # Safety
-        ///
-        /// `output` must be aligned to the SIMD lane width (32 bytes for AVX2,
-        /// 64 bytes for AVX-512) for aligned SIMD stores.
-        #[cfg(target_arch = "x86_64")]
-        #[target_feature(enable = $target_feature)]
-        #[inline]
-        fn $fn_name(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
-            use std::arch::x86_64::*;
-            use std::mem::{align_of, size_of};
-            debug_assert!(
-                (output.as_ptr() as usize).is_multiple_of(align_of::<$lane_ty>()),
-                "output must be {}-byte aligned",
-                align_of::<$lane_ty>(),
-            );
-            unsafe {
-                let acc_ptr = acc.as_ptr() as *const $lane_ty;
-                let mut output_ptr = output.as_mut_ptr() as *mut $lane_ty;
-                const LANES_PER_REG: usize = size_of::<$lane_ty>() / size_of::<i16>();
-                let num_regs = HIDDEN_DIMS / LANES_PER_REG;
-                let one = $set1(ACTIVATION_MAX);
-                let zero = $setzero();
-                let mut in0_ptr = acc_ptr;
-                let mut in1_ptr = acc_ptr.add(num_regs / 2);
-                let iterations = num_regs / 4;
-
-                for _ in 0..iterations {
-                    let in00 = $load(in0_ptr);
-                    let in01 = $load(in0_ptr.add(1));
-                    in0_ptr = in0_ptr.add(2);
-                    let in10 = $load(in1_ptr);
-                    let in11 = $load(in1_ptr.add(1));
-                    in1_ptr = in1_ptr.add(2);
-                    let clamp0a = $max($min(in00, one), zero);
-                    let clamp0b = $max($min(in01, one), zero);
-                    let sum0a = $slli(clamp0a, 6);
-                    let sum0b = $slli(clamp0b, 6);
-                    let sum1a = $min(in10, one);
-                    let sum1b = $min(in11, one);
-                    let pa = $mulhi(sum0a, sum1a);
-                    let pb = $mulhi(sum0b, sum1b);
-                    $store(output_ptr, $packus(pa, pb));
-                    output_ptr = output_ptr.add(1);
-                }
-            }
-        }
-    };
-}
 
 /// Neural network base input layer.
 ///
@@ -143,13 +69,67 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     #[allow(dead_code)]
     fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
-            assert!(HIDDEN_DIMS.is_multiple_of(128));
+            assert!(HIDDEN_DIMS == 256);
+            assert!(OUTPUT_DIMS == 128);
             assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
         }
 
-        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
-        accumulate_avx512::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
-        self.apply_activation_avx512(&acc, output);
+        use std::arch::x86_64::*;
+
+        const NUM_REGS: usize = 8;
+
+        unsafe {
+            let weights_ptr = self.weights.as_ptr() as *const __m512i;
+            let bias_ptr = self.biases.as_ptr() as *const __m512i;
+
+            let mut acc0 = _mm512_load_si512(bias_ptr);
+            let mut acc1 = _mm512_load_si512(bias_ptr.add(1));
+            let mut acc2 = _mm512_load_si512(bias_ptr.add(2));
+            let mut acc3 = _mm512_load_si512(bias_ptr.add(3));
+            let mut acc4 = _mm512_load_si512(bias_ptr.add(4));
+            let mut acc5 = _mm512_load_si512(bias_ptr.add(5));
+            let mut acc6 = _mm512_load_si512(bias_ptr.add(6));
+            let mut acc7 = _mm512_load_si512(bias_ptr.add(7));
+
+            macro_rules! accumulate_feature {
+                ($feature_idx:expr) => {{
+                    let idx = feature_offset(pattern_feature, $feature_idx) * NUM_REGS;
+                    acc0 = _mm512_add_epi16(acc0, _mm512_load_si512(weights_ptr.add(idx)));
+                    acc1 = _mm512_add_epi16(acc1, _mm512_load_si512(weights_ptr.add(idx + 1)));
+                    acc2 = _mm512_add_epi16(acc2, _mm512_load_si512(weights_ptr.add(idx + 2)));
+                    acc3 = _mm512_add_epi16(acc3, _mm512_load_si512(weights_ptr.add(idx + 3)));
+                    acc4 = _mm512_add_epi16(acc4, _mm512_load_si512(weights_ptr.add(idx + 4)));
+                    acc5 = _mm512_add_epi16(acc5, _mm512_load_si512(weights_ptr.add(idx + 5)));
+                    acc6 = _mm512_add_epi16(acc6, _mm512_load_si512(weights_ptr.add(idx + 6)));
+                    acc7 = _mm512_add_epi16(acc7, _mm512_load_si512(weights_ptr.add(idx + 7)));
+                }};
+            }
+
+            let mut feature_idx = 0;
+            while feature_idx < NUM_FEATURES {
+                accumulate_feature!(feature_idx);
+                feature_idx += 1;
+            }
+
+            let one = _mm512_set1_epi16(ACTIVATION_MAX);
+            let zero = _mm512_setzero_si512();
+            let output_ptr = output.as_mut_ptr() as *mut __m512i;
+
+            macro_rules! activate_pair {
+                ($lo0:ident, $lo1:ident, $hi0:ident, $hi1:ident, $dst:expr) => {{
+                    let lo0 = _mm512_max_epi16(_mm512_min_epi16($lo0, one), zero);
+                    let lo1 = _mm512_max_epi16(_mm512_min_epi16($lo1, one), zero);
+                    let hi0 = _mm512_min_epi16($hi0, one);
+                    let hi1 = _mm512_min_epi16($hi1, one);
+                    let out0 = _mm512_mulhi_epi16(_mm512_slli_epi16(lo0, 6), hi0);
+                    let out1 = _mm512_mulhi_epi16(_mm512_slli_epi16(lo1, 6), hi1);
+                    _mm512_store_si512(output_ptr.add($dst), _mm512_packus_epi16(out0, out1));
+                }};
+            }
+
+            activate_pair!(acc0, acc1, acc4, acc5, 0);
+            activate_pair!(acc2, acc3, acc6, acc7, 1);
+        }
     }
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -157,13 +137,116 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     #[allow(dead_code)]
     fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
-            assert!(HIDDEN_DIMS.is_multiple_of(64));
+            assert!(HIDDEN_DIMS == 256);
+            assert!(OUTPUT_DIMS == 128);
             assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
         }
 
-        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
-        accumulate_avx2::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
-        self.apply_activation_avx2(&acc, output);
+        use std::arch::x86_64::*;
+
+        const NUM_REGS: usize = 16;
+        const HALF_REGS: usize = NUM_REGS / 2;
+
+        unsafe {
+            let weights_ptr = self.weights.as_ptr() as *const __m256i;
+            let bias_ptr = self.biases.as_ptr() as *const __m256i;
+            let mut lo_acc = Align64([0i16; OUTPUT_DIMS]);
+            let lo_acc_ptr = lo_acc.as_mut_ptr() as *mut __m256i;
+
+            let mut acc0 = _mm256_load_si256(bias_ptr);
+            let mut acc1 = _mm256_load_si256(bias_ptr.add(1));
+            let mut acc2 = _mm256_load_si256(bias_ptr.add(2));
+            let mut acc3 = _mm256_load_si256(bias_ptr.add(3));
+            let mut acc4 = _mm256_load_si256(bias_ptr.add(4));
+            let mut acc5 = _mm256_load_si256(bias_ptr.add(5));
+            let mut acc6 = _mm256_load_si256(bias_ptr.add(6));
+            let mut acc7 = _mm256_load_si256(bias_ptr.add(7));
+
+            macro_rules! accumulate_feature {
+                ($feature_idx:expr) => {{
+                    let idx = feature_offset(pattern_feature, $feature_idx) * NUM_REGS;
+                    acc0 = _mm256_add_epi16(acc0, _mm256_load_si256(weights_ptr.add(idx)));
+                    acc1 = _mm256_add_epi16(acc1, _mm256_load_si256(weights_ptr.add(idx + 1)));
+                    acc2 = _mm256_add_epi16(acc2, _mm256_load_si256(weights_ptr.add(idx + 2)));
+                    acc3 = _mm256_add_epi16(acc3, _mm256_load_si256(weights_ptr.add(idx + 3)));
+                    acc4 = _mm256_add_epi16(acc4, _mm256_load_si256(weights_ptr.add(idx + 4)));
+                    acc5 = _mm256_add_epi16(acc5, _mm256_load_si256(weights_ptr.add(idx + 5)));
+                    acc6 = _mm256_add_epi16(acc6, _mm256_load_si256(weights_ptr.add(idx + 6)));
+                    acc7 = _mm256_add_epi16(acc7, _mm256_load_si256(weights_ptr.add(idx + 7)));
+                }};
+            }
+
+            let mut feature_idx = 0;
+            while feature_idx < NUM_FEATURES {
+                accumulate_feature!(feature_idx);
+                feature_idx += 1;
+            }
+
+            _mm256_store_si256(lo_acc_ptr, acc0);
+            _mm256_store_si256(lo_acc_ptr.add(1), acc1);
+            _mm256_store_si256(lo_acc_ptr.add(2), acc2);
+            _mm256_store_si256(lo_acc_ptr.add(3), acc3);
+            _mm256_store_si256(lo_acc_ptr.add(4), acc4);
+            _mm256_store_si256(lo_acc_ptr.add(5), acc5);
+            _mm256_store_si256(lo_acc_ptr.add(6), acc6);
+            _mm256_store_si256(lo_acc_ptr.add(7), acc7);
+
+            let mut acc0 = _mm256_load_si256(bias_ptr.add(HALF_REGS));
+            let mut acc1 = _mm256_load_si256(bias_ptr.add(HALF_REGS + 1));
+            let mut acc2 = _mm256_load_si256(bias_ptr.add(HALF_REGS + 2));
+            let mut acc3 = _mm256_load_si256(bias_ptr.add(HALF_REGS + 3));
+            let mut acc4 = _mm256_load_si256(bias_ptr.add(HALF_REGS + 4));
+            let mut acc5 = _mm256_load_si256(bias_ptr.add(HALF_REGS + 5));
+            let mut acc6 = _mm256_load_si256(bias_ptr.add(HALF_REGS + 6));
+            let mut acc7 = _mm256_load_si256(bias_ptr.add(HALF_REGS + 7));
+
+            macro_rules! accumulate_feature_hi {
+                ($feature_idx:expr) => {{
+                    let idx = feature_offset(pattern_feature, $feature_idx) * NUM_REGS + HALF_REGS;
+                    acc0 = _mm256_add_epi16(acc0, _mm256_load_si256(weights_ptr.add(idx)));
+                    acc1 = _mm256_add_epi16(acc1, _mm256_load_si256(weights_ptr.add(idx + 1)));
+                    acc2 = _mm256_add_epi16(acc2, _mm256_load_si256(weights_ptr.add(idx + 2)));
+                    acc3 = _mm256_add_epi16(acc3, _mm256_load_si256(weights_ptr.add(idx + 3)));
+                    acc4 = _mm256_add_epi16(acc4, _mm256_load_si256(weights_ptr.add(idx + 4)));
+                    acc5 = _mm256_add_epi16(acc5, _mm256_load_si256(weights_ptr.add(idx + 5)));
+                    acc6 = _mm256_add_epi16(acc6, _mm256_load_si256(weights_ptr.add(idx + 6)));
+                    acc7 = _mm256_add_epi16(acc7, _mm256_load_si256(weights_ptr.add(idx + 7)));
+                }};
+            }
+
+            feature_idx = 0;
+            while feature_idx < NUM_FEATURES {
+                accumulate_feature_hi!(feature_idx);
+                feature_idx += 1;
+            }
+
+            let one = _mm256_set1_epi16(ACTIVATION_MAX);
+            let zero = _mm256_setzero_si256();
+            let output_ptr = output.as_mut_ptr() as *mut __m256i;
+
+            macro_rules! activate_pair {
+                ($lo_idx:expr, $hi0:ident, $hi1:ident, $dst:expr) => {{
+                    let lo0 = _mm256_max_epi16(
+                        _mm256_min_epi16(_mm256_load_si256(lo_acc_ptr.add($lo_idx)), one),
+                        zero,
+                    );
+                    let lo1 = _mm256_max_epi16(
+                        _mm256_min_epi16(_mm256_load_si256(lo_acc_ptr.add($lo_idx + 1)), one),
+                        zero,
+                    );
+                    let hi0 = _mm256_min_epi16($hi0, one);
+                    let hi1 = _mm256_min_epi16($hi1, one);
+                    let out0 = _mm256_mulhi_epi16(_mm256_slli_epi16(lo0, 6), hi0);
+                    let out1 = _mm256_mulhi_epi16(_mm256_slli_epi16(lo1, 6), hi1);
+                    _mm256_store_si256(output_ptr.add($dst), _mm256_packus_epi16(out0, out1));
+                }};
+            }
+
+            activate_pair!(0, acc0, acc1, 0);
+            activate_pair!(2, acc2, acc3, 1);
+            activate_pair!(4, acc4, acc5, 2);
+            activate_pair!(6, acc6, acc7, 3);
+        }
     }
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -171,88 +254,162 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     #[allow(dead_code)]
     fn forward_neon(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         const {
-            assert!(HIDDEN_DIMS.is_multiple_of(32));
+            assert!(HIDDEN_DIMS == 256);
+            assert!(OUTPUT_DIMS == 128);
             assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
         }
 
-        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
-        accumulate_neon::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
-        self.apply_activation_neon(&acc, output);
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    impl_base_input_apply_activation!(
-        apply_activation_avx512,
-        "avx512bw",
-        __m512i,
-        load = _mm512_load_si512,
-        store = _mm512_store_si512,
-        set1 = _mm512_set1_epi16,
-        setzero = _mm512_setzero_si512,
-        max = _mm512_max_epi16,
-        min = _mm512_min_epi16,
-        slli = _mm512_slli_epi16,
-        mulhi = _mm512_mulhi_epi16,
-        packus = _mm512_packus_epi16
-    );
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    impl_base_input_apply_activation!(
-        apply_activation_avx2,
-        "avx2",
-        __m256i,
-        load = _mm256_load_si256,
-        store = _mm256_store_si256,
-        set1 = _mm256_set1_epi16,
-        setzero = _mm256_setzero_si256,
-        max = _mm256_max_epi16,
-        min = _mm256_min_epi16,
-        slli = _mm256_slli_epi16,
-        mulhi = _mm256_mulhi_epi16,
-        packus = _mm256_packus_epi16
-    );
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[target_feature(enable = "neon")]
-    #[inline]
-    fn apply_activation_neon(&self, acc: &[i16; HIDDEN_DIMS], output: &mut [u8]) {
         use std::arch::aarch64::*;
 
-        const LANES_PER_REG: usize = 8;
-        let num_regs = HIDDEN_DIMS / LANES_PER_REG;
-        let iterations = num_regs / 4;
-
         unsafe {
-            let acc_ptr = acc.as_ptr();
-            let mut output_ptr = output.as_mut_ptr();
+            let weights_ptr = self.weights.as_ptr();
+            let bias_ptr = self.biases.as_ptr();
+            let mut lo_acc = Align64([0i16; OUTPUT_DIMS]);
+            let lo_acc_ptr = lo_acc.as_mut_ptr();
+
+            let mut acc0 = vld1q_s16(bias_ptr);
+            let mut acc1 = vld1q_s16(bias_ptr.add(8));
+            let mut acc2 = vld1q_s16(bias_ptr.add(16));
+            let mut acc3 = vld1q_s16(bias_ptr.add(24));
+            let mut acc4 = vld1q_s16(bias_ptr.add(32));
+            let mut acc5 = vld1q_s16(bias_ptr.add(40));
+            let mut acc6 = vld1q_s16(bias_ptr.add(48));
+            let mut acc7 = vld1q_s16(bias_ptr.add(56));
+            let mut acc8 = vld1q_s16(bias_ptr.add(64));
+            let mut acc9 = vld1q_s16(bias_ptr.add(72));
+            let mut acc10 = vld1q_s16(bias_ptr.add(80));
+            let mut acc11 = vld1q_s16(bias_ptr.add(88));
+            let mut acc12 = vld1q_s16(bias_ptr.add(96));
+            let mut acc13 = vld1q_s16(bias_ptr.add(104));
+            let mut acc14 = vld1q_s16(bias_ptr.add(112));
+            let mut acc15 = vld1q_s16(bias_ptr.add(120));
+
+            macro_rules! accumulate_feature_lo {
+                ($feature_idx:expr) => {{
+                    let idx = feature_offset(pattern_feature, $feature_idx) * HIDDEN_DIMS;
+                    let base = weights_ptr.add(idx);
+                    acc0 = vaddq_s16(acc0, vld1q_s16(base));
+                    acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
+                    acc2 = vaddq_s16(acc2, vld1q_s16(base.add(16)));
+                    acc3 = vaddq_s16(acc3, vld1q_s16(base.add(24)));
+                    acc4 = vaddq_s16(acc4, vld1q_s16(base.add(32)));
+                    acc5 = vaddq_s16(acc5, vld1q_s16(base.add(40)));
+                    acc6 = vaddq_s16(acc6, vld1q_s16(base.add(48)));
+                    acc7 = vaddq_s16(acc7, vld1q_s16(base.add(56)));
+                    acc8 = vaddq_s16(acc8, vld1q_s16(base.add(64)));
+                    acc9 = vaddq_s16(acc9, vld1q_s16(base.add(72)));
+                    acc10 = vaddq_s16(acc10, vld1q_s16(base.add(80)));
+                    acc11 = vaddq_s16(acc11, vld1q_s16(base.add(88)));
+                    acc12 = vaddq_s16(acc12, vld1q_s16(base.add(96)));
+                    acc13 = vaddq_s16(acc13, vld1q_s16(base.add(104)));
+                    acc14 = vaddq_s16(acc14, vld1q_s16(base.add(112)));
+                    acc15 = vaddq_s16(acc15, vld1q_s16(base.add(120)));
+                }};
+            }
+
+            let mut feature_idx = 0;
+            while feature_idx < NUM_FEATURES {
+                accumulate_feature_lo!(feature_idx);
+                feature_idx += 1;
+            }
+
+            vst1q_s16(lo_acc_ptr, acc0);
+            vst1q_s16(lo_acc_ptr.add(8), acc1);
+            vst1q_s16(lo_acc_ptr.add(16), acc2);
+            vst1q_s16(lo_acc_ptr.add(24), acc3);
+            vst1q_s16(lo_acc_ptr.add(32), acc4);
+            vst1q_s16(lo_acc_ptr.add(40), acc5);
+            vst1q_s16(lo_acc_ptr.add(48), acc6);
+            vst1q_s16(lo_acc_ptr.add(56), acc7);
+            vst1q_s16(lo_acc_ptr.add(64), acc8);
+            vst1q_s16(lo_acc_ptr.add(72), acc9);
+            vst1q_s16(lo_acc_ptr.add(80), acc10);
+            vst1q_s16(lo_acc_ptr.add(88), acc11);
+            vst1q_s16(lo_acc_ptr.add(96), acc12);
+            vst1q_s16(lo_acc_ptr.add(104), acc13);
+            vst1q_s16(lo_acc_ptr.add(112), acc14);
+            vst1q_s16(lo_acc_ptr.add(120), acc15);
+
+            let mut acc0 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS));
+            let mut acc1 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 8));
+            let mut acc2 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 16));
+            let mut acc3 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 24));
+            let mut acc4 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 32));
+            let mut acc5 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 40));
+            let mut acc6 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 48));
+            let mut acc7 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 56));
+            let mut acc8 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 64));
+            let mut acc9 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 72));
+            let mut acc10 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 80));
+            let mut acc11 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 88));
+            let mut acc12 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 96));
+            let mut acc13 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 104));
+            let mut acc14 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 112));
+            let mut acc15 = vld1q_s16(bias_ptr.add(OUTPUT_DIMS + 120));
+
+            macro_rules! accumulate_feature_hi {
+                ($feature_idx:expr) => {{
+                    let idx =
+                        feature_offset(pattern_feature, $feature_idx) * HIDDEN_DIMS + OUTPUT_DIMS;
+                    let base = weights_ptr.add(idx);
+                    acc0 = vaddq_s16(acc0, vld1q_s16(base));
+                    acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
+                    acc2 = vaddq_s16(acc2, vld1q_s16(base.add(16)));
+                    acc3 = vaddq_s16(acc3, vld1q_s16(base.add(24)));
+                    acc4 = vaddq_s16(acc4, vld1q_s16(base.add(32)));
+                    acc5 = vaddq_s16(acc5, vld1q_s16(base.add(40)));
+                    acc6 = vaddq_s16(acc6, vld1q_s16(base.add(48)));
+                    acc7 = vaddq_s16(acc7, vld1q_s16(base.add(56)));
+                    acc8 = vaddq_s16(acc8, vld1q_s16(base.add(64)));
+                    acc9 = vaddq_s16(acc9, vld1q_s16(base.add(72)));
+                    acc10 = vaddq_s16(acc10, vld1q_s16(base.add(80)));
+                    acc11 = vaddq_s16(acc11, vld1q_s16(base.add(88)));
+                    acc12 = vaddq_s16(acc12, vld1q_s16(base.add(96)));
+                    acc13 = vaddq_s16(acc13, vld1q_s16(base.add(104)));
+                    acc14 = vaddq_s16(acc14, vld1q_s16(base.add(112)));
+                    acc15 = vaddq_s16(acc15, vld1q_s16(base.add(120)));
+                }};
+            }
+
+            feature_idx = 0;
+            while feature_idx < NUM_FEATURES {
+                accumulate_feature_hi!(feature_idx);
+                feature_idx += 1;
+            }
+
             let one = vdupq_n_s16(ACTIVATION_MAX);
             let zero = vdupq_n_s16(0);
-            let mut in0_ptr = acc_ptr;
-            let mut in1_ptr = acc_ptr.add((num_regs / 2) * LANES_PER_REG);
+            let output_ptr = output.as_mut_ptr();
 
-            for _ in 0..iterations {
-                let in00 = vld1q_s16(in0_ptr);
-                let in01 = vld1q_s16(in0_ptr.add(LANES_PER_REG));
-                in0_ptr = in0_ptr.add(2 * LANES_PER_REG);
-                let in10 = vld1q_s16(in1_ptr);
-                let in11 = vld1q_s16(in1_ptr.add(LANES_PER_REG));
-                in1_ptr = in1_ptr.add(2 * LANES_PER_REG);
-
-                // SQDMULH computes sat((x*y*2) >> 16), so pre-shift sum0 by 5 (not 6)
-                // to match the x86 mulhi(sum0<<6, sum1) semantics. Inputs stay well
-                // within saturation bounds (|sum0*sum1*2| < 2^31, |>>16| < 2^15).
-                let sum0a = vshlq_n_s16::<5>(vmaxq_s16(vminq_s16(in00, one), zero));
-                let sum0b = vshlq_n_s16::<5>(vmaxq_s16(vminq_s16(in01, one), zero));
-                let sum1a = vminq_s16(in10, one);
-                let sum1b = vminq_s16(in11, one);
-
-                let pa = vqdmulhq_s16(sum0a, sum1a);
-                let pb = vqdmulhq_s16(sum0b, sum1b);
-
-                let packed = vcombine_u8(vqmovun_s16(pa), vqmovun_s16(pb));
-                vst1q_u8(output_ptr, packed);
-                output_ptr = output_ptr.add(2 * LANES_PER_REG);
+            macro_rules! activate_pair {
+                ($lo_idx:expr, $hi0:ident, $hi1:ident, $dst:expr) => {{
+                    let lo0 = vshlq_n_s16::<5>(vmaxq_s16(
+                        vminq_s16(vld1q_s16(lo_acc_ptr.add($lo_idx)), one),
+                        zero,
+                    ));
+                    let lo1 = vshlq_n_s16::<5>(vmaxq_s16(
+                        vminq_s16(vld1q_s16(lo_acc_ptr.add($lo_idx + 8)), one),
+                        zero,
+                    ));
+                    let hi0 = vminq_s16($hi0, one);
+                    let hi1 = vminq_s16($hi1, one);
+                    let out0 = vqdmulhq_s16(lo0, hi0);
+                    let out1 = vqdmulhq_s16(lo1, hi1);
+                    vst1q_u8(
+                        output_ptr.add($dst * 16),
+                        vcombine_u8(vqmovun_s16(out0), vqmovun_s16(out1)),
+                    );
+                }};
             }
+
+            activate_pair!(0, acc0, acc1, 0);
+            activate_pair!(16, acc2, acc3, 1);
+            activate_pair!(32, acc4, acc5, 2);
+            activate_pair!(48, acc6, acc7, 3);
+            activate_pair!(64, acc8, acc9, 4);
+            activate_pair!(80, acc10, acc11, 5);
+            activate_pair!(96, acc12, acc13, 6);
+            activate_pair!(112, acc14, acc15, 7);
         }
     }
 
@@ -276,70 +433,42 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::pattern_feature::INPUT_FEATURE_DIMS;
     use aligned_vec::avec;
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     use super::super::simd_layout::permute_rows;
 
-    /// Pair-wise multiplication on the natural-layout `acc`: clamp `acc[i]` and
-    /// `acc[OUT + i]` to `[0, ACTIVATION_MAX]`, multiply, and shift right by
-    /// `ACTIVATION_SHIFT` — the algebraic specification all SIMD paths and the
-    /// scalar fallback compute.
-    #[allow(dead_code)]
-    fn scalar_reference<const HIDDEN: usize, const OUT: usize>(
-        acc: &[i16; HIDDEN],
-        output: &mut [u8; OUT],
-    ) {
-        assert_eq!(OUT * 2, HIDDEN);
-        let (lo, hi) = acc.split_at(OUT);
-        for ((o, &v0), &v1) in output.iter_mut().zip(lo).zip(hi) {
-            let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
-            let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
-            *o = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
-        }
-    }
-
-    /// Builds an `acc` covering negatives, zero, mid-range, > ACTIVATION_MAX,
-    /// and (for large `HIDDEN`) wraparound values near `i16::MIN` so that the
-    /// negative-saturation path of `packus`/`vqmovun_s16` is exercised.
-    #[allow(dead_code)]
-    fn make_acc<const HIDDEN: usize>(seed: i32) -> Align64<[i16; HIDDEN]> {
-        let mut acc = Align64([0i16; HIDDEN]);
-        for (i, v) in acc.0.iter_mut().enumerate() {
-            *v = ((i as i32) * 91 + seed * 11 - 1500) as i16;
-        }
-        acc
-    }
-
-    /// `apply_activation_*` only reads `acc`; bias/weight contents are irrelevant
-    /// for these tests.
-    #[allow(dead_code)]
-    fn make_layer<const HIDDEN: usize, const OUT: usize>() -> BaseInput<1, OUT, HIDDEN> {
-        BaseInput {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
-        }
-    }
-
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn apply_activation_neon_matches_scalar() {
-        fn run<const HIDDEN: usize, const OUT: usize>(seed: i32) {
-            const { assert!(HIDDEN == OUT * 2) };
-            let layer: BaseInput<1, OUT, HIDDEN> = make_layer();
-            let acc = make_acc::<HIDDEN>(seed);
-
-            let mut neon_out = [0u8; OUT];
-            let mut expected = [0u8; OUT];
-            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-            unsafe { layer.apply_activation_neon(&acc.0, &mut neon_out) };
-            scalar_reference::<HIDDEN, OUT>(&acc.0, &mut expected);
-            assert_eq!(neon_out, expected);
+    fn forward_neon_256_matches_fallback() {
+        const OUT: usize = 128;
+        const HIDDEN: usize = OUT * 2;
+        let mut pattern_feature = PatternFeature::new();
+        for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
+            pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
-        // HIDDEN must be a multiple of 32 so num_regs/4 iterates at least once.
-        run::<64, 32>(1);
-        run::<128, 64>(7);
-        run::<256, 128>(13);
+
+        let mut layer = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN],
+        };
+
+        for (idx, bias) in layer.biases.iter_mut().enumerate() {
+            *bias = ((idx as i32 * 19 + 7) % 997 - 498) as i16;
+        }
+
+        for (idx, weight) in layer.weights.iter_mut().enumerate() {
+            *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
+        }
+
+        let mut expected = Align64([0u8; OUT]);
+        let mut actual = Align64([0u8; OUT]);
+        layer.forward_fallback(&pattern_feature, expected.as_mut_slice());
+        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+        unsafe { layer.forward_neon(&pattern_feature, actual.as_mut_slice()) };
+
+        assert_eq!(actual.as_ref(), expected.as_ref());
     }
 
     #[test]
@@ -348,54 +477,79 @@ mod tests {
         target_feature = "avx2",
         not(target_feature = "avx512bw"),
     ))]
-    fn apply_activation_avx2_matches_scalar() {
-        fn run<const HIDDEN: usize, const OUT: usize>(seed: i32) {
-            const { assert!(HIDDEN == OUT * 2) };
-            let layer: BaseInput<1, OUT, HIDDEN> = make_layer();
-            let acc_natural = make_acc::<HIDDEN>(seed);
-
-            // The AVX2 path reads `acc` in pre-permuted layout — match the
-            // bias/weight permutation that `BaseInput::load` applies, so the
-            // SIMD output recovers the natural pairing.
-            let mut acc_permuted = acc_natural;
-            permute_rows(&mut acc_permuted.0, HIDDEN);
-
-            let mut simd_out = Align64([0u8; OUT]);
-            let mut expected = [0u8; OUT];
-            // SAFETY: AVX2 is asserted by the cfg above; output is 64-byte aligned.
-            unsafe { layer.apply_activation_avx2(&acc_permuted.0, &mut simd_out.0) };
-            scalar_reference::<HIDDEN, OUT>(&acc_natural.0, &mut expected);
-            assert_eq!(simd_out.0, expected);
+    fn forward_avx2_256_matches_fallback() {
+        const OUT: usize = 128;
+        const HIDDEN: usize = OUT * 2;
+        let mut pattern_feature = PatternFeature::new();
+        for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
+            pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
-        // HIDDEN must be a multiple of 64 (AVX2 forward-pass requirement).
-        run::<64, 32>(1);
-        run::<128, 64>(7);
-        run::<256, 128>(13);
+
+        let mut natural = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN],
+        };
+
+        for (idx, bias) in natural.biases.iter_mut().enumerate() {
+            *bias = ((idx as i32 * 19 + 7) % 997 - 498) as i16;
+        }
+
+        for (idx, weight) in natural.weights.iter_mut().enumerate() {
+            *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
+        }
+
+        let mut simd = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
+            biases: natural.biases.clone(),
+            weights: natural.weights.clone(),
+        };
+        permute_rows(simd.biases.as_mut_slice(), HIDDEN);
+        permute_rows(simd.weights.as_mut_slice(), HIDDEN);
+
+        let mut expected = Align64([0u8; OUT]);
+        let mut actual = Align64([0u8; OUT]);
+        natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
+        // SAFETY: AVX2 is asserted by the cfg above; output is 64-byte aligned.
+        unsafe { simd.forward_avx2(&pattern_feature, actual.as_mut_slice()) };
+
+        assert_eq!(actual.as_ref(), expected.as_ref());
     }
 
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn apply_activation_avx512_matches_scalar() {
-        fn run<const HIDDEN: usize, const OUT: usize>(seed: i32) {
-            const { assert!(HIDDEN == OUT * 2) };
-            let layer: BaseInput<1, OUT, HIDDEN> = make_layer();
-            let acc_natural = make_acc::<HIDDEN>(seed);
-
-            // Same pre-permute trick as the AVX2 test, but `permute_rows`
-            // automatically picks the AVX-512 ordering when avx512bw is on.
-            let mut acc_permuted = acc_natural;
-            permute_rows(&mut acc_permuted.0, HIDDEN);
-
-            let mut simd_out = Align64([0u8; OUT]);
-            let mut expected = [0u8; OUT];
-            // SAFETY: AVX-512BW is asserted by the cfg above; output is 64-byte aligned.
-            unsafe { layer.apply_activation_avx512(&acc_permuted.0, &mut simd_out.0) };
-            scalar_reference::<HIDDEN, OUT>(&acc_natural.0, &mut expected);
-            assert_eq!(simd_out.0, expected);
+    fn forward_avx512_256_matches_fallback() {
+        const OUT: usize = 128;
+        const HIDDEN: usize = OUT * 2;
+        let mut pattern_feature = PatternFeature::new();
+        for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
+            pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
-        // HIDDEN must be a multiple of 128 (AVX-512 forward-pass requirement).
-        run::<128, 64>(1);
-        run::<256, 128>(7);
-        run::<512, 256>(13);
+
+        let mut natural = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN],
+        };
+
+        for (idx, bias) in natural.biases.iter_mut().enumerate() {
+            *bias = ((idx as i32 * 19 + 7) % 997 - 498) as i16;
+        }
+
+        for (idx, weight) in natural.weights.iter_mut().enumerate() {
+            *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
+        }
+
+        let mut simd = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
+            biases: natural.biases.clone(),
+            weights: natural.weights.clone(),
+        };
+        permute_rows(simd.biases.as_mut_slice(), HIDDEN);
+        permute_rows(simd.weights.as_mut_slice(), HIDDEN);
+
+        let mut expected = Align64([0u8; OUT]);
+        let mut actual = Align64([0u8; OUT]);
+        natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
+        // SAFETY: AVX-512BW is asserted by the cfg above; output is 64-byte aligned.
+        unsafe { simd.forward_avx512(&pattern_feature, actual.as_mut_slice()) };
+
+        assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }
