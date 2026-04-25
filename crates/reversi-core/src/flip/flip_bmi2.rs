@@ -2,7 +2,8 @@
 //! Based on flip_bmi2.c from edax-reversi.
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_bmi2.c>
 
-use crate::bit::{bextr_u32, pdep_u64, pext_u64};
+use std::arch::x86_64::{_pdep_u64, _pext_u64};
+
 use crate::square::Square;
 
 #[rustfmt::skip]
@@ -232,25 +233,27 @@ pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     let mut of_index: usize;
     let masked_p = p & MASK_X[sq_index][3];
 
-    of_index = bextr_u32((o >> y) as u32, 1, 6) as usize;
+    of_index = (((o >> y) as u32 >> 1) & 0x3F) as usize;
     index = (OUTFLANK[x][of_index] as u64 & (masked_p >> y)) as usize;
     flipped = (FLIPPED[x][index] as u64) << y;
 
-    y >>= 3;
-    mask = MASK_X[sq_index][0];
-    of_index = bextr_u32(pext_u64(o, mask) as u32, 1, 6) as usize;
-    index = (OUTFLANK[y][of_index] as u64 & pext_u64(masked_p, mask)) as usize;
-    flipped |= pdep_u64(FLIPPED[y][index] as u64, mask);
+    unsafe {
+        y >>= 3;
+        mask = MASK_X[sq_index][0];
+        of_index = ((_pext_u64(o, mask) as u32 >> 1) & 0x3F) as usize;
+        index = (OUTFLANK[y][of_index] as u64 & _pext_u64(masked_p, mask)) as usize;
+        flipped |= _pdep_u64(FLIPPED[y][index] as u64, mask);
 
-    mask = MASK_X[sq_index][1];
-    of_index = bextr_u32(pext_u64(o, mask) as u32, 1, 6) as usize;
-    index = (OUTFLANK[y][of_index] as u64 & pext_u64(masked_p, mask)) as usize;
-    flipped |= pdep_u64(FLIPPED[y][index] as u64, mask);
+        mask = MASK_X[sq_index][1];
+        of_index = ((_pext_u64(o, mask) as u32 >> 1) & 0x3F) as usize;
+        index = (OUTFLANK[y][of_index] as u64 & _pext_u64(masked_p, mask)) as usize;
+        flipped |= _pdep_u64(FLIPPED[y][index] as u64, mask);
 
-    mask = MASK_X[sq_index][2];
-    of_index = bextr_u32(pext_u64(o, mask) as u32, 1, 6) as usize;
-    index = (OUTFLANK[y][of_index] as u64 & pext_u64(masked_p, mask)) as usize;
-    flipped |= pdep_u64(FLIPPED[y][index] as u64, mask);
+        mask = MASK_X[sq_index][2];
+        of_index = ((_pext_u64(o, mask) as u32 >> 1) & 0x3F) as usize;
+        index = (OUTFLANK[y][of_index] as u64 & _pext_u64(masked_p, mask)) as usize;
+        flipped |= _pdep_u64(FLIPPED[y][index] as u64, mask);
+    }
 
     flipped
 }
