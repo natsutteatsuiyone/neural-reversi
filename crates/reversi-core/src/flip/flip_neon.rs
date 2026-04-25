@@ -10,6 +10,17 @@ use super::lrmask::LRMASK;
 use crate::square::Square;
 use std::arch::aarch64::*;
 
+// Per-lane right-shift counts (encoded as negative `vshlq_u64` arguments).
+// Pair A holds the orthogonal directions (W=1, N=8); pair B holds the
+// diagonals (NW=9, NE=7). Hoisted to statics so the addresses are taken
+// once, not materialized on the stack each call.
+static SH1_A: [i64; 2] = [-1, -8];
+static SH1_B: [i64; 2] = [-9, -7];
+static SH2_A: [i64; 2] = [-2, -16];
+static SH2_B: [i64; 2] = [-18, -14];
+static SH4_A: [i64; 2] = [-4, -32];
+static SH4_B: [i64; 2] = [-36, -28];
+
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
 ///
 /// # Safety
@@ -58,12 +69,12 @@ pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
         let rp_b = vandq_u64(pp, mask_r_b);
 
         // Per-lane right shifts via vshlq with negative counts.
-        let sh1_a = vld1q_s64([-1_i64, -8].as_ptr());
-        let sh1_b = vld1q_s64([-9_i64, -7].as_ptr());
-        let sh2_a = vld1q_s64([-2_i64, -16].as_ptr());
-        let sh2_b = vld1q_s64([-18_i64, -14].as_ptr());
-        let sh4_a = vld1q_s64([-4_i64, -32].as_ptr());
-        let sh4_b = vld1q_s64([-36_i64, -28].as_ptr());
+        let sh1_a = vld1q_s64(SH1_A.as_ptr());
+        let sh1_b = vld1q_s64(SH1_B.as_ptr());
+        let sh2_a = vld1q_s64(SH2_A.as_ptr());
+        let sh2_b = vld1q_s64(SH2_B.as_ptr());
+        let sh4_a = vld1q_s64(SH4_A.as_ptr());
+        let sh4_b = vld1q_s64(SH4_B.as_ptr());
 
         let mut rs_a = vorrq_u64(rp_a, vshlq_u64(rp_a, sh1_a));
         let mut rs_b = vorrq_u64(rp_b, vshlq_u64(rp_b, sh1_b));
@@ -85,7 +96,8 @@ pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
         let flip_a = vorrq_u64(flip_l_a, flip_r_a);
         let flip_b = vorrq_u64(flip_l_b, flip_r_b);
         let flip = vorrq_u64(flip_a, flip_b);
-        vgetq_lane_u64::<0>(flip) | vgetq_lane_u64::<1>(flip)
+        let folded = vorr_u64(vget_low_u64(flip), vget_high_u64(flip));
+        vget_lane_u64::<0>(folded)
     }
 }
 
