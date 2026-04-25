@@ -6,7 +6,7 @@ below. Each crate's license text is reproduced in full.
 
 Overview
 --------
-Apache License 2.0 (306)
+Apache License 2.0 (307)
 MIT License (129)
 Unicode License v3 (19)
 Mozilla Public License 2.0 (7)
@@ -3012,7 +3012,7 @@ Apache License 2.0
 ================================================================
 
 Applies to:
-  * typenum 1.19.0
+  * typenum 1.20.0
 ----------------------------------------------------------------
 
                               Apache License
@@ -5002,15 +5002,17 @@ Applies to:
   * url 2.5.8
   * uuid 1.23.1
   * wasi 0.11.1+wasi-snapshot-preview1
+  * wasip2 1.0.3+wasi-0.2.9
   * wasm-bindgen-futures 0.4.68
   * wasm-bindgen-macro-support 0.2.118
   * wasm-bindgen-macro 0.2.118
   * wasm-bindgen-shared 0.2.118
   * wasm-bindgen 0.2.118
   * web-sys 0.3.95
-  * web_atoms 0.2.3
+  * web_atoms 0.2.4
   * window-vibrancy 0.6.0
   * wit-bindgen 0.51.0
+  * wit-bindgen 0.57.1
   * wry 0.54.4
 ----------------------------------------------------------------
 
@@ -7365,7 +7367,7 @@ Applies to:
   * ident_case 1.0.1
   * itoa 1.0.18
   * jni-sys-macros 0.4.1
-  * libc 0.2.185
+  * libc 0.2.186
   * mac 0.1.1
   * match_token 0.1.0
   * miniz_oxide 0.8.9
@@ -7388,7 +7390,7 @@ Applies to:
   * r-efi 5.3.0
   * r-efi 6.0.0
   * rand 0.10.1
-  * rand 0.8.5
+  * rand 0.8.6
   * raw-window-handle 0.6.2
   * rustc-hash 2.1.2
   * rustversion 1.0.22
@@ -7428,7 +7430,6 @@ Applies to:
   * unic-ucd-version 0.9.0
   * unicode-ident 1.0.24
   * utf-8 0.7.6
-  * wasip2 1.0.2+wasi-0.2.9
   * wasip3 0.4.0+wasi-0.3.0-rc-2026-01-06
   * wasm-streams 0.5.0
   * winapi-i686-pc-windows-gnu 0.4.0
@@ -7601,8 +7602,8 @@ GNU General Public License v3.0 or later
 ================================================================
 
 Applies to:
-  * gui 5.0.0
-  * reversi-core 5.0.0
+  * gui 6.0.0
+  * reversi-core 6.0.0
 ----------------------------------------------------------------
 
 GNU GENERAL PUBLIC LICENSE
@@ -9001,7 +9002,7 @@ MIT License
 
 Applies to:
   * tokio-util 0.7.18
-  * tokio 1.52.0
+  * tokio 1.52.1
 ----------------------------------------------------------------
 
 MIT License
@@ -9104,7 +9105,7 @@ MIT License
 Applies to:
   * winnow 0.5.40
   * winnow 0.7.15
-  * winnow 1.0.1
+  * winnow 1.0.2
 ----------------------------------------------------------------
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -9481,7 +9482,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * open 5.3.3
+  * open 5.3.4
 ----------------------------------------------------------------
 
 The MIT License (MIT)
@@ -11781,13 +11782,14 @@ The following npm packages may be included in this product:
  - @types/d3-time@3.0.4
  - @types/d3-timer@3.0.2
  - @types/draco3d@1.4.10
- - @types/node@25.5.0
+ - @types/node@25.6.0
  - @types/offscreencanvas@2019.7.3
  - @types/react-dom@19.2.3
  - @types/react-reconciler@0.28.9
  - @types/react@19.2.14
  - @types/stats.js@0.17.4
  - @types/three@0.183.1
+ - @types/three@0.184.0
  - @types/use-sync-external-store@0.0.6
  - @types/webxr@0.5.24
 
@@ -12235,7 +12237,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - vite@8.0.3
+ - vite@8.0.10
 
 This package contains the following license:
 
@@ -13790,7 +13792,7 @@ Repository: https://github.com/jshttp/on-finished
 
 ## parse5
 License: MIT
-By: Ivan Nikulin, https://github.com/inikulin/parse5/graphs/contributors
+By: Ivan Nikulin, James Garbutt, Felix Boehm, Titus
 Repository: https://github.com/inikulin/parse5
 
 > Copyright (c) 2013-2019 Ivan Nikulin (ifaaan@gmail.com, https://github.com/inikulin)
@@ -14490,7 +14492,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 The following npm package may be included in this product:
 
- - typescript@6.0.2
+ - typescript@6.0.3
 
 This package contains the following license:
 
@@ -15185,7 +15187,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 The following npm package may be included in this product:
 
- - lucide-react@1.7.0
+ - lucide-react@1.11.0
 
 This package contains the following license:
 
@@ -15249,10 +15251,10 @@ The following npm packages may be included in this product:
  - @radix-ui/react-use-rect@1.1.1
  - @radix-ui/react-use-size@1.1.1
  - @radix-ui/rect@1.1.1
- - @react-three/fiber@9.5.0
+ - @react-three/fiber@9.6.0
  - @rolldown/binding-linux-x64-gnu@1.0.0-rc.12
  - @rolldown/binding-linux-x64-musl@1.0.0-rc.12
- - @rolldown/binding-win32-x64-msvc@1.0.0-rc.12
+ - @rolldown/binding-win32-x64-msvc@1.0.0-rc.17
  - html-parse-stringify@3.0.1
  - maath@0.10.8
  - react-remove-scroll-bar@2.3.8
@@ -15345,6 +15347,36 @@ This package contains the following license:
 MIT License
 
 Copyright (c) 2016-2025 Arseny Kapoulkine
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------
+
+The following npm package may be included in this product:
+
+ - meshoptimizer@1.1.1
+
+This package contains the following license:
+
+MIT License
+
+Copyright (c) 2016-2026 Arseny Kapoulkine
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -16210,7 +16242,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - tinyglobby@0.2.15
+ - tinyglobby@0.2.16
 
 This package contains the following license:
 
@@ -16276,8 +16308,8 @@ The copyright for this imported test code from lodash is owned by the JS Foundat
 
 The following npm packages may be included in this product:
 
- - @rolldown/pluginutils@1.0.0-rc.12
- - rolldown@1.0.0-rc.12
+ - @rolldown/pluginutils@1.0.0-rc.17
+ - rolldown@1.0.0-rc.17
 
 These packages each contain the following license:
 
@@ -16311,7 +16343,7 @@ The licenses of externally maintained libraries from which parts of the Software
 
 The following npm package may be included in this product:
 
- - @oxc-project/types@0.122.0
+ - @oxc-project/types@0.127.0
 
 This package contains the following license:
 
@@ -16378,7 +16410,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 The following npm package may be included in this product:
 
- - undici-types@7.18.2
+ - undici-types@7.19.2
 
 This package contains the following license:
 
@@ -16408,8 +16440,8 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - react-dom@19.2.4
- - react@19.2.4
+ - react-dom@19.2.5
+ - react@19.2.5
  - scheduler@0.27.0
  - use-sync-external-store@1.5.0
  - use-sync-external-store@1.6.0
@@ -16491,13 +16523,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 The following npm packages may be included in this product:
 
- - @tailwindcss/node@4.2.2
+ - @tailwindcss/node@4.2.4
  - @tailwindcss/oxide-linux-x64-gnu@4.2.2
  - @tailwindcss/oxide-linux-x64-musl@4.2.2
- - @tailwindcss/oxide-win32-x64-msvc@4.2.2
- - @tailwindcss/oxide@4.2.2
- - @tailwindcss/vite@4.2.2
- - tailwindcss@4.2.2
+ - @tailwindcss/oxide-win32-x64-msvc@4.2.4
+ - @tailwindcss/oxide@4.2.4
+ - @tailwindcss/vite@4.2.4
+ - tailwindcss@4.2.4
 
 These packages each contain the following license:
 
@@ -16879,7 +16911,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - three@0.183.2
+ - three@0.184.0
 
 This package contains the following license:
 
@@ -16939,7 +16971,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - i18next@26.0.2
+ - i18next@26.0.8
 
 This package contains the following license:
 
@@ -17059,7 +17091,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - react-i18next@17.0.1
+ - react-i18next@17.0.4
 
 This package contains the following license:
 
@@ -17117,12 +17149,11 @@ SOFTWARE.
 
 -----------
 
-The following npm packages may be included in this product:
+The following npm package may be included in this product:
 
- - picomatch@4.0.3
  - picomatch@4.0.4
 
-These packages each contain the following license:
+This package contains the following license:
 
 The MIT License (MIT)
 
@@ -17150,7 +17181,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - react-resizable-panels@4.9.0
+ - react-resizable-panels@4.10.0
 
 This package contains the following license:
 
@@ -17331,13 +17362,13 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - postcss@8.5.8
+ - postcss@8.5.10
 
 This package contains the following license:
 
 The MIT License (MIT)
 
-Copyright 2013 Andrey Sitnik <andrey@sitnik.ru>
+Copyright 2013 Andrey Sitnik <andrey@sitnik.es>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
