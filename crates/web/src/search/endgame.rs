@@ -109,7 +109,7 @@ fn null_window_search_with_ec(
     let mut best_score = -SCORE_INF;
     if move_list.count() >= 2 {
         evaluate_moves_fast(&mut move_list, ctx, board, Square::None);
-        for mv in move_list.into_best_first_iter() {
+        for mv in move_list.best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.update_endgame(mv.sq);
             let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {

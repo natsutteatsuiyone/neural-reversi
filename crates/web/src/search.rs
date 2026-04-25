@@ -461,7 +461,7 @@ pub fn evaluate_depth2(
     }
 
     let mut best_score = -ScaledScore::INF;
-    for mv in move_list.into_best_first_iter() {
+    for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
         ctx.update(mv.sq, mv.flipped);

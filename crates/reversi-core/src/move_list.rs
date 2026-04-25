@@ -142,8 +142,8 @@ impl MoveList {
 
     /// Returns an iterator that yields moves in order of decreasing value.
     #[inline]
-    pub fn into_best_first_iter(self) -> BestFirstMoveIterator {
-        BestFirstMoveIterator::new(self.moves)
+    pub fn best_first_iter(&mut self) -> BestFirstMoveIterator<'_> {
+        BestFirstMoveIterator::new(&mut self.moves)
     }
 
     /// Evaluates all moves and assigns ordering values.
@@ -390,16 +390,14 @@ impl ConcurrentMoveIterator {
 /// move on each call to next(). This is more efficient than full sorting when
 /// only the first few moves are needed, which is common in alpha-beta search
 /// due to early cutoffs.
-pub struct BestFirstMoveIterator {
-    /// Owned moves array, partially sorted as iteration progresses.
-    moves: ArrayVec<Move, MAX_MOVES>,
+pub struct BestFirstMoveIterator<'a> {
+    moves: &'a mut [Move],
     current: usize,
 }
 
-impl BestFirstMoveIterator {
-    /// Creates a new owning best-first iterator from a moves array.
+impl<'a> BestFirstMoveIterator<'a> {
     #[inline]
-    pub fn new(moves: ArrayVec<Move, MAX_MOVES>) -> Self {
+    fn new(moves: &'a mut [Move]) -> Self {
         BestFirstMoveIterator { moves, current: 0 }
     }
 
@@ -410,7 +408,7 @@ impl BestFirstMoveIterator {
     }
 }
 
-impl Iterator for BestFirstMoveIterator {
+impl Iterator for BestFirstMoveIterator<'_> {
     type Item = Move;
 
     /// Returns the next best move, consuming it.
@@ -463,7 +461,7 @@ impl Iterator for BestFirstMoveIterator {
     }
 }
 
-impl ExactSizeIterator for BestFirstMoveIterator {}
+impl ExactSizeIterator for BestFirstMoveIterator<'_> {}
 
 #[cfg(test)]
 mod tests {
@@ -582,7 +580,7 @@ mod tests {
         move_list.moves[2].value = 15;
         move_list.moves[3].value = 2;
 
-        let mut iter = move_list.into_best_first_iter();
+        let mut iter = move_list.best_first_iter();
         assert_eq!(iter.next().unwrap().value, 15);
         assert_eq!(iter.next().unwrap().value, 10);
         assert_eq!(iter.next().unwrap().value, 5);
@@ -601,7 +599,7 @@ mod tests {
         }
 
         let total = move_list.count();
-        let iter = move_list.into_best_first_iter();
+        let iter = move_list.best_first_iter();
         let mut count = 0;
         for mv in iter {
             assert_eq!(mv.value, 100);
@@ -614,10 +612,10 @@ mod tests {
     #[test]
     fn test_best_first_iter_empty_list() {
         let board = Board::from_bitboards(u64::MAX, 0);
-        let move_list = MoveList::new(&board);
+        let mut move_list = MoveList::new(&board);
         assert_eq!(move_list.count(), 0);
 
-        let mut iter = move_list.into_best_first_iter();
+        let mut iter = move_list.best_first_iter();
         assert!(iter.next().is_none());
     }
 
@@ -637,10 +635,10 @@ mod tests {
         )
         .unwrap();
 
-        let move_list = MoveList::new(&board);
+        let mut move_list = MoveList::new(&board);
         assert_eq!(move_list.count(), 1);
 
-        let mut iter = move_list.into_best_first_iter();
+        let mut iter = move_list.best_first_iter();
         assert!(iter.next().is_some());
         assert!(iter.next().is_none());
     }
@@ -656,7 +654,7 @@ mod tests {
         }
 
         let count = move_list.count();
-        let iter = move_list.into_best_first_iter();
+        let iter = move_list.best_first_iter();
         let mut seen_values = HashSet::new();
 
         for mv in iter {

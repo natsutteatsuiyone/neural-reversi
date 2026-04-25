@@ -371,7 +371,7 @@ fn null_window_search_with_ec(
     let mut best_score = -SCORE_INF;
     if move_list.count() >= 4 {
         move_list.evaluate_moves_fast(ctx, board, Square::None);
-        for mv in move_list.into_best_first_iter() {
+        for mv in move_list.best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc);
 
