@@ -338,7 +338,7 @@ impl Board {
         let mut bytes = [0u8; 16];
         bytes[..8].copy_from_slice(&self.player.bits().to_ne_bytes());
         bytes[8..].copy_from_slice(&self.opponent.bits().to_ne_bytes());
-        v3::rapidhash_v3_nano_inline::<true, false>(&bytes, &v3::DEFAULT_RAPID_SECRETS)
+        v3::rapidhash_v3_nano_inline::<false, false>(&bytes, &v3::DEFAULT_RAPID_SECRETS)
     }
 
     /// Applies a [`Bitboard`] transformation to both player and opponent.
