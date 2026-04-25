@@ -364,19 +364,21 @@ impl BaseInput {
             }
 
             let one = vdupq_n_s16(ACTIVATION_MAX);
-            let zero = vdupq_n_s16(0);
             let output_ptr = output.as_mut_ptr();
 
+            // SQSHLU fuses clamp-to-non-negative with the <<5 step:
+            // negative inputs saturate to 0, and after `vminq_s16(_, one)`
+            // the post-shift max is 510<<5 = 16320, well within u16.
             macro_rules! activate_pair {
                 ($lo_idx:expr, $hi0:ident, $hi1:ident, $dst:expr) => {{
-                    let lo0 = vshlq_n_s16::<5>(vmaxq_s16(
-                        vminq_s16(vld1q_s16(lo_acc_ptr.add($lo_idx)), one),
-                        zero,
-                    ));
-                    let lo1 = vshlq_n_s16::<5>(vmaxq_s16(
-                        vminq_s16(vld1q_s16(lo_acc_ptr.add($lo_idx + 8)), one),
-                        zero,
-                    ));
+                    let lo0 = vreinterpretq_s16_u16(vqshluq_n_s16::<5>(vminq_s16(
+                        vld1q_s16(lo_acc_ptr.add($lo_idx)),
+                        one,
+                    )));
+                    let lo1 = vreinterpretq_s16_u16(vqshluq_n_s16::<5>(vminq_s16(
+                        vld1q_s16(lo_acc_ptr.add($lo_idx + 8)),
+                        one,
+                    )));
                     let hi0 = vminq_s16($hi0, one);
                     let hi1 = vminq_s16($hi1, one);
                     let out0 = vqdmulhq_s16(lo0, hi0);

@@ -624,17 +624,15 @@ impl NetworkSmall {
             accumulate_feature!(30);
             accumulate_feature!(31);
 
-            // Clamp values to [0, ACTIVATION_CLAMP_MAX] for squared clipped ReLU
-            let zero = vdupq_n_s16(0);
             let clamp_max = vdupq_n_s16(ACTIVATION_CLAMP_MAX);
 
-            // Squared activation: v² >> 10.
-            // For non-negative v <= 1023, sqdmulh((v << 5), v) computes:
-            // ((2 * (v << 5) * v) >> 16) = (v² >> 10) without widening.
+            // Squared activation v² >> 10. SQSHLU<5> fuses clamp-to-non-negative
+            // with the <<5; 1023<<5 = 32736 stays within u16, and negatives
+            // saturate to 0 so the product zeroes out.
             macro_rules! clamp_and_square {
                 ($acc:ident) => {{
-                    let v = vminq_s16(vmaxq_s16($acc, zero), clamp_max);
-                    vqdmulhq_s16(vshlq_n_s16::<5>(v), v)
+                    let v_min = vminq_s16($acc, clamp_max);
+                    vqdmulhq_s16(vreinterpretq_s16_u16(vqshluq_n_s16::<5>(v_min)), v_min)
                 }};
             }
 

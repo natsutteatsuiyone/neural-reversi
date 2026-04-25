@@ -239,15 +239,17 @@ impl PhaseAdaptiveInputLayer {
             }
 
             let one = vdupq_n_s16(ACTIVATION_MAX);
-            let zero = vdupq_n_s16(0);
             let output_ptr = output.as_mut_ptr();
 
+            // SQSHLU fuses clamp-to-non-negative with the <<5 step. After
+            // `vminq_s16(_, one)` the post-shift max is 510<<5 = 16320 (within
+            // u16); negatives saturate to 0, zeroing the squared product.
             macro_rules! activate_pair {
                 ($a:ident, $b:ident, $dst:expr) => {{
-                    let a = vmaxq_s16(vminq_s16($a, one), zero);
-                    let b = vmaxq_s16(vminq_s16($b, one), zero);
-                    let a = vqdmulhq_s16(vshlq_n_s16::<5>(a), a);
-                    let b = vqdmulhq_s16(vshlq_n_s16::<5>(b), b);
+                    let a_min = vminq_s16($a, one);
+                    let b_min = vminq_s16($b, one);
+                    let a = vqdmulhq_s16(vreinterpretq_s16_u16(vqshluq_n_s16::<5>(a_min)), a_min);
+                    let b = vqdmulhq_s16(vreinterpretq_s16_u16(vqshluq_n_s16::<5>(b_min)), b_min);
                     vst1q_u8(
                         output_ptr.add($dst * 16),
                         vcombine_u8(vqmovun_s16(a), vqmovun_s16(b)),
