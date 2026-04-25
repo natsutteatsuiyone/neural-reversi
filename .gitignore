@@ -2,9 +2,11 @@
 /dist
 .vscode
 eval*.zst
+.profiles/
 
 # Ignore AI/LLM instruction files
 /.claude/
+/.agents/
 /.cursorrules
 /.cursor/
 /.goosehints
@@ -15,4 +17,3 @@ CLAUDE.md
 GEMINI.md
 /llms.txt
 /.serena
-
