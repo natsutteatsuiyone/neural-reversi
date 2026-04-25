@@ -5,17 +5,21 @@ use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 use crate::board::Board;
-use crate::eval::activations::{screlu, sqr_clipped_and_clipped_relu_16};
-use crate::eval::input_layer::{BaseInput, PhaseAdaptiveInput};
-use crate::eval::linear_layer::LinearLayer;
-use crate::eval::output_layer::OutputLayer;
-use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
+use crate::eval::network::activations::{screlu, sqr_clipped_and_clipped_relu_16};
+use crate::eval::network::input_layer::{
+    BASE_OUTPUT_DIMS, BaseInput, PA_OUTPUT_DIMS, PhaseAdaptiveInput,
+};
+use crate::eval::network::linear_layer::LinearLayer;
+use crate::eval::network::output_layer::OutputLayer;
+use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::ceil_to_multiple;
 use crate::types::ScaledScore;
 use crate::util::align::Align64;
 
-const BASE_OUTPUT_DIMS: usize = 128;
-const PA_OUTPUT_DIMS: usize = 128;
+mod activations;
+mod input_layer;
+mod linear_layer;
+mod output_layer;
 
 const L1_INPUT_DIMS: usize = BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS + 1;
 const L1_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_INPUT_DIMS, 32);
@@ -138,8 +142,8 @@ impl LayerStack {
 
 /// Main neural network structure for position evaluation.
 pub struct Network {
-    base_input: BaseInput<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>,
-    pa_input: PhaseAdaptiveInput<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>,
+    base_input: BaseInput,
+    pa_input: PhaseAdaptiveInput,
     layer_stacks: Box<[LayerStack]>,
 }
 
@@ -175,17 +179,9 @@ impl Network {
 
     fn from_reader<R: Read>(reader: R) -> io::Result<Self> {
         let mut decoder = zstd::stream::read::Decoder::new(reader)?;
-
-        let base_input =
-            BaseInput::<INPUT_FEATURE_DIMS, BASE_OUTPUT_DIMS, { BASE_OUTPUT_DIMS * 2 }>::load(
-                &mut decoder,
-            )?;
-
-        let pa_input =
-            PhaseAdaptiveInput::<INPUT_FEATURE_DIMS, PA_OUTPUT_DIMS>::load(&mut decoder)?;
-
+        let base_input = BaseInput::load(&mut decoder)?;
+        let pa_input = PhaseAdaptiveInput::load(&mut decoder)?;
         let layer_stacks = Self::load_layer_stacks(&mut decoder)?;
-
         Ok(Network {
             base_input,
             pa_input,
@@ -194,6 +190,7 @@ impl Network {
     }
 
     /// Evaluates a board position using the neural network.
+    #[inline(always)]
     pub fn evaluate(
         &self,
         board: &Board,
@@ -205,24 +202,13 @@ impl Network {
 
         NETWORK_BUFFERS.with(|buffers| {
             let mut buffers = buffers.borrow_mut();
-            let score = self.forward(&mut buffers, pattern_feature, mobility, ply);
+            self.base_input
+                .forward(pattern_feature, buffers.base_input_mut());
+            self.pa_input
+                .forward(pattern_feature, ply, buffers.pa_input_mut());
+            buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility.saturating_mul(MOBILITY_SCALE);
+            let score = self.layer_stacks[ply].forward(&mut buffers);
             score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
         })
-    }
-
-    #[inline(always)]
-    fn forward(
-        &self,
-        buffers: &mut NetworkBuffers,
-        pattern_feature: &PatternFeature,
-        mobility: u8,
-        ply: usize,
-    ) -> ScaledScore {
-        self.base_input
-            .forward(pattern_feature, buffers.base_input_mut());
-        self.pa_input
-            .forward(pattern_feature, ply, buffers.pa_input_mut());
-        buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility.saturating_mul(MOBILITY_SCALE);
-        self.layer_stacks[ply].forward(buffers)
     }
 }

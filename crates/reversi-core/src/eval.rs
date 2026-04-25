@@ -19,13 +19,9 @@ use crate::types::ScaledScore;
 
 use self::network_small::ENDGAME_START_PLY;
 
-mod activations;
 pub mod eval_cache;
-mod input_layer;
-mod linear_layer;
 mod network;
 mod network_small;
-mod output_layer;
 pub mod pattern_feature;
 mod util;
 

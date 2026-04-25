@@ -6,30 +6,34 @@ use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
-use crate::eval::pattern_feature::{NUM_FEATURES, PatternFeature};
-use crate::eval::util::{clone_biases, feature_offset};
+use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
+#[allow(unused_imports)]
+use crate::eval::pattern_feature::NUM_FEATURES;
+use crate::eval::util::clone_biases;
+#[allow(unused_imports)]
+use crate::eval::util::feature_offset;
 use crate::util::align::Align64;
 
 use super::accumulate_scalar;
 
 const ACTIVATION_MAX: i16 = 255 * 2;
 const ACTIVATION_SHIFT: u32 = 10;
+pub(in crate::eval::network) const OUTPUT_DIMS: usize = 128;
+const HIDDEN_DIMS: usize = OUTPUT_DIMS * 2;
 
 /// Neural network base input layer.
 ///
 /// Reference: <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h>
-pub struct BaseInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize> {
+pub struct BaseInput {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize>
-    BaseInput<INPUT_DIMS, OUTPUT_DIMS, HIDDEN_DIMS>
-{
+impl BaseInput {
     /// Loads network weights and biases from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS];
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * HIDDEN_DIMS];
+        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN_DIMS];
 
         reader.read_i16_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
@@ -68,12 +72,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     #[target_feature(enable = "avx512bw")]
     #[allow(dead_code)]
     fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        const {
-            assert!(HIDDEN_DIMS == 256);
-            assert!(OUTPUT_DIMS == 128);
-            assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
-        }
-
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 8;
@@ -136,12 +134,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     #[target_feature(enable = "avx2")]
     #[allow(dead_code)]
     fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        const {
-            assert!(HIDDEN_DIMS == 256);
-            assert!(OUTPUT_DIMS == 128);
-            assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
-        }
-
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 16;
@@ -253,12 +245,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
     #[target_feature(enable = "neon")]
     #[allow(dead_code)]
     fn forward_neon(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        const {
-            assert!(HIDDEN_DIMS == 256);
-            assert!(OUTPUT_DIMS == 128);
-            assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS);
-        }
-
         use std::arch::aarch64::*;
 
         unsafe {
@@ -420,7 +406,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
 
         accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
 
-        const { assert!(OUTPUT_DIMS * 2 == HIDDEN_DIMS) }
         let (lo, hi) = acc.0.split_at(OUTPUT_DIMS);
         for ((out, &v0), &v1) in output[..OUTPUT_DIMS].iter_mut().zip(lo).zip(hi) {
             let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
@@ -433,7 +418,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize, const HIDDEN_DIMS: usize
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::pattern_feature::INPUT_FEATURE_DIMS;
     use aligned_vec::avec;
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -442,16 +426,14 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     fn forward_neon_256_matches_fallback() {
-        const OUT: usize = 128;
-        const HIDDEN: usize = OUT * 2;
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
             pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
 
-        let mut layer = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN],
+        let mut layer = BaseInput {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN_DIMS],
         };
 
         for (idx, bias) in layer.biases.iter_mut().enumerate() {
@@ -462,8 +444,8 @@ mod tests {
             *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
         }
 
-        let mut expected = Align64([0u8; OUT]);
-        let mut actual = Align64([0u8; OUT]);
+        let mut expected = Align64([0u8; OUTPUT_DIMS]);
+        let mut actual = Align64([0u8; OUTPUT_DIMS]);
         layer.forward_fallback(&pattern_feature, expected.as_mut_slice());
         // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
         unsafe { layer.forward_neon(&pattern_feature, actual.as_mut_slice()) };
@@ -478,16 +460,14 @@ mod tests {
         not(target_feature = "avx512bw"),
     ))]
     fn forward_avx2_256_matches_fallback() {
-        const OUT: usize = 128;
-        const HIDDEN: usize = OUT * 2;
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
             pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
 
-        let mut natural = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN],
+        let mut natural = BaseInput {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN_DIMS],
         };
 
         for (idx, bias) in natural.biases.iter_mut().enumerate() {
@@ -498,15 +478,15 @@ mod tests {
             *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
         }
 
-        let mut simd = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
+        let mut simd = BaseInput {
             biases: natural.biases.clone(),
             weights: natural.weights.clone(),
         };
-        permute_rows(simd.biases.as_mut_slice(), HIDDEN);
-        permute_rows(simd.weights.as_mut_slice(), HIDDEN);
+        permute_rows(simd.biases.as_mut_slice(), HIDDEN_DIMS);
+        permute_rows(simd.weights.as_mut_slice(), HIDDEN_DIMS);
 
-        let mut expected = Align64([0u8; OUT]);
-        let mut actual = Align64([0u8; OUT]);
+        let mut expected = Align64([0u8; OUTPUT_DIMS]);
+        let mut actual = Align64([0u8; OUTPUT_DIMS]);
         natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
         // SAFETY: AVX2 is asserted by the cfg above; output is 64-byte aligned.
         unsafe { simd.forward_avx2(&pattern_feature, actual.as_mut_slice()) };
@@ -517,16 +497,14 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     fn forward_avx512_256_matches_fallback() {
-        const OUT: usize = 128;
-        const HIDDEN: usize = OUT * 2;
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
             pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
 
-        let mut natural = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN],
+        let mut natural = BaseInput {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; HIDDEN_DIMS],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * HIDDEN_DIMS],
         };
 
         for (idx, bias) in natural.biases.iter_mut().enumerate() {
@@ -537,15 +515,15 @@ mod tests {
             *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
         }
 
-        let mut simd = BaseInput::<INPUT_FEATURE_DIMS, OUT, HIDDEN> {
+        let mut simd = BaseInput {
             biases: natural.biases.clone(),
             weights: natural.weights.clone(),
         };
-        permute_rows(simd.biases.as_mut_slice(), HIDDEN);
-        permute_rows(simd.weights.as_mut_slice(), HIDDEN);
+        permute_rows(simd.biases.as_mut_slice(), HIDDEN_DIMS);
+        permute_rows(simd.weights.as_mut_slice(), HIDDEN_DIMS);
 
-        let mut expected = Align64([0u8; OUT]);
-        let mut actual = Align64([0u8; OUT]);
+        let mut expected = Align64([0u8; OUTPUT_DIMS]);
+        let mut actual = Align64([0u8; OUTPUT_DIMS]);
         natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
         // SAFETY: AVX-512BW is asserted by the cfg above; output is 64-byte aligned.
         unsafe { simd.forward_avx512(&pattern_feature, actual.as_mut_slice()) };

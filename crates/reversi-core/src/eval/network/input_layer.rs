@@ -6,6 +6,9 @@ mod phase_adaptive_input;
 pub use base_input::BaseInput;
 pub use phase_adaptive_input::PhaseAdaptiveInput;
 
+pub(in crate::eval::network) use base_input::OUTPUT_DIMS as BASE_OUTPUT_DIMS;
+pub(in crate::eval::network) use phase_adaptive_input::OUTPUT_DIMS as PA_OUTPUT_DIMS;
+
 use crate::eval::pattern_feature::{NUM_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
 

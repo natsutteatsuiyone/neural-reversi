@@ -6,32 +6,34 @@ use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
-use crate::eval::pattern_feature::{NUM_FEATURES, PatternFeature};
-use crate::eval::util::{clone_biases, feature_offset};
+use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
+#[allow(unused_imports)]
+use crate::eval::pattern_feature::NUM_FEATURES;
+use crate::eval::util::clone_biases;
+#[allow(unused_imports)]
+use crate::eval::util::feature_offset;
 use crate::util::align::Align64;
 
 use super::accumulate_scalar;
 
 const ACTIVATION_MAX: i16 = 255 * 2;
 const ACTIVATION_SHIFT: u32 = 10;
-
+pub(in crate::eval::network) const OUTPUT_DIMS: usize = 128;
 const NUM_PA_INPUTS: usize = 6;
 const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
 
 /// Phase-adaptive input layer.
 #[derive(Debug)]
-pub struct PhaseAdaptiveInputLayer<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
+pub struct PhaseAdaptiveInputLayer {
     biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
     weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
 }
 
-impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
-    PhaseAdaptiveInputLayer<INPUT_DIMS, OUTPUT_DIMS>
-{
+impl PhaseAdaptiveInputLayer {
     /// Loads network weights and biases from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS];
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_DIMS * OUTPUT_DIMS];
+        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS];
 
         reader.read_i16_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
@@ -70,10 +72,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     #[target_feature(enable = "avx512bw")]
     #[allow(dead_code)]
     fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        const {
-            assert!(OUTPUT_DIMS == 128);
-        }
-
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 4;
@@ -126,10 +124,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     #[target_feature(enable = "avx2")]
     #[allow(dead_code)]
     fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        const {
-            assert!(OUTPUT_DIMS == 128);
-        }
-
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 8;
@@ -192,10 +186,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
     #[target_feature(enable = "neon")]
     #[allow(dead_code)]
     fn forward_neon(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        const {
-            assert!(OUTPUT_DIMS == 128);
-        }
-
         use std::arch::aarch64::*;
 
         unsafe {
@@ -294,17 +284,15 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 /// Encapsulates the phase selection logic, choosing the appropriate
 /// input layer based on the current ply.
 #[derive(Debug)]
-pub struct PhaseAdaptiveInput<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize> {
-    inputs: Vec<PhaseAdaptiveInputLayer<INPUT_DIMS, OUTPUT_DIMS>>,
+pub struct PhaseAdaptiveInput {
+    inputs: Vec<PhaseAdaptiveInputLayer>,
 }
 
-impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
-    PhaseAdaptiveInput<INPUT_DIMS, OUTPUT_DIMS>
-{
+impl PhaseAdaptiveInput {
     /// Loads all phase-adaptive input layers from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let inputs = (0..NUM_PA_INPUTS)
-            .map(|_| PhaseAdaptiveInputLayer::<INPUT_DIMS, OUTPUT_DIMS>::load(reader))
+            .map(|_| PhaseAdaptiveInputLayer::load(reader))
             .collect::<io::Result<Vec<_>>>()?;
         Ok(PhaseAdaptiveInput { inputs })
     }
@@ -322,7 +310,6 @@ impl<const INPUT_DIMS: usize, const OUTPUT_DIMS: usize>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::pattern_feature::INPUT_FEATURE_DIMS;
     use aligned_vec::avec;
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -331,15 +318,14 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     fn forward_neon_128_matches_fallback() {
-        const DIMS: usize = 128;
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
             pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
 
-        let mut layer = PhaseAdaptiveInputLayer::<INPUT_FEATURE_DIMS, DIMS> {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; DIMS],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * DIMS],
+        let mut layer = PhaseAdaptiveInputLayer {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS],
         };
 
         for (idx, bias) in layer.biases.iter_mut().enumerate() {
@@ -350,8 +336,8 @@ mod tests {
             *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
         }
 
-        let mut expected = Align64([0u8; DIMS]);
-        let mut actual = Align64([0u8; DIMS]);
+        let mut expected = Align64([0u8; OUTPUT_DIMS]);
+        let mut actual = Align64([0u8; OUTPUT_DIMS]);
         layer.forward_fallback(&pattern_feature, expected.as_mut_slice());
         // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
         unsafe { layer.forward_neon(&pattern_feature, actual.as_mut_slice()) };
@@ -366,15 +352,14 @@ mod tests {
         not(target_feature = "avx512bw"),
     ))]
     fn forward_avx2_128_matches_fallback() {
-        const DIMS: usize = 128;
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
             pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
 
-        let mut natural = PhaseAdaptiveInputLayer::<INPUT_FEATURE_DIMS, DIMS> {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; DIMS],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * DIMS],
+        let mut natural = PhaseAdaptiveInputLayer {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS],
         };
 
         for (idx, bias) in natural.biases.iter_mut().enumerate() {
@@ -385,15 +370,15 @@ mod tests {
             *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
         }
 
-        let mut simd = PhaseAdaptiveInputLayer::<INPUT_FEATURE_DIMS, DIMS> {
+        let mut simd = PhaseAdaptiveInputLayer {
             biases: natural.biases.clone(),
             weights: natural.weights.clone(),
         };
-        permute_rows(simd.biases.as_mut_slice(), DIMS);
-        permute_rows(simd.weights.as_mut_slice(), DIMS);
+        permute_rows(simd.biases.as_mut_slice(), OUTPUT_DIMS);
+        permute_rows(simd.weights.as_mut_slice(), OUTPUT_DIMS);
 
-        let mut expected = Align64([0u8; DIMS]);
-        let mut actual = Align64([0u8; DIMS]);
+        let mut expected = Align64([0u8; OUTPUT_DIMS]);
+        let mut actual = Align64([0u8; OUTPUT_DIMS]);
         natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
         // SAFETY: AVX2 is asserted by the cfg above; output is 64-byte aligned.
         unsafe { simd.forward_avx2(&pattern_feature, actual.as_mut_slice()) };
@@ -404,15 +389,14 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     fn forward_avx512_128_matches_fallback() {
-        const DIMS: usize = 128;
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
             pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
         }
 
-        let mut natural = PhaseAdaptiveInputLayer::<INPUT_FEATURE_DIMS, DIMS> {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; DIMS],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * DIMS],
+        let mut natural = PhaseAdaptiveInputLayer {
+            biases: avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS],
+            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS],
         };
 
         for (idx, bias) in natural.biases.iter_mut().enumerate() {
@@ -423,15 +407,15 @@ mod tests {
             *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
         }
 
-        let mut simd = PhaseAdaptiveInputLayer::<INPUT_FEATURE_DIMS, DIMS> {
+        let mut simd = PhaseAdaptiveInputLayer {
             biases: natural.biases.clone(),
             weights: natural.weights.clone(),
         };
-        permute_rows(simd.biases.as_mut_slice(), DIMS);
-        permute_rows(simd.weights.as_mut_slice(), DIMS);
+        permute_rows(simd.biases.as_mut_slice(), OUTPUT_DIMS);
+        permute_rows(simd.weights.as_mut_slice(), OUTPUT_DIMS);
 
-        let mut expected = Align64([0u8; DIMS]);
-        let mut actual = Align64([0u8; DIMS]);
+        let mut expected = Align64([0u8; OUTPUT_DIMS]);
+        let mut actual = Align64([0u8; OUTPUT_DIMS]);
         natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
         // SAFETY: AVX-512BW is asserted by the cfg above; output is 64-byte aligned.
         unsafe { simd.forward_avx512(&pattern_feature, actual.as_mut_slice()) };
