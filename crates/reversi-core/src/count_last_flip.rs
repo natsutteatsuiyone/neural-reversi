@@ -3,14 +3,10 @@
 use crate::bitboard::Bitboard;
 use crate::square::Square;
 
-cfg_select! {
-    all(target_arch = "x86_64", target_feature = "bmi2") => {
-        mod count_last_flip_bmi2;
-    }
-    _ => {
-        mod count_last_flip_kindergarten;
-    }
-}
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+mod count_last_flip_bmi2;
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
+mod count_last_flip_portable;
 
 /// Counts the number of discs that would be flipped by the last move.
 ///
@@ -22,7 +18,7 @@ pub fn count_last_flip(player: Bitboard, sq: Square) -> i32 {
             unsafe { count_last_flip_bmi2::count_last_flip(player.bits(), sq) }
         }
         _ => {
-            count_last_flip_kindergarten::count_last_flip(player.bits(), sq)
+            count_last_flip_portable::count_last_flip(player.bits(), sq)
         }
     }
 }

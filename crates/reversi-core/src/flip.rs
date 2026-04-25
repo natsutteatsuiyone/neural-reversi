@@ -3,25 +3,34 @@
 use crate::bitboard::Bitboard;
 use crate::square::Square;
 
-cfg_select! {
-    all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-        mod flip_avx512;
-    }
-    all(target_arch = "x86_64", target_feature = "avx2") => {
-        mod flip_avx2;
-    }
-    all(target_arch = "x86_64", target_feature = "bmi2") => {
-        mod flip_bmi2;
-    }
-    _ => {
-        mod flip_kindergarten;
-    }
-}
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+mod flip_avx2;
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+))]
+mod flip_avx512;
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+mod flip_bmi2;
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+mod flip_neon;
+#[cfg(any(
+    all(target_arch = "x86_64", target_feature = "avx2"),
+    all(target_arch = "aarch64", target_feature = "neon"),
+))]
+mod lrmask;
+// Kindergarten is always compiled: on non-SIMD targets it's the active
+// dispatch; on SIMD targets it remains reachable from `#[cfg(test)]`
+// cross-checks. `allow(dead_code)` keeps SIMD release builds quiet without
+// having to mirror the dispatcher cfgs here.
+#[allow(dead_code)]
+mod flip_kindergarten;
 
 /// Calculates which opponent discs would be flipped by placing a disc at `sq`.
 ///
-/// Dispatches to a platform-specific implementation (AVX-512, AVX2, BMI2, or
-/// kindergarten bitboard).
+/// Dispatches to a platform-specific implementation (AVX-512, AVX2, BMI2,
+/// NEON, or kindergarten bitboard).
 #[inline(always)]
 pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
     cfg_select! {
@@ -33,6 +42,9 @@ pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
         }
         all(target_arch = "x86_64", target_feature = "bmi2") => {
             Bitboard::new(flip_bmi2::flip(sq, p.bits(), o.bits()))
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            Bitboard::new(unsafe { flip_neon::flip(sq, p.bits(), o.bits()) })
         }
         _ => {
             Bitboard::new(flip_kindergarten::flip(sq, p.bits(), o.bits()))

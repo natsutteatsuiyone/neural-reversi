@@ -28,3 +28,11 @@ harness = false
 [[bench]]
 name = "bitboard"
 harness = false
+
+[[bench]]
+name = "flip"
+harness = false
+
+[[bench]]
+name = "count_last_flip"
+harness = false

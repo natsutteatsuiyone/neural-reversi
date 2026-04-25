@@ -5,6 +5,30 @@
 
 use crate::square::Square;
 
+/// Unchecked indexing helper, scoped to this module.
+///
+/// # Safety
+/// All indices must be in bounds; out-of-bounds access is UB.
+macro_rules! uget {
+    ($arr:expr; $i:expr $(,)?) => {{
+        #[allow(unused_unsafe)]
+        #[allow(clippy::macro_metavars_in_unsafe)]
+        unsafe {
+            ($arr).get_unchecked($i)
+        }
+    }};
+    ($arr:expr; $i:expr, $($rest:expr),+ $(,)?) => {{
+        let __p = {
+            #[allow(unused_unsafe)]
+            #[allow(clippy::macro_metavars_in_unsafe)]
+            unsafe {
+                ($arr).get_unchecked($i)
+            }
+        };
+        uget!(&*__p; $($rest),+)
+    }};
+}
+
 /// Outflank array.
 #[rustfmt::skip]
 pub const OUTFLANK: [[u8; 64]; 8] = [
@@ -763,314 +787,314 @@ pub const F2B6C7: [u64; 64] = [
 
 macro_rules! outflank {
     ($line:expr, $pos:expr) => {{
-        *crate::uget!(OUTFLANK; ($line) as usize, ($pos) as usize) as u64
+        *uget!(OUTFLANK; ($line) as usize, ($pos) as usize) as u64
     }}
 }
 
 macro_rules! flipped {
     ($line:expr, $pos:expr) => {{
-        *crate::uget!(FLIPPED; ($line) as usize, ($pos) as usize) as u64
+        *uget!(FLIPPED; ($line) as usize, ($pos) as usize) as u64
     }}
 }
 
 macro_rules! a2a7 {
     ($idx:expr) => {{
-        *crate::uget!(A2A7; ($idx) as usize)
+        *uget!(A2A7; ($idx) as usize)
     }}
 }
 
 macro_rules! b2b7 {
     ($idx:expr) => {{
-        *crate::uget!(B2B7; ($idx) as usize)
+        *uget!(B2B7; ($idx) as usize)
     }}
 }
 
 macro_rules! c2c7 {
     ($idx:expr) => {{
-        *crate::uget!(C2C7; ($idx) as usize)
+        *uget!(C2C7; ($idx) as usize)
     }}
 }
 
 macro_rules! d2d7 {
     ($idx:expr) => {{
-        *crate::uget!(D2D7; ($idx) as usize)
+        *uget!(D2D7; ($idx) as usize)
     }}
 }
 
 macro_rules! e2e7 {
     ($idx:expr) => {{
-        *crate::uget!(E2E7; ($idx) as usize)
+        *uget!(E2E7; ($idx) as usize)
     }}
 }
 
 macro_rules! f2f7 {
     ($idx:expr) => {{
-        *crate::uget!(F2F7; ($idx) as usize)
+        *uget!(F2F7; ($idx) as usize)
     }}
 }
 
 macro_rules! g2g7 {
     ($idx:expr) => {{
-        *crate::uget!(G2G7; ($idx) as usize)
+        *uget!(G2G7; ($idx) as usize)
     }
 }
 }
 
 macro_rules! h2h7 {
     ($idx:expr) => {{
-        *crate::uget!(H2H7; ($idx) as usize)
+        *uget!(H2H7; ($idx) as usize)
     }}
 }
 
 macro_rules! e2b5 {
     ($idx:expr) => {{
-        *crate::uget!(E2B5; ($idx) as usize)
+        *uget!(E2B5; ($idx) as usize)
     }}
 }
 
 macro_rules! f2b6 {
     ($idx:expr) => {{
-        *crate::uget!(F2B6; ($idx) as usize)
+        *uget!(F2B6; ($idx) as usize)
     }}
 }
 
 macro_rules! g2b7 {
     ($idx:expr) => {{
-        *crate::uget!(G2B7; ($idx) as usize)
+        *uget!(G2B7; ($idx) as usize)
     }}
 }
 
 macro_rules! g3c7 {
     ($idx:expr) => {{
-        *crate::uget!(G3C7; ($idx) as usize)
+        *uget!(G3C7; ($idx) as usize)
     }}
 }
 
 macro_rules! g4d7 {
     ($idx:expr) => {{
-        *crate::uget!(G4D7; ($idx) as usize)
+        *uget!(G4D7; ($idx) as usize)
     }}
 }
 
 macro_rules! b4e7 {
     ($idx:expr) => {{
-        *crate::uget!(B4E7; ($idx) as usize)
+        *uget!(B4E7; ($idx) as usize)
     }}
 }
 
 macro_rules! b3f7 {
     ($idx:expr) => {{
-        *crate::uget!(B3F7; ($idx) as usize)
+        *uget!(B3F7; ($idx) as usize)
     }}
 }
 
 macro_rules! b2g7 {
     ($idx:expr) => {{
-        *crate::uget!(B2G7; ($idx) as usize)
+        *uget!(B2G7; ($idx) as usize)
     }}
 }
 
 macro_rules! c2g6 {
     ($idx:expr) => {{
-        *crate::uget!(C2G6; ($idx) as usize)
+        *uget!(C2G6; ($idx) as usize)
     }}
 }
 
 macro_rules! d2g5 {
     ($idx:expr) => {{
-        *crate::uget!(D2G5; ($idx) as usize)
+        *uget!(D2G5; ($idx) as usize)
     }}
 }
 
 macro_rules! b2c1g5 {
     ($idx:expr) => {{
-        *crate::uget!(B2C1G5; ($idx) as usize)
+        *uget!(B2C1G5; ($idx) as usize)
     }}
 }
 
 macro_rules! b3d1g4 {
     ($idx:expr) => {{
-        *crate::uget!(B3D1G4; ($idx) as usize)
+        *uget!(B3D1G4; ($idx) as usize)
     }}
 }
 
 macro_rules! b4e1g3 {
     ($idx:expr) => {{
-        *crate::uget!(B4E1G3; ($idx) as usize)
+        *uget!(B4E1G3; ($idx) as usize)
     }}
 }
 
 macro_rules! b5f1g2 {
     ($idx:expr) => {{
-        *crate::uget!(B5F1G2; ($idx) as usize)
+        *uget!(B5F1G2; ($idx) as usize)
     }}
 }
 
 macro_rules! b3c2g6 {
     ($idx:expr) => {{
-        *crate::uget!(B3C2G6; ($idx) as usize)
+        *uget!(B3C2G6; ($idx) as usize)
     }}
 }
 
 macro_rules! b4d2g5 {
     ($idx:expr) => {{
-        *crate::uget!(B4D2G5; ($idx) as usize)
+        *uget!(B4D2G5; ($idx) as usize)
     }}
 }
 
 macro_rules! b5e2g4 {
     ($idx:expr) => {{
-        *crate::uget!(B5E2G4; ($idx) as usize)
+        *uget!(B5E2G4; ($idx) as usize)
     }}
 }
 
 macro_rules! b6f2g3 {
     ($idx:expr) => {{
-        *crate::uget!(B6F2G3; ($idx) as usize)
+        *uget!(B6F2G3; ($idx) as usize)
     }}
 }
 
 macro_rules! b6c7g3 {
     ($idx:expr) => {{
-        *crate::uget!(B6C7G3; ($idx) as usize)
+        *uget!(B6C7G3; ($idx) as usize)
     }}
 }
 
 macro_rules! b5d7g4 {
     ($idx:expr) => {{
-        *crate::uget!(B5D7G4; ($idx) as usize)
+        *uget!(B5D7G4; ($idx) as usize)
     }}
 }
 
 macro_rules! b4e7g5 {
     ($idx:expr) => {{
-        *crate::uget!(B4E7G5; ($idx) as usize)
+        *uget!(B4E7G5; ($idx) as usize)
     }}
 }
 
 macro_rules! b3f7g6 {
     ($idx:expr) => {{
-        *crate::uget!(B3F7G6; ($idx) as usize)
+        *uget!(B3F7G6; ($idx) as usize)
     }}
 }
 
 macro_rules! b7c8g4 {
     ($idx:expr) => {{
-        *crate::uget!(B7C8G4; ($idx) as usize)
+        *uget!(B7C8G4; ($idx) as usize)
     }}
 }
 
 macro_rules! b6d8g5 {
     ($idx:expr) => {{
-        *crate::uget!(B6D8G5; ($idx) as usize)
+        *uget!(B6D8G5; ($idx) as usize)
     }}
 }
 
 macro_rules! b5e8g6 {
     ($idx:expr) => {{
-        *crate::uget!(B5E8G6; ($idx) as usize)
+        *uget!(B5E8G6; ($idx) as usize)
     }}
 }
 
 macro_rules! b4f8g7 {
     ($idx:expr) => {{
-        *crate::uget!(B4F8G7; ($idx) as usize)
+        *uget!(B4F8G7; ($idx) as usize)
     }}
 }
 
 macro_rules! g2h3d7 {
     ($idx:expr) => {{
-        *crate::uget!(G2H3D7; ($idx) as usize)
+        *uget!(G2H3D7; ($idx) as usize)
     }}
 }
 
 macro_rules! f2h4e7 {
     ($idx:expr) => {{
-        *crate::uget!(F2H4E7; ($idx) as usize)
+        *uget!(F2H4E7; ($idx) as usize)
     }}
 }
 
 macro_rules! e2h5f7 {
     ($idx:expr) => {{
-        *crate::uget!(E2H5F7; ($idx) as usize)
+        *uget!(E2H5F7; ($idx) as usize)
     }}
 }
 
 macro_rules! d2h6g7 {
     ($idx:expr) => {{
-        *crate::uget!(D2H6G7; ($idx) as usize)
+        *uget!(D2H6G7; ($idx) as usize)
     }}
 }
 
 macro_rules! f2g3c7 {
     ($idx:expr) => {{
-        *crate::uget!(F2G3C7; ($idx) as usize)
+        *uget!(F2G3C7; ($idx) as usize)
     }}
 }
 
 macro_rules! e2g4d7 {
     ($idx:expr) => {{
-        *crate::uget!(E2G4D7; ($idx) as usize)
+        *uget!(E2G4D7; ($idx) as usize)
     }}
 }
 
 macro_rules! d2g5e7 {
     ($idx:expr) => {{
-        *crate::uget!(D2G5E7; ($idx) as usize)
+        *uget!(D2G5E7; ($idx) as usize)
     }}
 }
 
 macro_rules! c2g6f7 {
     ($idx:expr) => {{
-        *crate::uget!(C2G6F7; ($idx) as usize)
+        *uget!(C2G6F7; ($idx) as usize)
     }}
 }
 
 macro_rules! b2a3e7 {
     ($idx:expr) => {{
-        *crate::uget!(B2A3E7; ($idx) as usize)
+        *uget!(B2A3E7; ($idx) as usize)
     }}
 }
 
 macro_rules! c2a4d7 {
     ($idx:expr) => {{
-        *crate::uget!(C2A4D7; ($idx) as usize)
+        *uget!(C2A4D7; ($idx) as usize)
     }}
 }
 
 macro_rules! d2a5c7 {
     ($idx:expr) => {{
-        *crate::uget!(D2A5C7; ($idx) as usize)
+        *uget!(D2A5C7; ($idx) as usize)
     }}
 }
 
 macro_rules! e2a6b7 {
     ($idx:expr) => {{
-        *crate::uget!(E2A6B7; ($idx) as usize)
+        *uget!(E2A6B7; ($idx) as usize)
     }}
 }
 
 macro_rules! c2b3f7 {
     ($idx:expr) => {{
-        *crate::uget!(C2B3F7; ($idx) as usize)
+        *uget!(C2B3F7; ($idx) as usize)
     }}
 }
 
 macro_rules! d2b4e7 {
     ($idx:expr) => {{
-        *crate::uget!(D2B4E7; ($idx) as usize)
+        *uget!(D2B4E7; ($idx) as usize)
     }}
 }
 
 macro_rules! e2b5d7 {
     ($idx:expr) => {{
-        *crate::uget!(E2B5D7; ($idx) as usize)
+        *uget!(E2B5D7; ($idx) as usize)
     }}
 }
 
 macro_rules! f2b6c7 {
     ($idx:expr) => {{
-        *crate::uget!(F2B6C7; ($idx) as usize)
+        *uget!(F2B6C7; ($idx) as usize)
     }}
 }
 
