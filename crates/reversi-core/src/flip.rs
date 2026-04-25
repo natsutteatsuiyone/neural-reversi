@@ -6,6 +6,8 @@ use crate::square::Square;
 // SIMD variants are gated by their own target features but a higher-priority
 // dispatch (e.g. AVX-512 over AVX2) may shadow them at runtime. `allow(dead_code)`
 // keeps the build quiet without having to mirror the dispatcher cfgs here.
+// Kindergarten is always compiled: on non-SIMD targets it's the active dispatch;
+// on SIMD targets it remains reachable from `#[cfg(test)]` cross-checks.
 #[allow(dead_code)]
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod flip_avx2;
@@ -23,13 +25,10 @@ mod flip_neon;
 #[allow(dead_code)]
 #[cfg(any(
     all(target_arch = "x86_64", target_feature = "avx2"),
+    all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl"),
     all(target_arch = "aarch64", target_feature = "neon"),
 ))]
 mod lrmask;
-// Kindergarten is always compiled: on non-SIMD targets it's the active
-// dispatch; on SIMD targets it remains reachable from `#[cfg(test)]`
-// cross-checks. `allow(dead_code)` keeps SIMD release builds quiet without
-// having to mirror the dispatcher cfgs here.
 #[allow(dead_code)]
 mod flip_kindergarten;
 
