@@ -291,22 +291,22 @@ run_task = { name = ["build-tier"] }
 [tasks.build-gui-windows-v2]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v2 GUI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-windows-v3]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v3 GUI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-windows-v4]
 extend = "build-gui-base"
 description = "Build Windows x86_64-v4 GUI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-windows-native]
 extend = "build-gui-base"
 description = "Build Windows native GUI"
-env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
 
 [tasks.build-gui-windows]
 description = "Build all Windows GUI binaries"
@@ -323,22 +323,22 @@ run_task = { name = [
 [tasks.build-gui-linux-v2]
 extend = "build-gui-base"
 description = "Build Linux x86_64-v2 GUI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux-v3]
 extend = "build-gui-base"
 description = "Build Linux x86_64-v3 GUI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux-v4]
 extend = "build-gui-base"
 description = "Build Linux x86_64-v4 GUI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux-native]
 extend = "build-gui-base"
 description = "Build Linux native GUI"
-env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
+env = { BUILD_TYPE = "gui", CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
 
 [tasks.build-gui-linux]
 description = "Build all Linux GUI binaries"
