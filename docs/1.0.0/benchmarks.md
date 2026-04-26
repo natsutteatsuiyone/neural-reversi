@@ -1,4 +1,4 @@
-# Benchmark Results
+# Benchmarks
 
 ## Level 1 Match ([XOT](https://berg.earthlingz.de/xot/aboutxot.php))
 

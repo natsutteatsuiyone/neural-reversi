@@ -1,4 +1,4 @@
-# Benchmark Results
+# Benchmarks
 
 ## Environment
 

@@ -1,5 +1,8 @@
 # Neural Reversi
 
+[![Build](https://github.com/natsutteatsuiyone/neural-reversi/actions/workflows/test.yml/badge.svg)](https://github.com/natsutteatsuiyone/neural-reversi/actions/workflows/test.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
 This is an experimental project to develop a highly accurate neural network evaluation function for Reversi (Othello).
 
 **[Play online (Lite version)](https://neural-reversi.net/)**
@@ -10,38 +13,30 @@ This is an experimental project to develop a highly accurate neural network eval
 - High-performance multi-threaded search
 - Supports CLI, desktop GUI (Tauri), and WebAssembly
 
-## Benchmark (v6.0.0-dev)
+## Benchmarks (v6.0.0)
 
 ### Environment
 
-- **CPU:** AMD Ryzen 9 9950X3D (no overclock)
-- **Hash size:** 1024MB
+- **CPU:** AMD Ryzen 9 9950X3D
+- **Threads:** 32
+- **Hash size:** 2048 MB
 
-### Search Accuracy
+### Evaluation Accuracy
 
 | Test | Problems | Depth | Time | Nodes | NPS | Move Acc. | Score ±3 | MAE |
 |:--|:-:|:-:|--:|--:|--:|--:|--:|--:|
-| [Hard-30](docs/6.0.0-dev/hard-30-depth15.md) | 289 | 15 | 4.22s | 157,847,499 | 37,443,661 | 81.3% | 88.2% | 1.65 |
+| [Hard-30](docs/6.0.0/benchmarks/hard-30-depth15.md) | 289 | 15 | 3.758s | 151,563,290 | 40,335,131 | 83.0% | 87.9% | 1.64 |
 
 ### Endgame Solving
 
 | Test | Problems | Depth | Time | Nodes | NPS |
 |:--|:-:|:-:|--:|--:|--:|
-| [FFO #40–59](docs/6.0.0-dev/fforum-40-59.md) | 20 | 20–34 | 7.85s | 12,816,866,056 | 1,632,243,554 |
-| [FFO #60–79](docs/6.0.0-dev/fforum-60-79.md) | 20 | 24–36 | 246.10s | 344,382,051,901 | 1,399,342,843 |
-| [Hard-20](docs/6.0.0-dev/hard-20.md) | 276 | 20 | 2.65s | 1,685,702,316 | 635,131,425 |
-| [Hard-25](docs/6.0.0-dev/hard-25.md) | 311 | 25 | 33.02s | 46,181,908,759 | 1,398,748,168 |
-| [Hard-30](docs/6.0.0-dev/hard-30.md) | 289 | 30 | 936.21s | 1,479,391,622,235 | 1,580,200,514 |
-
-## Crates
-
-- **[reversi-core](crates/reversi-core/)**: Core library implementing the AI search algorithms.
-- **[cli](crates/cli/)**: Command-line interface for playing Reversi.
-- **[gui](crates/gui/)**: Tauri-based graphical user interface for playing Reversi.
-- **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
-- **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
-- **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games and feature extraction.
-- **[evaltest](crates/evaltest/)**: Evaluation test suite runner for benchmarking engine performance using OBF problem files (FFO Forum, Edax hard sets).
+| [FFO #40–59](docs/6.0.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 7.659s | 12,785,599,475 | 1,669,384,514 |
+| [FFO #60–79](docs/6.0.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 235.436s | 339,714,844,461 | 1,442,919,528 |
+| [Hard-20](docs/6.0.0/benchmarks/hard-20.md) | 276 | 20 | 2.580s | 1,681,608,922 | 651,747,905 |
+| [Hard-25](docs/6.0.0/benchmarks/hard-25.md) | 311 | 25 | 32.421s | 46,126,798,879 | 1,422,746,901 |
+| [Hard-30](docs/6.0.0/benchmarks/hard-30.md) | 289 | 30 | 904.934s | 1,471,667,735,637 | 1,626,269,909 |
+| [Small-35](docs/6.0.0/benchmarks/small-35.md) | 20 | 35 | 10,494.203s | 14,526,843,918,418 | 1,384,273,243 |
 
 ## Getting Started
 
@@ -81,6 +76,16 @@ This is an experimental project to develop a highly accurate neural network eval
    bun install
    bun run dev                   # Start the web version in development mode
    ```
+
+## Crates
+
+- **[reversi-core](crates/reversi-core/)**: Core library implementing the AI search algorithms.
+- **[cli](crates/cli/)**: Command-line interface for playing Reversi.
+- **[gui](crates/gui/)**: Tauri-based graphical user interface for playing Reversi.
+- **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
+- **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
+- **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games and feature extraction.
+- **[evaltest](crates/evaltest/)**: Evaluation test suite runner for benchmarking engine performance using OBF problem files (FFO Forum, Edax hard sets).
 
 ## Neural Network
 
