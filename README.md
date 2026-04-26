@@ -111,11 +111,25 @@ This is an experimental project to develop a highly accurate neural network eval
 
 ## Build
 
-For best performance, build with native CPU optimizations. This enables CPU-specific instructions (BMI2, LZCNT, AVX2, AVX-512 on x86-64; NEON on Apple Silicon), which significantly improve evaluation and search speed.
+All builds are driven by [cargo-make](https://github.com/sagiegurari/cargo-make) and emit artifacts under `dist/`. The macOS GUI build produces a `.dmg` installer (requires building on macOS).
 
-### Using cargo-make
+### Prerequisites
 
-Build native-optimized binaries for both CLI and GUI using [cargo-make](https://github.com/sagiegurari/cargo-make):
+1. Install cargo-make:
+
+   ```bash
+   cargo install --force cargo-make
+   ```
+
+2. Download the neural network weight files from the [latest release](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases/latest)
+   and place them in the project root directory:
+   - `eval-*.zst`
+   - `eval_sm-*.zst`
+   - `eval_wasm-*.zst`
+
+### Native builds
+
+Optimized for the host CPU (BMI2, LZCNT, AVX2, AVX-512 on x86-64; NEON on Apple Silicon). Recommended for best performance on the machine that runs the binary.
 
 ```bash
 # All platforms (Windows + Linux + macOS)
@@ -134,7 +148,9 @@ cargo make build-cli-macos-native
 cargo make build-gui-macos-native
 ```
 
-For portable release builds (CPU tiers `x86-64-v2/v3/v4` on Windows/Linux, `apple-m1` on macOS):
+### Portable builds
+
+Targets fixed CPU tiers for distribution: x86-64 (`v2`/`v3`/`v4`) on Windows/Linux, `apple-m1` on macOS.
 
 ```bash
 # CLI binaries
@@ -147,8 +163,6 @@ cargo make build-gui-windows
 cargo make build-gui-linux
 cargo make build-gui-macos
 ```
-
-All cargo-make builds are placed under the `dist/` directory. The macOS GUI build produces a `.dmg` installer (requires building on macOS).
 
 ## License
 
