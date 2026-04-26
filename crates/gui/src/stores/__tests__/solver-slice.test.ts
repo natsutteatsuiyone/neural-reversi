@@ -853,6 +853,82 @@ describe("applySolverProgress", () => {
         expect(store.getState().solverCandidates.size).toBe(1);
     });
 
+    it("in bestOnly mode keeps only the latest best move (drops earlier-selectivity picks)", () => {
+        const { store } = createTestStore();
+        store.setState({
+            isSolverActive: true,
+            solverMode: "bestOnly",
+            targetSelectivity: 100,
+        });
+
+        const lowSelPayload: SolverProgressPayload = {
+            runId: store.getState().solverSearchRunId,
+            bestMove: "d3",
+            row: 2,
+            col: 3,
+            score: 4,
+            depth: 20,
+            targetDepth: 20,
+            acc: 73,
+            nodes: 100,
+            pvLine: "d3",
+            isEndgame: true,
+        };
+        const highSelPayload: SolverProgressPayload = {
+            ...lowSelPayload,
+            bestMove: "f5",
+            row: 4,
+            col: 5,
+            score: 6,
+            acc: 95,
+            pvLine: "f5",
+        };
+
+        store.getState().applySolverProgress(lowSelPayload);
+        store.getState().applySolverProgress(highSelPayload);
+
+        const candidates = store.getState().solverCandidates;
+        expect(candidates.size).toBe(1);
+        expect(candidates.get("4,5")?.move).toBe("f5");
+        expect(candidates.get("2,3")).toBeUndefined();
+    });
+
+    it("in multiPv mode preserves earlier candidates as new ones arrive", () => {
+        const { store } = createTestStore();
+        store.setState({
+            isSolverActive: true,
+            solverMode: "multiPv",
+            targetSelectivity: 100,
+        });
+
+        const a: SolverProgressPayload = {
+            runId: store.getState().solverSearchRunId,
+            bestMove: "d3",
+            row: 2,
+            col: 3,
+            score: 4,
+            depth: 20,
+            targetDepth: 20,
+            acc: 100,
+            nodes: 100,
+            pvLine: "d3",
+            isEndgame: true,
+        };
+        const b: SolverProgressPayload = {
+            ...a,
+            bestMove: "f5",
+            row: 4,
+            col: 5,
+            score: 2,
+            pvLine: "f5",
+        };
+
+        store.getState().applySolverProgress(a);
+        store.getState().applySolverProgress(b);
+
+        expect(store.getState().solverCandidates.size).toBe(2);
+    });
+
     it("accepts trailing payloads after isSolverSearching clears", () => {
         // Regression guard: runSolverSearch's finally block clears
         // isSolverSearching as soon as startSearch resolves, but trailing

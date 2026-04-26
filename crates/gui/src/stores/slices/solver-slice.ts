@@ -560,6 +560,13 @@ export function createSolverSlice(
             };
 
             set((s) => {
+                // bestOnly: only the engine's current best move is meaningful.
+                // As selectivity / depth iterates, that move can change — keep
+                // just the latest entry so stale picks from earlier levels
+                // don't linger in the panel.
+                if (s.solverMode === "bestOnly") {
+                    return { solverCandidates: new Map([[key, candidate]]) };
+                }
                 const next = new Map(s.solverCandidates);
                 next.set(key, candidate);
                 return { solverCandidates: next };
