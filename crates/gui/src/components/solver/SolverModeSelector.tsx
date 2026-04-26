@@ -5,14 +5,20 @@ import { SOLVER_MODES, type SolverMode } from "@/services/types";
 
 interface SolverModeSelectorProps {
   idPrefix?: string;
+  value?: SolverMode;
+  onValueChange?: (value: SolverMode) => void;
 }
 
 export function SolverModeSelector({
   idPrefix = "solver-mode",
+  value,
+  onValueChange,
 }: SolverModeSelectorProps) {
   const { t } = useTranslation();
-  const solverMode = useReversiStore((s) => s.solverMode);
-  const setSolverMode = useReversiStore((s) => s.setSolverMode);
+  const storeValue = useReversiStore((s) => s.solverMode);
+  const storeSetter = useReversiStore((s) => s.setSolverMode);
+  const current = value ?? storeValue;
+  const handleChange = onValueChange ?? storeSetter;
 
   return (
     <div className="flex flex-col gap-2">
@@ -20,8 +26,8 @@ export function SolverModeSelector({
         {t("solver.mode")}
       </span>
       <RadioGroup
-        value={solverMode}
-        onValueChange={(v) => void setSolverMode(v as SolverMode)}
+        value={current}
+        onValueChange={(v) => void handleChange(v as SolverMode)}
         className="flex flex-row gap-3"
       >
         {SOLVER_MODES.map((mode) => {

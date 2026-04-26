@@ -5,14 +5,20 @@ import { SOLVER_SELECTIVITIES, type SolverSelectivity } from "@/services/types";
 
 interface SolverSelectivitySelectorProps {
   idPrefix?: string;
+  value?: SolverSelectivity;
+  onValueChange?: (value: SolverSelectivity) => void;
 }
 
 export function SolverSelectivitySelector({
   idPrefix = "solver-selectivity",
+  value,
+  onValueChange,
 }: SolverSelectivitySelectorProps) {
   const { t } = useTranslation();
-  const targetSelectivity = useReversiStore((s) => s.targetSelectivity);
-  const setTargetSelectivity = useReversiStore((s) => s.setTargetSelectivity);
+  const storeValue = useReversiStore((s) => s.targetSelectivity);
+  const storeSetter = useReversiStore((s) => s.setTargetSelectivity);
+  const current = value ?? storeValue;
+  const handleChange = onValueChange ?? storeSetter;
 
   return (
     <div className="flex flex-col gap-2">
@@ -20,8 +26,8 @@ export function SolverSelectivitySelector({
         {t("solver.selectivity")}
       </span>
       <RadioGroup
-        value={String(targetSelectivity)}
-        onValueChange={(v) => void setTargetSelectivity(Number(v) as SolverSelectivity)}
+        value={String(current)}
+        onValueChange={(v) => void handleChange(Number(v) as SolverSelectivity)}
         className="flex flex-row gap-3"
       >
         {SOLVER_SELECTIVITIES.map((sel) => {

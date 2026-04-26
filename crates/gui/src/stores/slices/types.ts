@@ -157,6 +157,11 @@ export interface SolverHistoryEntry {
     moveFrom: string | null;
 }
 
+export interface SolverConfig {
+    selectivity: SolverSelectivity;
+    mode: SolverMode;
+}
+
 export interface SolverSlice {
     isSolverActive: boolean;
     isSolverModalOpen: boolean;
@@ -188,8 +193,8 @@ export interface SolverSlice {
 
     openSolverModal: () => void;
     closeSolverModal: () => void;
-    startSolver: (board: Board, player: Player) => Promise<boolean>;
-    startSolverFromSetup: () => Promise<boolean>;
+    startSolver: (board: Board, player: Player, config?: SolverConfig) => Promise<boolean>;
+    startSolverFromSetup: (config?: SolverConfig) => Promise<boolean>;
     exitSolver: () => Promise<void>;
     advanceSolver: (row: number, col: number) => Promise<void>;
     undoSolver: () => Promise<void>;

@@ -160,6 +160,42 @@ describe("startSolverFromSetup", () => {
         expect(services.solver.startSearch).toHaveBeenCalledTimes(1);
     });
 
+    it("commits supplied solver config only after setup validation succeeds", async () => {
+        const { store, services } = createTestStore();
+        const board = initializeBoard();
+        store.setState({
+            setupTab: "manual",
+            setupBoard: board,
+            setupCurrentPlayer: "black",
+            targetSelectivity: 100,
+            solverMode: "multiPv",
+        });
+
+        const result = await store.getState().startSolverFromSetup({
+            selectivity: 95,
+            mode: "bestOnly",
+        });
+
+        expect(result).toBe(true);
+        expect(store.getState().targetSelectivity).toBe(95);
+        expect(store.getState().solverMode).toBe("bestOnly");
+        expect(services.settings.saveSetting).toHaveBeenCalledWith(
+            "solverTargetSelectivity",
+            95,
+        );
+        expect(services.settings.saveSetting).toHaveBeenCalledWith(
+            "solverMode",
+            "bestOnly",
+        );
+        expect(services.solver.startSearch).toHaveBeenCalledWith(
+            board,
+            "black",
+            95,
+            "bestOnly",
+            expect.any(Number),
+        );
+    });
+
     it("sets setupError and does not start when board string is invalid", async () => {
         const { store, services } = createTestStore();
         store.setState({
@@ -231,6 +267,34 @@ describe("startSolverFromSetup", () => {
         expect(result).toBe(false);
         expect(store.getState().setupError).not.toBeNull();
         expect(store.getState().isSolverActive).toBe(false);
+        expect(services.solver.startSearch).not.toHaveBeenCalled();
+    });
+
+    it("does not commit supplied solver config when setup validation fails", async () => {
+        const { store, services } = createTestStore();
+        const sparseBoard = createEmptyBoard();
+        sparseBoard[3][3] = { color: "black" };
+        sparseBoard[4][4] = { color: "white" };
+
+        store.setState({
+            isSolverActive: true,
+            setupTab: "manual",
+            setupBoard: sparseBoard,
+            setupCurrentPlayer: "black",
+            targetSelectivity: 100,
+            solverMode: "multiPv",
+        });
+
+        const result = await store.getState().startSolverFromSetup({
+            selectivity: 95,
+            mode: "bestOnly",
+        });
+
+        expect(result).toBe(false);
+        expect(store.getState().targetSelectivity).toBe(100);
+        expect(store.getState().solverMode).toBe("multiPv");
+        expect(store.getState().setupError).not.toBeNull();
+        expect(services.settings.saveSetting).not.toHaveBeenCalled();
         expect(services.solver.startSearch).not.toHaveBeenCalled();
     });
 });

@@ -175,7 +175,7 @@ export function createSolverSlice(
 
         closeSolverModal: () => set({ isSolverModalOpen: false }),
 
-        startSolver: async (board, player) => {
+        startSolver: async (board, player, config) => {
             // Abort any in-flight solver search first. Without this, a second
             // startSolver call would block inside prepareToReplaceGame on the
             // shared search mutex until the previous solve finishes, making
@@ -187,6 +187,15 @@ export function createSolverSlice(
             }
 
             await get().resetGame();
+
+            if (config) {
+                set({
+                    targetSelectivity: config.selectivity,
+                    solverMode: config.mode,
+                });
+                void services.settings.saveSetting("solverTargetSelectivity", config.selectivity);
+                void services.settings.saveSetting("solverMode", config.mode);
+            }
 
             const rootEntry = createRootEntry(board, player);
             const nextRunId = get().solverSearchRunId + 1;
@@ -208,7 +217,7 @@ export function createSolverSlice(
             return true;
         },
 
-        startSolverFromSetup: async () => {
+        startSolverFromSetup: async (config) => {
             const {
                 setupTab,
                 setupBoard,
@@ -236,7 +245,11 @@ export function createSolverSlice(
             }
 
             set({ setupError: null });
-            const started = await get().startSolver(resolved.board, resolved.currentPlayer);
+            const started = await get().startSolver(
+                resolved.board,
+                resolved.currentPlayer,
+                config,
+            );
             if (!started) {
                 set({ setupError: "aiInitFailed" });
                 return false;

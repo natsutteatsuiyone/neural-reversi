@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Play } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
@@ -29,6 +29,24 @@ export function SolverModal() {
     const setupError = useReversiStore((s) => s.setupError);
     const startSolverFromSetup = useReversiStore((s) => s.startSolverFromSetup);
 
+    // Draft kept local so twiddling radios in the modal does not bleed into an
+    // active solver session; startSolverFromSetup commits it only after setup
+    // validation and solver replacement succeed.
+    const [draftSelectivity, setDraftSelectivity] = useState(
+        () => useReversiStore.getState().targetSelectivity,
+    );
+    const [draftMode, setDraftMode] = useState(
+        () => useReversiStore.getState().solverMode,
+    );
+
+    useEffect(() => {
+        if (isOpen) {
+            const s = useReversiStore.getState();
+            setDraftSelectivity(s.targetSelectivity);
+            setDraftMode(s.solverMode);
+        }
+    }, [isOpen]);
+
     const handleOpenChange = useCallback(
         (open: boolean) => {
             if (!open) {
@@ -40,7 +58,10 @@ export function SolverModal() {
 
     const handleStart = async () => {
         try {
-            const ok = await startSolverFromSetup();
+            const ok = await startSolverFromSetup({
+                selectivity: draftSelectivity,
+                mode: draftMode,
+            });
             if (ok) {
                 closeSolverModal();
             }
@@ -106,8 +127,16 @@ export function SolverModal() {
                 </Tabs>
 
                 <div className="flex flex-row flex-wrap gap-6">
-                    <SolverSelectivitySelector idPrefix="solver-modal-selectivity" />
-                    <SolverModeSelector idPrefix="solver-modal-mode" />
+                    <SolverSelectivitySelector
+                        idPrefix="solver-modal-selectivity"
+                        value={draftSelectivity}
+                        onValueChange={setDraftSelectivity}
+                    />
+                    <SolverModeSelector
+                        idPrefix="solver-modal-mode"
+                        value={draftMode}
+                        onValueChange={setDraftMode}
+                    />
                 </div>
 
                 <DialogFooter className="flex-row items-center gap-2">
