@@ -38,6 +38,7 @@ describe("hydrateSettings", () => {
       bottomPanelSize: 35,
       language: "ja",
       solverTargetSelectivity: 95,
+      solverMode: "bestOnly",
     };
 
     store.getState().hydrateSettings(settings);
@@ -54,6 +55,7 @@ describe("hydrateSettings", () => {
     expect(s.aiAnalysisPanelOpen).toBe(true);
     expect(s.language).toBe("ja");
     expect(s.targetSelectivity).toBe(95);
+    expect(s.solverMode).toBe("bestOnly");
     expect(services.settings.saveSetting).not.toHaveBeenCalled();
     expect(services.ai.resizeTT).toHaveBeenCalledWith(1024);
   });

@@ -279,6 +279,7 @@ async fn solver_search_command(
     app: AppHandle,
     board_string: String,
     target_selectivity: u8,
+    multi_pv: bool,
     run_id: u64,
 ) -> Result<(), String> {
     let search_arc = state.search.clone();
@@ -308,7 +309,7 @@ async fn solver_search_command(
         };
 
         let options = SearchRunOptions::with_level(level, selectivity)
-            .multi_pv(true)
+            .multi_pv(multi_pv)
             .callback(callback);
         search_guard.run(&board, &options);
         Ok(())

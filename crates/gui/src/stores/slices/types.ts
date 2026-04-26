@@ -2,6 +2,7 @@ import type {
     AIMoveProgress,
     AIMoveResult,
     SolverCandidate,
+    SolverMode,
     SolverProgressPayload,
     SolverSelectivity,
 } from "@/services/types";
@@ -165,6 +166,7 @@ export interface SolverSlice {
     solverCurrentBoard: Board | null;
     solverCurrentPlayer: Player | null;
     targetSelectivity: SolverSelectivity;
+    solverMode: SolverMode;
     solverCandidates: Map<string, SolverCandidate>;
     isSolverSearching: boolean;
     /**
@@ -191,8 +193,8 @@ export interface SolverSlice {
     exitSolver: () => Promise<void>;
     advanceSolver: (row: number, col: number) => Promise<void>;
     undoSolver: () => Promise<void>;
-    resetSolverToRoot: () => Promise<void>;
     setTargetSelectivity: (sel: SolverSelectivity) => Promise<void>;
+    setSolverMode: (mode: SolverMode) => Promise<void>;
     stopSolverSearch: () => Promise<void>;
     resumeSolverSearch: () => Promise<void>;
     applySolverProgress: (payload: SolverProgressPayload) => void;

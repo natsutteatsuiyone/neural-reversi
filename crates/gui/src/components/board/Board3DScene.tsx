@@ -34,6 +34,7 @@ interface Board3DSceneProps {
   analyzeResults: Map<string, AIMoveProgress> | null;
   maxScore: number | null;
   skipAnimation: boolean;
+  showHintWaitingBar?: boolean;
 }
 
 const TOTAL_SIZE = CELL_SIZE * 8 + FRAME_WIDTH * 2 + 1.2;
@@ -41,6 +42,7 @@ const TOTAL_SIZE = CELL_SIZE * 8 + FRAME_WIDTH * 2 + 1.2;
 export function Board3DScene({
   board, lastMove, gameOver, isValidMove, isAITurn, onCellClick,
   aiMoveProgress, lastAIMove, moveHistory, analyzeResults, maxScore, skipAnimation,
+  showHintWaitingBar = true,
 }: Board3DSceneProps) {
   const size = useThree((s) => s.size);
   const invalidate = useThree((s) => s.invalidate);
@@ -212,6 +214,7 @@ export function Board3DScene({
                   maxScore={maxScore}
                   gameOver={gameOver}
                   isValidMoveCell={isValidMove(rowIndex, colIndex)}
+                  showWaitingBar={showHintWaitingBar}
                 />
               </div>
             </CellHtmlOverlay>

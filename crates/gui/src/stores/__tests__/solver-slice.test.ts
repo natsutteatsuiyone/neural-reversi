@@ -117,6 +117,7 @@ describe("startSolver", () => {
             board,
             "black",
             100,
+            "multiPv",
             expect.any(Number),
         );
         expect(services.ai.initialize).toHaveBeenCalled();
@@ -338,6 +339,7 @@ describe("advanceSolver", () => {
             expectedBoard,
             "white",
             100,
+            "multiPv",
             expect.any(Number),
         );
     });
@@ -408,6 +410,7 @@ describe("advanceSolver", () => {
             expectedBoard,
             "black",
             100,
+            "multiPv",
             expect.any(Number),
         );
     });
@@ -467,6 +470,7 @@ describe("undoSolver", () => {
             rootBoard,
             "black",
             100,
+            "multiPv",
             expect.any(Number),
         );
     });
@@ -540,90 +544,6 @@ describe("undoSolver", () => {
     });
 });
 
-describe("resetSolverToRoot", () => {
-    it("truncates to the root entry and re-runs the search", async () => {
-        const { store, services } = createTestStore();
-        const rootBoard = initializeBoard();
-        const secondBoard = applyMove(
-            rootBoard,
-            { row: 2, col: 3, isAI: false, score: 0 },
-            "black",
-        );
-        const thirdBoard = applyMove(
-            secondBoard,
-            { row: 2, col: 2, isAI: false, score: 0 },
-            "white",
-        );
-
-        store.setState({
-            isSolverActive: true,
-            solverRootBoard: rootBoard,
-            solverRootPlayer: "black",
-            solverHistory: [
-                buildHistoryEntry(rootBoard, "black", null),
-                buildHistoryEntry(secondBoard, "white", "d3"),
-                buildHistoryEntry(thirdBoard, "black", "c3"),
-            ],
-            solverCurrentBoard: thirdBoard,
-            solverCurrentPlayer: "black",
-            solverCandidates: new Map([
-                [
-                    "0,0",
-                    {
-                        move: "a1",
-                        row: 0,
-                        col: 0,
-                        score: 1,
-                        depth: 5,
-                        targetDepth: 5,
-                        acc: 100,
-                        pvLine: "",
-                        isEndgame: true,
-                        isComplete: true,
-                    },
-                ],
-            ]),
-            isSolverSearching: false,
-        });
-
-        await store.getState().resetSolverToRoot();
-
-        expect(services.solver.abort).toHaveBeenCalledTimes(1);
-        const state = store.getState();
-        expect(state.solverHistory).toHaveLength(1);
-        expect(state.solverCurrentBoard).toBe(rootBoard);
-        expect(state.solverCurrentPlayer).toBe("black");
-        expect(state.solverCandidates.size).toBe(0);
-        // Mock resolves synchronously → finally clears the flag.
-        expect(state.isSolverSearching).toBe(false);
-        expect(services.solver.startSearch).toHaveBeenCalledWith(
-            rootBoard,
-            "black",
-            100,
-            expect.any(Number),
-        );
-    });
-
-    it("is a no-op when already at the root", async () => {
-        const { store, services } = createTestStore();
-        const board = initializeBoard();
-        store.setState({
-            isSolverActive: true,
-            solverRootBoard: board,
-            solverRootPlayer: "black",
-            solverHistory: [buildHistoryEntry(board, "black", null)],
-            solverCurrentBoard: board,
-            solverCurrentPlayer: "black",
-            isSolverSearching: false,
-        });
-
-        await store.getState().resetSolverToRoot();
-
-        expect(services.solver.abort).not.toHaveBeenCalled();
-        expect(services.solver.startSearch).not.toHaveBeenCalled();
-    });
-});
-
 describe("setTargetSelectivity", () => {
     it("updates state and restarts the search when solver is active and searching", async () => {
         const { store, services } = createTestStore();
@@ -665,6 +585,7 @@ describe("setTargetSelectivity", () => {
             board,
             "black",
             95,
+            "multiPv",
             expect.any(Number),
         );
         expect(state.solverCandidates.size).toBe(0);
@@ -710,6 +631,7 @@ describe("setTargetSelectivity", () => {
             expect.anything(),
             "black",
             95,
+            "multiPv",
             expect.any(Number),
         );
         // Mock resolves synchronously → finally clears the flag.

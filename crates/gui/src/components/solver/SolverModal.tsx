@@ -16,6 +16,7 @@ import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
 import { TranscriptTab } from "@/components/setup/TranscriptTab";
 import { BoardStringTab } from "@/components/setup/BoardStringTab";
 import { SolverSelectivitySelector } from "./SolverSelectivitySelector";
+import { SolverModeSelector } from "./SolverModeSelector";
 import type { SetupTab } from "@/stores/slices/types";
 
 export function SolverModal() {
@@ -104,7 +105,10 @@ export function SolverModal() {
                     </div>
                 </Tabs>
 
-                <SolverSelectivitySelector idPrefix="solver-modal-selectivity" />
+                <div className="flex flex-row flex-wrap gap-6">
+                    <SolverSelectivitySelector idPrefix="solver-modal-selectivity" />
+                    <SolverModeSelector idPrefix="solver-modal-mode" />
+                </div>
 
                 <DialogFooter className="flex-row items-center gap-2">
                     <Button

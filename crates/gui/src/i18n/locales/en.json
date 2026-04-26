@@ -110,12 +110,16 @@
     "openMenu": "Solver",
     "start": "Start Solver",
     "exit": "Exit Solver",
-    "back": "Back",
-    "backToStart": "Reset to Start",
+    "back": "Undo",
     "selectivity": "Selectivity",
+    "mode": "Mode",
+    "modes": {
+      "bestOnly": "Best move only",
+      "multiPv": "All moves (MultiPV)"
+    },
     "searching": "Solving...",
     "candidates": "Candidates",
-    "noCandidates": "No legal moves. Use Back to step back.",
+    "noCandidates": "No legal moves. Use Undo to step back.",
     "cancel": "Cancel",
     "stop": "Stop",
     "resume": "Resume"

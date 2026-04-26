@@ -30,6 +30,7 @@ export function Board() {
   const solverCurrentBoard = useReversiStore((state) => state.solverCurrentBoard);
   const solverCurrentPlayer = useReversiStore((state) => state.solverCurrentPlayer);
   const solverCandidates = useReversiStore((state) => state.solverCandidates);
+  const solverMode = useReversiStore((state) => state.solverMode);
   const advanceSolver = useReversiStore((state) => state.advanceSolver);
 
   const [moveHistory, setMoveHistory] = useState<MoveHistoryItem[]>([]);
@@ -183,6 +184,7 @@ export function Board() {
             analyzeResults={activeAnalyzeResults}
             maxScore={maxScore}
             skipAnimation={activeSkipAnimation}
+            showHintWaitingBar={!(isSolverActive && solverMode === "bestOnly")}
           />
         </Suspense>
       </Canvas>

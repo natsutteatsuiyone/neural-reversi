@@ -3,9 +3,11 @@ import type { AIMode, GameMode } from "@/types";
 import type { Language } from "@/i18n";
 import {
   DEFAULT_SETTINGS,
+  SOLVER_MODES,
   SOLVER_SELECTIVITIES,
   type AppSettings,
   type SettingsService,
+  type SolverMode,
   type SolverSelectivity,
 } from "./types";
 
@@ -13,6 +15,13 @@ function isValidSolverSelectivity(value: unknown): value is SolverSelectivity {
   return (
     typeof value === "number" &&
     (SOLVER_SELECTIVITIES as readonly number[]).includes(value)
+  );
+}
+
+function isValidSolverMode(value: unknown): value is SolverMode {
+  return (
+    typeof value === "string" &&
+    (SOLVER_MODES as readonly string[]).includes(value)
   );
 }
 
@@ -37,6 +46,7 @@ export class TauriSettingsService implements SettingsService {
         gameMode, aiLevel, aiMode, timeLimit, gameTimeLimit,
         hintLevel, gameAnalysisLevel, hashSize, aiAnalysisPanelOpen,
         rightPanelSize, bottomPanelSize, language, solverTargetSelectivity,
+        solverMode,
       ] = await Promise.all([
         s.get<GameMode>("gameMode"),
         s.get<number>("aiLevel"),
@@ -51,6 +61,7 @@ export class TauriSettingsService implements SettingsService {
         s.get<number>("bottomPanelSize"),
         s.get<Language | null>("language"),
         s.get<number>("solverTargetSelectivity"),
+        s.get<string>("solverMode"),
       ]);
 
       return {
@@ -69,6 +80,7 @@ export class TauriSettingsService implements SettingsService {
         solverTargetSelectivity: isValidSolverSelectivity(solverTargetSelectivity)
           ? solverTargetSelectivity
           : DEFAULT_SETTINGS.solverTargetSelectivity,
+        solverMode: isValidSolverMode(solverMode) ? solverMode : DEFAULT_SETTINGS.solverMode,
       };
     } catch (error) {
       console.error("Failed to load settings:", error);

@@ -6,6 +6,7 @@ import type { Board, Player } from "@/types";
 import type {
     Services,
     SolverCandidate,
+    SolverMode,
     SolverProgressPayload,
     SolverSelectivity,
 } from "@/services/types";
@@ -38,16 +39,18 @@ function solverCacheKey(
     board: Board,
     player: Player,
     selectivity: SolverSelectivity,
+    mode: SolverMode,
 ): string {
-    return `${boardToString(board)}:${player}:${selectivity}`;
+    return `${boardToString(board)}:${player}:${selectivity}:${mode}`;
 }
 
 function solverCacheGet(
     board: Board,
     player: Player,
     selectivity: SolverSelectivity,
+    mode: SolverMode,
 ): Map<string, SolverCandidate> | null {
-    const key = solverCacheKey(board, player, selectivity);
+    const key = solverCacheKey(board, player, selectivity, mode);
     const entry = solverResultCache.get(key);
     if (!entry) return null;
     solverResultCache.delete(key);
@@ -60,9 +63,10 @@ function solverCachePut(
     board: Board,
     player: Player,
     selectivity: SolverSelectivity,
+    mode: SolverMode,
     candidates: Map<string, SolverCandidate>,
 ): void {
-    const key = solverCacheKey(board, player, selectivity);
+    const key = solverCacheKey(board, player, selectivity, mode);
     solverResultCache.delete(key);
     // applySolverProgress always spreads into a fresh Map, so this ref is frozen.
     solverResultCache.set(key, candidates);
@@ -85,8 +89,9 @@ async function runSolverSearch(
     runId: number,
 ): Promise<void> {
     const selectivity = get().targetSelectivity;
+    const mode = get().solverMode;
     try {
-        await services.solver.startSearch(board, player, selectivity, runId);
+        await services.solver.startSearch(board, player, selectivity, mode, runId);
     } catch (error) {
         console.error("Failed to start solver search:", error);
     } finally {
@@ -101,7 +106,7 @@ async function runSolverSearch(
                 }
             }
             if (allComplete) {
-                solverCachePut(board, player, selectivity, candidates);
+                solverCachePut(board, player, selectivity, mode, candidates);
             }
             set({ isSolverSearching: false });
         }
@@ -122,9 +127,10 @@ async function repointSolver(
     board: Board,
     player: Player,
     selectivity: SolverSelectivity,
+    mode: SolverMode,
     extra: Partial<ReversiState> = {},
 ): Promise<void> {
-    const cached = solverCacheGet(board, player, selectivity);
+    const cached = solverCacheGet(board, player, selectivity, mode);
     const nextRunId = get().solverSearchRunId + 1;
 
     set({
@@ -156,6 +162,7 @@ export function createSolverSlice(
         solverCurrentBoard: null,
         solverCurrentPlayer: null,
         targetSelectivity: DEFAULT_SETTINGS.solverTargetSelectivity,
+        solverMode: DEFAULT_SETTINGS.solverMode,
         solverCandidates: new Map<string, SolverCandidate>(),
         isSolverSearching: false,
         isSolverStopped: false,
@@ -320,7 +327,12 @@ export function createSolverSlice(
                 return;
             }
 
-            const cached = solverCacheGet(newBoard, nextPlayer, get().targetSelectivity);
+            const cached = solverCacheGet(
+                newBoard,
+                nextPlayer,
+                get().targetSelectivity,
+                get().solverMode,
+            );
             if (cached) {
                 set((s) => ({
                     solverHistory: [...s.solverHistory, newEntry],
@@ -359,36 +371,11 @@ export function createSolverSlice(
                 prevEntry.board,
                 prevEntry.player,
                 initial.targetSelectivity,
+                initial.solverMode,
                 {
                     solverHistory: newHistory,
                     solverCurrentBoard: prevEntry.board,
                     solverCurrentPlayer: prevEntry.player,
-                },
-            );
-        },
-
-        resetSolverToRoot: async () => {
-            const initial = get();
-            const rootBoard = initial.solverRootBoard;
-            const rootPlayer = initial.solverRootPlayer;
-            if (!rootBoard || !rootPlayer) {
-                return;
-            }
-            if (initial.solverHistory.length <= 1) {
-                return;
-            }
-
-            await repointSolver(
-                services,
-                get,
-                set,
-                rootBoard,
-                rootPlayer,
-                initial.targetSelectivity,
-                {
-                    solverHistory: [initial.solverHistory[0]],
-                    solverCurrentBoard: rootBoard,
-                    solverCurrentPlayer: rootPlayer,
                 },
             );
         },
@@ -413,6 +400,32 @@ export function createSolverSlice(
                 initial.solverCurrentBoard,
                 initial.solverCurrentPlayer,
                 sel,
+                initial.solverMode,
+            );
+        },
+
+        setSolverMode: async (mode) => {
+            if (get().solverMode === mode) return;
+            set({ solverMode: mode });
+            void services.settings.saveSetting("solverMode", mode);
+
+            const initial = get();
+            if (
+                !initial.isSolverActive ||
+                !initial.solverCurrentBoard ||
+                !initial.solverCurrentPlayer
+            ) {
+                return;
+            }
+
+            await repointSolver(
+                services,
+                get,
+                set,
+                initial.solverCurrentBoard,
+                initial.solverCurrentPlayer,
+                initial.targetSelectivity,
+                mode,
             );
         },
 
@@ -448,6 +461,7 @@ export function createSolverSlice(
                 solverCurrentBoard,
                 solverCurrentPlayer,
                 state.targetSelectivity,
+                state.solverMode,
             );
             const nextRunId = state.solverSearchRunId + 1;
 

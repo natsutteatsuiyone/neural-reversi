@@ -80,6 +80,7 @@ export interface AppSettings {
   bottomPanelSize: number;
   language: Language | null;
   solverTargetSelectivity: SolverSelectivity;
+  solverMode: SolverMode;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -96,6 +97,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bottomPanelSize: 30,
   language: null,
   solverTargetSelectivity: 100,
+  solverMode: "multiPv",
 };
 
 export interface SettingsService {
@@ -116,6 +118,9 @@ export const SOLVER_SELECTIVITY_TO_U8: Record<SolverSelectivity, 0 | 2 | 4 | 5> 
   99: 4,   // Level5
   100: 5,  // None
 };
+
+export const SOLVER_MODES = ["bestOnly", "multiPv"] as const;
+export type SolverMode = typeof SOLVER_MODES[number];
 
 /**
  * Progress payload for solver searches. Mirrors {@link AIMoveProgress} but
@@ -154,6 +159,7 @@ export interface SolverService {
     board: Board,
     player: Player,
     targetSelectivity: SolverSelectivity,
+    mode: SolverMode,
     runId: number,
   ): Promise<void>;
   /** Aborts any in-flight search (shared with the main AI search mutex). */

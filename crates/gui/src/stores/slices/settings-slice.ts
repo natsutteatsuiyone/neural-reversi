@@ -36,6 +36,7 @@ export function createSettingsSlice(services: Services): StateCreator<
             aiMode: settings.aiMode,
             language: settings.language,
             targetSelectivity: settings.solverTargetSelectivity,
+            solverMode: settings.solverMode,
             analyzeResults: null,
         });
         if (shouldResizeTT) {

@@ -110,12 +110,16 @@
     "openMenu": "ソルバー",
     "start": "ソルバー開始",
     "exit": "ソルバー終了",
-    "back": "戻る",
-    "backToStart": "初期局面に戻る",
+    "back": "一手戻す",
     "selectivity": "精度",
+    "mode": "モード",
+    "modes": {
+      "bestOnly": "最善手のみ",
+      "multiPv": "全手スコア"
+    },
     "searching": "探索中...",
     "candidates": "候補手",
-    "noCandidates": "合法手がありません。戻るを押してください。",
+    "noCandidates": "合法手がありません。一手戻すを押してください。",
     "cancel": "キャンセル",
     "stop": "停止",
     "resume": "再開"

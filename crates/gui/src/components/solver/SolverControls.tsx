@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Home, Play, Square } from "lucide-react";
+import { ArrowLeft, Play, Square } from "lucide-react";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Button } from "@/components/ui/button";
 import { SolverSelectivitySelector } from "./SolverSelectivitySelector";
+import { SolverModeSelector } from "./SolverModeSelector";
 
 export function SolverControls() {
   const { t } = useTranslation();
@@ -10,7 +11,6 @@ export function SolverControls() {
   const isSolverSearching = useReversiStore((s) => s.isSolverSearching);
   const isSolverStopped = useReversiStore((s) => s.isSolverStopped);
   const undoSolver = useReversiStore((s) => s.undoSolver);
-  const resetSolverToRoot = useReversiStore((s) => s.resetSolverToRoot);
   const stopSolverSearch = useReversiStore((s) => s.stopSolverSearch);
   const resumeSolverSearch = useReversiStore((s) => s.resumeSolverSearch);
 
@@ -28,16 +28,6 @@ export function SolverControls() {
         >
           <ArrowLeft className="w-4 h-4" />
           {t("solver.back")}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void resetSolverToRoot()}
-          disabled={!canGoBack}
-          className="gap-1"
-        >
-          <Home className="w-4 h-4" />
-          {t("solver.backToStart")}
         </Button>
         <div className="flex-1" />
         {isSolverSearching && (
@@ -64,7 +54,10 @@ export function SolverControls() {
         )}
       </div>
 
-      <SolverSelectivitySelector />
+      <div className="flex flex-row flex-wrap gap-6">
+        <SolverSelectivitySelector />
+        <SolverModeSelector />
+      </div>
     </div>
   );
 }

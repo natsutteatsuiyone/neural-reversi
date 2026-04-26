@@ -8,6 +8,7 @@ interface HintScoreDisplayProps {
   maxScore: number | null;
   gameOver: boolean;
   isValidMoveCell: boolean;
+  showWaitingBar?: boolean;
 }
 
 export function HintScoreDisplay({
@@ -17,6 +18,7 @@ export function HintScoreDisplay({
   maxScore,
   gameOver,
   isValidMoveCell,
+  showWaitingBar = true,
 }: HintScoreDisplayProps) {
   if (!analyzeResults || gameOver) {
     return null;
@@ -27,7 +29,7 @@ export function HintScoreDisplay({
 
   // Show waiting progress bar for valid move cells without results yet
   if (!result) {
-    if (!isValidMoveCell) {
+    if (!isValidMoveCell || !showWaitingBar) {
       return null;
     }
     // Show 0% progress bar for unsearched valid moves
