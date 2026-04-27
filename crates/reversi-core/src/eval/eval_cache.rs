@@ -45,14 +45,14 @@ impl EvalCache {
     }
 
     /// Returns the cached evaluation score for `key`, or [`None`] if not found.
+    ///
+    /// Empty slots store `0`. With a non-zero `key & KEY_MASK` (true for any
+    /// real position hash) the empty entry naturally fails the key compare,
+    /// so an explicit zero check is unnecessary.
     #[inline(always)]
     pub fn probe(&self, key: u64) -> Option<ScaledScore> {
         let index = self.index(key);
         let entry = unsafe { self.table.get_unchecked(index).load(Ordering::Relaxed) };
-
-        if entry == 0 {
-            return None;
-        }
 
         let key_masked = key & KEY_MASK;
         let entry_key = entry >> SCORE_BITS;
