@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use rand::seq::IteratorRandom;
 
+use crate::bitboard::Bitboard;
 use crate::board::Board;
+use crate::constants::INITIAL_EMPTY_COUNT;
+use crate::eval::Eval;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
@@ -411,16 +414,42 @@ pub fn evaluate_depth1(
         }
     }
 
+    if Eval::should_use_main_network(ctx.eval_mode, ctx.ply() + 1) {
+        evaluate_depth1_moves::<true>(ctx, board, beta, moves)
+    } else {
+        evaluate_depth1_moves::<false>(ctx, board, beta, moves)
+    }
+}
+
+#[inline(always)]
+fn evaluate_depth1_moves<const USE_MAIN_NETWORK: bool>(
+    ctx: &mut SearchContext,
+    board: &Board,
+    beta: ScaledScore,
+    moves: Bitboard,
+) -> ScaledScore {
     let mut best_score = -ScaledScore::INF;
 
     for sq in moves.corners().iter() {
-        if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
+        if let Some(score) = search_move_in_evaluate_depth1::<USE_MAIN_NETWORK>(
+            ctx,
+            board,
+            sq,
+            beta,
+            &mut best_score,
+        ) {
             return score;
         }
     }
 
     for sq in moves.non_corners().iter() {
-        if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
+        if let Some(score) = search_move_in_evaluate_depth1::<USE_MAIN_NETWORK>(
+            ctx,
+            board,
+            sq,
+            beta,
+            &mut best_score,
+        ) {
             return score;
         }
     }
@@ -430,7 +459,7 @@ pub fn evaluate_depth1(
 
 /// Searches a single move within [`evaluate_depth1`], returning on beta cutoff.
 #[inline(always)]
-fn search_move_in_evaluate_depth1(
+fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
     ctx: &mut SearchContext,
     board: &Board,
     sq: Square,
@@ -443,8 +472,22 @@ fn search_move_in_evaluate_depth1(
     }
     let next = board.make_move_with_flipped(flipped, sq);
 
+    let cache_key = if USE_MAIN_NETWORK {
+        let key = next.hash();
+        ctx.eval.prefetch(key);
+        key
+    } else {
+        0
+    };
+
     ctx.update(sq, flipped);
-    let score = -evaluate(ctx, &next);
+    let score = if ctx.ply() == INITIAL_EMPTY_COUNT {
+        -next.final_score_scaled()
+    } else if USE_MAIN_NETWORK {
+        -ctx.eval.evaluate_main_with_key(ctx, &next, cache_key)
+    } else {
+        -ctx.eval.evaluate_small(ctx)
+    };
     ctx.undo(sq);
 
     if score > *best_score {
@@ -459,7 +502,7 @@ fn search_move_in_evaluate_depth1(
 /// Evaluates a leaf node position using the neural network.
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
-    if ctx.ply() == 60 {
+    if ctx.ply() == INITIAL_EMPTY_COUNT {
         return board.final_score_scaled();
     }
 

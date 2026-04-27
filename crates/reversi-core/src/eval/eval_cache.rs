@@ -1,5 +1,6 @@
 //! Hash table for caching neural network evaluation results.
 
+use std::hint::{Locality, prefetch_read};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::types::ScaledScore;
@@ -62,6 +63,16 @@ impl EvalCache {
 
         let score = ScaledScore::from_raw(entry as i16 as i32);
         Some(score)
+    }
+
+    /// Prefetches the entry that `probe(key)` will read into L1.
+    #[inline(always)]
+    pub fn prefetch(&self, key: u64) {
+        let index = self.index(key);
+        // SAFETY: `index()` returns a value in `0..self.table.len()`, so
+        // `add(index)` stays within the same allocation.
+        let addr = unsafe { self.table.as_ptr().add(index) };
+        prefetch_read(addr, Locality::L1);
     }
 
     /// Calculates table index by rotating the key so high bits influence the bucket.

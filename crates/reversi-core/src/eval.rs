@@ -26,7 +26,7 @@ pub mod pattern_feature;
 mod util;
 
 /// Log2 of the number of evaluation cache entries.
-const EVAL_CACHE_SIZE_LOG2: u32 = 17;
+const EVAL_CACHE_SIZE_LOG2: u32 = 18;
 
 /// Selects which neural network to use for evaluation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,23 +147,50 @@ impl Eval {
     /// - `ply >= 30`: Uses small network when [`EvalMode::Small`], otherwise main network
     ///
     /// Only main network evaluations are cached; the small network is fast enough without caching.
-    #[inline]
+    #[inline(always)]
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
-        if ctx.eval_mode == EvalMode::Main || ctx.ply() < ENDGAME_START_PLY {
-            let key = board.hash();
-            if let Some(score_cache) = self.cache.probe(key) {
-                return score_cache;
-            }
-
-            let score = self
-                .network
-                .evaluate(board, ctx.get_pattern_feature(), ctx.ply());
-            self.cache.store(key, score);
-            score
+        if Self::should_use_main_network(ctx.eval_mode, ctx.ply()) {
+            self.evaluate_main_with_key(ctx, board, board.hash())
         } else {
-            self.network_sm
-                .evaluate(ctx.get_pattern_feature(), ctx.ply())
+            self.evaluate_small(ctx)
         }
+    }
+
+    /// Returns whether the main network (and thus the eval cache) is used
+    /// for the given `(eval_mode, ply)` pair.
+    #[inline(always)]
+    pub fn should_use_main_network(eval_mode: EvalMode, ply: usize) -> bool {
+        eval_mode == EvalMode::Main || ply < ENDGAME_START_PLY
+    }
+
+    /// Main-network evaluation with cache, using a precomputed `board.hash()`.
+    ///
+    /// Intended for the main-network path — see [`should_use_main_network`](Self::should_use_main_network).
+    #[inline(always)]
+    pub fn evaluate_main_with_key(
+        &self,
+        ctx: &SearchContext,
+        board: &Board,
+        key: u64,
+    ) -> ScaledScore {
+        if let Some(score_cache) = self.cache.probe(key) {
+            return score_cache;
+        }
+
+        let score = self
+            .network
+            .evaluate(board, ctx.get_pattern_feature(), ctx.ply());
+        self.cache.store(key, score);
+        score
+    }
+
+    /// Small-network evaluation (no cache).
+    ///
+    /// Intended for the small-network path — see [`should_use_main_network`](Self::should_use_main_network).
+    #[inline(always)]
+    pub fn evaluate_small(&self, ctx: &SearchContext) -> ScaledScore {
+        self.network_sm
+            .evaluate(ctx.get_pattern_feature(), ctx.ply())
     }
 
     /// Evaluates a position without [`SearchContext`].
@@ -182,6 +209,17 @@ impl Eval {
 
         self.network
             .evaluate(board, pattern_features.p_feature(ply), ply)
+    }
+
+    /// Software-prefetches the eval-cache line for `key`.
+    ///
+    /// Issue this between `make_move` and `evaluate` so the load overlaps
+    /// with intervening SIMD work (e.g. pattern-feature updates). Only
+    /// useful when the next eval call will probe the cache — see
+    /// [`should_use_main_network`](Self::should_use_main_network).
+    #[inline(always)]
+    pub fn prefetch(&self, key: u64) {
+        self.cache.prefetch(key);
     }
 
     /// Clears the evaluation cache.
