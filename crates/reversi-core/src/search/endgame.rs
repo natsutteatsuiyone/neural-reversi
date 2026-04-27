@@ -8,10 +8,7 @@ use std::sync::Arc;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::{SCORE_INF, SCORE_MAX};
-#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 use crate::count_last_flip::count_last_flip;
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-use crate::count_last_flip::count_last_flip_double;
 use crate::eval::EvalMode;
 use crate::flip;
 use crate::level::Level;
@@ -811,34 +808,11 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     board.solve(2)
 }
 
-/// Specialized branchless solver for positions with exactly 1 empty square.
+/// Specialized solver for positions with exactly 1 empty square.
 ///
-/// Reference: <https://eukaryote.hateblo.jp/entry/2020/05/10/033228>
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-#[inline(always)]
-fn solve1(ctx: &mut SearchContext, player: Bitboard, _alpha: Score, sq: Square) -> Score {
-    ctx.increment_nodes();
-    let (p_flip, o_flip) = count_last_flip_double(player, sq);
-
-    let base = 2 * player.count() as Score - 64;
-
-    let x1 = base + 2 + p_flip;
-    let x2 = base - o_flip;
-    let x3 = base + ((base >= 0) as Score) * 2;
-
-    let b1 = p_flip != 0;
-    let b2 = o_flip != 0;
-
-    let ax = if b2 { x2 } else { x3 };
-    if b1 { x1 } else { ax }
-}
-
-/// Specialized solver for positions with exactly 1 empty square (portable fallback).
-///
-/// Alpha-pruning lets the second `count_last_flip` call be skipped, which beats
-/// the branchless `count_last_flip_double` variant here — the kindergarten path
-/// is too heavy to amortize the always-on opponent-side work.
-#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
+/// Alpha-pruning lets the second `count_last_flip` call be skipped whenever the
+/// player's flip alone already proves the bound, which empirically beats the
+/// branchless "compute both sides" variant on the FFO 40-59 suite.
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();

@@ -23,31 +23,21 @@ pub fn count_last_flip(player: Bitboard, sq: Square) -> i32 {
     }
 }
 
-/// Counts flipped discs for both players simultaneously (BMI2 only).
-///
-/// **Precondition**: callers must satisfy the "last move" invariant — `sq` is
-/// empty and every other square is occupied by either player.
-///
-/// Returns `(player_flipped, opponent_flipped)` where values are twice the actual flip count.
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-#[inline(always)]
-pub fn count_last_flip_double(player: Bitboard, sq: Square) -> (i32, i32) {
-    unsafe { count_last_flip_bmi2::count_last_flip_double(player.bits(), sq) }
-}
-
 #[cfg(test)]
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 mod tests {
     use super::*;
+    use crate::flip::flip;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-    /// Cross-checks the BMI2 `count_last_flip_double` complementarity-XOR shortcut
-    /// against two independent `count_last_flip` calls.
+    /// `count_last_flip(p, sq)` is defined as 2× the number of opponent discs
+    /// flipped if the player places a disc at `sq` on a "last move" board (one
+    /// empty square left, opponent fills the rest). Cross-check it against the
+    /// independently-verified `flip()` function: for any `p` and empty `sq`,
+    /// `count_last_flip(p, sq) == 2 * popcount(flip(sq, p, !p ^ (1<<sq)))`.
     #[test]
-    fn double_matches_single_under_complementarity() {
-        let mut rng = StdRng::seed_from_u64(0xb1da_1100);
-        let mut checked = 0usize;
-        for _ in 0..1024 {
+    fn matches_flip_popcount_on_random_positions() {
+        let mut rng = StdRng::seed_from_u64(0xfeed_face);
+        for _ in 0..2048 {
             let p: u64 = rng.random();
             for sq_idx in 0..64u8 {
                 let sq_bit = 1u64 << sq_idx;
@@ -55,19 +45,16 @@ mod tests {
                     continue;
                 }
                 let sq = Square::from_u8(sq_idx).unwrap();
-                let opp = !p & !sq_bit;
-                let player_bb = Bitboard::new(p);
-                let opp_bb = Bitboard::new(opp);
-                let expected = (count_last_flip(player_bb, sq), count_last_flip(opp_bb, sq));
-                let got = count_last_flip_double(player_bb, sq);
+                let opponent = !p & !sq_bit;
+                let flipped = flip(sq, Bitboard::new(p), Bitboard::new(opponent));
+                let expected = 2 * flipped.bits().count_ones() as i32;
+                let got = count_last_flip(Bitboard::new(p), sq);
                 assert_eq!(
                     got, expected,
-                    "mismatch at sq={:?} p={:#x}: got={:?} expected={:?}",
+                    "mismatch at sq={:?} p={:#x}: got={} expected={}",
                     sq, p, got, expected,
                 );
-                checked += 1;
             }
         }
-        assert!(checked > 10_000, "too few checks: {checked}");
     }
 }

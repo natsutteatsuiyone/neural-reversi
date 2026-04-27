@@ -1,97 +1,62 @@
 //! BMI2 version of counting flipped discs for the last move.
-//! Based on count_last_flip_bmi2.c from edax-reversi.
+//! Optimized Rust implementation derived from the Edax-style PEXT layout.
+//!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c>
+//!
+//! The hot path keeps the original 4-line decomposition, but removes the giant
+//! hand-written COUNT_FLIP literal, aligns all read-only tables, and computes the
+//! row and file indices directly from `player` so they don't depend on the
+//! `player & mask3` AND.
 
 use std::arch::x86_64::_pext_u64;
 
 use crate::square::Square;
 
-#[rustfmt::skip]
-const COUNT_FLIP: [[u8; 256]; 8] = [
-	[
-		 0,  0,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-		 8,  8,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-		10, 10,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-		 8,  8,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-		12, 12,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-		 8,  8,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-		10, 10,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-		 8,  8,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,  6,  6,  0,  0,  2,  2,  0,  0,  4,  4,  0,  0,  2,  2,  0,  0,
-	],
-	[
-		 0,  0,  0,  0,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-		 6,  6,  6,  6,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-		 8,  8,  8,  8,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-		 6,  6,  6,  6,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-		10, 10, 10, 10,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-		 6,  6,  6,  6,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-		 8,  8,  8,  8,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-		 6,  6,  6,  6,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,  4,  4,  4,  4,  0,  0,  0,  0,  2,  2,  2,  2,  0,  0,  0,  0,
-	],
-	[
-		 0,  2,  0,  0,  0,  2,  0,  0,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-		 4,  6,  4,  4,  4,  6,  4,  4,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-		 6,  8,  6,  6,  6,  8,  6,  6,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-		 4,  6,  4,  4,  4,  6,  4,  4,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-		 8, 10,  8,  8,  8, 10,  8,  8,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-		 4,  6,  4,  4,  4,  6,  4,  4,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-		 6,  8,  6,  6,  6,  8,  6,  6,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-		 4,  6,  4,  4,  4,  6,  4,  4,  0,  2,  0,  0,  0,  2,  0,  0,  2,  4,  2,  2,  2,  4,  2,  2,  0,  2,  0,  0,  0,  2,  0,  0,
-	],
-	[
-		 0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-		 2,  6,  4,  4,  2,  2,  2,  2,  2,  6,  4,  4,  2,  2,  2,  2,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-		 4,  8,  6,  6,  4,  4,  4,  4,  4,  8,  6,  6,  4,  4,  4,  4,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-		 2,  6,  4,  4,  2,  2,  2,  2,  2,  6,  4,  4,  2,  2,  2,  2,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-		 6, 10,  8,  8,  6,  6,  6,  6,  6, 10,  8,  8,  6,  6,  6,  6,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-		 2,  6,  4,  4,  2,  2,  2,  2,  2,  6,  4,  4,  2,  2,  2,  2,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-		 4,  8,  6,  6,  4,  4,  4,  4,  4,  8,  6,  6,  4,  4,  4,  4,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-		 2,  6,  4,  4,  2,  2,  2,  2,  2,  6,  4,  4,  2,  2,  2,  2,  0,  4,  2,  2,  0,  0,  0,  0,  0,  4,  2,  2,  0,  0,  0,  0,
-	],
-	[
-		 0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,
-		 2,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,
-		 4, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  4, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,
-		 0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,
-		 2,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  6,  4,  4,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,
-	],
-	[
-		 0,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 2, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 2, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  8,  6,  6,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	],
-	[
-		 0, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0, 10,  8,  8,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	],
-	[
-		 0, 12, 10, 10,  8,  8,  8,  8,  6,  6,  6,  6,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
-		 2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0, 12, 10, 10,  8,  8,  8,  8,  6,  6,  6,  6,  6,  6,  6,  6,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,
-		 2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-		 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	],
-];
+#[repr(align(64))]
+struct CacheAligned<T>(T);
+
+const fn line_count(pos: usize, bits: usize) -> u8 {
+    let mut n = 0usize;
+
+    // Lower-index side: nearest own disc brackets every intervening opponent disc.
+    let mut i = pos;
+    while i > 0 {
+        i -= 1;
+        if ((bits >> i) & 1) != 0 {
+            n += pos - i - 1;
+            break;
+        }
+    }
+
+    // Higher-index side.
+    i = pos + 1;
+    while i < 8 {
+        if ((bits >> i) & 1) != 0 {
+            n += i - pos - 1;
+            break;
+        }
+        i += 1;
+    }
+
+    (n << 1) as u8
+}
+
+const fn build_count_flip() -> [[u8; 256]; 8] {
+    let mut out = [[0u8; 256]; 8];
+    let mut pos = 0usize;
+    while pos < 8 {
+        let mut bits = 0usize;
+        while bits < 256 {
+            out[pos][bits] = line_count(pos, bits);
+            bits += 1;
+        }
+        pos += 1;
+    }
+    out
+}
 
 #[rustfmt::skip]
-const MASK_X: [[u64; 4]; 64] = [
+const MASK_X_RAW: [[u64; 4]; 64] = [
 	[ 0x0000000000000001, 0x8040201008040201, 0x0101010101010101, 0x81412111090503ff ],
 	[ 0x0000000000000102, 0x0080402010080402, 0x0202020202020202, 0x02824222120a07ff ],
 	[ 0x0000000000010204, 0x0000804020100804, 0x0404040404040404, 0x0404844424150eff ],
@@ -158,130 +123,43 @@ const MASK_X: [[u64; 4]; 64] = [
 	[ 0x800000000000017e, 0x8040201008040201, 0x8080808080808080, 0xffc0a09088848281 ]
 ];
 
+const COUNT_FLIP_RAW: [[u8; 256]; 8] = build_count_flip();
+
+static COUNT_FLIP: CacheAligned<[[u8; 256]; 8]> = CacheAligned(COUNT_FLIP_RAW);
+
+static MASK_X: CacheAligned<[[u64; 4]; 64]> = CacheAligned(MASK_X_RAW);
+
 /// Counts the number of discs that would be flipped by the last move.
 ///
 /// Returns twice the actual number of flipped discs for optimization purposes.
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 #[target_feature(enable = "bmi2")]
 #[inline]
 pub fn count_last_flip(player: u64, sq: Square) -> i32 {
-    let sq_idx = sq.index();
-    let x = sq_idx & 7;
-    let y = sq_idx >> 3;
-
-    unsafe {
-        let mask = MASK_X.get_unchecked(sq_idx);
-        let masked_p = player & *mask.get_unchecked(3);
-        let count_x = COUNT_FLIP.get_unchecked(x);
-        let count_y = COUNT_FLIP.get_unchecked(y);
-
-        let idx = ((masked_p >> (sq_idx & 0x38)) & 0xFF) as usize;
-        let mut n_flipped = *count_x.get_unchecked(idx);
-        n_flipped += *count_y.get_unchecked(_pext_u64(masked_p, *mask.get_unchecked(0)) as usize);
-        n_flipped += *count_y.get_unchecked(_pext_u64(masked_p, *mask.get_unchecked(1)) as usize);
-        n_flipped += *count_y.get_unchecked(_pext_u64(masked_p, *mask.get_unchecked(2)) as usize);
-
-        n_flipped as i32
-    }
-}
-
-/// Per-square "full" PEXT pattern for `mask0`/`mask1`/`mask2`, computed against
-/// the union mask `mask3`.
-///
-/// Since PEXT is bit-by-bit and `count_last_flip_double` extracts from
-/// `masked_p = player & mask3` (not `player`), the relation that holds is
-/// `_pext(masked_o, m) = _pext(mask3, m) ^ _pext(masked_p, m)` when
-/// `opp = !player`. Some squares' direction masks include "padding" bits not
-/// present in `mask3` (e.g. c4's `mask1` has a1, which is on `mask3`'s
-/// complement), so naive `(1<<popcount(m))-1` would set those bits in the
-/// opponent index even though `masked_o` always has 0 there — corrupting
-/// COUNT_FLIP lookups at those positions. `_pext(mask3, m)` zeros padding bits,
-/// matching what `masked_o` actually produces.
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-const FULL_BMI2: [[u8; 3]; 64] = {
-    const fn pext_const(src: u64, mask: u64) -> u64 {
-        let mut result = 0u64;
-        let mut bb = mask;
-        let mut out_bit = 1u64;
-        while bb != 0 {
-            let lsb = bb & bb.wrapping_neg();
-            if src & lsb != 0 {
-                result |= out_bit;
-            }
-            bb ^= lsb;
-            out_bit <<= 1;
-        }
-        result
-    }
-    let mut out = [[0u8; 3]; 64];
-    let mut i = 0;
-    while i < 64 {
-        let m = MASK_X[i];
-        out[i] = [
-            pext_const(m[3], m[0]) as u8,
-            pext_const(m[3], m[1]) as u8,
-            pext_const(m[3], m[2]) as u8,
-        ];
-        i += 1;
-    }
-    out
-};
-
-/// Counts flipped discs for both players simultaneously using BMI2 PEXT.
-///
-/// **Precondition**: callers must satisfy the "last move" invariant — `sq` is empty
-/// and every other square is occupied by exactly one player's disc, so on each line
-/// `opponent = !player` for every non-`sq` bit.
-///
-/// Returns a `(player_flipped, opponent_flipped)` tuple where each value is twice the
-/// actual flip count.
-///
-/// Under the precondition, the opponent's per-direction PEXT index equals
-/// `full_d ^ p_idx_d`, where `full_d` is `_pext(mask3, mask_d)` — the bit pattern
-/// that PEXT would produce if every square in `mask_d` were occupied. This lets the
-/// opponent path reuse the player's PEXT results instead of recomputing them, and
-/// the COUNT_FLIP table ignores the move-square bit so the XOR at `sq` is harmless.
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-#[target_feature(enable = "bmi2")]
-#[inline]
-pub fn count_last_flip_double(player: u64, sq: Square) -> (i32, i32) {
     unsafe {
         let sq_idx = sq.index();
+        debug_assert!(sq_idx < 64);
 
-        let mask_ptr = MASK_X.as_ptr().add(sq_idx) as *const u64;
-        let mask0 = *mask_ptr;
-        let mask1 = *mask_ptr.add(1);
-        let mask2 = *mask_ptr.add(2);
-        let mask3 = *mask_ptr.add(3);
+        let mask_ptr = MASK_X.0.as_ptr().add(sq_idx).cast::<u64>();
+        let mask_diag0 = *mask_ptr;
+        let mask_diag1 = *mask_ptr.add(1);
+        let mask_file = *mask_ptr.add(2);
+        let mask_union = *mask_ptr.add(3);
+        let rank_shift = sq_idx & 0x38;
 
-        let masked_p = player & mask3;
-        let full = *FULL_BMI2.as_ptr().add(sq_idx);
+        let row_idx = ((player >> rank_shift) & 0xff) as usize;
+        let masked = player & mask_union;
 
-        let count_x = COUNT_FLIP.as_ptr().add(sq_idx & 7) as *const u8;
-        let count_y = COUNT_FLIP.as_ptr().add(sq_idx >> 3) as *const u8;
+        let diag0_idx = _pext_u64(masked, mask_diag0) as usize;
+        let diag1_idx = _pext_u64(masked, mask_diag1) as usize;
+        let file_idx = _pext_u64(player, mask_file) as usize;
 
-        let row_shift = sq_idx & 0x38;
-        let p_h = ((masked_p >> row_shift) & 0xFF) as usize;
-        let p_v = _pext_u64(masked_p, mask0) as usize;
-        let p_d7 = _pext_u64(masked_p, mask1) as usize;
-        let p_d9 = _pext_u64(masked_p, mask2) as usize;
+        let count_base = COUNT_FLIP.0.as_ptr().cast::<u8>();
+        let count_x = count_base.add((sq_idx & 7) << 8);
+        let count_y = count_base.add(rank_shift << 5);
 
-        // H direction spans the full row, so its `full` value is always 0xFF.
-        let o_h = 0xFF ^ p_h;
-        let o_v = full[0] as usize ^ p_v;
-        let o_d7 = full[1] as usize ^ p_d7;
-        let o_d9 = full[2] as usize ^ p_d9;
-
-        let p_flipped = *count_x.add(p_h) as u32
-            + *count_y.add(p_v) as u32
-            + *count_y.add(p_d7) as u32
-            + *count_y.add(p_d9) as u32;
-
-        let o_flipped = *count_x.add(o_h) as u32
-            + *count_y.add(o_v) as u32
-            + *count_y.add(o_d7) as u32
-            + *count_y.add(o_d9) as u32;
-
-        (p_flipped as i32, o_flipped as i32)
+        (*count_x.add(row_idx) as u32
+            + *count_y.add(diag0_idx) as u32
+            + *count_y.add(diag1_idx) as u32
+            + *count_y.add(file_idx) as u32) as i32
     }
 }
