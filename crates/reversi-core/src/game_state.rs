@@ -112,15 +112,7 @@ impl GameState {
     /// A game ends when both players pass consecutively (neither has
     /// legal moves) or when the board is completely filled.
     pub fn is_game_over(&self) -> bool {
-        // Check if the last move was a pass and current player has no legal moves
-        // (meaning both players passed consecutively)
-        if self.history.last().is_some_and(|(sq, _, _)| sq.is_none())
-            && !self.board.has_legal_moves()
-        {
-            return true;
-        }
-
-        self.board.get_empty_count() == 0
+        self.board.is_game_over()
     }
 
     /// Returns the disc count as `(black_count, white_count)`.
@@ -285,6 +277,15 @@ mod tests {
         assert_eq!(game.side_to_move(), Disc::White);
         assert_eq!(*game.board(), board);
         assert_eq!(game.move_history().len(), 0);
+    }
+
+    #[test]
+    fn test_from_board_game_over_without_pass_history() {
+        let board = Board::from_bitboards(Square::A1.bitboard(), 0);
+        assert!(board.is_game_over());
+
+        let game = GameState::from_board(board, Disc::Black);
+        assert!(game.is_game_over());
     }
 
     #[test]
