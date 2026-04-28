@@ -82,18 +82,18 @@ impl EndGameCache {
         }
     }
 
+    /// Computes the table index for a given hash key.
     #[inline(always)]
-    fn index(&self, key: u64) -> usize {
+    pub fn index(&self, key: u64) -> usize {
         crate::util::mul_hi64(key, self.table.len() as u64) as usize
     }
 
-    /// Probes the cache for a position.
+    /// Probes the cache for a position at a precomputed `cache_idx`.
     ///
     /// Returns a cached cutoff score if the stored bounds cut at `alpha`.
     #[inline(always)]
-    pub fn probe(&self, key: u64, board: &Board, alpha: Score) -> Option<Score> {
-        let idx = self.index(key);
-        let entry = self.table[idx];
+    pub fn probe(&self, cache_idx: usize, board: &Board, alpha: Score) -> Option<Score> {
+        let entry = unsafe { self.table.get_unchecked(cache_idx) };
 
         if entry.player != board.player.bits() || entry.opponent != board.opponent.bits() {
             return None;
@@ -102,11 +102,10 @@ impl EndGameCache {
         entry.score_for_alpha(alpha)
     }
 
-    /// Stores or merges an entry.
+    /// Stores or merges an entry at a precomputed `cache_idx`.
     #[inline(always)]
-    pub fn store(&mut self, key: u64, board: &Board, alpha: Score, score: Score) {
-        let idx = self.index(key);
-        let entry = &mut self.table[idx];
+    pub fn store(&mut self, cache_idx: usize, board: &Board, alpha: Score, score: Score) {
+        let entry = unsafe { &mut self.table.get_unchecked_mut(cache_idx) };
         if entry.player == board.player.bits() && entry.opponent == board.opponent.bits() {
             entry.store_nws_result(alpha, score);
         } else {
@@ -138,11 +137,11 @@ mod tests {
     fn test_store_and_probe_hit() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let key = board.hash();
+        let cache_idx = cache.index(board.hash());
 
-        cache.store(key, &board, 11, 12);
+        cache.store(cache_idx, &board, 11, 12);
 
-        let result = cache.probe(key, &board, 11);
+        let result = cache.probe(cache_idx, &board, 11);
         assert_eq!(result, Some(12));
     }
 
@@ -150,47 +149,47 @@ mod tests {
     fn test_probe_no_cutoff_returns_none() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let key = board.hash();
+        let cache_idx = cache.index(board.hash());
 
-        cache.store(key, &board, 11, 12);
+        cache.store(cache_idx, &board, 11, 12);
 
         // Lower bound from alpha=11 does not cut at alpha=12.
-        assert_eq!(cache.probe(key, &board, 12), None);
+        assert_eq!(cache.probe(cache_idx, &board, 12), None);
     }
 
     #[test]
     fn test_probe_reuses_lower_bound_for_wider_window() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let key = board.hash();
+        let cache_idx = cache.index(board.hash());
 
-        cache.store(key, &board, 11, 12);
+        cache.store(cache_idx, &board, 11, 12);
 
-        assert_eq!(cache.probe(key, &board, 5), Some(12));
+        assert_eq!(cache.probe(cache_idx, &board, 5), Some(12));
     }
 
     #[test]
     fn test_probe_reuses_upper_bound_for_higher_alpha() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let key = board.hash();
+        let cache_idx = cache.index(board.hash());
 
-        cache.store(key, &board, 11, 8);
+        cache.store(cache_idx, &board, 11, 8);
 
-        assert_eq!(cache.probe(key, &board, 12), Some(8));
+        assert_eq!(cache.probe(cache_idx, &board, 12), Some(8));
     }
 
     #[test]
     fn test_store_merges_bounds_for_same_board() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let key = board.hash();
+        let cache_idx = cache.index(board.hash());
 
-        cache.store(key, &board, 8, 11);
-        cache.store(key, &board, 11, 11);
+        cache.store(cache_idx, &board, 8, 11);
+        cache.store(cache_idx, &board, 11, 11);
 
-        assert_eq!(cache.probe(key, &board, 10), Some(11));
-        assert_eq!(cache.probe(key, &board, 11), Some(11));
+        assert_eq!(cache.probe(cache_idx, &board, 10), Some(11));
+        assert_eq!(cache.probe(cache_idx, &board, 11), Some(11));
     }
 
     #[test]
@@ -198,12 +197,12 @@ mod tests {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board1 = make_board(0x0000000810000000, 0x0000001008000000);
         let board2 = make_board(0x0000001008000000, 0x0000000810000000);
-        let key1 = board1.hash();
-        let key2 = board2.hash();
+        let cache_idx1 = cache.index(board1.hash());
+        let cache_idx2 = cache.index(board2.hash());
 
-        cache.store(key1, &board1, 11, 12);
+        cache.store(cache_idx1, &board1, 11, 12);
 
-        assert!(cache.probe(key2, &board2, 11).is_none());
+        assert!(cache.probe(cache_idx2, &board2, 11).is_none());
     }
 
     #[test]
@@ -211,43 +210,43 @@ mod tests {
         let mut cache = EndGameCache::new(std::mem::size_of::<RawEntry>());
         let board1 = make_board(0x0000000810000000, 0x0000001008000000);
         let board2 = make_board(0x00000000000000FF, 0x000000000000FF00);
-        let key1 = board1.hash();
-        let key2 = board2.hash();
+        let cache_idx1 = cache.index(board1.hash());
+        let cache_idx2 = cache.index(board2.hash());
 
-        cache.store(key1, &board1, 11, 12);
-        assert!(cache.probe(key2, &board2, -8).is_none());
+        cache.store(cache_idx1, &board1, 11, 12);
+        assert!(cache.probe(cache_idx2, &board2, -8).is_none());
 
-        cache.store(key2, &board2, -8, -8);
+        cache.store(cache_idx2, &board2, -8, -8);
 
-        assert!(cache.probe(key1, &board1, 11).is_none());
-        assert_eq!(cache.probe(key2, &board2, -8), Some(-8));
+        assert!(cache.probe(cache_idx1, &board1, 11).is_none());
+        assert_eq!(cache.probe(cache_idx2, &board2, -8), Some(-8));
     }
 
     #[test]
     fn test_store_extreme_scores() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x1234, 0x5678);
-        let key = board.hash();
+        let cache_idx = cache.index(board.hash());
 
-        cache.store(key, &board, 63, 64);
-        assert_eq!(cache.probe(key, &board, 63), Some(64));
+        cache.store(cache_idx, &board, 63, 64);
+        assert_eq!(cache.probe(cache_idx, &board, 63), Some(64));
 
         cache.clear();
-        cache.store(key, &board, -65, -64);
-        assert_eq!(cache.probe(key, &board, -65), Some(-64));
+        cache.store(cache_idx, &board, -65, -64);
+        assert_eq!(cache.probe(cache_idx, &board, -65), Some(-64));
     }
 
     #[test]
     fn test_clear() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let key = board.hash();
+        let cache_idx = cache.index(board.hash());
 
-        cache.store(key, &board, 11, 12);
-        assert!(cache.probe(key, &board, 11).is_some());
+        cache.store(cache_idx, &board, 11, 12);
+        assert!(cache.probe(cache_idx, &board, 11).is_some());
 
         cache.clear();
-        assert!(cache.probe(key, &board, 11).is_none());
+        assert!(cache.probe(cache_idx, &board, 11).is_none());
     }
 
     #[test]

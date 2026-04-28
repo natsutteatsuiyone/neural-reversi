@@ -355,8 +355,8 @@ fn null_window_search_with_ec(
         }
     }
 
-    let key = board.hash();
-    if let Some(score) = ec.probe(key, board, alpha) {
+    let cache_idx = ec.index(board.hash());
+    if let Some(score) = ec.probe(cache_idx, board, alpha) {
         return score;
     }
 
@@ -398,7 +398,7 @@ fn null_window_search_with_ec(
         best_score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc);
     }
 
-    ec.store(key, board, alpha, best_score);
+    ec.store(cache_idx, board, alpha, best_score);
 
     best_score
 }
@@ -451,8 +451,8 @@ fn shallow_search(
         }
     }
 
-    let key = board.hash();
-    if let Some(score) = sc.probe(key, board, alpha) {
+    let cache_idx = sc.index(board.hash());
+    if let Some(score) = sc.probe(cache_idx, board, alpha) {
         return score;
     }
 
@@ -474,7 +474,7 @@ fn shallow_search(
         ctx,
         board,
         odd_moves.corners(),
-        key,
+        cache_idx,
         beta,
         &mut best_score,
         sc,
@@ -486,7 +486,7 @@ fn shallow_search(
         ctx,
         board,
         odd_moves.non_corners(),
-        key,
+        cache_idx,
         beta,
         &mut best_score,
         sc,
@@ -498,7 +498,7 @@ fn shallow_search(
         ctx,
         board,
         even_moves.corners(),
-        key,
+        cache_idx,
         beta,
         &mut best_score,
         sc,
@@ -510,7 +510,7 @@ fn shallow_search(
         ctx,
         board,
         even_moves.non_corners(),
-        key,
+        cache_idx,
         beta,
         &mut best_score,
         sc,
@@ -518,7 +518,7 @@ fn shallow_search(
         return score;
     }
 
-    sc.store(key, board, alpha, best_score);
+    sc.store(cache_idx, board, alpha, best_score);
 
     best_score
 }
@@ -529,7 +529,7 @@ fn shallow_search_moves(
     ctx: &mut SearchContext,
     board: &Board,
     moves: Bitboard,
-    key: u64,
+    cache_idx: usize,
     beta: Score,
     best_score: &mut Score,
     sc: &mut EndGameCache,
@@ -540,7 +540,7 @@ fn shallow_search_moves(
         if score > *best_score {
             *best_score = score;
             if score >= beta {
-                sc.store(key, board, beta - 1, score);
+                sc.store(cache_idx, board, beta - 1, score);
                 return Some(score);
             }
         }
@@ -562,8 +562,8 @@ fn shallow_search_move(
     ctx.update_endgame(sq);
     let next_alpha = -beta;
     let score = if ctx.empty_list.count() == 4 {
-        let next_key = next.hash();
-        if let Some(score) = sc.probe(next_key, &next, next_alpha) {
+        let next_cache_idx = sc.index(next.hash());
+        if let Some(score) = sc.probe(next_cache_idx, &next, next_alpha) {
             -score
         } else if let Some(score) = stability_cutoff(&next, 4, next_alpha) {
             ctx.counters.stability_cuts += 1;
@@ -571,7 +571,7 @@ fn shallow_search_move(
         } else {
             let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
             let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
-            sc.store(next_key, &next, next_alpha, score);
+            sc.store(next_cache_idx, &next, next_alpha, score);
             -score
         }
     } else {
