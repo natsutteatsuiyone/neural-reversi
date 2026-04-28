@@ -360,6 +360,18 @@ fn null_window_search_with_ec(
         return score;
     }
 
+    if moves.count() == 1 {
+        let sq = moves.lsb_square_unchecked();
+        let flipped = flip::flip(sq, board.player, board.opponent);
+        if flipped == board.opponent {
+            return SCORE_MAX;
+        }
+        let next = board.make_move_with_flipped(flipped, sq);
+        let score = search_move_nws_ec(ctx, &next, sq, beta, ec, sc);
+        ec.store(cache_idx, board, alpha, score);
+        return score;
+    }
+
     let mut move_list = MoveList::with_moves(board, moves);
     if move_list.wipeout_move().is_some() {
         return SCORE_MAX;
@@ -379,7 +391,7 @@ fn null_window_search_with_ec(
                 }
             }
         }
-    } else if move_list.count() >= 2 {
+    } else {
         move_list.evaluate_moves_fast(ctx, board, Square::None);
         move_list.sort();
         for mv in move_list.iter() {
@@ -393,9 +405,6 @@ fn null_window_search_with_ec(
                 }
             }
         }
-    } else if let Some(mv) = move_list.first() {
-        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        best_score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc);
     }
 
     ec.store(cache_idx, board, alpha, best_score);
@@ -453,6 +462,13 @@ fn shallow_search(
 
     let cache_idx = sc.index(board.hash());
     if let Some(score) = sc.probe(cache_idx, board, alpha) {
+        return score;
+    }
+
+    if moves.count() == 1 {
+        let sq = moves.lsb_square_unchecked();
+        let score = shallow_search_move(ctx, board, sq, beta, sc);
+        sc.store(cache_idx, board, alpha, score);
         return score;
     }
 
