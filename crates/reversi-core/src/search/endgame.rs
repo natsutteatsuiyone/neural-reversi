@@ -809,28 +809,23 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 }
 
 /// Specialized solver for positions with exactly 1 empty square.
-///
-/// Alpha-pruning lets the second `count_last_flip` call be skipped whenever the
-/// player's flip alone already proves the bound, which empirically beats the
-/// branchless "compute both sides" variant on the FFO 40-59 suite.
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
     let mut n_flipped = count_last_flip(player, sq);
-    let mut score = 2 * player.count() as Score - 64 + 2 + n_flipped;
+    let mut score = 2 * player.count() as Score - SCORE_MAX + 2 + n_flipped;
 
     if n_flipped == 0 {
-        if score <= 0 {
-            score -= 2;
-            if score > alpha {
-                n_flipped = count_last_flip(!player, sq);
-                score -= n_flipped;
-            }
-        } else if score > alpha {
+        let score_if_opp_passes = if score > 0 { score } else { score - 2 };
+        if score_if_opp_passes > alpha {
             n_flipped = count_last_flip(!player, sq);
-            if n_flipped != 0 {
-                score -= n_flipped + 2;
-            }
+            score = if n_flipped > 0 {
+                score - 2 - n_flipped
+            } else {
+                score_if_opp_passes
+            };
+        } else {
+            score = score_if_opp_passes;
         }
     }
 
