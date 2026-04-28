@@ -737,6 +737,7 @@ fn solve3(
 }
 
 /// Specialized solver for positions with exactly 2 empty squares.
+#[inline(always)]
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     ctx.increment_nodes();
     let player = board.player;
