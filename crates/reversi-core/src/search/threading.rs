@@ -31,6 +31,7 @@ use crate::search::{self, SearchTask, time_control::TimeManager};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, ScaledScore};
+use crate::util::align::Align64;
 use crate::util::bitset::AtomicBitSet;
 use crate::util::spinlock;
 
@@ -64,13 +65,17 @@ pub struct SplitPointState {
     node_type: NodeTypeId,
 
     /// Flag indicating if a beta cutoff has occurred.
-    cutoff: AtomicBool,
+    ///
+    /// Cache-padded: read every search node — isolate from concurrent helper writes.
+    cutoff: Align64<AtomicBool>,
 
     /// Index of the owner thread that created this split point.
     owner_thread_idx: usize,
 
     /// Bitmask tracking which threads are working on this split point.
-    helpers_mask: AtomicBitSet,
+    ///
+    /// Cache-padded: split-point owner busy-waits on this — isolate from helper writes.
+    helpers_mask: Align64<AtomicBitSet>,
 
     /// Search depth remaining from this position.
     depth: Depth,
@@ -231,9 +236,9 @@ impl Default for SplitPoint {
                 best_score: AtomicI32::new(0),
                 best_move: AtomicU8::new(Square::None as u8),
                 node_type: NodeTypeId::NonPv,
-                cutoff: AtomicBool::new(false),
+                cutoff: Align64(AtomicBool::new(false)),
                 owner_thread_idx: 0,
-                helpers_mask: AtomicBitSet::new(),
+                helpers_mask: Align64(AtomicBitSet::new()),
                 depth: 0,
                 counters: std::sync::Mutex::new(SearchCounters::default()),
                 task: None,
@@ -353,7 +358,9 @@ pub struct Thread {
 
     /// Number of split points currently active for this thread.
     /// Atomic because it is read lock-free by other threads in `can_join` / `try_late_join`.
-    split_points_size: AtomicUsize,
+    ///
+    /// Cache-padded: scanned cross-thread — isolate from owner-only neighbour writes.
+    split_points_size: Align64<AtomicUsize>,
 
     /// Stack of split points created by this thread.
     /// Immutable after construction — each element is a pre-allocated `Arc<SplitPoint>`.
@@ -367,7 +374,9 @@ pub struct Thread {
     ready: AtomicBool,
 
     /// Flag indicating if this thread is currently searching.
-    searching: AtomicBool,
+    ///
+    /// Cache-padded: hot cross-thread atomic — isolate from neighbour writes.
+    searching: Align64<AtomicBool>,
 
     /// Flag signaling the thread to exit.
     exit: AtomicBool,
@@ -399,11 +408,11 @@ impl Thread {
             abort_flag,
             pool_size,
             thinking,
-            split_points_size: AtomicUsize::new(0),
+            split_points_size: Align64(AtomicUsize::new(0)),
             split_points,
             active_split_point: UnsafeCell::new(None),
             ready: AtomicBool::new(false),
-            searching: AtomicBool::new(false),
+            searching: Align64(AtomicBool::new(false)),
             exit: AtomicBool::new(false),
         }
     }
