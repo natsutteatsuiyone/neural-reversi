@@ -1,39 +1,58 @@
 //! Diagnostic counters collected during search.
+//!
+//! `n_nodes` is always live (used for NPS reporting). All other counters are
+//! gated on the `search-stats` Cargo feature so the hot path stays cold in
+//! production builds; only `evaltest` opts in. The `increment_*` methods
+//! compile to a no-op when the feature is off.
 
-/// Accumulated search statistics for diagnostic purposes.
-///
-/// Tracks how often various pruning and caching mechanisms fire during
-/// a search, enabling performance analysis without affecting search behavior.
-#[derive(Debug, Clone, Default)]
-pub struct SearchCounters {
-    /// Total number of nodes visited during search.
-    pub n_nodes: u64,
-    /// Number of transposition table probes.
-    pub tt_probes: u64,
-    /// Number of transposition table cutoffs (probe succeeded and caused a cutoff).
-    pub tt_hits: u64,
-    /// Number of ProbCut attempts (entered the ProbCut routine).
-    pub probcut_attempts: u64,
-    /// Number of ProbCut cutoffs (shallow search confirmed the cutoff).
-    pub probcut_cuts: u64,
-    /// Number of Enhanced Transposition Cutoff attempts.
-    pub etc_attempts: u64,
-    /// Number of ETC cutoffs.
-    pub etc_cuts: u64,
-    /// Number of stability cutoffs.
-    pub stability_cuts: u64,
+macro_rules! search_stats {
+    ($($field:ident => $inc:ident),* $(,)?) => {
+        /// Accumulated search statistics for diagnostic purposes.
+        ///
+        /// Tracks how often various pruning and caching mechanisms fire during
+        /// a search, enabling performance analysis without affecting search behavior.
+        #[derive(Debug, Clone, Default)]
+        pub struct SearchCounters {
+            /// Total number of nodes visited during search.
+            pub n_nodes: u64,
+            $(
+                #[cfg(feature = "search-stats")]
+                pub $field: u64,
+            )*
+        }
+
+        impl SearchCounters {
+            /// Merges counters from another context (e.g. a parallel search thread).
+            pub fn merge(&mut self, other: &SearchCounters) {
+                self.n_nodes += other.n_nodes;
+                $(
+                    #[cfg(feature = "search-stats")]
+                    { self.$field += other.$field; }
+                )*
+            }
+
+            #[inline(always)]
+            pub(crate) fn increment_nodes(&mut self) {
+                self.n_nodes += 1;
+            }
+
+            $(
+                #[inline(always)]
+                pub(crate) fn $inc(&mut self) {
+                    #[cfg(feature = "search-stats")]
+                    { self.$field += 1; }
+                }
+            )*
+        }
+    };
 }
 
-impl SearchCounters {
-    /// Merges counters from another context (e.g. a parallel search thread).
-    pub fn merge(&mut self, other: &SearchCounters) {
-        self.n_nodes += other.n_nodes;
-        self.tt_probes += other.tt_probes;
-        self.tt_hits += other.tt_hits;
-        self.probcut_attempts += other.probcut_attempts;
-        self.probcut_cuts += other.probcut_cuts;
-        self.etc_attempts += other.etc_attempts;
-        self.etc_cuts += other.etc_cuts;
-        self.stability_cuts += other.stability_cuts;
-    }
+search_stats! {
+    tt_probes         => increment_tt_probe,
+    tt_hits           => increment_tt_hit,
+    probcut_attempts  => increment_probcut_attempt,
+    probcut_cuts      => increment_probcut_cut,
+    etc_attempts      => increment_etc_attempt,
+    etc_cuts          => increment_etc_cut,
+    stability_cuts    => increment_stability_cut,
 }

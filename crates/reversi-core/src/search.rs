@@ -491,7 +491,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
 
         if let Some(score) = stability_cutoff(board, ctx.empty_list.count(), alpha.to_disc_diff()) {
-            ctx.counters.stability_cuts += 1;
+            ctx.counters.increment_stability_cut();
             return ScaledScore::from_disc_diff(score);
         }
     }
@@ -532,7 +532,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // Transposition table probe
     let tt_probe_result = ctx.tt.probe(board, tt_key);
-    ctx.counters.tt_probes += 1;
+    ctx.counters.increment_tt_probe();
     let tt_move = tt_probe_result.best_move();
 
     // NonPV cutoffs
@@ -543,13 +543,13 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             && tt_data.selectivity() >= ctx.selectivity
             && tt_data.can_cut(beta)
         {
-            ctx.counters.tt_hits += 1;
+            ctx.counters.increment_tt_hit();
             return tt_data.score();
         }
 
         // Enhanced Transposition Cutoff
         if depth >= SS::MIN_ETC_DEPTH {
-            ctx.counters.etc_attempts += 1;
+            ctx.counters.increment_etc_attempt();
             if let Some(score) = enhanced_transposition_cutoff::<SS>(
                 ctx,
                 board,
@@ -558,16 +558,16 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 alpha,
                 tt_probe_result.index(),
             ) {
-                ctx.counters.etc_cuts += 1;
+                ctx.counters.increment_etc_cut();
                 return score;
             }
         }
 
         // ProbCut
         if depth >= SS::MIN_PROBCUT_DEPTH {
-            ctx.counters.probcut_attempts += 1;
+            ctx.counters.increment_probcut_attempt();
             if let Some(score) = SS::try_probcut(ctx, board, depth, beta, thread) {
-                ctx.counters.probcut_cuts += 1;
+                ctx.counters.increment_probcut_cut();
                 return score;
             }
         }

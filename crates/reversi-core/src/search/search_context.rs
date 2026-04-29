@@ -151,9 +151,9 @@ impl SearchContext {
     }
 
     /// Increments the node counter for search statistics.
-    #[inline]
+    #[inline(always)]
     pub fn increment_nodes(&mut self) {
-        self.counters.n_nodes += 1;
+        self.counters.increment_nodes();
     }
 
     /// Returns the current pattern feature for neural network evaluation.

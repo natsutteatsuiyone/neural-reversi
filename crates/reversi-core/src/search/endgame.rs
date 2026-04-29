@@ -340,7 +340,7 @@ fn null_window_search_with_ec(
     let beta = alpha + 1;
 
     if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-        ctx.counters.stability_cuts += 1;
+        ctx.counters.increment_stability_cut();
         return score;
     }
 
@@ -445,7 +445,7 @@ fn shallow_search(
     let beta = alpha + 1;
 
     if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-        ctx.counters.stability_cuts += 1;
+        ctx.counters.increment_stability_cut();
         return score;
     }
 
@@ -582,7 +582,7 @@ fn shallow_search_move(
         if let Some(score) = sc.probe(next_cache_idx, &next, next_alpha) {
             -score
         } else if let Some(score) = stability_cutoff(&next, 4, next_alpha) {
-            ctx.counters.stability_cuts += 1;
+            ctx.counters.increment_stability_cut();
             -score
         } else {
             let (sq1, sq2, sq3, sq4) = sort_last4(ctx);

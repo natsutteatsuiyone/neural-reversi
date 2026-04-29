@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+search-stats = []
+
 [dependencies]
 aligned-vec = "0.6"
 arrayvec = "0.7"

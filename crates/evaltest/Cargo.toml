@@ -8,4 +8,4 @@ clap = { version = "4", features = ["derive"] }
 colored = "3"
 num-format = "0.4"
 
-reversi-core = { path = "../reversi-core" }
+reversi-core = { path = "../reversi-core", features = ["search-stats"] }
