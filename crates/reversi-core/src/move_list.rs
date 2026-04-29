@@ -24,9 +24,6 @@ const MAX_MOVES: usize = 34;
 /// landing at index 0 after [`MoveList::sort`] remain correct.
 const TT_MOVE_VALUE: i32 = 1 << 30;
 
-/// Value assigned to wipeout moves (capturing all opponent discs).
-const WIPEOUT_VALUE: i32 = 1 << 20;
-
 /// Represents a single move.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Move {
@@ -202,11 +199,11 @@ impl MoveList {
             }
         };
 
+        // Wipeout moves are filtered out by callers via `wipeout_move()` before
+        // reaching this loop, so `mv.flipped == board.opponent` cannot occur here.
         for mv in self.iter_mut() {
             if mv.sq == tt_move {
                 mv.value = TT_MOVE_VALUE;
-            } else if mv.flipped == board.opponent {
-                mv.value = WIPEOUT_VALUE;
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 ctx.update(mv.sq, mv.flipped);
@@ -246,11 +243,11 @@ impl MoveList {
         const CORNER_STABILITY_WEIGHT: i32 = 2048;
         const MOBILITY_WEIGHT: i32 = 16384;
 
+        // Wipeout moves are filtered out by callers via `wipeout_move()` before
+        // reaching this loop, so `mv.flipped == board.opponent` cannot occur here.
         for mv in self.iter_mut() {
             mv.value = if mv.sq == tt_move {
                 TT_MOVE_VALUE
-            } else if mv.flipped == board.opponent {
-                WIPEOUT_VALUE
             } else {
                 ctx.increment_nodes();
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -287,7 +284,7 @@ impl MoveList {
     /// In Multi-PV mode, each PV line explores a different best move at the root. This method
     /// retains only moves that appear in `root_moves` from `pv_idx` onwards, excluding moves
     /// that were already selected as the best move for earlier PV lines (indices 0..pv_idx).
-    pub fn exclude_earlier_pv_moves(&mut self, ctx: &SearchContext) {
+    pub fn exclude_earlier_pv_moves(&mut self, ctx: &SearchContext, board: &Board) {
         if ctx.pv_idx() == 0 {
             return;
         }
@@ -295,8 +292,13 @@ impl MoveList {
         self.moves
             .retain(|mv| ctx.root_moves.contains_from_pv_idx(mv.sq));
 
-        self.wipeout_move
-            .take_if(|sq| !self.moves.iter().any(|mv| mv.sq == *sq));
+        // Multiple wipeout moves are possible; `with_moves` caches only the
+        // last, so rebuild after retain in case the cached one was excluded.
+        self.wipeout_move = self
+            .moves
+            .iter()
+            .find(|mv| mv.flipped == board.opponent)
+            .map(|mv| mv.sq);
     }
 }
 

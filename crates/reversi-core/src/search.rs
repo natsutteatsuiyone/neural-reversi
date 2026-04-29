@@ -515,7 +515,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // Root node: exclude earlier PV moves (before wipeout/TT shortcuts)
     if NT::ROOT_NODE {
-        move_list.exclude_earlier_pv_moves(ctx);
+        move_list.exclude_earlier_pv_moves(ctx, board);
         if move_list.count() == 0 {
             return -ScaledScore::INF;
         }
