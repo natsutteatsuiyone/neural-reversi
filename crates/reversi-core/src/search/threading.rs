@@ -37,8 +37,8 @@ use crate::util::spinlock;
 /// Maximum number of split points that a single thread can have active at once.
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 
-/// Maximum number of helper threads that can join a single split point.
-const MAX_HELPERS_PER_SPLITPOINT: u32 = 5;
+/// Maximum number of threads recorded in a split point mask.
+const MAX_THREADS_PER_SPLITPOINT: u32 = 6;
 
 /// Interval between checks for abort flag in milliseconds.
 const CHECK_INTERVAL_MS: u64 = 1;
@@ -90,9 +90,6 @@ pub struct SplitPointState {
 
     /// Parent split point in the tree hierarchy.
     parent_split_point: Option<Arc<SplitPoint>>,
-
-    /// Principal variation line from the best move found at this split point.
-    pv: [Square; MAX_PLY],
 
     /// Whether this split point uses endgame search strategy.
     is_endgame: bool,
@@ -159,18 +156,6 @@ impl SplitPointState {
     pub fn set_best_move(&self, value: Square) {
         self.best_move.store(value as u8, Ordering::Relaxed);
     }
-
-    /// Copies PV from source to the split point's internal PV storage.
-    #[inline]
-    pub fn copy_pv(&mut self, src: &[Square; MAX_PLY]) {
-        self.pv.copy_from_slice(src);
-    }
-
-    /// Returns a reference to the internal PV.
-    #[inline]
-    pub fn pv(&self) -> &[Square; MAX_PLY] {
-        &self.pv
-    }
 }
 
 /// Task data for a split point containing all information needed for search.
@@ -219,11 +204,19 @@ pub struct SplitPoint {
     /// Stored separately from `state` so helpers can keep a reference to it
     /// after releasing the split-point lock without aliasing `state_mut()`.
     move_iter: UnsafeCell<Option<ConcurrentMoveIterator>>,
+
+    /// Principal variation line from the best move found at this split point.
+    ///
+    /// Stored outside `state` so active helpers can update it under the
+    /// split-point lock without creating a `&mut SplitPointState` that aliases
+    /// lock-free `state()` borrows in late-join pre-checks.
+    pv: UnsafeCell<[Square; MAX_PLY]>,
 }
 
 // SAFETY: `state` access is mediated by the spinlock or through atomic fields.
-// `move_iter` is initialized before helpers start and cleared only after all
-// finish (helpers reset `helpers_mask` with Release before the owner proceeds).
+// `move_iter` and `pv` are mutated only while the split-point lock is held or
+// after all helpers finish (helpers reset `helpers_mask` with Release before
+// the owner proceeds).
 unsafe impl Sync for SplitPoint {}
 
 impl Default for SplitPoint {
@@ -236,7 +229,7 @@ impl Default for SplitPoint {
                 alpha: AtomicI32::new(0),
                 beta: ScaledScore::from_raw(0),
                 best_score: AtomicI32::new(0),
-                best_move: std::sync::atomic::AtomicU8::new(Square::None as u8),
+                best_move: AtomicU8::new(Square::None as u8),
                 node_type: NodeTypeId::NonPv,
                 cutoff: AtomicBool::new(false),
                 owner_thread_idx: 0,
@@ -245,10 +238,10 @@ impl Default for SplitPoint {
                 counters: std::sync::Mutex::new(SearchCounters::default()),
                 task: None,
                 parent_split_point: None,
-                pv: [Square::None; MAX_PLY],
                 is_endgame: false,
             }),
             move_iter: UnsafeCell::new(None),
+            pv: UnsafeCell::new([Square::None; MAX_PLY]),
         }
     }
 }
@@ -298,6 +291,24 @@ impl SplitPoint {
         // SAFETY: All `move_iter()` references are scoped to `search_split_point`,
         // which completes before the helper resets its `helpers_mask` bit.
         unsafe { *self.move_iter.get() = None };
+    }
+
+    /// Copies PV from source to the split point's internal PV storage.
+    #[inline(always)]
+    pub fn copy_pv(&self, src: &[Square; MAX_PLY]) {
+        // SAFETY: Caller holds the split-point lock, or no helpers are active.
+        unsafe { (*self.pv.get()).copy_from_slice(src) };
+    }
+
+    /// Returns a reference to the internal PV.
+    ///
+    /// Borrow scope must not outlive the next reuse of this split point —
+    /// callers consume it immediately after `finalize_split_point`.
+    #[inline]
+    fn pv(&self) -> &[Square; MAX_PLY] {
+        // SAFETY: Called after all helpers have finished this split point,
+        // so no concurrent writer exists.
+        unsafe { &*self.pv.get() }
     }
 
     /// Acquires the split point's lock.
@@ -426,8 +437,8 @@ impl Thread {
         let cond = if let Some(sp) = self.active_split_point() {
             let sp_state = sp.state();
             !sp_state.all_helpers_searching()
-                || thread_pool_size > MAX_HELPERS_PER_SPLITPOINT
-                    && sp_state.helpers_mask.count() == MAX_HELPERS_PER_SPLITPOINT
+                || thread_pool_size > MAX_THREADS_PER_SPLITPOINT
+                    && sp_state.helpers_mask.count() == MAX_THREADS_PER_SPLITPOINT
         } else {
             true
         };
@@ -555,11 +566,12 @@ impl Thread {
 
         // All helpers have finished this split point, but other threads may
         // still hold brief lock-free `&SplitPointState` borrows via
-        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`) and rely on
-        // the `Mutex` around `counters` for interior mutability, matching the
-        // aliasing discipline used for the atomic fields.
+        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`): `pv` lives
+        // outside `SplitPointState`, and `counters` uses an interior `Mutex`,
+        // so neither requires `&mut SplitPointState` — same aliasing discipline
+        // as the atomic fields.
         let sp_state = sp.state();
-        ctx.set_pv(sp_state.pv());
+        ctx.set_pv(sp.pv());
         let counters = std::mem::take(&mut *sp_state.counters.lock().unwrap());
 
         (sp_state.best_score(), sp_state.best_move(), counters)
@@ -591,7 +603,6 @@ impl Thread {
         let sp_state = sp.state_mut();
         sp_state.owner_thread_idx = self.idx;
         sp_state.parent_split_point = self.active_split_point().clone();
-        // Initialize split point state
         sp_state.helpers_mask.clear();
         sp_state.helpers_mask.set(self.idx);
         sp_state.depth = depth;
@@ -616,7 +627,7 @@ impl Thread {
         *sp_state.counters.lock().unwrap() = SearchCounters::default();
         sp_state.set_cutoff(false);
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
-        sp_state.copy_pv(ctx.get_pv()); // Initialize PV from coordinator's current PV
+        sp.copy_pv(ctx.get_pv());
         sp_state.is_endgame = is_endgame;
 
         self.split_points_size.fetch_add(1, Ordering::Release);
@@ -856,7 +867,7 @@ impl Thread {
             let sp_state = sp.state();
 
             if sp_state.cutoff()
-                || sp_state.helpers_mask.count() >= MAX_HELPERS_PER_SPLITPOINT
+                || sp_state.helpers_mask.count() >= MAX_THREADS_PER_SPLITPOINT
                 || !sp_state.all_helpers_searching()
                 || !self.can_join(sp)
             {
@@ -890,7 +901,7 @@ impl Thread {
         let sp_state = sp.state_mut();
         if !sp_state.cutoff()
             && sp_state.all_helpers_searching()
-            && sp_state.helpers_mask.count() < MAX_HELPERS_PER_SPLITPOINT
+            && sp_state.helpers_mask.count() < MAX_THREADS_PER_SPLITPOINT
         {
             self.lock();
 
@@ -1059,9 +1070,7 @@ impl ThreadPool {
         }
 
         // Wake up all sleeping threads so they can observe the exit flag
-        for thread in &self.threads {
-            thread.notify_one();
-        }
+        self.notify_all();
 
         // Send exit message to main thread's message loop
         // Ignore send error if receiver is already dropped
@@ -1082,7 +1091,7 @@ impl ThreadPool {
         let sp_state = sp.state_mut();
 
         for thread in &self.threads {
-            if sp_state.helpers_mask.count() >= MAX_HELPERS_PER_SPLITPOINT {
+            if sp_state.helpers_mask.count() >= MAX_THREADS_PER_SPLITPOINT {
                 break;
             }
 
