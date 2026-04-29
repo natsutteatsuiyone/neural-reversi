@@ -71,13 +71,11 @@ impl MoveList {
         let mut wipeout_move = None;
         for sq in moves_bb.iter() {
             let flipped = flip::flip(sq, board.player, board.opponent);
-            let mut mv = Move::new(sq, flipped);
-            mv.value = i32::MIN;
 
             debug_assert!(moves.len() < moves.capacity());
             // SAFETY: Reversi positions have at most MAX_MOVES (34) legal moves,
             // so the ArrayVec capacity is never exceeded.
-            unsafe { moves.push_unchecked(mv) };
+            unsafe { moves.push_unchecked(Move::new(sq, flipped)) };
 
             if flipped == board.opponent {
                 wipeout_move = Some(sq);
@@ -506,7 +504,6 @@ mod tests {
 
         for mv in move_list.iter() {
             assert!(!mv.flipped.is_empty());
-            assert_eq!(mv.value, i32::MIN);
         }
     }
 
