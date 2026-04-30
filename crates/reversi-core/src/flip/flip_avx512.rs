@@ -32,32 +32,25 @@ unsafe fn vpsrlvq_raw(src: __m256i, cnt: __m256i) -> __m256i {
 fn mm_flip(op: __m128i, x: usize) -> __m128i {
     let pp = _mm256_broadcastq_epi64(op);
     let oo = _mm256_broadcastq_epi64(_mm_unpackhi_epi64(op, op));
+    let zero = _mm256_setzero_si256();
 
     let mask_ptr = unsafe { super::lrmask::LRMASK.get_unchecked(x).0.as_ptr() as *const __m256i };
     let right_mask = unsafe { _mm256_load_si256(mask_ptr.add(1)) };
+    let left_mask = unsafe { _mm256_load_si256(mask_ptr) };
 
     let mut t0 = _mm256_lzcnt_epi64(_mm256_andnot_si256(oo, right_mask));
+    // Build the independent left-side flank before consuming the right-side
+    // lzcnt result, hiding part of the lzcnt -> variable-shift dependency chain.
+    let mut l_o = _mm256_andnot_si256(oo, left_mask);
+    l_o = _mm256_ternarylogic_epi64(l_o, _mm256_sub_epi64(zero, l_o), pp, 0x80);
+    let left_flank = _mm256_sub_epi64(_mm256_cmpeq_epi64(l_o, zero), l_o);
     t0 = _mm256_and_si256(
         unsafe { vpsrlvq_raw(_mm256_set1_epi64x(0x8000_0000_0000_0000u64 as i64), t0) },
         pp,
     );
-    let right_flank = _mm256_ternarylogic_epi64(
-        _mm256_sub_epi64(_mm256_setzero_si256(), t0),
-        t0,
-        right_mask,
-        0x28,
-    );
+    let right_flank = _mm256_ternarylogic_epi64(_mm256_sub_epi64(zero, t0), t0, right_mask, 0x28);
 
-    let left_mask = unsafe { _mm256_load_si256(mask_ptr) };
-    let mut l_o = _mm256_andnot_si256(oo, left_mask);
-    l_o = _mm256_ternarylogic_epi64(l_o, _mm256_sub_epi64(_mm256_setzero_si256(), l_o), pp, 0x80);
-
-    let ff = _mm256_ternarylogic_epi64(
-        right_flank,
-        _mm256_sub_epi64(_mm256_cmpeq_epi64(l_o, _mm256_setzero_si256()), l_o),
-        left_mask,
-        0xF2,
-    );
+    let ff = _mm256_ternarylogic_epi64(right_flank, left_flank, left_mask, 0xF2);
 
     _mm_or_si128(_mm256_castsi256_si128(ff), _mm256_extracti128_si256(ff, 1))
 }
