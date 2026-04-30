@@ -1,19 +1,18 @@
 //! BMI2 version of counting flipped discs for the last move.
-//! Optimized Rust implementation derived from the Edax-style PEXT layout.
+//!
+//! Rust port of the Edax PEXT layout, with per-square masks built at compile
+//! time instead of hand-written.
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/count_last_flip_bmi2.c>
-//!
-//! The hot path keeps the original 4-line decomposition, but removes the giant
-//! hand-written COUNT_FLIP literal, aligns all read-only tables, and computes the
-//! row and file indices directly from `player` so they don't depend on the
-//! `player & mask3` AND.
 
 use std::arch::x86_64::_pext_u64;
 
 use crate::square::Square;
+use crate::util::align::Align64;
 
-#[repr(align(64))]
-struct CacheAligned<T>(T);
+const COUNT_FLIP_LEN: usize = 8 * 256;
+const FILE_A: u64 = 0x0101_0101_0101_0101;
+const RANK_1: u64 = 0x0000_0000_0000_00ff;
 
 const fn line_count(pos: usize, bits: usize) -> u8 {
     let mut n = 0usize;
@@ -41,13 +40,13 @@ const fn line_count(pos: usize, bits: usize) -> u8 {
     (n << 1) as u8
 }
 
-const fn build_count_flip() -> [[u8; 256]; 8] {
-    let mut out = [[0u8; 256]; 8];
+const fn build_count_flip() -> [u8; COUNT_FLIP_LEN] {
+    let mut out = [0u8; COUNT_FLIP_LEN];
     let mut pos = 0usize;
     while pos < 8 {
         let mut bits = 0usize;
         while bits < 256 {
-            out[pos][bits] = line_count(pos, bits);
+            out[(pos << 8) | bits] = line_count(pos, bits);
             bits += 1;
         }
         pos += 1;
@@ -55,79 +54,139 @@ const fn build_count_flip() -> [[u8; 256]; 8] {
     out
 }
 
-#[rustfmt::skip]
-const MASK_X_RAW: [[u64; 4]; 64] = [
-	[ 0x0000000000000001, 0x8040201008040201, 0x0101010101010101, 0x81412111090503ff ],
-	[ 0x0000000000000102, 0x0080402010080402, 0x0202020202020202, 0x02824222120a07ff ],
-	[ 0x0000000000010204, 0x0000804020100804, 0x0404040404040404, 0x0404844424150eff ],
-	[ 0x0000000001020408, 0x0000008040201008, 0x0808080808080808, 0x08080888492a1cff ],
-	[ 0x0000000102040810, 0x0000000080402010, 0x1010101010101010, 0x10101011925438ff ],
-	[ 0x0000010204081020, 0x0000000000804020, 0x2020202020202020, 0x2020212224a870ff ],
-	[ 0x0001020408102040, 0x0000000000008040, 0x4040404040404040, 0x404142444850e0ff ],
-	[ 0x0102040810204080, 0x0000000000000080, 0x8080808080808080, 0x8182848890a0c0ff ],
-	[ 0x0000000000000102, 0x4020100804020104, 0x0101010101010101, 0x412111090503ff03 ],
-	[ 0x0000000000010204, 0x8040201008040201, 0x0202020202020202, 0x824222120a07ff07 ],
-	[ 0x0000000001020408, 0x0080402010080402, 0x0404040404040404, 0x04844424150eff0e ],
-	[ 0x0000000102040810, 0x0000804020100804, 0x0808080808080808, 0x080888492a1cff1c ],
-	[ 0x0000010204081020, 0x0000008040201008, 0x1010101010101010, 0x101011925438ff38 ],
-	[ 0x0001020408102040, 0x0000000080402010, 0x2020202020202020, 0x20212224a870ff70 ],
-	[ 0x0102040810204080, 0x0000000000804020, 0x4040404040404040, 0x4142444850e0ffe0 ],
-	[ 0x0204081020408001, 0x0000000000008040, 0x8080808080808080, 0x82848890a0c0ffc0 ],
-	[ 0x0000000000010204, 0x201008040201000a, 0x0101010101010101, 0x2111090503ff0305 ],
-	[ 0x0000000001020408, 0x4020100804020101, 0x0202020202020202, 0x4222120a07ff070a ],
-	[ 0x0000000102040810, 0x8040201008040201, 0x0404040404040404, 0x844424150eff0e15 ],
-	[ 0x0000010204081020, 0x0080402010080402, 0x0808080808080808, 0x0888492a1cff1c2a ],
-	[ 0x0001020408102040, 0x0000804020100804, 0x1010101010101010, 0x1011925438ff3854 ],
-	[ 0x0102040810204080, 0x0000008040201008, 0x2020202020202020, 0x212224a870ff70a8 ],
-	[ 0x0204081020408001, 0x0000000080402010, 0x4040404040404040, 0x42444850e0ffe050 ],
-	[ 0x0408102040800003, 0x0000000000804020, 0x8080808080808080, 0x848890a0c0ffc0a0 ],
-	[ 0x0000000001020408, 0x1008040201000016, 0x0101010101010101, 0x11090503ff030509 ],
-	[ 0x0000000102040810, 0x2010080402010005, 0x0202020202020202, 0x22120a07ff070a12 ],
-	[ 0x0000010204081020, 0x4020100804020101, 0x0404040404040404, 0x4424150eff0e1524 ],
-	[ 0x0001020408102040, 0x8040201008040201, 0x0808080808080808, 0x88492a1cff1c2a49 ],
-	[ 0x0102040810204080, 0x0080402010080402, 0x1010101010101010, 0x11925438ff385492 ],
-	[ 0x0204081020408001, 0x0000804020100804, 0x2020202020202020, 0x2224a870ff70a824 ],
-	[ 0x0408102040800003, 0x0000008040201008, 0x4040404040404040, 0x444850e0ffe05048 ],
-	[ 0x0810204080000007, 0x0000000080402010, 0x8080808080808080, 0x8890a0c0ffc0a090 ],
-	[ 0x0000000102040810, 0x080402010000002e, 0x0101010101010101, 0x090503ff03050911 ],
-	[ 0x0000010204081020, 0x100804020100000d, 0x0202020202020202, 0x120a07ff070a1222 ],
-	[ 0x0001020408102040, 0x2010080402010003, 0x0404040404040404, 0x24150eff0e152444 ],
-	[ 0x0102040810204080, 0x4020100804020101, 0x0808080808080808, 0x492a1cff1c2a4988 ],
-	[ 0x0204081020408002, 0x8040201008040201, 0x1010101010101010, 0x925438ff38549211 ],
-	[ 0x0408102040800005, 0x0080402010080402, 0x2020202020202020, 0x24a870ff70a82422 ],
-	[ 0x081020408000000b, 0x0000804020100804, 0x4040404040404040, 0x4850e0ffe0504844 ],
-	[ 0x1020408000000017, 0x0000008040201008, 0x8080808080808080, 0x90a0c0ffc0a09088 ],
-	[ 0x0000010204081020, 0x040201000000005e, 0x0101010101010101, 0x0503ff0305091121 ],
-	[ 0x0001020408102040, 0x080402010000001d, 0x0202020202020202, 0x0a07ff070a122242 ],
-	[ 0x0102040810204080, 0x100804020100000b, 0x0404040404040404, 0x150eff0e15244484 ],
-	[ 0x0204081020408001, 0x2010080402010003, 0x0808080808080808, 0x2a1cff1c2a498808 ],
-	[ 0x0408102040800003, 0x4020100804020101, 0x1010101010101010, 0x5438ff3854921110 ],
-	[ 0x081020408000000e, 0x8040201008040201, 0x2020202020202020, 0xa870ff70a8242221 ],
-	[ 0x102040800000001d, 0x0080402010080402, 0x4040404040404040, 0x50e0ffe050484442 ],
-	[ 0x204080000000003b, 0x0000804020100804, 0x8080808080808080, 0xa0c0ffc0a0908884 ],
-	[ 0x0001020408102040, 0x02010000000000be, 0x0101010101010101, 0x03ff030509112141 ],
-	[ 0x0102040810204080, 0x040201000000003d, 0x0202020202020202, 0x07ff070a12224282 ],
-	[ 0x0204081020408001, 0x080402010000001b, 0x0404040404040404, 0x0eff0e1524448404 ],
-	[ 0x0408102040800003, 0x1008040201000007, 0x0808080808080808, 0x1cff1c2a49880808 ],
-	[ 0x0810204080000007, 0x2010080402010003, 0x1010101010101010, 0x38ff385492111010 ],
-	[ 0x102040800000000f, 0x4020100804020101, 0x2020202020202020, 0x70ff70a824222120 ],
-	[ 0x204080000000003e, 0x8040201008040201, 0x4040404040404040, 0xe0ffe05048444241 ],
-	[ 0x408000000000007d, 0x0080402010080402, 0x8080808080808080, 0xc0ffc0a090888482 ],
-	[ 0x0102040810204080, 0x010000000000027e, 0x0101010101010101, 0xff03050911214181 ],
-	[ 0x0204081020408001, 0x020100000000007d, 0x0202020202020202, 0xff070a1222428202 ],
-	[ 0x0408102040800003, 0x040201000000003b, 0x0404040404040404, 0xff0e152444840404 ],
-	[ 0x0810204080000007, 0x0804020100000017, 0x0808080808080808, 0xff1c2a4988080808 ],
-	[ 0x102040800000000f, 0x1008040201000007, 0x1010101010101010, 0xff38549211101010 ],
-	[ 0x204080000000001f, 0x2010080402010003, 0x2020202020202020, 0xff70a82422212020 ],
-	[ 0x408000000000003f, 0x4020100804020101, 0x4040404040404040, 0xffe0504844424140 ],
-	[ 0x800000000000017e, 0x8040201008040201, 0x8080808080808080, 0xffc0a09088848281 ]
-];
+// Anti-diagonal, ascending in bit-index order: H1..A8 for the longest line.
+const fn diag0_mask(sq: usize) -> u64 {
+    let mut x = sq & 7;
+    let mut y = sq >> 3;
 
-const COUNT_FLIP_RAW: [[u8; 256]; 8] = build_count_flip();
+    while x < 7 && y > 0 {
+        x += 1;
+        y -= 1;
+    }
 
-static COUNT_FLIP: CacheAligned<[[u8; 256]; 8]> = CacheAligned(COUNT_FLIP_RAW);
+    let mut mask = 0u64;
+    loop {
+        mask |= 1u64 << ((y << 3) | x);
+        if x == 0 || y == 7 {
+            break;
+        }
+        x -= 1;
+        y += 1;
+    }
+    mask
+}
 
-static MASK_X: CacheAligned<[[u64; 4]; 64]> = CacheAligned(MASK_X_RAW);
+// Main diagonal, ascending in bit-index order: A1..H8 for the longest line.
+const fn diag1_mask(sq: usize) -> u64 {
+    let mut x = sq & 7;
+    let mut y = sq >> 3;
+
+    while x > 0 && y > 0 {
+        x -= 1;
+        y -= 1;
+    }
+
+    let mut mask = 0u64;
+    loop {
+        mask |= 1u64 << ((y << 3) | x);
+        if x == 7 || y == 7 {
+            break;
+        }
+        x += 1;
+        y += 1;
+    }
+    mask
+}
+
+const fn diag0_pos(sq: usize) -> usize {
+    let x = sq & 7;
+    let y = sq >> 3;
+    if 7 - x < y { 7 - x } else { y }
+}
+
+const fn diag1_pos(sq: usize) -> usize {
+    let x = sq & 7;
+    let y = sq >> 3;
+    if x < y { x } else { y }
+}
+
+const fn rank_mask(sq: usize) -> u64 {
+    RANK_1 << (sq & 0x38)
+}
+
+const fn file_mask(sq: usize) -> u64 {
+    FILE_A << (sq & 7)
+}
+
+/// Sets up to `pad_count` extra 1-bits at positions below the lowest bit of
+/// `mask`, skipping bits already covered by `union`. The padded mask shifts
+/// the diagonal so that PEXT yields a value whose bit indices match the
+/// square's rank, letting all four directions share `COUNT_FLIP`'s rank row.
+const fn pad_before_line(mask: u64, union: u64, pad_count: usize) -> u64 {
+    let first = mask.trailing_zeros() as usize;
+    let mut out = mask;
+    let mut bit = 0usize;
+    let mut padded = 0usize;
+
+    while bit < first && padded < pad_count {
+        let bit_mask = 1u64 << bit;
+        if (union & bit_mask) == 0 {
+            out |= bit_mask;
+            padded += 1;
+        }
+        bit += 1;
+    }
+
+    out
+}
+
+/// Per-square hot-path masks for the last-flip count.
+///
+/// `mask_diag{0,1}` includes padding bits before the real diagonal line, which
+/// makes the square position match its board rank. `mask_union` excludes those
+/// padding bits, so `player & mask_union` feeds zeroes into the padded PEXT
+/// lanes and all four directions can use the same rank-indexed `COUNT_FLIP`
+/// row.
+#[derive(Copy, Clone)]
+struct SquareTable {
+    mask_diag0: u64,
+    mask_diag1: u64,
+    mask_file: u64,
+    mask_union: u64,
+}
+
+const fn build_square_table() -> [SquareTable; 64] {
+    let zero = SquareTable {
+        mask_diag0: 0,
+        mask_diag1: 0,
+        mask_file: 0,
+        mask_union: 0,
+    };
+    let mut out = [zero; 64];
+    let mut sq = 0usize;
+    while sq < 64 {
+        let mask_diag0 = diag0_mask(sq);
+        let mask_diag1 = diag1_mask(sq);
+        let mask_file = file_mask(sq);
+        let mask_union = rank_mask(sq) | mask_file | mask_diag0 | mask_diag1;
+        let rank = sq >> 3;
+
+        out[sq] = SquareTable {
+            mask_diag0: pad_before_line(mask_diag0, mask_union, rank - diag0_pos(sq)),
+            mask_diag1: pad_before_line(mask_diag1, mask_union, rank - diag1_pos(sq)),
+            mask_file,
+            mask_union,
+        };
+        sq += 1;
+    }
+    out
+}
+
+const COUNT_FLIP_RAW: [u8; COUNT_FLIP_LEN] = build_count_flip();
+const SQUARE_TABLE_RAW: [SquareTable; 64] = build_square_table();
+
+static COUNT_FLIP: Align64<[u8; COUNT_FLIP_LEN]> = Align64(COUNT_FLIP_RAW);
+static SQUARE_TABLE: Align64<[SquareTable; 64]> = Align64(SQUARE_TABLE_RAW);
 
 /// Counts the number of discs that would be flipped by the last move.
 ///
@@ -139,13 +198,14 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
         let sq_idx = sq.index();
         debug_assert!(sq_idx < 64);
 
-        let mask_ptr = MASK_X.0.as_ptr().add(sq_idx).cast::<u64>();
-        let mask_diag0 = *mask_ptr;
-        let mask_diag1 = *mask_ptr.add(1);
-        let mask_file = *mask_ptr.add(2);
-        let mask_union = *mask_ptr.add(3);
-        let rank_shift = sq_idx & 0x38;
+        let entry = &*SQUARE_TABLE.0.as_ptr().add(sq_idx);
+        let mask_diag0 = entry.mask_diag0;
+        let mask_diag1 = entry.mask_diag1;
+        let mask_file = entry.mask_file;
+        let mask_union = entry.mask_union;
 
+        let rank_shift = sq_idx & 0x38;
+        let file = sq_idx & 7;
         let row_idx = ((player >> rank_shift) & 0xff) as usize;
         let masked = player & mask_union;
 
@@ -153,13 +213,16 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
         let diag1_idx = _pext_u64(masked, mask_diag1) as usize;
         let file_idx = _pext_u64(player, mask_file) as usize;
 
-        let count_base = COUNT_FLIP.0.as_ptr().cast::<u8>();
-        let count_x = count_base.add((sq_idx & 7) << 8);
-        let count_y = count_base.add(rank_shift << 5);
+        let count_base = COUNT_FLIP.0.as_ptr();
+        // Padded diagonals collapse onto the rank row, so diag0/diag1/file all
+        // index `count_rank_row`; only `row_idx` uses the file row.
+        // rank_shift already encodes rank << 3, so rank_shift << 5 == rank * 256.
+        let count_file_row = count_base.add(file << 8);
+        let count_rank_row = count_base.add(rank_shift << 5);
 
-        (*count_x.add(row_idx) as u32
-            + *count_y.add(diag0_idx) as u32
-            + *count_y.add(diag1_idx) as u32
-            + *count_y.add(file_idx) as u32) as i32
+        (*count_file_row.add(row_idx) as u32
+            + *count_rank_row.add(diag0_idx) as u32
+            + *count_rank_row.add(diag1_idx) as u32
+            + *count_rank_row.add(file_idx) as u32) as i32
     }
 }
