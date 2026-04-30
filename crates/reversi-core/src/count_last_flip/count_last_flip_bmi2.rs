@@ -207,11 +207,6 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
         let rank_shift = sq_idx & 0x38;
         let file = sq_idx & 7;
         let row_idx = ((player >> rank_shift) & 0xff) as usize;
-        let masked = player & mask_union;
-
-        let diag0_idx = _pext_u64(masked, mask_diag0) as usize;
-        let diag1_idx = _pext_u64(masked, mask_diag1) as usize;
-        let file_idx = _pext_u64(player, mask_file) as usize;
 
         let count_base = COUNT_FLIP.0.as_ptr();
         // Padded diagonals collapse onto the rank row, so diag0/diag1/file all
@@ -219,8 +214,14 @@ pub fn count_last_flip(player: u64, sq: Square) -> i32 {
         // rank_shift already encodes rank << 3, so rank_shift << 5 == rank * 256.
         let count_file_row = count_base.add(file << 8);
         let count_rank_row = count_base.add(rank_shift << 5);
+        let row_count = *count_file_row.add(row_idx) as u32;
 
-        (*count_file_row.add(row_idx) as u32
+        let file_idx = _pext_u64(player, mask_file) as usize;
+        let masked = player & mask_union;
+        let diag1_idx = _pext_u64(masked, mask_diag1) as usize;
+        let diag0_idx = _pext_u64(masked, mask_diag0) as usize;
+
+        (row_count
             + *count_rank_row.add(diag0_idx) as u32
             + *count_rank_row.add(diag1_idx) as u32
             + *count_rank_row.add(file_idx) as u32) as i32
