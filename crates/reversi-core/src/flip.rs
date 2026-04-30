@@ -6,7 +6,7 @@ use crate::square::Square;
 // SIMD variants are gated by their own target features but a higher-priority
 // dispatch (e.g. AVX-512 over AVX2) may shadow them at runtime. `allow(dead_code)`
 // keeps the build quiet without having to mirror the dispatcher cfgs here.
-// Kindergarten is always compiled: on non-SIMD targets it's the active dispatch;
+// Portable is always compiled: on non-SIMD targets it's the active dispatch;
 // on SIMD targets it remains reachable from `#[cfg(test)]` cross-checks.
 #[allow(dead_code)]
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -17,29 +17,16 @@ mod flip_avx2;
     target_feature = "avx512vl"
 ))]
 mod flip_avx512;
-#[allow(dead_code)]
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-mod flip_bmi2;
-#[allow(dead_code)]
-mod flip_kindergarten;
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod flip_neon;
 #[allow(dead_code)]
-#[cfg(any(
-    all(target_arch = "x86_64", target_feature = "avx2"),
-    all(
-        target_arch = "x86_64",
-        target_feature = "avx512cd",
-        target_feature = "avx512vl"
-    ),
-    all(target_arch = "aarch64", target_feature = "neon"),
-))]
+mod flip_portable;
 mod lrmask;
 
 /// Calculates which opponent discs would be flipped by placing a disc at `sq`.
 ///
-/// Dispatches to a platform-specific implementation (AVX-512, AVX2, BMI2,
-/// NEON, or kindergarten bitboard).
+/// Dispatches to a platform-specific implementation (AVX-512, AVX2, NEON, or
+/// portable scalar bitboard).
 #[inline(always)]
 pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
     cfg_select! {
@@ -49,14 +36,11 @@ pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             Bitboard::new(unsafe { flip_avx2::flip(sq, p.bits(), o.bits()) })
         }
-        all(target_arch = "x86_64", target_feature = "bmi2") => {
-            Bitboard::new(flip_bmi2::flip(sq, p.bits(), o.bits()))
-        }
         all(target_arch = "aarch64", target_feature = "neon") => {
             Bitboard::new(unsafe { flip_neon::flip(sq, p.bits(), o.bits()) })
         }
         _ => {
-            Bitboard::new(flip_kindergarten::flip(sq, p.bits(), o.bits()))
+            Bitboard::new(flip_portable::flip(sq, p.bits(), o.bits()))
         }
     }
 }
@@ -95,5 +79,71 @@ mod tests {
             | Bitboard::from_square(Square::E4)
             | Bitboard::from_square(Square::F3);
         assert_eq!(flipped, expected);
+    }
+
+    #[test]
+    fn test_portable_flip_matches_reference() {
+        let mut seed = 0x6eed_0e11_d15c_a11du64;
+
+        for _ in 0..2048 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let p = seed;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let o = seed & !p;
+
+            for sq_idx in 0..64 {
+                let sq = unsafe { Square::from_u32_unchecked(sq_idx) };
+                if ((p | o) & (1u64 << sq_idx)) != 0 {
+                    continue;
+                }
+
+                assert_eq!(
+                    flip_portable::flip(sq, p, o),
+                    reference_flip(sq, p, o),
+                    "sq={sq:?} p={p:#018x} o={o:#018x}",
+                );
+            }
+        }
+    }
+
+    fn reference_flip(sq: Square, p: u64, o: u64) -> u64 {
+        const DIRECTIONS: [(i32, i32); 8] = [
+            (1, 0),
+            (0, 1),
+            (1, 1),
+            (-1, 1),
+            (-1, 0),
+            (0, -1),
+            (-1, -1),
+            (1, -1),
+        ];
+
+        let sq_idx = sq.index() as i32;
+        let x = sq_idx & 7;
+        let y = sq_idx >> 3;
+        let mut flipped = 0;
+
+        for (dx, dy) in DIRECTIONS {
+            let mut cx = x + dx;
+            let mut cy = y + dy;
+            let mut line = 0;
+
+            while (0..8).contains(&cx) && (0..8).contains(&cy) {
+                let bit = 1u64 << (cy * 8 + cx);
+                if (o & bit) != 0 {
+                    line |= bit;
+                } else {
+                    if line != 0 && (p & bit) != 0 {
+                        flipped |= line;
+                    }
+                    break;
+                }
+
+                cx += dx;
+                cy += dy;
+            }
+        }
+
+        flipped
     }
 }
