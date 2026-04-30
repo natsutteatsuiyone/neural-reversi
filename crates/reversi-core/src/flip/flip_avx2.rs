@@ -9,40 +9,39 @@ use std::arch::x86_64::*;
 #[target_feature(enable = "avx2")]
 #[inline]
 fn mm_flip(op: __m128i, pos: usize) -> __m128i {
-    let mut flip: __m256i;
-    let mut mask: __m256i;
-    let mut rs: __m256i;
-    let mut lo: __m256i;
-
     // Broadcast the player's and opponent's patterns
     let pp: __m256i = _mm256_broadcastq_epi64(op);
     let oo: __m256i = _mm256_broadcastq_epi64(_mm_unpackhi_epi64(op, op));
 
     let mask_ptr = unsafe { super::lrmask::LRMASK.get_unchecked(pos).0.as_ptr() as *const __m256i };
+    let right_mask = unsafe { _mm256_load_si256(mask_ptr.add(1)) };
+    let left_mask = unsafe { _mm256_load_si256(mask_ptr) };
 
-    // Right side computations
-    mask = unsafe { _mm256_load_si256(mask_ptr.add(1)) };
-    // Right: shadow mask lower than leftmost P
-    let rp: __m256i = _mm256_and_si256(pp, mask);
-    rs = _mm256_or_si256(rp, _mm256_srlv_epi64(rp, _mm256_set_epi64x(7, 9, 8, 1)));
-    rs = _mm256_or_si256(rs, _mm256_srlv_epi64(rs, _mm256_set_epi64x(14, 18, 16, 2)));
-    rs = _mm256_or_si256(rs, _mm256_srlv_epi64(rs, _mm256_set_epi64x(28, 36, 32, 4)));
-    // Apply flip if leftmost non-opponent is P
-    let re: __m256i = _mm256_xor_si256(_mm256_andnot_si256(oo, mask), rp); // Masked Empty
-    flip = _mm256_and_si256(_mm256_andnot_si256(rs, mask), _mm256_cmpgt_epi64(rp, re));
-
-    // Left side computations
-    mask = unsafe { _mm256_load_si256(mask_ptr) };
     // Left: non-opponent BLSMSK
-    lo = _mm256_andnot_si256(oo, mask);
+    let mut lo = _mm256_andnot_si256(oo, left_mask);
     lo = _mm256_and_si256(
         _mm256_xor_si256(_mm256_add_epi64(lo, _mm256_set1_epi64x(-1)), lo),
-        mask,
+        left_mask,
     );
+
+    // Right side computations
+    // Right: shadow mask lower than leftmost P
+    let rp: __m256i = _mm256_and_si256(pp, right_mask);
+    let mut rs = _mm256_or_si256(rp, _mm256_srlv_epi64(rp, _mm256_set_epi64x(7, 9, 8, 1)));
     // Clear MSB of BLSMSK if it is P
     let lf: __m256i = _mm256_andnot_si256(pp, lo);
     // Erase lf if lo = lf (i.e., MSB is not P)
-    flip = _mm256_or_si256(flip, _mm256_andnot_si256(_mm256_cmpeq_epi64(lf, lo), lf));
+    let left_flip = _mm256_andnot_si256(_mm256_cmpeq_epi64(lf, lo), lf);
+    rs = _mm256_or_si256(rs, _mm256_srlv_epi64(rs, _mm256_set_epi64x(14, 18, 16, 2)));
+    rs = _mm256_or_si256(rs, _mm256_srlv_epi64(rs, _mm256_set_epi64x(28, 36, 32, 4)));
+    // Apply flip if leftmost non-opponent is P
+    let re: __m256i = _mm256_xor_si256(_mm256_andnot_si256(oo, right_mask), rp); // Masked Empty
+    let right_flip = _mm256_and_si256(
+        _mm256_andnot_si256(rs, right_mask),
+        _mm256_cmpgt_epi64(rp, re),
+    );
+
+    let flip = _mm256_or_si256(right_flip, left_flip);
 
     // Combine the lower and higher 128-bit lanes of the flip pattern
     _mm_or_si128(
