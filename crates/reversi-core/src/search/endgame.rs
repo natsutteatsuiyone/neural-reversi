@@ -8,7 +8,6 @@ use std::sync::Arc;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::{SCORE_INF, SCORE_MAX};
-use crate::count_last_flip::count_last_flip;
 use crate::eval::EvalMode;
 use crate::flip;
 use crate::level::Level;
@@ -829,22 +828,5 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
-    let mut n_flipped = count_last_flip(player, sq);
-    let mut score = 2 * player.count() as Score - SCORE_MAX + 2 + n_flipped;
-
-    if n_flipped == 0 {
-        let score_if_opp_passes = if score > 0 { score } else { score - 2 };
-        if score_if_opp_passes > alpha {
-            n_flipped = count_last_flip(!player, sq);
-            score = if n_flipped > 0 {
-                score - 2 - n_flipped
-            } else {
-                score_if_opp_passes
-            };
-        } else {
-            score = score_if_opp_passes;
-        }
-    }
-
-    score
+    crate::count_last_flip::solve1(player, alpha, sq)
 }

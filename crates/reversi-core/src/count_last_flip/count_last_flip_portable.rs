@@ -15,7 +15,9 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/count_last_flip_kindergarten.c>
 
+use crate::constants::SCORE_MAX;
 use crate::square::Square;
+use crate::types::Score;
 
 #[rustfmt::skip]
 static COUNT_FLIP: [[i8; 256]; 8] = [
@@ -206,9 +208,32 @@ fn count_one(p: u64, pp: &SqParams) -> i32 {
     }
 }
 
-#[inline]
-pub fn count_last_flip(p: u64, sq: Square) -> i32 {
+#[inline(always)]
+pub(super) fn count_last_flip(p: u64, sq: Square) -> i32 {
     // SAFETY: Square::index() returns 0..=63 by construction.
     let pp = unsafe { PARAMS.get_unchecked(sq.index()) };
     count_one(p, pp)
+}
+
+#[inline(always)]
+pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
+    let player_count = player.count_ones() as Score;
+    let n_flipped = count_last_flip(player, sq);
+    let score = 2 * player_count - SCORE_MAX + 2 + n_flipped;
+
+    if n_flipped != 0 {
+        return score;
+    }
+
+    let score_if_opp_passes = if score > 0 { score } else { score - 2 };
+    if score_if_opp_passes <= alpha {
+        score_if_opp_passes
+    } else {
+        let n_flipped = count_last_flip(!player, sq);
+        if n_flipped > 0 {
+            score - 2 - n_flipped
+        } else {
+            score_if_opp_passes
+        }
+    }
 }
