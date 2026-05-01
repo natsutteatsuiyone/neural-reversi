@@ -52,18 +52,18 @@ fn bench_case_set(group: &mut BenchmarkGroup<'_, WallTime>, name: &str, cases: &
             for case in cases {
                 let player = Bitboard::new(black_box(case.player));
                 let opponent = Bitboard::new(black_box(case.opponent));
-                acc ^= stability::get_stable_discs(player, opponent).bits();
+                acc ^= stability::stable_discs_lower_bound(player, opponent).bits();
             }
             black_box(acc)
         })
     });
 }
 
-fn bench_get_stable_discs(c: &mut Criterion) {
+fn bench_stable_discs_lower_bound(c: &mut Criterion) {
     let midgame = random_cases(0x57ab_1e00, 24);
     let late = random_cases(0x57ab_1e01, 56);
 
-    let mut group = c.benchmark_group("stability::get_stable_discs");
+    let mut group = c.benchmark_group("stability::stable_discs_lower_bound");
     bench_case_set(&mut group, "midgame_4096", &midgame);
     bench_case_set(&mut group, "late_4096", &late);
     group.finish();
@@ -80,5 +80,9 @@ fn bench_edge_table_build(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_get_stable_discs, bench_edge_table_build);
+criterion_group!(
+    benches,
+    bench_stable_discs_lower_bound,
+    bench_edge_table_build
+);
 criterion_main!(benches);

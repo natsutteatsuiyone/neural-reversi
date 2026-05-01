@@ -304,15 +304,6 @@ impl Board {
         self.get_moves().contains(sq)
     }
 
-    /// Returns the number of stable discs for the current player.
-    ///
-    /// Stable discs cannot be flipped for the remainder of the game (e.g. corners,
-    /// discs protected by filled edges or other stable discs).
-    #[inline]
-    pub fn get_stability(&self) -> u32 {
-        crate::stability::get_stable_discs(self.player, self.opponent).count()
-    }
-
     /// Returns a [`Bitboard`] of potential moves for the current player.
     #[inline(always)]
     pub fn get_potential_moves(&self) -> Bitboard {
