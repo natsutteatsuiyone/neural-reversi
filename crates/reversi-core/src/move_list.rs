@@ -14,6 +14,7 @@ use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
 use crate::search::midgame;
+use crate::search::node_type::NodeType;
 use crate::search::search_context::SearchContext;
 use crate::search::search_strategy::SearchStrategy;
 use crate::square::Square;
@@ -382,12 +383,13 @@ impl MoveList {
     }
 
     /// Evaluates all moves and assigns ordering values.
-    pub fn evaluate_moves<SS: SearchStrategy>(
+    pub fn evaluate_moves<NT: NodeType, SS: SearchStrategy>(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
         tt_move: Square,
+        alpha: ScaledScore,
     ) {
         #[rustfmt::skip]
         const ENDGAME_MIN_SORT_DEPTH: [u32; 64] = [
@@ -412,16 +414,17 @@ impl MoveList {
             return;
         }
 
-        self.evaluate_moves_by_search::<SS>(ctx, board, depth, tt_move);
+        self.evaluate_moves_by_search::<NT, SS>(ctx, board, depth, tt_move, alpha);
     }
 
     /// Evaluates moves via shallow search, with an endgame-only mobility penalty.
-    fn evaluate_moves_by_search<SS: SearchStrategy>(
+    fn evaluate_moves_by_search<NT: NodeType, SS: SearchStrategy>(
         &mut self,
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
         tt_move: Square,
+        alpha: ScaledScore,
     ) {
         let sort_depth = if SS::IS_ENDGAME {
             match depth {
@@ -437,6 +440,16 @@ impl MoveList {
             }
         };
 
+        let skip_search_ordering = if SS::IS_ENDGAME && !NT::PV_NODE && self.moves.len() >= 3 {
+            // Far below alpha is likely an all-node, so skip search-based move ordering
+            // and keep only cheap mobility ordering.
+            const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(8);
+            let static_eval = midgame::evaluate(ctx, board);
+            static_eval + SKIP_MARGIN < alpha
+        } else {
+            false
+        };
+
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
         // reaching this loop, so `mv.flipped == board.opponent` cannot occur here.
         for mv in self.iter_mut() {
@@ -444,9 +457,14 @@ impl MoveList {
                 mv.value = TT_MOVE_VALUE;
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                ctx.update(mv.sq, mv.flipped);
-                mv.value = shallow_search_score(ctx, &next, sort_depth).value();
-                ctx.undo(mv.sq);
+                if skip_search_ordering {
+                    ctx.increment_nodes();
+                    mv.value = 0;
+                } else {
+                    ctx.update(mv.sq, mv.flipped);
+                    mv.value = shallow_search_score(ctx, &next, sort_depth).value();
+                    ctx.undo(mv.sq);
+                }
 
                 if SS::IS_ENDGAME {
                     const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;

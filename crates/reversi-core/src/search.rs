@@ -617,7 +617,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     // Both branches must ensure the TT move ends up at index 0 when present,
     // so the main loop (starting at move_count=1) skips it correctly.
     if n_moves - move_count > 1 {
-        move_list.evaluate_moves::<SS>(ctx, board, depth, tt_move);
+        move_list.evaluate_moves::<NT, SS>(ctx, board, depth, tt_move, alpha);
         move_list.sort();
     } else if n_moves == 2 && move_list.get_move(0).sq != tt_move {
         move_list.swap_moves(0, 1);
