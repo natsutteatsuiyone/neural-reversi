@@ -19,6 +19,8 @@ use crate::{
 const EDGE_STABILITY_SIZE: usize = 256 * 256;
 const FILE_A: u64 = 0x0101_0101_0101_0101;
 const FILE_H: u64 = 0x8080_8080_8080_8080;
+const FILE_A_INNER: u64 = 0x0001_0101_0101_0100;
+const FILE_H_INNER: u64 = 0x0080_8080_8080_8000;
 
 /// Global edge stability lookup table.
 static EDGE_STABILITY: Align64<[u8; EDGE_STABILITY_SIZE]> = Align64(init_edge_stability());
@@ -153,29 +155,73 @@ pub fn build_edge_stability_table_for_bench() -> [u8; EDGE_STABILITY_SIZE] {
 /// Unpacks bits 1-6 of an edge stability byte to the A2-A7 squares on the board.
 #[inline]
 fn unpack_a2a7(x: u8) -> u64 {
-    let a = (x & 0x7e) as u64; // Extract bits 1-6
-    (a.wrapping_mul(0x0000_0408_1020_4080u64)) & 0x0001_0101_0101_0100
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "bmi2") => {
+            use std::arch::x86_64::_pdep_u64;
+
+            // SAFETY: this branch is compiled only when BMI2 is enabled for
+            // the current target.
+            unsafe { _pdep_u64(u64::from((x & 0x7e) >> 1), FILE_A_INNER) }
+        }
+        _ => {
+            let a = (x & 0x7e) as u64; // Extract bits 1-6
+            (a.wrapping_mul(0x0000_0408_1020_4080u64)) & FILE_A_INNER
+        }
+    }
 }
 
 /// Unpacks bits 1-6 of an edge stability byte to the H2-H7 squares on the board.
 #[inline]
 fn unpack_h2h7(x: u8) -> u64 {
-    let a = (x & 0x7e) as u64; // Extract bits 1-6
-    (a.wrapping_mul(0x0002_0408_1020_4000u64)) & 0x0080_8080_8080_8000
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "bmi2") => {
+            use std::arch::x86_64::_pdep_u64;
+
+            // SAFETY: this branch is compiled only when BMI2 is enabled for
+            // the current target.
+            unsafe { _pdep_u64(u64::from((x & 0x7e) >> 1), FILE_H_INNER) }
+        }
+        _ => {
+            let a = (x & 0x7e) as u64; // Extract bits 1-6
+            (a.wrapping_mul(0x0002_0408_1020_4000u64)) & FILE_H_INNER
+        }
+    }
 }
 
 /// Packs the A-file (A1-A8) of a bitboard into a single byte.
 #[inline]
 fn pack_a1a8(x: u64) -> usize {
-    let a = x & FILE_A; // Mask A-file
-    ((a.wrapping_mul(0x0102_0408_1020_4080u64)) >> 56) as usize
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "bmi2") => {
+            use std::arch::x86_64::_pext_u64;
+
+            // SAFETY: this branch is compiled only when BMI2 is enabled for
+            // the current target.
+            unsafe { _pext_u64(x, FILE_A) as usize }
+        }
+        _ => {
+            let a = x & FILE_A; // Mask A-file
+            ((a.wrapping_mul(0x0102_0408_1020_4080u64)) >> 56) as usize
+        }
+    }
 }
 
 /// Packs the H-file (H1-H8) of a bitboard into a single byte.
 #[inline]
 fn pack_h1h8(x: u64) -> usize {
-    let a = x & FILE_H; // Mask H-file
-    ((a.wrapping_mul(0x0002_0408_1020_4081u64)) >> 56) as usize
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "bmi2") => {
+            use std::arch::x86_64::_pext_u64;
+
+            // SAFETY: this branch is compiled only when BMI2 is enabled for
+            // the current target.
+            unsafe { _pext_u64(x, FILE_H) as usize }
+        }
+        _ => {
+            let a = x & FILE_H; // Mask H-file
+            ((a.wrapping_mul(0x0002_0408_1020_4081u64)) >> 56) as usize
+        }
+    }
 }
 
 #[inline(always)]
@@ -412,6 +458,8 @@ mod tests {
                 pack_h1h8(file_h | (0xa5a5_a5a5_a5a5_a5a5 & !FILE_H)),
                 byte as usize
             );
+            assert_eq!(unpack_a2a7(byte as u8), file_a & FILE_A_INNER);
+            assert_eq!(unpack_h2h7(byte as u8), file_h & FILE_H_INNER);
         }
     }
 
