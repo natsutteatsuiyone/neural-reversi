@@ -372,7 +372,7 @@ fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: Score) -> bo
 #[inline(always)]
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
     if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
-        if !has_enough_opponent_discs_for_cutoff(board.opponent.count(), alpha) {
+        if n_empties >= 8 && !has_enough_opponent_discs_for_cutoff(board.opponent.count(), alpha) {
             return None;
         }
 
