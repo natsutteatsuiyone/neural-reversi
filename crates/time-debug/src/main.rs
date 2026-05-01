@@ -207,7 +207,6 @@ fn main() {
 
     // Initialize reversi_core
     reversi_core::probcut::init();
-    reversi_core::stability::init();
 
     println!("{}", "=".repeat(80).cyan());
     println!("{}", " Time Control Debug Tool ".bold().cyan());

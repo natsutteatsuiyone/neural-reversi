@@ -42,9 +42,8 @@ pub struct Search {
 impl Search {
     /// Constructs a new searcher instance that shares evaluation and table state.
     pub fn new(tt: Rc<TranspositionTable>, eval: Rc<Eval>) -> Self {
-        // Ensure probcut and stability modules are initialized
+        // Ensure probcut tables are initialized.
         probcut::init();
-        stability::init();
 
         Search { tt, eval }
     }
