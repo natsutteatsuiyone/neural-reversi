@@ -9,7 +9,6 @@ search-stats = []
 
 [dependencies]
 aligned-vec = "0.6"
-arrayvec = "0.7"
 byteorder = "1.5"
 lock_api = "0.4"
 num_cpus = "1.17"
@@ -38,4 +37,8 @@ harness = false
 
 [[bench]]
 name = "count_last_flip"
+harness = false
+
+[[bench]]
+name = "move_list"
 harness = false

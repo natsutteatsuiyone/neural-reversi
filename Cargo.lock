@@ -4074,7 +4074,6 @@ name = "reversi-core"
 version = "6.0.0"
 dependencies = [
  "aligned-vec",
- "arrayvec",
  "byteorder",
  "criterion",
  "lock_api",

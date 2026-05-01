@@ -2,7 +2,11 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c>
 
-use arrayvec::ArrayVec;
+use std::cmp::Reverse;
+use std::fmt;
+use std::mem::MaybeUninit;
+use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ptr;
 use std::slice;
 use std::sync::atomic;
 
@@ -24,15 +28,35 @@ const MAX_MOVES: usize = 34;
 /// landing at index 0 after [`MoveList::sort`] remain correct.
 const TT_MOVE_VALUE: i32 = 1 << 30;
 
+/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c#L30
+#[rustfmt::skip]
+const SQUARE_VALUE: [i32; 64] = [
+    18,  4, 16, 12, 12, 16,  4, 18,
+     4,  2,  6,  8,  8,  6,  2,  4,
+    16,  6, 14, 10, 10, 14,  6, 16,
+    12,  8, 10,  0,  0, 10,  8, 12,
+    12,  8, 10,  0,  0, 10,  8, 12,
+    16,  6, 14, 10, 10, 14,  6, 16,
+     4,  2,  6,  8,  8,  6,  2,  4,
+    18,  4, 16, 12, 12, 16,  4, 18,
+];
+
+const SQUARE_VALUE_WEIGHT: i32 = 128;
+const CORNER_STABILITY_WEIGHT: i32 = 2048;
+const MOBILITY_WEIGHT: i32 = 16384;
+
 /// Represents a single move.
+///
+/// Field order is chosen to keep each entry 16 bytes in the inline move buffer.
 #[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
 pub struct Move {
-    /// The square where the disc is placed.
-    pub sq: Square,
     /// Bitboard representing all opponent discs flipped by this move.
     pub flipped: Bitboard,
     /// Evaluation score for move ordering (higher = better).
     pub value: i32,
+    /// The square where the disc is placed.
+    pub sq: Square,
 }
 
 impl Move {
@@ -43,17 +67,223 @@ impl Move {
         debug_assert!(!flipped.is_empty(), "Move must flip at least one disc");
 
         Move {
-            sq,
             flipped,
             value: 0,
+            sq,
         }
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<Move>() == 16);
+
+/// Fixed-capacity storage specialized for Reversi legal moves.
+///
+/// The maximum move count is a small game invariant, so this stores moves inline
+/// and tracks the length next to the buffer. `Move` is `Copy`, which lets retain/clone
+/// operate by value without drop bookkeeping.
+#[repr(C)]
+struct MoveArray {
+    data: [MaybeUninit<Move>; MAX_MOVES],
+    len: usize,
+}
+
+impl MoveArray {
+    #[inline]
+    fn new() -> Self {
+        MoveArray {
+            data: [MaybeUninit::uninit(); MAX_MOVES],
+            len: 0,
+        }
+    }
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline(always)]
+    fn as_ptr(&self) -> *const Move {
+        self.data.as_ptr().cast()
+    }
+
+    #[inline(always)]
+    fn as_mut_ptr(&mut self) -> *mut Move {
+        self.data.as_mut_ptr().cast()
+    }
+
+    #[inline(always)]
+    fn as_slice(&self) -> &[Move] {
+        // SAFETY: `0..self.len` is always initialized.
+        unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
+    }
+
+    #[inline(always)]
+    fn as_mut_slice(&mut self) -> &mut [Move] {
+        // SAFETY: `0..self.len` is always initialized; `&mut self` ensures unique access.
+        unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
+    }
+
+    #[inline(always)]
+    unsafe fn push_unchecked(&mut self, mv: Move) {
+        debug_assert!(self.len < MAX_MOVES);
+        let len = self.len;
+        // SAFETY: caller ensures `self.len < MAX_MOVES`.
+        unsafe { self.data.get_unchecked_mut(len).write(mv) };
+        self.len = len + 1;
+    }
+
+    #[inline(always)]
+    unsafe fn get_unchecked(&self, index: usize) -> Move {
+        debug_assert!(index < self.len);
+        // SAFETY: caller ensures `index < self.len`.
+        unsafe { *self.as_ptr().add(index) }
+    }
+
+    #[inline(always)]
+    unsafe fn get_unchecked_ref(&self, index: usize) -> &Move {
+        debug_assert!(index < self.len);
+        // SAFETY: caller ensures `index < self.len`.
+        unsafe { &*self.as_ptr().add(index) }
+    }
+
+    #[inline(always)]
+    unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
+        debug_assert!(a < self.len);
+        debug_assert!(b < self.len);
+        let ptr = self.as_mut_ptr();
+        // SAFETY: caller ensures `a, b < self.len`.
+        unsafe { ptr::swap(ptr.add(a), ptr.add(b)) };
+    }
+
+    #[inline(always)]
+    unsafe fn compare_swap_unchecked(&mut self, a: usize, b: usize) {
+        debug_assert!(a < self.len);
+        debug_assert!(b < self.len);
+
+        let ptr = self.as_mut_ptr();
+        // SAFETY: caller ensures `a, b < self.len`.
+        unsafe {
+            let a_ptr = ptr.add(a);
+            let b_ptr = ptr.add(b);
+            if (*a_ptr).value < (*b_ptr).value {
+                ptr::swap(a_ptr, b_ptr);
+            }
+        }
+    }
+
+    #[inline]
+    fn sort_by_value_desc(&mut self) {
+        match self.len {
+            0 | 1 => {}
+            2 => {
+                // SAFETY: match arm guarantees `len == 2`.
+                unsafe { self.compare_swap_unchecked(0, 1) };
+            }
+            3 => {
+                // SAFETY: match arm guarantees `len == 3`.
+                unsafe {
+                    self.compare_swap_unchecked(0, 1);
+                    self.compare_swap_unchecked(1, 2);
+                    self.compare_swap_unchecked(0, 1);
+                }
+            }
+            _ => self
+                .as_mut_slice()
+                .sort_unstable_by_key(|mv| Reverse(mv.value)),
+        }
+    }
+
+    #[inline]
+    fn retain(&mut self, mut keep: impl FnMut(Move) -> bool) {
+        let len = self.len;
+        let mut write = 0;
+        let ptr = self.as_mut_ptr();
+
+        for read in 0..len {
+            // SAFETY: `read < len`.
+            let mv = unsafe { *ptr.add(read) };
+            if keep(mv) {
+                if write != read {
+                    // SAFETY: `write <= read < len`.
+                    unsafe { ptr.add(write).write(mv) };
+                }
+                write += 1;
+            }
+        }
+
+        self.len = write;
+    }
+}
+
+impl Clone for MoveArray {
+    #[inline]
+    fn clone(&self) -> Self {
+        let mut cloned = MoveArray::new();
+        let len = self.len();
+        if len != 0 {
+            // SAFETY: source `0..len` is initialized; `cloned` owns a separate buffer.
+            unsafe { ptr::copy_nonoverlapping(self.as_ptr(), cloned.as_mut_ptr(), len) };
+        }
+        cloned.len = len;
+        cloned
+    }
+}
+
+impl fmt::Debug for MoveArray {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_slice(), f)
+    }
+}
+
+impl Default for MoveArray {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Deref for MoveArray {
+    type Target = [Move];
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl DerefMut for MoveArray {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_slice()
+    }
+}
+
+impl Index<usize> for MoveArray {
+    type Output = Move;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.as_slice()[index]
+    }
+}
+
+impl IndexMut<usize> for MoveArray {
+    #[inline(always)]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.as_mut_slice()[index]
     }
 }
 
 /// Container for all legal moves in a position with evaluation and ordering capabilities.
 #[derive(Clone, Debug)]
 pub struct MoveList {
-    moves: ArrayVec<Move, MAX_MOVES>,
+    moves: MoveArray,
     wipeout_move: Option<Square>,
 }
 
@@ -67,14 +297,13 @@ impl MoveList {
     /// Creates a [`MoveList`] from a precomputed legal moves [`Bitboard`].
     #[inline]
     pub fn with_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
-        let mut moves = ArrayVec::new();
+        let mut moves = MoveArray::new();
         let mut wipeout_move = None;
         for sq in moves_bb.iter() {
             let flipped = flip::flip(sq, board.player, board.opponent);
 
-            debug_assert!(moves.len() < moves.capacity());
-            // SAFETY: Reversi positions have at most MAX_MOVES (34) legal moves,
-            // so the ArrayVec capacity is never exceeded.
+            debug_assert!(moves.len() < MAX_MOVES);
+            // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
             unsafe { moves.push_unchecked(Move::new(sq, flipped)) };
 
             if flipped == board.opponent {
@@ -103,21 +332,32 @@ impl MoveList {
     /// Returns the first move in the list, if any.
     #[inline]
     pub fn first(&self) -> Option<&Move> {
-        self.moves.first()
+        if self.moves.is_empty() {
+            None
+        } else {
+            // SAFETY: list is non-empty.
+            Some(unsafe { self.moves.get_unchecked_ref(0) })
+        }
     }
 
     /// Swaps two moves in the list by index.
     #[inline(always)]
     pub fn swap_moves(&mut self, a: usize, b: usize) {
-        self.moves.swap(a, b);
+        let len = self.moves.len();
+        assert!(
+            a < len && b < len,
+            "move index out of bounds: len is {len}, indexes are {a} and {b}"
+        );
+        // SAFETY: bounds checked above.
+        unsafe { self.moves.swap_unchecked(a, b) };
     }
 
     /// Returns the move at the given index by value.
     #[inline(always)]
     pub fn get_move(&self, index: usize) -> Move {
         debug_assert!(index < self.moves.len());
-        // SAFETY: caller ensures index < count (guarded by loop bound in search hot path)
-        unsafe { *self.moves.get_unchecked(index) }
+        // SAFETY: caller ensures `index < self.count()`.
+        unsafe { self.moves.get_unchecked(index) }
     }
 
     /// Returns an iterator over all moves in the list.
@@ -224,57 +464,28 @@ impl MoveList {
 
     /// Evaluates moves using fast heuristics for move ordering.
     pub fn evaluate_moves_fast(&mut self, ctx: &mut SearchContext, board: &Board, tt_move: Square) {
-        /// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c#L30
-        #[rustfmt::skip]
-        const SQUARE_VALUE: [i32; 64] = [
-            18,  4, 16, 12, 12, 16,  4, 18,
-             4,  2,  6,  8,  8,  6,  2,  4,
-            16,  6, 14, 10, 10, 14,  6, 16,
-            12,  8, 10,  0,  0, 10,  8, 12,
-            12,  8, 10,  0,  0, 10,  8, 12,
-            16,  6, 14, 10, 10, 14,  6, 16,
-             4,  2,  6,  8,  8,  6,  2,  4,
-            18,  4, 16, 12, 12, 16,  4, 18,
-        ];
-
-        const SQUARE_VALUE_WEIGHT: i32 = 128;
-        const CORNER_STABILITY_WEIGHT: i32 = 2048;
-        const MOBILITY_WEIGHT: i32 = 16384;
-
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
         // reaching this loop, so `mv.flipped == board.opponent` cannot occur here.
+        if tt_move == Square::None {
+            for mv in self.iter_mut() {
+                mv.value = evaluate_fast_value(ctx, board, *mv);
+            }
+            return;
+        }
+
         for mv in self.iter_mut() {
             mv.value = if mv.sq == tt_move {
                 TT_MOVE_VALUE
             } else {
-                ctx.increment_nodes();
-                let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                let moves = next.get_moves();
-                let corner_stability = next.opponent.corner_stability() as i32;
-                let weighted_mobility = moves.corner_weighted_count() as i32;
-                // SAFETY: mv.sq is always a valid square (0..=63) from move generation
-                // (Move::new asserts sq != Square::None), so the index is in bounds.
-                let mut value =
-                    unsafe { SQUARE_VALUE.get_unchecked(mv.sq.index()) } * SQUARE_VALUE_WEIGHT;
-                value += corner_stability * CORNER_STABILITY_WEIGHT;
-                value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
-                value
-            }
+                evaluate_fast_value(ctx, board, *mv)
+            };
         }
     }
 
     /// Sorts all moves in descending order of their evaluation values.
     #[inline]
     pub fn sort(&mut self) {
-        let len = self.moves.len();
-        match len {
-            0 | 1 => {}
-            2 => sort2(&mut self.moves),
-            3 => sort3(&mut self.moves),
-            _ => self
-                .moves
-                .sort_unstable_by_key(|m| std::cmp::Reverse(m.value)),
-        }
+        self.moves.sort_by_value_desc();
     }
 
     /// Excludes moves that were selected as best moves for earlier PV lines in Multi-PV search.
@@ -314,24 +525,17 @@ fn shallow_search_score(ctx: &mut SearchContext, next: &Board, sort_depth: i32) 
 }
 
 #[inline(always)]
-fn cas(moves: &mut [Move], i: usize, j: usize) {
-    if moves[i].value < moves[j].value {
-        moves.swap(i, j);
-    }
-}
+fn evaluate_fast_value(ctx: &mut SearchContext, board: &Board, mv: Move) -> i32 {
+    ctx.increment_nodes();
+    let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+    let corner_stability = next.opponent.corner_stability() as i32;
+    let weighted_mobility = next.get_moves().corner_weighted_count() as i32;
+    // SAFETY: `mv.sq.index() < 64` since `Move::new` rejects `Square::None`.
+    let square_value = unsafe { SQUARE_VALUE.get_unchecked(mv.sq.index()) };
 
-/// 2 elements: 1 comparison (optimal).
-#[inline]
-fn sort2(m: &mut [Move]) {
-    cas(m, 0, 1);
-}
-
-/// 3 elements: 3 comparisons (optimal).
-#[inline]
-fn sort3(m: &mut [Move]) {
-    cas(m, 0, 1);
-    cas(m, 1, 2);
-    cas(m, 0, 1);
+    square_value * SQUARE_VALUE_WEIGHT
+        + corner_stability * CORNER_STABILITY_WEIGHT
+        + (36 - weighted_mobility) * MOBILITY_WEIGHT
 }
 
 /// Thread-safe iterator for distributing moves across multiple search threads.
@@ -359,10 +563,15 @@ impl ConcurrentMoveIterator {
     }
 
     /// Returns the next move and its 1-based index atomically.
+    #[inline]
     pub fn next(&self) -> Option<(&Move, usize)> {
         let current = self.current.fetch_add(1, atomic::Ordering::Relaxed);
         if current < self.move_list.moves.len() {
-            Some((&self.move_list.moves[current], current + 1))
+            // SAFETY: `current < len` checked above.
+            Some((
+                unsafe { self.move_list.moves.get_unchecked_ref(current) },
+                current + 1,
+            ))
         } else {
             None
         }
@@ -423,8 +632,7 @@ impl Iterator for BestFirstMoveIterator<'_> {
             return None;
         }
 
-        // SAFETY: `current < len`, all derived pointers stay within the
-        // initialized `0..len` range, and `Move` is `Copy`.
+        // SAFETY: `current < len`; all pointers stay within `0..len`.
         unsafe {
             let base_ptr = self.moves.as_mut_ptr();
             let current_ptr = base_ptr.add(current);
