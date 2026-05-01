@@ -294,8 +294,9 @@ fn get_full_lines(disc: u64, full: &mut [u64; 4]) -> u64 {
 /// Expands the stable disc set by contact propagation.
 ///
 /// Starting from `previous_stable` (edge-stable and full-line-stable discs),
-/// iteratively marks central discs in `central_mask` as stable if they are
-/// adjacent to stable discs or on full lines in all four directions.
+/// iteratively marks central discs in `central_mask` as stable when, in each
+/// of the four directions, they are adjacent to a stable disc or lie on a
+/// full line.
 fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4]) -> u64 {
     let mut stable_h: u64; // Stable in horizontal direction
     let mut stable_v: u64; // Stable in vertical direction
