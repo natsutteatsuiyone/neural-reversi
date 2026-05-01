@@ -27,6 +27,7 @@ use crate::flip;
 use crate::level::Level;
 use crate::move_list::MoveList;
 
+use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::options::SearchOptions;
@@ -40,7 +41,6 @@ use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, ScaledScore, Scoref};
-use crate::{probcut, stability};
 
 /// Main search engine that coordinates game tree exploration.
 ///
@@ -138,9 +138,8 @@ impl SearchSharedResources {
         )
         .unwrap_or_else(|err| panic!("failed to load evaluation weights: {err}"));
 
-        // Ensure that dependent modules are initialized before any engine is spawned.
+        // Ensure ProbCut tables are initialized before any engine is spawned.
         probcut::init();
-        stability::init();
 
         Self {
             tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),

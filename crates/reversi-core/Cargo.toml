@@ -40,5 +40,9 @@ name = "count_last_flip"
 harness = false
 
 [[bench]]
+name = "stability"
+harness = false
+
+[[bench]]
 name = "move_list"
 harness = false

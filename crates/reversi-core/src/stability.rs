@@ -8,24 +8,26 @@
 //! opponent has enough stable discs to guarantee a score at or below alpha,
 //! the subtree can be pruned without further search.
 //!
-//! Call [`init`] once at startup before using any other functions in this module.
+//! The edge stability lookup table is generated at compile time.
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c>
-use std::sync::OnceLock;
-
-use crate::{bitboard::Bitboard, board::Board, constants::SCORE_MAX, types::Score};
+use crate::{
+    bitboard::Bitboard, board::Board, constants::SCORE_MAX, types::Score, util::align::Align64,
+};
 
 /// Size of the edge stability lookup table (256 * 256 for all possible edge configurations).
 const EDGE_STABILITY_SIZE: usize = 256 * 256;
+const FILE_A: u64 = 0x0101_0101_0101_0101;
+const FILE_H: u64 = 0x8080_8080_8080_8080;
 
-/// Global edge stability lookup table, initialized once at startup.
-static EDGE_STABILITY: OnceLock<[u8; EDGE_STABILITY_SIZE]> = OnceLock::new();
+/// Global edge stability lookup table.
+static EDGE_STABILITY: Align64<[u8; EDGE_STABILITY_SIZE]> = Align64(init_edge_stability());
 
 /// Simulates placing a disc at position `x` (0-7) on an 8-bit edge and applies
 /// flips in both directions.
 ///
 /// Returns `(player_after, opponent_after)`.
-fn apply_edge_move(x: i32, player: i32, opponent: i32) -> (i32, i32) {
+const fn apply_edge_move(x: u8, player: u8, opponent: u8) -> (u8, u8) {
     let mut p = player | x_to_bit(x);
     let mut o = opponent;
     if x > 1 {
@@ -47,7 +49,7 @@ fn apply_edge_move(x: i32, player: i32, opponent: i32) -> (i32, i32) {
         while y < 8 && (o & x_to_bit(y)) != 0 {
             y += 1;
         }
-        if (p & x_to_bit(y)) != 0 {
+        if y < 8 && (p & x_to_bit(y)) != 0 {
             let mut y = x + 1;
             while y < 8 && (o & x_to_bit(y)) != 0 {
                 o ^= x_to_bit(y);
@@ -59,73 +61,93 @@ fn apply_edge_move(x: i32, player: i32, opponent: i32) -> (i32, i32) {
     (p, o)
 }
 
-/// Recursively finds stable discs along an edge by simulating all possible move
-/// sequences.
-///
-/// Starting from `stable` (initially the player's discs), prunes away any disc
-/// that could be flipped by some sequence of moves into the empty squares.
-/// Returns the surviving stable disc bitmask.
-fn find_edge_stable(old_p: i32, old_o: i32, mut stable: i32) -> i32 {
-    let e: i32 = !(old_p | old_o);
+/// Computes stable discs for one edge from child states whose occupancy is one
+/// disc higher. This is the iterative equivalent of the Edax recursive search.
+const fn find_edge_stable_from_table(
+    old_p: u8,
+    old_o: u8,
+    table: &[u8; EDGE_STABILITY_SIZE],
+) -> u8 {
+    let mut stable = old_p;
+    let e = !(old_p | old_o);
 
-    stable &= old_p;
     if stable == 0 || e == 0 {
         return stable;
     }
 
-    for x in 0..8 {
-        if (e & x_to_bit(x)) == 0 {
-            continue;
-        }
+    let mut x = 0;
+    while x < 8 {
+        if (e & x_to_bit(x)) != 0 {
+            // Simulate player's move at position x.
+            let (p, o) = apply_edge_move(x, old_p, old_o);
+            stable &= table[edge_stability_index(p, o)];
+            if stable == 0 {
+                return stable;
+            }
 
-        // Simulate player's move at position x
-        let (p, o) = apply_edge_move(x, old_p, old_o);
-        stable = find_edge_stable(p, o, stable);
-        if stable == 0 {
-            return stable;
+            // Simulate opponent's move at position x.
+            let (o, p) = apply_edge_move(x, old_o, old_p);
+            stable &= table[edge_stability_index(p, o)];
+            if stable == 0 {
+                return stable;
+            }
         }
-
-        // Simulate opponent's move at position x
-        let (o, p) = apply_edge_move(x, old_o, old_p);
-        stable = find_edge_stable(p, o, stable);
-        if stable == 0 {
-            return stable;
-        }
+        x += 1;
     }
 
     stable
 }
 
 /// Converts a position index (0-7) to its corresponding bit mask.
-fn x_to_bit(x: i32) -> i32 {
-    1 << x
+const fn x_to_bit(x: u8) -> u8 {
+    1u8 << x
+}
+
+const fn popcount8(mut x: u8) -> usize {
+    let mut n = 0;
+    while x != 0 {
+        x &= x - 1;
+        n += 1;
+    }
+    n
+}
+
+const fn edge_stability_index(player_edge: u8, opponent_edge: u8) -> usize {
+    ((player_edge as usize) << 8) | opponent_edge as usize
 }
 
 /// Computes the edge stability lookup table.
 ///
 /// Returns a 65536-entry table indexed by `player_edge * 256 + opponent_edge`.
-fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
+const fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
     let mut table: [u8; EDGE_STABILITY_SIZE] = [0; EDGE_STABILITY_SIZE];
-    for p in 0..256 {
-        for o in 0..256 {
-            if p & o != 0 {
-                // Illegal positions (same square occupied by both players)
-                table[p * 256 + o] = 0;
-            } else {
-                // Compute stable discs for this edge configuration
-                table[p * 256 + o] = find_edge_stable(p as i32, o as i32, p as i32) as u8;
+
+    let mut occupied = 8usize;
+    loop {
+        let mut p = 0usize;
+        while p < 256 {
+            let mut o = 0usize;
+            while o < 256 {
+                if (p & o) == 0 && popcount8((p | o) as u8) == occupied {
+                    table[(p << 8) | o] = find_edge_stable_from_table(p as u8, o as u8, &table);
+                }
+                o += 1;
             }
+            p += 1;
         }
+
+        if occupied == 0 {
+            break;
+        }
+        occupied -= 1;
     }
+
     table
 }
 
-/// Initializes the stability module by computing the edge stability table.
-///
-/// This must be called once before using [`get_stable_discs`] or
-/// [`stability_cutoff`]. Subsequent calls are no-ops.
-pub fn init() {
-    let _ = EDGE_STABILITY.set(init_edge_stability());
+#[doc(hidden)]
+pub fn build_edge_stability_table_for_bench() -> [u8; EDGE_STABILITY_SIZE] {
+    init_edge_stability()
 }
 
 /// Unpacks bits 1-6 of an edge stability byte to the A2-A7 squares on the board.
@@ -145,15 +167,29 @@ fn unpack_h2h7(x: u8) -> u64 {
 /// Packs the A-file (A1-A8) of a bitboard into a single byte.
 #[inline]
 fn pack_a1a8(x: u64) -> usize {
-    let a = x & 0x0101_0101_0101_0101; // Mask A-file
+    let a = x & FILE_A; // Mask A-file
     ((a.wrapping_mul(0x0102_0408_1020_4080u64)) >> 56) as usize
 }
 
 /// Packs the H-file (H1-H8) of a bitboard into a single byte.
 #[inline]
 fn pack_h1h8(x: u64) -> usize {
-    let a = x & 0x8080_8080_8080_8080; // Mask H-file
+    let a = x & FILE_H; // Mask H-file
     ((a.wrapping_mul(0x0002_0408_1020_4081u64)) >> 56) as usize
+}
+
+#[inline(always)]
+fn edge_stability(player_edge: usize, opponent_edge: usize) -> u8 {
+    debug_assert!(player_edge < 256);
+    debug_assert!(opponent_edge < 256);
+
+    // SAFETY: callers pass packed edges, so each index component is 0..256 and
+    // the combined table index is within EDGE_STABILITY_SIZE.
+    unsafe {
+        *EDGE_STABILITY
+            .0
+            .get_unchecked((player_edge << 8) | opponent_edge)
+    }
 }
 
 /// Returns stable discs along all four edges (rank 1, rank 8, A-file, H-file).
@@ -161,13 +197,10 @@ fn pack_h1h8(x: u64) -> usize {
 /// Uses the pre-computed edge stability table for fast lookup.
 #[inline]
 fn get_stable_edge(p: u64, o: u64) -> u64 {
-    // SAFETY: `init()` is called once at startup before any search begins,
-    // guaranteeing the OnceLock is initialized.
-    let table = unsafe { EDGE_STABILITY.get().unwrap_unchecked() };
-    table[((p & 0xff) * 256 + (o & 0xff)) as usize] as u64
-        | (table[((p >> 56) * 256 + (o >> 56)) as usize] as u64) << 56
-        | unpack_a2a7(table[pack_a1a8(p) * 256 + pack_a1a8(o)])
-        | unpack_h2h7(table[pack_h1h8(p) * 256 + pack_h1h8(o)])
+    u64::from(edge_stability((p & 0xff) as usize, (o & 0xff) as usize))
+        | u64::from(edge_stability((p >> 56) as usize, (o >> 56) as usize)) << 56
+        | unpack_a2a7(edge_stability(pack_a1a8(p), pack_a1a8(o)))
+        | unpack_h2h7(edge_stability(pack_h1h8(p), pack_h1h8(o)))
 }
 
 /// Detects completely filled lines in all four directions.
@@ -249,7 +282,6 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
 /// 2. Full-line detection (discs on completely filled lines)
 /// 3. Contact propagation (discs adjacent to already-stable discs)
 ///
-/// Requires [`init`] to have been called beforehand.
 #[inline]
 pub fn get_stable_discs(player: Bitboard, opponent: Bitboard) -> Bitboard {
     let central_mask = player.bits() & 0x007e7e7e7e7e7e00;
@@ -280,7 +312,6 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
 ///
 /// Returns [`None`] if the cutoff cannot be proven.
 ///
-/// Requires [`init`] to have been called beforehand.
 #[inline(always)]
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
     if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
@@ -290,4 +321,105 @@ pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<S
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    fn reference_find_edge_stable(old_p: u8, old_o: u8, mut stable: u8) -> u8 {
+        let e = !(old_p | old_o);
+
+        stable &= old_p;
+        if stable == 0 || e == 0 {
+            return stable;
+        }
+
+        for x in 0..8 {
+            if (e & x_to_bit(x)) == 0 {
+                continue;
+            }
+
+            let (p, o) = apply_edge_move(x, old_p, old_o);
+            stable = reference_find_edge_stable(p, o, stable);
+            if stable == 0 {
+                return stable;
+            }
+
+            let (o, p) = apply_edge_move(x, old_o, old_p);
+            stable = reference_find_edge_stable(p, o, stable);
+            if stable == 0 {
+                return stable;
+            }
+        }
+
+        stable
+    }
+
+    #[test]
+    fn edge_table_matches_recursive_reference() {
+        let cases = [
+            (0x00, 0x00),
+            (0xff, 0x00),
+            (0x00, 0xff),
+            (0x81, 0x00),
+            (0x7e, 0x00),
+            (0x18, 0x24),
+            (0x42, 0x3c),
+            (0xa5, 0x5a),
+            (0x55, 0xaa),
+        ];
+
+        for (p, o) in cases {
+            assert_eq!(
+                edge_stability(p as usize, o as usize),
+                reference_find_edge_stable(p, o, p),
+                "edge stability mismatch for p={p:#04x} o={o:#04x}",
+            );
+        }
+
+        let mut rng = StdRng::seed_from_u64(0x0057_ab1e);
+        for _ in 0..512 {
+            let p: u8 = rng.random();
+            let o: u8 = rng.random::<u8>() & !p;
+            assert_eq!(
+                edge_stability(p as usize, o as usize),
+                reference_find_edge_stable(p, o, p),
+                "edge stability mismatch for p={p:#04x} o={o:#04x}",
+            );
+        }
+    }
+
+    #[test]
+    fn file_packers_match_expected_bit_order() {
+        for byte in 0..=255u64 {
+            let mut file_a = 0u64;
+            let mut file_h = 0u64;
+
+            for rank in 0..8 {
+                if ((byte >> rank) & 1) != 0 {
+                    file_a |= 1u64 << (rank * 8);
+                    file_h |= 1u64 << (rank * 8 + 7);
+                }
+            }
+
+            assert_eq!(
+                pack_a1a8(file_a | (0xa5a5_a5a5_a5a5_a5a5 & !FILE_A)),
+                byte as usize
+            );
+            assert_eq!(
+                pack_h1h8(file_h | (0xa5a5_a5a5_a5a5_a5a5 & !FILE_H)),
+                byte as usize
+            );
+        }
+    }
+
+    #[test]
+    fn stable_discs_are_available_without_runtime_init() {
+        let player = Bitboard::new(0xff);
+        let stable = get_stable_discs(player, Bitboard::new(0));
+
+        assert_eq!(stable.bits() & 0xff, 0xff);
+    }
 }
