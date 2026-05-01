@@ -104,7 +104,7 @@ pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flip::flip_kindergarten;
+    use crate::flip::flip_portable;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     /// Cross-check NEON flip against the kindergarten oracle for every square
@@ -123,7 +123,7 @@ mod tests {
                     continue;
                 }
                 let sq = Square::from_u8(sq_idx).unwrap();
-                let expected = flip_kindergarten::flip(sq, p, o);
+                let expected = flip_portable::flip(sq, p, o);
                 let got = unsafe { flip(sq, p, o) };
                 assert_eq!(
                     got, expected,
@@ -168,7 +168,7 @@ mod tests {
             if (p | o) & (1u64 << sq.index()) != 0 {
                 continue;
             }
-            let expected = flip_kindergarten::flip(sq, p, o);
+            let expected = flip_portable::flip(sq, p, o);
             let got = unsafe { flip(sq, p, o) };
             assert_eq!(got, expected, "sq={:?} p={:#x} o={:#x}", sq, p, o);
         }
