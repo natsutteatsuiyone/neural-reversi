@@ -351,6 +351,13 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
     99, 99, 99, 99, 99, 99, 99, 99   // 56-63 empties (no stable squares)
 ];
 
+/// Returns whether the opponent has enough discs that stability can possibly
+/// prove `score <= alpha`.
+#[inline(always)]
+fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: Score) -> bool {
+    SCORE_MAX - 2 * opponent_count as Score <= alpha
+}
+
 /// Attempts to prove an alpha cutoff using stability analysis.
 ///
 /// If the opponent has enough stable discs to guarantee a final score at or
@@ -361,6 +368,10 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
 #[inline(always)]
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
     if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
+        if !has_enough_opponent_discs_for_cutoff(board.opponent.count(), alpha) {
+            return None;
+        }
+
         let score = SCORE_MAX - 2 * board.switch_players().get_stability() as Score;
         if score <= alpha {
             return Some(score);
@@ -461,6 +472,14 @@ mod tests {
             assert_eq!(unpack_a2a7(byte as u8), file_a & FILE_A_INNER);
             assert_eq!(unpack_h2h7(byte as u8), file_h & FILE_H_INNER);
         }
+    }
+
+    #[test]
+    fn stability_cutoff_candidate_uses_opponent_disc_upper_bound() {
+        assert!(!has_enough_opponent_discs_for_cutoff(31, 1));
+        assert!(has_enough_opponent_discs_for_cutoff(31, 2));
+        assert!(!has_enough_opponent_discs_for_cutoff(8, 47));
+        assert!(has_enough_opponent_discs_for_cutoff(8, 48));
     }
 
     #[test]
