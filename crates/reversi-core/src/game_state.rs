@@ -76,8 +76,9 @@ impl GameState {
         self.board = self.board.make_move(sq);
         self.side_to_move = self.side_to_move.opposite();
 
-        // Handle automatic pass if opponent has no legal moves
-        if !self.board.has_legal_moves() {
+        // Handle automatic pass if opponent has no legal moves, but avoid
+        // recording a pass after the game has already ended.
+        if !self.board.has_legal_moves() && self.board.switch_players().has_legal_moves() {
             self.handle_pass();
         }
 
@@ -303,6 +304,31 @@ mod tests {
         assert_eq!(game.move_history().len(), 0);
         assert_eq!(*game.board(), board);
         assert_eq!(game.side_to_move(), Disc::Black);
+    }
+
+    #[test]
+    fn test_make_move_does_not_record_pass_after_game_over() {
+        let board = Board::from_string(
+            "-OXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX\
+             XXXXXXXX",
+            Disc::Black,
+        )
+        .unwrap();
+        let mut game = GameState::from_board(board, Disc::Black);
+
+        assert_eq!(game.board().get_moves(), Square::A1.bitboard());
+        game.make_move(Square::A1).unwrap();
+
+        assert!(game.is_game_over());
+        assert_eq!(game.last_move(), Some(Square::A1));
+        assert_eq!(game.move_history().len(), 1);
+        assert_eq!(game.side_to_move(), Disc::White);
     }
 
     #[test]
