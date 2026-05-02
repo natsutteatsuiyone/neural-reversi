@@ -308,14 +308,16 @@ impl Search {
         self.tt.increment_generation();
 
         let board = task.board;
+        let time_manager = task.time_manager.clone();
 
-        if let Some(tm) = task.time_manager.as_ref()
+        let result_receiver = self.threads.start_thinking(task);
+
+        if let Some(tm) = time_manager.as_ref()
             && tm.deadline().is_some()
         {
             self.threads.start_timer(tm.clone());
         }
 
-        let result_receiver = self.threads.start_thinking(task);
         let result = result_receiver.recv().unwrap_or_else(|_| {
             // Channel closed - search thread may have panicked. Return fallback.
             self.quick_move(&board)
