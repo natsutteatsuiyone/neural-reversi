@@ -90,6 +90,10 @@ impl GameState {
     ///
     /// Returns an error if the current player has legal moves available.
     pub fn make_pass(&mut self) -> Result<(), String> {
+        if self.board.is_game_over() {
+            return Err("Cannot pass after the game is over".to_string());
+        }
+
         if self.board.has_legal_moves() {
             return Err("Cannot pass when legal moves are available".to_string());
         }
@@ -286,6 +290,19 @@ mod tests {
 
         let game = GameState::from_board(board, Disc::Black);
         assert!(game.is_game_over());
+    }
+
+    #[test]
+    fn test_make_pass_rejects_game_over_position() {
+        let board = Board::from_bitboards(Square::A1.bitboard(), 0);
+        let mut game = GameState::from_board(board, Disc::Black);
+
+        let result = game.make_pass();
+
+        assert!(result.is_err());
+        assert_eq!(game.move_history().len(), 0);
+        assert_eq!(*game.board(), board);
+        assert_eq!(game.side_to_move(), Disc::Black);
     }
 
     #[test]
