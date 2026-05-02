@@ -566,7 +566,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         // ProbCut
         if depth >= SS::MIN_PROBCUT_DEPTH {
             ctx.counters.increment_probcut_attempt();
-            if let Some(score) = SS::try_probcut(ctx, board, depth, beta, thread) {
+            if let Some(score) = SS::try_probcut(ctx, board, depth, beta, cut_node, thread) {
                 ctx.counters.increment_probcut_cut();
                 return score;
             }

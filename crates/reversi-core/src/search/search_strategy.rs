@@ -47,6 +47,7 @@ pub trait SearchStrategy: Copy + Clone + 'static {
         board: &Board,
         depth: Depth,
         beta: ScaledScore,
+        cut_node: bool,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore>;
 }
@@ -93,9 +94,10 @@ impl SearchStrategy for MidGameStrategy {
         board: &Board,
         depth: Depth,
         beta: ScaledScore,
+        cut_node: bool,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore> {
-        midgame::try_probcut(ctx, board, depth, beta, thread)
+        midgame::try_probcut(ctx, board, depth, beta, cut_node, thread)
     }
 }
 
@@ -129,8 +131,9 @@ impl SearchStrategy for EndGameStrategy {
         board: &Board,
         depth: Depth,
         beta: ScaledScore,
+        cut_node: bool,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore> {
-        endgame::try_probcut(ctx, board, depth, beta, thread)
+        endgame::try_probcut(ctx, board, depth, beta, cut_node, thread)
     }
 }

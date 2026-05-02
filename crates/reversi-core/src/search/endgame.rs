@@ -248,6 +248,7 @@ pub fn try_probcut(
     board: &Board,
     depth: Depth,
     beta: ScaledScore,
+    cut_node: bool,
     thread: &Arc<Thread>,
 ) -> Option<ScaledScore> {
     if !ctx.selectivity.is_enabled() {
@@ -272,7 +273,7 @@ pub fn try_probcut(
     let eval_score = midgame::evaluate(ctx, board);
     let mean0 = probcut::get_mean_end(0, depth);
     let sigma0 = probcut::get_sigma_end(0, depth);
-    let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0);
+    let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0, cut_node);
 
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;

@@ -239,7 +239,7 @@ pub fn compute_probcut_beta(beta: ScaledScore, t: f64, mean: f64, sigma: f64) ->
 }
 
 /// Computes the evaluation threshold for ProbCut pre-screening.
-#[inline]
+#[inline(always)]
 pub fn compute_eval_beta(
     beta: ScaledScore,
     t: f64,
@@ -247,10 +247,18 @@ pub fn compute_eval_beta(
     sigma: f64,
     mean0: f64,
     sigma0: f64,
+    cut_node: bool,
 ) -> ScaledScore {
     let eval_mean = 0.5 * mean0 + mean;
     let eval_sigma = t * 0.5 * sigma0 + sigma;
-    ScaledScore::from_raw((beta.value() as f64 - eval_sigma - eval_mean).floor() as i32)
+    let all_node_margin = if cut_node {
+        0.0
+    } else {
+        sigma0 * 1.5
+    };
+    ScaledScore::from_raw(
+        (beta.value() as f64 - eval_sigma - eval_mean + all_node_margin).floor() as i32,
+    )
 }
 
 /// Statistical parameters for endgame ProbCut.
