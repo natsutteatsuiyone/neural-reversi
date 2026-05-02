@@ -390,6 +390,7 @@ impl MoveList {
         depth: Depth,
         tt_move: Square,
         alpha: ScaledScore,
+        cut_node: bool,
     ) {
         #[rustfmt::skip]
         const ENDGAME_MIN_SORT_DEPTH: [u32; 64] = [
@@ -414,7 +415,7 @@ impl MoveList {
             return;
         }
 
-        self.evaluate_moves_by_search::<NT, SS>(ctx, board, depth, tt_move, alpha);
+        self.evaluate_moves_by_search::<NT, SS>(ctx, board, depth, tt_move, alpha, cut_node);
     }
 
     /// Evaluates moves via shallow search, with an endgame-only mobility penalty.
@@ -425,6 +426,7 @@ impl MoveList {
         depth: Depth,
         tt_move: Square,
         alpha: ScaledScore,
+        cut_node: bool,
     ) {
         let sort_depth = if SS::IS_ENDGAME {
             match depth {
@@ -440,9 +442,9 @@ impl MoveList {
             }
         };
 
-        let skip_search_ordering = if SS::IS_ENDGAME && !NT::PV_NODE && self.moves.len() >= 3 {
-            // Far below alpha is likely an all-node, so skip search-based move ordering
-            // and keep only cheap mobility ordering.
+        // All-nodes search every move regardless of order, so shallow-search ordering
+        // doesn't pay off — cheap mobility ordering suffices.
+        let skip_search_ordering = if SS::IS_ENDGAME && !NT::PV_NODE && !cut_node {
             const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(8);
             let static_eval = midgame::evaluate(ctx, board);
             static_eval + SKIP_MARGIN < alpha

@@ -98,6 +98,9 @@ pub struct SplitPointState {
 
     /// Whether this split point uses endgame search strategy.
     is_endgame: bool,
+
+    /// Whether the parent expected this node to produce a beta cutoff.
+    pub cut_node: bool,
 }
 
 impl SplitPointState {
@@ -244,6 +247,7 @@ impl Default for SplitPoint {
                 task: None,
                 parent_split_point: None,
                 is_endgame: false,
+                cut_node: false,
             }),
             move_iter: UnsafeCell::new(None),
             pv: UnsafeCell::new([Square::None; MAX_PLY]),
@@ -556,6 +560,7 @@ impl Thread {
         move_count: usize,
         node_type: NodeTypeId,
         is_endgame: bool,
+        cut_node: bool,
     ) -> (ScaledScore, Square, SearchCounters) {
         // Pick the next available split point
         let sp = &self.split_points[self.split_points_size.load(Ordering::Relaxed)];
@@ -564,7 +569,7 @@ impl Thread {
         // Initialize the split point with search parameters
         self.initialize_split_point(
             sp, ctx, depth, best_score, best_move, alpha, beta, node_type, move_iter, board,
-            is_endgame,
+            is_endgame, cut_node,
         );
 
         // Enter idle loop as owner thread - will return when all helpers finish
@@ -602,6 +607,7 @@ impl Thread {
         move_iter: ConcurrentMoveIterator,
         board: &Board,
         is_endgame: bool,
+        cut_node: bool,
     ) {
         debug_assert!(self.searching.load(Ordering::Acquire));
         debug_assert!(self.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD);
@@ -638,6 +644,7 @@ impl Thread {
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
         sp.copy_pv(ctx.get_pv());
         sp_state.is_endgame = is_endgame;
+        sp_state.cut_node = cut_node;
 
         self.split_points_size.fetch_add(1, Ordering::Release);
         *self.active_split_point_mut() = Some(sp.clone());

@@ -476,6 +476,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     mut alpha: ScaledScore,
     beta: ScaledScore,
     thread: &Arc<Thread>,
+    cut_node: bool,
 ) -> ScaledScore {
     let org_alpha = alpha;
 
@@ -504,7 +505,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -search::<NT, SS>(ctx, &next, depth, -beta, -alpha, thread);
+            let score = -search::<NT, SS>(ctx, &next, depth, -beta, -alpha, thread, !cut_node);
             ctx.undo_pass();
             return score;
         } else {
@@ -585,7 +586,15 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         let next = board.make_move_with_flipped(flipped, tt_move);
         ctx.update(tt_move, flipped);
-        let score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+        let score = -search::<NonPV, SS>(
+            ctx,
+            &next,
+            depth - 1,
+            -(alpha + 1),
+            -alpha,
+            thread,
+            !cut_node,
+        );
         ctx.undo(tt_move);
 
         if thread.should_stop() {
@@ -617,7 +626,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     // Both branches must ensure the TT move ends up at index 0 when present,
     // so the main loop (starting at move_count=1) skips it correctly.
     if n_moves - move_count > 1 {
-        move_list.evaluate_moves::<NT, SS>(ctx, board, depth, tt_move, alpha);
+        move_list.evaluate_moves::<NT, SS>(ctx, board, depth, tt_move, alpha, cut_node);
         move_list.sort();
     } else if n_moves == 2 && move_list.get_move(0).sq != tt_move {
         move_list.swap_moves(0, 1);
@@ -643,6 +652,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 move_count,
                 NT::ID,
                 SS::IS_ENDGAME,
+                cut_node,
             );
             best_score = s;
             best_move = m;
@@ -674,16 +684,25 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 -(alpha + 1),
                 -alpha,
                 thread,
+                !cut_node,
             );
 
             if reduction > 0 && score > alpha {
-                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+                score = -search::<NonPV, SS>(
+                    ctx,
+                    &next,
+                    depth - 1,
+                    -(alpha + 1),
+                    -alpha,
+                    thread,
+                    !cut_node,
+                );
             }
         }
 
         // PV re-search
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
-            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread);
+            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
         }
 
         ctx.undo(mv.sq);
@@ -749,6 +768,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     split_point: &Arc<SplitPoint>,
 ) -> ScaledScore {
     let beta = split_point.state().beta;
+    let cut_node = split_point.state().cut_node;
     let move_iter = split_point.move_iter();
     let n_moves = move_iter.count();
 
@@ -772,17 +792,26 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
                 -(alpha + 1),
                 -alpha,
                 thread,
+                !cut_node,
             );
 
             if reduction > 0 && score > alpha {
-                score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha, thread);
+                score = -search::<NonPV, SS>(
+                    ctx,
+                    &next,
+                    depth - 1,
+                    -(alpha + 1),
+                    -alpha,
+                    thread,
+                    !cut_node,
+                );
             }
         }
 
         // PV re-search
         if NT::PV_NODE && score > alpha {
             let alpha = split_point.state().alpha();
-            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread);
+            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
         }
 
         ctx.undo(mv.sq);

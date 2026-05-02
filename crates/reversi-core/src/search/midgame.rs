@@ -167,7 +167,8 @@ fn aspiration_search(
     let mut delta = ASPIRATION_DELTA;
 
     loop {
-        let score = search::<Root, MidGameStrategy>(ctx, board, depth, *alpha, *beta, thread);
+        let score =
+            search::<Root, MidGameStrategy>(ctx, board, depth, *alpha, *beta, thread, false);
 
         if thread.is_search_aborted() {
             return score;
@@ -249,8 +250,15 @@ pub fn try_probcut(
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None; // Disable nested probcut
-        let score =
-            search::<NonPV, MidGameStrategy>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
+        let score = search::<NonPV, MidGameStrategy>(
+            ctx,
+            board,
+            pc_depth,
+            pc_beta - 1,
+            pc_beta,
+            thread,
+            true,
+        );
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {

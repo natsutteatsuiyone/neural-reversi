@@ -220,7 +220,8 @@ fn aspiration_search(
     let n_empties = ctx.empty_list.count();
 
     loop {
-        let score = search::<Root, EndGameStrategy>(ctx, board, n_empties, *alpha, *beta, thread);
+        let score =
+            search::<Root, EndGameStrategy>(ctx, board, n_empties, *alpha, *beta, thread, false);
 
         if thread.is_search_aborted() {
             return score;
@@ -276,8 +277,15 @@ pub fn try_probcut(
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None;
-        let score =
-            search::<NonPV, MidGameStrategy>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread);
+        let score = search::<NonPV, MidGameStrategy>(
+            ctx,
+            board,
+            pc_depth,
+            pc_beta - 1,
+            pc_beta,
+            thread,
+            true,
+        );
         ctx.selectivity = current_selectivity;
 
         if score >= pc_beta {
