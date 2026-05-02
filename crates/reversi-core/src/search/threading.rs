@@ -46,7 +46,7 @@ const CHECK_INTERVAL_MS: u64 = 1;
 
 /// State information for a split point in the parallel search.
 pub struct SplitPointState {
-    /// Flag indicating if all helper threads are actively searching.
+    /// Whether every thread assigned to this split point is still searching.
     all_helpers_searching: AtomicBool,
 
     /// Alpha bound for the alpha-beta search at this node.
@@ -65,29 +65,18 @@ pub struct SplitPointState {
     node_type: NodeTypeId,
 
     /// Flag indicating if a beta cutoff has occurred.
-    ///
-    /// Cache-padded: read every search node — isolate from concurrent helper writes.
     cutoff: Align64<AtomicBool>,
 
     /// Index of the owner thread that created this split point.
     owner_thread_idx: usize,
 
     /// Bitmask tracking which threads are working on this split point.
-    ///
-    /// Cache-padded: split-point owner busy-waits on this — isolate from helper writes.
     helpers_mask: Align64<AtomicBitSet>,
 
     /// Search depth remaining from this position.
     depth: Depth,
 
-    /// Accumulated search counters from all helper threads.
-    ///
-    /// Wrapped in a `Mutex` to provide interior mutability on the paths that
-    /// can run concurrently with lock-free `&SplitPointState` borrows held by
-    /// `try_late_join`'s pre-check — namely helper publication in
-    /// `Thread::idle_loop` and post-idle_loop extraction in `Thread::split`.
-    /// A bare field would force `sp.state_mut()` on those paths and alias
-    /// with the concurrent shared borrows.
+    /// Accumulated search counters from all threads that searched this split point.
     counters: std::sync::Mutex<SearchCounters>,
 
     /// Task data containing the position and search context.
@@ -116,13 +105,13 @@ impl SplitPointState {
         self.alpha.store(value.value(), Ordering::Relaxed);
     }
 
-    /// Returns the all_helpers_searching flag.
+    /// Returns the `all_helpers_searching` flag.
     #[inline]
     pub fn all_helpers_searching(&self) -> bool {
         self.all_helpers_searching.load(Ordering::Relaxed)
     }
 
-    /// Sets the all_helpers_searching flag.
+    /// Sets the `all_helpers_searching` flag.
     #[inline]
     pub fn set_all_helpers_searching(&self, value: bool) {
         self.all_helpers_searching.store(value, Ordering::Relaxed);
@@ -209,13 +198,13 @@ pub struct SplitPoint {
 
     /// Shared move iterator for the active split point.
     ///
-    /// Stored separately from `state` so helpers can keep a reference to it
+    /// Stored separately from `state` so searchers can keep a reference to it
     /// after releasing the split-point lock without aliasing `state_mut()`.
     move_iter: UnsafeCell<Option<ConcurrentMoveIterator>>,
 
     /// Principal variation line from the best move found at this split point.
     ///
-    /// Stored outside `state` so active helpers can update it under the
+    /// Stored outside `state` so active searchers can update it under the
     /// split-point lock without creating a `&mut SplitPointState` that aliases
     /// lock-free `state()` borrows in late-join pre-checks.
     pv: UnsafeCell<[Square; MAX_PLY]>,
@@ -223,8 +212,8 @@ pub struct SplitPoint {
 
 // SAFETY: `state` access is mediated by the spinlock or through atomic fields.
 // `move_iter` and `pv` are mutated only while the split-point lock is held or
-// after all helpers finish (helpers reset `helpers_mask` with Release before
-// the owner proceeds).
+// after all searchers finish (each searcher resets `helpers_mask` with Release
+// before the owner proceeds).
 unsafe impl Sync for SplitPoint {}
 
 impl Default for SplitPoint {
@@ -298,7 +287,7 @@ impl SplitPoint {
     #[inline]
     fn clear_move_iter(&self) {
         // SAFETY: All `move_iter()` references are scoped to `search_split_point`,
-        // which completes before the helper resets its `helpers_mask` bit.
+        // which completes before the searcher resets its `helpers_mask` bit.
         unsafe { *self.move_iter.get() = None };
     }
 
@@ -311,11 +300,11 @@ impl SplitPoint {
 
     /// Returns a reference to the internal PV.
     ///
-    /// Borrow scope must not outlive the next reuse of this split point —
-    /// callers consume it immediately after `finalize_split_point`.
+    /// Borrow scope must not outlive the next reuse of this split point; callers
+    /// consume it immediately after `finalize_split_point`.
     #[inline]
     fn pv(&self) -> &[Square; MAX_PLY] {
-        // SAFETY: Called after all helpers have finished this split point,
+        // SAFETY: Called after all searchers have finished this split point,
         // so no concurrent writer exists.
         unsafe { &*self.pv.get() }
     }
@@ -363,11 +352,11 @@ pub struct Thread {
     /// Number of split points currently active for this thread.
     /// Atomic because it is read lock-free by other threads in `can_join` / `try_late_join`.
     ///
-    /// Cache-padded: scanned cross-thread — isolate from owner-only neighbour writes.
+    /// Cache-padded: scanned cross-thread; isolate from owner-only neighbour writes.
     split_points_size: Align64<AtomicUsize>,
 
     /// Stack of split points created by this thread.
-    /// Immutable after construction — each element is a pre-allocated `Arc<SplitPoint>`.
+    /// Immutable after construction; each element is a pre-allocated `Arc<SplitPoint>`.
     split_points: [Arc<SplitPoint>; MAX_SPLITPOINTS_PER_THREAD],
 
     /// The split point this thread is currently working on.
@@ -379,7 +368,7 @@ pub struct Thread {
 
     /// Flag indicating if this thread is currently searching.
     ///
-    /// Cache-padded: hot cross-thread atomic — isolate from neighbour writes.
+    /// Cache-padded: hot cross-thread atomic; isolate from neighbour writes.
     searching: Align64<AtomicBool>,
 
     /// Flag signaling the thread to exit.
@@ -439,8 +428,9 @@ impl Thread {
     /// 2. The thread hasn't reached its split point limit
     /// 3. Either:
     ///    - The thread has no active split point, OR
-    ///    - Not all helpers are searching (room for more), OR
-    ///    - We can steal helpers from the current split point
+    ///    - Some threads assigned to the current split point have finished, OR
+    ///    - The current split point is at the per-split-point cap and the
+    ///      pool has more threads than fit in one split point
     pub fn can_split(&self) -> bool {
         let thread_pool_size = self.pool_size as u32;
         if thread_pool_size <= 1 {
@@ -461,8 +451,10 @@ impl Thread {
 
     /// Returns an immutable reference to the active split point.
     ///
-    /// Safe when called by the owning thread (which is the only writer).
-    /// When called from another thread, `mutex_for_state` must be held.
+    /// Safe when called by the owning thread while no concurrent writer can
+    /// run (e.g., while `searching` is true, since
+    /// `ThreadPool::assign_helpers_to_split_point` skips searching threads
+    /// via `can_join`). Otherwise, `mutex_for_state` must be held.
     #[inline]
     pub fn active_split_point(&self) -> &Option<Arc<SplitPoint>> {
         // SAFETY: Either called by the owning thread, or caller holds mutex_for_state.
@@ -471,8 +463,11 @@ impl Thread {
 
     /// Returns a mutable reference to the active split point.
     ///
-    /// Safe when called by the owning thread or when `mutex_for_state` is held.
-    /// Only the owning thread ever writes to this field.
+    /// Writes occur from the owning thread (in `initialize_split_point`,
+    /// `try_late_join`, `finalize_split_point`) and from another thread via
+    /// `ThreadPool::assign_helpers_to_split_point`. Other-thread writers
+    /// always hold `mutex_for_state`; the owning thread writes lock-free
+    /// only while `searching` is true (which excludes those external writers).
     #[inline]
     #[allow(clippy::mut_from_ref)]
     fn active_split_point_mut(&self) -> &mut Option<Arc<SplitPoint>> {
@@ -544,7 +539,7 @@ impl Thread {
     /// 1. Creates a new split point with the current search parameters
     /// 2. Finds idle threads and assigns them to help search
     /// 3. The calling thread also participates in the search (helpful owner)
-    /// 4. Waits for all threads to complete their work
+    /// 4. Waits for all assigned threads to complete their work
     /// 5. Returns the best score, best move, and accumulated counters
     #[allow(clippy::too_many_arguments)]
     pub fn split(
@@ -572,17 +567,17 @@ impl Thread {
             is_endgame, cut_node,
         );
 
-        // Enter idle loop as owner thread - will return when all helpers finish
+        // Enter idle loop as owner thread - will return when all searchers finish
         self.idle_loop();
 
         // Clean up the split point
         self.finalize_split_point(sp);
 
-        // All helpers have finished this split point, but other threads may
+        // All searchers have finished this split point, but other threads may
         // still hold brief lock-free `&SplitPointState` borrows via
         // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`): `pv` lives
         // outside `SplitPointState`, and `counters` uses an interior `Mutex`,
-        // so neither requires `&mut SplitPointState` — same aliasing discipline
+        // so neither requires `&mut SplitPointState`; this follows the same aliasing discipline
         // as the atomic fields.
         let sp_state = sp.state();
         ctx.set_pv(sp.pv());
@@ -656,7 +651,7 @@ impl Thread {
 
         // Everything is set up. The owner thread enters the idle loop, from which
         // it will instantly launch a search, because its 'searching' flag is set.
-        // The thread will return from the idle loop when all helpers have finished
+        // The thread will return from the idle loop when all searchers have finished
         // their work at this split point.
         sp.unlock();
     }
@@ -685,12 +680,12 @@ impl Thread {
         sp.clear_move_iter();
     }
 
-    /// Main loop for worker threads.
+    /// Main loop for worker threads and split-point owners.
     ///
     /// This method implements the core logic for thread synchronization:
     ///
     /// 1. **Owner Mode**: If called from split(), acts as the owner thread
-    ///    and waits for all helpers to finish before returning
+    ///    and waits for all assigned searchers to finish before returning
     ///
     /// 2. **Helper Mode**: If called at thread creation, waits for work assignments
     ///    and executes search tasks when assigned to split points
@@ -701,7 +696,7 @@ impl Thread {
 
         // Main loop - continues until thread exit is signaled
         while !self.exit.load(Ordering::Acquire) {
-            // Check if we're the owner of a split point and all helpers have finished
+            // Check if we're the owner of a split point and all searchers have finished
             if let Some(ref sp) = this_sp
                 && sp.state().helpers_mask.none()
             {
@@ -732,7 +727,7 @@ impl Thread {
                 // reset() pairs with the owner's Acquire in helpers_mask.none().
                 // Stay on `sp.state()` (`&`): the Mutex provides interior
                 // mutability for `counters`, and the remaining writes are
-                // atomic — so this path stays aliasing-compatible with
+                // atomic, so this path stays aliasing-compatible with
                 // concurrent lock-free readers in `try_late_join`.
                 let sp_state = sp.state();
                 sp_state.counters.lock().unwrap().merge(&ctx.counters);
@@ -767,8 +762,10 @@ impl Thread {
     /// Main thread message processing loop.
     ///
     /// This is the entry point for the main thread (thread 0), which handles
-    /// control messages from the thread pool. Unlike worker threads which
-    /// participate in split-point searches, the main thread:
+    /// control messages from the thread pool and runs the root search. Worker
+    /// threads wait in `idle_loop` for split-point assignments.
+    ///
+    /// The main thread:
     ///
     /// 1. Receives search tasks via the message channel
     /// 2. Coordinates the search by waking worker threads
@@ -859,7 +856,7 @@ impl Thread {
     /// split point to join based on:
     ///
     /// 1. The split point must have room for more helpers
-    /// 2. All current helpers must still be searching
+    /// 2. All currently assigned threads must still be searching
     /// 3. The thread must be able to join (helpful owner rules)
     /// 4. Prefer split points higher in the tree (lower level)
     fn try_late_join(&self) {
@@ -933,12 +930,13 @@ impl Thread {
         sp.unlock();
     }
 
+    /// Returns `true` if the search has been aborted (e.g., by deadline or external request).
     #[inline]
     pub fn is_search_aborted(&self) -> bool {
         self.abort_flag.load(Ordering::Acquire)
     }
 
-    /// Returns `true` when the current branch should abandon its result —
+    /// Returns `true` when the current branch should abandon its result:
     /// either a beta cutoff has occurred on an ancestor split point, or the
     /// whole search has been aborted.
     #[inline]
@@ -949,10 +947,10 @@ impl Thread {
 
 /// Messages that can be sent to the main thread.
 enum Message {
-    /// Start a new search with the given task and return results via the sender.
+    /// Starts a new search with the given task and returns results via the sender.
     StartThinking(SearchTask, Arc<Thread>, Sender<SearchResult>),
 
-    /// Signal the thread to exit.
+    /// Signals the thread to exit.
     Exit,
 }
 
@@ -1190,12 +1188,12 @@ impl ThreadPool {
         self.abort_flag.clone()
     }
 
-    /// Starts a timer thread that will set abort_flag when deadline is reached.
+    /// Starts a timer thread that will set `abort_flag` when deadline is reached.
     ///
     /// - Checks every [`CHECK_INTERVAL_MS`] milliseconds against the current deadline
     /// - Responds to dynamic time extensions from the [`TimeManager`]
     /// - Exits cleanly when:
-    ///   - Deadline is reached (sets abort_flag)
+    ///   - Deadline is reached (sets `abort_flag`)
     ///   - [`stop_timer`](Self::stop_timer) is called (search completed early)
     ///   - No deadline is set (infinite time mode)
     pub fn start_timer(&self, time_manager: Arc<TimeManager>) {
@@ -1247,8 +1245,8 @@ impl ThreadPool {
 
     /// Stops the timer thread if running.
     ///
-    /// This should be called when search completes (before waiting for result)
-    /// to ensure clean shutdown.
+    /// This should be called after the search result is received, or before
+    /// explicitly aborting a search, to ensure clean shutdown.
     pub fn stop_timer(&self) {
         // Signal timer to stop
         self.timer_stop.store(true, Ordering::Release);
