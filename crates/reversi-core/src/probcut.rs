@@ -251,11 +251,7 @@ pub fn compute_eval_beta(
 ) -> ScaledScore {
     let eval_mean = 0.5 * mean0 + mean;
     let eval_sigma = t * 0.5 * sigma0 + sigma;
-    let all_node_margin = if cut_node {
-        0.0
-    } else {
-        sigma0 * 1.5
-    };
+    let all_node_margin = if cut_node { 0.0 } else { sigma0 * 1.5 };
     ScaledScore::from_raw(
         (beta.value() as f64 - eval_sigma - eval_mean + all_node_margin).floor() as i32,
     )
