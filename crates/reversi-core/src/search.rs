@@ -299,7 +299,8 @@ impl Search {
     /// Records the empty-square count at which the endgame phase first became
     /// reachable, so future time-controlled searches know to extend their end depth.
     fn update_endgame_tracking(&mut self, n_empties: Depth, result: &SearchResult) {
-        if self.endgame_start_n_empties.is_none() && result.depth + 1 >= n_empties {
+        if n_empties > 0 && self.endgame_start_n_empties.is_none() && result.depth + 1 >= n_empties
+        {
             self.endgame_start_n_empties = Some(n_empties - 1);
         }
     }
