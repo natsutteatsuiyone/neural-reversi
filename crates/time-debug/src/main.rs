@@ -427,8 +427,10 @@ fn play_game(
         // Check for timeout
         let has_time = player_time.use_time(elapsed_ms);
         if !has_time {
-            let phase_str = if result.is_endgame { "End" } else { "Mid" };
-            let nps = (result.n_nodes * 1000).checked_div(elapsed_ms).unwrap_or(0);
+            let phase_str = if result.is_endgame() { "End" } else { "Mid" };
+            let nps = (result.n_nodes() * 1000)
+                .checked_div(elapsed_ms)
+                .unwrap_or(0);
             println!(
                 "  {:>4} {:>6} {:>8} {:>10} {:>10} {:>8} {:>6} {:>7} {:>10} {:>10}",
                 move_num,
@@ -464,7 +466,7 @@ fn play_game(
         let remaining_str = player_time.remaining_str();
 
         // Make the move
-        if let Some(best_move) = result.best_move {
+        if let Some(best_move) = result.best_move() {
             let time_color = if elapsed_ms > args.byoyomi * 90 / 100 {
                 format!("{elapsed_ms}").red()
             } else if elapsed_ms > args.byoyomi * 50 / 100 {
@@ -473,15 +475,17 @@ fn play_game(
                 format!("{elapsed_ms}").green()
             };
 
-            let phase_str = if result.is_endgame {
+            let phase_str = if result.is_endgame() {
                 "End".magenta()
             } else {
                 "Mid".cyan()
             };
 
-            let nps = (result.n_nodes * 1000).checked_div(elapsed_ms).unwrap_or(0);
+            let nps = (result.n_nodes() * 1000)
+                .checked_div(elapsed_ms)
+                .unwrap_or(0);
             let nodes_str = if elapsed_ms > 0 {
-                format!("{}", result.n_nodes)
+                format!("{}", result.n_nodes())
             } else {
                 "-".to_string()
             };
@@ -490,11 +494,12 @@ fn play_game(
             let depth_str = {
                 let probability = result.get_probability();
                 if probability == 100 {
-                    format!("{}", result.depth)
+                    format!("{}", result.depth())
                 } else {
-                    format!("{}@{}%", result.depth, probability)
+                    format!("{}@{}%", result.depth(), probability)
                 }
             };
+            let score = result.score().expect("search returned no legal move");
 
             println!(
                 "  {:>4} {:>6} {:>8} {:>10} {:>10} {:>8} {:>6.2} {:>7} {:>10} {:>10}",
@@ -508,7 +513,7 @@ fn play_game(
                 time_color,
                 remaining_str,
                 depth_str,
-                result.score,
+                score,
                 phase_str,
                 format_nps(nps),
                 nodes_str

@@ -177,8 +177,9 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                         level.end_depth = [depth as Depth; 4];
                         let run_options = SearchRunOptions::with_level(level, SELECTIVITY);
                         let result = search.run(&board, &run_options);
-                        score_cache.insert(cache_key, result.score);
-                        (depth as Depth, result.score)
+                        let score = result.score().expect("search returned no legal move");
+                        score_cache.insert(cache_key, score);
+                        (depth as Depth, score)
                     }
                 })
                 .collect();
@@ -324,7 +325,10 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
                         let run_options = SearchRunOptions::with_level(level, Selectivity::None)
                             .with_eval_mode(EvalMode::Small);
                         let result = search.run(&board, &run_options);
-                        (depth as Depth, result.score)
+                        (
+                            depth as Depth,
+                            result.score().expect("search returned no legal move"),
+                        )
                     })
                     .collect();
 

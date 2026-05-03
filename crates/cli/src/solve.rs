@@ -150,21 +150,22 @@ fn solve_position(
     let options = SearchRunOptions::with_level(level, selectivity);
     let result = search.run(&search_board, &options);
     let elapsed = start_time.elapsed();
+    let result_score = result.score().expect("search returned no legal move");
 
     let score = if is_pass {
-        -(result.score as i32)
+        -(result_score as i32)
     } else {
-        result.score as i32
+        result_score as i32
     };
 
     let depth = if result.get_probability() == 100 {
-        format!("{}", result.depth)
+        format!("{}", result.depth())
     } else {
-        format!("{}@{}%", result.depth, result.get_probability())
+        format!("{}@{}%", result.depth(), result.get_probability())
     };
 
     let nodes_per_sec = if elapsed.as_secs_f64() > 0.0 {
-        result.n_nodes as f64 / elapsed.as_secs_f64()
+        result.n_nodes() as f64 / elapsed.as_secs_f64()
     } else {
         0.0
     };
@@ -174,12 +175,12 @@ fn solve_position(
     } else {
         side_to_move
     };
-    let pv_string = if result.pv_line.is_empty() {
+    let pv_string = if result.pv_line().is_empty() {
         result
-            .best_move
+            .best_move()
             .map_or("--".to_string(), |m| format_square(m, move_side))
     } else {
-        format_pv_with_passes(&board, side_to_move, &result.pv_line, 8)
+        format_pv_with_passes(&board, side_to_move, result.pv_line(), 8)
     };
 
     print_row(
@@ -187,12 +188,12 @@ fn solve_position(
         depth,
         format!("{:+03}", score),
         format_time(elapsed),
-        result.n_nodes.to_formatted_string(&Locale::en),
+        result.n_nodes().to_formatted_string(&Locale::en),
         (nodes_per_sec.round() as u64).to_formatted_string(&Locale::en),
         pv_string,
     );
 
-    (elapsed, result.n_nodes)
+    (elapsed, result.n_nodes())
 }
 
 fn print_row(

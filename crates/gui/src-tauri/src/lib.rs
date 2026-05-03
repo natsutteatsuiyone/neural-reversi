@@ -226,19 +226,15 @@ async fn ai_move_command(
         };
 
         let time_taken_ms = start_time.elapsed().as_millis() as u64;
+        let best_move = result.best_move();
+        let score = result.score().unwrap_or(0.0);
 
         Ok(AIMoveResult {
-            best_move: result.best_move.map(|square| square.index()),
-            row: result
-                .best_move
-                .map(|square| square as i32 / 8)
-                .unwrap_or(-1),
-            col: result
-                .best_move
-                .map(|square| square as i32 % 8)
-                .unwrap_or(-1),
-            score: round_score(result.score),
-            depth: result.depth,
+            best_move: best_move.map(|square| square.index()),
+            row: best_move.map(|square| square as i32 / 8).unwrap_or(-1),
+            col: best_move.map(|square| square as i32 % 8).unwrap_or(-1),
+            score: round_score(score),
+            depth: result.depth(),
             acc: result.get_probability(),
             time_taken: time_taken_ms,
         })
@@ -373,7 +369,7 @@ async fn analyze_game_command(
                 return Ok(());
             }
 
-            round_score(result.score)
+            round_score(result.score().expect("search returned no legal move"))
         } else {
             round_score(final_board.solve(final_board.get_empty_count()) as Scoref)
         };
@@ -397,8 +393,11 @@ async fn analyze_game_command(
                 return Ok(());
             }
 
-            let best_move_str = result.best_move.map(|s| s.to_string()).unwrap_or_default();
-            let best_score = round_score(result.score);
+            let best_move_str = result
+                .best_move()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let best_score = round_score(result.score().expect("search returned no legal move"));
 
             let played_score = -score;
             let score_loss = (best_score - played_score).max(0.0);
@@ -409,7 +408,7 @@ async fn analyze_game_command(
                 best_score,
                 played_score,
                 score_loss,
-                depth: result.depth,
+                depth: result.depth(),
             };
             let _ = app.emit("game-analysis-progress", payload);
 

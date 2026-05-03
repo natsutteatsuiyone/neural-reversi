@@ -201,7 +201,7 @@ impl SearchStats {
 
     /// Classify the move accuracy based on the search result
     fn classify_move(result: &SearchResult, test_case: &TestCase) -> MoveAccuracy {
-        let Some(&first_pv) = result.pv_line.first() else {
+        let Some(&first_pv) = result.pv_line().first() else {
             return MoveAccuracy::Other;
         };
         match test_case.rank_of(first_pv) {
@@ -480,10 +480,11 @@ fn execute_test_case(
     let elapsed = start.elapsed();
 
     // For pass positions, negate the score back to the original player's perspective.
+    let raw_score = result.score().expect("search returned no legal move");
     let score = if test_case.is_pass() {
-        -result.score
+        -raw_score
     } else {
-        result.score
+        raw_score
     };
     let score = (score * 10.0).round() / 10.0;
     let score_difference = (score - test_case.expected_score() as Scoref).abs();
@@ -495,15 +496,15 @@ fn execute_test_case(
 
     let test_result = TestResult {
         elapsed,
-        nodes: result.n_nodes,
+        nodes: result.n_nodes(),
         score,
-        depth: result.depth,
-        selectivity: result.selectivity,
-        pv_line: result.pv_line,
+        depth: result.depth(),
+        selectivity: result.selectivity(),
+        pv_line: result.pv_line().to_vec(),
         score_difference,
         move_accuracy,
-        counters: result.counters,
-        pv_moves: result.pv_moves,
+        counters: result.counters(),
+        pv_moves: result.pv_moves().to_vec(),
     };
 
     let verbose_data = iterations

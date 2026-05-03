@@ -215,7 +215,7 @@ fn apply_action(
                     Ok(r) => {
                         let _ = tx.send(connection::Event::MoveReady {
                             match_id,
-                            mv: r.best_move,
+                            mv: r.best_move(),
                         });
                     }
                     Err(payload) => {

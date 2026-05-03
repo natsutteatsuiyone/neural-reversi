@@ -3,7 +3,12 @@ use reversi_core::disc::Disc;
 use reversi_core::level::Level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
+use reversi_core::search::search_result::SearchResult;
 use reversi_core::search::{Search, SearchRunOptions};
+
+fn score(result: &SearchResult) -> i32 {
+    result.score().expect("expected best move") as i32
+}
 
 #[test]
 fn test_solve_2_case1() {
@@ -16,7 +21,7 @@ fn test_solve_2_case1() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 46);
+    assert_eq!(score(&result), 46);
 }
 
 #[test]
@@ -30,7 +35,7 @@ fn test_solve_2_case2() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, -32);
+    assert_eq!(score(&result), -32);
 }
 
 #[test]
@@ -44,7 +49,7 @@ fn test_solve_2_case3() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, -20);
+    assert_eq!(score(&result), -20);
 }
 
 #[test]
@@ -58,7 +63,7 @@ fn test_solve_3_case1() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 44);
+    assert_eq!(score(&result), 44);
 }
 
 #[test]
@@ -72,7 +77,7 @@ fn test_solve_3_case2() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, -38);
+    assert_eq!(score(&result), -38);
 }
 
 #[test]
@@ -86,7 +91,7 @@ fn test_solve_3_case3() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, -28);
+    assert_eq!(score(&result), -28);
 }
 
 #[test]
@@ -100,7 +105,7 @@ fn test_solve_4_case1() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 32);
+    assert_eq!(score(&result), 32);
 }
 
 #[test]
@@ -114,7 +119,7 @@ fn test_solve_4_case2() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 20);
+    assert_eq!(score(&result), 20);
 }
 
 #[test]
@@ -128,7 +133,7 @@ fn test_solve_4_case3() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, -52);
+    assert_eq!(score(&result), -52);
 }
 
 #[test]
@@ -142,7 +147,7 @@ fn test_solve_5_case1() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 32);
+    assert_eq!(score(&result), 32);
 }
 
 #[test]
@@ -156,7 +161,7 @@ fn test_solve_5_case2() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 28);
+    assert_eq!(score(&result), 28);
 }
 
 #[test]
@@ -170,7 +175,7 @@ fn test_solve_9() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 50);
+    assert_eq!(score(&result), 50);
 }
 
 #[test]
@@ -184,7 +189,7 @@ fn test_solve_15() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 8);
+    assert_eq!(score(&result), 8);
 }
 
 #[test]
@@ -198,7 +203,7 @@ fn test_solve_20() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 6);
+    assert_eq!(score(&result), 6);
 }
 
 #[test]
@@ -212,5 +217,5 @@ fn test_solve_20_case2() {
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
     let result = search.run(&board, &options);
 
-    assert_eq!(result.score as i32, 0);
+    assert_eq!(score(&result), 0);
 }

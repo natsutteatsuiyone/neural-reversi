@@ -620,7 +620,7 @@ impl GtpEngine {
         };
         let result = self.search.run(self.game.board(), &options);
 
-        if let Some(computer_move) = result.best_move {
+        if let Some(computer_move) = result.best_move() {
             self.game.make_move(computer_move);
             GtpResponse::Success(format!("{computer_move}"))
         } else {

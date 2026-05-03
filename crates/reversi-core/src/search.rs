@@ -288,18 +288,15 @@ impl Search {
         if !result.is_invalid_sentinel() {
             return;
         }
-        let fallback = self.quick_move(board);
-        result.score = fallback.score;
-        if result.best_move.is_none() {
-            result.best_move = fallback.best_move;
-            result.pv_line = fallback.pv_line;
-        }
+        *result = self.quick_move(board);
     }
 
     /// Records the empty-square count at which the endgame phase first became
     /// reachable, so future time-controlled searches know to extend their end depth.
     fn update_endgame_tracking(&mut self, n_empties: Depth, result: &SearchResult) {
-        if n_empties > 0 && self.endgame_start_n_empties.is_none() && result.depth + 1 >= n_empties
+        if n_empties > 0
+            && self.endgame_start_n_empties.is_none()
+            && result.depth() + 1 >= n_empties
         {
             self.endgame_start_n_empties = Some(n_empties - 1);
         }
@@ -355,17 +352,7 @@ impl Search {
     pub fn quick_move(&self, board: &Board) -> SearchResult {
         let moves = board.get_moves();
         if moves.is_empty() {
-            return SearchResult {
-                score: 0.0,
-                best_move: None,
-                n_nodes: 0,
-                pv_line: vec![],
-                depth: 0,
-                selectivity: Selectivity::None,
-                is_endgame: false,
-                pv_moves: vec![],
-                counters: SearchCounters::default(),
-            };
+            return SearchResult::NoLegalMove;
         }
 
         let mut best_move = Square::None;
@@ -382,9 +369,9 @@ impl Search {
             }
         }
 
-        SearchResult {
+        SearchResult::BestMove {
+            sq: best_move,
             score: best_score.to_disc_diff_f32(),
-            best_move: Some(best_move),
             n_nodes: moves.count() as u64,
             pv_line: vec![best_move],
             depth: 1,
@@ -398,15 +385,15 @@ impl Search {
 
 fn progress_from_result(result: &SearchResult) -> SearchProgress {
     SearchProgress {
-        depth: result.depth,
-        target_depth: result.depth,
-        score: result.score,
+        depth: result.depth(),
+        target_depth: result.depth(),
+        score: result.score().unwrap_or(0.0),
         probability: result.get_probability(),
-        best_move: result.best_move.unwrap_or(Square::None),
-        nodes: result.n_nodes,
-        pv_line: result.pv_line.clone(),
-        is_endgame: result.is_endgame,
-        counters: result.counters.clone(),
+        best_move: result.best_move().unwrap_or(Square::None),
+        nodes: result.n_nodes(),
+        pv_line: result.pv_line().to_vec(),
+        is_endgame: result.is_endgame(),
+        counters: result.counters(),
     }
 }
 

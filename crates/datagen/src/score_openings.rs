@@ -90,16 +90,17 @@ pub fn execute(
 
         let result = search.run(&board, &run_options);
         let ply = 60 - board.get_empty_count() as u8;
+        let score = result.score().expect("search returned no legal move");
 
         batch.push(GameRecord {
             game_id: 0,
             ply,
             board,
-            score: result.score,
-            game_score: result.score.round() as i8,
+            score,
+            game_score: score.round() as i8,
             side_to_move,
             is_random: false,
-            sq: result.best_move.unwrap_or(Square::A1),
+            sq: result.best_move().unwrap_or(Square::A1),
         });
         new_count += 1;
         pb.inc(1);

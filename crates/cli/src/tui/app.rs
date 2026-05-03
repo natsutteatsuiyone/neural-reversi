@@ -831,7 +831,7 @@ impl App {
             self.search = Some(search);
             self.ai_thinking = false;
             self.ai_receiver = None;
-            let best_move = result.best_move;
+            let best_move = result.best_move();
             self.last_ai_result = Some(result);
             if let Some(mv) = best_move {
                 self.game.make_move(mv);
@@ -849,7 +849,7 @@ impl App {
             // `hint_thinking` is cleared both on normal receipt and on
             // dialog dismissal; only the former still wants the result.
             if self.hint_thinking {
-                self.hints = result.pv_moves;
+                self.hints = result.pv_moves().to_vec();
                 self.ui_mode = UiMode::Hints;
                 self.hint_thinking = false;
             }

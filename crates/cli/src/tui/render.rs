@@ -219,18 +219,19 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
             Span::raw("  Depth: "),
             Span::styled(
                 if result.get_probability() == 100 {
-                    format!("{}", result.depth)
+                    format!("{}", result.depth())
                 } else {
-                    format!("{}@{}%", result.depth, result.get_probability())
+                    format!("{}@{}%", result.depth(), result.get_probability())
                 },
                 Style::default().fg(Color::White),
             ),
         ]));
+        let score = result.score().unwrap_or(0.0);
         lines.push(Line::from(vec![
             Span::raw("  Eval:  "),
             Span::styled(
-                format!("{:+.2}", result.score),
-                Style::default().fg(if result.score >= 0.0 {
+                format!("{score:+.2}"),
+                Style::default().fg(if score >= 0.0 {
                     Color::Green
                 } else {
                     Color::Red
@@ -240,7 +241,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(vec![
             Span::raw("  Nodes: "),
             Span::styled(
-                format!("{}", result.n_nodes),
+                format!("{}", result.n_nodes()),
                 Style::default().fg(Color::White),
             ),
         ]));

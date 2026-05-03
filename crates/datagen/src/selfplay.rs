@@ -376,16 +376,17 @@ fn play_game(
             let options = SearchRunOptions::with_level(lv, selectivity);
             let result = search.run(&board, &options);
             let ply = 60 - board.get_empty_count() as u8;
+            let score = result.score().expect("search returned no legal move");
 
             let record = GameRecord {
                 game_id,
                 ply,
                 board,
-                score: result.score,
+                score,
                 game_score: 0,
                 side_to_move,
                 is_random: true,
-                sq: result.best_move.unwrap_or(sq),
+                sq: result.best_move().unwrap_or(sq),
             };
             record_cache.insert(board, record.clone());
             record
@@ -414,13 +415,14 @@ fn play_game(
         let result = search.run(&board, &options);
 
         let ply = 60 - board.get_empty_count() as u8;
-        let best_move = result.best_move.unwrap();
+        let best_move = result.best_move().expect("search returned no legal move");
+        let score = result.score().expect("search returned no legal move");
 
         let record = GameRecord {
             game_id,
             ply,
             board,
-            score: result.score,
+            score,
             game_score: 0,
             side_to_move,
             is_random: false,
