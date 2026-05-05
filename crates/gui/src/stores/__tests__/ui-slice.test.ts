@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestStore, createDeferred } from "./test-helpers";
 import { createMockAIService } from "@/services/mock-ai-service";
+import type { GameAnalysisProgress } from "@/services/types";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -246,5 +247,76 @@ describe("setHintMode", () => {
     analyzeDeferred1.resolve();
     analyzeDeferred2.resolve();
     await Promise.all([analyzeDeferred1.promise, analyzeDeferred2.promise]);
+  });
+});
+
+describe("analyzeGame", () => {
+  it("ignores stale game-analysis progress and cleanup after abort plus restart", async () => {
+    const analyzeDeferred1 = createDeferred<void>();
+    const analyzeDeferred2 = createDeferred<void>();
+    const analyzeCallbacks: Array<(progress: GameAnalysisProgress) => void> = [];
+
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        analyzeGame: vi
+          .fn()
+          .mockImplementationOnce(async (_board, _player, _moves, _level, callback) => {
+            analyzeCallbacks.push(callback);
+            await analyzeDeferred1.promise;
+          })
+          .mockImplementationOnce(async (_board, _player, _moves, _level, callback) => {
+            analyzeCallbacks.push(callback);
+            await analyzeDeferred2.promise;
+          }),
+      }),
+    });
+
+    await store.getState().startGame({
+      gameMode: "pvp",
+      aiLevel: 21,
+      aiMode: "level",
+      gameTimeLimit: 60,
+    });
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+
+    const first = store.getState().analyzeGame();
+    await Promise.resolve();
+    expect(services.ai.analyzeGame).toHaveBeenCalledTimes(1);
+
+    await store.getState().abortGameAnalysis();
+    const second = store.getState().analyzeGame();
+    await Promise.resolve();
+    expect(services.ai.analyzeGame).toHaveBeenCalledTimes(2);
+
+    analyzeCallbacks[0]({
+      moveIndex: 0,
+      bestMove: "c4",
+      bestScore: 12,
+      playedScore: 1,
+      scoreLoss: 11,
+      depth: 10,
+    });
+    expect(store.getState().gameAnalysisResult).toBeNull();
+
+    analyzeCallbacks[1]({
+      moveIndex: 0,
+      bestMove: "d3",
+      bestScore: 3,
+      playedScore: 3,
+      scoreLoss: 0,
+      depth: 12,
+    });
+    expect(store.getState().gameAnalysisResult?.[0]).toMatchObject({
+      bestMove: "d3",
+      depth: 12,
+    });
+
+    analyzeDeferred1.resolve();
+    await first;
+    expect(store.getState().isGameAnalyzing).toBe(true);
+
+    analyzeDeferred2.resolve();
+    await second;
+    expect(store.getState().isGameAnalyzing).toBe(false);
   });
 });

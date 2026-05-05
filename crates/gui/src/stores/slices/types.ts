@@ -86,6 +86,7 @@ export interface UISlice {
     isAboutModalOpen: boolean;
     isHintMode: boolean;
     isGameAnalyzing: boolean;
+    gameAnalysisRunId: number;
     gameAnalysisResult: MoveAnalysis[] | null;
     hidePassNotification: () => void;
     analyzeBoard: () => Promise<void>;

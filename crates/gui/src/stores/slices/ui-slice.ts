@@ -21,6 +21,7 @@ export function createUISlice(services: Services): StateCreator<
     isAboutModalOpen: false,
     isHintMode: false,
     isGameAnalyzing: false,
+    gameAnalysisRunId: 0,
     gameAnalysisResult: null,
 
     openNewGameModal: () => {
@@ -160,8 +161,10 @@ export function createUISlice(services: Services): StateCreator<
 
         const level = get().gameAnalysisLevel;
         const analysisResults: MoveAnalysis[] = [];
+        const analysisRunId = get().gameAnalysisRunId + 1;
         set({
             isGameAnalyzing: true,
+            gameAnalysisRunId: analysisRunId,
             gameAnalysisResult: null,
         });
 
@@ -172,7 +175,8 @@ export function createUISlice(services: Services): StateCreator<
                 moves,
                 level,
                 (p) => {
-                    if (!get().isGameAnalyzing) return;
+                    const state = get();
+                    if (!state.isGameAnalyzing || state.gameAnalysisRunId !== analysisRunId) return;
 
                     const move = allMoves[p.moveIndex];
                     analysisResults.push({
@@ -192,12 +196,17 @@ export function createUISlice(services: Services): StateCreator<
         } catch (error) {
             console.error("Game analysis failed:", error);
         } finally {
-            set({ isGameAnalyzing: false });
+            if (get().gameAnalysisRunId === analysisRunId) {
+                set({ isGameAnalyzing: false });
+            }
         }
     },
 
     abortGameAnalysis: async () => {
-        set({ isGameAnalyzing: false });
+        set((state) => ({
+            isGameAnalyzing: false,
+            gameAnalysisRunId: state.gameAnalysisRunId + 1,
+        }));
         await services.ai.abortGameAnalysis();
     },
   });
