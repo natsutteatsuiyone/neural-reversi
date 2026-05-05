@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { Stone } from "@/components/board/Stone";
-import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
-import type { Board } from "@/types";
+import { COLUMN_LABELS, ROW_LABELS } from "@/domain/game/constants";
+import type { Board } from "@/domain/game/types";
 
 interface SetupMiniBoardProps {
   board: Board;

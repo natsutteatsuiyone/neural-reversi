@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useLayoutEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import type { Player } from "@/types";
+import type { Player } from "@/domain/game/types";
 import {
   DISC_RADIUS,
   DISC_HEIGHT,
@@ -96,7 +96,7 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }:
 
     if (prevColor.current !== color && !isNew && !skipAnimation) {
       // Keep old materials during flip so the animation shows:
-      // old color (top) → flip → new color (bottom of old piece)
+      // old color (top) ↁEflip ↁEnew color (bottom of old piece)
       resetAnimRefs();
       if (flipDelay > 0) {
         setAnimState("flip-waiting");
@@ -153,7 +153,7 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }:
     } else if (animState === "flipping") {
       animProgress.current += dt / FLIP_DURATION_S;
       if (animProgress.current >= 1) {
-        // Don't reset rotation yet — transition to "settling" first so that
+        // Don't reset rotation yet  Etransition to "settling" first so that
         // React re-renders with the new material before rotation snaps to 0.
         // The disc at rotation π looks identical to rotation 0 (top/bottom share
         // the same color), so this intermediate state is visually seamless.

@@ -1,5 +1,5 @@
 import { Text } from "@react-three/drei";
-import { COLUMN_LABELS, ROW_LABELS } from "@/lib/constants";
+import { COLUMN_LABELS, ROW_LABELS } from "@/domain/game/constants";
 import { CELL_SIZE, BOARD_WORLD_SIZE, BOARD_OFFSET, FRAME_WIDTH } from "./board3d-utils";
 
 const LABEL_COLOR = "#a0a0b0";
@@ -12,7 +12,7 @@ export function BoardLabels() {
 
   return (
     <group>
-      {/* Column labels (A-H) — above the board */}
+      {/* Column labels (A-H)  Eabove the board */}
       {COLUMN_LABELS.map((label, i) => {
         const x = i * CELL_SIZE - BOARD_OFFSET;
         return (
@@ -31,7 +31,7 @@ export function BoardLabels() {
         );
       })}
 
-      {/* Row labels (1-8) — left of the board */}
+      {/* Row labels (1-8)  Eleft of the board */}
       {ROW_LABELS.map((label, i) => {
         const z = i * CELL_SIZE - BOARD_OFFSET;
         return (

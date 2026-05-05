@@ -188,9 +188,9 @@ describe("makeMove", () => {
   });
 
   it("sets gameStatus to finished when game is over", async () => {
-    const { createEmptyBoard } = await import("@/lib/game-logic");
+    const { createEmptyBoard } = await import("@/domain/game/game-logic");
     // Set up a board where the next move ends the game:
-    // black at (0,0), white at (0,1), black plays (0,2) — flips (0,1) to black
+    // black at (0,0), white at (0,1), black plays (0,2)  Eflips (0,1) to black
     // After: only black stones remain, no valid moves for either player
     const board = createEmptyBoard();
     board[0][0].color = "black";
@@ -207,7 +207,7 @@ describe("makeMove", () => {
   });
 
   it("sets showPassNotification when opponent must pass", async () => {
-    const { createEmptyBoard } = await import("@/lib/game-logic");
+    const { createEmptyBoard } = await import("@/domain/game/game-logic");
     // Pre-move board: (0,1)=W, (0,2)=B, (6,4)=W, (7,4)=B
     // Black plays (0,0): flips (0,1) W->B
     // Post-move: (0,0)=B, (0,1)=B, (0,2)=B, (6,4)=W, (7,4)=B
@@ -239,7 +239,7 @@ describe("makeMove", () => {
   it("waits for the pass notification before letting AI play again", async () => {
     vi.useFakeTimers();
     try {
-      const { createEmptyBoard } = await import("@/lib/game-logic");
+      const { createEmptyBoard } = await import("@/domain/game/game-logic");
       store.setState({ gameMode: "ai-black" });
 
       const board = createEmptyBoard();
@@ -366,8 +366,8 @@ describe("undoMove", () => {
   });
 
   it("does not re-apply a forced pass when undoing a pass move", async () => {
-    const { createEmptyBoard } = await import("@/lib/game-logic");
-    const { cloneBoard } = await import("@/lib/store-helpers");
+    const { createEmptyBoard } = await import("@/domain/game/game-logic");
+    const { cloneBoard } = await import("@/domain/game/store-helpers");
     const board = createEmptyBoard();
     board[0][1].color = "white";
     board[0][2].color = "black";
@@ -428,8 +428,8 @@ describe("redoMove", () => {
   });
 
   it("detects game-over condition after redo", async () => {
-    const { createEmptyBoard } = await import("@/lib/game-logic");
-    const { cloneBoard } = await import("@/lib/store-helpers");
+    const { createEmptyBoard } = await import("@/domain/game/game-logic");
+    const { cloneBoard } = await import("@/domain/game/store-helpers");
     // Set up a board where black's move ends the game
     const board = createEmptyBoard();
     board[0][0].color = "black";
@@ -699,7 +699,7 @@ describe("startGame", () => {
 
     expect(started).toBe(false);
     // The pre-init abort released the backend mutex, but solver state must
-    // survive the failed replacement — matching how startGame preserves the
+    // survive the failed replacement  Ematching how startGame preserves the
     // current game state on errors.
     expect(services.solver.abort).toHaveBeenCalledTimes(1);
     const s = store.getState();

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Board, Player } from "@/types";
+import type { Board, Player } from "@/domain/game/types";
 import { serializeBoardForAI } from "./board-serialization";
 import type {
   SolverMode,

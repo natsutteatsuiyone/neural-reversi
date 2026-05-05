@@ -8,9 +8,9 @@ import {
     getValidMoves as realGetValidMoves,
     initializeBoard,
     opponentPlayer,
-} from "@/lib/game-logic";
-import { applyMove } from "@/lib/store-helpers";
-import type { Board, Player } from "@/types";
+} from "@/domain/game/game-logic";
+import { applyMove } from "@/domain/game/store-helpers";
+import type { Board, Player } from "@/domain/game/types";
 import type {
     SolverCandidate,
     SolverProgressPayload,
@@ -30,8 +30,8 @@ let getValidMovesStub:
     | ((board: Board, player: Player) => [number, number][])
     | null = null;
 
-vi.mock("@/lib/game-logic", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("@/lib/game-logic")>();
+vi.mock("@/domain/game/game-logic", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/domain/game/game-logic")>();
     return {
         ...actual,
         getValidMoves: (board: Board, player: Player) =>
@@ -395,7 +395,7 @@ describe("advanceSolver", () => {
         expect(state.solverCurrentBoard).toEqual(expectedBoard);
 
         expect(state.solverCandidates.size).toBe(0);
-        // Mock resolves synchronously → finally clears the flag.
+        // Mock resolves synchronously ↁEfinally clears the flag.
         expect(state.isSolverSearching).toBe(false);
 
         expect(services.solver.startSearch).toHaveBeenCalledTimes(1);
@@ -433,7 +433,7 @@ describe("advanceSolver", () => {
         // The advance itself still happened.
         expect(state.solverHistory).toHaveLength(2);
         expect(state.solverCandidates.size).toBe(0);
-        // Both players empty → gameOver, no auto-pass, turn stays flipped.
+        // Both players empty ↁEgameOver, no auto-pass, turn stays flipped.
         expect(state.solverCurrentPlayer).toBe("white");
     });
 
@@ -461,7 +461,7 @@ describe("advanceSolver", () => {
         expect(state.solverHistory).toHaveLength(2);
         // Auto-pass flipped the turn back to black.
         expect(state.solverCurrentPlayer).toBe("black");
-        // Mock resolves synchronously → finally clears the flag.
+        // Mock resolves synchronously ↁEfinally clears the flag.
         expect(state.isSolverSearching).toBe(false);
 
         const expectedBoard = applyMove(
@@ -528,7 +528,7 @@ describe("undoSolver", () => {
         expect(state.solverCurrentBoard).toBe(rootBoard);
         expect(state.solverCurrentPlayer).toBe("black");
         expect(state.solverCandidates.size).toBe(0);
-        // Mock resolves synchronously → finally clears the flag.
+        // Mock resolves synchronously ↁEfinally clears the flag.
         expect(state.isSolverSearching).toBe(false);
         expect(services.solver.startSearch).toHaveBeenCalledWith(
             rootBoard,
@@ -653,7 +653,7 @@ describe("setTargetSelectivity", () => {
             expect.any(Number),
         );
         expect(state.solverCandidates.size).toBe(0);
-        // Mock resolves synchronously → finally clears the flag.
+        // Mock resolves synchronously ↁEfinally clears the flag.
         expect(state.isSolverSearching).toBe(false);
     });
 
@@ -698,7 +698,7 @@ describe("setTargetSelectivity", () => {
             "multiPv",
             expect.any(Number),
         );
-        // Mock resolves synchronously → finally clears the flag.
+        // Mock resolves synchronously ↁEfinally clears the flag.
         expect(store.getState().isSolverSearching).toBe(false);
     });
 });
@@ -807,11 +807,11 @@ describe("applySolverProgress", () => {
             isEndgame: true,
         };
 
-        // Solver inactive — payload dropped.
+        // Solver inactive  Epayload dropped.
         store.getState().applySolverProgress(payload);
         expect(store.getState().solverCandidates.size).toBe(0);
 
-        // Active, still searching — accepted.
+        // Active, still searching  Eaccepted.
         store.setState({ isSolverActive: true, isSolverSearching: true });
         store.getState().applySolverProgress(payload);
         expect(store.getState().solverCandidates.size).toBe(1);
@@ -974,7 +974,7 @@ describe("runSolverSearch error handling", () => {
         await store.getState().startSolver(board, "black");
 
         expect(store.getState().isSolverSearching).toBe(false);
-        // Solver stays active — only the searching flag is cleared.
+        // Solver stays active  Eonly the searching flag is cleared.
         expect(store.getState().isSolverActive).toBe(true);
         expect(consoleErrorSpy).toHaveBeenCalled();
         expect(services.solver.startSearch).toHaveBeenCalledTimes(1);
@@ -1031,7 +1031,7 @@ describe("runSolverSearch error handling", () => {
         expect(secondRunId).toBeGreaterThan(firstRunId);
         expect(store.getState().isSolverSearching).toBe(true);
 
-        // Reject the first — its catch branch must detect it is stale and
+        // Reject the first  Eits catch branch must detect it is stale and
         // leave the newer run's `isSolverSearching` flag alone.
         firstDeferred.reject(new Error("aborted"));
         await firstPromise;

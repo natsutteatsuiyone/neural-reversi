@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Activity, BarChart3, Search, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { ANALYSIS_LEVELS } from "@/types";
+import { ANALYSIS_LEVELS } from "@/domain/game/types";
 import { AIThinkingLog } from "./AIThinkingLog";
 import { EvaluationChart } from "./EvaluationChart";
 import { Button } from "@/components/ui/button";

@@ -1,4 +1,4 @@
-import type { Board, Player } from "@/types";
+import type { Board, Player } from "@/domain/game/types";
 
 /**
  * Serializes a [Board] to the 64-character `X`/`O`/`-` string format expected
@@ -7,7 +7,7 @@ import type { Board, Player } from "@/types";
  *
  * The convention is **relative to the player to move**: `X` = the cell belongs
  * to `player`, `O` = the opponent, `-` = empty. This differs from the
- * absolute-color convention used by {@link "@/lib/board-parser".boardToString}.
+ * absolute-color convention used by {@link "@/domain/game/board-parser".boardToString}.
  */
 export function serializeBoardForAI(board: Board, player: Player): string {
   return board

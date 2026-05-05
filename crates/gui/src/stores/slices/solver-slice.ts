@@ -1,8 +1,8 @@
 import { StateCreator } from "zustand";
-import { applyMove, checkGameOver, type Move } from "@/lib/store-helpers";
-import { getNotation, opponentPlayer } from "@/lib/game-logic";
-import { boardToString, validateBoard } from "@/lib/board-parser";
-import type { Board, Player } from "@/types";
+import { applyMove, checkGameOver, type Move } from "@/domain/game/store-helpers";
+import { getNotation, opponentPlayer } from "@/domain/game/game-logic";
+import { boardToString, validateBoard } from "@/domain/game/board-parser";
+import type { Board, Player } from "@/domain/game/types";
 import type {
     Services,
     SolverCandidate,
@@ -287,7 +287,7 @@ export function createSolverSlice(
             // root-based entries onto a history the racing call has
             // already extended, corrupting the breadcrumb trail. Bumping
             // up front also filters stale progress events from the
-            // parent's search — including in the game-over branch below,
+            // parent's search  Eincluding in the game-over branch below,
             // which starts no new search of its own.
             const nextRunId = initial.solverSearchRunId + 1;
             set({
@@ -317,7 +317,7 @@ export function createSolverSlice(
             // If the opponent has no legal replies but the original mover
             // still does, collapse the implicit pass into this entry so the
             // user can keep exploring without clicking through a dead end.
-            // Single history entry → single undoSolver() unwinds everything.
+            // Single history entry ↁEsingle undoSolver() unwinds everything.
             const { gameOver, shouldPass } = checkGameOver(newBoard, nextPlayer);
             if (shouldPass) {
                 nextPlayer = opponentPlayer(nextPlayer);
@@ -450,7 +450,7 @@ export function createSolverSlice(
 
             await services.solver.abort();
 
-            // Leave candidates / history / current position intact — this
+            // Leave candidates / history / current position intact  Ethis
             // is a pause, not an exit. Bumping the run id drops trailing
             // `solver-progress` events from the aborted run.
             set((s) => ({
@@ -530,7 +530,7 @@ export function createSolverSlice(
             const existing = state.solverCandidates.get(key);
 
             // Fast path: skip the Map clone when nothing that affects rendering
-            // has changed. Relies on Zustand's selector equality — returning
+            // has changed. Relies on Zustand's selector equality  Ereturning
             // the same Map ref means `SolverPanel` and `Board` subscribers bail
             // out of re-rendering.
             if (
@@ -561,7 +561,7 @@ export function createSolverSlice(
 
             set((s) => {
                 // bestOnly: only the engine's current best move is meaningful.
-                // As selectivity / depth iterates, that move can change — keep
+                // As selectivity / depth iterates, that move can change  Ekeep
                 // just the latest entry so stale picks from earlier levels
                 // don't linger in the panel.
                 if (s.solverMode === "bestOnly") {

@@ -1,8 +1,8 @@
 import { StateCreator } from "zustand";
-import { createEmptyBoard, initializeBoard } from "@/lib/game-logic";
-import { cloneBoard, createGameStartState } from "@/lib/store-helpers";
-import { parseTranscript, parseBoardString, validateBoard } from "@/lib/board-parser";
-import type { Board, Player } from "@/types";
+import { createEmptyBoard, initializeBoard } from "@/domain/game/game-logic";
+import { cloneBoard, createGameStartState } from "@/domain/game/store-helpers";
+import { parseTranscript, parseBoardString, validateBoard } from "@/domain/game/board-parser";
+import type { Board, Player } from "@/domain/game/types";
 import type { Services } from "@/services/types";
 import type { NewGameSettings, ReversiState, SetupSlice, SetupTab } from "./types";
 import { prepareToReplaceGame, triggerAutomation } from "./game-slice";

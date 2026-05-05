@@ -4,13 +4,13 @@ import {
   parseBoardString,
   validateBoard,
   boardToString,
-} from "@/lib/board-parser";
+} from "@/domain/game/board-parser";
 import {
   createEmptyBoard,
   initializeBoard,
-} from "@/lib/game-logic";
-import { BOARD_SIZE } from "@/lib/constants";
-import type { Board, Player } from "@/types";
+} from "@/domain/game/game-logic";
+import { BOARD_SIZE } from "@/domain/game/constants";
+import type { Board, Player } from "@/domain/game/types";
 
 function setupBoard(stones: [number, number, Player | null][]): Board {
   const board = createEmptyBoard();
@@ -45,7 +45,7 @@ describe("parseTranscript", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.currentPlayer).toBe("white");
-    // F5 = col 5, row 4 → board[4][5] = black (new stone)
+    // F5 = col 5, row 4 ↁEboard[4][5] = black (new stone)
     expect(result.board[4][5].color).toBe("black");
     // E5 = (4,4) was white, flipped to black
     expect(result.board[4][4].color).toBe("black");
@@ -59,7 +59,7 @@ describe("parseTranscript", () => {
     const result = parseTranscript("F5D6C3D3C4");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // 5 moves: black, white, black, white, black → next is white
+    // 5 moves: black, white, black, white, black ↁEnext is white
     expect(result.currentPlayer).toBe("white");
   });
 

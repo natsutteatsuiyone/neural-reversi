@@ -6,9 +6,9 @@ import type {
     SolverProgressPayload,
     SolverSelectivity,
 } from "@/services/types";
-import type { MoveHistory } from "@/lib/move-history";
-import type { AIMode, Board, GameMode, Player } from "@/types";
-import type { Move } from "@/lib/store-helpers";
+import type { MoveHistory } from "@/domain/game/move-history";
+import type { AIMode, Board, GameMode, Player } from "@/domain/game/types";
+import type { Move } from "@/domain/game/store-helpers";
 import type { Language } from "@/i18n";
 import type { AppSettings } from "@/services/types";
 
@@ -99,7 +99,7 @@ export interface UISlice {
     /**
      * Aborts the current hint analysis and, once the abort resolves, restarts
      * `analyzeBoard` if hint mode is still active. Intended for internal use
-     * by slices that need to restart a running analysis — not a user-facing
+     * by slices that need to restart a running analysis  Enot a user-facing
      * action.
      */
     restartHintAnalysisAfterAbort: () => void;
@@ -187,7 +187,7 @@ export interface SolverSlice {
      * superseded searches. Every action that launches a new search increments
      * this, and the catch branch of `runSolverSearch` only clears
      * `isSolverSearching` if its captured id still matches the current value.
-     * Not exposed as an action — callers must not mutate this directly.
+     * Not exposed as an action  Ecallers must not mutate this directly.
      */
     solverSearchRunId: number;
 

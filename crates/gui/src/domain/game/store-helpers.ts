@@ -4,9 +4,9 @@ import {
   getValidMoves,
   initializeBoard,
   opponentPlayer as nextPlayer,
-} from "@/lib/game-logic";
-import type { Board, MoveRecord, Player } from "@/types";
-import { MoveHistory } from "@/lib/move-history";
+} from "@/domain/game/game-logic";
+import type { Board, MoveRecord, Player } from "@/domain/game/types";
+import { MoveHistory } from "@/domain/game/move-history";
 
 export interface Move {
   row: number;

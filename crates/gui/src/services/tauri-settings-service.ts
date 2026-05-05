@@ -1,5 +1,5 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
-import type { AIMode, GameMode } from "@/types";
+import type { AIMode, GameMode } from "@/domain/game/types";
 import type { Language } from "@/i18n";
 import {
   DEFAULT_SETTINGS,

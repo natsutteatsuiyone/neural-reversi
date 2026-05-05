@@ -1,4 +1,4 @@
-import type { MoveRecord } from "@/types";
+import type { MoveRecord } from "@/domain/game/types";
 
 export class MoveHistory {
   private constructor(

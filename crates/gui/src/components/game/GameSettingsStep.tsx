@@ -3,7 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Timer, Zap, Bot, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AIMode, GameMode } from "@/types";
+import type { AIMode, GameMode } from "@/domain/game/types";
 import { Stone } from "@/components/board/Stone";
 import { useTranslation } from "react-i18next";
 

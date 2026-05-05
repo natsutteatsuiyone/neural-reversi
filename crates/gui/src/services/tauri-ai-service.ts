@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { type Event, listen } from "@tauri-apps/api/event";
-import type { Board, Player } from "@/types";
-import { getValidMoves } from "@/lib/game-logic";
+import type { Board, Player } from "@/domain/game/types";
+import { getValidMoves } from "@/domain/game/game-logic";
 import { serializeBoardForAI } from "./board-serialization";
 import type { AIService, AIMoveResult, AIMoveProgress, GameAnalysisProgress } from "./types";
 

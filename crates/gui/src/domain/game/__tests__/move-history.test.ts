@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MoveHistory } from "@/lib/move-history";
-import type { MoveRecord } from "@/types";
+import { MoveHistory } from "@/domain/game/move-history";
+import type { MoveRecord } from "@/domain/game/types";
 
 function makeRecord(id: number, player: "black" | "white", row: number, col: number): MoveRecord {
   return { id, player, row, col, notation: `${String.fromCharCode(97 + col)}${row + 1}` };

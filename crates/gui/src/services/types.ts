@@ -1,5 +1,5 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import type { AIMode, Board, GameMode, Player } from "@/types";
+import type { AIMode, Board, GameMode, Player } from "@/domain/game/types";
 import type { Language } from "@/i18n";
 
 export type AIMoveResult = {

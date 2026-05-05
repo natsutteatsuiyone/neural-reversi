@@ -7,10 +7,10 @@ import {
   reconstructBoardFromMoves,
   checkGameOver,
   createGameStartState,
-} from "@/lib/store-helpers";
-import type { Move } from "@/lib/store-helpers";
-import { createEmptyBoard, getNotation, initializeBoard } from "@/lib/game-logic";
-import type { Board, MoveRecord, Player } from "@/types";
+} from "@/domain/game/store-helpers";
+import type { Move } from "@/domain/game/store-helpers";
+import { createEmptyBoard, getNotation, initializeBoard } from "@/domain/game/game-logic";
+import type { Board, MoveRecord, Player } from "@/domain/game/types";
 
 function setupBoard(stones: [number, number, Player | null][]): Board {
   const board = createEmptyBoard();
@@ -116,7 +116,7 @@ describe("createPassMove", () => {
 describe("applyMove", () => {
   it("places stone and flips opponent discs", () => {
     // Black plays d3 (row=2, col=3) on initial board
-    // Flips: (3,3) white → black (vertical down direction)
+    // Flips: (3,3) white ↁEblack (vertical down direction)
     const board = initializeBoard();
     const move: Move = { row: 2, col: 3, isAI: false };
     const result = applyMove(board, move, "black");
@@ -177,7 +177,7 @@ describe("reconstructBoardFromMoves", () => {
 
   it("reconstructs board after a single move", () => {
     // Black plays F5 (row=4, col=5)
-    // Flips (4,4) white → black
+    // Flips (4,4) white ↁEblack
     const moves = [makeMoveRecord(1, "black", 4, 5)];
     const result = reconstructBoardFromMoves(moves);
 
@@ -243,7 +243,7 @@ describe("checkGameOver", () => {
   });
 
   it("returns gameOver=true when neither player has moves", () => {
-    // Isolated stones: black at (0,0), white at (7,7) — no flips possible
+    // Isolated stones: black at (0,0), white at (7,7)  Eno flips possible
     const board = setupBoard([
       [0, 0, "black"],
       [7, 7, "white"],

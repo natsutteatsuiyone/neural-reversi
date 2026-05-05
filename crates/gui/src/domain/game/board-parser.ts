@@ -1,4 +1,4 @@
-import type { Board, Player } from "@/types";
+import type { Board, Player } from "@/domain/game/types";
 import { BOARD_SIZE } from "./constants";
 import {
   createEmptyBoard,

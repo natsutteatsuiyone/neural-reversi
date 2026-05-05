@@ -2,7 +2,7 @@ import { Label } from "@/components/ui/label";
 import { Stone } from "@/components/board/Stone";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
-import type { Player } from "@/types";
+import type { Player } from "@/domain/game/types";
 
 interface TurnSelectorProps {
   currentPlayer: Player;

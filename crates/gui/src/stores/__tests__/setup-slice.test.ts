@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
-import { createEmptyBoard } from "@/lib/game-logic";
+import { createEmptyBoard } from "@/domain/game/game-logic";
 import { createTestStore, type TestStore } from "./test-helpers";
 
 const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -248,7 +248,7 @@ describe("startFromSetup", () => {
   });
 
   it("starts game from manual tab", async () => {
-    // Default setupBoard is initial position — valid
+    // Default setupBoard is initial position  Evalid
     const started = await store.getState().startFromSetup();
     const s = store.getState();
     expect(started).toBe(true);
@@ -298,7 +298,7 @@ describe("startFromSetup", () => {
   });
 
   it("sets setupError when board validation fails", async () => {
-    // Board with only black stones — validateBoard returns "needBothColors"
+    // Board with only black stones  EvalidateBoard returns "needBothColors"
     const board = createEmptyBoard();
     board[0][0] = { color: "black" };
     store.setState({ setupBoard: board });

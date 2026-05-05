@@ -4,7 +4,7 @@ import {
     getValidMoves,
     initializeBoard,
     opponentPlayer as nextPlayer,
-} from "@/lib/game-logic";
+} from "@/domain/game/game-logic";
 import {
     type Move,
     applyMove,
@@ -14,9 +14,9 @@ import {
     createMoveRecord,
     createPassMove,
     reconstructBoardFromMoves,
-} from "@/lib/store-helpers";
-import { MoveHistory } from "@/lib/move-history";
-import type { Board, MoveRecord, Player } from "@/types";
+} from "@/domain/game/store-helpers";
+import { MoveHistory } from "@/domain/game/move-history";
+import type { Board, MoveRecord, Player } from "@/domain/game/types";
 import type { GameSlice, NewGameSettings, ReversiState } from "./types";
 import type { Services } from "@/services/types";
 import { clearSearchTimer } from "./ai-slice";

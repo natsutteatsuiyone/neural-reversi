@@ -37,7 +37,7 @@ export function BoardFrame() {
         <meshStandardMaterial color="#2d2d38" roughness={0.4} metalness={0.7} />
       </mesh>
 
-      {/* Frame sides — dark gunmetal */}
+      {/* Frame sides  Edark gunmetal */}
       {sides.map((side, i) => (
         <mesh key={`side-${i}`} position={side.position} receiveShadow>
           <boxGeometry args={side.size} />
@@ -45,7 +45,7 @@ export function BoardFrame() {
         </mesh>
       ))}
 
-      {/* Chamfer highlight strips — lighter metal on top edge */}
+      {/* Chamfer highlight strips  Elighter metal on top edge */}
       {chamferStrips.map((strip, i) => (
         <mesh key={`chamfer-${i}`} position={strip.position}>
           <boxGeometry args={strip.size} />

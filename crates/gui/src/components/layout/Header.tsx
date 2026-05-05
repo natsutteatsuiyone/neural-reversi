@@ -1,5 +1,5 @@
 import { Menu, Play, Lightbulb, Globe, HardDrive, Calculator, Info } from "lucide-react";
-import { ANALYSIS_LEVELS } from "@/types";
+import { ANALYSIS_LEVELS } from "@/domain/game/types";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";

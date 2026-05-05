@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { Player } from "@/types";
+import type { Player } from "@/domain/game/types";
 
 interface StoneProps {
   color: Player;

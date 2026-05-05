@@ -8,9 +8,9 @@ import {
   getWinner,
   getFlippedDiscs,
   getValidMoves,
-} from "@/lib/game-logic";
-import { BOARD_SIZE } from "@/lib/constants";
-import type { Board, Player } from "@/types";
+} from "@/domain/game/game-logic";
+import { BOARD_SIZE } from "@/domain/game/constants";
+import type { Board, Player } from "@/domain/game/types";
 
 describe("createEmptyBoard", () => {
   it("returns an 8x8 board with all cells empty", () => {

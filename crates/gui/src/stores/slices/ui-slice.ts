@@ -2,7 +2,7 @@ import { StateCreator } from "zustand";
 import type { AIMoveProgress } from "@/services/types";
 import type { Services } from "@/services/types";
 import type { ReversiState, UISlice, MoveAnalysis } from "./types";
-import { getNotation } from "@/lib/game-logic";
+import { getNotation } from "@/domain/game/game-logic";
 
 export function createUISlice(services: Services): StateCreator<
     ReversiState,
@@ -71,7 +71,7 @@ export function createUISlice(services: Services): StateCreator<
                 console.error("Hint abort failed:", error);
             } finally {
                 const currentState = get();
-                // A newer runId means a concurrent caller took over — let
+                // A newer runId means a concurrent caller took over  Elet
                 // their cleanup finish without racing it.
                 if (currentState.hintAnalysisRunId !== nextRunId) {
                     return;

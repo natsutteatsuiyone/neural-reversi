@@ -3,7 +3,7 @@ import { useThree } from "@react-three/fiber";
 import { useRef, useMemo, useEffect } from "react";
 import type { OrthographicCamera as ThreeOrthographicCamera } from "three";
 import type { AIMoveProgress } from "@/services/types";
-import type { Board } from "@/types";
+import type { Board } from "@/domain/game/types";
 import { AIThinkingIndicator } from "./AIThinkingIndicator";
 import { BoardFrame } from "./BoardFrame";
 import { BoardLabels } from "./BoardLabels";
@@ -48,7 +48,7 @@ export function Board3DScene({
   const invalidate = useThree((s) => s.invalidate);
   const cameraRef = useRef<ThreeOrthographicCamera>(null);
 
-  // drei's <OrthographicCamera> rewrites l/r/t/b each render — reapply
+  // drei's <OrthographicCamera> rewrites l/r/t/b each render  Ereapply
   // aspect correction here so <Html> overlays don't collapse on resize.
   useEffect(() => {
     const cam = cameraRef.current;
