@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: listenMock,
 }));
 
-import { TauriAIService } from "./tauri-ai-service";
+import { TauriAIService } from "../tauri-ai-service";
 
 describe("TauriAIService", () => {
   beforeEach(() => {
