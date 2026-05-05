@@ -1051,6 +1051,58 @@ describe("runSolverSearch error handling", () => {
     });
 });
 
+describe("solver result cache", () => {
+    it("does not share cached candidates across store instances", async () => {
+        const board = initializeBoard();
+        let firstStore: ReturnType<typeof createTestStore>["store"] | null = null;
+
+        const startSearchMock = vi.fn((_board, _player, _selectivity, _mode, runId) => {
+            firstStore!.getState().applySolverProgress({
+                runId,
+                bestMove: "d3",
+                row: 2,
+                col: 3,
+                score: 4,
+                depth: 14,
+                targetDepth: 14,
+                acc: 100,
+                nodes: 1000,
+                pvLine: "d3",
+                isEndgame: false,
+            });
+            return Promise.resolve();
+        });
+
+        const first = createTestStore({
+            solver: createMockSolverService({ startSearch: startSearchMock }),
+        });
+        firstStore = first.store;
+
+        await first.store.getState().startSolver(board, "black");
+        expect(first.store.getState().solverCandidates.size).toBe(1);
+        expect(startSearchMock).toHaveBeenCalledTimes(1);
+
+        const secondStartSearchMock = vi.fn().mockResolvedValue(undefined);
+        const second = createTestStore({
+            solver: createMockSolverService({ startSearch: secondStartSearchMock }),
+        });
+        second.store.setState({
+            isSolverActive: true,
+            solverCurrentBoard: board,
+            solverCurrentPlayer: "black",
+            targetSelectivity: 100,
+            solverMode: "multiPv",
+            isSolverSearching: false,
+            isSolverStopped: true,
+        });
+
+        await second.store.getState().resumeSolverSearch();
+
+        expect(secondStartSearchMock).toHaveBeenCalledTimes(1);
+        expect(second.store.getState().solverCandidates.size).toBe(0);
+    });
+});
+
 // Sanity check that our mock respects the real module shape.
 describe("game-logic mock sanity", () => {
     it("falls through to the real getValidMoves when no stub is set", () => {

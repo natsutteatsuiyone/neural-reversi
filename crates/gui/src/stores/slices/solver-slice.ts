@@ -31,9 +31,8 @@ function createRootEntry(board: Board, player: Player): SolverHistoryEntry {
     return { board, player, moveFrom: null };
 }
 
-// Outside Zustand: no UI subscribers, survives exitSolver re-entry.
 const SOLVER_CACHE_MAX_ENTRIES = 64;
-const solverResultCache = new Map<string, Map<string, SolverCandidate>>();
+type SolverResultCache = Map<string, Map<string, SolverCandidate>>;
 
 function solverCacheKey(
     board: Board,
@@ -45,6 +44,7 @@ function solverCacheKey(
 }
 
 function solverCacheGet(
+    solverResultCache: SolverResultCache,
     board: Board,
     player: Player,
     selectivity: SolverSelectivity,
@@ -60,6 +60,7 @@ function solverCacheGet(
 }
 
 function solverCachePut(
+    solverResultCache: SolverResultCache,
     board: Board,
     player: Player,
     selectivity: SolverSelectivity,
@@ -82,6 +83,7 @@ function solverCachePut(
  */
 async function runSolverSearch(
     services: Services,
+    solverResultCache: SolverResultCache,
     get: GetState,
     set: SetState,
     board: Board,
@@ -106,7 +108,7 @@ async function runSolverSearch(
                 }
             }
             if (allComplete) {
-                solverCachePut(board, player, selectivity, mode, candidates);
+                solverCachePut(solverResultCache, board, player, selectivity, mode, candidates);
             }
             set({ isSolverSearching: false });
         }
@@ -122,6 +124,7 @@ async function runSolverSearch(
  */
 async function repointSolver(
     services: Services,
+    solverResultCache: SolverResultCache,
     get: GetState,
     set: SetState,
     board: Board,
@@ -130,7 +133,7 @@ async function repointSolver(
     mode: SolverMode,
     extra: Partial<ReversiState> = {},
 ): Promise<void> {
-    const cached = solverCacheGet(board, player, selectivity, mode);
+    const cached = solverCacheGet(solverResultCache, board, player, selectivity, mode);
     const nextRunId = get().solverSearchRunId + 1;
 
     set({
@@ -147,12 +150,16 @@ async function repointSolver(
         return;
     }
 
-    await runSolverSearch(services, get, set, board, player, nextRunId);
+    await runSolverSearch(services, solverResultCache, get, set, board, player, nextRunId);
 }
 
 export function createSolverSlice(
     services: Services,
 ): StateCreator<ReversiState, [], [], SolverSlice> {
+    // Outside Zustand: no UI subscribers, survives exitSolver re-entry, scoped
+    // to this store instance so tests and alternate stores don't share results.
+    const solverResultCache: SolverResultCache = new Map();
+
     return (set, get) => ({
         isSolverActive: false,
         isSolverModalOpen: false,
@@ -213,7 +220,7 @@ export function createSolverSlice(
                 solverSearchRunId: nextRunId,
             });
 
-            await runSolverSearch(services, get, set, board, player, nextRunId);
+            await runSolverSearch(services, solverResultCache, get, set, board, player, nextRunId);
             return true;
         },
 
@@ -341,6 +348,7 @@ export function createSolverSlice(
             }
 
             const cached = solverCacheGet(
+                solverResultCache,
                 newBoard,
                 nextPlayer,
                 get().targetSelectivity,
@@ -365,7 +373,7 @@ export function createSolverSlice(
                 solverCandidates: new Map<string, SolverCandidate>(),
             }));
 
-            await runSolverSearch(services, get, set, newBoard, nextPlayer, nextRunId);
+            await runSolverSearch(services, solverResultCache, get, set, newBoard, nextPlayer, nextRunId);
         },
 
         undoSolver: async () => {
@@ -379,6 +387,7 @@ export function createSolverSlice(
 
             await repointSolver(
                 services,
+                solverResultCache,
                 get,
                 set,
                 prevEntry.board,
@@ -408,6 +417,7 @@ export function createSolverSlice(
 
             await repointSolver(
                 services,
+                solverResultCache,
                 get,
                 set,
                 initial.solverCurrentBoard,
@@ -433,6 +443,7 @@ export function createSolverSlice(
 
             await repointSolver(
                 services,
+                solverResultCache,
                 get,
                 set,
                 initial.solverCurrentBoard,
@@ -471,6 +482,7 @@ export function createSolverSlice(
             }
 
             const cached = solverCacheGet(
+                solverResultCache,
                 solverCurrentBoard,
                 solverCurrentPlayer,
                 state.targetSelectivity,
@@ -498,6 +510,7 @@ export function createSolverSlice(
 
             await runSolverSearch(
                 services,
+                solverResultCache,
                 get,
                 set,
                 solverCurrentBoard,
