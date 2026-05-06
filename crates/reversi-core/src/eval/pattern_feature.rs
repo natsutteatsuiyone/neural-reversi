@@ -37,7 +37,9 @@ const MAX_FEATURES_PER_SQUARE_U32: u32 = MAX_FEATURES_PER_SQUARE as u32;
 /// Size of the pattern feature vector (padded to 32 for SIMD alignment).
 const FEATURE_VECTOR_SIZE: usize = 32;
 
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 const FLIP_BYTE_TABLES: usize = BOARD_SQUARES / 8;
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 const FLIP_BYTE_VALUES: usize = 256;
 
 /// Base for pattern encoding (ternary: empty=2, opponent=1, player=0).

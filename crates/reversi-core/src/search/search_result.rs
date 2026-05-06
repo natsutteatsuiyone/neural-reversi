@@ -233,10 +233,13 @@ mod tests {
             average_score: -ScaledScore::INF,
             pv: vec![Square::D3, Square::C3],
         };
+        #[cfg(feature = "search-stats")]
         let counters = SearchCounters {
             n_nodes: 42,
             ..Default::default()
         };
+        #[cfg(not(feature = "search-stats"))]
+        let counters = SearchCounters { n_nodes: 42 };
 
         let result = SearchResult::from_root_move(
             &root_moves,
