@@ -77,24 +77,25 @@ const fn find_edge_stable_from_table(
         return stable;
     }
 
-    let mut x = 0;
-    while x < 8 {
-        if (e & x_to_bit(x)) != 0 {
-            // Simulate player's move at position x.
-            let (p, o) = apply_edge_move(x, old_p, old_o);
-            stable &= table[edge_stability_index(p, o)];
-            if stable == 0 {
-                return stable;
-            }
+    let mut e_remaining = e;
+    while e_remaining != 0 {
+        let x = e_remaining.trailing_zeros() as u8;
 
-            // Simulate opponent's move at position x.
-            let (o, p) = apply_edge_move(x, old_o, old_p);
-            stable &= table[edge_stability_index(p, o)];
-            if stable == 0 {
-                return stable;
-            }
+        // Simulate player's move at position x.
+        let (p, o) = apply_edge_move(x, old_p, old_o);
+        stable &= table[edge_stability_index(p, o)];
+        if stable == 0 {
+            return stable;
         }
-        x += 1;
+
+        // Simulate opponent's move at position x.
+        let (o, p) = apply_edge_move(x, old_o, old_p);
+        stable &= table[edge_stability_index(p, o)];
+        if stable == 0 {
+            return stable;
+        }
+
+        e_remaining &= e_remaining - 1;
     }
 
     stable
@@ -103,15 +104,6 @@ const fn find_edge_stable_from_table(
 /// Converts a position index (0-7) to its corresponding bit mask.
 const fn x_to_bit(x: u8) -> u8 {
     1u8 << x
-}
-
-const fn popcount8(mut x: u8) -> usize {
-    let mut n = 0;
-    while x != 0 {
-        x &= x - 1;
-        n += 1;
-    }
-    n
 }
 
 const fn edge_stability_index(player_edge: u8, opponent_edge: u8) -> usize {
@@ -124,18 +116,26 @@ const fn edge_stability_index(player_edge: u8, opponent_edge: u8) -> usize {
 const fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
     let mut table: [u8; EDGE_STABILITY_SIZE] = [0; EDGE_STABILITY_SIZE];
 
-    let mut occupied = 8usize;
+    // Build occupancies high to low so each lookup reads an entry already filled.
+    // Within an occupancy, walk the disjoint (p, o = m & !p) splits via
+    // carry-rippler subset enumeration over m.
+    let mut occupied: usize = 8;
     loop {
-        let mut p = 0usize;
-        while p < 256 {
-            let mut o = 0usize;
-            while o < 256 {
-                if (p & o) == 0 && popcount8((p | o) as u8) == occupied {
-                    table[(p << 8) | o] = find_edge_stable_from_table(p as u8, o as u8, &table);
+        let mut m_u16: u16 = 0;
+        while m_u16 < 256 {
+            let m = m_u16 as u8;
+            if m.count_ones() as usize == occupied {
+                let mut p: u8 = 0;
+                loop {
+                    let o = m & !p;
+                    table[edge_stability_index(p, o)] = find_edge_stable_from_table(p, o, &table);
+                    p = p.wrapping_sub(m) & m;
+                    if p == 0 {
+                        break;
+                    }
                 }
-                o += 1;
             }
-            p += 1;
+            m_u16 += 1;
         }
 
         if occupied == 0 {
