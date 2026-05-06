@@ -7,6 +7,7 @@ import type {
     SolverSelectivity,
 } from "@/services/types";
 import type { MoveHistory } from "@/domain/game/move-history";
+import type { SolverHistoryEntry as DomainSolverHistoryEntry } from "@/domain/solver/solver-session";
 import type { AIMode, Board, GameMode, Player } from "@/domain/game/types";
 import type { Move } from "@/domain/game/store-helpers";
 import type { Language } from "@/i18n";
@@ -79,14 +80,12 @@ export interface UISlice {
     showPassNotification: "black" | "white" | null;
     isAnalyzing: boolean;
     hintAnalysisAbortPending: boolean;
-    hintAnalysisRunId: number;
     analyzeResults: Map<string, AIMoveProgress> | null;
     isNewGameModalOpen: boolean;
     newGameModalSession: number;
     isAboutModalOpen: boolean;
     isHintMode: boolean;
     isGameAnalyzing: boolean;
-    gameAnalysisRunId: number;
     gameAnalysisResult: MoveAnalysis[] | null;
     hidePassNotification: () => void;
     analyzeBoard: () => Promise<void>;
@@ -98,10 +97,9 @@ export interface UISlice {
     analyzeGame: () => Promise<void>;
     abortGameAnalysis: () => Promise<void>;
     /**
-     * Aborts the current hint analysis and, once the abort resolves, restarts
-     * `analyzeBoard` if hint mode is still active. Intended for internal use
-     * by slices that need to restart a running analysis  Enot a user-facing
-     * action.
+     * Aborts the current hint analysis and restarts `analyzeBoard` after the
+     * abort resolves if hint mode is still active. Intended for slice-internal
+     * coordination, not for user-facing commands.
      */
     restartHintAnalysisAfterAbort: () => void;
 }
@@ -151,12 +149,7 @@ export interface SetupSlice {
     startFromSetup: (settings?: NewGameSettings) => Promise<boolean>;
 }
 
-export interface SolverHistoryEntry {
-    board: Board;
-    player: Player;
-    /** `null` for the root entry; move notation (e.g. "d3") for subsequent steps. */
-    moveFrom: string | null;
-}
+export type SolverHistoryEntry = DomainSolverHistoryEntry;
 
 export interface SolverConfig {
     selectivity: SolverSelectivity;
@@ -183,17 +176,9 @@ export interface SolverSlice {
      * completes naturally.
      */
     isSolverStopped: boolean;
-    /**
-     * Private generational counter used to drop the results of aborted /
-     * superseded searches. Every action that launches a new search increments
-     * this, and the catch branch of `runSolverSearch` only clears
-     * `isSolverSearching` if its captured id still matches the current value.
-     * Not exposed as an action  Ecallers must not mutate this directly.
-     */
-    solverSearchRunId: number;
-
     openSolverModal: () => void;
     closeSolverModal: () => void;
+    subscribeSolverProgress: () => Promise<() => void>;
     startSolver: (board: Board, player: Player, config?: SolverConfig) => Promise<boolean>;
     startSolverFromSetup: (config?: SolverConfig) => Promise<boolean>;
     exitSolver: () => Promise<void>;

@@ -1,9 +1,8 @@
 import { useEffect } from "react";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import { defaultServices } from "@/services";
 
 export function useSolverProgressListener(): void {
-  const applySolverProgress = useReversiStore((state) => state.applySolverProgress);
+  const subscribeSolverProgress = useReversiStore((state) => state.subscribeSolverProgress);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -11,9 +10,7 @@ export function useSolverProgressListener(): void {
 
     (async () => {
       try {
-        const fn = await defaultServices.solver.onProgress((payload) => {
-          applySolverProgress(payload);
-        });
+        const fn = await subscribeSolverProgress();
         if (cancelled) {
           fn();
         } else {
@@ -31,5 +28,5 @@ export function useSolverProgressListener(): void {
         unlisten = null;
       }
     };
-  }, [applySolverProgress]);
+  }, [subscribeSolverProgress]);
 }

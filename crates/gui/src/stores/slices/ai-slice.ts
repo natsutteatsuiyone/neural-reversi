@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
 import type { AISlice, ReversiState } from "./types";
 import { DEFAULT_SETTINGS, type Services } from "@/services/types";
+import { runAIMoveSearch } from "@/services/ai-move-search-operation";
 
 export function clearSearchTimer(
     get: () => ReversiState,
@@ -41,78 +42,37 @@ export function createAISlice(services: Services): StateCreator<
     },
 
     makeAIMove: async () => {
-        const aiSearchStartTime = Date.now();
-        set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime });
         const { currentPlayer: player, board, aiLevel, aiMode, timeLimit, aiRemainingTime } = get();
-        const initialRemainingTime = aiRemainingTime;
-        const isGameTime = aiMode === "game-time";
-        // When another actor (undo/redo) writes `aiRemainingTime` during the
-        // search, stop our own updates so we don't clobber theirs.
-        let managing = isGameTime;
-        let lastWritten = initialRemainingTime;
-
-        const applyManagedRemainingTime = (remainingTime: number) => {
-            if (!managing) return;
-            if (remainingTime === lastWritten) return;
-            if (get().aiRemainingTime !== lastWritten) {
-                managing = false;
-                clearSearchTimer(get, set);
-                return;
-            }
-            lastWritten = remainingTime;
-            set({ aiRemainingTime: remainingTime });
-        };
-
-        if (isGameTime) {
-            const timer = setInterval(() => {
-                const elapsed = Date.now() - aiSearchStartTime;
-                const remaining = Math.max(0, initialRemainingTime - elapsed);
-                applyManagedRemainingTime(remaining);
-                if (remaining === 0) clearSearchTimer(get, set);
-            }, 100);
-            set({ searchTimer: timer });
-        }
 
         try {
-            const aiMove = await services.ai.getAIMove(
+            const aiMove = await runAIMoveSearch({
+                ai: services.ai,
                 board,
                 player,
-                aiLevel,
-                aiMode === "time" ? timeLimit * 1000 : undefined,
-                isGameTime ? aiRemainingTime : undefined,
-                (progress) => {
-                    set((state) => {
-                        const last = state.aiThinkingHistory[state.aiThinkingHistory.length - 1];
-                        if (last &&
-                            last.depth === progress.depth &&
-                            last.score === progress.score &&
-                            last.nodes === progress.nodes &&
-                            last.pvLine === progress.pvLine) {
-                            // Same reference short-circuits zustand's listener
-                            // loop (Object.is), avoiding re-renders on no-op
-                            // engine re-emissions.
-                            return state;
-                        }
-
-                        // Calculate NPS at this moment
-                        const elapsedMs = state.aiSearchStartTime
-                            ? Date.now() - state.aiSearchStartTime
-                            : 0;
-                        const nps = elapsedMs > 0 ? (progress.nodes / elapsedMs) * 1000 : 0;
-
-                        return {
-                            aiMoveProgress: progress,
-                            aiThinkingHistory: [...state.aiThinkingHistory, { ...progress, nps }]
-                        };
-                    });
-                }
-            );
-
-            clearSearchTimer(get, set);
-            if (aiMove && isGameTime) {
-                applyManagedRemainingTime(Math.max(0, initialRemainingTime - aiMove.timeTaken));
-            }
-            set({ aiMoveProgress: null, isAIThinking: false });
+                level: aiLevel,
+                mode: aiMode,
+                timeLimitSeconds: timeLimit,
+                remainingTimeMs: aiRemainingTime,
+                getRemainingTime: () => get().aiRemainingTime,
+                onStart: (aiSearchStartTime) => {
+                    set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime });
+                },
+                onTimerChange: (searchTimer) => {
+                    set({ searchTimer });
+                },
+                onRemainingTime: (remainingTime) => {
+                    set({ aiRemainingTime: remainingTime });
+                },
+                onProgress: ({ progress, nps }) => {
+                    set((state) => ({
+                        aiMoveProgress: progress,
+                        aiThinkingHistory: [...state.aiThinkingHistory, { ...progress, nps }],
+                    }));
+                },
+                onFinish: () => {
+                    set({ aiMoveProgress: null, isAIThinking: false });
+                },
+            });
             if (aiMove) {
                 const move = {
                     row: aiMove.row,
@@ -126,8 +86,6 @@ export function createAISlice(services: Services): StateCreator<
                 });
             }
         } catch (error) {
-            clearSearchTimer(get, set);
-            set({ isAIThinking: false, aiMoveProgress: null });
             console.error("AI Move failed:", error);
         }
     },

@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
-import type { AIMoveProgress } from "@/services/types";
+import type { AIMoveProgress, GameAnalysisProgress } from "@/services/types";
 import type { Services } from "@/services/types";
+import { SearchOperation } from "@/services/search-operation";
 import type { ReversiState, UISlice, MoveAnalysis } from "./types";
 import { getNotation } from "@/domain/game/game-logic";
 
@@ -10,18 +11,20 @@ export function createUISlice(services: Services): StateCreator<
     [],
     UISlice
 > {
-  return (set, get) => ({
+  return (set, get) => {
+    const hintSearch = new SearchOperation();
+    const gameAnalysisSearch = new SearchOperation();
+
+    return ({
     showPassNotification: null,
     isAnalyzing: false,
     hintAnalysisAbortPending: false,
-    hintAnalysisRunId: 0,
     analyzeResults: null,
     isNewGameModalOpen: false,
     newGameModalSession: 0,
     isAboutModalOpen: false,
     isHintMode: false,
     isGameAnalyzing: false,
-    gameAnalysisRunId: 0,
     gameAnalysisResult: null,
 
     openNewGameModal: () => {
@@ -54,37 +57,32 @@ export function createUISlice(services: Services): StateCreator<
             } else {
                 // Invalidate any in-flight analyzeBoard so its finally clause
                 // won't clear `isAnalyzing` belonging to a future run.
-                set({ hintAnalysisRunId: state.hintAnalysisRunId + 1 });
+                hintSearch.invalidate();
             }
         }
     },
 
     restartHintAnalysisAfterAbort: () => {
-        const nextRunId = get().hintAnalysisRunId + 1;
-        set({
-            hintAnalysisRunId: nextRunId,
-            hintAnalysisAbortPending: true,
-        });
         void (async () => {
-            try {
-                await services.ai.abortSearch();
-            } catch (error) {
-                console.error("Hint abort failed:", error);
-            } finally {
-                const currentState = get();
-                // A newer runId means a concurrent caller took over  Elet
-                // their cleanup finish without racing it.
-                if (currentState.hintAnalysisRunId !== nextRunId) {
-                    return;
-                }
-                set({
-                    isAnalyzing: false,
-                    hintAnalysisAbortPending: false,
-                });
-                if (currentState.isHintMode) {
-                    void currentState.analyzeBoard();
-                }
-            }
+            await hintSearch.abortLatest({
+                commitAbort: () => set({
+                    hintAnalysisAbortPending: true,
+                }),
+                abort: () => services.ai.abortSearch(),
+                onError: (error) => {
+                    console.error("Hint abort failed:", error);
+                },
+                onCurrentFinally: () => {
+                    const currentState = get();
+                    set({
+                        isAnalyzing: false,
+                        hintAnalysisAbortPending: false,
+                    });
+                    if (currentState.isHintMode) {
+                        void currentState.analyzeBoard();
+                    }
+                },
+            });
         })();
     },
 
@@ -108,18 +106,16 @@ export function createUISlice(services: Services): StateCreator<
         const board = get().board;
         const player = get().currentPlayer;
         const results = new Map<string, AIMoveProgress>();
-        const analysisRunId = get().hintAnalysisRunId + 1;
 
-        set({
-            analyzeResults: null,
-            isAnalyzing: true,
-            hintAnalysisRunId: analysisRunId,
-        });
-
-        try {
-            await services.ai.analyze(board, player, get().hintLevel, (progress) => {
+        await hintSearch.startCurrent<[AIMoveProgress]>({
+            commitStart: () => set({
+                analyzeResults: null,
+                isAnalyzing: true,
+            }),
+            start: (acceptProgress) => services.ai.analyze(board, player, get().hintLevel, acceptProgress),
+            onProgress: (progress) => {
                 const s = get();
-                if (!s.isHintMode || !s.isAnalyzing || s.hintAnalysisRunId !== analysisRunId) return;
+                if (!s.isHintMode || !s.isAnalyzing) return;
 
                 if (progress.row !== undefined && progress.col !== undefined) {
                     const key = `${progress.row},${progress.col}`;
@@ -140,12 +136,12 @@ export function createUISlice(services: Services): StateCreator<
                     results.set(key, progress);
                     set({ analyzeResults: new Map(results) });
                 }
-            });
-        } finally {
-            if (get().hintAnalysisRunId === analysisRunId) {
-                set({ isAnalyzing: false });
-            }
-        }
+            },
+            onError: (error) => {
+                throw error;
+            },
+            onCurrentFinally: () => set({ isAnalyzing: false }),
+        });
     },
 
     analyzeGame: async () => {
@@ -161,53 +157,53 @@ export function createUISlice(services: Services): StateCreator<
 
         const level = get().gameAnalysisLevel;
         const analysisResults: MoveAnalysis[] = [];
-        const analysisRunId = get().gameAnalysisRunId + 1;
-        set({
-            isGameAnalyzing: true,
-            gameAnalysisRunId: analysisRunId,
-            gameAnalysisResult: null,
-        });
 
-        try {
-            await services.ai.analyzeGame(
+        await gameAnalysisSearch.startCurrent<[GameAnalysisProgress]>({
+            commitStart: () => set({
+                isGameAnalyzing: true,
+                gameAnalysisResult: null,
+            }),
+            start: (acceptProgress) => services.ai.analyzeGame(
                 historyStartBoard,
                 historyStartPlayer,
                 moves,
                 level,
-                (p) => {
-                    const state = get();
-                    if (!state.isGameAnalyzing || state.gameAnalysisRunId !== analysisRunId) return;
+                acceptProgress,
+            ),
+            onProgress: (p) => {
+                const state = get();
+                if (!state.isGameAnalyzing) return;
 
-                    const move = allMoves[p.moveIndex];
-                    analysisResults.push({
-                        moveIndex: p.moveIndex,
-                        player: move.player,
-                        playedMove: move.notation,
-                        playedScore: p.playedScore,
-                        bestMove: p.bestMove,
-                        bestScore: p.bestScore,
-                        scoreLoss: p.scoreLoss,
-                        depth: p.depth,
-                    });
+                const move = allMoves[p.moveIndex];
+                analysisResults.push({
+                    moveIndex: p.moveIndex,
+                    player: move.player,
+                    playedMove: move.notation,
+                    playedScore: p.playedScore,
+                    bestMove: p.bestMove,
+                    bestScore: p.bestScore,
+                    scoreLoss: p.scoreLoss,
+                    depth: p.depth,
+                });
 
-                    set({ gameAnalysisResult: [...analysisResults] });
-                }
-            );
-        } catch (error) {
-            console.error("Game analysis failed:", error);
-        } finally {
-            if (get().gameAnalysisRunId === analysisRunId) {
-                set({ isGameAnalyzing: false });
-            }
-        }
+                set({ gameAnalysisResult: [...analysisResults] });
+            },
+            onError: (error) => {
+                console.error("Game analysis failed:", error);
+            },
+            onCurrentFinally: () => set({ isGameAnalyzing: false }),
+        });
     },
 
     abortGameAnalysis: async () => {
-        set((state) => ({
-            isGameAnalyzing: false,
-            gameAnalysisRunId: state.gameAnalysisRunId + 1,
-        }));
-        await services.ai.abortGameAnalysis();
+        await gameAnalysisSearch.abortLatest({
+            commitAbort: () => set({
+                isGameAnalyzing: false,
+            }),
+            abort: () => services.ai.abortGameAnalysis(),
+            onCurrentFinally: () => undefined,
+        });
     },
-  });
+    });
+  };
 }

@@ -15,5 +15,6 @@ eval*.zst
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+CONTEXT.md
 /llms.txt
 /.serena

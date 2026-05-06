@@ -1,19 +1,11 @@
 import { StateCreator } from "zustand";
-import { applyMove, checkGameOver, type Move } from "@/domain/game/store-helpers";
-import { getNotation, opponentPlayer } from "@/domain/game/game-logic";
-import { boardToString, validateBoard } from "@/domain/game/board-parser";
-import type { Board, Player } from "@/domain/game/types";
-import type {
-    Services,
-    SolverCandidate,
-    SolverMode,
-    SolverProgressPayload,
-    SolverSelectivity,
-} from "@/services/types";
+import { validateBoard } from "@/domain/game/board-parser";
+import { SolverSession, type SolverSessionCommit } from "@/domain/solver/solver-session";
+import type { Services, SolverMode, SolverSelectivity } from "@/services/types";
 import { DEFAULT_SETTINGS } from "@/services/types";
 import type {
     ReversiState,
-    SolverHistoryEntry,
+    SolverConfig,
     SolverSlice,
 } from "./types";
 import { prepareToReplaceGame } from "./game-slice";
@@ -25,142 +17,44 @@ type SetState = (
         | ((state: ReversiState) => Partial<ReversiState>),
 ) => void;
 
-type GetState = () => ReversiState;
-
-function createRootEntry(board: Board, player: Player): SolverHistoryEntry {
-    return { board, player, moveFrom: null };
+function createSolverSessionCommit(set: SetState): SolverSessionCommit {
+    return (partial) => {
+        set(partial as Parameters<SetState>[0]);
+    };
 }
 
-const SOLVER_CACHE_MAX_ENTRIES = 64;
-type SolverResultCache = Map<string, Map<string, SolverCandidate>>;
-
-function solverCacheKey(
-    board: Board,
-    player: Player,
-    selectivity: SolverSelectivity,
-    mode: SolverMode,
-): string {
-    return `${boardToString(board)}:${player}:${selectivity}:${mode}`;
-}
-
-function solverCacheGet(
-    solverResultCache: SolverResultCache,
-    board: Board,
-    player: Player,
-    selectivity: SolverSelectivity,
-    mode: SolverMode,
-): Map<string, SolverCandidate> | null {
-    const key = solverCacheKey(board, player, selectivity, mode);
-    const entry = solverResultCache.get(key);
-    if (!entry) return null;
-    solverResultCache.delete(key);
-    solverResultCache.set(key, entry);
-    // Fresh copy so store-side mutations can't leak back into the cache.
-    return new Map(entry);
-}
-
-function solverCachePut(
-    solverResultCache: SolverResultCache,
-    board: Board,
-    player: Player,
-    selectivity: SolverSelectivity,
-    mode: SolverMode,
-    candidates: Map<string, SolverCandidate>,
+function commitSolverConfig(
+    services: Services,
+    set: SetState,
+    config: SolverConfig,
 ): void {
-    const key = solverCacheKey(board, player, selectivity, mode);
-    solverResultCache.delete(key);
-    // applySolverProgress always spreads into a fresh Map, so this ref is frozen.
-    solverResultCache.set(key, candidates);
-    if (solverResultCache.size > SOLVER_CACHE_MAX_ENTRIES) {
-        const oldest = solverResultCache.keys().next().value;
-        if (oldest !== undefined) solverResultCache.delete(oldest);
-    }
-}
-
-/**
- * Wraps `services.solver.startSearch` and clears the searching flag when
- * the current run is still `runId`.
- */
-async function runSolverSearch(
-    services: Services,
-    solverResultCache: SolverResultCache,
-    get: GetState,
-    set: SetState,
-    board: Board,
-    player: Player,
-    runId: number,
-): Promise<void> {
-    const selectivity = get().targetSelectivity;
-    const mode = get().solverMode;
-    try {
-        await services.solver.startSearch(board, player, selectivity, mode, runId);
-    } catch (error) {
-        console.error("Failed to start solver search:", error);
-    } finally {
-        if (get().solverSearchRunId === runId) {
-            // Skip partial maps: would restore a frozen "searching" view with no search actually running.
-            const candidates = get().solverCandidates;
-            let allComplete = candidates.size > 0;
-            for (const c of candidates.values()) {
-                if (!c.isComplete) {
-                    allComplete = false;
-                    break;
-                }
-            }
-            if (allComplete) {
-                solverCachePut(solverResultCache, board, player, selectivity, mode, candidates);
-            }
-            set({ isSolverSearching: false });
-        }
-    }
-}
-
-/**
- * Navigates the solver to `(board, player)` under `selectivity`, merging any
- * caller-supplied `extra` state (history / current position) into the same
- * commit. Sync-mutates before `abort()` so a racing navigation reads the new
- * state instead of a stale pre-abort snapshot; post-abort run-id check keeps
- * the trailing `runSolverSearch` off a superseded run.
- */
-async function repointSolver(
-    services: Services,
-    solverResultCache: SolverResultCache,
-    get: GetState,
-    set: SetState,
-    board: Board,
-    player: Player,
-    selectivity: SolverSelectivity,
-    mode: SolverMode,
-    extra: Partial<ReversiState> = {},
-): Promise<void> {
-    const cached = solverCacheGet(solverResultCache, board, player, selectivity, mode);
-    const nextRunId = get().solverSearchRunId + 1;
-
     set({
-        ...extra,
-        solverCandidates: cached ?? new Map<string, SolverCandidate>(),
-        isSolverSearching: !cached,
-        isSolverStopped: false,
-        solverSearchRunId: nextRunId,
+        targetSelectivity: config.selectivity,
+        solverMode: config.mode,
     });
+    void services.settings.saveSetting("solverTargetSelectivity", config.selectivity);
+    void services.settings.saveSetting("solverMode", config.mode);
+}
 
-    await services.solver.abort();
+function saveTargetSelectivity(services: Services, selectivity: SolverSelectivity): void {
+    void services.settings.saveSetting("solverTargetSelectivity", selectivity);
+}
 
-    if (cached || get().solverSearchRunId !== nextRunId) {
-        return;
-    }
-
-    await runSolverSearch(services, solverResultCache, get, set, board, player, nextRunId);
+function saveSolverMode(services: Services, mode: SolverMode): void {
+    void services.settings.saveSetting("solverMode", mode);
 }
 
 export function createSolverSlice(
     services: Services,
 ): StateCreator<ReversiState, [], [], SolverSlice> {
-    // Outside Zustand: no UI subscribers, survives exitSolver re-entry, scoped
-    // to this store instance so tests and alternate stores don't share results.
-    const solverResultCache: SolverResultCache = new Map();
+    return (set, get) => {
+        const solverSession = new SolverSession({
+            solver: services.solver,
+            read: get,
+            commit: createSolverSessionCommit(set),
+        });
 
-    return (set, get) => ({
+        return ({
         isSolverActive: false,
         isSolverModalOpen: false,
         solverRootBoard: null,
@@ -170,10 +64,9 @@ export function createSolverSlice(
         solverCurrentPlayer: null,
         targetSelectivity: DEFAULT_SETTINGS.solverTargetSelectivity,
         solverMode: DEFAULT_SETTINGS.solverMode,
-        solverCandidates: new Map<string, SolverCandidate>(),
+        solverCandidates: new Map(),
         isSolverSearching: false,
         isSolverStopped: false,
-        solverSearchRunId: 0,
 
         openSolverModal: () => {
             get().resetSetup();
@@ -181,6 +74,8 @@ export function createSolverSlice(
         },
 
         closeSolverModal: () => set({ isSolverModalOpen: false }),
+
+        subscribeSolverProgress: () => solverSession.subscribeProgress(),
 
         startSolver: async (board, player, config) => {
             // Abort any in-flight solver search first. Without this, a second
@@ -196,31 +91,11 @@ export function createSolverSlice(
             await get().resetGame();
 
             if (config) {
-                set({
-                    targetSelectivity: config.selectivity,
-                    solverMode: config.mode,
-                });
-                void services.settings.saveSetting("solverTargetSelectivity", config.selectivity);
-                void services.settings.saveSetting("solverMode", config.mode);
+                commitSolverConfig(services, set, config);
             }
 
-            const rootEntry = createRootEntry(board, player);
-            const nextRunId = get().solverSearchRunId + 1;
-            set({
-                isSolverActive: true,
-                isSolverModalOpen: false,
-                solverRootBoard: board,
-                solverRootPlayer: player,
-                solverCurrentBoard: board,
-                solverCurrentPlayer: player,
-                solverHistory: [rootEntry],
-                solverCandidates: new Map<string, SolverCandidate>(),
-                isSolverSearching: true,
-                isSolverStopped: false,
-                solverSearchRunId: nextRunId,
-            });
-
-            await runSolverSearch(services, solverResultCache, get, set, board, player, nextRunId);
+            set({ isSolverModalOpen: false });
+            await solverSession.start(board, player);
             return true;
         },
 
@@ -265,325 +140,41 @@ export function createSolverSlice(
         },
 
         exitSolver: async () => {
-            await services.solver.abort();
-            set((state) => ({
-                isSolverActive: false,
-                solverRootBoard: null,
-                solverRootPlayer: null,
-                solverHistory: [],
-                solverCurrentBoard: null,
-                solverCurrentPlayer: null,
-                solverCandidates: new Map<string, SolverCandidate>(),
-                isSolverSearching: false,
-                isSolverStopped: false,
-                // Bump the run id so any in-flight search's catch branch sees
-                // a stale id and does NOT clobber the post-exit state.
-                solverSearchRunId: state.solverSearchRunId + 1,
-            }));
+            await solverSession.exit();
         },
 
         advanceSolver: async (row, col) => {
-            const initial = get();
-            if (!initial.solverCurrentBoard || !initial.solverCurrentPlayer) {
-                return;
-            }
-
-            // Claim this navigation's run id SYNCHRONOUSLY before awaiting
-            // abort. Snapshotting state only after the await lets two quick
-            // clicks compute from the same pre-abort position and append
-            // root-based entries onto a history the racing call has
-            // already extended, corrupting the breadcrumb trail. Bumping
-            // up front also filters stale progress events from the
-            // parent's search  Eincluding in the game-over branch below,
-            // which starts no new search of its own.
-            const nextRunId = initial.solverSearchRunId + 1;
-            set({
-                isSolverSearching: true,
-                isSolverStopped: false,
-                solverSearchRunId: nextRunId,
-            });
-
-            await services.solver.abort();
-
-            // A racing advance/undo/reset may have superseded us while we
-            // awaited abort. Bail so we don't clobber its history write.
-            if (get().solverSearchRunId !== nextRunId) {
-                return;
-            }
-
-            const currentBoard = get().solverCurrentBoard;
-            const currentPlayer = get().solverCurrentPlayer;
-            if (!currentBoard || !currentPlayer) {
-                return;
-            }
-
-            const move: Move = { row, col, isAI: false, score: 0 };
-            const newBoard = applyMove(currentBoard, move, currentPlayer);
-            let nextPlayer = opponentPlayer(currentPlayer);
-
-            // If the opponent has no legal replies but the original mover
-            // still does, collapse the implicit pass into this entry so the
-            // user can keep exploring without clicking through a dead end.
-            // Single history entry ↁEsingle undoSolver() unwinds everything.
-            const { gameOver, shouldPass } = checkGameOver(newBoard, nextPlayer);
-            if (shouldPass) {
-                nextPlayer = opponentPlayer(nextPlayer);
-            }
-
-            const newEntry: SolverHistoryEntry = {
-                board: newBoard,
-                player: nextPlayer,
-                moveFrom: getNotation(row, col),
-            };
-
-            if (gameOver) {
-                set((s) => ({
-                    solverHistory: [...s.solverHistory, newEntry],
-                    solverCurrentBoard: newBoard,
-                    solverCurrentPlayer: nextPlayer,
-                    solverCandidates: new Map<string, SolverCandidate>(),
-                    isSolverSearching: false,
-                }));
-                return;
-            }
-
-            const cached = solverCacheGet(
-                solverResultCache,
-                newBoard,
-                nextPlayer,
-                get().targetSelectivity,
-                get().solverMode,
-            );
-            if (cached) {
-                set((s) => ({
-                    solverHistory: [...s.solverHistory, newEntry],
-                    solverCurrentBoard: newBoard,
-                    solverCurrentPlayer: nextPlayer,
-                    solverCandidates: cached,
-                    isSolverSearching: false,
-                    isSolverStopped: false,
-                }));
-                return;
-            }
-
-            set((s) => ({
-                solverHistory: [...s.solverHistory, newEntry],
-                solverCurrentBoard: newBoard,
-                solverCurrentPlayer: nextPlayer,
-                solverCandidates: new Map<string, SolverCandidate>(),
-            }));
-
-            await runSolverSearch(services, solverResultCache, get, set, newBoard, nextPlayer, nextRunId);
+            await solverSession.advance(row, col);
         },
 
         undoSolver: async () => {
-            const initial = get();
-            if (initial.solverHistory.length <= 1) {
-                return;
-            }
-
-            const newHistory = initial.solverHistory.slice(0, -1);
-            const prevEntry = newHistory[newHistory.length - 1];
-
-            await repointSolver(
-                services,
-                solverResultCache,
-                get,
-                set,
-                prevEntry.board,
-                prevEntry.player,
-                initial.targetSelectivity,
-                initial.solverMode,
-                {
-                    solverHistory: newHistory,
-                    solverCurrentBoard: prevEntry.board,
-                    solverCurrentPlayer: prevEntry.player,
-                },
-            );
+            await solverSession.undo();
         },
 
         setTargetSelectivity: async (sel) => {
             set({ targetSelectivity: sel });
-            void services.settings.saveSetting("solverTargetSelectivity", sel);
-
-            const initial = get();
-            if (
-                !initial.isSolverActive ||
-                !initial.solverCurrentBoard ||
-                !initial.solverCurrentPlayer
-            ) {
-                return;
-            }
-
-            await repointSolver(
-                services,
-                solverResultCache,
-                get,
-                set,
-                initial.solverCurrentBoard,
-                initial.solverCurrentPlayer,
-                sel,
-                initial.solverMode,
-            );
+            saveTargetSelectivity(services, sel);
+            await solverSession.repointCurrent();
         },
 
         setSolverMode: async (mode) => {
             if (get().solverMode === mode) return;
             set({ solverMode: mode });
-            void services.settings.saveSetting("solverMode", mode);
-
-            const initial = get();
-            if (
-                !initial.isSolverActive ||
-                !initial.solverCurrentBoard ||
-                !initial.solverCurrentPlayer
-            ) {
-                return;
-            }
-
-            await repointSolver(
-                services,
-                solverResultCache,
-                get,
-                set,
-                initial.solverCurrentBoard,
-                initial.solverCurrentPlayer,
-                initial.targetSelectivity,
-                mode,
-            );
+            saveSolverMode(services, mode);
+            await solverSession.repointCurrent();
         },
 
         stopSolverSearch: async () => {
-            const state = get();
-            if (!state.isSolverActive || !state.isSolverSearching) {
-                return;
-            }
-
-            await services.solver.abort();
-
-            // Leave candidates / history / current position intact  Ethis
-            // is a pause, not an exit. Bumping the run id drops trailing
-            // `solver-progress` events from the aborted run.
-            set((s) => ({
-                isSolverSearching: false,
-                isSolverStopped: true,
-                solverSearchRunId: s.solverSearchRunId + 1,
-            }));
+            await solverSession.stop();
         },
 
         resumeSolverSearch: async () => {
-            const state = get();
-            if (!state.isSolverActive || state.isSolverSearching || !state.isSolverStopped) {
-                return;
-            }
-            const { solverCurrentBoard, solverCurrentPlayer } = state;
-            if (!solverCurrentBoard || !solverCurrentPlayer) {
-                return;
-            }
-
-            const cached = solverCacheGet(
-                solverResultCache,
-                solverCurrentBoard,
-                solverCurrentPlayer,
-                state.targetSelectivity,
-                state.solverMode,
-            );
-            const nextRunId = state.solverSearchRunId + 1;
-
-            if (cached) {
-                set({
-                    solverCandidates: cached,
-                    isSolverSearching: false,
-                    isSolverStopped: false,
-                    solverSearchRunId: nextRunId,
-                });
-                return;
-            }
-
-            // Keep existing candidates visible; new progress events will
-            // overwrite them move-by-move as the re-run catches up.
-            set({
-                isSolverSearching: true,
-                isSolverStopped: false,
-                solverSearchRunId: nextRunId,
-            });
-
-            await runSolverSearch(
-                services,
-                solverResultCache,
-                get,
-                set,
-                solverCurrentBoard,
-                solverCurrentPlayer,
-                nextRunId,
-            );
+            await solverSession.resume();
         },
 
-        applySolverProgress: (payload: SolverProgressPayload) => {
-            // Do NOT gate on `isSolverSearching`: `runSolverSearch` clears that
-            // flag as soon as `startSearch` resolves, but trailing progress
-            // events can still arrive and carry the final depth/accuracy.
-            const state = get();
-            if (!state.isSolverActive) {
-                return;
-            }
-            // Drop events from a superseded run. After abort + restart (via
-            // startSolver / undo / reset / setTargetSelectivity), late
-            // `solver-progress` events from the previous run can still be
-            // queued on the JS side. Without the run-id check, their stale
-            // candidates would leak onto the new position.
-            if (payload.runId !== state.solverSearchRunId) {
-                return;
-            }
-
-            const isComplete = payload.isEndgame
-                ? payload.acc >= state.targetSelectivity
-                : payload.depth >= payload.targetDepth;
-            const key = `${payload.row},${payload.col}`;
-            const existing = state.solverCandidates.get(key);
-
-            // Fast path: skip the Map clone when nothing that affects rendering
-            // has changed. Relies on Zustand's selector equality  Ereturning
-            // the same Map ref means `SolverPanel` and `Board` subscribers bail
-            // out of re-rendering.
-            if (
-                existing &&
-                existing.score === payload.score &&
-                existing.depth === payload.depth &&
-                existing.targetDepth === payload.targetDepth &&
-                existing.acc === payload.acc &&
-                existing.isEndgame === payload.isEndgame &&
-                existing.isComplete === isComplete &&
-                existing.pvLine === payload.pvLine
-            ) {
-                return;
-            }
-
-            const candidate: SolverCandidate = {
-                move: payload.bestMove,
-                row: payload.row,
-                col: payload.col,
-                score: payload.score,
-                depth: payload.depth,
-                targetDepth: payload.targetDepth,
-                acc: payload.acc,
-                pvLine: payload.pvLine,
-                isEndgame: payload.isEndgame,
-                isComplete,
-            };
-
-            set((s) => {
-                // bestOnly: only the engine's current best move is meaningful.
-                // As selectivity / depth iterates, that move can change  Ekeep
-                // just the latest entry so stale picks from earlier levels
-                // don't linger in the panel.
-                if (s.solverMode === "bestOnly") {
-                    return { solverCandidates: new Map([[key, candidate]]) };
-                }
-                const next = new Map(s.solverCandidates);
-                next.set(key, candidate);
-                return { solverCandidates: next };
-            });
+        applySolverProgress: (payload) => {
+            solverSession.applyProgress(payload);
         },
-    });
+        });
+    };
 }

@@ -52,6 +52,15 @@ function buildHistoryEntry(
     return { board, player, moveFrom };
 }
 
+function latestSolverRunId(services: ReturnType<typeof createTestStore>["services"]): number {
+    const calls = vi.mocked(services.solver.startSearch).mock.calls;
+    const runId = calls[calls.length - 1]?.[4];
+    if (typeof runId !== "number") {
+        throw new Error("No solver search run id was captured");
+    }
+    return runId;
+}
+
 describe("solver-slice initial state", () => {
     it("starts inactive with empty history and default selectivity", () => {
         const { store } = createTestStore();
@@ -88,6 +97,43 @@ describe("openSolverModal / closeSolverModal", () => {
         store.getState().closeSolverModal();
 
         expect(store.getState().isSolverModalOpen).toBe(false);
+    });
+});
+
+describe("subscribeSolverProgress", () => {
+    it("routes injected solver progress through the Solver Session", async () => {
+        const progressCallbacks: Array<(payload: SolverProgressPayload) => void> = [];
+        const unlisten = vi.fn();
+        const { store, services } = createTestStore({
+            solver: createMockSolverService({
+                onProgress: vi.fn(async (callback) => {
+                    progressCallbacks.push(callback);
+                    return unlisten;
+                }),
+            }),
+        });
+        const board = initializeBoard();
+        await store.getState().startSolver(board, "black");
+
+        const unsubscribe = await store.getState().subscribeSolverProgress();
+        expect(progressCallbacks).toHaveLength(1);
+        progressCallbacks[0]({
+            runId: latestSolverRunId(services),
+            bestMove: "d3",
+            row: 2,
+            col: 3,
+            score: 4,
+            depth: 14,
+            targetDepth: 14,
+            acc: 100,
+            nodes: 1000,
+            pvLine: "d3",
+            isEndgame: false,
+        });
+        unsubscribe();
+
+        expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
+        expect(unlisten).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -704,13 +750,13 @@ describe("setTargetSelectivity", () => {
 });
 
 describe("applySolverProgress", () => {
-    it("upserts a candidate keyed by row,col and parses the PV line", () => {
-        const { store } = createTestStore();
-        // applySolverProgress is gated on isSolverActive + runId match.
-        store.setState({ isSolverActive: true });
+    it("upserts a candidate keyed by row,col and parses the PV line", async () => {
+        const { store, services } = createTestStore();
+        const board = initializeBoard();
+        await store.getState().startSolver(board, "black");
 
         const payload: SolverProgressPayload = {
-            runId: store.getState().solverSearchRunId,
+            runId: latestSolverRunId(services),
             bestMove: "d3",
             row: 2,
             col: 3,
@@ -737,12 +783,12 @@ describe("applySolverProgress", () => {
         expect(candidate?.isComplete).toBe(true);
     });
 
-    it("marks a midgame candidate incomplete until depth reaches targetDepth", () => {
-        const { store } = createTestStore();
-        store.setState({ isSolverActive: true });
+    it("marks a midgame candidate incomplete until depth reaches targetDepth", async () => {
+        const { store, services } = createTestStore();
+        await store.getState().startSolver(initializeBoard(), "black");
 
         const payload: SolverProgressPayload = {
-            runId: store.getState().solverSearchRunId,
+            runId: latestSolverRunId(services),
             bestMove: "e6",
             row: 5,
             col: 4,
@@ -764,12 +810,13 @@ describe("applySolverProgress", () => {
         expect(candidate?.targetDepth).toBe(12);
     });
 
-    it("marks an endgame candidate complete once acc reaches the target selectivity (< 100)", () => {
-        const { store } = createTestStore();
-        store.setState({ isSolverActive: true, targetSelectivity: 73 });
+    it("marks an endgame candidate complete once acc reaches the target selectivity (< 100)", async () => {
+        const { store, services } = createTestStore();
+        await store.getState().startSolver(initializeBoard(), "black");
+        store.setState({ targetSelectivity: 73 });
 
         const payload: SolverProgressPayload = {
-            runId: store.getState().solverSearchRunId,
+            runId: latestSolverRunId(services),
             bestMove: "f6",
             row: 5,
             col: 5,
@@ -790,11 +837,11 @@ describe("applySolverProgress", () => {
         expect(candidate?.acc).toBe(73);
     });
 
-    it("drops payloads when solver mode is inactive", () => {
-        const { store } = createTestStore();
+    it("drops payloads when solver mode is inactive", async () => {
+        const { store, services } = createTestStore();
 
         const payload: SolverProgressPayload = {
-            runId: store.getState().solverSearchRunId,
+            runId: 1,
             bestMove: "d3",
             row: 2,
             col: 3,
@@ -812,25 +859,27 @@ describe("applySolverProgress", () => {
         expect(store.getState().solverCandidates.size).toBe(0);
 
         // Active, still searching  Eaccepted.
-        store.setState({ isSolverActive: true, isSolverSearching: true });
-        store.getState().applySolverProgress(payload);
+        await store.getState().startSolver(initializeBoard(), "black");
+        store.getState().applySolverProgress({
+            ...payload,
+            runId: latestSolverRunId(services),
+        });
         expect(store.getState().solverCandidates.size).toBe(1);
     });
 
-    it("drops payloads from a superseded run", () => {
+    it("drops payloads from a superseded run", async () => {
         // Regression guard for the Codex review finding: late solver-progress
         // events from an aborted run must not leak into the state of the
         // newly-started run, even though `isSolverActive` stays true across
         // startSolver/undo/reset/setTargetSelectivity restarts.
-        const { store } = createTestStore();
-        store.setState({
-            isSolverActive: true,
-            isSolverSearching: true,
-            solverSearchRunId: 7,
-        });
+        const { store, services } = createTestStore();
+        await store.getState().startSolver(initializeBoard(), "black");
+        const staleRunId = latestSolverRunId(services);
+        await store.getState().setTargetSelectivity(95);
+        const currentRunId = latestSolverRunId(services);
 
         const stalePayload: SolverProgressPayload = {
-            runId: 6, // emitted by the previous run, arrived late
+            runId: staleRunId, // emitted by the previous run, arrived late
             bestMove: "d3",
             row: 2,
             col: 3,
@@ -849,20 +898,20 @@ describe("applySolverProgress", () => {
         // A payload from the current run still lands.
         store
             .getState()
-            .applySolverProgress({ ...stalePayload, runId: 7 });
+            .applySolverProgress({ ...stalePayload, runId: currentRunId });
         expect(store.getState().solverCandidates.size).toBe(1);
     });
 
-    it("in bestOnly mode keeps only the latest best move (drops earlier-selectivity picks)", () => {
-        const { store } = createTestStore();
+    it("in bestOnly mode keeps only the latest best move (drops earlier-selectivity picks)", async () => {
+        const { store, services } = createTestStore();
+        await store.getState().startSolver(initializeBoard(), "black");
         store.setState({
-            isSolverActive: true,
             solverMode: "bestOnly",
             targetSelectivity: 100,
         });
 
         const lowSelPayload: SolverProgressPayload = {
-            runId: store.getState().solverSearchRunId,
+            runId: latestSolverRunId(services),
             bestMove: "d3",
             row: 2,
             col: 3,
@@ -893,16 +942,16 @@ describe("applySolverProgress", () => {
         expect(candidates.get("2,3")).toBeUndefined();
     });
 
-    it("in multiPv mode preserves earlier candidates as new ones arrive", () => {
-        const { store } = createTestStore();
+    it("in multiPv mode preserves earlier candidates as new ones arrive", async () => {
+        const { store, services } = createTestStore();
+        await store.getState().startSolver(initializeBoard(), "black");
         store.setState({
-            isSolverActive: true,
             solverMode: "multiPv",
             targetSelectivity: 100,
         });
 
         const a: SolverProgressPayload = {
-            runId: store.getState().solverSearchRunId,
+            runId: latestSolverRunId(services),
             bestMove: "d3",
             row: 2,
             col: 3,
@@ -929,17 +978,18 @@ describe("applySolverProgress", () => {
         expect(store.getState().solverCandidates.size).toBe(2);
     });
 
-    it("accepts trailing payloads after isSolverSearching clears", () => {
+    it("accepts trailing payloads after isSolverSearching clears", async () => {
         // Regression guard: runSolverSearch's finally block clears
         // isSolverSearching as soon as startSearch resolves, but trailing
         // solver-progress events can still be queued on the JS side.
         // Those payloads must still reach the store so the final
         // depth/accuracy update isn't lost.
-        const { store } = createTestStore();
-        store.setState({ isSolverActive: true, isSolverSearching: false });
+        const { store, services } = createTestStore();
+        await store.getState().startSolver(initializeBoard(), "black");
+        store.setState({ isSolverSearching: false });
 
         const payload: SolverProgressPayload = {
-            runId: store.getState().solverSearchRunId,
+            runId: latestSolverRunId(services),
             bestMove: "d3",
             row: 2,
             col: 3,
@@ -1017,7 +1067,7 @@ describe("runSolverSearch error handling", () => {
         // Wait until the first search has actually reached startSearch.
         await flushUntil(() => startSearchMock.mock.calls.length === 1);
         expect(store.getState().isSolverSearching).toBe(true);
-        const firstRunId = store.getState().solverSearchRunId;
+        const firstRunId = startSearchMock.mock.calls[0][4] as number;
 
         // Kick off a second search before the first settles. This simulates
         // the race: the user clicks again while a search is in flight. The
@@ -1027,7 +1077,7 @@ describe("runSolverSearch error handling", () => {
 
         // Wait until the second search has reached startSearch too.
         await flushUntil(() => startSearchMock.mock.calls.length === 2);
-        const secondRunId = store.getState().solverSearchRunId;
+        const secondRunId = startSearchMock.mock.calls[1][4] as number;
         expect(secondRunId).toBeGreaterThan(firstRunId);
         expect(store.getState().isSolverSearching).toBe(true);
 
@@ -1038,14 +1088,26 @@ describe("runSolverSearch error handling", () => {
 
         // The newer run is still active (its promise hasn't settled yet).
         expect(store.getState().isSolverSearching).toBe(true);
-        expect(store.getState().solverSearchRunId).toBe(secondRunId);
+        store.getState().applySolverProgress({
+            runId: firstRunId,
+            bestMove: "d3",
+            row: 2,
+            col: 3,
+            score: 4,
+            depth: 14,
+            targetDepth: 14,
+            acc: 100,
+            nodes: 1000,
+            pvLine: "d3",
+            isEndgame: true,
+        });
+        expect(store.getState().solverCandidates.size).toBe(0);
 
         // Now let the second run resolve cleanly.
         secondDeferred.resolve();
         await secondPromise;
 
-        // Run id should NOT have been decremented by the stale error path.
-        expect(store.getState().solverSearchRunId).toBe(secondRunId);
+        expect(startSearchMock.mock.calls[1][4]).toBe(secondRunId);
 
         consoleErrorSpy.mockRestore();
     });

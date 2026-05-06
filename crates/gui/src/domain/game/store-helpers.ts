@@ -116,7 +116,6 @@ export function createGameStartState(
     isAIThinking: false,
     isAnalyzing: false,
     hintAnalysisAbortPending: false,
-    hintAnalysisRunId: 0,
     isGameAnalyzing: false,
     aiMoveProgress: null,
     aiThinkingHistory: [],
