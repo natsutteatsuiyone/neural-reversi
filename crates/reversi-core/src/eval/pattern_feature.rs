@@ -37,6 +37,9 @@ const MAX_FEATURES_PER_SQUARE_U32: u32 = MAX_FEATURES_PER_SQUARE as u32;
 /// Size of the pattern feature vector (padded to 32 for SIMD alignment).
 const FEATURE_VECTOR_SIZE: usize = 32;
 
+const FLIP_BYTE_TABLES: usize = BOARD_SQUARES / 8;
+const FLIP_BYTE_VALUES: usize = 256;
+
 /// Base for pattern encoding (ternary: empty=2, opponent=1, player=0).
 const PATTERN_BASE: u32 = 3;
 
@@ -99,10 +102,20 @@ impl PatternFeature {
     }
 }
 
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+impl PatternFeature {
+    /// Returns a pointer to the internal data as a 512-bit SIMD vector.
+    #[inline(always)]
+    unsafe fn as_m512_ptr(&self) -> *const std::arch::x86_64::__m512i {
+        self.data.as_ptr() as *const std::arch::x86_64::__m512i
+    }
+}
+
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 impl PatternFeature {
     /// Returns a pointer to the internal data as a 256-bit SIMD vector.
     #[inline(always)]
+    #[allow(dead_code)]
     unsafe fn as_m256_ptr(&self) -> *const std::arch::x86_64::__m256i {
         self.data.as_ptr() as *const std::arch::x86_64::__m256i
     }
@@ -316,6 +329,46 @@ const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
     result
 }
 
+/// Generates byte-chunk sums of `EVAL_FEATURE` for every 8-bit mask.
+///
+/// `EVAL_FEATURE_BYTE_SUM[byte][mask]` is equivalent to summing
+/// `EVAL_FEATURE[sq]` for all set bits in that bitboard byte. This trades
+/// the variable per-flipped-disc loop for eight fixed AVX-512 loads. The table
+/// is 8 * 256 * 64 bytes = 128 KiB, which is intended for the AVX-512 hot path.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+const fn generate_eval_feature_byte_sum() -> [[PatternFeature; FLIP_BYTE_VALUES]; FLIP_BYTE_TABLES]
+{
+    let mut result = [[PatternFeature::new(); FLIP_BYTE_VALUES]; FLIP_BYTE_TABLES];
+    let mut byte_idx = 0;
+
+    while byte_idx < FLIP_BYTE_TABLES {
+        let mut mask = 0;
+        while mask < FLIP_BYTE_VALUES {
+            let mut feature_values = [0u16; FEATURE_VECTOR_SIZE];
+            let mut bit = 0;
+
+            while bit < 8 {
+                if (mask & (1usize << bit)) != 0 {
+                    let square_idx = byte_idx * 8 + bit;
+                    let mut k = 0;
+                    while k < FEATURE_VECTOR_SIZE {
+                        feature_values[k] =
+                            feature_values[k].wrapping_add(EVAL_FEATURE[square_idx].data[k]);
+                        k += 1;
+                    }
+                }
+                bit += 1;
+            }
+
+            result[byte_idx][mask] = PatternFeature::from_array(feature_values);
+            mask += 1;
+        }
+        byte_idx += 1;
+    }
+
+    result
+}
+
 /// Generates the EVAL_X2F lookup table at compile time.
 ///
 /// # Panics
@@ -385,6 +438,11 @@ const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
 /// ```
 #[allow(dead_code)]
 const EVAL_FEATURE: [PatternFeature; BOARD_SQUARES] = generate_eval_feature();
+
+/// Byte-chunk aggregate lookup for the AVX-512 update path.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+static EVAL_FEATURE_BYTE_SUM: [[PatternFeature; FLIP_BYTE_VALUES]; FLIP_BYTE_TABLES] =
+    generate_eval_feature_byte_sum();
 
 /// Reverse mapping: square -> list of `(pattern_index, power)`.
 ///
@@ -487,6 +545,9 @@ impl PatternFeatures {
         debug_assert!(ply < MAX_PLY - 1);
 
         cfg_select! {
+            all(target_arch = "x86_64", target_feature = "avx512bw") => {
+                unsafe { self.update_avx512(sq, flipped, ply, side_to_move) }
+            }
             all(target_arch = "x86_64", target_feature = "avx2") => {
                 unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
             }
@@ -502,9 +563,80 @@ impl PatternFeatures {
         }
     }
 
+    /// AVX-512BW-optimized implementation of pattern feature update.
+    ///
+    /// Processes the whole 32-lane `u16` feature vector as a single 512-bit
+    /// register and uses mask blends to avoid a hard-to-predict branch on
+    /// `side_to_move`.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
+    fn update_avx512(
+        &mut self,
+        sq: Square,
+        flipped: Bitboard,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
+        use std::arch::x86_64::*;
+
+        unsafe {
+            let ef = &EVAL_FEATURE;
+            let f = _mm512_load_si512(ef.get_unchecked(sq.index()).as_m512_ptr());
+            let bytes = flipped.bits().to_le_bytes();
+
+            let load_byte_sum = |i: usize| {
+                _mm512_load_si512(
+                    EVAL_FEATURE_BYTE_SUM
+                        .get_unchecked(i)
+                        .get_unchecked(bytes[i] as usize)
+                        .as_m512_ptr(),
+                )
+            };
+            let s0 = load_byte_sum(0);
+            let s1 = load_byte_sum(1);
+            let s2 = load_byte_sum(2);
+            let s3 = load_byte_sum(3);
+            let s4 = load_byte_sum(4);
+            let s5 = load_byte_sum(5);
+            let s6 = load_byte_sum(6);
+            let s7 = load_byte_sum(7);
+
+            let sum01 = _mm512_add_epi16(s0, s1);
+            let sum23 = _mm512_add_epi16(s2, s3);
+            let sum45 = _mm512_add_epi16(s4, s5);
+            let sum67 = _mm512_add_epi16(s6, s7);
+            let sum = _mm512_add_epi16(
+                _mm512_add_epi16(sum01, sum23),
+                _mm512_add_epi16(sum45, sum67),
+            );
+
+            let f_minus_sum = _mm512_sub_epi16(f, sum);
+            let twof_plus_sum = _mm512_add_epi16(_mm512_add_epi16(f, f), sum);
+
+            let p_feats = &mut self.p_features;
+            let o_feats = &mut self.o_features;
+            let p_in =
+                _mm512_load_si512(p_feats.get_unchecked(ply).assume_init_ref().as_m512_ptr());
+            let o_in =
+                _mm512_load_si512(o_feats.get_unchecked(ply).assume_init_ref().as_m512_ptr());
+
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m512i;
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m512i;
+
+            let side_mask: __mmask32 =
+                0u32.wrapping_sub((side_to_move != SideToMove::Player) as u32);
+            let delta_p = _mm512_mask_blend_epi16(side_mask, twof_plus_sum, f_minus_sum);
+            let delta_o = _mm512_mask_blend_epi16(side_mask, f_minus_sum, twof_plus_sum);
+
+            _mm512_store_si512(p_out_ptr, _mm512_sub_epi16(p_in, delta_p));
+            _mm512_store_si512(o_out_ptr, _mm512_sub_epi16(o_in, delta_o));
+        }
+    }
+
     /// AVX2-optimized implementation of pattern feature update.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
+    #[allow(dead_code)]
     fn update_avx2(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
         use std::arch::x86_64::*;
 
@@ -515,8 +647,9 @@ impl PatternFeatures {
             let f0 = _mm256_load_si256(f_ptr);
             let f1 = _mm256_load_si256(f_ptr.add(1));
 
-            let first_idx = flipped.bits().trailing_zeros() as usize;
-            let mut bits = _blsr_u64(flipped.bits());
+            let flipped_bits = flipped.bits();
+            let first_idx = flipped_bits.trailing_zeros() as usize;
+            let mut bits = flipped_bits & (flipped_bits - 1);
 
             let first_fp = ef.get_unchecked(first_idx).as_m256_ptr();
             let mut sum0 = _mm256_load_si256(first_fp);
@@ -525,7 +658,7 @@ impl PatternFeatures {
             if bits != 0 {
                 loop {
                     let idx1 = bits.trailing_zeros() as usize;
-                    bits = _blsr_u64(bits);
+                    bits &= bits - 1;
                     let fp1 = ef.get_unchecked(idx1).as_m256_ptr();
                     sum0 = _mm256_add_epi16(sum0, _mm256_load_si256(fp1));
                     sum1 = _mm256_add_epi16(sum1, _mm256_load_si256(fp1.add(1)));
@@ -535,7 +668,7 @@ impl PatternFeatures {
                     }
 
                     let idx2 = bits.trailing_zeros() as usize;
-                    bits = _blsr_u64(bits);
+                    bits &= bits - 1;
                     let fp2 = ef.get_unchecked(idx2).as_m256_ptr();
                     sum0 = _mm256_add_epi16(sum0, _mm256_load_si256(fp2));
                     sum1 = _mm256_add_epi16(sum1, _mm256_load_si256(fp2.add(1)));
@@ -565,21 +698,12 @@ impl PatternFeatures {
             let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m256i;
             let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m256i;
 
-            let (delta_p0, delta_p1, delta_o0, delta_o1) = if side_to_move == SideToMove::Player {
-                (
-                    twof_plus_sum_0,
-                    twof_plus_sum_1,
-                    f_minus_sum_0,
-                    f_minus_sum_1,
-                )
-            } else {
-                (
-                    f_minus_sum_0,
-                    f_minus_sum_1,
-                    twof_plus_sum_0,
-                    twof_plus_sum_1,
-                )
-            };
+            let side_mask =
+                _mm256_set1_epi16(0i16.wrapping_sub((side_to_move != SideToMove::Player) as i16));
+            let delta_p0 = _mm256_blendv_epi8(twof_plus_sum_0, f_minus_sum_0, side_mask);
+            let delta_p1 = _mm256_blendv_epi8(twof_plus_sum_1, f_minus_sum_1, side_mask);
+            let delta_o0 = _mm256_blendv_epi8(f_minus_sum_0, twof_plus_sum_0, side_mask);
+            let delta_o1 = _mm256_blendv_epi8(f_minus_sum_1, twof_plus_sum_1, side_mask);
 
             let p_out0 = _mm256_sub_epi16(p_in0, delta_p0);
             let p_out1 = _mm256_sub_epi16(p_in1, delta_p1);
