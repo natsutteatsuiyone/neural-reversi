@@ -368,7 +368,7 @@ fn null_window_search_with_ec(
         return score;
     }
 
-    if moves.count() == 1 {
+    if moves.has_single_bit_nonzero() {
         let sq = moves.lsb_square_unchecked();
         let flipped = flip::flip(sq, board.player, board.opponent);
         if flipped == board.opponent {
@@ -473,7 +473,7 @@ fn shallow_search(
         return score;
     }
 
-    if moves.count() == 1 {
+    if moves.has_single_bit_nonzero() {
         let sq = moves.lsb_square_unchecked();
         let score = shallow_search_move(ctx, board, sq, beta, sc);
         sc.store(cache_idx, board, alpha, score);

@@ -70,6 +70,12 @@ impl Bitboard {
         self.0 == 0
     }
 
+    /// Checks whether exactly one bit is set, assuming the bitboard is non-empty.
+    #[inline(always)]
+    pub const fn has_single_bit_nonzero(self) -> bool {
+        (self.0 & self.0.wrapping_sub(1)) == 0
+    }
+
     /// Returns the number of set bits (population count).
     #[inline(always)]
     pub const fn count(self) -> u32 {
@@ -1922,6 +1928,15 @@ mod tests {
         // Checkerboard pattern
         assert_eq!(Bitboard::new(0x5555555555555555).count(), 32);
         assert_eq!(Bitboard::new(0xAAAAAAAAAAAAAAAA).count(), 32);
+    }
+
+    #[test]
+    fn test_has_single_bit_nonzero() {
+        assert!(Bitboard::new(1).has_single_bit_nonzero());
+        assert!(Square::A1.bitboard().has_single_bit_nonzero());
+        assert!(Square::H8.bitboard().has_single_bit_nonzero());
+        assert!(!Bitboard::new(3).has_single_bit_nonzero());
+        assert!(!Bitboard::new(u64::MAX).has_single_bit_nonzero());
     }
 
     #[test]
