@@ -277,6 +277,12 @@ impl TTEntryData {
     fn relative_age(&self, generation: u8) -> i32 {
         (generation.wrapping_sub(self.fields.generation) & TTEntry::GENERATION_MASK) as i32
     }
+
+    /// Returns the replacement priority; lower values are replaced first.
+    #[inline(always)]
+    fn replacement_score(&self, generation: u8) -> i32 {
+        self.fields.depth as i32 - self.relative_age(generation) * TTEntry::AGE_WEIGHT
+    }
 }
 
 /// One slot inside a transposition-table cluster.
@@ -284,7 +290,7 @@ impl TTEntryData {
 /// Stores the full board, [`TTDataFields`] (transmuted through an AtomicU64),
 /// and a 64-bit SeqLock sequence counter used to read the split payload
 /// consistently.
-#[repr(C)]
+#[repr(C, align(32))]
 pub struct TTEntry {
     player: AtomicU64,
     opponent: AtomicU64,
@@ -301,6 +307,12 @@ impl Default for TTEntry {
             seq: AtomicU64::new(0),
         }
     }
+}
+
+/// Branchless equality of two `(player, opponent)` bit pairs.
+#[inline(always)]
+fn same_board_bits(lhs_player: u64, lhs_opponent: u64, rhs_player: u64, rhs_opponent: u64) -> bool {
+    ((lhs_player ^ rhs_player) | (lhs_opponent ^ rhs_opponent)) == 0
 }
 
 impl TTEntry {
@@ -324,11 +336,26 @@ impl TTEntry {
             return None;
         }
 
-        // `seq1` synchronizes with the writer's final release-store of the even
-        // sequence value, so the split payload can be read with relaxed loads.
+        // Load metadata first. Empty slots are common during table warm-up and
+        // do not need the two board-word loads.
+        let raw = self.data.load(Ordering::Relaxed);
+        let fields = TTDataFields::from_u64(raw);
+
+        if fields.bound == Bound::None as u8 {
+            // Empty entries are physically all-zero. A real board never has
+            // (player, opponent) == (0, 0), so callers can check occupancy
+            // before board equality without creating a false hit.
+            fence(Ordering::Acquire);
+            let seq2 = self.seq.load(Ordering::Relaxed);
+            if seq1 != seq2 {
+                return None;
+            }
+
+            return Some((0, 0, TTEntryData { fields, seq: seq1 }));
+        }
+
         let player = self.player.load(Ordering::Relaxed);
         let opponent = self.opponent.load(Ordering::Relaxed);
-        let raw = self.data.load(Ordering::Relaxed);
 
         // Keep the payload loads before the validation read on weakly ordered
         // CPUs while preserving the initial acquire edge through `seq1`.
@@ -338,14 +365,40 @@ impl TTEntry {
             return None;
         }
 
-        Some((
-            player,
-            opponent,
-            TTEntryData {
+        Some((player, opponent, TTEntryData { fields, seq: seq1 }))
+    }
+
+    /// Fast read path used by [`TranspositionTable::lookup`].
+    ///
+    /// Board mismatches are returned immediately without SeqLock validation.
+    /// This can lose a race with a concurrent writer and report a false miss,
+    /// which is safe for a read-only TT lookup. Candidate hits are still
+    /// SeqLock-validated before returning metadata, so this never creates a
+    /// false hit.
+    #[inline(always)]
+    fn read_for_lookup(&self, board_player: u64, board_opponent: u64) -> Option<TTEntryData> {
+        let seq1 = self.seq.load(Ordering::Acquire);
+        if (seq1 & 1) != 0 {
+            return None;
+        }
+
+        let player = self.player.load(Ordering::Relaxed);
+        let opponent = self.opponent.load(Ordering::Relaxed);
+        if !same_board_bits(player, opponent, board_player, board_opponent) {
+            return None;
+        }
+
+        let raw = self.data.load(Ordering::Relaxed);
+        fence(Ordering::Acquire);
+        let seq2 = self.seq.load(Ordering::Relaxed);
+        if seq1 == seq2 {
+            return Some(TTEntryData {
                 fields: TTDataFields::from_u64(raw),
                 seq: seq1,
-            },
-        ))
+            });
+        }
+
+        None
     }
 
     /// Reads the slot and returns metadata if it matches `board`.
@@ -353,16 +406,41 @@ impl TTEntry {
     pub fn read(&self, board: &Board) -> Option<TTEntryData> {
         let board_player = board.player.bits();
         let board_opponent = board.opponent.bits();
+
         for _ in 0..Self::READ_RETRIES {
-            if let Some((player, opponent, data)) = self.try_load_snapshot() {
-                if player == board_player && opponent == board_opponent {
-                    return Some(data);
-                }
-                // Board doesn't match — genuine miss, no retry needed.
-                return None;
+            let seq1 = self.seq.load(Ordering::Acquire);
+            if (seq1 & 1) != 0 {
+                std::hint::spin_loop();
+                continue;
             }
+
+            // For lookup misses, avoid loading the metadata word at all. Most
+            // random TT probes miss by board, not by bound/depth metadata.
+            let player = self.player.load(Ordering::Relaxed);
+            let opponent = self.opponent.load(Ordering::Relaxed);
+            if !same_board_bits(player, opponent, board_player, board_opponent) {
+                fence(Ordering::Acquire);
+                let seq2 = self.seq.load(Ordering::Relaxed);
+                if seq1 == seq2 {
+                    return None;
+                }
+                std::hint::spin_loop();
+                continue;
+            }
+
+            let raw = self.data.load(Ordering::Relaxed);
+            fence(Ordering::Acquire);
+            let seq2 = self.seq.load(Ordering::Relaxed);
+            if seq1 == seq2 {
+                return Some(TTEntryData {
+                    fields: TTDataFields::from_u64(raw),
+                    seq: seq1,
+                });
+            }
+
             std::hint::spin_loop();
         }
+
         None
     }
 
@@ -373,13 +451,19 @@ impl TTEntry {
     /// non-exact results replace when depth regression is at most two plies, selectivity is
     /// higher, or generation changed. If `best_move` is [`Square::None`], the
     /// existing move is preserved for same-board non-exact updates.
+    #[inline(always)]
     pub(crate) fn save(&self, board: &Board, data: TTDataFields) {
         let new_player = board.player.bits();
         let new_opponent = board.opponent.bits();
-        // SAFETY: data was constructed by TTDataFields::new(), which stores
-        // valid Bound and Square discriminants.
-        let bound = unsafe { Bound::from_u8_unchecked(data.bound) };
-        let best_move = unsafe { Square::from_u8_unchecked(data.best_move) };
+
+        // Exact entries always replace and never preserve the old best move, so
+        // they only need the sequence word before claiming the slot.
+        if data.bound == Bound::Exact as u8 {
+            self.save_exact(new_player, new_opponent, data);
+            return;
+        }
+
+        let has_best_move = data.best_move != Square::None as u8;
 
         // Retry the full replacement policy if another writer wins the race
         // between snapshot acquisition and the claim CAS.
@@ -390,28 +474,53 @@ impl TTEntry {
                 continue;
             };
 
-            let same_board = new_player == stored_player && new_opponent == stored_opponent;
-            let should_replace = if bound == Bound::Exact || !same_board {
-                true
-            } else {
+            if !stored_data.is_occupied() {
+                if self.seqlock_write(stored_data.seq, new_player, new_opponent, data) {
+                    return;
+                }
+
+                std::hint::spin_loop();
+                continue;
+            }
+
+            let same_board =
+                same_board_bits(new_player, new_opponent, stored_player, stored_opponent);
+            let should_replace = !same_board
                 // Tolerate up to 2 plies of depth regression so aspiration re-searches
                 // and nearby-depth revisits can still overwrite the slot.
-                data.depth as u32 + 2 >= stored_data.depth()
-                    || data.selectivity > stored_data.selectivity().as_u8()
-                    || data.generation != stored_data.generation()
-            };
+                || data.depth as u32 + 2 >= stored_data.depth()
+                || data.selectivity > stored_data.selectivity().as_u8()
+                || data.generation != stored_data.generation();
 
             if !should_replace {
                 return;
             }
 
-            let write_data = if best_move != Square::None || bound == Bound::Exact || !same_board {
+            let write_data = if has_best_move || !same_board {
                 data
             } else {
                 data.with_best_move(stored_data.best_move())
             };
 
             if self.seqlock_write(stored_data.seq, new_player, new_opponent, write_data) {
+                return;
+            }
+
+            std::hint::spin_loop();
+        }
+    }
+
+    /// Stores an exact entry without loading the old board/data payload.
+    #[inline(always)]
+    fn save_exact(&self, player: u64, opponent: u64, data: TTDataFields) {
+        for _ in 0..Self::SAVE_RETRIES {
+            let seq = self.seq.load(Ordering::Acquire);
+            if (seq & 1) != 0 {
+                std::hint::spin_loop();
+                continue;
+            }
+
+            if self.seqlock_write(seq, player, opponent, data) {
                 return;
             }
 
@@ -544,7 +653,7 @@ impl TranspositionTable {
     }
 
     /// Returns the current generation counter value (7-bit, `0..=127`).
-    #[inline]
+    #[inline(always)]
     pub fn generation(&self) -> u8 {
         self.generation.load(Ordering::Relaxed) & TTEntry::GENERATION_MASK
     }
@@ -552,7 +661,7 @@ impl TranspositionTable {
     /// Increments the generation counter and returns the new value.
     ///
     /// The counter wraps at 128 (7-bit range) to match [`TTDataFields::generation`].
-    #[inline]
+    #[inline(always)]
     pub fn increment_generation(&self) -> u8 {
         let new =
             self.generation.load(Ordering::Relaxed).wrapping_add(1) & TTEntry::GENERATION_MASK;
@@ -561,7 +670,7 @@ impl TranspositionTable {
     }
 
     /// Resets the generation counter to zero.
-    #[inline]
+    #[inline(always)]
     pub fn reset_generation(&self) {
         self.generation.store(0, Ordering::Relaxed);
     }
@@ -571,7 +680,7 @@ impl TranspositionTable {
     ///
     /// Clusters are 64 bytes (2 x 32-byte entries) and the backing allocation is
     /// 64-byte aligned, so prefetching the cluster start covers the full cluster.
-    #[inline]
+    #[inline(always)]
     pub fn prefetch(&self, key: u64) {
         let index = self.get_cluster_idx(key);
         // SAFETY: `get_cluster_idx` returns an index within `entries`, so `.add(index)`
@@ -584,16 +693,19 @@ impl TranspositionTable {
     #[inline(always)]
     pub fn lookup(&self, board: &Board, key: u64) -> Option<TTEntryData> {
         let cluster_idx = self.get_cluster_idx(key);
+        let board_player = board.player.bits();
+        let board_opponent = board.opponent.bits();
 
-        for i in 0..CLUSTER_SIZE {
-            // SAFETY: `cluster_idx + i < cluster_count * CLUSTER_SIZE == entries.len()`.
-            let entry = unsafe { self.entries.get_unchecked(cluster_idx + i) };
-            if let Some(data) = entry.read(board) {
-                return Some(data);
-            }
+        // SAFETY: `get_cluster_idx` returns a multiple of `CLUSTER_SIZE` in
+        // `0..cluster_count * CLUSTER_SIZE`, so `cluster_idx` and
+        // `cluster_idx + 1` are both in bounds (CLUSTER_SIZE == 2, asserted above).
+        let entry0 = unsafe { self.entries.get_unchecked(cluster_idx) };
+        if let Some(data) = entry0.read_for_lookup(board_player, board_opponent) {
+            return Some(data);
         }
 
-        None
+        let entry1 = unsafe { self.entries.get_unchecked(cluster_idx + 1) };
+        entry1.read_for_lookup(board_player, board_opponent)
     }
 
     /// Probes the cluster for `board`.
@@ -605,7 +717,6 @@ impl TranspositionTable {
         let cluster_idx = self.get_cluster_idx(key);
         let board_player = board.player.bits();
         let board_opponent = board.opponent.bits();
-        let generation = self.generation();
         // Keep the last stable victim so a persistently busy slot does not
         // force replacement back to the cluster head.
         let mut fallback_replace_idx = None;
@@ -613,44 +724,70 @@ impl TranspositionTable {
         // Retry the cluster when a slot is in-flight so a just-finished hit
         // can still win over a replacement miss.
         for _ in 0..Self::PROBE_RETRIES {
-            let mut replace_idx = cluster_idx;
-            let mut replace_score = i32::MAX;
             let mut saw_in_flight_writer = false;
+            let mut slot0_victim = None;
 
-            for i in 0..CLUSTER_SIZE {
-                let idx = cluster_idx + i;
-                // SAFETY: `cluster_idx + i < cluster_count * CLUSTER_SIZE == entries.len()`.
-                let entry = unsafe { self.entries.get_unchecked(idx) };
-                let Some((player, opponent, tt_data)) = entry.try_load_snapshot() else {
-                    saw_in_flight_writer = true;
-                    continue;
-                };
+            // SAFETY: `get_cluster_idx` returns a multiple of `CLUSTER_SIZE` in
+            // `0..cluster_count * CLUSTER_SIZE`, so both slots are in bounds
+            // (CLUSTER_SIZE == 2, asserted above).
+            let entry0 = unsafe { self.entries.get_unchecked(cluster_idx) };
+            match entry0.try_load_snapshot() {
+                Some((player, opponent, tt_data)) => {
+                    if !tt_data.is_occupied() {
+                        return TTProbeResult::Miss { index: cluster_idx };
+                    }
+                    if same_board_bits(player, opponent, board_player, board_opponent) {
+                        return TTProbeResult::Hit {
+                            data: tt_data,
+                            index: cluster_idx,
+                        };
+                    }
 
-                if player == board_player && opponent == board_opponent {
-                    return TTProbeResult::Hit {
-                        data: tt_data,
-                        index: idx,
+                    slot0_victim = Some(tt_data);
+                }
+                None => saw_in_flight_writer = true,
+            }
+
+            let idx1 = cluster_idx + 1;
+            let entry1 = unsafe { self.entries.get_unchecked(idx1) };
+            match entry1.try_load_snapshot() {
+                Some((player, opponent, tt_data)) => {
+                    if !tt_data.is_occupied() {
+                        return TTProbeResult::Miss { index: idx1 };
+                    }
+                    if same_board_bits(player, opponent, board_player, board_opponent) {
+                        return TTProbeResult::Hit {
+                            data: tt_data,
+                            index: idx1,
+                        };
+                    }
+
+                    let replace_idx = if let Some(slot0_data) = slot0_victim {
+                        // Replacement scoring is only needed when both stable
+                        // slots are occupied misses. Hits and empty-slot misses
+                        // avoid the generation load entirely.
+                        let generation = self.generation();
+                        if tt_data.replacement_score(generation)
+                            < slot0_data.replacement_score(generation)
+                        {
+                            idx1
+                        } else {
+                            cluster_idx
+                        }
+                    } else {
+                        idx1
                     };
+
+                    fallback_replace_idx = Some(replace_idx);
+                    if !saw_in_flight_writer {
+                        return TTProbeResult::Miss { index: replace_idx };
+                    }
                 }
-
-                if !tt_data.is_occupied() {
-                    return TTProbeResult::Miss { index: idx };
+                None => {
+                    if slot0_victim.is_some() {
+                        fallback_replace_idx = Some(cluster_idx);
+                    }
                 }
-
-                let score =
-                    tt_data.depth() as i32 - tt_data.relative_age(generation) * TTEntry::AGE_WEIGHT;
-                if score < replace_score {
-                    replace_score = score;
-                    replace_idx = idx;
-                }
-            }
-
-            if replace_score != i32::MAX {
-                fallback_replace_idx = Some(replace_idx);
-            }
-
-            if !saw_in_flight_writer {
-                return TTProbeResult::Miss { index: replace_idx };
             }
 
             std::hint::spin_loop();
