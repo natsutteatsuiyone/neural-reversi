@@ -11,6 +11,7 @@ use crate::square::Square;
 #[allow(dead_code)]
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod flip_avx2;
+#[allow(dead_code)]
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512cd",
@@ -31,7 +32,7 @@ mod lrmask;
 pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            Bitboard::new(unsafe { flip_avx512::flip(sq, p.bits(), o.bits()) })
+            Bitboard::new(flip_avx512::flip(sq, p.bits(), o.bits()))
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
             Bitboard::new(unsafe { flip_avx2::flip(sq, p.bits(), o.bits()) })
@@ -44,6 +45,17 @@ pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
         }
     }
 }
+
+/// Crate-private AVX-512 batch flip context for `MoveList::with_moves` orchestration.
+///
+/// Only available on builds that compile [`flip_avx512`]; callers
+/// must mirror the same `cfg` gate.
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+))]
+pub(crate) use flip_avx512::BoardCtx as Avx512BoardCtx;
 
 #[cfg(test)]
 mod tests {

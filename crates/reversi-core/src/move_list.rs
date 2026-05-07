@@ -296,19 +296,112 @@ impl MoveList {
     }
 
     /// Creates a [`MoveList`] from a precomputed legal moves [`Bitboard`].
+    ///
+    /// AVX-512 (CD+VL) targets take a tiered path: empty / single-move
+    /// positions short-circuit (no SIMD setup) and positions with two or
+    /// more moves amortise the broadcast constants in an internal AVX-512
+    /// board context and process pairs in one ZMM batch each iteration. Other
+    /// targets fall through to a per-square loop.
     #[inline]
     pub fn with_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
         let mut moves = MoveArray::new();
         let mut wipeout_move = None;
-        for sq in moves_bb.iter() {
-            let flipped = flip::flip(sq, board.player, board.opponent);
+        let opponent = board.opponent;
+        let mut bb = moves_bb.bits();
 
+        // Empty: avoid any SIMD setup or loop entry.
+        if bb == 0 {
+            return MoveList {
+                moves,
+                wipeout_move,
+            };
+        }
+
+        // Single move: skip the batch context entirely; one `flip::flip` is
+        // cheaper than building the broadcast constants.
+        if bb & (bb - 1) == 0 {
+            let x = bb.trailing_zeros() as u8;
+            // SAFETY: `x` is a bit position of a legal-move bitboard (0..=63).
+            let sq = unsafe { Square::from_u8_unchecked(x) };
+            let flipped = flip::flip(sq, board.player, opponent);
             debug_assert!(moves.len() < MAX_MOVES);
             // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
             unsafe { moves.push_unchecked(Move::new(sq, flipped)) };
-
-            if flipped == board.opponent {
+            if flipped == opponent {
                 wipeout_move = Some(sq);
+            }
+            return MoveList {
+                moves,
+                wipeout_move,
+            };
+        }
+
+        cfg_select! {
+            all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+                let ctx = flip::Avx512BoardCtx::new(board.player.bits(), opponent.bits());
+                let opponent_bits = opponent.bits();
+                let moves_ptr = moves.as_mut_ptr();
+                let mut len = 0usize;
+                let pair_count = bb.count_ones() as usize / 2;
+                for _ in 0..pair_count {
+                    let x0 = bb.trailing_zeros() as u8;
+                    bb &= bb - 1;
+
+                    let x1 = bb.trailing_zeros() as u8;
+                    bb &= bb - 1;
+
+                    let (f0, f1) = ctx.flip_pair(x0 as usize, x1 as usize);
+                    let flipped0 = Bitboard::new(f0);
+                    let flipped1 = Bitboard::new(f1);
+                    // SAFETY: `x0`, `x1` are bit positions from a legal-move bitboard (0..=63).
+                    let sq0 = unsafe { Square::from_u8_unchecked(x0) };
+                    let sq1 = unsafe { Square::from_u8_unchecked(x1) };
+                    debug_assert!(len + 2 <= MAX_MOVES);
+                    // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
+                    unsafe {
+                        moves_ptr.add(len).write(Move::new(sq0, flipped0));
+                        moves_ptr.add(len + 1).write(Move::new(sq1, flipped1));
+                    }
+                    len += 2;
+                    if f0 == opponent_bits {
+                        wipeout_move = Some(sq0);
+                    }
+                    if f1 == opponent_bits {
+                        wipeout_move = Some(sq1);
+                    }
+                }
+
+                if bb != 0 {
+                    let x = bb.trailing_zeros() as u8;
+                    let flipped_bits = ctx.flip_one(x as usize);
+                    let flipped = Bitboard::new(flipped_bits);
+                    // SAFETY: `x` is a bit position from a legal-move bitboard (0..=63).
+                    let sq = unsafe { Square::from_u8_unchecked(x) };
+                    debug_assert!(len < MAX_MOVES);
+                    // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
+                    unsafe { moves_ptr.add(len).write(Move::new(sq, flipped)) };
+                    len += 1;
+                    if flipped_bits == opponent_bits {
+                        wipeout_move = Some(sq);
+                    }
+                }
+                moves.len = len;
+            }
+            _ => {
+                let player = board.player;
+                while bb != 0 {
+                    let x = bb.trailing_zeros() as u8;
+                    bb &= bb - 1;
+                    // SAFETY: `x` is a bit position from a legal-move bitboard (0..=63).
+                    let sq = unsafe { Square::from_u8_unchecked(x) };
+                    let flipped = flip::flip(sq, player, opponent);
+                    debug_assert!(moves.len() < MAX_MOVES);
+                    // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
+                    unsafe { moves.push_unchecked(Move::new(sq, flipped)) };
+                    if flipped == opponent {
+                        wipeout_move = Some(sq);
+                    }
+                }
             }
         }
 
@@ -428,7 +521,7 @@ impl MoveList {
         alpha: ScaledScore,
         cut_node: bool,
     ) {
-        let sort_depth = if SS::IS_ENDGAME {
+        let sort_depth: i32 = if SS::IS_ENDGAME {
             match depth {
                 0..=19 => 0,
                 20..=28 => 1,
