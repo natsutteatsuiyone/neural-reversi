@@ -18,6 +18,9 @@ pub mod side_to_move;
 pub mod threading;
 pub mod time_control;
 
+#[doc(hidden)]
+pub use endgame::null_window_search;
+
 use std::sync::Arc;
 
 use crate::board::Board;

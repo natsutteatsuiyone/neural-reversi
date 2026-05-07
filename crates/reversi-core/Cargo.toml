@@ -46,3 +46,7 @@ harness = false
 [[bench]]
 name = "move_list"
 harness = false
+
+[[bench]]
+name = "endgame"
+harness = false

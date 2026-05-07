@@ -680,10 +680,38 @@ fn solve4(
 
     if best_score == -SCORE_INF {
         let pass = board.switch_players();
-        if pass.has_legal_moves() {
-            best_score = -solve4(ctx, &pass, -beta, sq1, sq2, sq3, sq4);
-        } else {
-            best_score = board.solve(4);
+        best_score = SCORE_INF;
+
+        if let Some(next) = pass.try_make_move(sq1) {
+            best_score = solve3(ctx, &next, alpha, sq2, sq3, sq4);
+            if best_score <= alpha {
+                return best_score;
+            }
+        }
+
+        if let Some(next) = pass.try_make_move(sq2) {
+            let score = solve3(ctx, &next, alpha, sq1, sq3, sq4);
+            if score <= alpha {
+                return score;
+            }
+            best_score = score.min(best_score);
+        }
+
+        if let Some(next) = pass.try_make_move(sq3) {
+            let score = solve3(ctx, &next, alpha, sq1, sq2, sq4);
+            if score <= alpha {
+                return score;
+            }
+            best_score = score.min(best_score);
+        }
+
+        if let Some(next) = pass.try_make_move(sq4) {
+            let score = solve3(ctx, &next, alpha, sq1, sq2, sq3);
+            return score.min(best_score);
+        }
+
+        if best_score == SCORE_INF {
+            return board.solve(4);
         }
     }
 
