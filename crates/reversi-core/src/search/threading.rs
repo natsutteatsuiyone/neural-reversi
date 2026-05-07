@@ -3,7 +3,7 @@
 //! Reference: <https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp>
 
 use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{JoinHandle, sleep};
@@ -123,10 +123,16 @@ impl SplitPointState {
         self.cutoff.load(Ordering::Relaxed)
     }
 
-    /// Sets the cutoff flag.
+    /// Clears the cutoff flag.
     #[inline]
-    pub fn set_cutoff(&self, value: bool) {
-        self.cutoff.store(value, Ordering::Relaxed);
+    fn clear_cutoff(&self) {
+        self.cutoff.store(false, Ordering::Release);
+    }
+
+    /// Marks this split point as cut off, returning whether this is the first marker.
+    #[inline]
+    fn mark_cutoff(&self) -> bool {
+        !self.cutoff.swap(true, Ordering::AcqRel)
     }
 
     /// Returns the best score.
@@ -343,6 +349,15 @@ pub struct Thread {
     /// Shared abort flag, cached to avoid `Weak::upgrade()` on every node.
     abort_flag: Arc<AtomicBool>,
 
+    /// Global cutoff generation shared by all threads in this pool.
+    cutoff_epoch: Arc<Align64<AtomicU64>>,
+
+    /// Last cutoff generation checked by this thread.
+    local_seen_cutoff_epoch: AtomicU64,
+
+    /// Whether the current active split-point chain was cut off at the seen epoch.
+    local_chain_cutoff: AtomicBool,
+
     /// Cached pool size, avoids `Weak::upgrade()` in `can_split()`.
     pool_size: usize,
 
@@ -377,7 +392,8 @@ pub struct Thread {
 
 // SAFETY: `active_split_point` (the only `UnsafeCell`) is mediated by
 // `mutex_for_state`. All other concurrent fields are either atomic
-// (`searching`, `exit`, `ready`, `split_points_size`) or immutable after
+// (`searching`, `exit`, `ready`, `split_points_size`,
+// `local_seen_cutoff_epoch`, `local_chain_cutoff`) or immutable after
 // construction (`split_points`).
 unsafe impl Sync for Thread {}
 
@@ -387,6 +403,7 @@ impl Thread {
         idx: usize,
         thinking: Arc<AtomicBool>,
         abort_flag: Arc<AtomicBool>,
+        cutoff_epoch: Arc<Align64<AtomicU64>>,
         pool_size: usize,
         pool: Weak<ThreadPool>,
     ) -> Thread {
@@ -399,6 +416,9 @@ impl Thread {
             idx,
             pool,
             abort_flag,
+            cutoff_epoch,
+            local_seen_cutoff_epoch: AtomicU64::new(0),
+            local_chain_cutoff: AtomicBool::new(false),
             pool_size,
             thinking,
             split_points_size: Align64(AtomicUsize::new(0)),
@@ -502,6 +522,24 @@ impl Thread {
             current = sp_state.parent_split_point.as_ref();
         }
         false
+    }
+
+    /// Forces the next `should_stop()` call to re-check the active split-point chain.
+    #[inline]
+    fn reset_cutoff_cache(&self) {
+        self.local_chain_cutoff.store(false, Ordering::Relaxed);
+        self.local_seen_cutoff_epoch.store(
+            self.cutoff_epoch.load(Ordering::Relaxed).wrapping_sub(1),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// Marks a split point as cut off and publishes a new cutoff epoch.
+    #[inline]
+    pub fn mark_split_point_cutoff(&self, sp_state: &SplitPointState) {
+        if sp_state.mark_cutoff() {
+            self.cutoff_epoch.fetch_add(1, Ordering::Release);
+        }
     }
 
     /// Checks whether this thread can join the given split point.
@@ -635,7 +673,7 @@ impl Thread {
             o_feature: *ctx.pattern_features.o_feature(ply),
         });
         *sp_state.counters.lock().unwrap() = SearchCounters::default();
-        sp_state.set_cutoff(false);
+        sp_state.clear_cutoff();
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
         sp.copy_pv(ctx.get_pv());
         sp_state.is_endgame = is_endgame;
@@ -643,6 +681,7 @@ impl Thread {
 
         self.split_points_size.fetch_add(1, Ordering::Release);
         *self.active_split_point_mut() = Some(sp.clone());
+        self.reset_cutoff_cache();
 
         // Try to allocate available threads
         if let Some(pool) = self.pool.upgrade() {
@@ -672,6 +711,7 @@ impl Thread {
         self.searching.store(true, Ordering::Release);
         self.split_points_size.fetch_sub(1, Ordering::Release);
         *self.active_split_point_mut() = sp.state().parent_split_point.clone();
+        self.reset_cutoff_cache();
 
         self.unlock();
 
@@ -921,6 +961,7 @@ impl Thread {
             if self.can_join(sp) {
                 sp_state.helpers_mask.set(self.idx);
                 *self.active_split_point_mut() = Some(sp.clone());
+                self.reset_cutoff_cache();
                 self.searching.store(true, Ordering::Release);
             }
 
@@ -941,7 +982,23 @@ impl Thread {
     /// whole search has been aborted.
     #[inline]
     pub fn should_stop(&self) -> bool {
-        self.cutoff_occurred() || self.is_search_aborted()
+        if self.local_chain_cutoff.load(Ordering::Relaxed) {
+            return true;
+        }
+
+        let cutoff_epoch = self.cutoff_epoch.load(Ordering::Acquire);
+        if cutoff_epoch != self.local_seen_cutoff_epoch.load(Ordering::Relaxed) {
+            self.local_seen_cutoff_epoch
+                .store(cutoff_epoch, Ordering::Relaxed);
+            let cutoff_occurred = self.cutoff_occurred();
+            self.local_chain_cutoff
+                .store(cutoff_occurred, Ordering::Relaxed);
+            if cutoff_occurred {
+                return true;
+            }
+        }
+
+        self.is_search_aborted()
     }
 }
 
@@ -974,6 +1031,9 @@ pub struct ThreadPool {
     /// Flag for aborting the current search.
     abort_flag: Arc<AtomicBool>,
 
+    /// Incremented whenever a split point first records a cutoff.
+    cutoff_epoch: Arc<Align64<AtomicU64>>,
+
     /// Handle for the timer thread (protected by mutex for interior mutability).
     timer_handle: Mutex<Option<JoinHandle<()>>>,
 
@@ -995,6 +1055,7 @@ impl ThreadPool {
                 thinking: Arc::new(AtomicBool::new(false)),
                 sender,
                 abort_flag: Arc::new(AtomicBool::new(false)),
+                cutoff_epoch: Arc::new(Align64(AtomicU64::new(0))),
                 timer_handle: Mutex::new(None),
                 timer_stop: Arc::new(AtomicBool::new(false)),
             };
@@ -1021,6 +1082,7 @@ impl ThreadPool {
             0,
             self.thinking.clone(),
             self.abort_flag.clone(),
+            self.cutoff_epoch.clone(),
             self.size,
             pool.clone(),
         ));
@@ -1039,6 +1101,7 @@ impl ThreadPool {
                 i,
                 self.thinking.clone(),
                 self.abort_flag.clone(),
+                self.cutoff_epoch.clone(),
                 self.size,
                 pool.clone(),
             ));
@@ -1118,6 +1181,7 @@ impl ThreadPool {
             if thread.can_join(sp) {
                 sp_state.helpers_mask.set(thread.idx);
                 *thread.active_split_point_mut() = Some(sp.clone());
+                thread.reset_cutoff_cache();
                 thread.searching.store(true, Ordering::Release);
             }
             thread.unlock();

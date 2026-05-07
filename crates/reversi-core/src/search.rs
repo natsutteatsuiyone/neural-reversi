@@ -838,11 +838,11 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
                 if NT::PV_NODE && score < beta {
                     sp.set_alpha(score);
                     if score >= ScaledScore::MAX {
-                        sp.set_cutoff(true);
+                        thread.mark_split_point_cutoff(sp);
                         break;
                     }
                 } else {
-                    sp.set_cutoff(true);
+                    thread.mark_split_point_cutoff(sp);
                     break;
                 }
             }
