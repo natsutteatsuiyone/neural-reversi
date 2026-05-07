@@ -38,8 +38,11 @@ use crate::util::spinlock;
 /// Maximum number of split points that a single thread can have active at once.
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 
-/// Maximum number of threads recorded in a split point mask.
-const MAX_THREADS_PER_SPLITPOINT: u32 = 6;
+/// Maximum number of threads recorded in a cut-node split point mask.
+const MAX_THREADS_PER_CUT_SPLITPOINT: u32 = 4;
+
+/// Maximum number of threads recorded in a non-cut-node split point mask.
+const MAX_THREADS_PER_NON_CUT_SPLITPOINT: u32 = 7;
 
 /// Interval between checks for abort flag in milliseconds.
 const CHECK_INTERVAL_MS: u64 = 1;
@@ -93,6 +96,16 @@ pub struct SplitPointState {
 }
 
 impl SplitPointState {
+    /// Returns the maximum number of threads allowed at this split point.
+    #[inline]
+    fn max_threads(&self) -> u32 {
+        if self.cut_node {
+            MAX_THREADS_PER_CUT_SPLITPOINT
+        } else {
+            MAX_THREADS_PER_NON_CUT_SPLITPOINT
+        }
+    }
+
     /// Returns the current alpha value atomically.
     #[inline]
     pub fn alpha(&self) -> ScaledScore {
@@ -459,9 +472,9 @@ impl Thread {
 
         let cond = if let Some(sp) = self.active_split_point() {
             let sp_state = sp.state();
+            let max_threads = sp_state.max_threads();
             !sp_state.all_helpers_searching()
-                || thread_pool_size > MAX_THREADS_PER_SPLITPOINT
-                    && sp_state.helpers_mask.count() == MAX_THREADS_PER_SPLITPOINT
+                || thread_pool_size > max_threads && sp_state.helpers_mask.count() == max_threads
         } else {
             true
         };
@@ -499,6 +512,15 @@ impl Thread {
     fn notify_one(&self) {
         let _lock = self.mutex_for_sleep_condition.lock();
         self.sleep_condition.notify_one();
+    }
+
+    /// Returns the deepest active split point for an observed active count.
+    #[inline]
+    fn deepest_split_point(&self, active_count: usize) -> Option<&Arc<SplitPoint>> {
+        debug_assert!(active_count <= MAX_SPLITPOINTS_PER_THREAD);
+        active_count
+            .checked_sub(1)
+            .and_then(|idx| self.split_points.get(idx))
     }
 
     /// Checks whether a beta cutoff has occurred in the current or ancestor split points.
@@ -564,7 +586,10 @@ impl Thread {
         }
 
         // Apply "helpful owner" concept
-        let sp_state = self.split_points[size - 1].state();
+        let Some(active_sp) = self.deepest_split_point(size) else {
+            return false;
+        };
+        let sp_state = active_sp.state();
         sp_state.helpers_mask.test(sp.state().owner_thread_idx)
     }
 
@@ -915,12 +940,14 @@ impl Thread {
             }
 
             // split_points[] elements are immutable Arc pointers (created once in Thread::new),
-            // so indexing with a valid size is safe without the thread lock.
-            let sp = &th.split_points[size - 1];
+            // so a valid observed size can be used without the thread lock.
+            let Some(sp) = th.deepest_split_point(size) else {
+                continue;
+            };
             let sp_state = sp.state();
 
             if sp_state.cutoff()
-                || sp_state.helpers_mask.count() >= MAX_THREADS_PER_SPLITPOINT
+                || sp_state.helpers_mask.count() >= sp_state.max_threads()
                 || !sp_state.all_helpers_searching()
                 || !self.can_join(sp)
             {
@@ -954,7 +981,7 @@ impl Thread {
         let sp_state = sp.state_mut();
         if !sp_state.cutoff()
             && sp_state.all_helpers_searching()
-            && sp_state.helpers_mask.count() < MAX_THREADS_PER_SPLITPOINT
+            && sp_state.helpers_mask.count() < sp_state.max_threads()
         {
             self.lock();
 
@@ -1166,9 +1193,10 @@ impl ThreadPool {
     /// Assigns idle threads to work on a split point.
     fn assign_helpers_to_split_point(&self, sp: &Arc<SplitPoint>) {
         let sp_state = sp.state_mut();
+        let max_threads = sp_state.max_threads();
 
         for thread in &self.threads {
-            if sp_state.helpers_mask.count() >= MAX_THREADS_PER_SPLITPOINT {
+            if sp_state.helpers_mask.count() >= max_threads {
                 break;
             }
 
