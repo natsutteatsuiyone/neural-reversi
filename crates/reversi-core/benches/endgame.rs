@@ -12,14 +12,14 @@ use reversi_core::search::search_context::SearchContext;
 use reversi_core::transposition_table::TranspositionTable;
 use reversi_core::types::Score;
 
-struct Solve4Case {
+struct EndgameCase<const N_EMPTY: u32> {
     name: &'static str,
     board: Board,
     alpha: Score,
     expected: Score,
 }
 
-impl Solve4Case {
+impl<const N_EMPTY: u32> EndgameCase<N_EMPTY> {
     fn new(
         name: &'static str,
         board: &'static str,
@@ -27,42 +27,90 @@ impl Solve4Case {
         alpha: Score,
         expected: Score,
     ) -> Self {
+        let board = Board::from_string(board, side_to_move).expect("benchmark board must parse");
+        assert_eq!(
+            board.get_empty_count(),
+            N_EMPTY,
+            "benchmark case {name} must have exactly {N_EMPTY} empties"
+        );
+
         Self {
             name,
-            board: Board::from_string(board, side_to_move).expect("benchmark board must parse"),
+            board,
             alpha,
             expected,
         }
     }
 }
 
-fn solve4_cases() -> Vec<Solve4Case> {
+fn solve4_cases() -> Vec<EndgameCase<4>> {
     vec![
-        Solve4Case::new(
+        EndgameCase::new(
             "case1",
             "XOOOOOO-XXOOOOOOXXXOXOOOXXOOOOOOXXXOOOOOXXOOXOOOXO-OOOOOOOO-XXX-",
             Disc::Black,
             31,
             32,
         ),
-        Solve4Case::new(
+        EndgameCase::new(
             "case2",
             "XXXXXX-OXXXXXXOOXXXOXOOOXXXXOOOOXXXXOOOOXXXOOOOOXXXXOO-XOOOOOO--",
             Disc::Black,
             19,
             20,
         ),
-        Solve4Case::new(
+        EndgameCase::new(
             "case3",
             "XXXXXXXXXXOXOOXXXXXXXXOXXXXXXXXOXXXXXXX-XXXXXXX-XXXXXX-XXXXXXOO-",
             Disc::White,
             -53,
             -52,
         ),
-        Solve4Case::new(
+        EndgameCase::new(
             "pass",
             concat!(
                 "OOOOOOOO", "OOOOOOOO", "OO---OOO", "OO-XOOOO", "OOOOOOOO", "OOOOOOOO", "OOOOOOOO",
+                "OOOOOOOO"
+            ),
+            Disc::Black,
+            -62,
+            -64,
+        ),
+    ]
+}
+
+fn shallow5_cases() -> Vec<EndgameCase<5>> {
+    vec![
+        EndgameCase::new(
+            "case1",
+            "-OOOOOO-XXOOOOOOXXXOXOOOXXOOOOOOXXXOOOOOXXOOXOOOXO-OOOOOOOO-XXX-",
+            Disc::Black,
+            31,
+            -8,
+        ),
+        EndgameCase::new(
+            "case3",
+            "XXXXXXXXXX-XOOXXXXXXXXOXXXXXXXXOXXXXXXX-XXXXXXX-XXXXXX-XXXXXXOO-",
+            Disc::White,
+            -53,
+            -42,
+        ),
+    ]
+}
+
+fn shallow6_cases() -> Vec<EndgameCase<6>> {
+    vec![
+        EndgameCase::new(
+            "case2",
+            "--XXXX-OXXXXXXOOXXXOXOOOXXXXOOOOXXXXOOOOXXXOOOOOXXXXOO-XOOOOOO--",
+            Disc::Black,
+            19,
+            -26,
+        ),
+        EndgameCase::new(
+            "pass",
+            concat!(
+                "--OOOOOO", "OOOOOOOO", "OO---OOO", "OO-XOOOO", "OOOOOOOO", "OOOOOOOO", "OOOOOOOO",
                 "OOOOOOOO"
             ),
             Disc::Black,
@@ -76,25 +124,19 @@ fn make_context(board: &Board, eval: &Arc<Eval>, tt: &Arc<TranspositionTable>) -
     SearchContext::new(board, Selectivity::None, tt.clone(), eval.clone())
 }
 
-fn solve4_benchmark(c: &mut Criterion) {
-    let eval = Arc::new(
-        Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
-    );
-    let tt = Arc::new(TranspositionTable::new(0));
-    let cases = solve4_cases();
-
-    let mut group = c.benchmark_group("endgame::solve4");
+fn bench_cases<const N_EMPTY: u32>(
+    c: &mut Criterion,
+    group_name: &str,
+    cases: &[EndgameCase<N_EMPTY>],
+    eval: &Arc<Eval>,
+    tt: &Arc<TranspositionTable>,
+) {
+    let mut group = c.benchmark_group(group_name);
     group.sample_size(50);
     group.measurement_time(Duration::from_secs(5));
 
-    for case in &cases {
-        assert_eq!(
-            case.board.get_empty_count(),
-            4,
-            "solve4 case must have exactly 4 empties"
-        );
-
-        let mut ctx = make_context(&case.board, &eval, &tt);
+    for case in cases {
+        let mut ctx = make_context(&case.board, eval, tt);
         assert_eq!(
             null_window_search(&mut ctx, &case.board, case.alpha),
             case.expected,
@@ -102,7 +144,7 @@ fn solve4_benchmark(c: &mut Criterion) {
             case.name
         );
 
-        let mut ctx = make_context(&case.board, &eval, &tt);
+        let mut ctx = make_context(&case.board, eval, tt);
         group.bench_with_input(BenchmarkId::from_parameter(case.name), case, |b, case| {
             b.iter(|| {
                 let score = null_window_search(
@@ -118,5 +160,19 @@ fn solve4_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, solve4_benchmark);
+fn endgame_benchmark(c: &mut Criterion) {
+    let eval = Arc::new(
+        Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
+    );
+    let tt = Arc::new(TranspositionTable::new(0));
+    let solve4_cases = solve4_cases();
+    let shallow5_cases = shallow5_cases();
+    let shallow6_cases = shallow6_cases();
+
+    bench_cases(c, "endgame::solve4", &solve4_cases, &eval, &tt);
+    bench_cases(c, "endgame::shallow_search::5", &shallow5_cases, &eval, &tt);
+    bench_cases(c, "endgame::shallow_search::6", &shallow6_cases, &eval, &tt);
+}
+
+criterion_group!(benches, endgame_benchmark);
 criterion_main!(benches);
