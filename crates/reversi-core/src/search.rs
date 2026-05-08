@@ -532,10 +532,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     // NonPV cutoffs
     if !NT::PV_NODE {
         if let Some(tt_data) = tt_probe_result.data()
-            && (!SS::IS_ENDGAME || tt_data.is_endgame())
-            && tt_data.depth() >= depth
-            && tt_data.selectivity() >= ctx.selectivity
-            && tt_data.can_cut(beta)
+            && tt_data.can_cut(beta, depth, ctx.selectivity, SS::IS_ENDGAME)
         {
             ctx.counters.increment_tt_hit();
             return tt_data.score();

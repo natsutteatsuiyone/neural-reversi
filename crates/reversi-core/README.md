@@ -100,7 +100,7 @@ time (the `cut_node` flag is also threaded through). One node, in order:
    score.
 4. **Wipeout shortcut** — if any move flips every opponent disc, return
    `MAX` immediately.
-5. **TT probe** — in NonPV nodes, `tt_data.can_cut(beta)` may produce an
+5. **TT probe** — in NonPV nodes, `TTEntryData::can_cut` may produce an
    immediate cutoff. In PV nodes only the TT best move is taken, for use in
    move ordering.
 6. **ETC** (Enhanced Transposition Cutoff) — peek at children through the TT
@@ -123,7 +123,7 @@ time (the `cut_node` flag is also threaded through). One node, in order:
     selectivity / is_endgame` and write back.
 
 `Bound` is `None=0 / Lower=1 / Upper=2 / Exact=3`. The bit patterns are
-chosen so `tt_data.can_cut(beta)` only needs a bitwise AND.
+chosen so the bound check inside `TTEntryData::can_cut` is a bitwise AND.
 
 ### Midgame root (`midgame::search_root`)
 

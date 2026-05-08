@@ -300,9 +300,7 @@ pub fn evaluate_depth3<NT: NodeType>(
 
     if !NT::PV_NODE
         && let Some(tt_data) = tt_probe_result.data()
-        && tt_data.depth() >= 3
-        && tt_data.selectivity() == Selectivity::None
-        && tt_data.can_cut(beta)
+        && tt_data.can_cut(beta, 3, Selectivity::None, false)
     {
         return tt_data.score();
     }

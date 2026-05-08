@@ -252,12 +252,28 @@ impl TTEntryData {
     /// Returns whether this entry allows an immediate return in a null-window
     /// search with target `beta`.
     ///
-    /// - If `score >= beta` (fail-high): Returns `true` if the entry contains
-    ///   a lower or exact bound.
-    /// - If `score < beta` (fail-low): Returns `true` if the entry contains
-    ///   an upper or exact bound.
+    /// The entry must satisfy all of:
+    /// - `require_endgame_entry` is `false`, or the entry was stored by an
+    ///   endgame search.
+    /// - The entry's depth is at least `depth`.
+    /// - The entry's selectivity is at least `selectivity` (numerically
+    ///   greater-or-equal — `Selectivity::None` is the most conservative).
+    /// - The bound covers `beta`: a lower/exact bound when `score >= beta`
+    ///   (fail-high), or an upper/exact bound when `score < beta` (fail-low).
     #[inline(always)]
-    pub fn can_cut(&self, beta: ScaledScore) -> bool {
+    pub fn can_cut(
+        &self,
+        beta: ScaledScore,
+        depth: Depth,
+        selectivity: Selectivity,
+        require_endgame_entry: bool,
+    ) -> bool {
+        if require_endgame_entry && !self.is_endgame() {
+            return false;
+        }
+        if self.depth() < depth || self.selectivity() < selectivity {
+            return false;
+        }
         let required = if self.score() >= beta {
             Bound::Lower as u8
         } else {
@@ -1112,8 +1128,18 @@ mod tests {
                 false,
             ),
         );
-        assert!(entry.read(&board).unwrap().can_cut(s(50)));
-        assert!(!entry.read(&board).unwrap().can_cut(s(150)));
+        assert!(
+            entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(50), 0, Selectivity::Level1, false)
+        );
+        assert!(
+            !entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(150), 0, Selectivity::Level1, false)
+        );
 
         entry.save(
             &board,
@@ -1127,8 +1153,18 @@ mod tests {
                 false,
             ),
         );
-        assert!(entry.read(&board).unwrap().can_cut(s(50)));
-        assert!(!entry.read(&board).unwrap().can_cut(s(20)));
+        assert!(
+            entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(50), 0, Selectivity::Level1, false)
+        );
+        assert!(
+            !entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(20), 0, Selectivity::Level1, false)
+        );
 
         entry.save(
             &board,
@@ -1142,8 +1178,38 @@ mod tests {
                 false,
             ),
         );
-        assert!(entry.read(&board).unwrap().can_cut(s(50)));
-        assert!(entry.read(&board).unwrap().can_cut(s(20)));
+        assert!(
+            entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(50), 0, Selectivity::Level1, false)
+        );
+        assert!(
+            entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(20), 0, Selectivity::Level1, false)
+        );
+
+        // Stricter depth, selectivity, or endgame requirement must reject the cutoff.
+        assert!(
+            !entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(50), 1, Selectivity::Level1, false)
+        );
+        assert!(
+            !entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(50), 0, Selectivity::Level2, false)
+        );
+        assert!(
+            !entry
+                .read(&board)
+                .unwrap()
+                .can_cut(s(50), 0, Selectivity::Level1, true)
+        );
     }
 
     /// Tests TranspositionTable creation with different sizes.
