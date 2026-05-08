@@ -498,7 +498,8 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -search::<NT, SS>(ctx, &next, depth, -beta, -alpha, thread, !cut_node);
+            let child_cut_node = !NT::PV_NODE && !cut_node;
+            let score = -search::<NT, SS>(ctx, &next, depth, -beta, -alpha, thread, child_cut_node);
             ctx.undo_pass();
             return score;
         } else {
@@ -626,9 +627,11 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     // Main move loop
+    let allow_speculative_split =
+        !NT::PV_NODE && !cut_node && depth <= SS::SPECULATIVE_SPLIT_MAX_DEPTH;
     while move_count < n_moves {
         // Parallel search split
-        if move_count >= 1
+        if (move_count >= 1 || allow_speculative_split)
             && depth >= SS::MIN_SPLIT_DEPTH
             && (n_moves - move_count) >= 2
             && thread.can_split()
@@ -677,7 +680,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 -(alpha + 1),
                 -alpha,
                 thread,
-                !cut_node,
+                reduction > 0 || !cut_node,
             );
 
             if reduction > 0 && score > alpha {
@@ -785,7 +788,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
                 -(alpha + 1),
                 -alpha,
                 thread,
-                !cut_node,
+                reduction > 0 || !cut_node,
             );
 
             if reduction > 0 && score > alpha {

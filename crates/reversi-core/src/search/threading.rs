@@ -42,7 +42,7 @@ const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
 const MAX_THREADS_PER_CUT_SPLITPOINT: u32 = 4;
 
 /// Maximum number of threads recorded in a non-cut-node split point mask.
-const MAX_THREADS_PER_NON_CUT_SPLITPOINT: u32 = 7;
+const MAX_THREADS_PER_NON_CUT_SPLITPOINT: u32 = 8;
 
 /// Interval between checks for abort flag in milliseconds.
 const CHECK_INTERVAL_MS: u64 = 1;
