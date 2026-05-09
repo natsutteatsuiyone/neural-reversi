@@ -666,10 +666,10 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         let mut score = -ScaledScore::INF;
 
-        let reduction =
-            compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
-
         if !NT::PV_NODE || move_count > 1 {
+            let reduction =
+                compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
+
             score = -search::<NonPV, SS>(
                 ctx,
                 &next,
@@ -774,10 +774,10 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         let alpha = split_point.state().alpha();
         let mut score = -ScaledScore::INF;
 
-        let reduction =
-            compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
-
         if !NT::PV_NODE || move_count > 1 {
+            let reduction =
+                compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
+
             score = -search::<NonPV, SS>(
                 ctx,
                 &next,
