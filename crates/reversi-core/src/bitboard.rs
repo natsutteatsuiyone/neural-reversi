@@ -794,17 +794,17 @@ fn get_potential_moves(p: u64, o: u64) -> u64 {
 #[inline(always)]
 fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512vl") => {
-            unsafe { get_moves_and_potential_avx512(player, opponent) }
-        }
-        all(target_arch = "x86_64", target_feature = "avx2") => {
-            unsafe { get_moves_and_potential_avx2(player, opponent) }
-        }
-        all(target_arch = "aarch64", target_feature = "neon") => {
-            unsafe { get_moves_and_potential_neon(player, opponent) }
-        }
-        _ => {
-            (get_moves(player, opponent), get_potential_moves(player, opponent))
+            all(target_arch = "x86_64", target_feature = "avx512vl") => {
+                unsafe { get_moves_and_potential_avx512(player, opponent) }
+            }
+            all(target_arch = "x86_64", target_feature = "avx2") => {
+                unsafe { get_moves_and_potential_avx2(player, opponent) }
+            }
+            all(target_arch = "aarch64", target_feature = "neon") => {
+                unsafe { get_moves_and_potential_neon(player, opponent) }
+            }
+            _ => {
+                (get_moves(player, opponent), get_potential_moves(player, opponent))
         }
     }
 }
@@ -822,20 +822,25 @@ fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
         VERTICAL_MASK as i64,
         HORIZONTAL_MASK as i64,
     );
-
     let empty = !(player | opponent);
+
+    let h_opp = opponent & HORIZONTAL_MASK;
+    let v_opp = opponent & VERTICAL_MASK;
+    let d_opp = opponent & DIAGONAL_MASK;
+    let potential = ((h_opp << 1)
+        | (h_opp >> 1)
+        | (v_opp << 8)
+        | (v_opp >> 8)
+        | (d_opp << 7)
+        | (d_opp >> 7)
+        | (d_opp << 9)
+        | (d_opp >> 9))
+        & empty;
 
     let pp = _mm256_set1_epi64x(player as i64);
     let oo = _mm256_set1_epi64x(opponent as i64);
 
     let masked_oo = _mm256_and_si256(oo, masks);
-
-    // Potential moves calculation
-    let pot_l = _mm256_sllv_epi64(masked_oo, sh);
-    let pot_r = _mm256_srlv_epi64(masked_oo, sh);
-    let pot_mm = _mm256_or_si256(pot_l, pot_r);
-
-    let potential = horizontal_or_u64!(pot_mm);
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
@@ -858,7 +863,7 @@ fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
     let moves = horizontal_or_u64!(mm);
 
-    (moves & empty, potential & empty)
+    (moves & empty, potential)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -874,19 +879,24 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
         VERTICAL_MASK as i64,
         HORIZONTAL_MASK as i64,
     );
-
     let empty = !(player | opponent);
+
+    let h_opp = opponent & HORIZONTAL_MASK;
+    let v_opp = opponent & VERTICAL_MASK;
+    let d_opp = opponent & DIAGONAL_MASK;
+    let potential = ((h_opp << 1)
+        | (h_opp >> 1)
+        | (v_opp << 8)
+        | (v_opp >> 8)
+        | (d_opp << 7)
+        | (d_opp >> 7)
+        | (d_opp << 9)
+        | (d_opp >> 9))
+        & empty;
 
     let pp = _mm256_set1_epi64x(player as i64);
     let oo = _mm256_set1_epi64x(opponent as i64);
     let masked_oo = _mm256_and_si256(oo, masks);
-
-    // Potential moves calculation
-    let pot_l = _mm256_sllv_epi64(masked_oo, sh);
-    let pot_r = _mm256_srlv_epi64(masked_oo, sh);
-    let pot_mm = _mm256_or_si256(pot_l, pot_r);
-
-    let potential = horizontal_or_u64!(pot_mm);
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
@@ -909,7 +919,7 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
     let moves = horizontal_or_u64!(mm);
 
-    (moves & empty, potential & empty)
+    (moves & empty, potential)
 }
 
 /// NEON-optimized implementation of `get_moves_and_potential`.
