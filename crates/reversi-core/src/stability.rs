@@ -321,24 +321,20 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, full: &[u64; 4
     stable
 }
 
-/// Returns a lower-bound estimate of the player's stable discs.
+/// Returns a conservative subset of the player's stable discs.
 ///
 /// Stable discs are pieces that can never be flipped for the rest of the game.
-/// The estimate combines three techniques:
+/// The result may underestimate but never overestimates: every returned disc
+/// is guaranteed stable. The pipeline runs in three stages:
 /// 1. Edge stability from a pre-computed lookup table
 /// 2. Full-line detection (discs on completely filled lines)
 /// 3. Contact propagation (discs adjacent to already-stable discs)
-///
 #[inline]
-pub fn stable_discs_lower_bound(player: Bitboard, opponent: Bitboard) -> Bitboard {
+pub fn get_stable_discs(player: Bitboard, opponent: Bitboard) -> Bitboard {
     let central_mask = player.bits() & 0x007e7e7e7e7e7e00;
     let mut full: [u64; 4] = [0; 4];
 
     let mut stable = get_stable_edge(player.bits(), opponent.bits());
-    if stable == 0 {
-        return Bitboard::new(0);
-    }
-
     stable |= get_full_lines(player.bits() | opponent.bits(), &mut full) & central_mask;
     Bitboard::new(get_stable_by_contact(central_mask, stable, &full))
 }
@@ -378,7 +374,7 @@ pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<S
         }
 
         let score =
-            SCORE_MAX - 2 * stable_discs_lower_bound(board.opponent, board.player).count() as Score;
+            SCORE_MAX - 2 * get_stable_discs(board.opponent, board.player).count() as Score;
         if score <= alpha {
             return Some(score);
         }
@@ -491,7 +487,7 @@ mod tests {
     #[test]
     fn stable_discs_are_available_without_runtime_init() {
         let player = Bitboard::new(0xff);
-        let stable = stable_discs_lower_bound(player, Bitboard::new(0));
+        let stable = get_stable_discs(player, Bitboard::new(0));
 
         assert_eq!(stable.bits() & 0xff, 0xff);
     }
