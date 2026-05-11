@@ -569,14 +569,17 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     let mut best_score = -ScaledScore::INF;
     let mut move_count: usize = 0;
 
-    if !NT::PV_NODE && n_moves > 1 && tt_move != Square::None {
-        // TT move first: search the TT move before expensive move ordering (NonPV only).
-        let flipped = flip::flip(tt_move, board.player, board.opponent);
-        debug_assert!(!flipped.is_empty());
+    if !NT::PV_NODE && (n_moves == 1 || tt_move != Square::None) {
+        let (sq, flipped) = if tt_move != Square::None {
+            (tt_move, flip::flip(tt_move, board.player, board.opponent))
+        } else {
+            let mv = move_list.get_move(0);
+            (mv.sq, mv.flipped)
+        };
         move_count = 1;
 
-        let next = board.make_move_with_flipped(flipped, tt_move);
-        ctx.update(tt_move, flipped);
+        let next = board.make_move_with_flipped(flipped, sq);
+        ctx.update(sq, flipped);
         let score = -search::<NonPV, SS>(
             ctx,
             &next,
@@ -586,7 +589,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             thread,
             !cut_node,
         );
-        ctx.undo(tt_move);
+        ctx.undo(sq);
 
         if thread.should_stop() {
             return ScaledScore::ZERO;
@@ -594,9 +597,8 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         best_score = score;
         if score > alpha {
-            best_move = tt_move;
+            best_move = sq;
             if score >= beta {
-                // Beta cutoff — skip move ordering entirely
                 ctx.tt.store(
                     tt_probe_result.index(),
                     board,
