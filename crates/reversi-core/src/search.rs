@@ -471,6 +471,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     thread: &Arc<Thread>,
     cut_node: bool,
 ) -> ScaledScore {
+    let all_node = !NT::PV_NODE && !cut_node;
     let org_alpha = alpha;
 
     if NT::PV_NODE {
@@ -626,8 +627,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     // Main move loop
-    let allow_speculative_split =
-        !NT::PV_NODE && !cut_node && depth <= SS::SPECULATIVE_SPLIT_MAX_DEPTH;
+    let allow_speculative_split = all_node && depth <= SS::SPECULATIVE_SPLIT_MAX_DEPTH;
     while move_count < n_moves {
         // Parallel search split
         if (move_count >= 1 || allow_speculative_split)
