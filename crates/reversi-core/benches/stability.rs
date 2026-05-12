@@ -80,9 +80,5 @@ fn bench_edge_table_build(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_get_stable_discs,
-    bench_edge_table_build
-);
+criterion_group!(benches, bench_get_stable_discs, bench_edge_table_build);
 criterion_main!(benches);
