@@ -21,9 +21,34 @@ use crate::board::Board;
 use crate::constants::{BOARD_SQUARES, MAX_PLY};
 use crate::search::side_to_move::SideToMove;
 use crate::square::Square;
+#[path = "pattern_table_data.rs"]
+mod pattern_table_data;
+pub use pattern_table_data::NUM_PATTERN_FEATURES;
+use pattern_table_data::{
+    EVAL_F2X_RAW, FEATURE_VECTOR_SIZE, SQ_NONE, compute_pattern_feature_index_raw,
+};
 
-/// Number of distinct pattern features used for evaluation.
-pub const NUM_PATTERN_FEATURES: usize = 32;
+const _: () = assert!(Square::None as u8 == SQ_NONE);
+const _: () = assert!(BOARD_SQUARES == pattern_table_data::BOARD_SQUARES);
+
+// Without this, a typo in `sq::*` would silently miscompile `EVAL_F2X_RAW`
+// into an in-range (wrong) `Square` via the `transmute` in `build_eval_f2x`.
+macro_rules! assert_sq_matches_square {
+    ($($s:ident),* $(,)?) => {
+        $(const _: () = assert!(pattern_table_data::sq::$s == Square::$s as u8);)*
+    };
+}
+#[rustfmt::skip]
+assert_sq_matches_square!(
+    A1, B1, C1, D1, E1, F1, G1, H1,
+    A2, B2, C2, D2, E2, F2, G2, H2,
+    A3, B3, C3, D3, E3, F3, G3, H3,
+    A4, B4, C4, D4, E4, F4, G4, H4,
+    A5, B5, C5, D5, E5, F5, G5, H5,
+    A6, B6, C6, D6, E6, F6, G6, H6,
+    A7, B7, C7, D7, E7, F7, G7, H7,
+    A8, B8, C8, D8, E8, F8, G8, H8,
+);
 
 /// Alias for NUM_PATTERN_FEATURES for compatibility.
 pub const NUM_FEATURES: usize = NUM_PATTERN_FEATURES;
@@ -34,19 +59,16 @@ const MAX_FEATURES_PER_SQUARE: usize = 5;
 /// Maximum number of features per square as `u32` for loop comparisons.
 const MAX_FEATURES_PER_SQUARE_U32: u32 = MAX_FEATURES_PER_SQUARE as u32;
 
-/// Size of the pattern feature vector (padded to 32 for SIMD alignment).
-const FEATURE_VECTOR_SIZE: usize = 32;
-
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-const FLIP_BYTE_TABLES: usize = BOARD_SQUARES / 8;
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-const FLIP_BYTE_VALUES: usize = 256;
-
-/// Base for pattern encoding (ternary: empty=2, opponent=1, player=0).
-const PATTERN_BASE: u32 = 3;
-
-/// Type alias for better readability.
-type Sq = Square;
+#[cfg(all(
+    target_arch = "x86_64",
+    any(target_feature = "avx512bw", target_feature = "avx2")
+))]
+use pattern_table_data::{FLIP_U16_BITS, FLIP_U16_TABLES, FLIP_U16_VALUES};
+#[cfg(all(
+    target_arch = "x86_64",
+    any(target_feature = "avx512bw", target_feature = "avx2")
+))]
+const FLIP_U16_MASK: u64 = (FLIP_U16_VALUES as u64) - 1;
 
 /// Maps a feature index to the board squares it covers.
 ///
@@ -56,8 +78,7 @@ type Sq = Square;
 pub struct FeatureToCoordinate {
     /// Number of squares in this pattern (up to 10).
     pub n_square: usize,
-    /// Array of squares that make up this pattern.
-    /// Uses Square::None for unused slots.
+    /// Slots `n_square..` are filled with `Square::None`.
     pub squares: [Square; 10],
 }
 
@@ -178,49 +199,31 @@ impl CoordinateToFeature {
     }
 }
 
-/// Board squares that make up each pattern.
-#[rustfmt::skip]
-pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = [
-    FeatureToCoordinate::new(8, [Sq::C2, Sq::D2, Sq::E2, Sq::F2, Sq::C3, Sq::D3, Sq::E3, Sq::F3, Sq::None, Sq::None]),  // 0: inner top-left
-    FeatureToCoordinate::new(8, [Sq::C7, Sq::D7, Sq::E7, Sq::F7, Sq::C6, Sq::D6, Sq::E6, Sq::F6, Sq::None, Sq::None]),  // 1: inner bottom-left
-    FeatureToCoordinate::new(8, [Sq::B3, Sq::B4, Sq::B5, Sq::B6, Sq::C3, Sq::C4, Sq::C5, Sq::C6, Sq::None, Sq::None]),  // 2: inner top-left
-    FeatureToCoordinate::new(8, [Sq::G3, Sq::G4, Sq::G5, Sq::G6, Sq::F3, Sq::F4, Sq::F5, Sq::F6, Sq::None, Sq::None]),  // 3: inner top-right
+const fn build_eval_f2x() -> [FeatureToCoordinate; NUM_PATTERN_FEATURES] {
+    let mut out = [FeatureToCoordinate {
+        n_square: 0,
+        squares: [Square::None; 10],
+    }; NUM_PATTERN_FEATURES];
+    let mut i = 0;
+    while i < NUM_PATTERN_FEATURES {
+        let (n_square, raw_squares) = EVAL_F2X_RAW[i];
+        let mut squares = [Square::None; 10];
+        let mut j = 0;
+        while j < 10 {
+            // SAFETY: `EVAL_F2X_RAW` only stores values in `0..=64`, every one
+            // of which is a valid `Square` discriminant (asserted above).
+            squares[j] = unsafe { std::mem::transmute::<u8, Square>(raw_squares[j]) };
+            j += 1;
+        }
+        out[i] = FeatureToCoordinate { n_square, squares };
+        i += 1;
+    }
+    out
+}
 
-    FeatureToCoordinate::new(8, [Sq::A1, Sq::B2, Sq::C3, Sq::D4, Sq::E5, Sq::F6, Sq::G7, Sq::H8, Sq::None, Sq::None]),  // 4: diagonal A1-H8
-    FeatureToCoordinate::new(8, [Sq::H1, Sq::G2, Sq::F3, Sq::E4, Sq::D5, Sq::C6, Sq::B7, Sq::A8, Sq::None, Sq::None]),  // 5: diagonal H1-A8
-
-    FeatureToCoordinate::new(8, [Sq::C4, Sq::D4, Sq::E4, Sq::F4, Sq::C5, Sq::D5, Sq::E5, Sq::F5, Sq::None, Sq::None]),  // 6: center 2x4 horizontal
-    FeatureToCoordinate::new(8, [Sq::D3, Sq::E3, Sq::D4, Sq::E4, Sq::D5, Sq::E5, Sq::D6, Sq::E6, Sq::None, Sq::None]),  // 7: center 2x4 vertical
-
-    FeatureToCoordinate::new(8, [Sq::A1, Sq::B1, Sq::C1, Sq::D1, Sq::E1, Sq::F1, Sq::G1, Sq::H1, Sq::None, Sq::None]),  // 8: row 1
-    FeatureToCoordinate::new(8, [Sq::A8, Sq::B8, Sq::C8, Sq::D8, Sq::E8, Sq::F8, Sq::G8, Sq::H8, Sq::None, Sq::None]),  // 9: row 8
-    FeatureToCoordinate::new(8, [Sq::A1, Sq::A2, Sq::A3, Sq::A4, Sq::A5, Sq::A6, Sq::A7, Sq::A8, Sq::None, Sq::None]),  // 10: column A
-    FeatureToCoordinate::new(8, [Sq::H1, Sq::H2, Sq::H3, Sq::H4, Sq::H5, Sq::H6, Sq::H7, Sq::H8, Sq::None, Sq::None]),  // 11: column H
-
-    FeatureToCoordinate::new(8, [Sq::B1, Sq::C1, Sq::D1, Sq::E1, Sq::B2, Sq::C2, Sq::D2, Sq::E2, Sq::None, Sq::None]),  // 12: top edge 2x4
-    FeatureToCoordinate::new(8, [Sq::G1, Sq::F1, Sq::E1, Sq::D1, Sq::G2, Sq::F2, Sq::E2, Sq::D2, Sq::None, Sq::None]),  // 13: top edge 2x4 (mirrored)
-    FeatureToCoordinate::new(8, [Sq::B8, Sq::C8, Sq::D8, Sq::E8, Sq::B7, Sq::C7, Sq::D7, Sq::E7, Sq::None, Sq::None]),  // 14: bottom edge 2x4
-    FeatureToCoordinate::new(8, [Sq::G8, Sq::F8, Sq::E8, Sq::D8, Sq::G7, Sq::F7, Sq::E7, Sq::D7, Sq::None, Sq::None]),  // 15: bottom edge 2x4 (mirrored)
-    FeatureToCoordinate::new(8, [Sq::A2, Sq::A3, Sq::A4, Sq::A5, Sq::B2, Sq::B3, Sq::B4, Sq::B5, Sq::None, Sq::None]),  // 16: left edge 2x4
-    FeatureToCoordinate::new(8, [Sq::A7, Sq::A6, Sq::A5, Sq::A4, Sq::B7, Sq::B6, Sq::B5, Sq::B4, Sq::None, Sq::None]),  // 17: left edge 2x4 (mirrored)
-    FeatureToCoordinate::new(8, [Sq::H2, Sq::H3, Sq::H4, Sq::H5, Sq::G2, Sq::G3, Sq::G4, Sq::G5, Sq::None, Sq::None]),  // 18: right edge 2x4
-    FeatureToCoordinate::new(8, [Sq::H7, Sq::H6, Sq::H5, Sq::H4, Sq::G7, Sq::G6, Sq::G5, Sq::G4, Sq::None, Sq::None]),  // 19: right edge 2x4 (mirrored)
-
-    FeatureToCoordinate::new(9, [Sq::A1, Sq::B1, Sq::C1, Sq::A2, Sq::B2, Sq::C2, Sq::A3, Sq::B3, Sq::C3, Sq::None]),  // 20: corner A1 3x3
-    FeatureToCoordinate::new(9, [Sq::H1, Sq::G1, Sq::F1, Sq::H2, Sq::G2, Sq::F2, Sq::H3, Sq::G3, Sq::F3, Sq::None]),  // 21: corner H1 3x3
-    FeatureToCoordinate::new(9, [Sq::A8, Sq::B8, Sq::C8, Sq::A7, Sq::B7, Sq::C7, Sq::A6, Sq::B6, Sq::C6, Sq::None]),  // 22: corner A8 3x3
-    FeatureToCoordinate::new(9, [Sq::H8, Sq::G8, Sq::F8, Sq::H7, Sq::G7, Sq::F7, Sq::H6, Sq::G6, Sq::F6, Sq::None]),  // 23: corner H8 3x3
-
-    FeatureToCoordinate::new(9, [Sq::B2, Sq::C2, Sq::D2, Sq::B3, Sq::C3, Sq::D3, Sq::B4, Sq::C4, Sq::D4, Sq::None]),  // 24: center 3x3 NW
-    FeatureToCoordinate::new(9, [Sq::G2, Sq::F2, Sq::E2, Sq::G3, Sq::F3, Sq::E3, Sq::G4, Sq::F4, Sq::E4, Sq::None]),  // 25: center 3x3 NE
-    FeatureToCoordinate::new(9, [Sq::B7, Sq::C7, Sq::D7, Sq::B6, Sq::C6, Sq::D6, Sq::B5, Sq::C5, Sq::D5, Sq::None]),  // 26: center 3x3 SW
-    FeatureToCoordinate::new(9, [Sq::G7, Sq::F7, Sq::E7, Sq::G6, Sq::F6, Sq::E6, Sq::G5, Sq::F5, Sq::E5, Sq::None]),  // 27: center 3x3 SE
-
-    FeatureToCoordinate::new(7, [Sq::B1, Sq::C2, Sq::D3, Sq::E4, Sq::F5, Sq::G6, Sq::H7, Sq::None, Sq::None, Sq::None]),  // 28: adjacent diagonal B1-H7
-    FeatureToCoordinate::new(7, [Sq::A2, Sq::B3, Sq::C4, Sq::D5, Sq::E6, Sq::F7, Sq::G8, Sq::None, Sq::None, Sq::None]),  // 29: adjacent diagonal A2-G8
-    FeatureToCoordinate::new(7, [Sq::G1, Sq::F2, Sq::E3, Sq::D4, Sq::C5, Sq::B6, Sq::A7, Sq::None, Sq::None, Sq::None]),  // 30: adjacent diagonal G1-A7
-    FeatureToCoordinate::new(7, [Sq::H2, Sq::G3, Sq::F4, Sq::E5, Sq::D6, Sq::C7, Sq::B8, Sq::None, Sq::None, Sq::None]),  // 31: adjacent diagonal H2-B8
-];
+/// Board squares that make up each pattern. Source of truth lives in
+/// [`pattern_table_data::EVAL_F2X_RAW`]; this is the typed wrapper.
+pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = build_eval_f2x();
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
 pub const fn calc_pattern_size(pattern_index: usize) -> usize {
@@ -264,49 +267,6 @@ pub const fn calc_feature_offsets() -> [usize; NUM_PATTERN_FEATURES] {
 /// Precomputed offsets for each pattern feature in the feature vector.
 pub const PATTERN_FEATURE_OFFSETS: [usize; NUM_PATTERN_FEATURES] = calc_feature_offsets();
 
-/// Returns the base-3 place value of a single square within a pattern's
-/// input ID.
-///
-/// Walks `feature.squares` from back to front, multiplying a running
-/// counter by `PATTERN_BASE` (3) at every occupied slot. When the unique
-/// bit set in `board` lines up with one of the squares, the current
-/// multiplier is returned as the place value; otherwise the result is zero.
-///
-/// `board` is expected to have at most one bit set: each per-square entry
-/// of `EVAL_FEATURE` is generated by calling this function with a
-/// single-bit mask. The returned value is the delta unit for that square's
-/// ternary digit, not the player-disc contribution itself; player,
-/// opponent, and empty squares are encoded as digits 0, 1, and 2.
-const fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate) -> u32 {
-    let mut multiplier = 0u32;
-    let mut feature_index = 0u32;
-    let mut i = feature.n_square;
-
-    // Process squares in reverse order to match feature encoding
-    while i > 0 {
-        i -= 1;
-        let square = feature.squares[i];
-
-        // Skip None squares
-        if matches!(square, Square::None) {
-            continue;
-        }
-
-        // Update multiplier for base-3 encoding
-        multiplier = if multiplier == 0 {
-            1
-        } else {
-            multiplier * PATTERN_BASE
-        };
-
-        // If this is the square we're checking, record its position
-        if board & (1u64 << (square as u8)) != 0 {
-            feature_index = multiplier;
-        }
-    }
-    feature_index
-}
-
 /// Generates the EVAL_FEATURE lookup table at compile time.
 const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
     let mut result = [PatternFeature::new(); BOARD_SQUARES];
@@ -319,8 +279,9 @@ const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
         // Compute feature index for each pattern
         let mut pattern_idx = 0;
         while pattern_idx < NUM_PATTERN_FEATURES {
+            let (n_square, squares) = EVAL_F2X_RAW[pattern_idx];
             feature_values[pattern_idx] =
-                compute_pattern_feature_index(board, &EVAL_F2X[pattern_idx]) as u16;
+                compute_pattern_feature_index_raw(board, n_square, squares) as u16;
             pattern_idx += 1;
         }
 
@@ -331,45 +292,13 @@ const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
     result
 }
 
-/// Generates byte-chunk sums of `EVAL_FEATURE` for every 8-bit mask.
-///
-/// `EVAL_FEATURE_BYTE_SUM[byte][mask]` is equivalent to summing
-/// `EVAL_FEATURE[sq]` for all set bits in that bitboard byte. This trades
-/// the variable per-flipped-disc loop for eight fixed AVX-512 loads. The table
-/// is 8 * 256 * 64 bytes = 128 KiB, which is intended for the AVX-512 hot path.
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-const fn generate_eval_feature_byte_sum() -> [[PatternFeature; FLIP_BYTE_VALUES]; FLIP_BYTE_TABLES]
-{
-    let mut result = [[PatternFeature::new(); FLIP_BYTE_VALUES]; FLIP_BYTE_TABLES];
-    let mut byte_idx = 0;
-
-    while byte_idx < FLIP_BYTE_TABLES {
-        let mut mask = 0;
-        while mask < FLIP_BYTE_VALUES {
-            let mut feature_values = [0u16; FEATURE_VECTOR_SIZE];
-            let mut bit = 0;
-
-            while bit < 8 {
-                if (mask & (1usize << bit)) != 0 {
-                    let square_idx = byte_idx * 8 + bit;
-                    let mut k = 0;
-                    while k < FEATURE_VECTOR_SIZE {
-                        feature_values[k] =
-                            feature_values[k].wrapping_add(EVAL_FEATURE[square_idx].data[k]);
-                        k += 1;
-                    }
-                }
-                bit += 1;
-            }
-
-            result[byte_idx][mask] = PatternFeature::from_array(feature_values);
-            mask += 1;
-        }
-        byte_idx += 1;
-    }
-
-    result
-}
+/// Type alias for the 16-bit chunk-sum lookup. The table itself is generated
+/// by `build.rs` and embedded via `include_bytes!`; see [`EVAL_FEATURE_U16_SUM`].
+#[cfg(all(
+    target_arch = "x86_64",
+    any(target_feature = "avx512bw", target_feature = "avx2")
+))]
+type EvalFeatureU16SumTable = [[PatternFeature; FLIP_U16_VALUES]; FLIP_U16_TABLES];
 
 /// Generates the EVAL_X2F lookup table at compile time.
 ///
@@ -393,7 +322,8 @@ const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
         // Find all features that include this square
         let mut feature_idx = 0;
         while feature_idx < NUM_PATTERN_FEATURES {
-            let feature_value = compute_pattern_feature_index(board, &EVAL_F2X[feature_idx]);
+            let (n_square, raw_squares) = EVAL_F2X_RAW[feature_idx];
+            let feature_value = compute_pattern_feature_index_raw(board, n_square, raw_squares);
             if feature_value > 0 {
                 if n_features >= MAX_FEATURES_PER_SQUARE_U32 {
                     panic!(
@@ -441,10 +371,30 @@ const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
 #[allow(dead_code)]
 const EVAL_FEATURE: [PatternFeature; BOARD_SQUARES] = generate_eval_feature();
 
-/// Byte-chunk aggregate lookup for the AVX-512 update path.
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-static EVAL_FEATURE_BYTE_SUM: [[PatternFeature; FLIP_BYTE_VALUES]; FLIP_BYTE_TABLES] =
-    generate_eval_feature_byte_sum();
+/// Chunk-sum lookup: a 64-bit `flipped` bitboard reduces to four
+/// `EVAL_FEATURE_U16_SUM[chunk][mask]` loads summed elementwise. Emitted by
+/// `build.rs` because const-eval is too slow for the 16 MiB payload.
+#[cfg(all(
+    target_arch = "x86_64",
+    any(target_feature = "avx512bw", target_feature = "avx2")
+))]
+static EVAL_FEATURE_U16_SUM: EvalFeatureU16SumTable = {
+    const TABLE_BYTES: usize = std::mem::size_of::<EvalFeatureU16SumTable>();
+    const _: () =
+        assert!(TABLE_BYTES == FLIP_U16_TABLES * FLIP_U16_VALUES * FEATURE_VECTOR_SIZE * 2);
+
+    // SAFETY: size match is statically asserted above; `x86_64` is LE so
+    // the on-disk LE bytes are native-order. The transmute is by-value, so
+    // the `static`'s 64-byte alignment (from `PatternFeature`'s
+    // `#[repr(align(64))]`) is what backs the aligned SIMD loads — not the
+    // align-1 of the `include_bytes!` source.
+    unsafe {
+        std::mem::transmute::<[u8; TABLE_BYTES], EvalFeatureU16SumTable>(*include_bytes!(concat!(
+            env!("OUT_DIR"),
+            "/eval_feature_u16_sum.bin"
+        )))
+    }
+};
 
 /// Reverse mapping: square -> list of `(pattern_index, power)`.
 ///
@@ -584,33 +534,24 @@ impl PatternFeatures {
         unsafe {
             let ef = &EVAL_FEATURE;
             let f = _mm512_load_si512(ef.get_unchecked(sq.index()).as_m512_ptr());
-            let bytes = flipped.bits().to_le_bytes();
+            let flipped_bits = flipped.bits();
 
-            let load_byte_sum = |i: usize| {
+            let load_u16_sum = |i: usize| {
                 _mm512_load_si512(
-                    EVAL_FEATURE_BYTE_SUM
+                    EVAL_FEATURE_U16_SUM
                         .get_unchecked(i)
-                        .get_unchecked(bytes[i] as usize)
+                        .get_unchecked(
+                            ((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize,
+                        )
                         .as_m512_ptr(),
                 )
             };
-            let s0 = load_byte_sum(0);
-            let s1 = load_byte_sum(1);
-            let s2 = load_byte_sum(2);
-            let s3 = load_byte_sum(3);
-            let s4 = load_byte_sum(4);
-            let s5 = load_byte_sum(5);
-            let s6 = load_byte_sum(6);
-            let s7 = load_byte_sum(7);
+            let s0 = load_u16_sum(0);
+            let s1 = load_u16_sum(1);
+            let s2 = load_u16_sum(2);
+            let s3 = load_u16_sum(3);
 
-            let sum01 = _mm512_add_epi16(s0, s1);
-            let sum23 = _mm512_add_epi16(s2, s3);
-            let sum45 = _mm512_add_epi16(s4, s5);
-            let sum67 = _mm512_add_epi16(s6, s7);
-            let sum = _mm512_add_epi16(
-                _mm512_add_epi16(sum01, sum23),
-                _mm512_add_epi16(sum45, sum67),
-            );
+            let sum = _mm512_add_epi16(_mm512_add_epi16(s0, s1), _mm512_add_epi16(s2, s3));
 
             let f_minus_sum = _mm512_sub_epi16(f, sum);
             let twof_plus_sum = _mm512_add_epi16(_mm512_add_epi16(f, f), sum);
@@ -650,36 +591,26 @@ impl PatternFeatures {
             let f1 = _mm256_load_si256(f_ptr.add(1));
 
             let flipped_bits = flipped.bits();
-            let first_idx = flipped_bits.trailing_zeros() as usize;
-            let mut bits = flipped_bits & (flipped_bits - 1);
+            let load_u16_sum = |i: usize| {
+                EVAL_FEATURE_U16_SUM
+                    .get_unchecked(i)
+                    .get_unchecked(((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize)
+                    .as_m256_ptr()
+            };
 
-            let first_fp = ef.get_unchecked(first_idx).as_m256_ptr();
-            let mut sum0 = _mm256_load_si256(first_fp);
-            let mut sum1 = _mm256_load_si256(first_fp.add(1));
+            let s0 = load_u16_sum(0);
+            let s1 = load_u16_sum(1);
+            let s2 = load_u16_sum(2);
+            let s3 = load_u16_sum(3);
 
-            if bits != 0 {
-                loop {
-                    let idx1 = bits.trailing_zeros() as usize;
-                    bits &= bits - 1;
-                    let fp1 = ef.get_unchecked(idx1).as_m256_ptr();
-                    sum0 = _mm256_add_epi16(sum0, _mm256_load_si256(fp1));
-                    sum1 = _mm256_add_epi16(sum1, _mm256_load_si256(fp1.add(1)));
-
-                    if bits == 0 {
-                        break;
-                    }
-
-                    let idx2 = bits.trailing_zeros() as usize;
-                    bits &= bits - 1;
-                    let fp2 = ef.get_unchecked(idx2).as_m256_ptr();
-                    sum0 = _mm256_add_epi16(sum0, _mm256_load_si256(fp2));
-                    sum1 = _mm256_add_epi16(sum1, _mm256_load_si256(fp2.add(1)));
-
-                    if bits == 0 {
-                        break;
-                    }
-                }
-            }
+            let sum0 = _mm256_add_epi16(
+                _mm256_add_epi16(_mm256_load_si256(s0), _mm256_load_si256(s1)),
+                _mm256_add_epi16(_mm256_load_si256(s2), _mm256_load_si256(s3)),
+            );
+            let sum1 = _mm256_add_epi16(
+                _mm256_add_epi16(_mm256_load_si256(s0.add(1)), _mm256_load_si256(s1.add(1))),
+                _mm256_add_epi16(_mm256_load_si256(s2.add(1)), _mm256_load_si256(s3.add(1))),
+            );
 
             let f2_0 = _mm256_slli_epi16(f0, 1);
             let f2_1 = _mm256_slli_epi16(f1, 1);
@@ -1080,6 +1011,36 @@ fn get_square_color(board: &Board, sq: Square) -> u16 {
 mod tests {
     use super::*;
 
+    fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate) -> u32 {
+        let squares = feature.squares.map(|s| s as u8);
+        compute_pattern_feature_index_raw(board, feature.n_square, squares)
+    }
+
+    #[cfg(all(
+        target_arch = "x86_64",
+        any(target_feature = "avx2", target_feature = "avx512bw")
+    ))]
+    #[track_caller]
+    fn assert_features_match(
+        label: &str,
+        expected: &PatternFeatures,
+        actual: &PatternFeatures,
+        ply: usize,
+    ) {
+        for i in 0..NUM_PATTERN_FEATURES {
+            assert_eq!(
+                expected.p_feature(ply)[i],
+                actual.p_feature(ply)[i],
+                "{label} p[{i}]"
+            );
+            assert_eq!(
+                expected.o_feature(ply)[i],
+                actual.o_feature(ply)[i],
+                "{label} o[{i}]"
+            );
+        }
+    }
+
     #[test]
     fn test_pattern_feature_new() {
         let pf = PatternFeature::new();
@@ -1449,6 +1410,30 @@ mod tests {
     fn test_num_features_constant() {
         assert_eq!(NUM_FEATURES, NUM_PATTERN_FEATURES);
         assert_eq!(NUM_PATTERN_FEATURES, 32);
+    }
+
+    #[cfg(all(
+        target_arch = "x86_64",
+        any(target_feature = "avx512bw", target_feature = "avx2")
+    ))]
+    #[test]
+    fn test_eval_feature_u16_sum_layout() {
+        // Spot-check the embedded blob's slots; the DP itself is exercised
+        // transitively by every search that hits the SIMD update path.
+        for (chunk_idx, chunk) in EVAL_FEATURE_U16_SUM.iter().enumerate() {
+            assert_eq!(
+                chunk[0].data, [0u16; FEATURE_VECTOR_SIZE],
+                "chunk {chunk_idx}"
+            );
+            for bit in 0..FLIP_U16_BITS {
+                let square_idx = chunk_idx * FLIP_U16_BITS + bit;
+                assert_eq!(
+                    chunk[1 << bit].data,
+                    EVAL_FEATURE[square_idx].data,
+                    "chunk {chunk_idx}, bit {bit}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2068,6 +2053,147 @@ mod tests {
                 "AVX2 Opponent multi-flip o[{}] mismatch",
                 i
             );
+        }
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn run_avx512_against_fallback(
+        board: &Board,
+        ply: usize,
+        sq: Square,
+        flipped: Bitboard,
+        side: SideToMove,
+        label: &str,
+    ) {
+        let mut pf_fallback = PatternFeatures::new(board, ply);
+        pf_fallback.update_fallback(sq, flipped, ply, side);
+
+        let mut pf_avx512 = PatternFeatures::new(board, ply);
+        unsafe {
+            pf_avx512.update_avx512(sq, flipped, ply, side);
+        }
+
+        assert_features_match(label, &pf_fallback, &pf_avx512, ply + 1);
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[test]
+    fn test_avx512_fallback_equivalence() {
+        run_avx512_against_fallback(
+            &Board::new(),
+            0,
+            Square::D3,
+            Bitboard::new(1u64 << Square::D4.index()),
+            SideToMove::Player,
+            "AVX-512 Player",
+        );
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[test]
+    fn test_avx512_fallback_equivalence_multiple_positions() {
+        let cases = [
+            (
+                vec![Square::D5, Square::E4],
+                vec![Square::D4, Square::E5],
+                Square::C4,
+                vec![Square::D4],
+            ),
+            (
+                vec![Square::D5, Square::E4, Square::C4],
+                vec![Square::E5, Square::F4],
+                Square::G4,
+                vec![Square::F4],
+            ),
+        ];
+
+        for (player_sqs, opponent_sqs, move_sq, flip_sqs) in cases {
+            let player = player_sqs.iter().fold(0u64, |b, s| b | 1u64 << s.index());
+            let opponent = opponent_sqs.iter().fold(0u64, |b, s| b | 1u64 << s.index());
+            let flipped = Bitboard::new(flip_sqs.iter().fold(0u64, |b, s| b | 1u64 << s.index()));
+
+            run_avx512_against_fallback(
+                &Board::from_bitboards(player, opponent),
+                5,
+                move_sq,
+                flipped,
+                SideToMove::Player,
+                &format!("AVX-512 Player {move_sq:?}"),
+            );
+        }
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[test]
+    fn test_avx512_fallback_equivalence_opponent_move() {
+        run_avx512_against_fallback(
+            &Board::new(),
+            0,
+            Square::D3,
+            Bitboard::new(1u64 << Square::D5.index()),
+            SideToMove::Opponent,
+            "AVX-512 Opponent",
+        );
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[test]
+    fn test_avx512_fallback_equivalence_opponent_multiple_flips() {
+        let player = (1u64 << Square::B1.index())
+            | (1u64 << Square::C1.index())
+            | (1u64 << Square::D1.index());
+        let opponent = 1u64 << Square::A1.index();
+        let flipped = Bitboard::new(player);
+
+        run_avx512_against_fallback(
+            &Board::from_bitboards(player, opponent),
+            5,
+            Square::E1,
+            flipped,
+            SideToMove::Opponent,
+            "AVX-512 Opponent multi-flip",
+        );
+    }
+
+    // Diagonal flip spanning all four 16-bit chunks of `flipped`; catches a
+    // swap among the four `load_u16_sum(i)` calls in the SIMD update paths.
+    #[cfg(all(
+        target_arch = "x86_64",
+        any(target_feature = "avx2", target_feature = "avx512bw")
+    ))]
+    #[test]
+    fn test_simd_fallback_equivalence_all_chunks() {
+        let player = 1u64 << Square::A1.index();
+        let opponent = (1u64 << Square::B2.index())
+            | (1u64 << Square::C3.index())
+            | (1u64 << Square::D4.index())
+            | (1u64 << Square::E5.index())
+            | (1u64 << Square::F6.index())
+            | (1u64 << Square::G7.index());
+        let board = Board::from_bitboards(player, opponent);
+        let ply = 3;
+        let sq = Square::H8;
+        let flipped = Bitboard::new(opponent);
+
+        let mut pf_fallback = PatternFeatures::new(&board, ply);
+        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Player);
+
+        #[cfg(target_feature = "avx2")]
+        {
+            let mut pf_avx2 = PatternFeatures::new(&board, ply);
+            unsafe {
+                pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Player);
+            }
+            assert_features_match("AVX2 all-chunks", &pf_fallback, &pf_avx2, ply + 1);
+        }
+
+        #[cfg(target_feature = "avx512bw")]
+        {
+            let mut pf_avx512 = PatternFeatures::new(&board, ply);
+            unsafe {
+                pf_avx512.update_avx512(sq, flipped, ply, SideToMove::Player);
+            }
+            assert_features_match("AVX-512 all-chunks", &pf_fallback, &pf_avx512, ply + 1);
         }
     }
 
