@@ -352,11 +352,18 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
     99, 99, 99, 99, 99, 99, 99, 99   // 56-63 empties (no stable squares)
 ];
 
-/// Returns whether the opponent has enough discs that stability can possibly
+const STABILITY_CUTOFF_DISC_MARGIN: Score = 8;
+
+/// Returns whether the opponent has enough discs that stability can plausibly
 /// prove `score <= alpha`.
+///
+/// Requires the opponent to clear the strict cutoff bound by
+/// [`STABILITY_CUTOFF_DISC_MARGIN`]: `get_stable_discs` typically returns
+/// far fewer stable discs than `opponent.count()`, so the sweep is skipped
+/// when surplus is thin.
 #[inline(always)]
 fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: Score) -> bool {
-    SCORE_MAX - 2 * opponent_count as Score <= alpha
+    2 * opponent_count as Score >= SCORE_MAX - alpha + 2 * STABILITY_CUTOFF_DISC_MARGIN
 }
 
 /// Attempts to prove an alpha cutoff using stability analysis.
@@ -476,11 +483,15 @@ mod tests {
     }
 
     #[test]
-    fn stability_cutoff_candidate_uses_opponent_disc_upper_bound() {
-        assert!(!has_enough_opponent_discs_for_cutoff(31, 1));
-        assert!(has_enough_opponent_discs_for_cutoff(31, 2));
-        assert!(!has_enough_opponent_discs_for_cutoff(8, 47));
-        assert!(has_enough_opponent_discs_for_cutoff(8, 48));
+    fn stability_cutoff_candidate_uses_disc_margin_heuristic() {
+        let m = STABILITY_CUTOFF_DISC_MARGIN as u32;
+        assert!(!has_enough_opponent_discs_for_cutoff(31 + m, 1));
+        assert!(has_enough_opponent_discs_for_cutoff(31 + m, 2));
+        assert!(!has_enough_opponent_discs_for_cutoff(8 + m, 47));
+        assert!(has_enough_opponent_discs_for_cutoff(8 + m, 48));
+
+        assert!(!has_enough_opponent_discs_for_cutoff(31, 2));
+        assert!(!has_enough_opponent_discs_for_cutoff(8, 48));
     }
 
     #[test]
