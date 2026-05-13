@@ -345,6 +345,17 @@ impl MoveList {
             false
         };
 
+        const MOBILITY_SCALE_SEARCH: i32 = ScaledScore::SCALE * 15 / 8;
+        const POTENTIAL_MOBILITY_SCALE_SEARCH: i32 = ScaledScore::SCALE;
+        const MOBILITY_SCALE_SKIP: i32 = ScaledScore::SCALE * 8;
+        const POTENTIAL_MOBILITY_SCALE_SKIP: i32 = ScaledScore::SCALE;
+
+        let (mobility_scale, potential_mobility_scale) = if skip_search_ordering {
+            (MOBILITY_SCALE_SKIP, POTENTIAL_MOBILITY_SCALE_SKIP)
+        } else {
+            (MOBILITY_SCALE_SEARCH, POTENTIAL_MOBILITY_SCALE_SEARCH)
+        };
+
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
         // reaching this loop, so `mv.flipped == board.opponent` cannot occur here.
         for mv in self.iter_mut() {
@@ -362,14 +373,11 @@ impl MoveList {
                 }
 
                 if SS::IS_ENDGAME {
-                    const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
-                    const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
-
                     let (moves, potential) = next.get_moves_and_potential();
                     let mobility = moves.corner_weighted_count() as i32;
                     let potential_mobility = potential.corner_weighted_count() as i32;
-                    mv.value -= mobility * MOBILITY_SCALE;
-                    mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
+                    mv.value -= mobility * mobility_scale;
+                    mv.value -= potential_mobility * potential_mobility_scale;
                 }
             }
         }
