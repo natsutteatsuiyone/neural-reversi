@@ -331,11 +331,16 @@ impl MoveList {
         };
 
         // All-nodes search every move regardless of order, so shallow-search ordering
-        // doesn't pay off — cheap mobility ordering suffices.
+        // doesn't pay off — cheap mobility ordering suffices. In a non-cut non-PV
+        // context, the caller has already tried the TT move without producing a
+        // beta-cut, which is a strong All-node signal; otherwise fall back to a
+        // static-eval margin check.
         let skip_search_ordering = if SS::IS_ENDGAME && !NT::PV_NODE && !cut_node {
-            const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(8);
-            let static_eval = midgame::evaluate(ctx, board);
-            static_eval + SKIP_MARGIN < alpha
+            tt_move != Square::None || {
+                const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(8);
+                let static_eval = midgame::evaluate(ctx, board);
+                static_eval + SKIP_MARGIN < alpha
+            }
         } else {
             false
         };
