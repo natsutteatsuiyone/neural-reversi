@@ -65,7 +65,7 @@ pub struct EndGameStrategy;
 
 impl SearchStrategy for MidGameStrategy {
     const IS_ENDGAME: bool = false;
-    const MIN_ETC_DEPTH: Depth = 6;
+    const MIN_ETC_DEPTH: Depth = 5;
     const MIN_PROBCUT_DEPTH: Depth = 4;
     const DEPTH_TO_SHALLOW: Depth = 3;
     const MIN_SPLIT_DEPTH: Depth = 4;
