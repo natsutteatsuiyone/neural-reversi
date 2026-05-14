@@ -98,7 +98,21 @@ impl MoveList {
         // SAFETY: `fill_in_place` writes `len`, `wipeout_move`, and the
         // first `len` slots of `data` on every path.
         unsafe {
-            Self::fill_in_place::<false>(board, moves_bb, result.as_mut_ptr());
+            Self::fill_in_place::<false, false>(board, moves_bb, result.as_mut_ptr());
+            result.assume_init()
+        }
+    }
+
+    /// Creates a [`MoveList`] when the caller has already ruled out the
+    /// no-move (pass) case but the position may still have only one legal
+    /// move. Skips the `moves_bb == 0` dispatch but still dispatches a
+    /// scalar single-square path when there is exactly one bit set.
+    #[inline(always)]
+    pub(crate) fn with_at_least_one_move(board: &Board, moves_bb: Bitboard) -> MoveList {
+        let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
+        // SAFETY: caller guarantees `moves_bb != 0`.
+        unsafe {
+            Self::fill_in_place::<true, false>(board, moves_bb, result.as_mut_ptr());
             result.assume_init()
         }
     }
@@ -108,10 +122,9 @@ impl MoveList {
     #[inline(always)]
     pub(crate) fn with_at_least_two_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
         let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
-        // SAFETY: caller guarantees ≥ 2 set bits, satisfying the
-        // `SKIP_DISPATCH = true` precondition.
+        // SAFETY: caller guarantees ≥ 2 set bits.
         unsafe {
-            Self::fill_in_place::<true>(board, moves_bb, result.as_mut_ptr());
+            Self::fill_in_place::<true, true>(board, moves_bb, result.as_mut_ptr());
             result.assume_init()
         }
     }
@@ -119,21 +132,29 @@ impl MoveList {
     /// Writes a fully-initialised [`MoveList`] into `out`.
     ///
     /// Kept out-of-line so the [`Self::with_moves`] /
-    /// [`Self::with_at_least_two_moves`] wrappers stay small enough to inline
-    /// at call sites; that lets `*out` writes hit the caller's sret slot
-    /// directly instead of staging the struct on this frame and memcpy'ing
-    /// it back on return.
+    /// [`Self::with_at_least_one_move`] / [`Self::with_at_least_two_moves`]
+    /// wrappers stay small enough to inline at call sites; that lets `*out`
+    /// writes hit the caller's sret slot directly instead of staging the
+    /// struct on this frame and memcpy'ing it back on return.
     ///
-    /// When `SKIP_DISPATCH` is `true`, the empty and single-move branches are
-    /// elided — the caller must guarantee `moves_bb` has at least two set
-    /// bits.
+    /// The two const generics control which dispatch shortcuts are elided
+    /// based on what the caller has already proven about `moves_bb`:
+    ///
+    /// | `SKIP_EMPTY` | `SKIP_SINGLE` | Caller precondition          |
+    /// | ------------ | ------------- | ---------------------------- |
+    /// | `false`      | `false`       | none (may be empty)          |
+    /// | `true`       | `false`       | `moves_bb != 0`              |
+    /// | `true`       | `true`        | `moves_bb.count_ones() >= 2` |
+    ///
+    /// `SKIP_EMPTY = false` with `SKIP_SINGLE = true` is unused — there is
+    /// no caller that proves "not single" without first proving "not empty".
     ///
     /// # Safety
     /// `out` must be a valid, properly-aligned pointer to writable memory
-    /// large enough to hold a [`MoveList`]. If `SKIP_DISPATCH` is `true`,
-    /// `moves_bb` must contain at least two set bits.
+    /// large enough to hold a [`MoveList`]. The const generics must match
+    /// what the caller has guaranteed about `moves_bb`.
     #[inline(never)]
-    unsafe fn fill_in_place<const SKIP_DISPATCH: bool>(
+    unsafe fn fill_in_place<const SKIP_EMPTY: bool, const SKIP_SINGLE: bool>(
         board: &Board,
         moves_bb: Bitboard,
         out: *mut MoveList,
@@ -146,27 +167,25 @@ impl MoveList {
         let opponent = board.opponent;
         let mut bb = moves_bb.bits();
 
-        if !SKIP_DISPATCH {
-            if bb == 0 {
-                unsafe {
-                    len_ptr.write(0);
-                    wipeout_ptr.write(None);
-                }
-                return;
+        if !SKIP_EMPTY && bb == 0 {
+            unsafe {
+                len_ptr.write(0);
+                wipeout_ptr.write(None);
             }
+            return;
+        }
 
-            if bb & (bb - 1) == 0 {
-                let x = bb.trailing_zeros() as u8;
-                // SAFETY: `x` is a bit position of a legal-move bitboard (0..=63).
-                let sq = unsafe { Square::from_u8_unchecked(x) };
-                let flipped = flip::flip(sq, board.player, opponent);
-                unsafe {
-                    data_ptr.write(Move::new(sq, flipped));
-                    len_ptr.write(1);
-                    wipeout_ptr.write(if flipped == opponent { Some(sq) } else { None });
-                }
-                return;
+        if !SKIP_SINGLE && bb & (bb - 1) == 0 {
+            let x = bb.trailing_zeros() as u8;
+            // SAFETY: `x` is a bit position of a legal-move bitboard (0..=63).
+            let sq = unsafe { Square::from_u8_unchecked(x) };
+            let flipped = flip::flip(sq, board.player, opponent);
+            unsafe {
+                data_ptr.write(Move::new(sq, flipped));
+                len_ptr.write(1);
+                wipeout_ptr.write(if flipped == opponent { Some(sq) } else { None });
             }
+            return;
         }
         debug_assert!(bb.count_ones() >= 2);
 

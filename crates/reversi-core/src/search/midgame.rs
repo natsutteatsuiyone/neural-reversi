@@ -305,7 +305,7 @@ pub fn evaluate_depth3<NT: NodeType>(
         return tt_data.score();
     }
 
-    let mut move_list = MoveList::with_moves(board, moves);
+    let mut move_list = MoveList::with_at_least_one_move(board, moves);
     if move_list.wipeout_move().is_some() {
         return ScaledScore::MAX;
     }
@@ -370,7 +370,7 @@ pub fn evaluate_depth2(
         }
     }
 
-    let mut move_list = MoveList::with_moves(board, moves);
+    let mut move_list = MoveList::with_at_least_one_move(board, moves);
     if move_list.wipeout_move().is_some() {
         return ScaledScore::MAX;
     }
