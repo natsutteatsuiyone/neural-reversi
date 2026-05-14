@@ -2,12 +2,16 @@
 
 use std::cmp::Reverse;
 use std::fmt;
-use std::mem::MaybeUninit;
+use std::mem::{MaybeUninit, offset_of};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::ptr;
 use std::slice;
 
 use super::{MAX_MOVES, Move};
+
+// `data_ptr_from` casts `*mut MoveArray` straight to `*mut Move`; pin the
+// offset-0 layout it relies on at compile time.
+const _: () = assert!(offset_of!(MoveArray, data) == 0);
 
 /// Fixed-capacity storage specialized for Reversi legal moves.
 ///
@@ -49,6 +53,26 @@ impl MoveArray {
         self.data.as_mut_ptr().cast()
     }
 
+    /// Returns a raw pointer to the inline `Move` buffer of a `MoveArray`
+    /// reached through a raw pointer to a possibly-uninitialised slot.
+    ///
+    /// # Safety
+    /// `arr` must be a valid, properly-aligned pointer to a `MoveArray`.
+    #[inline(always)]
+    pub(super) unsafe fn data_ptr_from(arr: *mut MoveArray) -> *mut Move {
+        arr as *mut Move
+    }
+
+    /// Returns a raw pointer to the `len` field of a `MoveArray` reached
+    /// through a raw pointer to a possibly-uninitialised slot.
+    ///
+    /// # Safety
+    /// `arr` must be a valid, properly-aligned pointer to a `MoveArray`.
+    #[inline(always)]
+    pub(super) unsafe fn len_ptr_from(arr: *mut MoveArray) -> *mut usize {
+        unsafe { &raw mut (*arr).len }
+    }
+
     #[inline(always)]
     pub(super) fn as_slice(&self) -> &[Move] {
         // SAFETY: `0..self.len` is always initialized.
@@ -59,15 +83,6 @@ impl MoveArray {
     pub(super) fn as_mut_slice(&mut self) -> &mut [Move] {
         // SAFETY: `0..self.len` is always initialized; `&mut self` ensures unique access.
         unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
-    }
-
-    #[inline(always)]
-    pub(super) unsafe fn push_unchecked(&mut self, mv: Move) {
-        debug_assert!(self.len < MAX_MOVES);
-        let len = self.len;
-        // SAFETY: caller ensures `self.len < MAX_MOVES`.
-        unsafe { self.data.get_unchecked_mut(len).write(mv) };
-        self.len = len + 1;
     }
 
     #[inline(always)]
