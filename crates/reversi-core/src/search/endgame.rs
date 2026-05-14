@@ -380,7 +380,7 @@ fn null_window_search_with_ec(
         return score;
     }
 
-    let mut move_list = MoveList::with_moves(board, moves);
+    let mut move_list = MoveList::with_at_least_two_moves(board, moves);
     if move_list.wipeout_move().is_some() {
         return SCORE_MAX;
     }

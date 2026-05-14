@@ -56,16 +56,27 @@ fn evaluated_lists(cases: &[Case]) -> Vec<MoveList> {
         .collect()
 }
 
+fn checksum_move_list(moves: &MoveList) -> u64 {
+    let mut acc = moves.count() as u64;
+    if let Some(sq) = moves.wipeout_move() {
+        acc ^= 0x9e37_79b9_7f4a_7c15u64.rotate_left(sq.index() as u32);
+    }
+    for mv in moves.iter() {
+        acc = acc.rotate_left(7) ^ mv.flipped.bits() ^ (mv.sq.index() as u64);
+    }
+    acc
+}
+
 fn criterion_benchmark(c: &mut Criterion) {
     let cases = random_cases(0x5eed_f00d);
     let lists = evaluated_lists(&cases);
 
     c.bench_function("move_list::with_moves_256", |b| {
         b.iter(|| {
-            let mut acc = 0usize;
+            let mut acc = 0u64;
             for case in &cases {
                 let moves = MoveList::with_moves(black_box(&case.board), black_box(case.moves));
-                acc ^= moves.count();
+                acc ^= checksum_move_list(&moves);
             }
             black_box(acc)
         })

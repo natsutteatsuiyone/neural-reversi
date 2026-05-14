@@ -98,23 +98,46 @@ impl MoveList {
         // SAFETY: `fill_in_place` writes `len`, `wipeout_move`, and the
         // first `len` slots of `data` on every path.
         unsafe {
-            Self::fill_in_place(board, moves_bb, result.as_mut_ptr());
+            Self::fill_in_place::<false>(board, moves_bb, result.as_mut_ptr());
+            result.assume_init()
+        }
+    }
+
+    /// Creates a [`MoveList`] when the caller has already handled empty and
+    /// single-move positions.
+    #[inline(always)]
+    pub(crate) fn with_at_least_two_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
+        let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
+        // SAFETY: caller guarantees ≥ 2 set bits, satisfying the
+        // `SKIP_DISPATCH = true` precondition.
+        unsafe {
+            Self::fill_in_place::<true>(board, moves_bb, result.as_mut_ptr());
             result.assume_init()
         }
     }
 
     /// Writes a fully-initialised [`MoveList`] into `out`.
     ///
-    /// Kept out-of-line so the [`Self::with_moves`] wrapper stays small enough
-    /// to inline at call sites — that lets `*out` writes hit the caller's
-    /// sret slot directly instead of staging the struct on this frame and
-    /// memcpy'ing it back on return.
+    /// Kept out-of-line so the [`Self::with_moves`] /
+    /// [`Self::with_at_least_two_moves`] wrappers stay small enough to inline
+    /// at call sites; that lets `*out` writes hit the caller's sret slot
+    /// directly instead of staging the struct on this frame and memcpy'ing
+    /// it back on return.
+    ///
+    /// When `SKIP_DISPATCH` is `true`, the empty and single-move branches are
+    /// elided — the caller must guarantee `moves_bb` has at least two set
+    /// bits.
     ///
     /// # Safety
     /// `out` must be a valid, properly-aligned pointer to writable memory
-    /// large enough to hold a [`MoveList`].
+    /// large enough to hold a [`MoveList`]. If `SKIP_DISPATCH` is `true`,
+    /// `moves_bb` must contain at least two set bits.
     #[inline(never)]
-    unsafe fn fill_in_place(board: &Board, moves_bb: Bitboard, out: *mut MoveList) {
+    unsafe fn fill_in_place<const SKIP_DISPATCH: bool>(
+        board: &Board,
+        moves_bb: Bitboard,
+        out: *mut MoveList,
+    ) {
         let moves_array_ptr = unsafe { &raw mut (*out).moves };
         let data_ptr = unsafe { MoveArray::data_ptr_from(moves_array_ptr) };
         let len_ptr = unsafe { MoveArray::len_ptr_from(moves_array_ptr) };
@@ -123,26 +146,29 @@ impl MoveList {
         let opponent = board.opponent;
         let mut bb = moves_bb.bits();
 
-        if bb == 0 {
-            unsafe {
-                len_ptr.write(0);
-                wipeout_ptr.write(None);
+        if !SKIP_DISPATCH {
+            if bb == 0 {
+                unsafe {
+                    len_ptr.write(0);
+                    wipeout_ptr.write(None);
+                }
+                return;
             }
-            return;
-        }
 
-        if bb & (bb - 1) == 0 {
-            let x = bb.trailing_zeros() as u8;
-            // SAFETY: `x` is a bit position of a legal-move bitboard (0..=63).
-            let sq = unsafe { Square::from_u8_unchecked(x) };
-            let flipped = flip::flip(sq, board.player, opponent);
-            unsafe {
-                data_ptr.write(Move::new(sq, flipped));
-                len_ptr.write(1);
-                wipeout_ptr.write(if flipped == opponent { Some(sq) } else { None });
+            if bb & (bb - 1) == 0 {
+                let x = bb.trailing_zeros() as u8;
+                // SAFETY: `x` is a bit position of a legal-move bitboard (0..=63).
+                let sq = unsafe { Square::from_u8_unchecked(x) };
+                let flipped = flip::flip(sq, board.player, opponent);
+                unsafe {
+                    data_ptr.write(Move::new(sq, flipped));
+                    len_ptr.write(1);
+                    wipeout_ptr.write(if flipped == opponent { Some(sq) } else { None });
+                }
+                return;
             }
-            return;
         }
+        debug_assert!(bb.count_ones() >= 2);
 
         let mut wipeout_move = None;
         let mut len = 0usize;
