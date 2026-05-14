@@ -159,6 +159,18 @@ struct SquareTable {
 
 const _: () = assert!(core::mem::size_of::<SquareTable>() == 32);
 
+/// Per-square hot-path offsets, kept separate from `SquareTable` to preserve
+/// its 32-byte layout.
+#[derive(Copy, Clone)]
+struct SquareMeta {
+    count_file_offset: u16,
+    count_rank_offset: u16,
+    flip_mask: u16,
+    rank_shift: u8,
+}
+
+const _: () = assert!(core::mem::size_of::<SquareMeta>() == 8);
+
 const fn pext_u8(value: u64, mut mask: u64) -> u8 {
     let mut out = 0usize;
     let mut out_bit = 1usize;
@@ -204,21 +216,26 @@ const fn build_square_table() -> [SquareTable; 64] {
     out
 }
 
-const fn build_flip_masks() -> [u16; 64] {
-    let mut out = [0u16; 64];
+const fn build_square_meta(table: &[SquareTable; 64]) -> [SquareMeta; 64] {
+    let zero = SquareMeta {
+        count_file_offset: 0,
+        count_rank_offset: 0,
+        flip_mask: 0,
+        rank_shift: 0,
+    };
+    let mut out = [zero; 64];
     let mut sq = 0usize;
     while sq < 64 {
-        let mask_diag0 = diag0_mask(sq);
-        let mask_diag1 = diag1_mask(sq);
-        let mask_file = file_mask(sq);
-        let mask_union = rank_mask(sq) | mask_file | mask_diag0 | mask_diag1;
-        let rank = sq >> 3;
-        let padded_diag0 = pad_before_line(mask_diag0, mask_union, rank - diag0_pos(sq));
-        let padded_diag1 = pad_before_line(mask_diag1, mask_union, rank - diag1_pos(sq));
-
-        let diag0_flip_mask = pext_u8(mask_union, padded_diag0) as u16;
-        let diag1_flip_mask = pext_u8(mask_union, padded_diag1) as u16;
-        out[sq] = diag0_flip_mask | (diag1_flip_mask << 8);
+        let entry = &table[sq];
+        let rank_shift = sq & 0x38;
+        let diag0_flip_mask = pext_u8(entry.mask_union, entry.mask_diag0) as u16;
+        let diag1_flip_mask = pext_u8(entry.mask_union, entry.mask_diag1) as u16;
+        out[sq] = SquareMeta {
+            count_file_offset: ((sq & 7) << 8) as u16,
+            count_rank_offset: (rank_shift << 5) as u16,
+            flip_mask: diag0_flip_mask | (diag1_flip_mask << 8),
+            rank_shift: rank_shift as u8,
+        };
         sq += 1;
     }
     out
@@ -226,11 +243,11 @@ const fn build_flip_masks() -> [u16; 64] {
 
 const COUNT_FLIP_RAW: [u8; COUNT_FLIP_LEN] = build_count_flip();
 const SQUARE_TABLE_RAW: [SquareTable; 64] = build_square_table();
-const FLIP_MASKS_RAW: [u16; 64] = build_flip_masks();
+const SQUARE_META_RAW: [SquareMeta; 64] = build_square_meta(&SQUARE_TABLE_RAW);
 
 static COUNT_FLIP: Align64<[u8; COUNT_FLIP_LEN]> = Align64(COUNT_FLIP_RAW);
 static SQUARE_TABLE: Align64<[SquareTable; 64]> = Align64(SQUARE_TABLE_RAW);
-static FLIP_MASKS: Align64<[u16; 64]> = Align64(FLIP_MASKS_RAW);
+static SQUARE_META: Align64<[SquareMeta; 64]> = Align64(SQUARE_META_RAW);
 
 /// Counts the number of discs that would be flipped by the last move.
 ///
@@ -242,12 +259,13 @@ pub(super) fn count_last_flip(player: u64, sq: Square) -> i32 {
         debug_assert!(sq_idx < 64);
 
         let entry = &*SQUARE_TABLE.0.as_ptr().add(sq_idx);
+        let meta = &*SQUARE_META.0.as_ptr().add(sq_idx);
         let mask_diag0 = entry.mask_diag0;
         let mask_diag1 = entry.mask_diag1;
         let mask_file = entry.mask_file;
         let mask_union = entry.mask_union;
 
-        let rank_shift = sq_idx & 0x38;
+        let rank_shift = meta.rank_shift as usize;
         let row_idx = ((player >> rank_shift) & 0xff) as usize;
         let file_idx = _pext_u64(player, mask_file) as usize;
         let masked = player & mask_union;
@@ -255,8 +273,8 @@ pub(super) fn count_last_flip(player: u64, sq: Square) -> i32 {
         let diag0_idx = _pext_u64(masked, mask_diag0) as usize;
 
         let count_base = COUNT_FLIP.0.as_ptr();
-        let count_file_row = count_base.add((sq_idx & 7) << 8);
-        let count_rank_row = count_base.add(rank_shift << 5);
+        let count_file_row = count_base.add(meta.count_file_offset as usize);
+        let count_rank_row = count_base.add(meta.count_rank_offset as usize);
         let row_count = *count_file_row.add(row_idx) as u32;
 
         (row_count
@@ -275,12 +293,13 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
 
         let player_count = player.count_ones() as Score;
         let entry = &*SQUARE_TABLE.0.as_ptr().add(sq_idx);
+        let meta = &*SQUARE_META.0.as_ptr().add(sq_idx);
         let mask_diag0 = entry.mask_diag0;
         let mask_diag1 = entry.mask_diag1;
         let mask_file = entry.mask_file;
         let mask_union = entry.mask_union;
 
-        let rank_shift = sq_idx & 0x38;
+        let rank_shift = meta.rank_shift as usize;
         let row_idx = ((player >> rank_shift) & 0xff) as usize;
         let file_idx = _pext_u64(player, mask_file) as usize;
         let masked = player & mask_union;
@@ -288,8 +307,8 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         let diag0_idx = _pext_u64(masked, mask_diag0) as usize;
 
         let count_base = COUNT_FLIP.0.as_ptr();
-        let count_file_row = count_base.add((sq_idx & 7) << 8);
-        let count_rank_row = count_base.add(rank_shift << 5);
+        let count_file_row = count_base.add(meta.count_file_offset as usize);
+        let count_rank_row = count_base.add(meta.count_rank_offset as usize);
         let row_count = *count_file_row.add(row_idx) as u32;
         let n_flipped = (row_count
             + *count_rank_row.add(diag0_idx) as u32
@@ -305,7 +324,7 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         if score_if_opp_passes <= alpha {
             score_if_opp_passes
         } else {
-            let flip_masks = *FLIP_MASKS.0.get_unchecked(sq_idx) as usize;
+            let flip_masks = meta.flip_mask as usize;
             let opp_row_idx = row_idx ^ 0xff;
             let opp_file_idx = file_idx ^ 0xff;
             let opp_diag0_idx = diag0_idx ^ (flip_masks & 0xff);
