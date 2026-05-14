@@ -117,9 +117,10 @@ macro_rules! flip_pair_zmm2_body {
         left_bit =
             _mm512_ternarylogic_epi64(left_bit, _mm512_sub_epi64($zero, left_bit), $pp, 0x80);
 
-        let eq_zero = _mm512_cmpeq_epi64_mask(left_bit, $zero);
-        let eq_vec = _mm512_maskz_mov_epi64(eq_zero, $all_ones);
-        let left_flank = _mm512_sub_epi64(eq_vec, left_bit);
+        // left_flank = signed-min(-left_bit, -1) = -1 if left_bit == 0 else -left_bit.
+        // Relies on -left_bit being <= 0 for any non-negative left_bit so the
+        // i64 min picks the more-negative side.
+        let left_flank = _mm512_min_epi64(_mm512_sub_epi64($zero, left_bit), $all_ones);
 
         right_bit = _mm512_and_si512(vpsrlvq_raw_zmm!($msb, right_bit), $pp);
         let right_flips = _mm512_ternarylogic_epi64(
@@ -130,9 +131,18 @@ macro_rules! flip_pair_zmm2_body {
         );
 
         let flips = _mm512_ternarylogic_epi64(right_flips, left_flank, left_mask, 0xf2);
-        let lo = _mm512_castsi512_si256(flips);
-        let hi = _mm512_extracti64x4_epi64(flips, 1);
-        (reduce4_or_u64!(lo), reduce4_or_u64!(hi))
+        // OR-reduce each 256-bit half independently: f0 lands in lane 0, f1 in lane 4.
+        // Stays within each half to avoid the cross-256 permute that splitting and
+        // running two YMM reductions would need.
+        let swap64 = _mm512_shuffle_epi32::<0x4e>(flips);
+        let or64 = _mm512_or_si512(flips, swap64);
+        let swap128 = _mm512_shuffle_i64x2::<0xb1>(or64, or64);
+        let reduced = _mm512_or_si512(or64, swap128);
+        let f0 = _mm_cvtsi128_si64(_mm512_castsi512_si128(reduced)) as u64;
+        let f1 = _mm_cvtsi128_si64(_mm256_castsi256_si128(_mm512_extracti64x4_epi64::<1>(
+            reduced,
+        ))) as u64;
+        (f0, f1)
     }};
 }
 
