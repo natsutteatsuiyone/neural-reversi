@@ -638,7 +638,191 @@ fn sort_last4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
 }
 
 /// Specialized solver for positions with exactly 4 empty squares.
+///
+/// Dispatches to `solve4_flip_pair` (AVX-512) or `solve4_flip_one`; both
+/// produce identical scores and node counts.
+#[inline(always)]
 fn solve4(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    sq1: Square,
+    sq2: Square,
+    sq3: Square,
+    sq4: Square,
+) -> Score {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+            solve4_flip_pair(ctx, board, alpha, sq1, sq2, sq3, sq4)
+        }
+        _ => {
+            solve4_flip_one(ctx, board, alpha, sq1, sq2, sq3, sq4)
+        }
+    }
+}
+
+/// Paired-flip `solve4` (AVX-512 dispatch target). A non-empty flip already
+/// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
+/// guard is safe — it is subsumed by the `is_empty` checks. Like
+/// `solve4_flip_one`, does not count itself as a node.
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+))]
+fn solve4_flip_pair(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    sq1: Square,
+    sq2: Square,
+    sq3: Square,
+    sq4: Square,
+) -> Score {
+    let player = board.player;
+    let opponent = board.opponent;
+    let beta = alpha + 1;
+    let mut best_score = -SCORE_INF;
+
+    // Player to move.
+    let (fp1, fp2) = flip::flip_pair(sq1, sq2, player, opponent);
+    let (fp3, fp4) = flip::flip_pair(sq3, sq4, player, opponent);
+
+    if !fp1.is_empty() {
+        best_score = -solve3(
+            ctx,
+            &board.make_move_with_flipped(fp1, sq1),
+            -beta,
+            sq2,
+            sq3,
+            sq4,
+        );
+        if best_score >= beta {
+            return best_score;
+        }
+    }
+
+    if !fp2.is_empty() {
+        let score = -solve3(
+            ctx,
+            &board.make_move_with_flipped(fp2, sq2),
+            -beta,
+            sq1,
+            sq3,
+            sq4,
+        );
+        if score >= beta {
+            return score;
+        }
+        best_score = score.max(best_score);
+    }
+
+    if !fp3.is_empty() {
+        let score = -solve3(
+            ctx,
+            &board.make_move_with_flipped(fp3, sq3),
+            -beta,
+            sq1,
+            sq2,
+            sq4,
+        );
+        if score >= beta {
+            return score;
+        }
+        best_score = score.max(best_score);
+    }
+
+    if !fp4.is_empty() {
+        let score = -solve3(
+            ctx,
+            &board.make_move_with_flipped(fp4, sq4),
+            -beta,
+            sq1,
+            sq2,
+            sq3,
+        );
+        return score.max(best_score);
+    }
+
+    if best_score == -SCORE_INF {
+        let pass = board.switch_players();
+        best_score = SCORE_INF;
+        let (fo1, fo2) = flip::flip_pair(sq1, sq2, opponent, player);
+        let (fo3, fo4) = flip::flip_pair(sq3, sq4, opponent, player);
+
+        if !fo1.is_empty() {
+            best_score = solve3(
+                ctx,
+                &pass.make_move_with_flipped(fo1, sq1),
+                alpha,
+                sq2,
+                sq3,
+                sq4,
+            );
+            if best_score <= alpha {
+                return best_score;
+            }
+        }
+
+        if !fo2.is_empty() {
+            let score = solve3(
+                ctx,
+                &pass.make_move_with_flipped(fo2, sq2),
+                alpha,
+                sq1,
+                sq3,
+                sq4,
+            );
+            if score <= alpha {
+                return score;
+            }
+            best_score = score.min(best_score);
+        }
+
+        if !fo3.is_empty() {
+            let score = solve3(
+                ctx,
+                &pass.make_move_with_flipped(fo3, sq3),
+                alpha,
+                sq1,
+                sq2,
+                sq4,
+            );
+            if score <= alpha {
+                return score;
+            }
+            best_score = score.min(best_score);
+        }
+
+        if !fo4.is_empty() {
+            let score = solve3(
+                ctx,
+                &pass.make_move_with_flipped(fo4, sq4),
+                alpha,
+                sq1,
+                sq2,
+                sq3,
+            );
+            return score.min(best_score);
+        }
+
+        if best_score == SCORE_INF {
+            return board.solve(4);
+        }
+    }
+
+    best_score
+}
+
+/// One-at-a-time-flip `solve4` (non-AVX-512 dispatch target): the original
+/// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
+/// fallback is not slowed by eager unguarded flips.
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+)))]
+fn solve4_flip_one(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -719,7 +903,139 @@ fn solve4(
 }
 
 /// Specialized solver for positions with exactly 3 empty squares.
+///
+/// Dispatches to `solve3_flip_pair` (AVX-512) or `solve3_flip_one`; both
+/// produce identical scores and node counts.
+#[inline(always)]
 fn solve3(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    sq1: Square,
+    sq2: Square,
+    sq3: Square,
+) -> Score {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+            solve3_flip_pair(ctx, board, alpha, sq1, sq2, sq3)
+        }
+        _ => {
+            solve3_flip_one(ctx, board, alpha, sq1, sq2, sq3)
+        }
+    }
+}
+
+/// Paired-flip `solve3` (AVX-512 dispatch target). A non-empty flip already
+/// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
+/// guard is safe — it is subsumed by the `is_empty` checks.
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+))]
+fn solve3_flip_pair(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    sq1: Square,
+    sq2: Square,
+    sq3: Square,
+) -> Score {
+    ctx.increment_nodes();
+    let player = board.player;
+    let opponent = board.opponent;
+    let beta = alpha + 1;
+    let mut best_score = -SCORE_INF;
+
+    // Player to move.
+    let (fp1, fp2) = flip::flip_pair(sq1, sq2, player, opponent);
+    let fp3 = flip::flip(sq3, player, opponent);
+
+    if !fp1.is_empty() {
+        best_score = -solve2(
+            ctx,
+            &board.make_move_with_flipped(fp1, sq1),
+            -beta,
+            sq2,
+            sq3,
+        );
+        if best_score >= beta {
+            return best_score;
+        }
+    }
+
+    if !fp2.is_empty() {
+        let score = -solve2(
+            ctx,
+            &board.make_move_with_flipped(fp2, sq2),
+            -beta,
+            sq1,
+            sq3,
+        );
+        if score >= beta {
+            return score;
+        }
+        best_score = score.max(best_score);
+    }
+
+    if !fp3.is_empty() {
+        let score = -solve2(
+            ctx,
+            &board.make_move_with_flipped(fp3, sq3),
+            -beta,
+            sq1,
+            sq2,
+        );
+        return score.max(best_score);
+    }
+
+    if best_score != -SCORE_INF {
+        return best_score;
+    }
+
+    // All player moves illegal: opponent to move.
+    ctx.increment_nodes();
+    best_score = SCORE_INF;
+    let pass = board.switch_players();
+    let (fo1, fo2) = flip::flip_pair(sq1, sq2, opponent, player);
+    let fo3 = flip::flip(sq3, opponent, player);
+
+    if !fo1.is_empty() {
+        best_score = solve2(ctx, &pass.make_move_with_flipped(fo1, sq1), alpha, sq2, sq3);
+        if best_score <= alpha {
+            return best_score;
+        }
+    }
+
+    if !fo2.is_empty() {
+        let score = solve2(ctx, &pass.make_move_with_flipped(fo2, sq2), alpha, sq1, sq3);
+        if score <= alpha {
+            return score;
+        }
+        best_score = score.min(best_score);
+    }
+
+    if !fo3.is_empty() {
+        let score = solve2(ctx, &pass.make_move_with_flipped(fo3, sq3), alpha, sq1, sq2);
+        return score.min(best_score);
+    }
+
+    if best_score != SCORE_INF {
+        return best_score;
+    }
+
+    board.solve(3)
+}
+
+/// One-at-a-time-flip `solve3` (non-AVX-512 dispatch target): the original
+/// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
+/// fallback is not slowed by eager unguarded flips.
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+)))]
+fn solve3_flip_one(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -791,6 +1107,90 @@ fn solve3(
 /// Specialized solver for positions with exactly 2 empty squares.
 #[inline(always)]
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+            solve2_flip_pair(ctx, board, alpha, sq1, sq2)
+        }
+        _ => {
+            solve2_flip_one(ctx, board, alpha, sq1, sq2)
+        }
+    }
+}
+
+/// Paired-flip `solve2` (AVX-512 dispatch target). A non-empty flip already
+/// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
+/// guards is safe — they are subsumed by the `is_empty` checks.
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+))]
+#[inline(always)]
+fn solve2_flip_pair(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    sq1: Square,
+    sq2: Square,
+) -> Score {
+    ctx.increment_nodes();
+    let player = board.player;
+    let opponent = board.opponent;
+    let beta = alpha + 1;
+
+    // Player to move.
+    let (fp1, fp2) = flip::flip_pair(sq1, sq2, player, opponent);
+    if !fp1.is_empty() {
+        let best_score = -solve1(ctx, opponent.apply_flip(fp1), -beta, sq2);
+        if best_score >= beta {
+            return best_score;
+        }
+        if !fp2.is_empty() {
+            let score = -solve1(ctx, opponent.apply_flip(fp2), -beta, sq1);
+            return score.max(best_score);
+        }
+        return best_score;
+    } else if !fp2.is_empty() {
+        return -solve1(ctx, opponent.apply_flip(fp2), -beta, sq1);
+    }
+
+    // Player passed at both empties: opponent to move.
+    ctx.increment_nodes();
+    let (fo1, fo2) = flip::flip_pair(sq1, sq2, opponent, player);
+    if !fo1.is_empty() {
+        let best_score = solve1(ctx, player.apply_flip(fo1), alpha, sq2);
+        if best_score <= alpha {
+            return best_score;
+        }
+        if !fo2.is_empty() {
+            let score = solve1(ctx, player.apply_flip(fo2), alpha, sq1);
+            return score.min(best_score);
+        }
+        return best_score;
+    } else if !fo2.is_empty() {
+        return solve1(ctx, player.apply_flip(fo2), alpha, sq1);
+    }
+
+    // both players pass
+    board.solve(2)
+}
+
+/// One-at-a-time-flip `solve2` (non-AVX-512 dispatch target): the original
+/// `has_adjacent_bit`-guarded, short-circuiting path, kept so the scalar/AVX2
+/// fallback is not slowed by eager unguarded flips.
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "avx512cd",
+    target_feature = "avx512vl"
+)))]
+#[inline(always)]
+fn solve2_flip_one(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    sq1: Square,
+    sq2: Square,
+) -> Score {
     ctx.increment_nodes();
     let player = board.player;
     let opponent = board.opponent;

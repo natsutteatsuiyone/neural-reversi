@@ -46,6 +46,24 @@ pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
     }
 }
 
+/// Flips for two squares sharing the same `(player, opponent)` board.
+///
+/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o))`; on AVX-512 both are
+/// computed in one paired 512-bit pass.
+#[inline(always)]
+pub fn flip_pair(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboard, Bitboard) {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+            let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let (f0, f1) = ctx.flip_pair(sq1.index(), sq2.index());
+            (Bitboard::new(f0), Bitboard::new(f1))
+        }
+        _ => {
+            (flip(sq1, p, o), flip(sq2, p, o))
+        }
+    }
+}
+
 /// Crate-private AVX-512 batch flip context for `MoveList::with_moves` orchestration.
 ///
 /// Only available on builds that compile [`flip_avx512`]; callers
@@ -115,6 +133,34 @@ mod tests {
                     "sq={sq:?} p={p:#018x} o={o:#018x}",
                 );
             }
+        }
+    }
+
+    #[test]
+    fn flip_pair_matches_portable() {
+        let mut seed = 0x1234_5678_9abc_def0u64;
+
+        for _ in 0..4096 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let p = seed;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let o = seed & !p;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq1 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq2 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+
+            let (a, b) = flip_pair(sq1, sq2, Bitboard::new(p), Bitboard::new(o));
+            assert_eq!(
+                a,
+                Bitboard::new(flip_portable::flip(sq1, p, o)),
+                "sq1={sq1:?} p={p:#018x} o={o:#018x}",
+            );
+            assert_eq!(
+                b,
+                Bitboard::new(flip_portable::flip(sq2, p, o)),
+                "sq2={sq2:?} p={p:#018x} o={o:#018x}",
+            );
         }
     }
 
