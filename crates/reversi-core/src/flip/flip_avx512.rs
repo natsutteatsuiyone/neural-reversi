@@ -103,14 +103,21 @@ macro_rules! flip_prepared_ymm_body {
 macro_rules! flip_pair_zmm2_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
         debug_assert!($x0 < 66 && $x1 < 66);
-        let m0 = unsafe { super::lrmask::LRMASK.get_unchecked($x0).0.as_ptr() as *const __m256i };
-        let m1 = unsafe { super::lrmask::LRMASK.get_unchecked($x1).0.as_ptr() as *const __m256i };
-
-        // Pack square0 into low 256 bits and square1 into high 256 bits.
-        let left_mask = _mm512_castsi256_si512(unsafe { _mm256_load_si256(m0) });
-        let left_mask = _mm512_inserti64x4(left_mask, unsafe { _mm256_load_si256(m1) }, 1);
-        let right_mask = _mm512_castsi256_si512(unsafe { _mm256_load_si256(m0.add(1)) });
-        let right_mask = _mm512_inserti64x4(right_mask, unsafe { _mm256_load_si256(m1.add(1)) }, 1);
+        // Each `LrmaskEntry` is one 64-byte-aligned cache line laid out as
+        // `[left(4×u64), right(4×u64)]`. One aligned ZMM load per square pulls the
+        // whole line; the lane shuffles then split into `[left_x0, left_x1]` and
+        // `[right_x0, right_x1]`. This halves load-port µops vs. the legacy
+        // four-32B-load + two-insert sequence at the same port-5 cost.
+        let z0 = unsafe {
+            _mm512_load_si512(super::lrmask::LRMASK.get_unchecked($x0).0.as_ptr() as *const __m512i)
+        };
+        let z1 = unsafe {
+            _mm512_load_si512(super::lrmask::LRMASK.get_unchecked($x1).0.as_ptr() as *const __m512i)
+        };
+        // 0x44 = 0b01_00_01_00: keep the low 256 (left halves) from each source.
+        let left_mask = _mm512_shuffle_i64x2::<0x44>(z0, z1);
+        // 0xee = 0b11_10_11_10: keep the high 256 (right halves) from each source.
+        let right_mask = _mm512_shuffle_i64x2::<0xee>(z0, z1);
 
         let mut right_bit = _mm512_lzcnt_epi64(_mm512_and_si512($no, right_mask));
         let mut left_bit = _mm512_and_si512($no, left_mask);
