@@ -250,21 +250,57 @@ impl<
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
 
         unsafe {
-            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
-            let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
-
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
-            let num_regs = std::cmp::max(OUTPUT_DIMS / OUTPUT_SIMD_WIDTH, 1);
+            let num_regs = (OUTPUT_DIMS / OUTPUT_SIMD_WIDTH).max(1);
+            // A single accumulator serializes the chunk loop on `dpbusd`
+            // latency; split into `unroll` partial sums and reduce. Integer
+            // add is associative, so the result is bit-identical.
+            let unroll = (4 / num_regs).max(1);
+
+            let mut p0: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let mut p1: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let mut p2: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let mut p3: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let lanes: [*mut __m512i; 4] = [
+                p0.as_mut_ptr() as *mut __m512i,
+                p1.as_mut_ptr() as *mut __m512i,
+                p2.as_mut_ptr() as *mut __m512i,
+                p3.as_mut_ptr() as *mut __m512i,
+            ];
 
             let input32 = input.as_ptr() as *const i32;
-            for i in 0..num_chunks {
-                let in0 = _mm512_set1_epi32(*input32.add(i));
-                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m512i;
+            let weights = self.weights.as_ptr();
 
-                for j in 0..num_regs {
-                    let a = acc_ptr.add(j);
-                    *a = mm512_dpbusd_epi32::<USE_VNNI>(*a, in0, *col0.add(j));
+            let mut i = 0;
+            while i + unroll <= num_chunks {
+                for (u, &lane) in lanes[..unroll].iter().enumerate() {
+                    let in0 = _mm512_set1_epi32(*input32.add(i + u));
+                    let col0 = weights.add((i + u) * OUTPUT_DIMS * 4) as *const __m512i;
+                    for j in 0..num_regs {
+                        *lane.add(j) =
+                            mm512_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                    }
                 }
+                i += unroll;
+            }
+            while i < num_chunks {
+                let in0 = _mm512_set1_epi32(*input32.add(i));
+                let col0 = weights.add(i * OUTPUT_DIMS * 4) as *const __m512i;
+                let lane = lanes[0];
+                for j in 0..num_regs {
+                    *lane.add(j) = mm512_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                }
+                i += 1;
+            }
+
+            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
+            let acc_ptr = acc.as_mut_ptr() as *mut __m512i;
+            for j in 0..num_regs {
+                let mut s = *lanes[0].add(j);
+                for &lane in &lanes[1..unroll] {
+                    s = _mm512_add_epi32(s, *lane.add(j));
+                }
+                *acc_ptr.add(j) = _mm512_add_epi32(*acc_ptr.add(j), s);
             }
 
             copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m512i, num_regs);
@@ -290,21 +326,57 @@ impl<
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<i32>();
 
         unsafe {
-            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
-            let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
-
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
-            let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
+            let num_regs = (OUTPUT_DIMS / OUTPUT_SIMD_WIDTH).max(1);
+            // A single accumulator serializes the chunk loop on `dpbusd`
+            // latency; split into `unroll` partial sums and reduce. Integer
+            // add is associative, so the result is bit-identical.
+            let unroll = (4 / num_regs).max(1);
+
+            let mut p0: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let mut p1: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let mut p2: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let mut p3: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
+            let lanes: [*mut __m256i; 4] = [
+                p0.as_mut_ptr() as *mut __m256i,
+                p1.as_mut_ptr() as *mut __m256i,
+                p2.as_mut_ptr() as *mut __m256i,
+                p3.as_mut_ptr() as *mut __m256i,
+            ];
 
             let input32 = input.as_ptr() as *const i32;
-            for i in 0..num_chunks {
-                let in0 = _mm256_set1_epi32(*input32.add(i));
-                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4) as *const __m256i;
+            let weights = self.weights.as_ptr();
 
-                for j in 0..num_regs {
-                    let a = acc_ptr.add(j);
-                    *a = mm256_dpbusd_epi32::<USE_VNNI>(*a, in0, *col0.add(j));
+            let mut i = 0;
+            while i + unroll <= num_chunks {
+                for (u, &lane) in lanes[..unroll].iter().enumerate() {
+                    let in0 = _mm256_set1_epi32(*input32.add(i + u));
+                    let col0 = weights.add((i + u) * OUTPUT_DIMS * 4) as *const __m256i;
+                    for j in 0..num_regs {
+                        *lane.add(j) =
+                            mm256_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                    }
                 }
+                i += unroll;
+            }
+            while i < num_chunks {
+                let in0 = _mm256_set1_epi32(*input32.add(i));
+                let col0 = weights.add(i * OUTPUT_DIMS * 4) as *const __m256i;
+                let lane = lanes[0];
+                for j in 0..num_regs {
+                    *lane.add(j) = mm256_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                }
+                i += 1;
+            }
+
+            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
+            let acc_ptr = acc.as_mut_ptr() as *mut __m256i;
+            for j in 0..num_regs {
+                let mut s = *lanes[0].add(j);
+                for &lane in &lanes[1..unroll] {
+                    s = _mm256_add_epi32(s, *lane.add(j));
+                }
+                *acc_ptr.add(j) = _mm256_add_epi32(*acc_ptr.add(j), s);
             }
 
             copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
