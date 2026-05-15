@@ -19,6 +19,9 @@
 use crate::square::Square;
 use std::arch::x86_64::*;
 
+// Keep raw `vpsrlvq`: count 64 from `vplzcntq` must produce 0, but the
+// intrinsic goes through LLVM `lshr` poison handling and adds a mask/test.
+// Re-run the cargo-asm A/B before replacing this with an intrinsic.
 #[cfg(target_arch = "x86_64")]
 macro_rules! vpsrlvq_raw_ymm {
     ($src:expr, $cnt:expr) => {{
@@ -36,6 +39,7 @@ macro_rules! vpsrlvq_raw_ymm {
     }};
 }
 
+// Same raw-shift rationale as `vpsrlvq_raw_ymm!`.
 #[cfg(target_arch = "x86_64")]
 macro_rules! vpsrlvq_raw_zmm {
     ($src:expr, $cnt:expr) => {{
