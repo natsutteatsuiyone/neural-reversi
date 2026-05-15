@@ -4,6 +4,7 @@
 //! and helper functions used throughout the engine's hot paths.
 
 pub mod align;
+pub mod aligned_buffer;
 pub mod bitset;
 pub mod spinlock;
 

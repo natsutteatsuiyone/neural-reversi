@@ -2,7 +2,6 @@
 
 use std::io::{self, Read};
 
-use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
@@ -13,6 +12,7 @@ use crate::eval::util::clone_biases;
 #[allow(unused_imports)]
 use crate::eval::util::feature_offset;
 use crate::util::align::Align64;
+use crate::util::aligned_buffer::AlignedBuffer;
 
 use super::accumulate_scalar;
 
@@ -25,18 +25,19 @@ const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
 /// Phase-adaptive input layer.
 #[derive(Debug)]
 pub struct PhaseAdaptiveInputLayer {
-    biases: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
-    weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
+    biases: AlignedBuffer<i16, CACHE_LINE_SIZE>,
+    weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
 }
 
 impl PhaseAdaptiveInputLayer {
     /// Loads network weights and biases from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS];
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS];
+        let mut biases = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, OUTPUT_DIMS);
+        let mut weights =
+            AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, INPUT_FEATURE_DIMS * OUTPUT_DIMS);
 
-        reader.read_i16_into::<LittleEndian>(&mut biases)?;
-        reader.read_i16_into::<LittleEndian>(&mut weights)?;
+        reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
+        reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
         #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
         {
@@ -310,9 +311,12 @@ impl PhaseAdaptiveInput {
 }
 
 #[cfg(test)]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "x86_64", target_feature = "avx2"),
+))]
 mod tests {
     use super::*;
-    use aligned_vec::avec;
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     use super::super::simd_layout::permute_rows;
@@ -326,8 +330,8 @@ mod tests {
         }
 
         let mut layer = PhaseAdaptiveInputLayer {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS],
+            biases: AlignedBuffer::from_elem(0i16, OUTPUT_DIMS),
+            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * OUTPUT_DIMS),
         };
 
         for (idx, bias) in layer.biases.iter_mut().enumerate() {
@@ -360,8 +364,8 @@ mod tests {
         }
 
         let mut natural = PhaseAdaptiveInputLayer {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS],
+            biases: AlignedBuffer::from_elem(0i16, OUTPUT_DIMS),
+            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * OUTPUT_DIMS),
         };
 
         for (idx, bias) in natural.biases.iter_mut().enumerate() {
@@ -397,8 +401,8 @@ mod tests {
         }
 
         let mut natural = PhaseAdaptiveInputLayer {
-            biases: avec![[CACHE_LINE_SIZE]|0i16; OUTPUT_DIMS],
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * OUTPUT_DIMS],
+            biases: AlignedBuffer::from_elem(0i16, OUTPUT_DIMS),
+            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * OUTPUT_DIMS),
         };
 
         for (idx, bias) in natural.biases.iter_mut().enumerate() {

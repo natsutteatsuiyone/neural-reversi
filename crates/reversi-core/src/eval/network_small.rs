@@ -7,7 +7,6 @@ use std::fs::File;
 use std::io::{self, BufReader, Read};
 use std::path::Path;
 
-use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
@@ -15,6 +14,7 @@ use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_FEATURES, PatternFeat
 use crate::eval::util::feature_offset;
 use crate::types::ScaledScore;
 use crate::util::align::Align64;
+use crate::util::aligned_buffer::AlignedBuffer;
 
 /// Hidden layer dimension.
 const PA_OUTPUT_DIMS: usize = 128;
@@ -41,16 +41,19 @@ const ACTIVATION_CLAMP_MAX: i16 = 1023;
 #[derive(Debug)]
 struct InputLayer {
     biases: Align64<[i16; PA_OUTPUT_DIMS]>,
-    weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
+    weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
 }
 
 impl InputLayer {
     fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = Align64([0i16; PA_OUTPUT_DIMS]);
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS];
+        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(
+            0,
+            INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS,
+        );
 
         reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
-        reader.read_i16_into::<LittleEndian>(&mut weights)?;
+        reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
         Ok(Self { biases, weights })
     }
@@ -714,6 +717,13 @@ impl NetworkSmall {
 }
 
 #[cfg(test)]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(
+        target_arch = "x86_64",
+        any(target_feature = "avx2", target_feature = "avx512bw"),
+    ),
+))]
 mod tests {
     use super::*;
 
@@ -725,7 +735,7 @@ mod tests {
 
         let mut input_layer = InputLayer {
             biases: Align64([0i16; PA_OUTPUT_DIMS]),
-            weights: avec![[CACHE_LINE_SIZE]|0i16; INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS],
+            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS),
         };
 
         for (i, bias) in input_layer.biases.as_mut_slice().iter_mut().enumerate() {

@@ -2,17 +2,17 @@
 
 use std::io::{self, Read};
 
-use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
+use crate::util::aligned_buffer::AlignedBuffer;
 
 /// Output layer with 16-bit weights for computing a single scalar output.
 pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> {
     /// Bias term for the output neuron.
     bias: i32,
     /// Weight vector aligned for SIMD access.
-    weights: AVec<i16, ConstAlign<CACHE_LINE_SIZE>>,
+    weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
     /// Function pointer to the optimal forward implementation, selected at load time
     /// based on detected CPU SIMD capabilities (AVX512+VNNI > AVX512 > AVX2+VNNI > AVX2 > scalar).
     forward_fn: unsafe fn(&Self, [&[u8]; 3]) -> i32,
@@ -25,8 +25,8 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let bias = reader.read_i32::<LittleEndian>()?;
 
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; PADDED_INPUT_DIMS];
-        reader.read_i16_into::<LittleEndian>(&mut weights)?;
+        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED_INPUT_DIMS);
+        reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
         let forward_fn = Self::select_forward_fn();
 
@@ -403,7 +403,7 @@ mod tests {
     /// so it points at the always-available scalar wrapper.
     #[allow(dead_code)]
     fn build_layer<const INPUT: usize, const PADDED: usize>() -> OutputLayer<INPUT, PADDED> {
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i16; PADDED];
+        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED);
         for (i, w) in weights.iter_mut().enumerate().take(INPUT) {
             *w = ((i as i32 * 29 + 11) % 97 - 48) as i16;
         }

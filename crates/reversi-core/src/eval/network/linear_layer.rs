@@ -4,11 +4,11 @@
 
 use std::io::{self, Read};
 
-use aligned_vec::{AVec, ConstAlign, avec};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
 use crate::util::align::Align64;
+use crate::util::aligned_buffer::AlignedBuffer;
 
 /// Linear transformation layer.
 pub struct LinearLayer<
@@ -17,8 +17,8 @@ pub struct LinearLayer<
     const PADDED_INPUT_DIMS: usize,
     const PADDED_OUTPUT_DIMS: usize,
 > {
-    biases: AVec<i32, ConstAlign<CACHE_LINE_SIZE>>,
-    weights: AVec<i8, ConstAlign<CACHE_LINE_SIZE>>,
+    biases: AlignedBuffer<i32, CACHE_LINE_SIZE>,
+    weights: AlignedBuffer<i8, CACHE_LINE_SIZE>,
     forward_fn: ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>,
 }
 
@@ -49,8 +49,11 @@ impl<
     ///
     /// `PADDED_INPUT_DIMS` must be a multiple of 4 for correct weight repacking.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = avec![[CACHE_LINE_SIZE]|0i32; PADDED_OUTPUT_DIMS];
-        let mut weights = avec![[CACHE_LINE_SIZE]|0i8; PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS];
+        let mut biases = AlignedBuffer::<i32, CACHE_LINE_SIZE>::from_elem(0, PADDED_OUTPUT_DIMS);
+        let mut weights = AlignedBuffer::<i8, CACHE_LINE_SIZE>::from_elem(
+            0,
+            PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS,
+        );
 
         for i in 0..OUTPUT_DIMS {
             biases[i] = reader.read_i32::<LittleEndian>()?;
@@ -566,8 +569,6 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use aligned_vec::avec;
-
     use super::*;
     use std::io::Cursor;
 
@@ -576,8 +577,8 @@ mod tests {
     -> LinearLayer<I, O, PI, PO> {
         let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
         let mut layer = LinearLayer::<I, O, PI, PO> {
-            biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
-            weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
+            biases: AlignedBuffer::from_elem(0i32, PO),
+            weights: AlignedBuffer::from_elem(0i8, PI * PO),
             forward_fn,
         };
 
@@ -679,8 +680,8 @@ mod tests {
 
         let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
         let mut layer = LinearLayer::<I, O, PI, PO> {
-            biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
-            weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
+            biases: AlignedBuffer::from_elem(0i32, PO),
+            weights: AlignedBuffer::from_elem(0i8, PI * PO),
             forward_fn,
         };
 
@@ -940,8 +941,8 @@ mod tests {
 
         let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
         let mut layer = LinearLayer::<I, O, PI, PO> {
-            biases: avec![[CACHE_LINE_SIZE]|0i32; PO],
-            weights: avec![[CACHE_LINE_SIZE]|0i8; PI * PO],
+            biases: AlignedBuffer::from_elem(0i32, PO),
+            weights: AlignedBuffer::from_elem(0i8, PI * PO),
             forward_fn,
         };
 

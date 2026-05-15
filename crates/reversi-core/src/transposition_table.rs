@@ -9,7 +9,7 @@ use crate::probcut::Selectivity;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
-use aligned_vec::{AVec, ConstAlign};
+use crate::util::aligned_buffer::AlignedBuffer;
 use std::{
     hint::{Locality, prefetch_read},
     mem,
@@ -589,7 +589,7 @@ impl TTEntry {
 /// Shared transposition table.
 pub struct TranspositionTable {
     /// Flat array of [`TTEntry`] values grouped into fixed-size clusters.
-    entries: AVec<TTEntry, ConstAlign<CACHE_LINE_SIZE>>,
+    entries: AlignedBuffer<TTEntry, CACHE_LINE_SIZE>,
     /// Number of [`TTEntry`] clusters in the table.
     cluster_count: u64,
     /// Generation counter for entry aging (incremented each search).
@@ -615,10 +615,7 @@ impl TranspositionTable {
         let entries_size = cluster_count as usize * CLUSTER_SIZE;
 
         TranspositionTable {
-            entries: AVec::from_iter(
-                CACHE_LINE_SIZE,
-                (0..entries_size).map(|_| TTEntry::default()),
-            ),
+            entries: AlignedBuffer::from_iter((0..entries_size).map(|_| TTEntry::default())),
             cluster_count,
             generation: AtomicU8::new(0),
         }
