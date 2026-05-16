@@ -14,11 +14,12 @@ export function MoveHistory() {
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const isAnalyzing = useReversiStore((state) => state.isAnalyzing);
+  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
   const undoMove = useReversiStore((state) => state.undoMove);
   const redoMove = useReversiStore((state) => state.redoMove);
   const goToMove = useReversiStore((state) => state.goToMove);
   const currentIndex = moveHistory.length;
-  const canNavigate = gameStatus !== "waiting" && !isAIThinking && !isAnalyzing;
+  const canNavigate = gameStatus !== "waiting" && !isAIThinking && !isAnalyzing && !isGameAnalyzing;
 
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);

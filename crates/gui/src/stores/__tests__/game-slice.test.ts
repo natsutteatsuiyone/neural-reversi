@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { triggerAutomation } from "@/stores/slices/game-slice";
-import { createTestStore, type TestStore } from "./test-helpers";
+import { createDeferred, createTestStore, type TestStore } from "./test-helpers";
 import type { Services } from "@/services/types";
 
 const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -54,6 +54,34 @@ describe("triggerAutomation", () => {
 
     expect(makeAIMoveSpy).not.toHaveBeenCalled();
     expect(analyzeBoardSpy).not.toHaveBeenCalled();
+  });
+
+  it("does nothing while a search or game analysis is active", async () => {
+    const { store } = createTestStore();
+    await store.getState().startGame();
+    store.setState({ gameMode: "ai-black", currentPlayer: "black" });
+    const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
+    const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
+
+    for (const busyState of [
+      { isAIThinking: true },
+      { isAnalyzing: true },
+      { isGameAnalyzing: true },
+    ]) {
+      makeAIMoveSpy.mockClear();
+      analyzeBoardSpy.mockClear();
+      store.setState({
+        isAIThinking: false,
+        isAnalyzing: false,
+        isGameAnalyzing: false,
+        ...busyState,
+      });
+
+      triggerAutomation(store.getState);
+
+      expect(makeAIMoveSpy).not.toHaveBeenCalled();
+      expect(analyzeBoardSpy).not.toHaveBeenCalled();
+    }
   });
 });
 
@@ -178,6 +206,21 @@ describe("makeMove", () => {
     store.setState({ analyzeResults: new Map([["2,3", {} as never]]) });
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     expect(store.getState().analyzeResults).toBeNull();
+  });
+
+  it("clears stale game analysis results", async () => {
+    store.setState({ gameAnalysisResult: [{ moveIndex: 0 } as never] });
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    expect(store.getState().gameAnalysisResult).toBeNull();
+  });
+
+  it("does not move while game analysis is active", async () => {
+    store.setState({ isGameAnalyzing: true });
+
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+
+    expect(store.getState().moveHistory.length).toBe(0);
+    expect(store.getState().currentPlayer).toBe("black");
   });
 
   it("aborts analysis when a user move is made during analysis", async () => {
@@ -392,6 +435,15 @@ describe("undoMove", () => {
     expect(s.showPassNotification).toBeNull();
     expect(s.paused).toBe(false);
   });
+
+  it("does nothing while game analysis is active", async () => {
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    store.setState({ isGameAnalyzing: true });
+
+    store.getState().undoMove();
+
+    expect(store.getState().moveHistory.length).toBe(1);
+  });
 });
 
 describe("redoMove", () => {
@@ -477,6 +529,36 @@ describe("redoMove", () => {
     store.setState({ analyzeResults: new Map([["2,3", {} as never]]) });
     store.getState().redoMove();
     expect(store.getState().analyzeResults).toBeNull();
+  });
+
+  it("does nothing while game analysis is active", async () => {
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    store.getState().undoMove();
+    store.setState({ isGameAnalyzing: true });
+
+    store.getState().redoMove();
+
+    expect(store.getState().moveHistory.length).toBe(0);
+  });
+});
+
+describe("goToMove", () => {
+  let store: TestStore;
+
+  beforeEach(async () => {
+    ({ store } = createTestStore());
+    await store.getState().startGame();
+    store.setState({ gameMode: "pvp" });
+  });
+
+  it("does nothing while game analysis is active", async () => {
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    store.setState({ isGameAnalyzing: true });
+
+    store.getState().goToMove(0);
+
+    expect(store.getState().moveHistory.length).toBe(1);
+    expect(store.getState().currentPlayer).toBe("white");
   });
 });
 
@@ -652,6 +734,58 @@ describe("startGame", () => {
     expect(store.getState().aiLevel).toBe(21);
     expect(store.getState().aiMode).toBe("game-time");
     expect(store.getState().gameTimeLimit).toBe(60);
+  });
+
+  it("queues automation after a failed replacement restarts game analysis", async () => {
+    const analyzeDeferred = createDeferred<void>();
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi
+          .fn()
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(new Error("init failed")),
+        analyzeGame: vi.fn().mockImplementation(async () => {
+          await analyzeDeferred.promise;
+        }),
+      }),
+    });
+
+    await store.getState().startGame({
+      gameMode: "pvp",
+      aiLevel: 21,
+      aiMode: "level",
+      gameTimeLimit: 60,
+    });
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    store.setState({
+      gameMode: "ai-white",
+      isGameAnalyzing: true,
+    });
+    const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
+
+    const started = await store.getState().startGame({
+      gameMode: "pvp",
+      aiLevel: 5,
+      aiMode: "level",
+      gameTimeLimit: 180,
+    });
+
+    expect(started).toBe(false);
+    // analyzeGame commits isGameAnalyzing synchronously via onClaim; loop is now a no-op guard.
+    for (let i = 0; i < 10 && !store.getState().isGameAnalyzing; i++) {
+      await Promise.resolve();
+    }
+    expect(services.ai.analyzeGame).toHaveBeenCalled();
+    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().automationResumePending).toBe(true);
+    expect(makeAIMoveSpy).not.toHaveBeenCalled();
+
+    analyzeDeferred.resolve();
+    await analyzeDeferred.promise;
+    await Promise.resolve();
+
+    expect(store.getState().automationResumePending).toBe(false);
+    expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
   });
 
   it("exits solver mode after a successful new-game start", async () => {

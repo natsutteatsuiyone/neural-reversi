@@ -1,7 +1,8 @@
 import { StateCreator } from "zustand";
 import type { AISlice, ReversiState } from "./types";
-import { DEFAULT_SETTINGS, type Services } from "@/services/types";
+import { DEFAULT_SETTINGS, type AIMoveProgress, type AIMoveResult, type Services } from "@/services/types";
 import { runAIMoveSearch } from "@/services/ai-move-search-operation";
+import type { EngineSearch } from "@/domain/engine/engine-search";
 
 export function clearSearchTimer(
     get: () => ReversiState,
@@ -14,7 +15,7 @@ export function clearSearchTimer(
     }
 }
 
-export function createAISlice(services: Services): StateCreator<
+export function createAISlice(services: Services, engineSearch: EngineSearch): StateCreator<
     ReversiState,
     [],
     [],
@@ -42,68 +43,68 @@ export function createAISlice(services: Services): StateCreator<
     },
 
     makeAIMove: async () => {
-        const { currentPlayer: player, board, aiLevel, aiMode, timeLimit, aiRemainingTime } = get();
+      const state = get();
+      if (state.isAIThinking || state.isAnalyzing || state.isGameAnalyzing) return;
+      const { currentPlayer: player, board, aiLevel, aiMode, timeLimit, aiRemainingTime } = state;
 
-        try {
-            const aiMove = await runAIMoveSearch({
-                ai: services.ai,
-                board,
-                player,
-                level: aiLevel,
-                mode: aiMode,
-                timeLimitSeconds: timeLimit,
-                remainingTimeMs: aiRemainingTime,
-                getRemainingTime: () => get().aiRemainingTime,
-                onStart: (aiSearchStartTime) => {
-                    set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime });
-                },
-                onTimerChange: (searchTimer) => {
-                    set({ searchTimer });
-                },
-                onRemainingTime: (remainingTime) => {
-                    set({ aiRemainingTime: remainingTime });
-                },
-                onProgress: ({ progress, nps }) => {
-                    set((state) => ({
-                        aiMoveProgress: progress,
-                        aiThinkingHistory: [...state.aiThinkingHistory, { ...progress, nps }],
-                    }));
-                },
-                onFinish: () => {
-                    set({ aiMoveProgress: null, isAIThinking: false });
-                },
-            });
-            if (aiMove) {
-                const move = {
-                    row: aiMove.row,
-                    col: aiMove.col,
-                    score: aiMove.score,
-                    isAI: true,
-                };
-                await get().makeMove(move);
-                set({
-                    lastAIMove: aiMove,
-                });
-            }
-        } catch (error) {
-            console.error("AI Move failed:", error);
-        }
+      let aiMove: AIMoveResult = null;
+      await engineSearch.start<{ progress: AIMoveProgress; nps: number }, AIMoveResult>({
+        onStart: () => {},
+        run: (accept, run) =>
+          runAIMoveSearch({
+            ai: services.ai, board, player, level: aiLevel, mode: aiMode,
+            timeLimitSeconds: timeLimit, remainingTimeMs: aiRemainingTime,
+            getRemainingTime: () => get().aiRemainingTime,
+            onStart: (aiSearchStartTime) => {
+              if (run.isCurrent())
+                set({ isAIThinking: true, aiThinkingHistory: [], aiSearchStartTime });
+            },
+            onTimerChange: (searchTimer) => {
+              if (run.isCurrent()) set({ searchTimer });
+            },
+            onRemainingTime: (remainingTime) => {
+              if (run.isCurrent()) set({ aiRemainingTime: remainingTime });
+            },
+            onProgress: accept,
+            onFinish: () => {},
+          }),
+        abort: () => services.ai.abortSearch(),
+        onProgress: ({ progress, nps }) =>
+          set((s) => ({
+            aiMoveProgress: progress,
+            aiThinkingHistory: [...s.aiThinkingHistory, { ...progress, nps }],
+          })),
+        onResult: (move) => { aiMove = move; },
+        onError: (error) => console.error("AI Move failed:", error),
+        onTeardown: () =>
+          set({ aiMoveProgress: null, isAIThinking: false, aiSearchStartTime: null }),
+      });
+
+      // `aiMove` is only ever written from the `onResult` callback above, so
+      // TS narrows the post-await read to `never`; reassert the declared type.
+      const result = aiMove as AIMoveResult;
+      if (result) {
+        const move = { row: result.row, col: result.col, score: result.score, isAI: true };
+        await get().makeMove(move);
+        set({ lastAIMove: result });
+      }
     },
 
     abortAIMove: async () => {
-        const { isAIThinking, isAnalyzing } = get();
-        if (!isAIThinking && !isAnalyzing) return;
-        try {
-            await services.ai.abortSearch();
-            clearSearchTimer(get, set);
-            set({
-                isAIThinking: false,
-                isAnalyzing: false,
-                aiMoveProgress: null,
-            });
-        } catch (error) {
-            console.error("AI abort failed:", error);
-        }
+      const { isAIThinking, isAnalyzing } = get();
+      if (!isAIThinking && !isAnalyzing) return;
+      const shouldPauseAI = isAIThinking && get().isAITurn() && get().validMoves.length > 0;
+      await engineSearch.abort({
+        abort: () => services.ai.abortSearch(),
+        onError: (error) => console.error("AI abort failed:", error),
+        onSettled: () => {
+          clearSearchTimer(get, set);
+          set({
+            isAIThinking: false, isAnalyzing: false, aiMoveProgress: null,
+            aiSearchStartTime: null, paused: shouldPauseAI,
+          });
+        },
+      });
     },
 
     setAILevelChange: (level) => {

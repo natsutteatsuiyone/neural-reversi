@@ -9,14 +9,18 @@ import {
     type Move,
     applyMove,
     checkGameOver,
-    cloneBoard,
     createGameStartState,
     createMoveRecord,
-    createPassMove,
-    reconstructBoardFromMoves,
 } from "@/domain/game/store-helpers";
+import {
+    createGoToMovePatch,
+    createHistoryNavigationPatch,
+    createPassTurnPatch,
+    hasFlippedDiscs,
+    type GameHistoryPatch,
+    type HistoryNavigationState,
+} from "@/domain/game/game-session";
 import { MoveHistory } from "@/domain/game/move-history";
-import type { Board, MoveRecord, Player } from "@/domain/game/types";
 import type { GameSlice, NewGameSettings, ReversiState } from "./types";
 import type { Services } from "@/services/types";
 import { clearSearchTimer } from "./ai-slice";
@@ -25,78 +29,21 @@ import { FLIP_DURATION_S } from "@/components/board/board3d-utils";
 const FLIP_DURATION_MS = FLIP_DURATION_S * 1000;
 export const PASS_NOTIFICATION_DURATION_MS = 1500;
 
-function resolveAIRemainingTime(history: MoveHistory, gameTimeLimitMs: number): number {
-    return history.length > 0
-        ? (history.lastMove?.remainingTime ?? gameTimeLimitMs)
-        : gameTimeLimitMs;
-}
-
-function toLastMove(moves: readonly MoveRecord[]): Move | null {
-    const last = moves.length > 0 ? moves[moves.length - 1] : undefined;
-    if (!last || last.row < 0 || last.col < 0) {
-        return null;
-    }
-
+function createHistoryNavigationState(state: ReversiState): HistoryNavigationState {
     return {
-        row: last.row,
-        col: last.col,
-        isAI: Boolean(last.isAI),
-        score: last.score,
+        gameStatus: state.gameStatus,
+        moveHistory: state.moveHistory,
+        historyStartBoard: state.historyStartBoard,
+        historyStartPlayer: state.historyStartPlayer,
+        gameTimeLimitMs: state.gameTimeLimit * 1000,
     };
 }
 
-function deriveStateFromMoves(
-    moves: readonly MoveRecord[],
-    historyStartBoard: Board,
-    historyStartPlayer: Player,
-): {
-    board: Board;
-    currentPlayer: "black" | "white";
-    validMoves: [number, number][];
-    lastMove: Move | null;
-} {
-    const { board, currentPlayer } = reconstructBoardFromMoves(
-        moves,
-        historyStartBoard,
-        historyStartPlayer,
-    );
-
+function withNavigationClears(patch: GameHistoryPatch): Partial<ReversiState> {
     return {
-        board,
-        currentPlayer,
-        validMoves: getValidMoves(board, currentPlayer),
-        lastMove: toLastMove(moves),
-    };
-}
-
-function applyHistoryNavigation(
-    state: ReversiState,
-    direction: "undo" | "redo",
-): Partial<ReversiState> | null {
-    const isUndo = direction === "undo";
-
-    if (state.gameStatus === "waiting") return null;
-    if (isUndo ? !state.moveHistory.canUndo : !state.moveHistory.canRedo) return null;
-
-    const newHistory = isUndo ? state.moveHistory.undo(1) : state.moveHistory.redo(1);
-    const derived = deriveStateFromMoves(
-        newHistory.currentMoves,
-        state.historyStartBoard,
-        state.historyStartPlayer,
-    );
-
-    const gameOver = isUndo ? false : checkGameOver(derived.board, derived.currentPlayer).gameOver;
-
-    return {
-        ...derived,
-        moveHistory: newHistory,
-        isPass: false,
+        ...patch,
         analyzeResults: null,
         showPassNotification: null,
-        gameOver,
-        gameStatus: gameOver ? "finished" : "playing",
-        skipAnimation: true,
-        aiRemainingTime: resolveAIRemainingTime(newHistory, state.gameTimeLimit * 1000),
     };
 }
 
@@ -118,11 +65,23 @@ export function clearAutomationTimer(
     get: () => ReversiState,
     set: (partial: Partial<ReversiState>) => void,
 ): void {
-    const { automationTimer } = get();
+    const { automationTimer, automationResumePending } = get();
     if (automationTimer) {
         clearTimeout(automationTimer);
-        set({ automationTimer: null });
     }
+    if (automationTimer || automationResumePending) {
+        set({ automationTimer: null, automationResumePending: false });
+    }
+}
+
+export function resumeQueuedAutomation(
+    get: () => ReversiState,
+    set: (partial: Partial<ReversiState>) => void,
+): void {
+    const state = get();
+    if (!state.automationResumePending || state.isGameAnalyzing) return;
+    set({ automationResumePending: false });
+    triggerAutomation(get);
 }
 
 export async function cleanupActiveOperations(
@@ -163,6 +122,7 @@ export async function prepareToReplaceGame(
     }
 
     const shouldResumeGameAnalysis = get().isGameAnalyzing;
+    const wasPaused = get().paused;
 
     clearAutomationTimer(get, set);
     await cleanupActiveOperations(get, set);
@@ -175,8 +135,11 @@ export async function prepareToReplaceGame(
         console.error("Failed to prepare AI for a new position:", error);
         if (shouldResumeGameAnalysis) {
             void get().analyzeGame();
+            set({ paused: wasPaused, automationResumePending: true });
+        } else {
+            set({ paused: wasPaused });
+            triggerAutomation(get);
         }
-        triggerAutomation(get);
         return false;
     }
 }
@@ -188,39 +151,14 @@ function scheduleAutomation(
 ): void {
     clearAutomationTimer(get, set);
     const timer = setTimeout(() => {
-        set({ automationTimer: null });
+        if (get().isGameAnalyzing) {
+            set({ automationTimer: null, automationResumePending: true });
+            return;
+        }
+        set({ automationTimer: null, automationResumePending: false });
         triggerAutomation(get);
     }, delayMs);
-    set({ automationTimer: timer });
-}
-
-function hasFlippedDiscs(oldBoard: Board, newBoard: Board): boolean {
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            const oldCell = oldBoard[r][c];
-            const newCell = newBoard[r][c];
-            if (oldCell.color && newCell.color && oldCell.color !== newCell.color) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-function applyPassState(state: ReversiState, passingPlayer: Player): Partial<ReversiState> {
-    const passMove = createPassMove(state.moveHistory.length, passingPlayer, state.aiRemainingTime);
-    const nextPlayerTurn = nextPlayer(passingPlayer);
-    const boardClone = cloneBoard(state.board);
-
-    return {
-        board: boardClone,
-        moveHistory: state.moveHistory.append(passMove),
-        currentPlayer: nextPlayerTurn,
-        validMoves: getValidMoves(boardClone, nextPlayerTurn),
-        isPass: true,
-        analyzeResults: null,
-    };
+    set({ automationTimer: timer, automationResumePending: false });
 }
 
 export function triggerAutomation(getState: () => ReversiState): void {
@@ -231,6 +169,10 @@ export function triggerAutomation(getState: () => ReversiState): void {
     }
 
     if (state.paused) {
+        return;
+    }
+
+    if (state.isAIThinking || state.isAnalyzing || state.isGameAnalyzing) {
         return;
     }
 
@@ -264,6 +206,7 @@ export function createGameSlice(services: Services): StateCreator<
     skipAnimation: false,
     paused: false,
     automationTimer: null,
+    automationResumePending: false,
 
     getScores: () => {
         return calculateScores(get().board);
@@ -287,6 +230,7 @@ export function createGameSlice(services: Services): StateCreator<
     },
 
     makeMove: async (move: Move) => {
+        if (get().isGameAnalyzing) return;
         clearAutomationTimer(get, set);
 
         // Abort analysis in background if it's a user move (don't await to avoid blocking)
@@ -311,6 +255,7 @@ export function createGameSlice(services: Services): StateCreator<
                 lastMove: move,
                 validMoves: getValidMoves(newBoard, nextPlayerTurn),
                 analyzeResults: null,
+                gameAnalysisResult: null,
                 skipAnimation: false,
             };
         });
@@ -325,7 +270,9 @@ export function createGameSlice(services: Services): StateCreator<
 
         if (shouldPass) {
             set((state) => ({
-                ...applyPassState(state, updatedState.currentPlayer),
+                ...createPassTurnPatch(state, updatedState.currentPlayer),
+                analyzeResults: null,
+                gameAnalysisResult: null,
                 showPassNotification: updatedState.currentPlayer,
             }));
 
@@ -341,61 +288,55 @@ export function createGameSlice(services: Services): StateCreator<
     },
 
     makePass: () => {
+        if (get().isGameAnalyzing) return;
         clearAutomationTimer(get, set);
-        set((state) => applyPassState(state, state.currentPlayer));
+        set((state) => ({
+            ...createPassTurnPatch(state),
+            analyzeResults: null,
+            gameAnalysisResult: null,
+        }));
     },
 
     undoMove: () => {
+        if (get().isGameAnalyzing) return;
         clearAutomationTimer(get, set);
-        set((state) => applyHistoryNavigation(state, "undo") ?? state);
+        set((state) => {
+            const patch = createHistoryNavigationPatch(createHistoryNavigationState(state), "undo");
+            return patch ? withNavigationClears(patch) : state;
+        });
         finalizeNavigation(set, get);
     },
 
     redoMove: () => {
+        if (get().isGameAnalyzing) return;
         clearAutomationTimer(get, set);
-        set((state) => applyHistoryNavigation(state, "redo") ?? state);
+        set((state) => {
+            const patch = createHistoryNavigationPatch(createHistoryNavigationState(state), "redo");
+            return patch ? withNavigationClears(patch) : state;
+        });
         finalizeNavigation(set, get);
     },
 
     resumeAI: () => {
-        set({ paused: false });
+        if (get().isGameAnalyzing) {
+            set({ paused: false, automationResumePending: true });
+            return;
+        }
+        set({ paused: false, automationResumePending: false });
         triggerAutomation(get);
     },
 
     goToMove: (position: number) => {
-        clearAutomationTimer(get, set);
         const state = get();
-        if (state.isAIThinking || state.isAnalyzing) return;
+        if (state.isAIThinking || state.isAnalyzing || state.isGameAnalyzing) return;
+        clearAutomationTimer(get, set);
 
-        const newHistory = state.moveHistory.goTo(position);
-        if (newHistory.length === state.moveHistory.length) return;
+        const patch = createGoToMovePatch(createHistoryNavigationState(state), position);
+        if (!patch) return;
 
-        const derived = deriveStateFromMoves(
-            newHistory.currentMoves,
-            state.historyStartBoard,
-            state.historyStartPlayer,
-        );
+        set(withNavigationClears(patch));
 
-        const isAtEnd = position >= state.moveHistory.totalLength;
-        const gameOver = isAtEnd
-            ? checkGameOver(derived.board, derived.currentPlayer).gameOver
-            : false;
-
-        const newGameStatus = gameOver ? "finished" : (state.gameStatus === "finished" ? "playing" : state.gameStatus);
-
-        set({
-            ...derived,
-            moveHistory: newHistory,
-            isPass: false,
-            analyzeResults: null,
-            showPassNotification: null,
-            gameOver,
-            gameStatus: newGameStatus,
-            skipAnimation: true,
-            aiRemainingTime: resolveAIRemainingTime(newHistory, state.gameTimeLimit * 1000),
-        });
-
-        if (!gameOver && newGameStatus === "playing") {
+        if (!patch.gameOver && patch.gameStatus === "playing") {
             finalizeNavigation(set, get);
         }
     },

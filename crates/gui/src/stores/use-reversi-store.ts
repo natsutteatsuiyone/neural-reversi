@@ -7,16 +7,18 @@ import { createUISlice } from "./slices/ui-slice";
 import { createSettingsSlice } from "./slices/settings-slice";
 import { createSetupSlice } from "./slices/setup-slice";
 import { createSolverSlice } from "./slices/solver-slice";
+import { createEngineSearch } from "@/domain/engine/engine-search";
 import { defaultServices } from "@/services";
 
 export function createReversiStore(services: Services) {
+  const engineSearch = createEngineSearch();
   return create<ReversiState>()((...a) => ({
     ...createGameSlice(services)(...a),
-    ...createAISlice(services)(...a),
-    ...createUISlice(services)(...a),
+    ...createAISlice(services, engineSearch)(...a),
+    ...createUISlice(services, engineSearch)(...a),
     ...createSettingsSlice(services)(...a),
     ...createSetupSlice(services)(...a),
-    ...createSolverSlice(services)(...a),
+    ...createSolverSlice(services, engineSearch)(...a),
   }));
 }
 

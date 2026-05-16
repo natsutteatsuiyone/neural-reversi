@@ -126,6 +126,7 @@ export function createGameStartState(
     skipAnimation: true,
     paused: false,
     automationTimer: null,
+    automationResumePending: false,
     gameAnalysisResult: null,
   };
 }

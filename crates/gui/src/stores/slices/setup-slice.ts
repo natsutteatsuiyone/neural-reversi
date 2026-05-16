@@ -1,39 +1,14 @@
 import { StateCreator } from "zustand";
 import { createEmptyBoard, initializeBoard } from "@/domain/game/game-logic";
 import { cloneBoard, createGameStartState } from "@/domain/game/store-helpers";
-import { parseTranscript, parseBoardString, validateBoard } from "@/domain/game/board-parser";
-import type { Board, Player } from "@/domain/game/types";
+import { parseBoardString, parseTranscript } from "@/domain/game/board-parser";
+import {
+    resolveSetupPosition,
+    resolveValidSetupPosition,
+} from "@/domain/game/setup-position";
 import type { Services } from "@/services/types";
-import type { NewGameSettings, ReversiState, SetupSlice, SetupTab } from "./types";
+import type { NewGameSettings, ReversiState, SetupSlice } from "./types";
 import { prepareToReplaceGame, triggerAutomation } from "./game-slice";
-
-type ResolvedSetupPosition =
-    | { ok: true; board: Board; currentPlayer: Player }
-    | { ok: false; error: string };
-
-export function resolveSetupPositionForTab(
-    setupTab: SetupTab,
-    setupBoard: Board,
-    setupCurrentPlayer: Player,
-    transcriptInput: string,
-    boardStringInput: string,
-): ResolvedSetupPosition {
-    if (setupTab === "transcript") {
-        const result = parseTranscript(transcriptInput);
-        return result.ok
-            ? { ok: true, board: result.board, currentPlayer: result.currentPlayer }
-            : { ok: false, error: result.error };
-    }
-
-    if (setupTab === "boardString") {
-        const result = parseBoardString(boardStringInput);
-        return result.ok
-            ? { ok: true, board: result.board, currentPlayer: setupCurrentPlayer }
-            : { ok: false, error: result.error };
-    }
-
-    return { ok: true, board: setupBoard, currentPlayer: setupCurrentPlayer };
-}
 
 function resolveNewGameSettings(
     state: ReversiState,
@@ -73,13 +48,13 @@ export function createSetupSlice(services: Services): StateCreator<
     },
 
     setSetupTab: (tab) => set((state) => {
-        const resolved = resolveSetupPositionForTab(
-            tab,
-            state.setupBoard,
-            state.setupCurrentPlayer,
-            state.transcriptInput,
-            state.boardStringInput,
-        );
+        const resolved = resolveSetupPosition({
+            source: tab,
+            board: state.setupBoard,
+            currentPlayer: state.setupCurrentPlayer,
+            transcriptInput: state.transcriptInput,
+            boardStringInput: state.boardStringInput,
+        });
 
         if (resolved.ok) {
             return {
@@ -163,24 +138,18 @@ export function createSetupSlice(services: Services): StateCreator<
     startFromSetup: async (settings) => {
         const state = get();
         const nextSettings = resolveNewGameSettings(state, settings);
-        const resolved = resolveSetupPositionForTab(
-            state.setupTab,
-            state.setupBoard,
-            state.setupCurrentPlayer,
-            state.transcriptInput,
-            state.boardStringInput,
-        );
+        const resolved = resolveValidSetupPosition({
+            source: state.setupTab,
+            board: state.setupBoard,
+            currentPlayer: state.setupCurrentPlayer,
+            transcriptInput: state.transcriptInput,
+            boardStringInput: state.boardStringInput,
+        });
         if (!resolved.ok) {
             set({ setupError: resolved.error });
             return false;
         }
         const { board: resolvedBoard, currentPlayer: resolvedCurrentPlayer } = resolved;
-
-        const error = validateBoard(resolvedBoard, resolvedCurrentPlayer);
-        if (error) {
-            set({ setupError: error });
-            return false;
-        }
 
         if (!(await prepareToReplaceGame(services, get, set))) {
             set({ setupError: "aiInitFailed" });

@@ -77,6 +77,38 @@ describe("runAIMoveSearch", () => {
     }
   });
 
+  it("keeps progress updates when displayed fields change without depth or score changes", async () => {
+    const onProgress = vi.fn();
+    const ai = createMockAIService({
+      getAIMove: vi.fn().mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
+        callback(progress());
+        callback(progress({ row: 3, col: 2, bestMove: "c4" }));
+        callback(progress({ acc: 73, isEndgame: true }));
+        return null;
+      }),
+    });
+
+    await runAIMoveSearch({
+      ai,
+      board: initializeBoard(),
+      player: "black",
+      level: 1,
+      mode: "level",
+      timeLimitSeconds: 1,
+      remainingTimeMs: 60_000,
+      getRemainingTime: () => 60_000,
+      onStart: vi.fn(),
+      onTimerChange: vi.fn(),
+      onRemainingTime: vi.fn(),
+      onProgress,
+      onFinish: vi.fn(),
+    });
+
+    expect(onProgress).toHaveBeenCalledTimes(3);
+    expect(onProgress.mock.calls[1][0].progress).toMatchObject({ row: 3, col: 2, bestMove: "c4" });
+    expect(onProgress.mock.calls[2][0].progress).toMatchObject({ acc: 73, isEndgame: true });
+  });
+
   it("ticks down game-time mode and applies final engine time", async () => {
     vi.useFakeTimers();
     try {

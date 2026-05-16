@@ -16,17 +16,13 @@ import {
   usePlotArea,
 } from "recharts";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import type { MoveAnalysis } from "@/stores/slices/types";
-
-interface ChartDataItem {
-  move: number;
-  timelineIndex: number;
-  score: number | null;
-  scoreDisplay: string | null;
-  hasData: boolean;
-  notation: string | null;
-  analysis?: MoveAnalysis;
-}
+import {
+  createEvaluationChartData,
+  resolveCursorMoveNumber,
+  resolveYAxisDomain,
+  resolveYAxisTicks,
+  type ChartDataItem,
+} from "./evaluation-chart-model";
 
 const DUBIOUS_THRESHOLD = 2;
 const BLUNDER_THRESHOLD = 6;
@@ -114,113 +110,36 @@ export function EvaluationChart() {
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const goToMove = useReversiStore((state) => state.goToMove);
   const gameAnalysisResult = useReversiStore((state) => state.gameAnalysisResult);
+  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
 
   const allMoves = moveHistory.allMoves;
   const cursorPosition = moveHistory.length;
 
   const chartData = useMemo(() => {
-    const analysisMap = new Map<number, MoveAnalysis>();
-    if (gameAnalysisResult) {
-      for (const a of gameAnalysisResult) {
-        analysisMap.set(a.moveIndex, a);
-      }
-    }
-
-    const items: ChartDataItem[] = [];
-    let moveNumber = 0;
-
-    for (let i = 0; i < allMoves.length; i++) {
-      const currentMove = allMoves[i];
-      if (currentMove.row < 0) {
-        continue;
-      }
-
-      moveNumber++;
-      const analysis = analysisMap.get(i);
-
-      const isWhite = currentMove.player === "white";
-      let score: number | null = null;
-      if (analysis) {
-        score = isWhite ? -analysis.playedScore : analysis.playedScore;
-      } else if (currentMove.isAI && currentMove.score !== undefined) {
-        score = isWhite ? -currentMove.score : currentMove.score;
-      }
-
-      items.push({
-        move: moveNumber,
-        timelineIndex: i,
-        score,
-        scoreDisplay: score !== null ? (score > 0 ? `+${score.toFixed(1)}` : `${score.toFixed(1)}`) : null,
-        hasData: score !== null,
-        notation: currentMove.notation,
-        analysis,
-      });
-    }
-    return items;
+    return createEvaluationChartData(allMoves, gameAnalysisResult);
   }, [allMoves, gameAnalysisResult]);
 
   const cursorMoveNumber = useMemo(() => {
-    if (cursorPosition >= moveHistory.totalLength) return null;
-
-    let lastMoveNumber: number | null = null;
-    for (const item of chartData) {
-      if (item.timelineIndex >= cursorPosition) break;
-      lastMoveNumber = item.move;
-    }
-    return lastMoveNumber;
+    return resolveCursorMoveNumber(chartData, cursorPosition, moveHistory.totalLength);
   }, [cursorPosition, moveHistory.totalLength, chartData]);
 
   const yAxisDomain = useMemo((): [number, number] => {
-    const defaultRange: [number, number] = [-8, 8];
-    const tickUnit = 4;
-
-    const scores = chartData
-      .filter((d) => d.hasData)
-      .map((d) => d.score as number);
-    if (scores.length === 0) return defaultRange;
-
-    const dataMin = Math.min(...scores);
-    const dataMax = Math.max(...scores);
-
-    if (Math.max(Math.abs(dataMin), Math.abs(dataMax)) <= tickUnit) {
-      return defaultRange;
-    }
-
-    const padding = Math.max(tickUnit, Math.ceil(Math.abs(dataMax - dataMin) * 0.08 / tickUnit) * tickUnit);
-    let lo = Math.floor((dataMin - padding) / tickUnit) * tickUnit;
-    let hi = Math.ceil((dataMax + padding) / tickUnit) * tickUnit;
-
-    lo = Math.min(lo, 0);
-    hi = Math.max(hi, 0);
-
-    // Ensure the opposite side has at least 30% of the dominant side (min 8)
-    const dominant = Math.max(Math.abs(lo), hi);
-    const minOpposite = Math.max(8, Math.ceil(dominant * 0.3 / tickUnit) * tickUnit);
-    if (Math.abs(lo) > hi) hi = Math.max(hi, minOpposite);
-    else if (hi > Math.abs(lo)) lo = Math.min(lo, -minOpposite);
-
-    return [Math.max(lo, -64), Math.min(hi, 64)];
+    return resolveYAxisDomain(chartData);
   }, [chartData]);
 
   const yAxisTicks = useMemo(() => {
-    const [min, max] = yAxisDomain;
-    const range = max - min;
-    const tickStep = Math.max(4, Math.ceil(range / 32 / 4) * 4);
-    const ticks = [];
-    for (let v = min; v <= max; v += tickStep) {
-      ticks.push(v);
-    }
-    return ticks;
+    return resolveYAxisTicks(yAxisDomain);
   }, [yAxisDomain]);
 
   const handleChartClick = useCallback(
     (data: MouseHandlerDataParam) => {
       if (data.activeTooltipIndex == null) return;
+      if (isGameAnalyzing) return;
       const item = chartData[data.activeTooltipIndex as number];
       if (!item) return;
       goToMove(item.timelineIndex + 1);
     },
-    [goToMove, chartData],
+    [goToMove, chartData, isGameAnalyzing],
   );
 
   const renderDot = useCallback(
@@ -259,7 +178,7 @@ export function EvaluationChart() {
           data={chartData}
           margin={{ top: 5, right: 10, left: 14, bottom: 5 }}
           onClick={handleChartClick}
-          style={{ cursor: "pointer" }}
+          style={{ cursor: isGameAnalyzing ? "default" : "pointer" }}
         >
           <DiscIndicatorBar />
           <CartesianGrid

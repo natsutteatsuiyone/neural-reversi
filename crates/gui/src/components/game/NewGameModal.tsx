@@ -45,6 +45,8 @@ function NewGameModalContent({
 
   const [settings, setSettings] = useState<GameSettings>(initialSettings);
   const [step, setStep] = useState<1 | 2>(1);
+  const [isStarting, setIsStarting] = useState(false);
+  const startingRef = useRef(false);
   const activeRef = useRef(true);
   useEffect(() => {
     activeRef.current = true;
@@ -56,6 +58,9 @@ function NewGameModalContent({
   }, []);
 
   const handleStart = async (action: (s?: NewGameSettings) => Promise<boolean>) => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setIsStarting(true);
     try {
       const started = await action(settings);
       if (started) {
@@ -69,6 +74,11 @@ function NewGameModalContent({
       console.error("Failed to start game:", error);
       if (activeRef.current) {
         toast.error(t("notification.startGameFailed"));
+      }
+    } finally {
+      startingRef.current = false;
+      if (activeRef.current) {
+        setIsStarting(false);
       }
     }
   };
@@ -126,6 +136,7 @@ function NewGameModalContent({
         <Button
           variant="ghost"
           onClick={closeNewGameModal}
+          disabled={isStarting}
           className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
         >
           {t("game.cancel")}
@@ -136,6 +147,7 @@ function NewGameModalContent({
             <Button
               variant="outline"
               onClick={() => setStep(2)}
+              disabled={isStarting}
               className="gap-1 text-foreground-secondary border-white/20 hover:text-foreground hover:bg-white/10"
             >
               {t("game.nextStep")}
@@ -143,6 +155,7 @@ function NewGameModalContent({
             </Button>
             <Button
               onClick={() => void handleStart(startGame)}
+              disabled={isStarting}
               className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
             >
               <Play className="w-4 h-4" />
@@ -154,6 +167,7 @@ function NewGameModalContent({
             <Button
               variant="ghost"
               onClick={() => setStep(1)}
+              disabled={isStarting}
               className="gap-1 text-foreground-secondary hover:text-foreground hover:bg-white/10"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -161,7 +175,7 @@ function NewGameModalContent({
             </Button>
             <Button
               onClick={() => void handleStart(startFromSetup)}
-              disabled={!!setupError}
+              disabled={isStarting || !!setupError}
               className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
             >
               <Play className="w-4 h-4" />

@@ -2,7 +2,7 @@ import { boardToString } from "@/domain/game/board-parser";
 import { getNotation, opponentPlayer } from "@/domain/game/game-logic";
 import { applyMove, checkGameOver, type Move } from "@/domain/game/store-helpers";
 import type { Board, Player } from "@/domain/game/types";
-import { SearchOperation, type SearchRun } from "@/services/search-operation";
+import type { EngineSearch, RunOutcome } from "@/domain/engine/engine-search";
 import type {
   SolverCandidate,
   SolverMode,
@@ -43,6 +43,7 @@ interface SolverSessionOptions {
   solver: SolverService;
   read: () => SolverSessionState;
   commit: SolverSessionCommit;
+  engineSearch: EngineSearch;
 }
 
 export type SolverResultCache = Map<string, Map<string, SolverCandidate>>;
@@ -205,20 +206,30 @@ export function applySolverProgress(
 
 /**
  * Owns Solver Session lifecycle: current position, navigation history,
- * candidate cache, stop/resume state, and stale Search Operation filtering.
+ * candidate cache, stop/resume state, and stale Engine Search filtering.
  */
 export class SolverSession {
   private readonly solver: SolverService;
   private readonly read: () => SolverSessionState;
   private readonly commit: SolverSessionCommit;
-  private readonly searchOperation: SearchOperation;
+  private readonly engineSearch: EngineSearch;
   private readonly solverResultCache = createSolverResultCache();
+  /**
+   * Bumped by every solver-search `onClaim` that commits
+   * `isSolverSearching: true`. A run's teardown only clears the flag if no
+   * newer solver claim has happened since — this lets us distinguish
+   * "superseded by another solver run" (newer claim committed
+   * `isSolverSearching: true`, must NOT clear) from "superseded by a
+   * cross-feature search / aborted with no solver re-claim" (must clear so
+   * the flag does not stick true).
+   */
+  private solverClaimGeneration = 0;
 
-  constructor({ solver, read, commit }: SolverSessionOptions) {
+  constructor({ solver, read, commit, engineSearch }: SolverSessionOptions) {
     this.solver = solver;
     this.read = read;
     this.commit = commit;
-    this.searchOperation = new SearchOperation();
+    this.engineSearch = engineSearch;
   }
 
   async subscribeProgress(): Promise<() => void> {
@@ -229,55 +240,44 @@ export class SolverSession {
 
   async start(board: Board, player: Player): Promise<void> {
     const rootEntry = createSolverRootEntry(board, player);
-    const run = this.searchOperation.startRun(() => this.commit({
-      isSolverActive: true,
-      solverRootBoard: board,
-      solverRootPlayer: player,
-      solverCurrentBoard: board,
-      solverCurrentPlayer: player,
-      solverHistory: [rootEntry],
-      solverCandidates: new Map<string, SolverCandidate>(),
-      isSolverSearching: true,
-      isSolverStopped: false,
-    }));
-
-    await this.runSearch(board, player, run);
+    const { targetSelectivity, solverMode } = this.read();
+    await this.runSearch(
+      board,
+      player,
+      () => this.commit({
+        isSolverActive: true,
+        solverRootBoard: board,
+        solverRootPlayer: player,
+        solverCurrentBoard: board,
+        solverCurrentPlayer: player,
+        solverHistory: [rootEntry],
+        solverCandidates: new Map<string, SolverCandidate>(),
+        isSolverSearching: true,
+        isSolverStopped: false,
+      }),
+      targetSelectivity,
+      solverMode,
+    );
   }
 
   async exit(): Promise<void> {
-    await this.solver.abort();
-    this.searchOperation.invalidate(() => this.commit({
-      isSolverActive: false,
-      solverRootBoard: null,
-      solverRootPlayer: null,
-      solverHistory: [],
-      solverCurrentBoard: null,
-      solverCurrentPlayer: null,
-      solverCandidates: new Map<string, SolverCandidate>(),
-      isSolverSearching: false,
-      isSolverStopped: false,
-    }));
+    await this.engineSearch.abort({
+      onClaim: () => this.commit({
+        isSolverActive: false,
+        solverRootBoard: null,
+        solverRootPlayer: null,
+        solverHistory: [],
+        solverCurrentBoard: null,
+        solverCurrentPlayer: null,
+        solverCandidates: new Map<string, SolverCandidate>(),
+        isSolverSearching: false,
+        isSolverStopped: false,
+      }),
+      abort: () => this.solver.abort(),
+    });
   }
 
   async advance(row: number, col: number): Promise<void> {
-    const initial = this.read();
-    if (!initial.solverCurrentBoard || !initial.solverCurrentPlayer) {
-      return;
-    }
-
-    // Claim the run id before awaiting abort so racing navigation reads the
-    // latest breadcrumb state and stale queued progress is filtered.
-    const run = this.searchOperation.startRun(() => this.commit({
-      isSolverSearching: true,
-      isSolverStopped: false,
-    }));
-
-    await this.solver.abort();
-
-    if (!run.isCurrent()) {
-      return;
-    }
-
     const current = this.read();
     const currentBoard = current.solverCurrentBoard;
     const currentPlayer = current.solverCurrentPlayer;
@@ -288,17 +288,25 @@ export class SolverSession {
     const nextPosition = advanceSolverPosition(currentBoard, currentPlayer, row, col);
 
     if (nextPosition.gameOver) {
-      this.commit((state) => ({
-        solverHistory: [...state.solverHistory, nextPosition.entry],
-        solverCurrentBoard: nextPosition.board,
-        solverCurrentPlayer: nextPosition.player,
-        solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverSearching: false,
-      }));
+      // Game-over: no new search, but still supersede + abort the prior run so
+      // its stale progress is filtered and the backend is stopped before the
+      // final committed candidates land. Commit the breadcrumb synchronously
+      // (onClaim) so a rapidly-following navigation reads this position.
+      await this.engineSearch.abort({
+        onClaim: () => this.commit((state) => ({
+          solverHistory: [...state.solverHistory, nextPosition.entry],
+          solverCurrentBoard: nextPosition.board,
+          solverCurrentPlayer: nextPosition.player,
+          solverCandidates: new Map<string, SolverCandidate>(),
+          isSolverSearching: false,
+          isSolverStopped: false,
+        })),
+        abort: () => this.solver.abort(),
+      });
       return;
     }
 
-    const { targetSelectivity, solverMode } = this.read();
+    const { targetSelectivity, solverMode } = current;
     const cached = getCachedSolverResult(
       this.solverResultCache,
       nextPosition.board,
@@ -308,25 +316,36 @@ export class SolverSession {
     );
 
     if (cached) {
-      this.commit((state) => ({
-        solverHistory: [...state.solverHistory, nextPosition.entry],
-        solverCurrentBoard: nextPosition.board,
-        solverCurrentPlayer: nextPosition.player,
-        solverCandidates: cached,
-        isSolverSearching: false,
-        isSolverStopped: false,
-      }));
+      // Cache-hit: no new search, but still supersede + abort the prior run so
+      // its late progress cannot overwrite the committed cached candidates.
+      await this.engineSearch.abort({
+        onClaim: () => this.commit((state) => ({
+          solverHistory: [...state.solverHistory, nextPosition.entry],
+          solverCurrentBoard: nextPosition.board,
+          solverCurrentPlayer: nextPosition.player,
+          solverCandidates: cached,
+          isSolverSearching: false,
+          isSolverStopped: false,
+        })),
+        abort: () => this.solver.abort(),
+      });
       return;
     }
 
-    this.commit((state) => ({
-      solverHistory: [...state.solverHistory, nextPosition.entry],
-      solverCurrentBoard: nextPosition.board,
-      solverCurrentPlayer: nextPosition.player,
-      solverCandidates: new Map<string, SolverCandidate>(),
-    }));
-
-    await this.runSearch(nextPosition.board, nextPosition.player, run, targetSelectivity, solverMode);
+    await this.runSearch(
+      nextPosition.board,
+      nextPosition.player,
+      () => this.commit((state) => ({
+        solverHistory: [...state.solverHistory, nextPosition.entry],
+        solverCurrentBoard: nextPosition.board,
+        solverCurrentPlayer: nextPosition.player,
+        solverCandidates: new Map<string, SolverCandidate>(),
+        isSolverSearching: true,
+        isSolverStopped: false,
+      })),
+      targetSelectivity,
+      solverMode,
+    );
   }
 
   async undo(): Promise<void> {
@@ -362,12 +381,13 @@ export class SolverSession {
       return;
     }
 
-    await this.solver.abort();
-
-    this.searchOperation.invalidate(() => this.commit({
-      isSolverSearching: false,
-      isSolverStopped: true,
-    }));
+    await this.engineSearch.abort({
+      onClaim: () => this.commit({
+        isSolverSearching: false,
+        isSolverStopped: true,
+      }),
+      abort: () => this.solver.abort(),
+    });
   }
 
   async resume(): Promise<void> {
@@ -391,20 +411,29 @@ export class SolverSession {
     );
 
     if (cached) {
-      this.searchOperation.invalidate(() => this.commit({
-        solverCandidates: cached,
-        isSolverSearching: false,
-        isSolverStopped: false,
-      }));
+      // Cache-hit: no new search, but still supersede + abort the prior run so
+      // its late progress cannot overwrite the committed cached candidates.
+      await this.engineSearch.abort({
+        onClaim: () => this.commit({
+          solverCandidates: cached,
+          isSolverSearching: false,
+          isSolverStopped: false,
+        }),
+        abort: () => this.solver.abort(),
+      });
       return;
     }
 
-    const run = this.searchOperation.startRun(() => this.commit({
-      isSolverSearching: true,
-      isSolverStopped: false,
-    }));
-
-    await this.runSearch(board, player, run, state.targetSelectivity, state.solverMode);
+    await this.runSearch(
+      board,
+      player,
+      () => this.commit({
+        isSolverSearching: true,
+        isSolverStopped: false,
+      }),
+      state.targetSelectivity,
+      state.solverMode,
+    );
   }
 
   applyProgress(payload: SolverProgressPayload): void {
@@ -413,7 +442,7 @@ export class SolverSession {
       return;
     }
 
-    if (!this.searchOperation.accepts(payload.runId)) {
+    if (!this.engineSearch.accepts(payload.runId)) {
       return;
     }
 
@@ -437,48 +466,95 @@ export class SolverSession {
     extra: SolverSessionPatch = {},
   ): Promise<void> {
     const cached = getCachedSolverResult(this.solverResultCache, board, player, selectivity, mode);
-    // Commit the new destination before aborting so a second navigation starts
-    // from this updated position instead of from a stale pre-abort snapshot.
-    const run = this.searchOperation.startRun(() => this.commit({
-      ...extra,
-      solverCandidates: cached ?? new Map<string, SolverCandidate>(),
-      isSolverSearching: !cached,
-      isSolverStopped: false,
-    }));
 
-    await this.solver.abort();
-
-    if (cached || !run.isCurrent()) {
+    if (cached) {
+      // Cache-hit: no new search, but still supersede + abort the prior run so
+      // its late progress cannot overwrite the committed cached candidates.
+      await this.engineSearch.abort({
+        onClaim: () => this.commit({
+          ...extra,
+          solverCandidates: cached,
+          isSolverSearching: false,
+          isSolverStopped: false,
+        }),
+        abort: () => this.solver.abort(),
+      });
       return;
     }
 
-    await this.runSearch(board, player, run, selectivity, mode);
+    await this.runSearch(
+      board,
+      player,
+      () => this.commit({
+        ...extra,
+        solverCandidates: new Map<string, SolverCandidate>(),
+        isSolverSearching: true,
+        isSolverStopped: false,
+      }),
+      selectivity,
+      mode,
+    );
+  }
+
+  /**
+   * Cache the completed result, then clear `isSolverSearching` — but only if
+   * no newer solver search has re-claimed it since `claimGeneration`. A run
+   * superseded by another solver navigation must NOT clear the flag (the newer
+   * run committed `isSolverSearching: true` via its own `onClaim`); a run
+   * superseded by a cross-feature search (AI/hint) or aborted with no solver
+   * re-claim MUST clear it so it does not stick true.
+   */
+  private solverTeardown(
+    board: Board,
+    player: Player,
+    selectivity: SolverSelectivity,
+    mode: SolverMode,
+    claimGeneration: number,
+  ): (outcome: RunOutcome) => void {
+    return (outcome: RunOutcome) => {
+      // Cache ONLY the run that completed naturally. A superseded run's teardown
+      // runs in supersede()'s finally — AFTER the superseding onClaim already
+      // committed the NEW position's solverCandidates — so caching
+      // this.read().solverCandidates for a superseded/error run would store the
+      // wrong board's candidates under this run's (board,player) key. The old
+      // SearchOperation skipped a superseded run's onCurrentFinally entirely
+      // (finishCurrent gated on isCurrent); this restores that. (P1 #2)
+      if (outcome.status === "ok") {
+        cacheCompleteSolverResult(this.solverResultCache, board, player, selectivity, mode, this.read().solverCandidates);
+      }
+      if (this.solverClaimGeneration === claimGeneration) {
+        this.commit({ isSolverSearching: false });
+      }
+    };
   }
 
   private async runSearch(
     board: Board,
     player: Player,
-    run: SearchRun,
+    onClaim: () => void,
     selectivity = this.read().targetSelectivity,
     mode = this.read().solverMode,
   ): Promise<void> {
-    await this.searchOperation.runCurrent({
-      run,
-      start: () => this.solver.startSearch(board, player, selectivity, mode, run.id),
+    const claimGeneration = ++this.solverClaimGeneration;
+    await this.engineSearch.start<never, void>({
+      // Commit the breadcrumb synchronously (onClaim) so a rapidly-following
+      // navigation reads this position before `await supersede()` defers it.
+      onClaim,
+      // Abort the prior backend search unconditionally, then bail if a racing
+      // navigation already superseded this run (faithful to the old
+      // startRun + await solver.abort() + run.isCurrent() sequence).
+      run: async (_accept, run) => {
+        await this.solver.abort();
+        if (!run.isCurrent()) {
+          return;
+        }
+        await this.solver.startSearch(board, player, selectivity, mode, run.id);
+      },
+      abort: () => this.solver.abort(),
       onError: (error) => {
         console.error("Failed to start solver search:", error);
       },
-      onCurrentFinally: () => {
-        cacheCompleteSolverResult(
-          this.solverResultCache,
-          board,
-          player,
-          selectivity,
-          mode,
-          this.read().solverCandidates,
-        );
-        this.commit({ isSolverSearching: false });
-      },
+      onTeardown: this.solverTeardown(board, player, selectivity, mode, claimGeneration),
     });
   }
 }

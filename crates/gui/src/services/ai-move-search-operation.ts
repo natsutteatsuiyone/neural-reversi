@@ -25,12 +25,18 @@ interface AIMoveSearchOperationOptions {
 }
 
 function isSameProgress(a: AIMoveProgress | null, b: AIMoveProgress): boolean {
-  return Boolean(
-    a &&
+  return (
+    a !== null &&
+    a.bestMove === b.bestMove &&
+    a.row === b.row &&
+    a.col === b.col &&
     a.depth === b.depth &&
+    a.targetDepth === b.targetDepth &&
+    a.acc === b.acc &&
     a.score === b.score &&
     a.nodes === b.nodes &&
-    a.pvLine === b.pvLine,
+    a.pvLine === b.pvLine &&
+    a.isEndgame === b.isEndgame
   );
 }
 

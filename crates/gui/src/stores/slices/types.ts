@@ -10,6 +10,7 @@ import type { MoveHistory } from "@/domain/game/move-history";
 import type { SolverHistoryEntry as DomainSolverHistoryEntry } from "@/domain/solver/solver-session";
 import type { AIMode, Board, GameMode, Player } from "@/domain/game/types";
 import type { Move } from "@/domain/game/store-helpers";
+import type { MoveAnalysis } from "@/domain/game/game-analysis";
 import type { Language } from "@/i18n";
 import type { AppSettings } from "@/services/types";
 
@@ -29,6 +30,7 @@ export interface GameSlice {
     skipAnimation: boolean;
     paused: boolean;
     automationTimer: ReturnType<typeof setTimeout> | null;
+    automationResumePending: boolean;
     getScores: () => { black: number; white: number };
     isAITurn: () => boolean;
     isValidMove: (row: number, col: number) => boolean;
@@ -65,16 +67,7 @@ export interface AISlice {
     clearAiThinkingHistory: () => void;
 }
 
-export interface MoveAnalysis {
-    moveIndex: number;
-    player: "black" | "white";
-    playedMove: string;
-    playedScore: number;
-    bestMove: string;
-    bestScore: number;
-    scoreLoss: number;
-    depth: number;
-}
+export type { MoveAnalysis };
 
 export interface UISlice {
     showPassNotification: "black" | "white" | null;

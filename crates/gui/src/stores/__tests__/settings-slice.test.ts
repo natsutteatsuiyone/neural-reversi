@@ -160,6 +160,9 @@ describe("setHintLevel", () => {
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
     store.getState().setHintLevel(10);
+    // EngineSearch.abort awaits supersede() before onAbort/abort, so the
+    // abort-pending snapshot is observable one microtask later (unchanged).
+    await Promise.resolve();
 
     expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
@@ -167,7 +170,9 @@ describe("setHintLevel", () => {
 
     abortDeferred.resolve();
     await abortDeferred.promise;
-    await Promise.resolve();
+    for (let i = 0; i < 10 && !analyzeBoardSpy.mock.calls.length; i++) {
+      await Promise.resolve();
+    }
 
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
     expect(store.getState().isAnalyzing).toBe(false);
@@ -190,6 +195,12 @@ describe("setHintLevel", () => {
 
     store.getState().setHintLevel(10);
     store.getState().setHintLevel(12);
+
+    // Dedup behavior is preserved synchronously (the 2nd setHintLevel sees
+    // hintAnalysisAbortPending=true and early-returns, so only ONE restart is
+    // queued). EngineSearch.abort always awaits supersede() before issuing the
+    // backend abort, so abortSearch() is observable one microtask later.
+    await Promise.resolve();
 
     expect(store.getState().hintLevel).toBe(12);
     expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
@@ -226,6 +237,13 @@ describe("setHintLevel", () => {
 
     store.getState().setHintLevel(10);
     store.getState().setHintMode(false);
+    // EngineSearch.abort awaits supersede() before onAbort/abort, so both queued
+    // abort chains (setHintLevel restart + setHintMode(false) restart) land one
+    // microtask later. setHintMode(false)'s restart never deduped on
+    // hintAnalysisAbortPending, so two backend aborts is unchanged behavior.
+    for (let i = 0; i < 10 && (services.ai.abortSearch as ReturnType<typeof vi.fn>).mock.calls.length < 2; i++) {
+      await Promise.resolve();
+    }
 
     expect(services.ai.abortSearch).toHaveBeenCalledTimes(2);
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
@@ -242,7 +260,9 @@ describe("setHintLevel", () => {
 
     abortDeferred2.resolve();
     await abortDeferred2.promise;
-    await Promise.resolve();
+    for (let i = 0; i < 10 && !analyzeBoardSpy.mock.calls.length; i++) {
+      await Promise.resolve();
+    }
 
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
     expect(store.getState().isAnalyzing).toBe(false);

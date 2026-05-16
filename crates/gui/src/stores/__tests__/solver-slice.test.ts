@@ -1165,6 +1165,300 @@ describe("solver result cache", () => {
     });
 });
 
+describe("shared EngineSearch cross-feature supersede", () => {
+    it("starting an AI move supersedes an in-flight solver search and filters its stale progress", async () => {
+        // The solver and AI share one EngineSearch instance (created once per
+        // store). A solver search in flight is the live run; starting an AI
+        // move supersedes it: the solver's registered abort runs, the
+        // generation is bumped, so a late solver-progress stamped with the
+        // superseded run's id is filtered by engineSearch.accepts and cannot
+        // mutate solverCandidates. isSolverSearching must not stick true.
+        const startSearchDeferred = createDeferred<void>();
+        const getAIMoveDeferred = createDeferred<null>();
+        let solverRunId = -1;
+        const startSearch = vi.fn(
+            (_b: Board, _p: Player, _s: number, _m: string, runId: number) => {
+                solverRunId = runId;
+                return startSearchDeferred.promise;
+            },
+        );
+        const { store, services } = createTestStore({
+            solver: createMockSolverService({ startSearch }),
+            ai: createMockAIService({
+                getAIMove: vi.fn().mockReturnValue(getAIMoveDeferred.promise),
+            }),
+        });
+        const board = initializeBoard();
+
+        const solverPending = store.getState().startSolver(board, "black");
+        for (let i = 0; i < 20 && solverRunId < 0; i++) await Promise.resolve();
+        expect(store.getState().isSolverSearching).toBe(true);
+
+        // Starting an AI move supersedes the in-flight solver run. Drain
+        // microtasks until the AI search has taken over (it commits
+        // isAIThinking after EngineSearch's await supersede()).
+        const aiPending = store.getState().makeAIMove();
+        for (let i = 0; i < 20 && !store.getState().isAIThinking; i++) {
+            await Promise.resolve();
+        }
+        expect(store.getState().isSolverSearching).toBe(false);
+        expect(store.getState().isAIThinking).toBe(true);
+        // The solver run's registered abort fired during the supersede.
+        expect(services.solver.abort).toHaveBeenCalled();
+
+        // A late solver-progress stamped with the superseded run's id must NOT
+        // mutate solverCandidates (filtered by engineSearch.accepts).
+        store.getState().applySolverProgress({
+            runId: solverRunId,
+            bestMove: "d3",
+            row: 2,
+            col: 3,
+            score: 4,
+            depth: 14,
+            targetDepth: 14,
+            acc: 100,
+            nodes: 1000,
+            pvLine: "d3",
+            isEndgame: true,
+        });
+        expect(store.getState().solverCandidates.size).toBe(0);
+
+        getAIMoveDeferred.resolve(null);
+        await aiPending;
+        expect(store.getState().isSolverSearching).toBe(false);
+
+        startSearchDeferred.resolve();
+        await solverPending;
+        expect(store.getState().isSolverSearching).toBe(false);
+        expect(store.getState().solverCandidates.size).toBe(0);
+    });
+
+    it("a cache-hit navigation supersedes the prior run so its late progress cannot overwrite the cached candidates", async () => {
+        // Note: a genuine RED-first (cache-hit as a bare commit) could not be
+        // constructed through the public store API — the shared engine's
+        // generation always advances past the in-flight run's id before the
+        // late progress arrives, so the bare-commit variant also filters it
+        // (verified empirically). This is therefore a GREEN behavioral guard
+        // that the cache-hit path commits the cached candidates and a late
+        // solver-progress stamped with the prior in-flight run's id does not
+        // corrupt them; the underlying supersede correctness is independently
+        // covered by the cross-feature test above and "drops payloads from a
+        // superseded run".
+        const hang = createDeferred<void>();
+        let hangRunId = -1;
+        let cacheRootMode = true;
+        const startSearch = vi.fn(
+            (_b: Board, _p: Player, _s: number, _m: string, runId: number) => {
+                if (cacheRootMode) {
+                    store.getState().applySolverProgress({
+                        runId,
+                        bestMove: "d3",
+                        row: 2,
+                        col: 3,
+                        score: 4,
+                        depth: 14,
+                        targetDepth: 14,
+                        acc: 100,
+                        nodes: 1000,
+                        pvLine: "d3",
+                        isEndgame: true,
+                    });
+                    return Promise.resolve();
+                }
+                hangRunId = runId;
+                return hang.promise;
+            },
+        );
+        const { store } = createTestStore({
+            solver: createMockSolverService({ startSearch }),
+        });
+        const board = initializeBoard();
+
+        // Root search completes with a complete candidate -> root is cached.
+        await store.getState().startSolver(board, "black");
+        expect(store.getState().solverCandidates.size).toBe(1);
+        // Advance d3 then undo back to the cached root.
+        await store.getState().advanceSolver(2, 3);
+        await store.getState().undoSolver();
+        expect(store.getState().solverHistory).toHaveLength(1);
+
+        // Advance to a different move whose search hangs (prior run in flight).
+        cacheRootMode = false;
+        const pending = store.getState().advanceSolver(2, 2);
+        for (let i = 0; i < 30 && hangRunId < 0; i++) await Promise.resolve();
+        expect(store.getState().isSolverSearching).toBe(true);
+
+        // Undo back to root: root is cached -> cache-hit path supersedes the
+        // in-flight run and commits the cached candidates.
+        await store.getState().undoSolver();
+        const cachedCandidates = store.getState().solverCandidates;
+        expect(cachedCandidates.size).toBe(1);
+        expect(cachedCandidates.get("2,3")?.move).toBe("d3");
+
+        // Late progress stamped with the now-superseded in-flight run's id
+        // must NOT overwrite the committed cached candidates.
+        store.getState().applySolverProgress({
+            runId: hangRunId,
+            bestMove: "a1",
+            row: 0,
+            col: 0,
+            score: 99,
+            depth: 1,
+            targetDepth: 1,
+            acc: 100,
+            nodes: 1,
+            pvLine: "a1",
+            isEndgame: true,
+        });
+        expect(store.getState().solverCandidates).toBe(cachedCandidates);
+        expect(store.getState().solverCandidates.has("0,0")).toBe(false);
+        expect(store.getState().solverCandidates.size).toBe(1);
+
+        hang.resolve();
+        await pending;
+        expect(store.getState().solverCandidates.has("0,0")).toBe(false);
+    });
+});
+
+describe("superseded solver teardown does not poison the prior position's cache (P1 #2)", () => {
+    it("a superseded run's teardown must not cache the superseding position's candidates under its own (board,player) key", async () => {
+        // Scenario reproducing the P1 #2 race:
+        //  1. Root P0 search completes -> P0 cached with candidate "2,3"->d3.
+        //  2. Advance to P1 (after move 2,3); P1's search HANGS -> run R_p1 is
+        //     the live run, isSolverSearching=true, solverCandidates committed
+        //     empty.
+        //  3. Undo back to P0: P0 is cached -> cache-hit path. Its onClaim
+        //     synchronously commits P0's cached candidates AND supersedes R_p1.
+        //  4. R_p1's abort (registered as () => solver.abort()) is slow; while
+        //     it is awaited inside supersede(), the new position is already P0
+        //     with P0's candidates committed.
+        //  5. Resolving R_p1's abort fires its solverTeardown in supersede()'s
+        //     finally. With the BUG it unconditionally caches
+        //     this.read().solverCandidates (== P0's complete candidates) under
+        //     R_p1's captured (P1,white) key -> P1's cache is POISONED with
+        //     P0's moves. With the fix it skips caching for a superseded run.
+        //  6. Re-advancing to P1 must therefore issue a FRESH search (cache
+        //     miss), not return P0's poisoned candidates as a cache hit.
+        // abort() resolves immediately unless `hangAbort` is set, in which
+        // case the FIRST such call returns a deferred we control. This lets us
+        // freeze precisely R_p1's registered abort while it is awaited inside
+        // the undo cache-hit's supersede(), so the new (P0) position and its
+        // candidates are already committed when R_p1's teardown finally runs.
+        interface VoidDeferred {
+            promise: Promise<void>;
+            resolve: (value: void | PromiseLike<void>) => void;
+            reject: (reason?: unknown) => void;
+        }
+        const makeDeferred = (): VoidDeferred => createDeferred<void>();
+        let hangAbort = false;
+        const hungAbortBox: { current: VoidDeferred | null } = { current: null };
+        const abortMock = vi.fn(() => {
+            if (hangAbort && !hungAbortBox.current) {
+                hungAbortBox.current = makeDeferred();
+                return hungAbortBox.current.promise;
+            }
+            return Promise.resolve();
+        });
+
+        const p1HangBox: { current: VoidDeferred | null } = { current: null };
+        let p1RunId = -1;
+        let rootMode = true;
+        const startSearch = vi.fn(
+            (_b: Board, _p: Player, _s: number, _m: string, runId: number) => {
+                if (rootMode) {
+                    // Root P0 search: emit a complete candidate and resolve so
+                    // P0 is cached by its natural (ok) teardown.
+                    store.getState().applySolverProgress({
+                        runId,
+                        bestMove: "d3",
+                        row: 2,
+                        col: 3,
+                        score: 4,
+                        depth: 14,
+                        targetDepth: 14,
+                        acc: 100,
+                        nodes: 1000,
+                        pvLine: "d3",
+                        isEndgame: true,
+                    });
+                    return Promise.resolve();
+                }
+                // P1 search hangs so R_p1 is the live run when we undo.
+                p1RunId = runId;
+                p1HangBox.current = makeDeferred();
+                return p1HangBox.current.promise;
+            },
+        );
+
+        const { store, services } = createTestStore({
+            solver: createMockSolverService({ startSearch, abort: abortMock }),
+        });
+        const board = initializeBoard();
+
+        // 1. Root P0 search completes -> P0 cached.
+        await store.getState().startSolver(board, "black");
+        expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
+
+        // 2. Advance to P1; its search hangs (R_p1 live, in flight).
+        rootMode = false;
+        const p1Pending = store.getState().advanceSolver(2, 3);
+        for (let i = 0; i < 30 && p1RunId < 0; i++) await Promise.resolve();
+        expect(store.getState().isSolverSearching).toBe(true);
+        const p1Board = store.getState().solverCurrentBoard;
+        const p1Player = store.getState().solverCurrentPlayer;
+        expect(store.getState().solverCandidates.size).toBe(0);
+
+        // 3 + 4 + 5. Undo back to P0 (cache hit): commits P0's cached
+        // candidates, supersedes R_p1. R_p1's registered abort hangs (the
+        // first hung abort), so when we resolve it the new (P0) position and
+        // its complete candidates are already committed before R_p1's
+        // teardown runs in supersede()'s finally.
+        hangAbort = true;
+        const undoPending = store.getState().undoSolver();
+        for (let i = 0; i < 30 && !hungAbortBox.current; i++) await Promise.resolve();
+        expect(store.getState().solverCurrentBoard).toEqual(board);
+        expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
+        // Release R_p1's abort: supersede() proceeds and fires R_p1's
+        // teardown while solverCandidates already holds P0's complete map.
+        hangAbort = false;
+        hungAbortBox.current?.resolve();
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+        await undoPending;
+        expect(store.getState().solverCurrentBoard).toEqual(board);
+        expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
+
+        // Let the hung P1 search settle so its start() promise resolves.
+        p1HangBox.current?.resolve();
+        await p1Pending;
+
+        // 6. Re-advance to P1. If R_p1's teardown poisoned P1's cache with
+        // P0's candidates, this is a (wrong) cache hit returning d3 and NO
+        // fresh search is issued. With the fix P1 is uncached -> a fresh
+        // search runs for the P1 (board,player).
+        startSearch.mockClear();
+        p1RunId = -1;
+        rootMode = false;
+        const rePending = store.getState().advanceSolver(2, 3);
+        for (let i = 0; i < 30 && startSearch.mock.calls.length === 0; i++) {
+            await Promise.resolve();
+        }
+        expect(store.getState().solverCurrentBoard).toEqual(p1Board);
+        expect(store.getState().solverCurrentPlayer).toBe(p1Player);
+        // The cache for P1 must NOT have been poisoned with P0's candidates.
+        expect(services.solver.startSearch).toHaveBeenCalledWith(
+            p1Board,
+            p1Player,
+            100,
+            "multiPv",
+            expect.any(Number),
+        );
+        expect(store.getState().solverCandidates.get("2,3")).toBeUndefined();
+
+        p1HangBox.current?.resolve();
+        await rePending;
+    });
+});
+
 // Sanity check that our mock respects the real module shape.
 describe("game-logic mock sanity", () => {
     it("falls through to the real getValidMoves when no stub is set", () => {

@@ -1,6 +1,7 @@
 import { StateCreator } from "zustand";
-import { validateBoard } from "@/domain/game/board-parser";
+import { resolveValidSetupPosition } from "@/domain/game/setup-position";
 import { SolverSession, type SolverSessionCommit } from "@/domain/solver/solver-session";
+import type { EngineSearch } from "@/domain/engine/engine-search";
 import type { Services, SolverMode, SolverSelectivity } from "@/services/types";
 import { DEFAULT_SETTINGS } from "@/services/types";
 import type {
@@ -9,7 +10,6 @@ import type {
     SolverSlice,
 } from "./types";
 import { prepareToReplaceGame } from "./game-slice";
-import { resolveSetupPositionForTab } from "./setup-slice";
 
 type SetState = (
     partial:
@@ -46,12 +46,14 @@ function saveSolverMode(services: Services, mode: SolverMode): void {
 
 export function createSolverSlice(
     services: Services,
+    engineSearch: EngineSearch,
 ): StateCreator<ReversiState, [], [], SolverSlice> {
     return (set, get) => {
         const solverSession = new SolverSession({
             solver: services.solver,
             read: get,
             commit: createSolverSessionCommit(set),
+            engineSearch,
         });
 
         return ({
@@ -108,21 +110,15 @@ export function createSolverSlice(
                 boardStringInput,
             } = get();
 
-            const resolved = resolveSetupPositionForTab(
-                setupTab,
-                setupBoard,
-                setupCurrentPlayer,
+            const resolved = resolveValidSetupPosition({
+                source: setupTab,
+                board: setupBoard,
+                currentPlayer: setupCurrentPlayer,
                 transcriptInput,
                 boardStringInput,
-            );
+            });
             if (!resolved.ok) {
                 set({ setupError: resolved.error });
-                return false;
-            }
-
-            const validationError = validateBoard(resolved.board, resolved.currentPlayer);
-            if (validationError) {
-                set({ setupError: validationError });
                 return false;
             }
 

@@ -25,6 +25,7 @@ export function Board() {
   const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress);
   const analyzeResults = useReversiStore((state) => state.analyzeResults);
   const skipAnimation = useReversiStore((state) => state.skipAnimation);
+  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
 
   const isSolverActive = useReversiStore((state) => state.isSolverActive);
   const solverCurrentBoard = useReversiStore((state) => state.solverCurrentBoard);
@@ -140,7 +141,7 @@ export function Board() {
         void advanceSolver(row, col);
         return;
       }
-      if (isAITurn() || gameOver || !isValidMove(row, col)) {
+      if (isGameAnalyzing || isAITurn() || gameOver || !isValidMove(row, col)) {
         return;
       }
 
@@ -150,11 +151,24 @@ export function Board() {
         isAI: false,
       });
     },
-    [isSolverActive, isValidSolverMove, advanceSolver, isAITurn, gameOver, isValidMove, makeMove],
+    [
+      isSolverActive,
+      isValidSolverMove,
+      advanceSolver,
+      isGameAnalyzing,
+      isAITurn,
+      gameOver,
+      isValidMove,
+      makeMove,
+    ],
   );
 
   const activeBoard = isSolverActive && solverCurrentBoard ? solverCurrentBoard : board;
-  const activeIsValidMove = isSolverActive ? isValidSolverMove : isValidMove;
+  const isValidGameMove = useCallback(
+    (row: number, col: number) => !isGameAnalyzing && isValidMove(row, col),
+    [isGameAnalyzing, isValidMove],
+  );
+  const activeIsValidMove = isSolverActive ? isValidSolverMove : isValidGameMove;
   const activeIsAITurn = useCallback(
     () => (isSolverActive ? false : isAITurn()),
     [isSolverActive, isAITurn],
