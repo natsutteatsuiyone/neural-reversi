@@ -212,7 +212,7 @@ a cutoff.
 - `Selectivity` enumerates discrete confidence levels (`Level1` → `Level5`,
   ordered from most aggressive to most conservative) plus `None` for an
   exact solve. Per-level `t` multipliers and confidence percentages live
-  in `Selectivity::CONFIGS`. PV nodes and the final endgame confirmation
+  in `Selectivity::CONFIG`. PV nodes and the final endgame confirmation
   push selectivity to `None`.
 
 ### Stability cutoff
@@ -237,8 +237,8 @@ to move below alpha.
   pull moves from the iterator, and write results back into the
   split-point state (`alpha / best_score / best_move / cutoff`) atomically.
 - A single thread can own up to `MAX_SPLITPOINTS_PER_THREAD` splits at
-  once, and a single split accepts up to `MAX_THREADS_PER_SPLITPOINT`
-  workers.
+  once, and a single split accepts up to `MAX_THREADS_PER_CUT_SPLITPOINT`
+  (cut nodes) or `MAX_THREADS_PER_NON_CUT_SPLITPOINT` (non-cut) workers.
 - A shared abort flag is polled at a short fixed interval
   (`CHECK_INTERVAL_MS`) so threads can exit on time-out or
   `Search::abort`.
