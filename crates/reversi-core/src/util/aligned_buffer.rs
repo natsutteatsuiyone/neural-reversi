@@ -62,7 +62,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
         (ptr, layout)
     }
 
-    /// Layout of the current allocation, for [`dealloc`].
+    /// Returns the layout of the current allocation, for [`dealloc`].
     ///
     /// `len` equals the allocated element count for any successfully
     /// constructed buffer, so this reproduces the allocation layout.
@@ -120,32 +120,34 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
         fill.into_buffer()
     }
 
-    /// Number of elements.
+    /// Returns the number of elements.
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.len
     }
 
-    /// Raw const pointer to the first element. `ALIGN`-aligned.
+    /// Returns a raw const pointer to the first element.
+    ///
+    /// `ALIGN`-aligned.
     #[inline(always)]
     pub fn as_ptr(&self) -> *const T {
         self.ptr.as_ptr()
     }
 
-    /// Slice view over the whole buffer.
+    /// Returns a slice view over the whole buffer.
     #[inline(always)]
     pub fn as_slice(&self) -> &[T] {
         self
     }
 
-    /// Mutable slice view over the whole buffer.
+    /// Returns a mutable slice view over the whole buffer.
     #[inline(always)]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self
     }
 }
 
-/// Owns the allocation while it is being filled.
+/// Owner of the allocation while it is being filled.
 ///
 /// If a panic unwinds before [`Filling::into_buffer`] is called, its `Drop`
 /// drops the `initialized` prefix and frees the full `cap` allocation, so the

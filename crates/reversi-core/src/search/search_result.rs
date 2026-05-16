@@ -8,7 +8,7 @@ use crate::{
     types::{Depth, ScaledScore, Scoref},
 };
 
-/// Represents a single move with its evaluation score for Multi-PV results.
+/// A single move with its evaluation score for Multi-PV results.
 #[derive(Clone, Debug)]
 pub struct PvMove {
     pub sq: Square,

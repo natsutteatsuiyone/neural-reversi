@@ -147,7 +147,7 @@ impl<
         unsafe { (self.forward_fn)(self, input, output) }
     }
 
-    /// AVX-512 accelerated forward pass with VNNI.
+    /// Runs the AVX-512 accelerated forward pass with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
     fn forward_avx512_vnni(
@@ -158,7 +158,7 @@ impl<
         self.forward_avx512::<true>(input, output)
     }
 
-    /// AVX-512 accelerated forward pass without VNNI.
+    /// Runs the AVX-512 accelerated forward pass without VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     fn forward_avx512_no_vnni(
@@ -169,7 +169,7 @@ impl<
         self.forward_avx512::<false>(input, output)
     }
 
-    /// AVX2 accelerated forward pass with VNNI.
+    /// Runs the AVX2 accelerated forward pass with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2,avxvnni")]
     fn forward_avx2_vnni(
@@ -180,7 +180,7 @@ impl<
         self.forward_avx2::<true>(input, output)
     }
 
-    /// AVX2 accelerated forward pass without VNNI.
+    /// Runs the AVX2 accelerated forward pass without VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     fn forward_avx2_no_vnni(
@@ -191,7 +191,7 @@ impl<
         self.forward_avx2::<false>(input, output)
     }
 
-    /// ARM NEON forward pass (thin wrapper with the right `target_feature`).
+    /// Runs the ARM NEON forward pass (thin wrapper with the right `target_feature`).
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     fn forward_neon_wrapper(
@@ -202,7 +202,7 @@ impl<
         self.forward_neon(input, output)
     }
 
-    /// ARM NEON+dotprod forward pass (thin wrapper with the right `target_feature`).
+    /// Runs the ARM NEON+dotprod forward pass (thin wrapper with the right `target_feature`).
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon,dotprod")]
     fn forward_neon_dotprod_wrapper(
@@ -213,7 +213,7 @@ impl<
         self.forward_neon_dotprod(input, output)
     }
 
-    /// ARM NEON+i8mm forward pass (thin wrapper with the right `target_feature`).
+    /// Runs the ARM NEON+i8mm forward pass (thin wrapper with the right `target_feature`).
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon,i8mm")]
     fn forward_neon_i8mm_wrapper(
@@ -224,7 +224,13 @@ impl<
         self.forward_neon_i8mm(input, output)
     }
 
-    /// Wrapper for forward_fallback to match the unsafe fn signature.
+    /// Wraps [`forward_fallback`](Self::forward_fallback) to match the unsafe fn signature.
+    ///
+    /// # Safety
+    ///
+    /// This wrapper imposes no additional requirements; it forwards directly to
+    /// the safe [`forward_fallback`](Self::forward_fallback) and is `unsafe`
+    /// only to match the [`ForwardFn`] pointer type.
     #[allow(dead_code)]
     unsafe fn forward_fallback_wrapper(
         &self,
@@ -234,7 +240,7 @@ impl<
         self.forward_fallback(input, output)
     }
 
-    /// AVX-512 accelerated forward pass optionally using VNNI.
+    /// Runs the AVX-512 accelerated forward pass, optionally using VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[inline]
@@ -310,7 +316,7 @@ impl<
         }
     }
 
-    /// AVX2 accelerated forward pass optionally using VNNI.
+    /// Runs the AVX2 accelerated forward pass, optionally using VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[inline]
@@ -386,7 +392,7 @@ impl<
         }
     }
 
-    /// ARM NEON forward pass.
+    /// Runs the ARM NEON forward pass.
     ///
     /// Processes one input chunk of 4 `u8` values per outer iteration, broadcasting
     /// it into a `uint8x16_t` and accumulating 4 output neurons per inner `int32x4_t`
@@ -438,9 +444,11 @@ impl<
         }
     }
 
-    /// ARM NEON forward pass using `SDOT` (FEAT_DotProd) with sign-correction emulation
-    /// of the missing `USDOT`. Picked when i8mm is unavailable but dotprod is present
-    /// (e.g. Apple M1, Cortex-A76..A78, Neoverse N1).
+    /// Runs the ARM NEON forward pass using `SDOT` (FEAT_DotProd) with sign-correction
+    /// emulation of the missing `USDOT`.
+    ///
+    /// Picked when i8mm is unavailable but dotprod is present (e.g. Apple M1,
+    /// Cortex-A76..A78, Neoverse N1).
     ///
     /// Splits the unsigned input `a` into its low 7 bits and its sign bit: the latter,
     /// reinterpreted as i8, contributes −128·msb·b under SDOT, which the final subtraction
@@ -497,7 +505,7 @@ impl<
         }
     }
 
-    /// ARM NEON forward pass using the `USDOT` instruction via FEAT_I8MM.
+    /// Runs the ARM NEON forward pass using the `USDOT` instruction via FEAT_I8MM.
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon,i8mm")]
     #[inline]
@@ -544,7 +552,7 @@ impl<
         }
     }
 
-    /// Portable forward pass.
+    /// Runs the portable forward pass.
     fn forward_fallback(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,

@@ -9,7 +9,7 @@ use crate::move_list::MoveList;
 use crate::square::Square;
 use crate::types::ScaledScore;
 
-/// Represents a root move with its search results and statistics.
+/// A root move with its search results and statistics.
 #[derive(Clone, Debug)]
 pub struct RootMove {
     /// The move square.

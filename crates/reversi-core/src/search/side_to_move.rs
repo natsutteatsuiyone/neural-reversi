@@ -1,6 +1,6 @@
 //! Side to move representation for search.
 
-/// Represents which side is to move in the current search position.
+/// Which side is to move in the current search position.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SideToMove {
     /// The player being searched for (typically the engine).

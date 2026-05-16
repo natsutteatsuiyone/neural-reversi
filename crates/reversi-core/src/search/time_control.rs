@@ -113,7 +113,7 @@ pub enum TimeControlMode {
     },
 }
 
-/// Manages time allocation and tracking during search.
+/// Time allocation and tracking during a search.
 #[derive(Debug)]
 pub struct TimeManager {
     /// Time control mode for the current game.
@@ -640,7 +640,7 @@ impl TimeManager {
         self.max_time_ms.load(Ordering::Relaxed)
     }
 
-    /// Returns the deadline instant, or None for infinite mode.
+    /// Returns the deadline instant, or [`None`] for infinite mode.
     pub fn deadline(&self) -> Option<Instant> {
         if self.mode == TimeControlMode::Infinite {
             None

@@ -41,7 +41,9 @@ pub struct ObfPosition {
 }
 
 impl ObfPosition {
-    /// Parse a single OBF line. Returns `Ok(None)` for blank/comment-only input.
+    /// Parses a single OBF line.
+    ///
+    /// Returns `Ok(None)` for blank/comment-only input.
     pub fn parse(line: &str) -> Result<Option<Self>, String> {
         let stripped = line.split('%').next().unwrap_or("").trim();
         if stripped.is_empty() {
@@ -95,13 +97,15 @@ impl ObfPosition {
         }))
     }
 
-    /// True when no scored moves are listed (typically a `PS:`-only line).
+    /// Returns `true` when no scored moves are listed (typically a `PS:`-only line).
     pub fn is_pass(&self) -> bool {
         self.move_scores.is_empty()
     }
 
-    /// Expected outcome score: the best-listed move's score when moves are
-    /// present, otherwise the `PS:` value. `None` when neither is available.
+    /// Returns the expected outcome score: the best-listed move's score when
+    /// moves are present, otherwise the `PS:` value.
+    ///
+    /// `None` when neither is available.
     pub fn expected_score(&self) -> Option<i32> {
         self.move_scores
             .first()
@@ -109,7 +113,7 @@ impl ObfPosition {
             .or(self.pass_score)
     }
 
-    /// Score of the given move, or `None` if it is not listed.
+    /// Returns the score of the given move, or `None` if it is not listed.
     pub fn score_of(&self, sq: Square) -> Option<i32> {
         self.move_scores
             .iter()
@@ -118,7 +122,9 @@ impl ObfPosition {
     }
 
     /// Returns 0/1/2 for best/second-best/third-best, or `None` for
-    /// lower-ranked or unlisted moves. Ties share a rank (descending order).
+    /// lower-ranked or unlisted moves.
+    ///
+    /// Ties share a rank (descending order).
     pub fn rank_of(&self, sq: Square) -> Option<usize> {
         self.move_scores
             .chunk_by(|a, b| a.1 == b.1)
@@ -127,7 +133,7 @@ impl ObfPosition {
             .find_map(|(rank, chunk)| chunk.iter().any(|(s, _)| *s == sq).then_some(rank))
     }
 
-    /// Iterator over the best-scoring moves (those tied with the highest score).
+    /// Returns an iterator over the best-scoring moves (those tied with the highest score).
     pub fn best_moves(&self) -> impl Iterator<Item = Square> + '_ {
         let best_score = self.move_scores.first().map(|(_, s)| *s);
         self.move_scores

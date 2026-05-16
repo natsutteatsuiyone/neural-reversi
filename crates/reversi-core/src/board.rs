@@ -11,7 +11,7 @@ use crate::flip;
 use crate::square::Square;
 use crate::types::{ScaledScore, Score};
 
-/// Represents a Reversi board using player/opponent [`Bitboard`] pairs.
+/// A Reversi board represented as player/opponent [`Bitboard`] pairs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Board {
     /// Bitboard representing the player's discs.

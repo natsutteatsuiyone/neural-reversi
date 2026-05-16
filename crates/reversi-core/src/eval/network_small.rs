@@ -182,7 +182,7 @@ impl NetworkSmall {
         score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 
-    /// AVX-512 forward pass using VNNI instructions (`VPDPWSSD`).
+    /// Computes the forward pass on AVX-512 using VNNI instructions (`VPDPWSSD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
     fn forward_avx512_vnni(
@@ -193,7 +193,7 @@ impl NetworkSmall {
         Self::forward_avx512::<true>(pattern_feature, input_layer, output_layer)
     }
 
-    /// AVX-512 forward pass without VNNI (emulated via `VPMADDWD` + `VPADDD`).
+    /// Computes the forward pass on AVX-512 without VNNI (emulated via `VPMADDWD` + `VPADDD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     fn forward_avx512_no_vnni(
@@ -204,7 +204,9 @@ impl NetworkSmall {
         Self::forward_avx512::<false>(pattern_feature, input_layer, output_layer)
     }
 
-    /// AVX2 forward pass with VNNI. Selected at runtime if CPU supports AVXVNNI.
+    /// Computes the forward pass on AVX2 with VNNI.
+    ///
+    /// Selected at runtime if CPU supports AVXVNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2,avxvnni")]
     #[allow(dead_code)]
@@ -216,7 +218,9 @@ impl NetworkSmall {
         Self::forward_avx2::<true>(pattern_feature, input_layer, output_layer)
     }
 
-    /// AVX2 forward pass without VNNI. Selected at runtime as fallback.
+    /// Computes the forward pass on AVX2 without VNNI.
+    ///
+    /// Selected at runtime as fallback.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[allow(dead_code)]
@@ -228,7 +232,12 @@ impl NetworkSmall {
         Self::forward_avx2::<false>(pattern_feature, input_layer, output_layer)
     }
 
-    /// Scalar fallback wrapper.
+    /// Computes the forward pass using the scalar fallback wrapper.
+    ///
+    /// # Safety
+    ///
+    /// This wrapper has no additional safety requirements; it exists only to
+    /// match the `unsafe fn` signature of the SIMD forward implementations.
     #[allow(dead_code)]
     unsafe fn forward_scalar_wrapper(
         pattern_feature: &PatternFeature,
@@ -238,7 +247,7 @@ impl NetworkSmall {
         Self::forward_scalar(pattern_feature, input_layer, output_layer)
     }
 
-    /// AVX-512 implementation of the forward pass.
+    /// Computes the forward pass using the AVX-512 implementation.
     ///
     /// # Algorithm
     ///
@@ -357,7 +366,7 @@ impl NetworkSmall {
         }
     }
 
-    /// AVX2 implementation of the forward pass.
+    /// Computes the forward pass using the AVX2 implementation.
     ///
     /// # Algorithm
     ///
@@ -515,7 +524,7 @@ impl NetworkSmall {
         }
     }
 
-    /// NEON implementation of the forward pass.
+    /// Computes the forward pass using the NEON implementation.
     ///
     /// # Algorithm
     ///
@@ -679,7 +688,7 @@ impl NetworkSmall {
         }
     }
 
-    /// Scalar fallback implementation for non-SIMD architectures or testing.
+    /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
     fn forward_scalar(
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,

@@ -188,7 +188,7 @@ const PARAMS: [SqParams; 64] = [
     SqParams { mask_v: 0x8080808080808080, mult_v: 0x0002040810204081, mask_d7: 0x8040201008040201, addend7: 0x0000000000000000, post_mask7: 0xffffffffffffffff, mult_d7: 0x0101010101010101, mask_d9: 0x0000000000000000, mult_d9: 0x0000000000000000, row_shift: 56, t0: 7, t1: 7, t2: 7, t3: 0 }, // h8
 ];
 
-/// Sum the four COUNT_FLIP lookups for one bitboard, given pre-loaded params.
+/// Sums the four COUNT_FLIP lookups for one bitboard, given pre-loaded params.
 #[inline(always)]
 fn count_one(p: u64, pp: &SqParams) -> i32 {
     let idx0 = ((p & pp.mask_v).wrapping_mul(pp.mult_v) >> 56) as usize;

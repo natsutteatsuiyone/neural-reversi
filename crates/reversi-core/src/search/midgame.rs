@@ -270,7 +270,7 @@ pub fn try_probcut(
     None
 }
 
-/// Specialized alpha-beta search for positions at depth 3.
+/// Searches positions at depth 3 with a specialized alpha-beta routine.
 pub fn evaluate_depth3<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -350,7 +350,7 @@ pub fn evaluate_depth3<NT: NodeType>(
     best_score
 }
 
-/// Specialized alpha-beta search for positions at depth 2.
+/// Searches positions at depth 2 with a specialized alpha-beta routine.
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
@@ -401,7 +401,7 @@ pub fn evaluate_depth2(
     best_score
 }
 
-/// Specialized alpha-beta search for positions at depth 1.
+/// Searches positions at depth 1 with a specialized alpha-beta routine.
 pub fn evaluate_depth1(
     ctx: &mut SearchContext,
     board: &Board,

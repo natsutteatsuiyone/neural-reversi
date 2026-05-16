@@ -28,7 +28,7 @@ mod util;
 /// Log2 of the number of evaluation cache entries.
 const EVAL_CACHE_SIZE_LOG2: u32 = 18;
 
-/// Selects which neural network to use for evaluation.
+/// Which neural network to use for evaluation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvalMode {
     /// Use the main network for evaluation.
@@ -55,7 +55,7 @@ pub const EVAL_FILE_NAME: &str = eval_main_weights_literal!();
 /// Filename for the small neural network weights (zstd compressed).
 pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
 
-/// Evaluates board positions using dual neural networks.
+/// A position evaluator backed by dual neural networks.
 pub struct Eval {
     /// Main neural network for early and midgame evaluation.
     network: Network,
@@ -163,7 +163,7 @@ impl Eval {
         eval_mode == EvalMode::Main || ply < ENDGAME_START_PLY
     }
 
-    /// Main-network evaluation with cache, using a precomputed `board.hash()`.
+    /// Evaluates the position with the main network and cache, using a precomputed `board.hash()`.
     ///
     /// Intended for the main-network path — see [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]
@@ -184,7 +184,7 @@ impl Eval {
         score
     }
 
-    /// Small-network evaluation (no cache).
+    /// Evaluates the position with the small network (no cache).
     ///
     /// Intended for the small-network path — see [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]

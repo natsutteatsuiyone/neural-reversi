@@ -1,6 +1,6 @@
 //! Disc representation for the Reversi board.
 
-/// Represents a disc color on the board.
+/// A disc color on the board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Disc {
     /// An empty spot on the board.

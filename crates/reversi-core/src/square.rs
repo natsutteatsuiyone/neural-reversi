@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use crate::bitboard::Bitboard;
 
-/// Represents a square on a Reversi board, ranging from A1 to H8.
+/// A square on a Reversi board, ranging from A1 to H8.
 ///
 /// The Reversi board uses algebraic notation where files (columns) are labeled A-H
 /// and ranks (rows) are labeled 1-8. The board is indexed as follows:

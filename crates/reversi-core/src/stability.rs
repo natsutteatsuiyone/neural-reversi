@@ -64,7 +64,9 @@ const fn apply_edge_move(x: u8, player: u8, opponent: u8) -> (u8, u8) {
 }
 
 /// Computes stable discs for one edge from child states whose occupancy is one
-/// disc higher. This is the iterative equivalent of the Edax recursive search.
+/// disc higher.
+///
+/// This is the iterative equivalent of the Edax recursive search.
 const fn find_edge_stable_from_table(
     old_p: u8,
     old_o: u8,

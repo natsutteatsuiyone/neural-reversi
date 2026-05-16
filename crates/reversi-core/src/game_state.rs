@@ -8,7 +8,7 @@ use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
 
-/// Manages the state of a Reversi game.
+/// The state of a Reversi game.
 ///
 /// Handles move execution, automatic passing, move history tracking,
 /// and undo functionality.

@@ -53,6 +53,7 @@ pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
 }
 
 /// Multiplies signed 16-bit lanes by signed 16-bit lanes and accumulates into 32-bit results.
+///
 /// Matches the semantics of `VPDPWSSD`, using a portable fallback when VNNI is unavailable.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 #[target_feature(enable = "avx512bw")]
@@ -68,6 +69,7 @@ pub fn mm512_dpwssd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
 }
 
 /// Multiplies signed 16-bit lanes by signed 16-bit lanes and accumulates into 32-bit results.
+///
 /// Matches the semantics of `VPDPWSSD`, using a portable fallback when VNNI is unavailable.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
@@ -83,6 +85,7 @@ pub fn mm256_dpwssd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
 }
 
 /// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
+///
 /// Emulates `VPDPBUSD`, expanding to a VNNI-free sequence when the instruction is missing.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 #[target_feature(enable = "avx512bw")]
@@ -105,6 +108,7 @@ pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
 }
 
 /// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
+///
 /// Emulates `VPDPBUSD`, expanding to a VNNI-free sequence when the instruction is missing.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
@@ -127,6 +131,7 @@ pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
 }
 
 /// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
+///
 /// Widen-and-reduce emulation of the `VUSDOT` operation; the hardware instruction is
 /// gated behind an unstable Rust stdarch feature flag and thus cannot be used on stable.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -158,6 +163,7 @@ pub fn neon_dpbusd_s32(
 }
 
 /// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
+///
 /// Maps directly to the `USDOT` instruction on nightly builds.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon,i8mm")]

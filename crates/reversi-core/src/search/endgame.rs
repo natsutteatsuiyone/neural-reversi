@@ -297,7 +297,7 @@ pub fn try_probcut(
     None
 }
 
-/// Null window search for endgame positions.
+/// Searches an endgame position with a null window.
 ///
 /// Dispatches to the optimal solver based on empty square count.
 #[inline(always)]

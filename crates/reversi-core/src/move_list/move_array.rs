@@ -53,7 +53,7 @@ impl MoveArray {
         self.data.as_mut_ptr().cast()
     }
 
-    /// Returns a raw pointer to the inline `Move` buffer of a `MoveArray`
+    /// Returns a raw pointer to the inline [`Move`] buffer of a [`MoveArray`]
     /// reached through a raw pointer to a possibly-uninitialised slot.
     ///
     /// # Safety
@@ -63,7 +63,7 @@ impl MoveArray {
         arr as *mut Move
     }
 
-    /// Returns a raw pointer to the `len` field of a `MoveArray` reached
+    /// Returns a raw pointer to the `len` field of a [`MoveArray`] reached
     /// through a raw pointer to a possibly-uninitialised slot.
     ///
     /// # Safety

@@ -972,7 +972,7 @@ fn delta_swap(bits: u64, mask: u64, delta: u32) -> u64 {
     bits ^ tmp ^ (tmp >> delta)
 }
 
-/// An iterator that yields each set bit position in a bitboard as a `Square`.
+/// An iterator that yields each set bit position in a bitboard as a [`Square`].
 pub struct BitboardIterator {
     bitboard: Bitboard,
 }

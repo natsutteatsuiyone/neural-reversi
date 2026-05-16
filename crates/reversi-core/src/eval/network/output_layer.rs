@@ -113,21 +113,21 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         unsafe { (self.forward_fn)(self, segments) }
     }
 
-    /// AVX-512 forward pass with VNNI.
+    /// Computes the forward pass on AVX-512 with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
     fn forward_avx512_vnni(&self, segments: [&[u8]; 3]) -> i32 {
         self.forward_avx512::<true>(segments)
     }
 
-    /// AVX-512 forward pass without VNNI (emulated via `VPMADDWD` + `VPADDD`).
+    /// Computes the forward pass on AVX-512 without VNNI (emulated via `VPMADDWD` + `VPADDD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     fn forward_avx512_no_vnni(&self, segments: [&[u8]; 3]) -> i32 {
         self.forward_avx512::<false>(segments)
     }
 
-    /// AVX2 forward pass with VNNI.
+    /// Computes the forward pass on AVX2 with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2,avxvnni")]
     #[allow(dead_code)]
@@ -135,7 +135,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         self.forward_avx2::<true>(segments)
     }
 
-    /// AVX2 forward pass without VNNI.
+    /// Computes the forward pass on AVX2 without VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[allow(dead_code)]
@@ -143,7 +143,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         self.forward_avx2::<false>(segments)
     }
 
-    /// ARM NEON forward pass.
+    /// Computes the forward pass on ARM NEON.
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     #[inline]
@@ -226,13 +226,18 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         }
     }
 
-    /// Scalar fallback.
+    /// Computes the forward pass using the scalar fallback.
+    ///
+    /// # Safety
+    ///
+    /// This wrapper has no additional safety requirements; it exists only to
+    /// match the `unsafe fn` signature of the SIMD forward implementations.
     #[allow(dead_code)]
     unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 3]) -> i32 {
         self.forward_scalar(segments)
     }
 
-    /// AVX-512 implementation of the forward pass.
+    /// Computes the forward pass using the AVX-512 implementation.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[inline]
@@ -305,7 +310,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         _mm512_reduce_add_epi32(acc0) + self.bias
     }
 
-    /// AVX2 implementation of the forward pass.
+    /// Computes the forward pass using the AVX2 implementation.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[inline]
@@ -378,7 +383,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         m256_hadd(acc0) + self.bias
     }
 
-    /// Scalar fallback implementation for non-SIMD architectures or testing.
+    /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
     fn forward_scalar(&self, segments: [&[u8]; 3]) -> i32 {
         let mut acc = self.bias;
 

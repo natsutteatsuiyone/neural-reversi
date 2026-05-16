@@ -46,7 +46,7 @@ pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
     }
 }
 
-/// Flips for two squares sharing the same `(player, opponent)` board.
+/// Computes flips for two squares sharing the same `(player, opponent)` board.
 ///
 /// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o))`; on AVX-512 both are
 /// computed in one paired 512-bit pass.

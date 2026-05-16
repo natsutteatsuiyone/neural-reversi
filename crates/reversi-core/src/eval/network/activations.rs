@@ -41,7 +41,7 @@ fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     }
 }
 
-/// Clipped ReLU with AVX2 SIMD optimization.
+/// Computes clipped ReLU using AVX2 SIMD.
 ///
 /// # Safety
 ///
@@ -106,7 +106,7 @@ unsafe fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8])
     clipped_relu_fallback(input, output, start_idx);
 }
 
-/// Clipped ReLU with ARM NEON SIMD optimization.
+/// Computes clipped ReLU using ARM NEON SIMD.
 ///
 /// Processes 16 `i32` elements per iteration into a single `uint8x16_t` store,
 /// then hands the remainder off to `clipped_relu_fallback`.
@@ -140,7 +140,7 @@ fn clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     clipped_relu_fallback(input, output, start_idx);
 }
 
-/// Clipped ReLU scalar fallback implementation.
+/// Computes clipped ReLU using the scalar fallback.
 #[inline(always)]
 #[allow(dead_code)]
 fn clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
@@ -235,7 +235,7 @@ unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8])
     }
 }
 
-/// Square-clipped activation with AVX2 SIMD optimization.
+/// Computes the square-clipped activation using AVX2 SIMD.
 ///
 /// Uses SSE2 instructions (128-bit) for processing.
 ///
@@ -274,7 +274,7 @@ unsafe fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [
     sqr_clipped_relu_fallback(input, output, start_idx);
 }
 
-/// Square-clipped activation with ARM NEON SIMD optimization.
+/// Computes the square-clipped activation using ARM NEON SIMD.
 ///
 /// Processes 16 `i32` elements per iteration. Signed-saturating pack to i16,
 /// full-width signed square (`vmull_s16` / `vmull_high_s16`), arithmetic shift
@@ -320,7 +320,7 @@ fn sqr_clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     sqr_clipped_relu_fallback(input, output, start_idx);
 }
 
-/// Square-clipped activation scalar fallback implementation.
+/// Computes the square-clipped activation using the scalar fallback.
 #[inline(always)]
 #[allow(dead_code)]
 fn sqr_clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
@@ -353,7 +353,7 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     }
 }
 
-/// Squared Clipped ReLU with AVX2 SIMD optimization.
+/// Computes Squared Clipped ReLU using AVX2 SIMD.
 ///
 /// # Safety
 ///
@@ -426,7 +426,7 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     screlu_fallback(input, output, start_idx);
 }
 
-/// Squared Clipped ReLU with ARM NEON SIMD optimization.
+/// Computes Squared Clipped ReLU using ARM NEON SIMD.
 ///
 /// Processes 16 `i32` elements per iteration. Unsigned-saturating pack to u16,
 /// unsigned clamp to `[0, 255 << HIDDEN_WEIGHT_SCALE_BITS]`, full-width unsigned
@@ -474,7 +474,7 @@ fn screlu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     screlu_fallback(input, output, start_idx);
 }
 
-/// Squared Clipped ReLU scalar fallback implementation.
+/// Computes Squared Clipped ReLU using the scalar fallback.
 #[inline(always)]
 fn screlu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {

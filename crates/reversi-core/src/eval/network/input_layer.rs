@@ -18,6 +18,12 @@ mod simd_layout {
 
     const PERMUTE_WIDTH: usize = 8;
 
+    /// Reorders the first `ORDER_LEN` elements of `tile` according to `order`.
+    ///
+    /// # Safety
+    ///
+    /// `tile` must contain at least `ORDER_LEN` elements, and every index in
+    /// `order` must be a valid index into `tile`.
     unsafe fn permute_tile<T, const ORDER_LEN: usize>(tile: &mut [T], order: &[usize; ORDER_LEN])
     where
         T: Copy + Default,
@@ -29,6 +35,15 @@ mod simd_layout {
         tile.copy_from_slice(&temp);
     }
 
+    /// Permutes each row of `data` tile-by-tile, reinterpreting it as a slice
+    /// of `T` tiles.
+    ///
+    /// # Safety
+    ///
+    /// `data` must be properly aligned for `T`, and its byte length must be a
+    /// multiple of `size_of::<T>()`, so that reinterpreting it as
+    /// `data.len() * size_of::<i16>() / size_of::<T>()` values of `T` stays
+    /// within the allocation.
     unsafe fn permute_rows_impl<T, const ORDER_LEN: usize>(
         data: &mut [i16],
         row_len: usize,

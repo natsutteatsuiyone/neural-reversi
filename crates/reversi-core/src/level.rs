@@ -3,7 +3,7 @@
 use crate::probcut::Selectivity;
 use crate::types::Depth;
 
-/// Represents a difficulty level with associated search depths.
+/// A difficulty level with associated search depths.
 ///
 /// Each level defines:
 /// - A midgame search depth for the middle portion of the game
@@ -43,7 +43,7 @@ impl Level {
         }
     }
 
-    /// Creates a Level for perfect endgame solving.
+    /// Creates a [`Level`] for perfect endgame solving.
     pub const fn perfect() -> Self {
         Level {
             mid_depth: 60,

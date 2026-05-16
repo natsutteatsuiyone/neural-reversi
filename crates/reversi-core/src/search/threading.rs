@@ -745,7 +745,7 @@ impl Thread {
         sp.clear_move_iter();
     }
 
-    /// Main loop for worker threads and split-point owners.
+    /// Runs the main loop for worker threads and split-point owners.
     ///
     /// This method implements the core logic for thread synchronization:
     ///
@@ -824,7 +824,7 @@ impl Thread {
         }
     }
 
-    /// Main thread message processing loop.
+    /// Runs the main thread message processing loop.
     ///
     /// This is the entry point for the main thread (thread 0), which handles
     /// control messages from the thread pool and runs the root search. Worker
@@ -1305,7 +1305,7 @@ impl ThreadPool {
         *self.timer_handle.lock().unwrap() = Some(handle);
     }
 
-    /// Timer thread loop.
+    /// Runs the timer thread loop.
     fn timer_loop(time_manager: &TimeManager, abort_flag: &AtomicBool, stop_flag: &AtomicBool) {
         const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
 

@@ -254,7 +254,7 @@ pub struct BoardCtx {
 
 #[cfg(target_arch = "x86_64")]
 impl BoardCtx {
-    /// Broadcast `(p, !o)` and the working constants into wide vector lanes.
+    /// Broadcasts `(p, !o)` and the working constants into wide vector lanes.
     #[inline(always)]
     pub fn new(p: u64, o: u64) -> Self {
         unsafe {
@@ -268,8 +268,8 @@ impl BoardCtx {
         }
     }
 
-    /// Flip masks for two squares in a single batch (`(x0, x1)` packed into
-    /// the low / high 256-bit halves).
+    /// Computes flip masks for two squares in a single batch (`(x0, x1)`
+    /// packed into the low / high 256-bit halves).
     #[inline(always)]
     pub fn flip_pair(&self, x0: usize, x1: usize) -> (u64, u64) {
         unsafe {
@@ -277,8 +277,9 @@ impl BoardCtx {
         }
     }
 
-    /// Flip mask for a single square via the one-at-a-time path. Reuses the wide
-    /// constants by truncating to 256 bits — no extra broadcasts.
+    /// Computes the flip mask for a single square via the one-at-a-time path.
+    ///
+    /// Reuses the wide constants by truncating to 256 bits — no extra broadcasts.
     #[inline(always)]
     pub fn flip_one(&self, x: usize) -> u64 {
         unsafe {
@@ -381,7 +382,9 @@ pub fn flip_moves_pairwise_with_squares(
     n
 }
 
-/// One-at-a-time batch path. Useful as an A/B switch against `flip_moves_pairwise`.
+/// Computes flips for every set bit in `moves` using the one-at-a-time batch path.
+///
+/// Useful as an A/B switch against `flip_moves_pairwise`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512cd,avx512vl")]
 #[inline]

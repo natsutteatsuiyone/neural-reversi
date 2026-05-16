@@ -19,7 +19,7 @@ use std::{
 /// Size of each cluster in the transposition table.
 const CLUSTER_SIZE: usize = 2;
 
-/// Represents the bound type of a transposition table entry.
+/// The bound type of a transposition-table entry.
 ///
 /// The variants are assigned specific bit patterns to allow efficient cutoff
 /// checks using bitwise AND:
@@ -77,7 +77,7 @@ impl Bound {
     }
 }
 
-/// Represents the result of probing a transposition table cluster.
+/// The result of probing a transposition-table cluster.
 pub enum TTProbeResult {
     /// Found an entry whose stored board matches the probe.
     Hit {
@@ -303,7 +303,7 @@ impl TTEntryData {
 
 /// One slot inside a transposition-table cluster.
 ///
-/// Stores the full board, [`TTDataFields`] (transmuted through an AtomicU64),
+/// Stores the full board, [`TTDataFields`] (transmuted through an [`AtomicU64`]),
 /// and a 64-bit SeqLock sequence counter used to read the split payload
 /// consistently.
 #[repr(C, align(32))]
@@ -627,7 +627,9 @@ impl TranspositionTable {
         ((self.cluster_count * cluster_byte_size as u64) / (1024 * 1024)) as usize
     }
 
-    /// Clears all entries. Must be called with no concurrent readers or writers.
+    /// Clears all entries.
+    ///
+    /// Must be called with no concurrent readers or writers.
     pub fn clear(&self) {
         // SAFETY: All TTEntry fields are AtomicU64 (interior-mutable via UnsafeCell),
         // and zeroing bytes is equivalent to AtomicU64::new(0).

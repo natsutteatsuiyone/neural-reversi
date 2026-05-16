@@ -22,7 +22,7 @@ pub const FLIP_U16_TABLES: usize = BOARD_SQUARES / FLIP_U16_BITS;
 #[allow(dead_code)]
 pub const FLIP_U16_VALUES: usize = 1 << FLIP_U16_BITS;
 
-/// Mirrors `Square` discriminants (A1=0..H8=63); pinned by
+/// Mirror of the `Square` discriminants (A1=0..H8=63); pinned by
 /// `assert_sq_matches_square!` in `pattern_feature.rs`.
 #[rustfmt::skip]
 #[allow(dead_code)]

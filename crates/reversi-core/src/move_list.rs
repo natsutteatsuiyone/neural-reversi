@@ -46,7 +46,7 @@ const SQUARE_VALUE_WEIGHT: i32 = 128;
 const CORNER_STABILITY_WEIGHT: i32 = 2048;
 const MOBILITY_WEIGHT: i32 = 16384;
 
-/// Represents a single move.
+/// A single move.
 ///
 /// Field order is chosen to keep each entry 16 bytes in the inline move buffer.
 #[derive(Clone, Copy, Debug, Default)]

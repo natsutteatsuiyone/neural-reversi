@@ -159,7 +159,7 @@ struct SquareTable {
 
 const _: () = assert!(core::mem::size_of::<SquareTable>() == 32);
 
-/// Per-square hot-path offsets, kept separate from `SquareTable` to preserve
+/// Per-square hot-path offsets, kept separate from [`SquareTable`] to preserve
 /// its 32-byte layout.
 #[derive(Copy, Clone)]
 struct SquareMeta {

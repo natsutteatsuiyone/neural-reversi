@@ -10,7 +10,7 @@ pub struct StackRecord {
     pub pv: [Square; MAX_PLY],
 }
 
-/// Manages PV (Principal Variation) tracking across all plies.
+/// PV (Principal Variation) tracking across all plies.
 pub struct SearchStack {
     stack: [StackRecord; MAX_PLY],
 }

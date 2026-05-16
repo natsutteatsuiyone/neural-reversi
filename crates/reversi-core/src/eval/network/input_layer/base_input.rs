@@ -402,7 +402,7 @@ impl BaseInput {
         }
     }
 
-    /// Fallback scalar implementation.
+    /// Computes the forward pass using the scalar fallback.
     #[allow(dead_code)]
     fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);

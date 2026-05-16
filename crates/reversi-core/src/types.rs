@@ -23,7 +23,7 @@ pub type Scoref = f32;
 ///
 /// # Value Representation
 ///
-/// - **Raw value**: The internal i32 representation (scaled)
+/// - **Raw value**: The internal [`i32`] representation (scaled)
 /// - **Disc difference**: The human-readable score (raw_value >> 8)
 ///
 /// # Special Values
