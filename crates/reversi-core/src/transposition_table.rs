@@ -303,7 +303,7 @@ impl TTEntryData {
 
 /// One slot inside a transposition-table cluster.
 ///
-/// Stores the full board, [`TTDataFields`] (transmuted through an [`AtomicU64`]),
+/// Stores the full board, `TTDataFields` (transmuted through an [`AtomicU64`]),
 /// and a 64-bit SeqLock sequence counter used to read the split payload
 /// consistently.
 #[repr(C, align(32))]
@@ -675,7 +675,7 @@ impl TranspositionTable {
 
     /// Increments the generation counter and returns the new value.
     ///
-    /// The counter wraps at 128 (7-bit range) to match [`TTDataFields::generation`].
+    /// The counter wraps at 128 (7-bit range) to match `TTDataFields::generation`.
     #[inline(always)]
     pub fn increment_generation(&self) -> u8 {
         let new =

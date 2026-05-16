@@ -1282,7 +1282,7 @@ impl ThreadPool {
 
     /// Starts a timer thread that will set `abort_flag` when deadline is reached.
     ///
-    /// - Checks every [`CHECK_INTERVAL_MS`] milliseconds against the current deadline
+    /// - Checks every `CHECK_INTERVAL_MS` milliseconds against the current deadline
     /// - Responds to dynamic time extensions from the [`TimeManager`]
     /// - Exits cleanly when:
     ///   - Deadline is reached (sets `abort_flag`)

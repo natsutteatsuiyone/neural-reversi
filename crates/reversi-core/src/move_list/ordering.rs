@@ -16,7 +16,7 @@ use super::{Move, MoveList};
 /// landing at index 0 after [`MoveList::sort`] remain correct.
 const TT_MOVE_VALUE: i32 = 1 << 30;
 
-/// Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c#L30
+/// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c#L30>
 #[rustfmt::skip]
 const SQUARE_VALUE: [i32; 64] = [
     18,  4, 16, 12, 12, 16,  4, 18,

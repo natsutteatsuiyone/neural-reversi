@@ -120,7 +120,7 @@ static SIGMA_TABLE: OnceLock<Box<MidTable>> = OnceLock::new();
 static MEAN_TABLE_END: OnceLock<EndTable> = OnceLock::new();
 static SIGMA_TABLE_END: OnceLock<EndTable> = OnceLock::new();
 
-/// Builds a 3D [ply][shallow][deep] table from midgame ProbCut parameters.
+/// Builds a 3D `[ply][shallow][deep]` table from midgame ProbCut parameters.
 ///
 /// Only populates entries where `shallow <= deep` (callers always satisfy this).
 fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MidTable> {
@@ -139,7 +139,7 @@ fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MidTable>
     tbl
 }
 
-/// Builds a 2D [shallow][deep] table from endgame ProbCut parameters.
+/// Builds a 2D `[shallow][deep]` table from endgame ProbCut parameters.
 ///
 /// Only populates entries where `shallow <= deep` (callers always satisfy this).
 fn build_end_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> EndTable {

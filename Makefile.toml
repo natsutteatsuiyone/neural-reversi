@@ -48,9 +48,23 @@ args = ["fmt"]
 command = "cargo"
 args = ["fmt", "--check"]
 
+[tasks.doc-check]
+description = "Build docs with warnings denied"
+command = "cargo"
+args = [
+    "doc",
+    "--workspace",
+    "--no-deps",
+    "--all-features",
+    "--document-private-items",
+]
+
+[tasks.doc-check.env]
+RUSTDOCFLAGS = "-D warnings"
+
 [tasks.lint]
-description = "Run fmt check and clippy"
-run_task = { name = ["fmt-check", "clippy"] }
+description = "Run fmt check, clippy, and doc check"
+run_task = { name = ["fmt-check", "clippy", "doc-check"] }
 
 [tasks.bench]
 command = "cargo"

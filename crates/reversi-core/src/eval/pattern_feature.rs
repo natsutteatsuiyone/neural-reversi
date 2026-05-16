@@ -242,7 +242,7 @@ const fn build_eval_f2x() -> [FeatureToCoordinate; NUM_PATTERN_FEATURES] {
 }
 
 /// Board squares that make up each pattern. Source of truth lives in
-/// [`pattern_table_data::EVAL_F2X_RAW`]; this is the typed wrapper.
+/// `pattern_table_data::EVAL_F2X_RAW`; this is the typed wrapper.
 pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = build_eval_f2x();
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
