@@ -50,8 +50,10 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
         let layout = Layout::from_size_align(size, ALIGN).expect("AlignedBuffer: invalid layout");
 
         if size == 0 {
-            // Aligned, non-null, never dereferenced.
-            return (NonNull::new(ALIGN as *mut T).unwrap(), layout);
+            // Strict-provenance form (not an `int as *mut T` cast) so Miri
+            // can still flag real pointer bugs elsewhere.
+            let dangling = std::ptr::without_provenance_mut::<T>(ALIGN);
+            return (NonNull::new(dangling).unwrap(), layout);
         }
 
         // SAFETY: `layout` has non-zero size.
