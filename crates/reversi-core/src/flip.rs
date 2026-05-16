@@ -3,9 +3,9 @@
 use crate::bitboard::Bitboard;
 use crate::square::Square;
 
-// SIMD variants are gated by their own target features but a higher-priority
-// dispatch (e.g. AVX-512 over AVX2) may shadow them at runtime. `allow(dead_code)`
-// keeps the build quiet without having to mirror the dispatcher cfgs here.
+// SIMD variants are gated by their own target features, but the dispatcher
+// prefers wider backends first (AVX-512 over AVX2). `allow(dead_code)`
+// keeps the build quiet without having to mirror that dispatch order here.
 // Portable is always compiled: on non-SIMD targets it's the active dispatch;
 // on SIMD targets it remains reachable from `#[cfg(test)]` cross-checks.
 #[allow(dead_code)]
@@ -49,13 +49,13 @@ pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
 /// Computes flips for two squares sharing the same `(player, opponent)` board.
 ///
 /// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o))`; on AVX-512 both are
-/// computed in one paired 512-bit pass.
+/// computed from one shared `BoardCtx` in a paired 512-bit pass.
 #[inline(always)]
-pub fn flip_pair(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboard, Bitboard) {
+pub fn flip2(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboard, Bitboard) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
-            let (f0, f1) = ctx.flip_pair(sq1.index(), sq2.index());
+            let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
         }
         _ => {
@@ -64,10 +64,61 @@ pub fn flip_pair(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboar
     }
 }
 
-/// Crate-private AVX-512 batch flip context for `MoveList::with_moves` orchestration.
+/// Computes flips for three squares sharing the same `(player, opponent)` board.
 ///
-/// Only available on builds that compile [`flip_avx512`]; callers
-/// must mirror the same `cfg` gate.
+/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o))`; on
+/// AVX-512 `(sq1, sq2)` is computed in one paired 512-bit pass and `sq3`
+/// uses the single-square path from the same broadcast context.
+#[inline(always)]
+pub fn flip3(
+    sq1: Square,
+    sq2: Square,
+    sq3: Square,
+    p: Bitboard,
+    o: Bitboard,
+) -> (Bitboard, Bitboard, Bitboard) {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+            let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
+            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
+        }
+        _ => {
+            (flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o))
+        }
+    }
+}
+
+/// Computes flips for four squares sharing the same `(player, opponent)` board.
+///
+/// Equivalent to applying [`flip`] to each square; on AVX-512 it is two
+/// paired 512-bit passes (`(sq1, sq2)` and `(sq3, sq4)`) sharing one set of
+/// broadcast constants.
+#[inline(always)]
+pub fn flip4(
+    sq1: Square,
+    sq2: Square,
+    sq3: Square,
+    sq4: Square,
+    p: Bitboard,
+    o: Bitboard,
+) -> (Bitboard, Bitboard, Bitboard, Bitboard) {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+            let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
+            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
+        }
+        _ => {
+            (flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o), flip(sq4, p, o))
+        }
+    }
+}
+
+/// Crate-private AVX-512 shared-board context for move-list construction.
+///
+/// Only available on builds that compile the AVX-512 backend; callers must
+/// mirror the same `cfg` gate.
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512cd",
@@ -137,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn flip_pair_matches_portable() {
+    fn flip2_matches_portable() {
         let mut seed = 0x1234_5678_9abc_def0u64;
 
         for _ in 0..4096 {
@@ -150,7 +201,7 @@ mod tests {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             let sq2 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
 
-            let (a, b) = flip_pair(sq1, sq2, Bitboard::new(p), Bitboard::new(o));
+            let (a, b) = flip2(sq1, sq2, Bitboard::new(p), Bitboard::new(o));
             assert_eq!(
                 a,
                 Bitboard::new(flip_portable::flip(sq1, p, o)),
@@ -160,6 +211,83 @@ mod tests {
                 b,
                 Bitboard::new(flip_portable::flip(sq2, p, o)),
                 "sq2={sq2:?} p={p:#018x} o={o:#018x}",
+            );
+        }
+    }
+
+    #[test]
+    fn flip3_matches_portable() {
+        let mut seed = 0x0f1e_2d3c_4b5a_6978u64;
+
+        for _ in 0..4096 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let p = seed;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let o = seed & !p;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq1 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq2 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq3 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+
+            let (a, b, c) = flip3(sq1, sq2, sq3, Bitboard::new(p), Bitboard::new(o));
+            assert_eq!(
+                a,
+                Bitboard::new(flip_portable::flip(sq1, p, o)),
+                "sq1={sq1:?} p={p:#018x} o={o:#018x}",
+            );
+            assert_eq!(
+                b,
+                Bitboard::new(flip_portable::flip(sq2, p, o)),
+                "sq2={sq2:?} p={p:#018x} o={o:#018x}",
+            );
+            assert_eq!(
+                c,
+                Bitboard::new(flip_portable::flip(sq3, p, o)),
+                "sq3={sq3:?} p={p:#018x} o={o:#018x}",
+            );
+        }
+    }
+
+    #[test]
+    fn flip4_matches_portable() {
+        let mut seed = 0xc0ff_ee15_d15e_a5edu64;
+
+        for _ in 0..4096 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let p = seed;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let o = seed & !p;
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq1 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq2 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq3 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let sq4 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+
+            let (a, b, c, d) = flip4(sq1, sq2, sq3, sq4, Bitboard::new(p), Bitboard::new(o));
+            assert_eq!(
+                a,
+                Bitboard::new(flip_portable::flip(sq1, p, o)),
+                "sq1={sq1:?} p={p:#018x} o={o:#018x}",
+            );
+            assert_eq!(
+                b,
+                Bitboard::new(flip_portable::flip(sq2, p, o)),
+                "sq2={sq2:?} p={p:#018x} o={o:#018x}",
+            );
+            assert_eq!(
+                c,
+                Bitboard::new(flip_portable::flip(sq3, p, o)),
+                "sq3={sq3:?} p={p:#018x} o={o:#018x}",
+            );
+            assert_eq!(
+                d,
+                Bitboard::new(flip_portable::flip(sq4, p, o)),
+                "sq4={sq4:?} p={p:#018x} o={o:#018x}",
             );
         }
     }

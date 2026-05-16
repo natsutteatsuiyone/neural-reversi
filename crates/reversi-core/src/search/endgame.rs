@@ -440,7 +440,7 @@ fn search_move_nws_ec(
     score
 }
 
-/// Null window search for shallow endgame positions (≤[`DEPTH_TO_SHALLOW_SEARCH`] empties).
+/// Null window search for positions with at most [`DEPTH_TO_SHALLOW_SEARCH`] empties.
 ///
 /// Orders moves by quadrant parity and corner priority.
 fn shallow_search(
@@ -639,8 +639,9 @@ fn sort_last4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
 
 /// Specialized solver for positions with exactly 4 empty squares.
 ///
-/// Dispatches to `solve4_flip_pair` (AVX-512) or `solve4_flip_one`; both
-/// produce identical scores and node counts.
+/// Uses the eager AVX-512 flip path when available, otherwise the guarded fallback.
+///
+/// Both paths produce identical scores and node counts.
 #[inline(always)]
 fn solve4(
     ctx: &mut SearchContext,
@@ -653,24 +654,24 @@ fn solve4(
 ) -> Score {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve4_flip_pair(ctx, board, alpha, sq1, sq2, sq3, sq4)
+            solve4_avx512(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
         _ => {
-            solve4_flip_one(ctx, board, alpha, sq1, sq2, sq3, sq4)
+            solve4_fallback(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
     }
 }
 
-/// Paired-flip `solve4` (AVX-512 dispatch target). A non-empty flip already
+/// AVX-512 `solve4` dispatch target. A non-empty flip already
 /// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
-/// guard is safe — it is subsumed by the `is_empty` checks. Like
-/// `solve4_flip_one`, does not count itself as a node.
+/// guard is safe; the `is_empty` checks subsume it. Like
+/// `solve4_fallback`, this function does not count itself as a node.
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512cd",
     target_feature = "avx512vl"
 ))]
-fn solve4_flip_pair(
+fn solve4_avx512(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -685,8 +686,7 @@ fn solve4_flip_pair(
     let mut best_score = -SCORE_INF;
 
     // Player to move.
-    let (fp1, fp2) = flip::flip_pair(sq1, sq2, player, opponent);
-    let (fp3, fp4) = flip::flip_pair(sq3, sq4, player, opponent);
+    let (fp1, fp2, fp3, fp4) = flip::flip4(sq1, sq2, sq3, sq4, player, opponent);
 
     if !fp1.is_empty() {
         best_score = -solve3(
@@ -747,8 +747,7 @@ fn solve4_flip_pair(
     if best_score == -SCORE_INF {
         let pass = board.switch_players();
         best_score = SCORE_INF;
-        let (fo1, fo2) = flip::flip_pair(sq1, sq2, opponent, player);
-        let (fo3, fo4) = flip::flip_pair(sq3, sq4, opponent, player);
+        let (fo1, fo2, fo3, fo4) = flip::flip4(sq1, sq2, sq3, sq4, opponent, player);
 
         if !fo1.is_empty() {
             best_score = solve3(
@@ -814,7 +813,7 @@ fn solve4_flip_pair(
     best_score
 }
 
-/// One-at-a-time-flip `solve4` (non-AVX-512 dispatch target): the original
+/// Fallback `solve4` dispatch target (non-AVX-512): the original
 /// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
 /// fallback is not slowed by eager unguarded flips.
 #[cfg(not(all(
@@ -822,7 +821,7 @@ fn solve4_flip_pair(
     target_feature = "avx512cd",
     target_feature = "avx512vl"
 )))]
-fn solve4_flip_one(
+fn solve4_fallback(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -904,8 +903,9 @@ fn solve4_flip_one(
 
 /// Specialized solver for positions with exactly 3 empty squares.
 ///
-/// Dispatches to `solve3_flip_pair` (AVX-512) or `solve3_flip_one`; both
-/// produce identical scores and node counts.
+/// Uses the eager AVX-512 flip path when available, otherwise the guarded fallback.
+///
+/// Both paths produce identical scores and node counts.
 #[inline(always)]
 fn solve3(
     ctx: &mut SearchContext,
@@ -917,23 +917,23 @@ fn solve3(
 ) -> Score {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve3_flip_pair(ctx, board, alpha, sq1, sq2, sq3)
+            solve3_avx512(ctx, board, alpha, sq1, sq2, sq3)
         }
         _ => {
-            solve3_flip_one(ctx, board, alpha, sq1, sq2, sq3)
+            solve3_fallback(ctx, board, alpha, sq1, sq2, sq3)
         }
     }
 }
 
-/// Paired-flip `solve3` (AVX-512 dispatch target). A non-empty flip already
+/// AVX-512 `solve3` dispatch target. A non-empty flip already
 /// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
-/// guard is safe — it is subsumed by the `is_empty` checks.
+/// guard is safe; the `is_empty` checks subsume it.
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512cd",
     target_feature = "avx512vl"
 ))]
-fn solve3_flip_pair(
+fn solve3_avx512(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -948,8 +948,7 @@ fn solve3_flip_pair(
     let mut best_score = -SCORE_INF;
 
     // Player to move.
-    let (fp1, fp2) = flip::flip_pair(sq1, sq2, player, opponent);
-    let fp3 = flip::flip(sq3, player, opponent);
+    let (fp1, fp2, fp3) = flip::flip3(sq1, sq2, sq3, player, opponent);
 
     if !fp1.is_empty() {
         best_score = -solve2(
@@ -997,8 +996,7 @@ fn solve3_flip_pair(
     ctx.increment_nodes();
     best_score = SCORE_INF;
     let pass = board.switch_players();
-    let (fo1, fo2) = flip::flip_pair(sq1, sq2, opponent, player);
-    let fo3 = flip::flip(sq3, opponent, player);
+    let (fo1, fo2, fo3) = flip::flip3(sq1, sq2, sq3, opponent, player);
 
     if !fo1.is_empty() {
         best_score = solve2(ctx, &pass.make_move_with_flipped(fo1, sq1), alpha, sq2, sq3);
@@ -1027,7 +1025,7 @@ fn solve3_flip_pair(
     board.solve(3)
 }
 
-/// One-at-a-time-flip `solve3` (non-AVX-512 dispatch target): the original
+/// Fallback `solve3` dispatch target (non-AVX-512): the original
 /// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
 /// fallback is not slowed by eager unguarded flips.
 #[cfg(not(all(
@@ -1035,7 +1033,7 @@ fn solve3_flip_pair(
     target_feature = "avx512cd",
     target_feature = "avx512vl"
 )))]
-fn solve3_flip_one(
+fn solve3_fallback(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -1109,24 +1107,24 @@ fn solve3_flip_one(
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve2_flip_pair(ctx, board, alpha, sq1, sq2)
+            solve2_avx512(ctx, board, alpha, sq1, sq2)
         }
         _ => {
-            solve2_flip_one(ctx, board, alpha, sq1, sq2)
+            solve2_fallback(ctx, board, alpha, sq1, sq2)
         }
     }
 }
 
-/// Paired-flip `solve2` (AVX-512 dispatch target). A non-empty flip already
+/// AVX-512 `solve2` dispatch target. A non-empty flip already
 /// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
-/// guards is safe — they are subsumed by the `is_empty` checks.
+/// guards is safe; the `is_empty` checks subsume them.
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512cd",
     target_feature = "avx512vl"
 ))]
 #[inline(always)]
-fn solve2_flip_pair(
+fn solve2_avx512(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -1139,7 +1137,7 @@ fn solve2_flip_pair(
     let beta = alpha + 1;
 
     // Player to move.
-    let (fp1, fp2) = flip::flip_pair(sq1, sq2, player, opponent);
+    let (fp1, fp2) = flip::flip2(sq1, sq2, player, opponent);
     if !fp1.is_empty() {
         let best_score = -solve1(ctx, opponent.apply_flip(fp1), -beta, sq2);
         if best_score >= beta {
@@ -1156,7 +1154,7 @@ fn solve2_flip_pair(
 
     // Player passed at both empties: opponent to move.
     ctx.increment_nodes();
-    let (fo1, fo2) = flip::flip_pair(sq1, sq2, opponent, player);
+    let (fo1, fo2) = flip::flip2(sq1, sq2, opponent, player);
     if !fo1.is_empty() {
         let best_score = solve1(ctx, player.apply_flip(fo1), alpha, sq2);
         if best_score <= alpha {
@@ -1175,7 +1173,7 @@ fn solve2_flip_pair(
     board.solve(2)
 }
 
-/// One-at-a-time-flip `solve2` (non-AVX-512 dispatch target): the original
+/// Fallback `solve2` dispatch target (non-AVX-512): the original
 /// `has_adjacent_bit`-guarded, short-circuiting path, kept so the scalar/AVX2
 /// fallback is not slowed by eager unguarded flips.
 #[cfg(not(all(
@@ -1184,7 +1182,7 @@ fn solve2_flip_pair(
     target_feature = "avx512vl"
 )))]
 #[inline(always)]
-fn solve2_flip_one(
+fn solve2_fallback(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,

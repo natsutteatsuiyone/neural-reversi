@@ -1,24 +1,24 @@
-//! AVX-512 flip backend with a real batch fast path.
+//! AVX-512 flip backend for single-square and shared-board batch paths.
 //!
 //! Based on flip_avx512cd.c from edax-reversi.
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/flip_avx512cd.c>
 //!
-//! The single-square `flip(sq, p, o)` API is kept, but the important addition is
-//! the pairwise batch path: it evaluates two runtime squares at once when the
-//! board `(p, o)` is shared by a node's legal moves.  No const square
-//! specialization is used.
+//! The single-square `flip(sq, p, o)` API is still the public dispatch target.
+//! [`BoardCtx`] is the shared-board fast path: it broadcasts `(p, !o)` once and
+//! evaluates one to four runtime squares for move-list and shallow endgame
+//! callers. No const-square specialization is used.
 
-// The shared bodies wrap each individual intrinsic in its own `unsafe { ... }`
-// so they remain self-contained when invoked from a context that has not been
-// declared `unsafe` (e.g. an Edition 2024 `#[target_feature]` function). When
-// invoked from an outer `unsafe { ... }` (the variant-1 single-square API
-// without `#[target_feature]`), those inner blocks become redundant, which
-// would otherwise fire `unused_unsafe`.
+// Some helper macros contain local `unsafe { ... }` blocks so they remain
+// self-contained when expanded from safe `#[target_feature]` functions. When
+// those same helpers are expanded inside a larger unsafe block, the local
+// blocks become redundant and would otherwise fire `unused_unsafe`.
 #![allow(unused_unsafe)]
 
 use crate::square::Square;
 use std::arch::x86_64::*;
 
+// Raw variable shifts.
+//
 // Keep raw `vpsrlvq`: count 64 from `vplzcntq` must produce 0, but the
 // intrinsic goes through LLVM `lshr` poison handling and adds a mask/test.
 // Re-run the cargo-asm A/B before replacing this with an intrinsic.
@@ -57,8 +57,9 @@ macro_rules! vpsrlvq_raw_zmm {
     }};
 }
 
+// Horizontal reductions.
 #[cfg(target_arch = "x86_64")]
-macro_rules! reduce4_or_u64 {
+macro_rules! reduce_ymm_or_u64 {
     ($v:expr) => {{
         let x = _mm_or_si128(_mm256_castsi256_si128($v), _mm256_extracti128_si256($v, 1));
         let x = _mm_or_si128(x, _mm_shuffle_epi32(x, 0x4e));
@@ -66,6 +67,52 @@ macro_rules! reduce4_or_u64 {
     }};
 }
 
+#[cfg(target_arch = "x86_64")]
+macro_rules! reduce_zmm_pair_or_u64 {
+    ($flips:expr) => {{
+        // OR-reduce each 256-bit half independently: f0 lands in lane 0, f1 in lane 4.
+        let swap64 = _mm512_shuffle_epi32::<0x4e>($flips);
+        let or64 = _mm512_or_si512($flips, swap64);
+        let swap128 = _mm512_shuffle_i64x2::<0xb1>(or64, or64);
+        let reduced = _mm512_or_si512(or64, swap128);
+        let f0 = _mm_cvtsi128_si64(_mm512_castsi512_si128(reduced)) as u64;
+        let f1 = _mm_cvtsi128_si64(_mm256_castsi256_si128(_mm512_extracti64x4_epi64::<1>(
+            reduced,
+        ))) as u64;
+        (f0, f1)
+    }};
+}
+
+#[cfg(target_arch = "x86_64")]
+macro_rules! reduce_zmm_two_pairs_or_u64 {
+    ($flips01:expr, $flips23:expr) => {{
+        let swap64_01 = _mm512_shuffle_epi32::<0x4e>($flips01);
+        let swap64_23 = _mm512_shuffle_epi32::<0x4e>($flips23);
+        let or64_01 = _mm512_or_si512($flips01, swap64_01);
+        let or64_23 = _mm512_or_si512($flips23, swap64_23);
+
+        let swap128_01 = _mm512_shuffle_i64x2::<0xb1>(or64_01, or64_01);
+        let swap128_23 = _mm512_shuffle_i64x2::<0xb1>(or64_23, or64_23);
+        let reduced01 = _mm512_or_si512(or64_01, swap128_01);
+        let reduced23 = _mm512_or_si512(or64_23, swap128_23);
+
+        let f0 = _mm_cvtsi128_si64(_mm512_castsi512_si128(reduced01)) as u64;
+        let f1 = _mm_cvtsi128_si64(_mm256_castsi256_si128(_mm512_extracti64x4_epi64::<1>(
+            reduced01,
+        ))) as u64;
+        let f2 = _mm_cvtsi128_si64(_mm512_castsi512_si128(reduced23)) as u64;
+        let f3 = _mm_cvtsi128_si64(_mm256_castsi256_si128(_mm512_extracti64x4_epi64::<1>(
+            reduced23,
+        ))) as u64;
+        (f0, f1, f2, f3)
+    }};
+}
+
+// Flip kernels.
+// The multi-square kernels intentionally keep the right-side LZCNT chains and
+// left-side LS1B chains in one body. Splitting those chains into helper macros
+// makes the code shorter but tends to hide the scheduling that protects this
+// path from latency regressions.
 #[cfg(target_arch = "x86_64")]
 macro_rules! flip_prepared_ymm_body {
     ($x:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr) => {{
@@ -94,7 +141,7 @@ macro_rules! flip_prepared_ymm_body {
         );
 
         // right_flips | (left_mask & !left_flank)
-        reduce4_or_u64!(_mm256_ternarylogic_epi64(
+        reduce_ymm_or_u64!(_mm256_ternarylogic_epi64(
             right_flips,
             left_flank,
             left_mask,
@@ -104,13 +151,13 @@ macro_rules! flip_prepared_ymm_body {
 }
 
 #[cfg(target_arch = "x86_64")]
-macro_rules! flip_pair_zmm2_body {
+macro_rules! flip_pair_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
         debug_assert!($x0 < 66 && $x1 < 66);
         // Each `LrmaskEntry` is one 64-byte-aligned cache line laid out as
-        // `[left(4×u64), right(4×u64)]`. One aligned ZMM load per square pulls the
+        // `[left(4 x u64), right(4 x u64)]`. One aligned ZMM load per square pulls the
         // whole line; the lane shuffles then split into `[left_x0, left_x1]` and
-        // `[right_x0, right_x1]`. This halves load-port µops vs. the legacy
+        // `[right_x0, right_x1]`. This halves load-port uops vs. the legacy
         // four-32B-load + two-insert sequence at the same port-5 cost.
         let z0 = unsafe {
             _mm512_load_si512(super::lrmask::LRMASK.get_unchecked($x0).0.as_ptr() as *const __m512i)
@@ -142,18 +189,7 @@ macro_rules! flip_pair_zmm2_body {
         );
 
         let flips = _mm512_ternarylogic_epi64(right_flips, left_flank, left_mask, 0xf2);
-        // OR-reduce each 256-bit half independently: f0 lands in lane 0, f1 in lane 4.
-        // Stays within each half to avoid the cross-256 permute that splitting and
-        // running two YMM reductions would need.
-        let swap64 = _mm512_shuffle_epi32::<0x4e>(flips);
-        let or64 = _mm512_or_si512(flips, swap64);
-        let swap128 = _mm512_shuffle_i64x2::<0xb1>(or64, or64);
-        let reduced = _mm512_or_si512(or64, swap128);
-        let f0 = _mm_cvtsi128_si64(_mm512_castsi512_si128(reduced)) as u64;
-        let f1 = _mm_cvtsi128_si64(_mm256_castsi256_si128(_mm512_extracti64x4_epi64::<1>(
-            reduced,
-        ))) as u64;
-        (f0, f1)
+        reduce_zmm_pair_or_u64!(flips)
     }};
 }
 
@@ -200,48 +236,13 @@ pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
     flip_index(sq.index(), p, o)
 }
 
-/// Prepared context for one-at-a-time calls that share the same board.
-#[cfg(target_arch = "x86_64")]
-#[derive(Copy, Clone)]
-pub struct FlipPrepared {
-    pp: __m256i,
-    no: __m256i,
-}
-
-#[cfg(target_arch = "x86_64")]
-impl FlipPrepared {
-    #[target_feature(enable = "avx512f,avx512cd,avx512vl")]
-    #[inline]
-    pub fn new(p: u64, o: u64) -> Self {
-        Self {
-            pp: _mm256_set1_epi64x(p as i64),
-            no: _mm256_set1_epi64x((!o) as i64),
-        }
-    }
-
-    #[target_feature(enable = "avx512f,avx512cd,avx512vl")]
-    #[inline]
-    pub fn flip_index(self, x: usize) -> u64 {
-        let zero = _mm256_setzero_si256();
-        let msb = _mm256_set1_epi64x(0x8000_0000_0000_0000u64 as i64);
-        unsafe { flip_prepared_ymm_body!(x, self.pp, self.no, zero, msb) }
-    }
-
-    #[target_feature(enable = "avx512f,avx512cd,avx512vl")]
-    #[inline]
-    pub fn flip(self, sq: Square) -> u64 {
-        self.flip_index(sq.index())
-    }
-}
-
-/// SIMD board context: `(p, !o)` and helper constants broadcast once and held
-/// in registers across an entire move-generation loop.
+/// SIMD board context for runtime squares that share the same `(p, o)` board.
 ///
-/// Built with [`BoardCtx::new`] (5 wide broadcasts). The 256-bit constants
-/// used by the single-square path are derived for free with
-/// `_mm512_castsi512_si256`, so callers pay no extra setup for the trailing
-/// odd move. All methods are `#[inline(always)]` and contain no
-/// `#[target_feature]` gate, so they fold into the caller.
+/// [`BoardCtx::new`] broadcasts `(p, !o)` and helper constants once. `flip2`,
+/// `flip3`, and `flip4` reuse those broadcasts for paired ZMM work; `flip1`
+/// derives the YMM constants with `_mm512_castsi512_si256` for the trailing
+/// single square in move-list generation. All methods are `#[inline(always)]`
+/// and are intended to fold into AVX-512-gated callers.
 #[cfg(target_arch = "x86_64")]
 #[derive(Copy, Clone)]
 pub struct BoardCtx {
@@ -268,20 +269,11 @@ impl BoardCtx {
         }
     }
 
-    /// Computes flip masks for two squares in a single batch (`(x0, x1)`
-    /// packed into the low / high 256-bit halves).
-    #[inline(always)]
-    pub fn flip_pair(&self, x0: usize, x1: usize) -> (u64, u64) {
-        unsafe {
-            flip_pair_zmm2_body!(x0, x1, self.pp, self.no, self.zero, self.msb, self.all_ones)
-        }
-    }
-
-    /// Computes the flip mask for a single square via the one-at-a-time path.
+    /// Computes the flip mask for one runtime square.
     ///
-    /// Reuses the wide constants by truncating to 256 bits — no extra broadcasts.
+    /// Reuses the wide constants by truncating to 256 bits; no extra broadcasts.
     #[inline(always)]
-    pub fn flip_one(&self, x: usize) -> u64 {
+    pub fn flip1(&self, x: usize) -> u64 {
         unsafe {
             let pp = _mm512_castsi512_si256(self.pp);
             let no = _mm512_castsi512_si256(self.no);
@@ -290,157 +282,163 @@ impl BoardCtx {
             flip_prepared_ymm_body!(x, pp, no, zero, msb)
         }
     }
-}
 
-/// Computes flips for every set bit in `moves`, reusing `(p, !o)` and processing
-/// two runtime squares at a time.
-///
-/// Results are written in increasing square order, exactly like a repeated
-/// `trailing_zeros` loop.  The return value is the number of written entries.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512cd,avx512vl")]
-#[inline]
-pub fn flip_moves_pairwise(mut moves: u64, p: u64, o: u64, out: &mut [u64; 64]) -> usize {
-    let pp = _mm512_set1_epi64(p as i64);
-    let no = _mm512_set1_epi64((!o) as i64);
-    let zero = _mm512_setzero_si512();
-    let msb = _mm512_set1_epi64(0x8000_0000_0000_0000u64 as i64);
-    let all_ones = _mm512_set1_epi64(-1);
-
-    let pp_ymm = _mm512_castsi512_si256(pp);
-    let no_ymm = _mm512_castsi512_si256(no);
-    let zero_ymm = _mm512_castsi512_si256(zero);
-    let msb_ymm = _mm512_castsi512_si256(msb);
-
-    let mut n = 0usize;
-    let pair_count = moves.count_ones() as usize / 2;
-    for _ in 0..pair_count {
-        let x0 = moves.trailing_zeros() as usize;
-        moves &= moves - 1;
-
-        let x1 = moves.trailing_zeros() as usize;
-        moves &= moves - 1;
-
-        let (f0, f1) = flip_pair_zmm2_body!(x0, x1, pp, no, zero, msb, all_ones);
-        out[n] = f0;
-        out[n + 1] = f1;
-        n += 2;
+    /// Computes flip masks for two runtime squares sharing this board.
+    ///
+    /// The internal ZMM lanes are arranged as `(x0, x1)` in the low and high
+    /// 256-bit halves.
+    #[inline(always)]
+    pub fn flip2(&self, x0: usize, x1: usize) -> (u64, u64) {
+        unsafe { flip_pair_body!(x0, x1, self.pp, self.no, self.zero, self.msb, self.all_ones) }
     }
-    if moves != 0 {
-        let x = moves.trailing_zeros() as usize;
-        out[n] = flip_prepared_ymm_body!(x, pp_ymm, no_ymm, zero_ymm, msb_ymm);
-        n += 1;
+
+    /// Computes flip masks for three runtime squares sharing this board.
+    ///
+    /// `(x0, x1)` use the paired 512-bit path, while `x2` uses the YMM
+    /// one-at-a-time path.
+    ///
+    /// Both chains are issued from one body so the scheduler overlaps the
+    /// paired `LZCNT` latency with the independent single-square work.
+    #[inline(always)]
+    pub fn flip3(&self, x0: usize, x1: usize, x2: usize) -> (u64, u64, u64) {
+        debug_assert!(x0 < 66 && x1 < 66 && x2 < 66);
+        unsafe {
+            let z0 = _mm512_load_si512(
+                super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m512i
+            );
+            let z1 = _mm512_load_si512(
+                super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m512i
+            );
+            let left_mask01 = _mm512_shuffle_i64x2::<0x44>(z0, z1);
+            let right_mask01 = _mm512_shuffle_i64x2::<0xee>(z0, z1);
+            let mut right_bit01 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask01));
+
+            let mask_ptr2 = super::lrmask::LRMASK.get_unchecked(x2).0.as_ptr() as *const __m256i;
+            let right_mask2 = _mm256_load_si256(mask_ptr2.add(1));
+            let left_mask2 = _mm256_load_si256(mask_ptr2);
+
+            let pp2 = _mm512_castsi512_si256(self.pp);
+            let no2 = _mm512_castsi512_si256(self.no);
+            let zero2 = _mm512_castsi512_si256(self.zero);
+            let msb2 = _mm512_castsi512_si256(self.msb);
+            let all_ones2 = _mm512_castsi512_si256(self.all_ones);
+
+            // Start both high-latency right-side chains before doing either left side.
+            let mut right_bit2 = _mm256_lzcnt_epi64(_mm256_and_si256(no2, right_mask2));
+
+            let mut left_bit01 = _mm512_and_si512(self.no, left_mask01);
+            let mut left_bit2 = _mm256_and_si256(no2, left_mask2);
+            left_bit01 = _mm512_ternarylogic_epi64(
+                left_bit01,
+                _mm512_sub_epi64(self.zero, left_bit01),
+                self.pp,
+                0x80,
+            );
+            left_bit2 =
+                _mm256_ternarylogic_epi64(left_bit2, _mm256_sub_epi64(zero2, left_bit2), pp2, 0x80);
+
+            let left_flank01 =
+                _mm512_min_epi64(_mm512_sub_epi64(self.zero, left_bit01), self.all_ones);
+            let left_flank2 = _mm256_min_epi64(_mm256_sub_epi64(zero2, left_bit2), all_ones2);
+
+            right_bit01 = _mm512_and_si512(vpsrlvq_raw_zmm!(self.msb, right_bit01), self.pp);
+            right_bit2 = _mm256_and_si256(vpsrlvq_raw_ymm!(msb2, right_bit2), pp2);
+
+            let right_flips01 = _mm512_ternarylogic_epi64(
+                _mm512_sub_epi64(self.zero, right_bit01),
+                right_bit01,
+                right_mask01,
+                0x28,
+            );
+            let right_flips2 = _mm256_ternarylogic_epi64(
+                _mm256_sub_epi64(zero2, right_bit2),
+                right_bit2,
+                right_mask2,
+                0x28,
+            );
+
+            let flips01 = _mm512_ternarylogic_epi64(right_flips01, left_flank01, left_mask01, 0xf2);
+            let flips2 = _mm256_ternarylogic_epi64(right_flips2, left_flank2, left_mask2, 0xf2);
+            let (f0, f1) = reduce_zmm_pair_or_u64!(flips01);
+            let f2 = reduce_ymm_or_u64!(flips2);
+            (f0, f1, f2)
+        }
     }
-    n
-}
 
-/// Same as `flip_moves_pairwise`, but also records the square indices
-/// corresponding to each output flip mask.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512cd,avx512vl")]
-#[inline]
-pub fn flip_moves_pairwise_with_squares(
-    mut moves: u64,
-    p: u64,
-    o: u64,
-    squares: &mut [u8; 64],
-    flips: &mut [u64; 64],
-) -> usize {
-    let pp = _mm512_set1_epi64(p as i64);
-    let no = _mm512_set1_epi64((!o) as i64);
-    let zero = _mm512_setzero_si512();
-    let msb = _mm512_set1_epi64(0x8000_0000_0000_0000u64 as i64);
-    let all_ones = _mm512_set1_epi64(-1);
+    /// Computes flip masks for four runtime squares sharing this board.
+    ///
+    /// The implementation runs two paired 512-bit chains over `(x0, x1)` and
+    /// `(x2, x3)`.
+    ///
+    /// The two passes share one set of broadcast constants and are issued
+    /// from one body, so the scheduler interleaves their independent
+    /// dependency chains for instruction-level parallelism.
+    #[inline(always)]
+    pub fn flip4(&self, x0: usize, x1: usize, x2: usize, x3: usize) -> (u64, u64, u64, u64) {
+        debug_assert!(x0 < 66 && x1 < 66 && x2 < 66 && x3 < 66);
+        unsafe {
+            let z0 = _mm512_load_si512(
+                super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m512i
+            );
+            let z1 = _mm512_load_si512(
+                super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m512i
+            );
+            let z2 = _mm512_load_si512(
+                super::lrmask::LRMASK.get_unchecked(x2).0.as_ptr() as *const __m512i
+            );
+            let z3 = _mm512_load_si512(
+                super::lrmask::LRMASK.get_unchecked(x3).0.as_ptr() as *const __m512i
+            );
 
-    let pp_ymm = _mm512_castsi512_si256(pp);
-    let no_ymm = _mm512_castsi512_si256(no);
-    let zero_ymm = _mm512_castsi512_si256(zero);
-    let msb_ymm = _mm512_castsi512_si256(msb);
+            let left_mask01 = _mm512_shuffle_i64x2::<0x44>(z0, z1);
+            let right_mask01 = _mm512_shuffle_i64x2::<0xee>(z0, z1);
+            let mut right_bit01 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask01));
 
-    let mut n = 0usize;
-    let pair_count = moves.count_ones() as usize / 2;
-    for _ in 0..pair_count {
-        let x0 = moves.trailing_zeros() as usize;
-        moves &= moves - 1;
+            let left_mask23 = _mm512_shuffle_i64x2::<0x44>(z2, z3);
+            let right_mask23 = _mm512_shuffle_i64x2::<0xee>(z2, z3);
 
-        let x1 = moves.trailing_zeros() as usize;
-        moves &= moves - 1;
+            // Fire both right-side LZCNT chains before either waits on VPSRLVQ.
+            let mut right_bit23 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask23));
 
-        let (f0, f1) = flip_pair_zmm2_body!(x0, x1, pp, no, zero, msb, all_ones);
-        squares[n] = x0 as u8;
-        flips[n] = f0;
-        squares[n + 1] = x1 as u8;
-        flips[n + 1] = f1;
-        n += 2;
-    }
-    if moves != 0 {
-        let x = moves.trailing_zeros() as usize;
-        squares[n] = x as u8;
-        flips[n] = flip_prepared_ymm_body!(x, pp_ymm, no_ymm, zero_ymm, msb_ymm);
-        n += 1;
-    }
-    n
-}
+            let mut left_bit01 = _mm512_and_si512(self.no, left_mask01);
+            let mut left_bit23 = _mm512_and_si512(self.no, left_mask23);
+            left_bit01 = _mm512_ternarylogic_epi64(
+                left_bit01,
+                _mm512_sub_epi64(self.zero, left_bit01),
+                self.pp,
+                0x80,
+            );
+            left_bit23 = _mm512_ternarylogic_epi64(
+                left_bit23,
+                _mm512_sub_epi64(self.zero, left_bit23),
+                self.pp,
+                0x80,
+            );
 
-/// Computes flips for every set bit in `moves` using the one-at-a-time batch path.
-///
-/// Useful as an A/B switch against `flip_moves_pairwise`.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512cd,avx512vl")]
-#[inline]
-pub fn flip_moves_one_by_one(mut moves: u64, p: u64, o: u64, out: &mut [u64; 64]) -> usize {
-    let pp = _mm256_set1_epi64x(p as i64);
-    let no = _mm256_set1_epi64x((!o) as i64);
-    let zero = _mm256_setzero_si256();
-    let msb = _mm256_set1_epi64x(0x8000_0000_0000_0000u64 as i64);
+            let left_flank01 =
+                _mm512_min_epi64(_mm512_sub_epi64(self.zero, left_bit01), self.all_ones);
+            let left_flank23 =
+                _mm512_min_epi64(_mm512_sub_epi64(self.zero, left_bit23), self.all_ones);
 
-    let mut n = 0usize;
-    while moves != 0 {
-        let x = moves.trailing_zeros() as usize;
-        moves &= moves - 1;
-        out[n] = flip_prepared_ymm_body!(x, pp, no, zero, msb);
-        n += 1;
-    }
-    n
-}
+            right_bit01 = _mm512_and_si512(vpsrlvq_raw_zmm!(self.msb, right_bit01), self.pp);
+            right_bit23 = _mm512_and_si512(vpsrlvq_raw_zmm!(self.msb, right_bit23), self.pp);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+            let right_flips01 = _mm512_ternarylogic_epi64(
+                _mm512_sub_epi64(self.zero, right_bit01),
+                right_bit01,
+                right_mask01,
+                0x28,
+            );
+            let right_flips23 = _mm512_ternarylogic_epi64(
+                _mm512_sub_epi64(self.zero, right_bit23),
+                right_bit23,
+                right_mask23,
+                0x28,
+            );
 
-    #[test]
-    fn flip_moves_pairwise_matches_single_square_path() {
-        let mut seed = 0x5125_1f1a_aa55_9669u64;
-
-        for _ in 0..512 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let p = seed;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let o = seed & !p;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let moves = seed & !(p | o);
-
-            let mut flips = [0u64; 64];
-            let mut flips_with_squares = [0u64; 64];
-            let mut squares = [0u8; 64];
-            // SAFETY: this test module is compiled only with the AVX-512 backend.
-            let n = unsafe { flip_moves_pairwise(moves, p, o, &mut flips) };
-            // SAFETY: this test module is compiled only with the AVX-512 backend.
-            let n_with_squares = unsafe {
-                flip_moves_pairwise_with_squares(moves, p, o, &mut squares, &mut flips_with_squares)
-            };
-            assert_eq!(n, n_with_squares);
-            assert_eq!(n, moves.count_ones() as usize);
-            assert_eq!(flips[..n], flips_with_squares[..n]);
-
-            let mut bb = moves;
-            for i in 0..n {
-                let x = bb.trailing_zeros() as usize;
-                bb &= bb - 1;
-                assert_eq!(squares[i] as usize, x);
-                assert_eq!(flips_with_squares[i], flip_index(x, p, o));
-            }
-            assert_eq!(bb, 0);
+            let flips01 = _mm512_ternarylogic_epi64(right_flips01, left_flank01, left_mask01, 0xf2);
+            let flips23 = _mm512_ternarylogic_epi64(right_flips23, left_flank23, left_mask23, 0xf2);
+            reduce_zmm_two_pairs_or_u64!(flips01, flips23)
         }
     }
 }

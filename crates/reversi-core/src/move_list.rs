@@ -179,7 +179,7 @@ impl MoveList {
                     let x1 = bb.trailing_zeros() as u8;
                     bb &= bb - 1;
 
-                    let (f0, f1) = ctx.flip_pair(x0 as usize, x1 as usize);
+                    let (f0, f1) = ctx.flip2(x0 as usize, x1 as usize);
                     let flipped0 = Bitboard::new(f0);
                     let flipped1 = Bitboard::new(f1);
                     // SAFETY: `x0`, `x1` are bit positions from a legal-move bitboard (0..=63).
@@ -202,7 +202,7 @@ impl MoveList {
 
                 if bb != 0 {
                     let x = bb.trailing_zeros() as u8;
-                    let flipped_bits = ctx.flip_one(x as usize);
+                    let flipped_bits = ctx.flip1(x as usize);
                     let flipped = Bitboard::new(flipped_bits);
                     // SAFETY: `x` is a bit position from a legal-move bitboard (0..=63).
                     let sq = unsafe { Square::from_u8_unchecked(x) };
