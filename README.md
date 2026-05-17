@@ -13,7 +13,7 @@ This is an experimental project to develop a highly accurate neural network eval
 - High-performance multi-threaded search
 - Supports CLI, desktop GUI (Tauri), and WebAssembly
 
-## Benchmarks (v6.0.0)
+## Benchmarks (v6.1.0)
 
 ### Environment
 
@@ -25,18 +25,20 @@ This is an experimental project to develop a highly accurate neural network eval
 
 | Test | Problems | Depth | Time | Nodes | NPS | Move Acc. | Score ±3 | MAE |
 |:--|:-:|:-:|--:|--:|--:|--:|--:|--:|
-| [Hard-30](docs/6.0.0/benchmarks/hard-30-depth15.md) | 289 | 15 | 3.758s | 151,563,290 | 40,335,131 | 83.0% | 87.9% | 1.64 |
+| [Hard-30](docs/6.1.0/benchmarks/hard-30-depth15.md) | 289 | 15 | 3.117s | 170,234,809 | 54,611,449 | 82.7% | 87.9% | 1.63 |
 
 ### Endgame Solving
 
 | Test | Problems | Depth | Time | Nodes | NPS |
 |:--|:-:|:-:|--:|--:|--:|
-| [FFO #40–59](docs/6.0.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 7.659s | 12,785,599,475 | 1,669,384,514 |
-| [FFO #60–79](docs/6.0.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 235.436s | 339,714,844,461 | 1,442,919,528 |
-| [Hard-20](docs/6.0.0/benchmarks/hard-20.md) | 276 | 20 | 2.580s | 1,681,608,922 | 651,747,905 |
-| [Hard-25](docs/6.0.0/benchmarks/hard-25.md) | 311 | 25 | 32.421s | 46,126,798,879 | 1,422,746,901 |
-| [Hard-30](docs/6.0.0/benchmarks/hard-30.md) | 289 | 30 | 904.934s | 1,471,667,735,637 | 1,626,269,909 |
-| [Small-35](docs/6.0.0/benchmarks/small-35.md) | 20 | 35 | 10,494.203s | 14,526,843,918,418 | 1,384,273,243 |
+| [FFO #40–59](docs/6.1.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 6.764s | 12,898,842,946 | 1,906,994,139 |
+| [FFO #40–59 (CPB Enabled)](docs/6.1.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 5.974s | 12,898,615,601 | 2,159,171,234 |
+| [FFO #60–79](docs/6.1.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 217.349s | 357,695,668,948 | 1,645,721,568 |
+| [FFO #60–79 (CPB Enabled)](docs/6.1.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 193.064s | 357,800,331,652 | 1,853,277,097 |
+| [Hard-20](docs/6.1.0/benchmarks/hard-20.md) | 276 | 20 | 2.353s | 1,887,280,214 | 802,103,526 |
+| [Hard-25](docs/6.1.0/benchmarks/hard-25.md) | 311 | 25 | 28.225s | 47,378,924,636 | 1,678,609,980 |
+| [Hard-30](docs/6.1.0/benchmarks/hard-30.md) | 289 | 30 | 815.125s | 1,508,107,259,823 | 1,850,153,908 |
+| [Small-35](docs/6.1.0/benchmarks/small-35.md) | 30 | 35 | 9,570.437s | 15,189,558,541,184 | 1,587,133,157 |
 
 ## Getting Started
 

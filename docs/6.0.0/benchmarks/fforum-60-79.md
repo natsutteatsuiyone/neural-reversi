@@ -1,6 +1,6 @@
 # fforum-60-79
 
-## AMD Ryzen 9 9950X3D (PBO Disabled)
+## AMD Ryzen 9 9950X3D (CPB Disabled)
 
 Neural Reversi v6.0.0 (x86_64-pc-windows-msvc)
 
@@ -32,7 +32,7 @@ Neural Reversi v6.0.0 (x86_64-pc-windows-msvc)
 |    20 |   36   |  +64  |    0:00.043 |          18,505,029 |   427,703,717 | d7 D8 h8 H4 g7 F2 g8 G1 |
 | Total |        |       |    3:55.436 |     339,714,844,461 | 1,442,919,528 |                         |
 
-## AMD Ryzen 9 9950X3D (PBO Enabled)
+## AMD Ryzen 9 9950X3D (CPB Enabled)
 
 Neural Reversi v6.0.0 (x86_64-pc-windows-msvc)
 

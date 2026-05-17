@@ -1,6 +1,6 @@
 # hard-30 depth 15
 
-## AMD Ryzen 9 9950X3D (PBO Disabled)
+## AMD Ryzen 9 9950X3D (CPB Disabled)
 
 Neural Reversi v6.0.0 (x86_64-pc-windows-msvc)
 
