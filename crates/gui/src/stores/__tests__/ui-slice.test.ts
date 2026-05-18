@@ -20,20 +20,26 @@ describe("setHintMode", () => {
 
   it("aborts only hint analysis when disabling during analysis", async () => {
     const { store, services } = createTestStore();
+    // A hint analysis is the current Engine Activity (CONTEXT.md → Engine
+    // Activity); `isAnalyzing` is its projection.
     store.setState({
       isHintMode: true,
       isAnalyzing: true,
       isAIThinking: false,
+      engineActivity: { kind: "hint", runId: 1 },
       analyzeResults: new Map([["2,3", {} as never]]),
     });
 
     store.getState().setHintMode(false);
     // EngineSearch.abort awaits supersede() before onAbort, so the abort-pending
-    // snapshot is now observable one microtask later (behavior unchanged).
+    // snapshot is observable one microtask later.
     await Promise.resolve();
 
     expect(store.getState().isHintMode).toBe(false);
-    expect(store.getState().isAnalyzing).toBe(true);
+    // Unified abort semantics: the engine is idle at abort-request, so the
+    // hint busy projection clears immediately (previously hint-specific:
+    // it stayed true until the backend abort settled).
+    expect(store.getState().isAnalyzing).toBe(false);
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
     expect(store.getState().analyzeResults).toBeNull();
     expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
@@ -54,7 +60,7 @@ describe("setHintMode", () => {
     expect(services.ai.abortSearch).not.toHaveBeenCalled();
   });
 
-  it("waits for abortSearch to finish before clearing analysis state", async () => {
+  it("waits for abortSearch to finish before clearing the hint abort guard", async () => {
     const abortDeferred = createDeferred<void>();
     const { store } = createTestStore({
       ai: createMockAIService({
@@ -66,20 +72,23 @@ describe("setHintMode", () => {
       isHintMode: true,
       isAnalyzing: true,
       isAIThinking: false,
+      engineActivity: { kind: "hint", runId: 1 },
     });
 
     store.getState().setHintMode(false);
-    // EngineSearch.abort awaits supersede() before onAbort sets the pending flag.
     await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(true);
+    // Engine is idle at abort-request (unified semantics), but the dedupe
+    // guard persists until the backend abort actually resolves so a same-tick
+    // setHintLevel cannot issue a redundant abort.
+    expect(store.getState().isAnalyzing).toBe(false);
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
 
     abortDeferred.resolve();
     await abortDeferred.promise;
     await Promise.resolve();
 
-    expect(store.getState().isAnalyzing).toBe(false);
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
+    expect(store.getState().isAnalyzing).toBe(false);
   });
 
   it("restarts hint analysis only after the pending abort completes", async () => {
@@ -109,52 +118,37 @@ describe("setHintMode", () => {
     expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores stale abort cleanup while a newer hint abort is pending", async () => {
-    const abortDeferred1 = createDeferred<void>();
-    const abortDeferred2 = createDeferred<void>();
-    const { store, services } = createTestStore({
+  it("a stale superseded hint abort does not clear the guard the newer pending abort owns", async () => {
+    // The `hintAnalysisAbortPending` dedupe guard is NOT owned by the Engine
+    // Activity (it survives the busy-flag migration); its own generation
+    // guard must still prevent a stale, superseded hint abort from dropping
+    // the guard a newer pending hint abort still owns.
+    const backendAbort = createDeferred<void>();
+    const { store } = createTestStore({
       ai: createMockAIService({
-        abortSearch: vi
-          .fn()
-          .mockReturnValueOnce(abortDeferred1.promise)
-          .mockReturnValueOnce(abortDeferred2.promise),
+        abortSearch: vi.fn().mockReturnValue(backendAbort.promise), // slow
       }),
     });
-    const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
+    store.setState({ isHintMode: true });
 
-    store.setState({
-      isHintMode: true,
-      isAnalyzing: true,
-      isAIThinking: false,
-    });
-
-    store.getState().setHintMode(false);
-    store.getState().setHintMode(true);
-    store.getState().setHintMode(false);
-    // EngineSearch.abort awaits supersede() before onAbort/abort, so both queued
-    // abort chains land one microtask later (behavior unchanged).
-    await Promise.resolve();
-
-    expect(services.ai.abortSearch).toHaveBeenCalledTimes(2);
+    // Two overlapping hint aborts: #2's claim bumps the generation, so #1 is
+    // superseded and bails to its guaranteed-once onTeardown while #2 owns
+    // the guard.
+    store.getState().restartHintAnalysisAfterAbort();
+    store.getState().restartHintAnalysisAfterAbort();
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
 
-    abortDeferred1.resolve();
-    await abortDeferred1.promise;
-    await Promise.resolve();
-
+    // Drain microtasks: #1's superseded onTeardown runs here. Its generation
+    // is stale, so it must NOT clear the guard #2 still owns.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
-    expect(store.getState().isAnalyzing).toBe(true);
 
-    store.getState().setHintMode(true);
-    expect(analyzeBoardSpy).not.toHaveBeenCalled();
-
-    abortDeferred2.resolve();
-    await abortDeferred2.promise;
-    await Promise.resolve();
-
+    // #2 settles normally: only now is the guard released.
+    backendAbort.resolve();
+    for (let i = 0; i < 10 && store.getState().hintAnalysisAbortPending; i++) {
+      await Promise.resolve();
+    }
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
-    expect(store.getState().isAnalyzing).toBe(false);
-    expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
   });
 
   it("ignores stale hint progress after a cancelled analysis is re-enabled", async () => {
@@ -305,26 +299,28 @@ describe("setHintMode", () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
 
     // Game analysis installs a live EngineSearch run. isGameAnalyzing flips
-    // synchronously (onClaim); wait for the backend run to actually start so
+    // synchronously (claim); wait for the backend run to actually start so
     // the hint claim below captures the game run as its prior.
     void store.getState().analyzeGame();
     for (let i = 0; i < 10 && analyzeGameMock.mock.calls.length === 0; i++) await Promise.resolve();
     expect(store.getState().isGameAnalyzing).toBe(true);
 
-    // Enabling hint mode queues a hint analyzeBoard start; its claim() captures
-    // the game-analysis run and stalls on the SLOW abortGameAnalysis, so the
-    // hint start's onStart (which sets isAnalyzing) has NOT run yet.
+    // Enabling hint mode queues a hint analyzeBoard start; its claim()
+    // supersedes the live game run and stamps the hint activity synchronously
+    // (CONTEXT.md → Engine Activity), then stalls on the SLOW abortGameAnalysis.
     store.getState().setHintMode(true);
     await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().isAnalyzing).toBe(true);
 
-    // User turns hint mode off during the wait. isAnalyzing is false here, so
-    // setHintMode(false) does nothing — the queued hint start is still pending.
+    // User turns hint mode off while the hint start is still queued. The hint
+    // activity is current, so this supersedes the queued hint start via a
+    // restart-abort.
     store.getState().setHintMode(false);
     expect(store.getState().isHintMode).toBe(false);
 
-    // Slow supersede resolves: the queued hint start now proceeds. It must
-    // recheck hint mode and NOT launch a background search nor strand isAnalyzing.
+    // Slow supersede resolves: the queued hint start is superseded-before-
+    // install, so it bails without ever launching a backend search, and the
+    // hint busy projection is not stranded.
     gameAbortDeferred.resolve();
     for (let i = 0; i < 12; i++) await Promise.resolve();
 
@@ -359,18 +355,20 @@ describe("setHintMode", () => {
   });
 });
 
-describe("analyzeBoard generation ownership", () => {
-  it("a hint run queued behind a slow game-analysis supersede does not clear a newer hint run's isAnalyzing", async () => {
-    const gameRunDeferred = createDeferred<void>();
-    const gameAbortDeferred = createDeferred<void>();
+describe("Engine Activity ownership", () => {
+  it("a stale superseded hint run does not clear the newer game-analysis activity", async () => {
+    // The invariant the deleted hint generation counter used to enforce, now
+    // owned by the Engine Activity (CONTEXT.md → Engine Activity): a
+    // superseded run's teardown returns the activity to idle ONLY while it is
+    // still the current run, so it can never clobber a newer run's activity.
     const hintRunDeferred = createDeferred<void>();
-    const analyzeGameMock = vi.fn().mockReturnValue(gameRunDeferred.promise);    // game run stays live
-    const analyzeMock = vi.fn().mockReturnValue(hintRunDeferred.promise);        // newer hint run
+    const gameRunDeferred = createDeferred<void>();
+    const analyzeMock = vi.fn().mockReturnValue(hintRunDeferred.promise);     // hint run stays live
+    const analyzeGameMock = vi.fn().mockReturnValue(gameRunDeferred.promise); // newer run
     const { store } = createTestStore({
       ai: createMockAIService({
-        analyzeGame: analyzeGameMock,
-        abortGameAnalysis: vi.fn().mockReturnValue(gameAbortDeferred.promise),   // SLOW supersede
         analyze: analyzeMock,
+        analyzeGame: analyzeGameMock,
       }),
     });
     await store.getState().startGame();
@@ -378,40 +376,24 @@ describe("analyzeBoard generation ownership", () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
 
-    // Game analysis is live (an installed EngineSearch run).
-    void store.getState().analyzeGame();
-    for (let i = 0; i < 10 && analyzeGameMock.mock.calls.length === 0; i++) await Promise.resolve();
-    expect(store.getState().isGameAnalyzing).toBe(true);
-
-    // Enabling Hint queues analyzeBoard A: its claim supersedes the live game
-    // run, so A blocks on the slow game-analysis backend abort WITHOUT
-    // installing or setting isAnalyzing. (analyzeBoard does not guard
-    // isGameAnalyzing, so the top guard lets it through.)
+    // A hint analysis is the live Engine Activity.
     store.getState().setHintMode(true);
-    await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(false);
-
-    // Changing the hint level while A is still queued starts analyzeBoard B.
-    // isAnalyzing is still false (A never installed), so setHintLevel routes
-    // to analyzeBoard, not restartHintAnalysisAfterAbort. B's claim sees no
-    // live run and installs, taking ownership of isAnalyzing.
-    store.getState().setHintLevel(store.getState().hintLevel + 1);
     for (let i = 0; i < 10 && analyzeMock.mock.calls.length === 0; i++) await Promise.resolve();
     expect(store.getState().isAnalyzing).toBe(true);
 
-    // The slow game-analysis abort resolves: A is now superseded-before-install
-    // and its guaranteed-once onTeardown fires. It MUST NOT clear isAnalyzing —
-    // that flag is owned by the newer, still-running hint run B. Drain all
-    // microtasks unconditionally: A's onTeardown runs one microtask AFTER the
-    // game run's own teardown clears isGameAnalyzing, so a barrier that stops
-    // on isGameAnalyzing===false would assert before the clobber and pass
-    // spuriously.
-    gameAbortDeferred.resolve();
-    for (let i = 0; i < 30; i++) await Promise.resolve();
-    expect(store.getState().isGameAnalyzing).toBe(false);
-    expect(store.getState().isAnalyzing).toBe(true);
+    // Game analysis supersedes the hint run and becomes the current activity.
+    void store.getState().analyzeGame();
+    for (let i = 0; i < 10 && analyzeGameMock.mock.calls.length === 0; i++) await Promise.resolve();
+    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().isAnalyzing).toBe(false);
 
+    // The superseded hint run resolves late: its teardown must NOT return the
+    // activity to idle — the newer game-analysis run owns it now.
     hintRunDeferred.resolve();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().isAnalyzing).toBe(false);
+
     gameRunDeferred.resolve();
     await Promise.resolve();
   });
@@ -620,13 +602,13 @@ describe("analyzeGame", () => {
     store.getState().resumeAI();
 
     expect(store.getState().paused).toBe(false);
-    expect(store.getState().automationResumePending).toBe(true);
+    // The resume is deferred (queue flag private to Automation); the
+    // observable proxy is that the AI does not move until analysis ends.
     expect(makeAIMoveSpy).not.toHaveBeenCalled();
 
     analyzeDeferred.resolve();
     await analysis;
 
-    expect(store.getState().automationResumePending).toBe(false);
     expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -652,7 +634,7 @@ describe("analyzeGame", () => {
     await store.getState().abortGameAnalysis();
 
     expect(store.getState().isGameAnalyzing).toBe(false);
-    expect(store.getState().automationResumePending).toBe(false);
+    // Resume ran exactly once (queue flag is private to Automation).
     expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
 
     analyzeDeferred.resolve();

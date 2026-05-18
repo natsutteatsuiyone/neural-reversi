@@ -1,8 +1,12 @@
 import { StateCreator } from "zustand";
+import type { HintAnalysisSession } from "@/domain/game/hint-analysis-session";
 import type { ReversiState, SettingsSlice } from "./types";
 import { DEFAULT_SETTINGS, type Services } from "@/services/types";
 
-export function createSettingsSlice(services: Services): StateCreator<
+export function createSettingsSlice(
+    services: Services,
+    hintSession: HintAnalysisSession,
+): StateCreator<
     ReversiState,
     [],
     [],
@@ -67,14 +71,10 @@ export function createSettingsSlice(services: Services): StateCreator<
         set({ hintLevel: level, analyzeResults: null });
         void services.settings.saveSetting("hintLevel", level);
 
-        const state = get();
-        if (!state.isHintMode || state.hintAnalysisAbortPending) return;
-
-        if (state.isAnalyzing && !state.isAIThinking) {
-            state.restartHintAnalysisAfterAbort();
-        } else {
-            void state.analyzeBoard();
-        }
+        // The hint level-change coordination (dedupe guard + restart-vs-
+        // analyze decision) belongs to the Hint Analysis feature; settings
+        // only persists the level. (CONTEXT.md → Engine Activity.)
+        hintSession.onLevelChanged();
     },
 
     setGameAnalysisLevel: (level) => {

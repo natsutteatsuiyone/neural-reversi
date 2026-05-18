@@ -8,7 +8,7 @@ import { getWinner } from "@/domain/game/game-logic";
 import { useKeyboardNavigation } from "@/hooks/use-keyboard-navigation";
 import { useSolverProgressListener } from "@/hooks/use-solver-progress-listener";
 import { useTranslation } from "react-i18next";
-import { PASS_NOTIFICATION_DURATION_MS } from "@/stores/slices/game-slice";
+import { PASS_NOTIFICATION_DURATION_MS } from "@/lib/timing";
 import "./App.css";
 
 interface AppProps {

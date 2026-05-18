@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Board, Player } from "@/domain/game/types";
 import { serializeBoardForAI } from "./board-serialization";
+import { TAURI_COMMAND, TAURI_EVENT } from "./tauri-contract";
 import type {
   SolverMode,
   SolverProgressPayload,
@@ -21,7 +22,7 @@ export class TauriSolverService implements SolverService {
     const boardString = serializeBoardForAI(board, player);
     const targetSelectivityU8 = SOLVER_SELECTIVITY_TO_U8[targetSelectivity];
     try {
-      await invoke("solver_search_command", {
+      await invoke(TAURI_COMMAND.solverSearch, {
         boardString,
         targetSelectivity: targetSelectivityU8,
         multiPv: mode === "multiPv",
@@ -35,13 +36,13 @@ export class TauriSolverService implements SolverService {
 
   async abort(): Promise<void> {
     try {
-      await invoke("abort_ai_search_command");
+      await invoke(TAURI_COMMAND.abortAiSearch);
     } catch (error) {
       console.error("Failed to abort solver search:", error);
     }
   }
 
   async onProgress(callback: (payload: SolverProgressPayload) => void): Promise<UnlistenFn> {
-    return listen<SolverProgressPayload>("solver-progress", (event) => callback(event.payload));
+    return listen<SolverProgressPayload>(TAURI_EVENT.solverProgress, (event) => callback(event.payload));
   }
 }

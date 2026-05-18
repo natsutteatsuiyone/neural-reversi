@@ -135,4 +135,32 @@ describe("MoveHistory", () => {
       expect(h.lastMove).toBe(r1);
     });
   });
+
+  describe("playedMoveCount", () => {
+    function makePass(id: number, player: "black" | "white"): MoveRecord {
+      return { id, player, row: -1, col: -1, notation: "Pass" };
+    }
+
+    it("is 0 for empty history", () => {
+      expect(MoveHistory.empty().playedMoveCount).toBe(0);
+    });
+
+    it("counts real moves and ignores pass records", () => {
+      const h = MoveHistory.empty()
+        .append(makeRecord(0, "black", 2, 3))
+        .append(makePass(1, "white"))
+        .append(makeRecord(2, "black", 4, 5));
+      expect(h.playedMoveCount).toBe(2);
+    });
+
+    it("counts the full timeline, unaffected by undo", () => {
+      const h = MoveHistory.empty()
+        .append(makeRecord(0, "black", 2, 3))
+        .append(makeRecord(1, "white", 3, 2))
+        .append(makeRecord(2, "black", 4, 5))
+        .undo(2);
+      expect(h.length).toBe(1);
+      expect(h.playedMoveCount).toBe(3);
+    });
+  });
 });

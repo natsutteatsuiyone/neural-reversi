@@ -16,7 +16,12 @@ afterAll(() => {
 describe("makeAIMove", () => {
   it("does not start a second search while another search is active", async () => {
     const { store, services } = createTestStore();
-    store.setState({ isAIThinking: true });
+    // An Engine Search is already in flight (CONTEXT.md → Engine Activity);
+    // isAIThinking is its projection.
+    store.setState({
+      isAIThinking: true,
+      engineActivity: { kind: "ai-move", runId: 1 },
+    });
 
     await store.getState().makeAIMove();
 
@@ -35,7 +40,6 @@ describe("makeAIMove", () => {
 
     expect(store.getState().isAIThinking).toBe(false);
     expect(store.getState().aiMoveProgress).toBeNull();
-    expect(store.getState().searchTimer).toBeNull();
   });
 
   it("does not overwrite aiRemainingTime written during the search", async () => {
@@ -183,7 +187,7 @@ describe("abortAIMove", () => {
         abortSearch: vi.fn().mockRejectedValue(new Error("abort failed")),
       }),
     });
-    store.setState({ isAIThinking: true, isAnalyzing: true, aiSearchStartTime: 123 });
+    store.setState({ isAIThinking: true, isAnalyzing: true });
 
     await store.getState().abortAIMove();
 
@@ -192,7 +196,6 @@ describe("abortAIMove", () => {
     expect(store.getState().isAIThinking).toBe(false);
     expect(store.getState().isAnalyzing).toBe(false);
     expect(store.getState().aiMoveProgress).toBeNull();
-    expect(store.getState().aiSearchStartTime).toBeNull();
   });
 
   it("clears thinking state and drops a late move when abortSearch throws", async () => {
@@ -232,13 +235,12 @@ describe("abortAIMove", () => {
     await pending;
 
     expect(store.getState().isAIThinking).toBe(false);
-    expect(store.getState().aiSearchStartTime).toBeNull();
     expect(store.getState().moveHistory.length).toBe(0);
   });
 
   it("clears flags when abortSearch resolves", async () => {
     const { store, services } = createTestStore();
-    store.setState({ isAIThinking: true, isAnalyzing: true, aiSearchStartTime: 123 });
+    store.setState({ isAIThinking: true, isAnalyzing: true });
 
     await store.getState().abortAIMove();
 
@@ -246,7 +248,6 @@ describe("abortAIMove", () => {
     expect(store.getState().isAIThinking).toBe(false);
     expect(store.getState().isAnalyzing).toBe(false);
     expect(store.getState().aiMoveProgress).toBeNull();
-    expect(store.getState().aiSearchStartTime).toBeNull();
   });
 
   it("pauses the game when stopping an AI turn with legal moves", async () => {
@@ -286,5 +287,23 @@ describe("abortAIMove", () => {
     await store.getState().abortAIMove();
 
     expect(services.ai.abortSearch).not.toHaveBeenCalled();
+  });
+
+  // Regression: a hint abort-then-restart stamps isAnalyzing=false
+  // synchronously while its backend abort + restart are still in flight.
+  // abortAIMove must still supersede that pending run (it routes the
+  // EngineSearch generation forward), so it cannot early-return here.
+  it("still aborts when only a hint abort is pending", async () => {
+    const { store, services } = createTestStore();
+    store.setState({
+      isAIThinking: false,
+      isAnalyzing: false,
+      hintAnalysisAbortPending: true,
+    });
+
+    await store.getState().abortAIMove();
+
+    expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
+    expect(store.getState().paused).toBe(false);
   });
 });

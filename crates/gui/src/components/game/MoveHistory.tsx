@@ -1,7 +1,9 @@
 import { useRef, useState, useLayoutEffect, useEffect } from "react";
 import { Bot, Check, Copy, List, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatScore } from "@/lib/score-format";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { isGameSearchActive } from "@/stores/engine-activity";
 import { Stone } from "@/components/board/Stone";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
@@ -12,14 +14,12 @@ export function MoveHistory() {
   const moveHistory = useReversiStore((state) => state.moveHistory);
   const moves = moveHistory.allMoves;
   const gameStatus = useReversiStore((state) => state.gameStatus);
-  const isAIThinking = useReversiStore((state) => state.isAIThinking);
-  const isAnalyzing = useReversiStore((state) => state.isAnalyzing);
-  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
+  const gameSearchActive = useReversiStore((state) => isGameSearchActive(state.engineActivity));
   const undoMove = useReversiStore((state) => state.undoMove);
   const redoMove = useReversiStore((state) => state.redoMove);
   const goToMove = useReversiStore((state) => state.goToMove);
   const currentIndex = moveHistory.length;
-  const canNavigate = gameStatus !== "waiting" && !isAIThinking && !isAnalyzing && !isGameAnalyzing;
+  const canNavigate = gameStatus !== "waiting" && !gameSearchActive;
 
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -122,8 +122,7 @@ export function MoveHistory() {
                       <Bot className="w-3 h-3 text-accent-blue" />
                       {move.score !== undefined && (
                         <span className="text-xs font-mono text-foreground-muted">
-                          {move.score > 0 ? "+" : ""}
-                          {move.score}
+                          {formatScore(move.score, "raw")}
                         </span>
                       )}
                     </>

@@ -1,20 +1,19 @@
 import { useEffect } from "react";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { isGameSearchActive } from "@/stores/engine-activity";
 
 export function useKeyboardNavigation() {
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const undoMove = useReversiStore((state) => state.undoMove);
   const redoMove = useReversiStore((state) => state.redoMove);
-  const isAIThinking = useReversiStore((state) => state.isAIThinking);
-  const isAnalyzing = useReversiStore((state) => state.isAnalyzing);
-  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
+  const gameSearchActive = useReversiStore((state) => isGameSearchActive(state.engineActivity));
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (gameStatus === "waiting") return;
       
       // Don't navigate while a search is tied to the current position/history.
-      if (isAIThinking || isAnalyzing || isGameAnalyzing) return;
+      if (gameSearchActive) return;
 
       switch (e.key) {
         case "ArrowLeft":
@@ -30,5 +29,5 @@ export function useKeyboardNavigation() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [gameStatus, undoMove, redoMove, isAIThinking, isAnalyzing, isGameAnalyzing]);
+  }, [gameStatus, undoMove, redoMove, gameSearchActive]);
 }

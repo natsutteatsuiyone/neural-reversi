@@ -272,12 +272,12 @@ describe("createGameStartState", () => {
     expect(state.lastAIMove).toBeNull();
     expect(state.showPassNotification).toBeNull();
     expect(state.analyzeResults).toBeNull();
-    expect(state.isAIThinking).toBe(false);
-    expect(state.isAnalyzing).toBe(false);
+    // The Engine Activity projection (isAIThinking / isAnalyzing / ...) is no
+    // longer produced here — it is composed by the store reset paths via
+    // idleEngineActivityPatch(); see engine-activity.test.ts.
     expect(state.aiMoveProgress).toBeNull();
     expect(state.aiThinkingHistory).toEqual([]);
     expect(state.aiRemainingTime).toBe(60000);
-    expect(state.searchTimer).toBeNull();
     expect(state.validMoves).toEqual([]);
     expect(state.paused).toBe(false);
   });

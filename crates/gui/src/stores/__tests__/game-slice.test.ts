@@ -1,6 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
-import { triggerAutomation } from "@/stores/slices/game-slice";
 import { createDeferred, createTestStore, type TestStore } from "./test-helpers";
 import type { Services } from "@/services/types";
 
@@ -16,7 +15,7 @@ describe("triggerAutomation", () => {
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
-    triggerAutomation(store.getState);
+    store.getState().triggerAutomation();
 
     expect(makeAIMoveSpy).not.toHaveBeenCalled();
     expect(analyzeBoardSpy).not.toHaveBeenCalled();
@@ -28,7 +27,7 @@ describe("triggerAutomation", () => {
     store.setState({ gameMode: "ai-black" });
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
 
-    triggerAutomation(store.getState);
+    store.getState().triggerAutomation();
 
     expect(makeAIMoveSpy).toHaveBeenCalled();
   });
@@ -39,7 +38,7 @@ describe("triggerAutomation", () => {
     store.setState({ isHintMode: true });
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
-    triggerAutomation(store.getState);
+    store.getState().triggerAutomation();
 
     expect(analyzeBoardSpy).toHaveBeenCalled();
   });
@@ -50,7 +49,7 @@ describe("triggerAutomation", () => {
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
-    triggerAutomation(store.getState);
+    store.getState().triggerAutomation();
 
     expect(makeAIMoveSpy).not.toHaveBeenCalled();
     expect(analyzeBoardSpy).not.toHaveBeenCalled();
@@ -63,21 +62,14 @@ describe("triggerAutomation", () => {
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
-    for (const busyState of [
-      { isAIThinking: true },
-      { isAnalyzing: true },
-      { isGameAnalyzing: true },
-    ]) {
+    // triggerAutomation blocks while any in-game Engine Search is active
+    // (CONTEXT.md → Engine Activity); the busy booleans are its projection.
+    for (const kind of ["ai-move", "hint", "game-analysis"] as const) {
       makeAIMoveSpy.mockClear();
       analyzeBoardSpy.mockClear();
-      store.setState({
-        isAIThinking: false,
-        isAnalyzing: false,
-        isGameAnalyzing: false,
-        ...busyState,
-      });
+      store.setState({ engineActivity: { kind, runId: 1 } });
 
-      triggerAutomation(store.getState);
+      store.getState().triggerAutomation();
 
       expect(makeAIMoveSpy).not.toHaveBeenCalled();
       expect(analyzeBoardSpy).not.toHaveBeenCalled();
@@ -173,6 +165,38 @@ describe("makeMove", () => {
     expect(store.getState().currentPlayer).toBe("black");
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     expect(store.getState().currentPlayer).toBe("white");
+  });
+
+  it("a user move supersedes an in-flight hint analysis through the Engine Search", async () => {
+    const hintRun = createDeferred<void>();
+    const { store: s, services: svc } = createTestStore({
+      ai: createMockAIService({
+        analyze: vi.fn().mockReturnValue(hintRun.promise), // hint run stays live
+      }),
+    });
+    await s.getState().startGame({
+      gameMode: "pvp", // human turn so hint analysis is allowed
+      aiLevel: 5,
+      aiMode: "level",
+      gameTimeLimit: 60,
+    });
+
+    s.getState().setHintMode(true);
+    for (let i = 0; i < 10 && (svc.ai.analyze as ReturnType<typeof vi.fn>).mock.calls.length === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(s.getState().isAnalyzing).toBe(true);
+
+    await s.getState().makeMove({ row: 2, col: 3, isAI: false });
+
+    // Aborted via the canonical hint path: dedupe guard set, backend told to
+    // stop, and the Engine Search properly superseded (activity → idle) —
+    // the old direct-poke path left the run un-superseded.
+    expect(svc.ai.abortSearch).toHaveBeenCalled();
+    expect(s.getState().hintAnalysisAbortPending).toBe(true);
+    expect(s.getState().engineActivity.kind).toBe("idle");
+
+    hintRun.resolve();
   });
 
   it("appends record to moveHistory", async () => {
@@ -438,7 +462,22 @@ describe("undoMove", () => {
 
   it("does nothing while game analysis is active", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    store.setState({ isGameAnalyzing: true });
+    store.setState({
+      isGameAnalyzing: true,
+      engineActivity: { kind: "game-analysis", runId: 1 },
+    });
+
+    store.getState().undoMove();
+
+    expect(store.getState().moveHistory.length).toBe(1);
+  });
+
+  it("does nothing while an AI-move search is active", async () => {
+    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+    store.setState({
+      isAIThinking: true,
+      engineActivity: { kind: "ai-move", runId: 1 },
+    });
 
     store.getState().undoMove();
 
@@ -534,7 +573,10 @@ describe("redoMove", () => {
   it("does nothing while game analysis is active", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.getState().undoMove();
-    store.setState({ isGameAnalyzing: true });
+    store.setState({
+      isGameAnalyzing: true,
+      engineActivity: { kind: "game-analysis", runId: 1 },
+    });
 
     store.getState().redoMove();
 
@@ -553,7 +595,10 @@ describe("goToMove", () => {
 
   it("does nothing while game analysis is active", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    store.setState({ isGameAnalyzing: true });
+    store.setState({
+      isGameAnalyzing: true,
+      engineActivity: { kind: "game-analysis", runId: 1 },
+    });
 
     store.getState().goToMove(0);
 
@@ -608,16 +653,29 @@ describe("resetGame", () => {
     expect(abortSpy).toHaveBeenCalled();
   });
 
-  it("clears pending automation timer", async () => {
+  it("does not run a scheduled automation step after the game is reset", async () => {
     vi.useFakeTimers();
     try {
       const { store } = createTestStore();
-      const timer = setTimeout(() => {}, 1000);
-      store.setState({ automationTimer: timer });
+      // White is the AI; Black (human) plays a flipping move, which schedules
+      // the post-flip auto-step.
+      await store.getState().startGame({
+        gameMode: "ai-white",
+        aiLevel: 5,
+        aiMode: "level",
+        gameTimeLimit: 60,
+      });
+      const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
+      await store.getState().makeMove({ row: 2, col: 3, isAI: false });
 
+      // Reset before the scheduled step fires: Automation must cancel it so
+      // the AI never moves on the fresh board.
       await store.getState().resetGame();
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
 
-      expect(store.getState().automationTimer).toBeNull();
+      expect(makeAIMoveSpy).not.toHaveBeenCalled();
+      expect(store.getState().gameStatus).toBe("waiting");
     } finally {
       vi.useRealTimers();
     }
@@ -777,14 +835,15 @@ describe("startGame", () => {
     }
     expect(services.ai.analyzeGame).toHaveBeenCalled();
     expect(store.getState().isGameAnalyzing).toBe(true);
-    expect(store.getState().automationResumePending).toBe(true);
+    // Automation is deferred (its queue flag is private to the Automation
+    // closure); the observable proxy is that the AI does not move yet.
     expect(makeAIMoveSpy).not.toHaveBeenCalled();
 
     analyzeDeferred.resolve();
     await analyzeDeferred.promise;
     await Promise.resolve();
 
-    expect(store.getState().automationResumePending).toBe(false);
+    // Game analysis ended → the deferred step resumes exactly once.
     expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
   });
 

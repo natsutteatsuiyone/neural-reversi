@@ -352,6 +352,109 @@ describe("EngineSearch", () => {
     ]);
   });
 
+  it("A0: no activity is emitted when onActivityChange is not wired (contract tests stay inert)", async () => {
+    const es = createEngineSearch();
+    // No throw / no observable effect; kind is simply ignored.
+    await es.start({ kind: "ai-move", run: async () => {}, abort: async () => {} });
+    await es.abort({ abort: async () => {} });
+  });
+
+  it("A1: a kinded run stamps its kind at claim (synchronously) then returns to idle on ok", async () => {
+    const activity: { kind: string; runId: number }[] = [];
+    const es = createEngineSearch({
+      onActivityChange: (a) => activity.push({ kind: a.kind, runId: a.runId }),
+    });
+    const p = es.start({ kind: "hint", run: async () => {}, abort: async () => {} });
+    // Stamped synchronously at claim, before any await.
+    expect(activity).toEqual([{ kind: "hint", runId: 1 }]);
+    await p;
+    expect(activity).toEqual([
+      { kind: "hint", runId: 1 },
+      { kind: "idle", runId: 1 },
+    ]);
+  });
+
+  it("A2: a superseding kinded start wins; the superseded prior never re-stamps idle", async () => {
+    const activity: string[] = [];
+    const es = createEngineSearch({
+      onActivityChange: (a) => activity.push(`${a.kind}:${a.runId}`),
+    });
+    const d = deferred<void>();
+    const first = es.start({
+      kind: "ai-move",
+      run: async () => { await d.promise; },
+      abort: async () => {},
+    });
+    await Promise.resolve();
+    await es.start({ kind: "hint", run: async () => {}, abort: async () => {} });
+    d.resolve();
+    await first;
+    // ai-move@1 (claim) → hint@2 (superseding claim) → idle@2 (hint ok).
+    // The superseded ai-move run must NOT emit idle@1 and clobber hint/idle@2.
+    expect(activity).toEqual(["ai-move:1", "hint:2", "idle:2"]);
+  });
+
+  it("A3: abort returns the activity to idle", async () => {
+    const activity: string[] = [];
+    const es = createEngineSearch({
+      onActivityChange: (a) => activity.push(`${a.kind}:${a.runId}`),
+    });
+    await es.start({ kind: "solver", run: async () => {}, abort: async () => {} });
+    activity.length = 0;
+    await es.abort({ abort: async () => {} });
+    expect(activity).toEqual(["idle:2"]);
+  });
+
+  it("A4: a kinded run that rejects returns the activity to idle", async () => {
+    const activity: string[] = [];
+    const es = createEngineSearch({
+      onActivityChange: (a) => activity.push(`${a.kind}:${a.runId}`),
+    });
+    await es.start({
+      kind: "game-analysis",
+      run: async () => { throw new Error("boom"); },
+      abort: async () => {},
+      onError: () => {},
+    });
+    expect(activity).toEqual(["game-analysis:1", "idle:1"]);
+  });
+
+  it("A5: a start superseded before install stamps its kind but never re-stamps idle", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const activity: string[] = [];
+      const es = createEngineSearch({
+        onActivityChange: (a) => activity.push(`${a.kind}:${a.runId}`),
+      });
+      const l0Abort = deferred<void>();
+      const l0 = es.start({
+        kind: "ai-move",
+        run: async () => { await l0Abort.promise; },
+        abort: () => l0Abort.promise, // slow abort holds the next claim's await
+      });
+      await Promise.resolve();
+      const a = es.start({
+        kind: "game-analysis",
+        run: async () => {},
+        abort: async () => {},
+      });
+      await Promise.resolve();
+      const b = es.start({ kind: "hint", run: async () => {}, abort: async () => {} });
+      l0Abort.resolve();
+      await Promise.all([l0, a, b]);
+      // ai-move@1, game-analysis@2 (A claim, superseded before install),
+      // hint@3 (B claim), idle@3 (B ok). A must not emit idle@2.
+      expect(activity).toEqual([
+        "ai-move:1",
+        "game-analysis:2",
+        "hint:3",
+        "idle:3",
+      ]);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("S15: a claimed start superseded before install still runs onTeardown to undo onClaim", async () => {
     const es = createEngineSearch();
     const order: string[] = [];

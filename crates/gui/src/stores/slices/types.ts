@@ -7,12 +7,14 @@ import type {
     SolverSelectivity,
 } from "@/services/types";
 import type { MoveHistory } from "@/domain/game/move-history";
-import type { SolverHistoryEntry as DomainSolverHistoryEntry } from "@/domain/solver/solver-session";
+import type { SolverHistoryEntry as DomainSolverHistoryEntry } from "@/domain/solver/solver-navigation";
 import type { AIMode, Board, GameMode, Player } from "@/domain/game/types";
 import type { Move } from "@/domain/game/store-helpers";
 import type { MoveAnalysis } from "@/domain/game/game-analysis";
+import type { ResolvedSetupPosition } from "@/domain/game/setup-position";
 import type { Language } from "@/i18n";
 import type { AppSettings } from "@/services/types";
+import type { EngineActivity } from "@/domain/engine/engine-search";
 
 export type NewGameSettings = Pick<AppSettings, "gameMode" | "aiLevel" | "aiMode" | "gameTimeLimit">;
 
@@ -29,8 +31,14 @@ export interface GameSlice {
     validMoves: [number, number][];
     skipAnimation: boolean;
     paused: boolean;
-    automationTimer: ReturnType<typeof setTimeout> | null;
-    automationResumePending: boolean;
+    /** Re-evaluate auto-play now (CONTEXT.md → Automation). */
+    triggerAutomation: () => void;
+    /** Resume a step deferred behind a game-analysis run. */
+    resumeQueuedAutomation: () => void;
+    /** Drop any pending auto-play step. */
+    cancelAutomation: () => void;
+    /** Mark a step deferred so the next resume runs it. */
+    queueResumeAutomation: () => void;
     getScores: () => { black: number; white: number };
     isAITurn: () => boolean;
     isValidMove: (row: number, col: number) => boolean;
@@ -53,12 +61,10 @@ export interface AISlice {
     aiLevel: number;
     aiMoveProgress: AIMoveProgress | null;
     aiThinkingHistory: AIThinkingEntry[];
-    aiSearchStartTime: number | null;
     isAIThinking: boolean;
     lastAIMove: AIMoveResult | null;
     aiMode: AIMode;
     aiRemainingTime: number;
-    searchTimer: ReturnType<typeof setInterval> | null;
     checkAIReady: () => Promise<boolean>;
     makeAIMove: () => Promise<void>;
     abortAIMove: () => Promise<void>;
@@ -75,7 +81,6 @@ export interface UISlice {
     hintAnalysisAbortPending: boolean;
     analyzeResults: Map<string, AIMoveProgress> | null;
     isNewGameModalOpen: boolean;
-    newGameModalSession: number;
     isAboutModalOpen: boolean;
     isHintMode: boolean;
     isGameAnalyzing: boolean;
@@ -139,6 +144,12 @@ export interface SetupSlice {
     setBoardStringInput: (input: string) => void;
     clearSetupBoard: () => void;
     resetSetupToInitial: () => void;
+    /**
+     * Resolve + validate the current setup into a position. The single
+     * seam any starter (new game, solver) goes through, so the raw setup
+     * fields never leak out of the setup slice.
+     */
+    resolveValidSetup: () => ResolvedSetupPosition;
     startFromSetup: (settings?: NewGameSettings) => Promise<boolean>;
 }
 
@@ -184,4 +195,20 @@ export interface SolverSlice {
     applySolverProgress: (payload: SolverProgressPayload) => void;
 }
 
-export type ReversiState = GameSlice & AISlice & UISlice & SettingsSlice & SetupSlice & SolverSlice;
+/**
+ * The single Engine Activity (CONTEXT.md → Engine Activity), mirrored from
+ * EngineSearch. The four feature "busy" booleans are views of
+ * `engineActivity.kind`; nothing mutates this directly except the
+ * EngineSearch activity callback wired in `createReversiStore`.
+ */
+export interface EngineActivityState {
+    engineActivity: EngineActivity;
+}
+
+export type ReversiState = GameSlice &
+    AISlice &
+    UISlice &
+    SettingsSlice &
+    SetupSlice &
+    SolverSlice &
+    EngineActivityState;

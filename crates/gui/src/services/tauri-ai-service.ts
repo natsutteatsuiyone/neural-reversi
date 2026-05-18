@@ -3,6 +3,7 @@ import { type Event, listen } from "@tauri-apps/api/event";
 import type { Board, Player } from "@/domain/game/types";
 import { getValidMoves } from "@/domain/game/game-logic";
 import { serializeBoardForAI } from "./board-serialization";
+import { TAURI_COMMAND, TAURI_EVENT } from "./tauri-contract";
 import type { AIService, AIMoveResult, AIMoveProgress, GameAnalysisProgress } from "./types";
 
 async function withEventListener<T, R>(
@@ -21,7 +22,7 @@ async function withEventListener<T, R>(
 export class TauriAIService implements AIService {
   async checkReady(): Promise<void> {
     try {
-      await invoke("check_ai_ready_command");
+      await invoke(TAURI_COMMAND.checkAiReady);
     } catch (error) {
       console.error("AI backend is not ready:", error);
       throw error;
@@ -42,9 +43,9 @@ export class TauriAIService implements AIService {
     const boardString = serializeBoardForAI(board, player);
 
     return await withEventListener<AIMoveProgress, AIMoveResult>(
-      "ai-move-progress",
+      TAURI_EVENT.aiMoveProgress,
       callback,
-      () => invoke<AIMoveResult>("ai_move_command", {
+      () => invoke<AIMoveResult>(TAURI_COMMAND.aiMove, {
         boardString,
         level,
         timeLimit,
@@ -55,7 +56,7 @@ export class TauriAIService implements AIService {
 
   async initialize(): Promise<void> {
     try {
-      await invoke("init_ai_command");
+      await invoke(TAURI_COMMAND.initAi);
     } catch (error) {
       console.error("Failed to initialize search:", error);
       throw error;
@@ -64,7 +65,7 @@ export class TauriAIService implements AIService {
 
   async resizeTT(hashSize: number): Promise<void> {
     try {
-      await invoke("resize_tt_command", { hashSize });
+      await invoke(TAURI_COMMAND.resizeTt, { hashSize });
     } catch (error) {
       console.error("Failed to resize TT:", error);
     }
@@ -72,7 +73,7 @@ export class TauriAIService implements AIService {
 
   async abortSearch(): Promise<void> {
     try {
-      await invoke("abort_ai_search_command");
+      await invoke(TAURI_COMMAND.abortAiSearch);
     } catch (error) {
       console.error("Failed to abort search:", error);
     }
@@ -90,9 +91,9 @@ export class TauriAIService implements AIService {
     const boardString = serializeBoardForAI(board, player);
 
     await withEventListener<AIMoveProgress, void>(
-      "ai-move-progress",
+      TAURI_EVENT.aiMoveProgress,
       callback,
-      () => invoke("analyze_command", { boardString, level }),
+      () => invoke(TAURI_COMMAND.analyze, { boardString, level }),
     );
   }
 
@@ -106,15 +107,15 @@ export class TauriAIService implements AIService {
     const boardString = serializeBoardForAI(board, player);
 
     await withEventListener<GameAnalysisProgress, void>(
-      "game-analysis-progress",
+      TAURI_EVENT.gameAnalysisProgress,
       callback,
-      () => invoke("analyze_game_command", { boardString, moves, level }),
+      () => invoke(TAURI_COMMAND.analyzeGame, { boardString, moves, level }),
     );
   }
 
   async abortGameAnalysis(): Promise<void> {
     try {
-      await invoke("abort_game_analysis_command");
+      await invoke(TAURI_COMMAND.abortGameAnalysis);
     } catch (error) {
       console.error("Failed to abort game analysis:", error);
     }

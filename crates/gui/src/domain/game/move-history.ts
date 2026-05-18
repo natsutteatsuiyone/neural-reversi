@@ -55,6 +55,20 @@ export class MoveHistory {
     return this.timeline;
   }
 
+  /**
+   * How many real (non-pass) moves the whole game contains — pass records
+   * have `row < 0`. Counts the full timeline, not just `currentMoves`, so it
+   * is stable under undo/redo (it answers "how many moves were played",
+   * which game-analysis progress is measured against).
+   */
+  get playedMoveCount(): number {
+    let count = 0;
+    for (const move of this.timeline) {
+      if (move.row >= 0) count++;
+    }
+    return count;
+  }
+
   get redoMoves(): readonly MoveRecord[] {
     return this.timeline.slice(this.cursor);
   }

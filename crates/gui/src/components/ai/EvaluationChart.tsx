@@ -16,6 +16,7 @@ import {
   usePlotArea,
 } from "recharts";
 import { useReversiStore } from "@/stores/use-reversi-store";
+import { formatScore } from "@/lib/score-format";
 import {
   createEvaluationChartData,
   resolveCursorMoveNumber,
@@ -87,7 +88,7 @@ function CustomTooltip({
               <p className="text-foreground-muted">
                 {t('analysis.bestMoveLabel', {
                   move: analysis.bestMove,
-                  score: analysis.bestScore > 0 ? `+${analysis.bestScore}` : analysis.bestScore,
+                  score: formatScore(analysis.bestScore, "raw"),
                 })}
               </p>
             )}

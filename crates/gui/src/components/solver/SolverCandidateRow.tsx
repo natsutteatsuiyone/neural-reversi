@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { SolverCandidate } from "@/services/types";
 import { cn } from "@/lib/utils";
+import { formatScore } from "@/lib/score-format";
 
 interface SolverCandidateRowProps {
   candidate: SolverCandidate;
@@ -13,8 +14,7 @@ export const SolverCandidateRow = memo(function SolverCandidateRow({
   isBest,
   onClick,
 }: SolverCandidateRowProps) {
-  const roundedScore = Math.round(candidate.score);
-  const displayScore = roundedScore > 0 ? `+${roundedScore}` : `${roundedScore}`;
+  const displayScore = formatScore(candidate.score, "whole");
   const pvDisplay = candidate.pvLine.split(" ").slice(0, 8).join(" ");
 
   return (

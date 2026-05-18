@@ -4,8 +4,7 @@ import {
   applyHintAnalysisProgress,
   createGameAnalysisMoveList,
 } from "@/domain/game/game-analysis";
-import type { AIMoveProgress, GameAnalysisProgress } from "@/services/types";
-import type { MoveRecord } from "@/domain/game/types";
+import type { AIMoveProgress, GameAnalysisProgress, MoveRecord } from "@/domain/game/types";
 
 function hintProgress(overrides: Partial<AIMoveProgress> = {}): AIMoveProgress {
   return {

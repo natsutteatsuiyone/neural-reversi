@@ -11,7 +11,6 @@ export const GROOVE_WIDTH = 0.03;
 export const DISC_COLOR_BLACK = "#2a2a2d";
 export const DISC_COLOR_WHITE = "#e8e4df";
 export const GROOVE_COLOR = "#1a5238";
-export const FLIP_DURATION_S = 0.4;
 
 export function cellToWorld(row: number, col: number): [x: number, z: number] {
   const x = col * CELL_SIZE - BOARD_OFFSET;

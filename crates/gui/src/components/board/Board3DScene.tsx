@@ -4,6 +4,7 @@ import { useRef, useMemo, useEffect } from "react";
 import type { OrthographicCamera as ThreeOrthographicCamera } from "three";
 import type { AIMoveProgress } from "@/services/types";
 import type { Board } from "@/domain/game/types";
+import { cellKey, type CellKey } from "@/domain/game/cell-key";
 import { AIThinkingIndicator } from "./AIThinkingIndicator";
 import { BoardFrame } from "./BoardFrame";
 import { BoardLabels } from "./BoardLabels";
@@ -14,14 +15,9 @@ import { HintScoreDisplay } from "./HintScoreDisplay";
 import { MoveIndicators } from "./MoveIndicators";
 import { Disc3D } from "./Disc3D";
 import { CELL_SIZE, FRAME_WIDTH, createEnvironmentTexture } from "./board3d-utils";
+import type { AIProgressTrailCell } from "./ai-progress-trail";
 
-interface MoveHistoryItem {
-  row: number;
-  col: number;
-  timestamp: number;
-}
-
-interface Board3DSceneProps {
+export interface Board3DSceneProps {
   board: Board;
   lastMove: { row: number; col: number; isAI?: boolean } | null;
   gameOver: boolean;
@@ -30,8 +26,8 @@ interface Board3DSceneProps {
   onCellClick: (row: number, col: number) => void;
   aiMoveProgress: AIMoveProgress | null;
   lastAIMove: { row: number; col: number; timestamp: number } | null;
-  moveHistory: MoveHistoryItem[];
-  analyzeResults: Map<string, AIMoveProgress> | null;
+  moveHistory: AIProgressTrailCell[];
+  analyzeResults: Map<CellKey, AIMoveProgress> | null;
   maxScore: number | null;
   skipAnimation: boolean;
   showHintWaitingBar?: boolean;
@@ -79,7 +75,7 @@ export function Board3DScene({
         if (
           !cell.color &&
           isValidMove(row, col) &&
-          !(analyzeResults && analyzeResults.has(`${row},${col}`))
+          !(analyzeResults && analyzeResults.has(cellKey(row, col)))
         ) {
           moves.push({ row, col });
         }
@@ -93,13 +89,13 @@ export function Board3DScene({
   // Track previous board state to detect which stones actually changed color
   const prevBoardRef = useRef(board);
   const flipDelays = useMemo(() => {
-    const delays = new Map<string, number>();
+    const delays = new Map<CellKey, number>();
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
         const cell = board[row][col];
         const prevCell = prevBoardRef.current[row]?.[col];
         if (cell.color && prevCell?.color && cell.color !== prevCell.color && !cell.isNew) {
-          delays.set(`${row},${col}`, 0);
+          delays.set(cellKey(row, col), 0);
         }
       }
     }
@@ -160,7 +156,7 @@ export function Board3DScene({
               col={colIndex}
               color={cell.color}
               isNew={cell.isNew}
-              flipDelay={flipDelays.get(`${rowIndex},${colIndex}`) ?? 0}
+              flipDelay={flipDelays.get(cellKey(rowIndex, colIndex)) ?? 0}
               skipAnimation={skipAnimation}
             />
           ) : null
@@ -185,7 +181,7 @@ export function Board3DScene({
           const isRecentAIMove =
             lastAIMove?.row === rowIndex && lastAIMove?.col === colIndex;
           const hasHint =
-            analyzeResults?.has(`${rowIndex},${colIndex}`) ||
+            analyzeResults?.has(cellKey(rowIndex, colIndex)) ||
             (!gameOver && isValidMove(rowIndex, colIndex) && analyzeResults !== null);
 
           if (!isThinkingCell && !isHistoryCell && !isRecentAIMove && !hasHint) {

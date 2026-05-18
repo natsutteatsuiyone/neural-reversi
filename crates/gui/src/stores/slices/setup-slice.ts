@@ -1,24 +1,38 @@
 import { StateCreator } from "zustand";
 import { createEmptyBoard, initializeBoard } from "@/domain/game/game-logic";
-import { cloneBoard, createGameStartState } from "@/domain/game/store-helpers";
+import { cloneBoard } from "@/domain/game/store-helpers";
 import { parseBoardString, parseTranscript } from "@/domain/game/board-parser";
 import {
     resolveSetupPosition,
     resolveValidSetupPosition,
+    type SetupPositionInput,
 } from "@/domain/game/setup-position";
 import type { Services } from "@/services/types";
-import type { NewGameSettings, ReversiState, SetupSlice } from "./types";
-import { prepareToReplaceGame, triggerAutomation } from "./game-slice";
+import type { ReversiState, SetupSlice, SetupTab } from "./types";
+import { prepareGameReplacement } from "@/stores/game-replacement";
+import {
+    createNewGamePatch,
+    persistNewGameSettings,
+    resolveNewGameSettings,
+} from "@/stores/new-game";
 
-function resolveNewGameSettings(
+/**
+ * The single place the setup slice's raw fields are projected into a
+ * {@link SetupPositionInput}. `source` defaults to the committed tab;
+ * `setSetupTab` overrides it with the tab being switched to. Keeping this
+ * mapping in one function is what stops the five-field shape leaking into
+ * every starter.
+ */
+function readSetupPositionInput(
     state: ReversiState,
-    overrides?: NewGameSettings,
-): NewGameSettings {
+    source: SetupTab = state.setupTab,
+): SetupPositionInput {
     return {
-        gameMode: overrides?.gameMode ?? state.gameMode,
-        aiLevel: overrides?.aiLevel ?? state.aiLevel,
-        aiMode: overrides?.aiMode ?? state.aiMode,
-        gameTimeLimit: overrides?.gameTimeLimit ?? state.gameTimeLimit,
+        source,
+        board: state.setupBoard,
+        currentPlayer: state.setupCurrentPlayer,
+        transcriptInput: state.transcriptInput,
+        boardStringInput: state.boardStringInput,
     };
 }
 
@@ -48,13 +62,7 @@ export function createSetupSlice(services: Services): StateCreator<
     },
 
     setSetupTab: (tab) => set((state) => {
-        const resolved = resolveSetupPosition({
-            source: tab,
-            board: state.setupBoard,
-            currentPlayer: state.setupCurrentPlayer,
-            transcriptInput: state.transcriptInput,
-            boardStringInput: state.boardStringInput,
-        });
+        const resolved = resolveSetupPosition(readSetupPositionInput(state, tab));
 
         if (resolved.ok) {
             return {
@@ -135,44 +143,33 @@ export function createSetupSlice(services: Services): StateCreator<
         });
     },
 
+    resolveValidSetup: () => resolveValidSetupPosition(readSetupPositionInput(get())),
+
     startFromSetup: async (settings) => {
         const state = get();
         const nextSettings = resolveNewGameSettings(state, settings);
-        const resolved = resolveValidSetupPosition({
-            source: state.setupTab,
-            board: state.setupBoard,
-            currentPlayer: state.setupCurrentPlayer,
-            transcriptInput: state.transcriptInput,
-            boardStringInput: state.boardStringInput,
-        });
+        const resolved = get().resolveValidSetup();
         if (!resolved.ok) {
             set({ setupError: resolved.error });
             return false;
         }
         const { board: resolvedBoard, currentPlayer: resolvedCurrentPlayer } = resolved;
 
-        if (!(await prepareToReplaceGame(services, get, set))) {
+        if (!(await prepareGameReplacement(services, get, set))) {
             set({ setupError: "aiInitFailed" });
             return false;
         }
 
-        const board = cloneBoard(resolvedBoard);
-        const startState = createGameStartState(
-            board,
-            resolvedCurrentPlayer,
-            "playing",
-            nextSettings.gameTimeLimit * 1000,
-        );
         set({
-            ...startState,
-            gameMode: nextSettings.gameMode,
-            aiLevel: nextSettings.aiLevel,
-            aiMode: nextSettings.aiMode,
-            gameTimeLimit: nextSettings.gameTimeLimit,
+            ...createNewGamePatch(nextSettings, {
+                board: cloneBoard(resolvedBoard),
+                currentPlayer: resolvedCurrentPlayer,
+            }),
             setupError: null,
         });
+        persistNewGameSettings(services, nextSettings);
 
-        triggerAutomation(get);
+        get().triggerAutomation();
         return true;
     },
   });

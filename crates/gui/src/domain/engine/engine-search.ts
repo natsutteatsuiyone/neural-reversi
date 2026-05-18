@@ -1,5 +1,23 @@
 export type RunId = number;
 
+/**
+ * What the single Engine Search is currently doing (CONTEXT.md → Engine
+ * Activity). A projection of the current run id, owned here so no feature
+ * keeps its own generation counter.
+ */
+export type EngineActivityKind =
+  | "idle"
+  | "ai-move"
+  | "hint"
+  | "game-analysis"
+  | "solver";
+
+export interface EngineActivity {
+  readonly kind: EngineActivityKind;
+  /** The run id whose claim produced this activity. */
+  readonly runId: RunId;
+}
+
 export type RunOutcome =
   | { status: "ok" }
   | { status: "error"; error: unknown }
@@ -11,6 +29,12 @@ export interface RunHandle {
 }
 
 export interface StartSpec<P, R> {
+  /** Which Engine Activity this run represents. Set synchronously at claim
+   *  (before `await supersede()`) so a rapidly-following guard reads it, and
+   *  returned to `idle` on this run's teardown — but only while it is still
+   *  the current run, so a superseding run's activity is never clobbered.
+   *  Omit only for the engine's own contract tests. */
+  kind?: EngineActivityKind;
   /** Optional SYNCHRONOUS hook run at call time, before `await supersede()` /
    *  onStart/run — for callers that must commit breadcrumb state synchronously
    *  so a rapidly-following call reads it. onClaim MUST NOT throw — it runs
@@ -75,12 +99,28 @@ interface LiveRun {
  * `abort` resolve (never reject).
  */
 export function createEngineSearch(
-  opts: { initialRunId?: RunId } = {},
+  opts: {
+    initialRunId?: RunId;
+    /** Notified on every Engine Activity transition. The store mirrors this
+     *  into `engineActivity`; the four feature "busy" booleans are views of
+     *  `engineActivity.kind` (CONTEXT.md → Engine Activity). */
+    onActivityChange?: (activity: EngineActivity) => void;
+  } = {},
 ): EngineSearch {
   let currentId: RunId = opts.initialRunId ?? 0;
   let live: LiveRun | null = null;
 
   const isCurrent = (id: RunId) => id === currentId;
+
+  /**
+   * Emit an Engine Activity transition. Claim-time emits are ordered by
+   * invocation (claim() bumps `currentId` synchronously), so the last claim
+   * wins — matching the supersede ordering. A run only returns the activity
+   * to `idle` while it is still current, so a superseding run's activity is
+   * never clobbered by a slow predecessor's teardown.
+   */
+  const emitActivity = (kind: EngineActivityKind, id: RunId) =>
+    opts.onActivityChange?.({ kind, runId: id });
 
   /**
    * Take this operation's generation. SYNCHRONOUS up to the returned
@@ -122,6 +162,12 @@ export function createEngineSearch(
   async function start<P, R>(spec: StartSpec<P, R>): Promise<void> {
     spec.onClaim?.();
     const { id, superseded } = claim();
+    // Stamp this run's activity synchronously at claim (ordered by invocation,
+    // last claim wins) so a rapidly-following guard reads it. On the superseded
+    // bail below we do NOT return to idle: the superseding run already claimed
+    // and stamped its own activity after us, and clobbering it would strand a
+    // stale `idle`. (Spec S13/S15.)
+    if (spec.kind) emitActivity(spec.kind, id);
     // A newer start/abort claimed a higher generation while we awaited the
     // prior abort; bail without installing. We never installed a record nor
     // ran `spec.run`, and the prior we captured was already torn down inside
@@ -160,6 +206,7 @@ export function createEngineSearch(
       record.settled = true;
       if (live === record) live = null;
       spec.onError?.(error);
+      if (spec.kind && isCurrent(id)) emitActivity("idle", id);
       spec.onTeardown?.({ status: "error", error });
       return;
     }
@@ -167,12 +214,18 @@ export function createEngineSearch(
     record.settled = true;
     if (live === record) live = null;
     spec.onResult?.(result, handle);
+    if (spec.kind && isCurrent(id)) emitActivity("idle", id);
     spec.onTeardown?.({ status: "ok" });
   }
 
   async function abort(spec: AbortSpec): Promise<void> {
     spec.onClaim?.();
     const { id, superseded } = claim();
+    // An abort returns the engine to idle. Stamped synchronously at claim
+    // (ordered by invocation); if a newer start supersedes this abort, its
+    // later claim re-stamps its own kind and wins. On the superseded bail we
+    // do not re-emit, mirroring `start`. (S13/S14.)
+    emitActivity("idle", id);
     // Superseded by a newer start/abort during the prior abort: the newer op
     // governs the lifecycle now, so skip onAbort/abort/onSettled. The prior
     // run we captured was already aborted+torn down inside `claim()`. The

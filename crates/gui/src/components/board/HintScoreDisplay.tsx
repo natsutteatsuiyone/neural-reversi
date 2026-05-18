@@ -1,10 +1,12 @@
 import type { AIMoveProgress } from "@/services/types";
 import { cn } from "@/lib/utils";
+import { formatScore } from "@/lib/score-format";
+import { cellKey, type CellKey } from "@/domain/game/cell-key";
 
 interface HintScoreDisplayProps {
   rowIndex: number;
   colIndex: number;
-  analyzeResults: Map<string, AIMoveProgress> | null;
+  analyzeResults: Map<CellKey, AIMoveProgress> | null;
   maxScore: number | null;
   gameOver: boolean;
   isValidMoveCell: boolean;
@@ -24,7 +26,7 @@ export function HintScoreDisplay({
     return null;
   }
 
-  const key = `${rowIndex},${colIndex}`;
+  const key = cellKey(rowIndex, colIndex);
   const result = analyzeResults.get(key);
 
   // Show waiting progress bar for valid move cells without results yet
@@ -48,7 +50,7 @@ export function HintScoreDisplay({
   const { score, depth, targetDepth, acc, isEndgame } = result;
 
   const roundedScore = Math.round(score);
-  const displayScore = roundedScore > 0 ? `+${roundedScore}` : `${roundedScore}`;
+  const displayScore = formatScore(score, "whole");
   const isMaxScore = maxScore !== null && roundedScore === maxScore;
 
   // Search progress calculation:

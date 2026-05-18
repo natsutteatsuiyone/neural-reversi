@@ -5,6 +5,7 @@ use reversi_core::disc::Disc;
 use reversi_core::level::get_level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
+use reversi_core::search::search_result::SearchResult;
 use reversi_core::search::{SearchRunOptions, time_control::TimeControlMode};
 use reversi_core::square::Square;
 use reversi_core::types::Scoref;
@@ -14,10 +15,41 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const SELECTIVITY: Selectivity = Selectivity::Level1;
 
+/// The current game-analysis generation (CONTEXT.md → Engine Search).
+///
+/// A monotonically increasing counter behind one interface: a run
+/// `claim()`s a generation, checks `is_current()` at each await-point to
+/// bail when superseded, and an abort `supersede()`s it. The atomic
+/// orderings and the wrap are owned here so they cannot drift between the
+/// six call sites that previously open-coded them.
+struct GameAnalysisGeneration(AtomicU64);
+
+impl GameAnalysisGeneration {
+    fn new() -> Self {
+        Self(AtomicU64::new(0))
+    }
+
+    /// Claim a fresh generation. Any later claim or supersede makes this
+    /// one observe a mismatch in `is_current`.
+    fn claim(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::AcqRel).wrapping_add(1)
+    }
+
+    /// Whether `generation` is still the latest claimed generation.
+    fn is_current(&self, generation: u64) -> bool {
+        self.0.load(Ordering::Acquire) == generation
+    }
+
+    /// Supersede any in-flight run without claiming a new generation.
+    fn supersede(&self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
 struct AppState {
     search: Arc<Mutex<search::Search>>,
     thread_pool: Arc<search::threading::ThreadPool>,
-    game_analysis_run_id: Arc<AtomicU64>,
+    game_analysis_run_id: Arc<GameAnalysisGeneration>,
 }
 
 #[derive(Serialize)]
@@ -90,10 +122,6 @@ fn build_progress_payload(progress: &search::SearchProgress) -> SearchProgressPa
     }
 }
 
-fn is_current_game_analysis_run(current_run_id: &AtomicU64, run_id: u64) -> bool {
-    current_run_id.load(Ordering::Acquire) == run_id
-}
-
 fn lock_search(
     search: &Arc<Mutex<search::Search>>,
 ) -> Result<std::sync::MutexGuard<'_, search::Search>, String> {
@@ -110,6 +138,54 @@ where
     tauri::async_runtime::spawn_blocking(f)
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Runs one search on the single shared engine (CONTEXT.md → Engine Search):
+/// parse the board, take the engine lock, run with the caller's options, and
+/// hand the result + elapsed time to `map_result` — all inside one
+/// `spawn_blocking`. Concentrates the clone / spawn_blocking / parse / lock
+/// scaffold every engine-search command otherwise repeats; callers only
+/// describe the search (options) and translate the result.
+///
+/// `build_options` and `map_result` run on the blocking thread, so the
+/// `SearchResult` never crosses the task boundary (matching the prior
+/// per-command code).
+async fn run_engine_search<R, B, M>(
+    search: Arc<Mutex<search::Search>>,
+    board_string: String,
+    build_options: B,
+    map_result: M,
+) -> Result<R, String>
+where
+    R: Send + 'static,
+    B: FnOnce() -> SearchRunOptions + Send + 'static,
+    M: FnOnce(&SearchResult, u64) -> R + Send + 'static,
+{
+    spawn_blocking_result(move || {
+        let board = board::Board::from_string(&board_string, Disc::Black)
+            .map_err(|e| format!("Invalid board string: {e}"))?;
+        let start_time = std::time::Instant::now();
+        let mut search_guard = lock_search(&search)?;
+        let options = build_options();
+        let result = search_guard.run(&board, &options);
+        let elapsed_ms = start_time.elapsed().as_millis() as u64;
+        Ok(map_result(&result, elapsed_ms))
+    })
+    .await
+}
+
+/// Takes the engine lock on a blocking thread and applies `f`. The scaffold
+/// shared by the non-search engine commands (`init`, `resize_tt`).
+async fn with_search_lock<F>(search: Arc<Mutex<search::Search>>, f: F) -> Result<(), String>
+where
+    F: FnOnce(&mut search::Search) + Send + 'static,
+{
+    spawn_blocking_result(move || {
+        let mut guard = lock_search(&search)?;
+        f(&mut guard);
+        Ok(())
+    })
+    .await
 }
 
 /// Builds a [`reversi_core::level::Level`] whose endgame iterative-deepening
@@ -134,13 +210,7 @@ fn solver_level(target: Selectivity) -> reversi_core::level::Level {
 
 #[tauri::command]
 async fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
-    let search_arc = state.search.clone();
-
-    spawn_blocking_result(move || {
-        lock_search(&search_arc)?.init();
-        Ok(())
-    })
-    .await
+    with_search_lock(state.search.clone(), |s| s.init()).await
 }
 
 #[tauri::command]
@@ -155,13 +225,7 @@ async fn check_ai_ready_command(state: State<'_, AppState>) -> Result<(), String
 #[tauri::command]
 async fn resize_tt_command(state: State<'_, AppState>, hash_size: usize) -> Result<(), String> {
     let hash_size = hash_size.clamp(1, 16384);
-    let search_arc = state.search.clone();
-
-    spawn_blocking_result(move || {
-        lock_search(&search_arc)?.resize_tt(hash_size);
-        Ok(())
-    })
-    .await
+    with_search_lock(state.search.clone(), move |s| s.resize_tt(hash_size)).await
 }
 
 async fn abort_and_wait(thread_pool: Arc<search::threading::ThreadPool>) -> Result<(), String> {
@@ -188,57 +252,47 @@ async fn ai_move_command(
     time_limit: Option<u64>,
     remaining_time: Option<u64>,
 ) -> Result<AIMoveResult, String> {
-    let search_arc = state.search.clone();
-
-    spawn_blocking_result(move || {
-        let board = board::Board::from_string(&board_string, Disc::Black)
-            .map_err(|e| format!("Invalid board string: {e}"))?;
-        let lv = get_level(level);
-        let start_time = std::time::Instant::now();
-
-        let mut search_guard = lock_search(&search_arc)?;
-        let callback = move |progress: search::SearchProgress| {
-            let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
-        };
-
-        let result = if let Some(remaining_ms) = remaining_time {
-            let options = SearchRunOptions::with_time(
-                TimeControlMode::Fischer {
-                    main_time_ms: remaining_ms,
-                    increment_ms: 0,
-                },
-                SELECTIVITY,
-            )
-            .callback(callback);
-            search_guard.run(&board, &options)
-        } else if let Some(limit_ms) = time_limit {
-            let options = SearchRunOptions::with_time(
-                TimeControlMode::Byoyomi {
-                    time_per_move_ms: limit_ms,
-                },
-                SELECTIVITY,
-            )
-            .callback(callback);
-            search_guard.run(&board, &options)
-        } else {
-            let options = SearchRunOptions::with_level(lv, SELECTIVITY).callback(callback);
-            search_guard.run(&board, &options)
-        };
-
-        let time_taken_ms = start_time.elapsed().as_millis() as u64;
-        let best_move = result.best_move();
-        let score = result.score().unwrap_or(0.0);
-
-        Ok(AIMoveResult {
-            best_move: best_move.map(|square| square.index()),
-            row: best_move.map(|square| square as i32 / 8).unwrap_or(-1),
-            col: best_move.map(|square| square as i32 % 8).unwrap_or(-1),
-            score: round_score(score),
-            depth: result.depth(),
-            acc: result.get_probability(),
-            time_taken: time_taken_ms,
-        })
-    })
+    run_engine_search(
+        state.search.clone(),
+        board_string,
+        move || {
+            let callback = move |progress: search::SearchProgress| {
+                let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
+            };
+            if let Some(remaining_ms) = remaining_time {
+                SearchRunOptions::with_time(
+                    TimeControlMode::Fischer {
+                        main_time_ms: remaining_ms,
+                        increment_ms: 0,
+                    },
+                    SELECTIVITY,
+                )
+                .callback(callback)
+            } else if let Some(limit_ms) = time_limit {
+                SearchRunOptions::with_time(
+                    TimeControlMode::Byoyomi {
+                        time_per_move_ms: limit_ms,
+                    },
+                    SELECTIVITY,
+                )
+                .callback(callback)
+            } else {
+                SearchRunOptions::with_level(get_level(level), SELECTIVITY).callback(callback)
+            }
+        },
+        |result, elapsed_ms| {
+            let best_move = result.best_move();
+            AIMoveResult {
+                best_move: best_move.map(|square| square.index()),
+                row: best_move.map(|square| square as i32 / 8).unwrap_or(-1),
+                col: best_move.map(|square| square as i32 % 8).unwrap_or(-1),
+                score: round_score(result.score().unwrap_or(0.0)),
+                depth: result.depth(),
+                acc: result.get_probability(),
+                time_taken: elapsed_ms,
+            }
+        },
+    )
     .await
 }
 
@@ -249,23 +303,19 @@ async fn analyze_command(
     board_string: String,
     level: usize,
 ) -> Result<(), String> {
-    let search_arc = state.search.clone();
-
-    spawn_blocking_result(move || {
-        let board = board::Board::from_string(&board_string, Disc::Black)
-            .map_err(|e| format!("Invalid board string: {e}"))?;
-        let lv = get_level(level);
-
-        let mut search_guard = lock_search(&search_arc)?;
-        let callback = move |progress: search::SearchProgress| {
-            let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
-        };
-        let options = SearchRunOptions::with_level(lv, SELECTIVITY)
-            .multi_pv(true)
-            .callback(callback);
-        search_guard.run(&board, &options);
-        Ok(())
-    })
+    run_engine_search(
+        state.search.clone(),
+        board_string,
+        move || {
+            let callback = move |progress: search::SearchProgress| {
+                let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
+            };
+            SearchRunOptions::with_level(get_level(level), SELECTIVITY)
+                .multi_pv(true)
+                .callback(callback)
+        },
+        |_result, _elapsed_ms| (),
+    )
     .await
 }
 
@@ -278,38 +328,33 @@ async fn solver_search_command(
     multi_pv: bool,
     run_id: u64,
 ) -> Result<(), String> {
-    let search_arc = state.search.clone();
+    if target_selectivity > 5 {
+        return Err(format!(
+            "Invalid target_selectivity: {target_selectivity} (expected 0..=5)"
+        ));
+    }
 
-    spawn_blocking_result(move || {
-        if target_selectivity > 5 {
-            return Err(format!(
-                "Invalid target_selectivity: {target_selectivity} (expected 0..=5)"
-            ));
-        }
-
-        let board = board::Board::from_string(&board_string, Disc::Black)
-            .map_err(|e| format!("Invalid board string: {e}"))?;
-
-        let selectivity = Selectivity::from_u8(target_selectivity);
-        let level = solver_level(selectivity);
-
-        let mut search_guard = lock_search(&search_arc)?;
-        let callback = move |progress: search::SearchProgress| {
-            let _ = app.emit(
-                "solver-progress",
-                SolverProgressPayload {
-                    run_id,
-                    progress: build_progress_payload(&progress),
-                },
-            );
-        };
-
-        let options = SearchRunOptions::with_level(level, selectivity)
-            .multi_pv(multi_pv)
-            .callback(callback);
-        search_guard.run(&board, &options);
-        Ok(())
-    })
+    run_engine_search(
+        state.search.clone(),
+        board_string,
+        move || {
+            let selectivity = Selectivity::from_u8(target_selectivity);
+            let level = solver_level(selectivity);
+            let callback = move |progress: search::SearchProgress| {
+                let _ = app.emit(
+                    "solver-progress",
+                    SolverProgressPayload {
+                        run_id,
+                        progress: build_progress_payload(&progress),
+                    },
+                );
+            };
+            SearchRunOptions::with_level(level, selectivity)
+                .multi_pv(multi_pv)
+                .callback(callback)
+        },
+        |_result, _elapsed_ms| (),
+    )
     .await
 }
 
@@ -321,12 +366,9 @@ async fn analyze_game_command(
     moves: Vec<String>,
     level: usize,
 ) -> Result<(), String> {
-    // Claim a unique run id. Any later call bumps the counter, making our
-    // guard checks observe a mismatch and this run bail.
-    let run_id = state
-        .game_analysis_run_id
-        .fetch_add(1, Ordering::AcqRel)
-        .wrapping_add(1);
+    // Claim a unique run id. Any later claim/supersede makes our guard
+    // checks observe a mismatch and this run bail.
+    let run_id = state.game_analysis_run_id.claim();
     let search_arc = state.search.clone();
     let current_run_id = state.game_analysis_run_id.clone();
 
@@ -354,7 +396,7 @@ async fn analyze_game_command(
             boards.push(current);
         }
 
-        if !is_current_game_analysis_run(&current_run_id, run_id) {
+        if !current_run_id.is_current(run_id) {
             return Ok(());
         }
 
@@ -365,7 +407,7 @@ async fn analyze_game_command(
             let result = guard.run(final_board, &options);
             drop(guard);
 
-            if !is_current_game_analysis_run(&current_run_id, run_id) {
+            if !current_run_id.is_current(run_id) {
                 return Ok(());
             }
 
@@ -375,7 +417,7 @@ async fn analyze_game_command(
         };
 
         for i in (0..moves.len()).rev() {
-            if !is_current_game_analysis_run(&current_run_id, run_id) {
+            if !current_run_id.is_current(run_id) {
                 return Ok(());
             }
 
@@ -389,7 +431,7 @@ async fn analyze_game_command(
             let result = search_guard.run(board, &options);
             drop(search_guard);
 
-            if !is_current_game_analysis_run(&current_run_id, run_id) {
+            if !current_run_id.is_current(run_id) {
                 return Ok(());
             }
 
@@ -422,8 +464,8 @@ async fn analyze_game_command(
 
 #[tauri::command]
 async fn abort_game_analysis_command(state: State<'_, AppState>) -> Result<(), String> {
-    // Bumping the counter makes any in-flight run observe a mismatch and exit.
-    state.game_analysis_run_id.fetch_add(1, Ordering::AcqRel);
+    // Superseding makes any in-flight run observe a mismatch and exit.
+    state.game_analysis_run_id.supersede();
     abort_and_wait(state.thread_pool.clone()).await
 }
 
@@ -460,7 +502,7 @@ pub fn run() {
             app.manage(AppState {
                 search,
                 thread_pool,
-                game_analysis_run_id: Arc::new(AtomicU64::new(0)),
+                game_analysis_run_id: Arc::new(GameAnalysisGeneration::new()),
             });
             Ok(())
         })

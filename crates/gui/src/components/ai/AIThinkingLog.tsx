@@ -1,15 +1,8 @@
 import { useRef, useLayoutEffect } from "react";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { cn } from "@/lib/utils";
+import { formatScore, scoreToneClass, formatDepth } from "@/lib/score-format";
 import { useTranslation } from "react-i18next";
-
-function formatScore(score: number): string {
-  return score > 0 ? `+${score}` : String(score);
-}
-
-function formatDepth(depth: number, acc: number): string {
-  return acc === 100 ? `${depth}` : `${depth}@${acc}%`;
-}
 
 function formatNps(nps: number): string {
   if (nps <= 0) return "-";
@@ -91,9 +84,9 @@ export function AIThinkingLog() {
                   </td>
                   <td className={cn(
                     "px-3 py-1.5 font-mono font-semibold",
-                    entry.score > 0 ? "text-primary" : entry.score < 0 ? "text-destructive" : "text-foreground"
+                    scoreToneClass(entry.score)
                   )}>
-                    {formatScore(entry.score)}
+                    {formatScore(entry.score, "raw")}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-foreground-muted truncate max-w-[200px]">
                     {entry.pvLine}

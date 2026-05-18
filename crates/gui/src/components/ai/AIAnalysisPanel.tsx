@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { ChevronDown, ChevronUp, Activity, BarChart3, Search, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatScore, scoreToneClass, formatDepth } from "@/lib/score-format";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { ANALYSIS_LEVELS } from "@/domain/game/types";
 import { AIThinkingLog } from "./AIThinkingLog";
@@ -20,13 +21,7 @@ export function AIAnalysisPanelHeader() {
   const gameAnalysisResult = useReversiStore((state) => state.gameAnalysisResult);
   const moveHistory = useReversiStore((state) => state.moveHistory);
 
-  const totalMoves = useMemo(() => {
-    let count = 0;
-    for (const m of moveHistory.allMoves) {
-      if (m.row >= 0) count++;
-    }
-    return count;
-  }, [moveHistory.allMoves]);
+  const totalMoves = moveHistory.playedMoveCount;
 
   const latestEntry = aiThinkingHistory[aiThinkingHistory.length - 1];
 
@@ -65,13 +60,13 @@ export function AIAnalysisPanelHeader() {
             <span className="text-white/20">|</span>
             <span className={cn(
               "font-semibold",
-              latestEntry.score > 0 ? "text-primary" : latestEntry.score < 0 ? "text-destructive" : "text-foreground"
+              scoreToneClass(latestEntry.score)
             )}>
-              {latestEntry.score > 0 ? "+" : ""}{latestEntry.score}
+              {formatScore(latestEntry.score, "raw")}
             </span>
             <span className="text-white/20">|</span>
             <span className="text-foreground-muted">
-              {latestEntry.acc === 100 ? latestEntry.depth : `${latestEntry.depth}@${latestEntry.acc}%`}
+              {formatDepth(latestEntry.depth, latestEntry.acc)}
             </span>
           </div>
         )}
@@ -101,13 +96,7 @@ export function AIAnalysisPanelContent() {
     analyzeGame();
   }, [analyzeGame]);
 
-  const totalMoves = useMemo(() => {
-    let count = 0;
-    for (const m of moveHistory.allMoves) {
-      if (m.row >= 0) count++;
-    }
-    return count;
-  }, [moveHistory.allMoves]);
+  const totalMoves = moveHistory.playedMoveCount;
 
   const canAnalyze = totalMoves > 0 && !isAIThinking && !isGameAnalyzing;
 

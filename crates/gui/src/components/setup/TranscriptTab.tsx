@@ -12,7 +12,6 @@ export function TranscriptTab() {
   const setupCurrentPlayer = useReversiStore((state) => state.setupCurrentPlayer);
   const transcriptInput = useReversiStore((state) => state.transcriptInput);
   const setTranscriptInput = useReversiStore((state) => state.setTranscriptInput);
-  const setupError = useReversiStore((state) => state.setupError);
 
   return (
     <div className="flex gap-4 items-start">
@@ -30,7 +29,7 @@ export function TranscriptTab() {
             className="font-mono bg-white/5 border-white/20 text-foreground"
             spellCheck={false}
           />
-          <SetupError error={setupError} />
+          <SetupError />
         </div>
 
         <TurnSelector currentPlayer={setupCurrentPlayer} readOnly />

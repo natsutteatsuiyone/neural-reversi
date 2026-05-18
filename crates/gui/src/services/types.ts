@@ -2,6 +2,12 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { AIMode, Board, GameMode, Player } from "@/domain/game/types";
 import type { Language } from "@/i18n";
 
+// Engine-report types are domain vocabulary (see `@/domain/game/types`); the
+// transport layer carries them but does not own them. Re-exported here so
+// existing `@/services/types` importers keep working unchanged.
+export type { AIMoveProgress, GameAnalysisProgress } from "@/domain/game/types";
+import type { AIMoveProgress, GameAnalysisProgress } from "@/domain/game/types";
+
 export type AIMoveResult = {
   row: number;
   col: number;
@@ -10,28 +16,6 @@ export type AIMoveResult = {
   acc: number;
   timeTaken: number;
 } | null;
-
-export type AIMoveProgress = {
-  bestMove: string;
-  row: number;
-  col: number;
-  score: number;
-  depth: number;
-  targetDepth: number;
-  acc: number;
-  nodes: number;
-  pvLine: string;
-  isEndgame: boolean;
-};
-
-export type GameAnalysisProgress = {
-  moveIndex: number;
-  bestMove: string;
-  bestScore: number;
-  playedScore: number;
-  scoreLoss: number;
-  depth: number;
-};
 
 export interface AIService {
   checkReady(): Promise<void>;

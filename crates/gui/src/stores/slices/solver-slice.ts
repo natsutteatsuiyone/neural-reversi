@@ -1,5 +1,4 @@
 import { StateCreator } from "zustand";
-import { resolveValidSetupPosition } from "@/domain/game/setup-position";
 import { SolverSession, type SolverSessionCommit } from "@/domain/solver/solver-session";
 import type { EngineSearch } from "@/domain/engine/engine-search";
 import type { Services, SolverMode, SolverSelectivity } from "@/services/types";
@@ -9,7 +8,7 @@ import type {
     SolverConfig,
     SolverSlice,
 } from "./types";
-import { prepareToReplaceGame } from "./game-slice";
+import { prepareGameReplacement } from "@/stores/game-replacement";
 
 type SetState = (
     partial:
@@ -80,13 +79,10 @@ export function createSolverSlice(
         subscribeSolverProgress: () => solverSession.subscribeProgress(),
 
         startSolver: async (board, player, config) => {
-            // Abort any in-flight solver search first. Without this, a second
-            // startSolver call would block inside prepareToReplaceGame on the
-            // shared search mutex until the previous solve finishes, making
-            // the new request appear hung.
-            await services.solver.abort();
-
-            if (!(await prepareToReplaceGame(services, get, set))) {
+            // prepareGameReplacement frees the shared engine of every Engine
+            // Search — including any in-flight solver search — before re-init
+            // (CONTEXT.md → Game Replacement), so no pre-abort is needed here.
+            if (!(await prepareGameReplacement(services, get, set))) {
                 return false;
             }
 
@@ -102,21 +98,7 @@ export function createSolverSlice(
         },
 
         startSolverFromSetup: async (config) => {
-            const {
-                setupTab,
-                setupBoard,
-                setupCurrentPlayer,
-                transcriptInput,
-                boardStringInput,
-            } = get();
-
-            const resolved = resolveValidSetupPosition({
-                source: setupTab,
-                board: setupBoard,
-                currentPlayer: setupCurrentPlayer,
-                transcriptInput,
-                boardStringInput,
-            });
+            const resolved = get().resolveValidSetup();
             if (!resolved.ok) {
                 set({ setupError: resolved.error });
                 return false;

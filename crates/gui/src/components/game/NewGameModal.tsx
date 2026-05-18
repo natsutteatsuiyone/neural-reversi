@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Play, ChevronRight, ChevronLeft } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
+import { useGuardedStart } from "@/hooks/use-guarded-start";
 import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
 import { TranscriptTab } from "@/components/setup/TranscriptTab";
 import { BoardStringTab } from "@/components/setup/BoardStringTab";
@@ -27,7 +27,6 @@ interface NewGameModalContentProps {
   setupError: string | null;
   startGame: (settings?: NewGameSettings) => Promise<boolean>;
   startFromSetup: (settings?: NewGameSettings) => Promise<boolean>;
-  persistAISettings: (settings: GameSettings) => void;
   closeNewGameModal: () => void;
 }
 
@@ -38,50 +37,23 @@ function NewGameModalContent({
   setupError,
   startGame,
   startFromSetup,
-  persistAISettings,
   closeNewGameModal,
 }: NewGameModalContentProps) {
   const { t } = useTranslation();
 
   const [settings, setSettings] = useState<GameSettings>(initialSettings);
   const [step, setStep] = useState<1 | 2>(1);
-  const [isStarting, setIsStarting] = useState(false);
-  const startingRef = useRef(false);
-  const activeRef = useRef(true);
-  useEffect(() => {
-    activeRef.current = true;
-    return () => { activeRef.current = false; };
-  }, []);
+  const { isStarting, run } = useGuardedStart("notification.startGameFailed");
 
   const handleSettingsChange = useCallback((partial: Partial<GameSettings>) => {
     setSettings((prev) => ({ ...prev, ...partial }));
   }, []);
 
-  const handleStart = async (action: (s?: NewGameSettings) => Promise<boolean>) => {
-    if (startingRef.current) return;
-    startingRef.current = true;
-    setIsStarting(true);
-    try {
-      const started = await action(settings);
-      if (started) {
-        persistAISettings(settings);
-      }
-      if (!activeRef.current) return;
-      if (started) {
-        closeNewGameModal();
-      }
-    } catch (error) {
-      console.error("Failed to start game:", error);
-      if (activeRef.current) {
-        toast.error(t("notification.startGameFailed"));
-      }
-    } finally {
-      startingRef.current = false;
-      if (activeRef.current) {
-        setIsStarting(false);
-      }
-    }
-  };
+  // Persisting the chosen settings to disk is owned by the New Game Settings
+  // seam (`startGame` / `startFromSetup` persist on success), so the modal no
+  // longer re-lists the four fields nor calls four individual setters.
+  const handleStart = (action: (s?: NewGameSettings) => Promise<boolean>) =>
+    run(() => action(settings), closeNewGameModal);
 
   return (
     <DialogContent
@@ -194,12 +166,7 @@ export function NewGameModal() {
   const aiMode = useReversiStore((state) => state.aiMode);
   const gameTimeLimit = useReversiStore((state) => state.gameTimeLimit);
 
-  const setGameMode = useReversiStore((state) => state.setGameMode);
-  const setAILevelChange = useReversiStore((state) => state.setAILevelChange);
-  const setAIMode = useReversiStore((state) => state.setAIMode);
-  const setGameTimeLimit = useReversiStore((state) => state.setGameTimeLimit);
   const isNewGameModalOpen = useReversiStore((state) => state.isNewGameModalOpen);
-  const newGameModalSession = useReversiStore((state) => state.newGameModalSession);
   const closeNewGameModal = useReversiStore((state) => state.closeNewGameModal);
   const startGame = useReversiStore((state) => state.startGame);
 
@@ -208,13 +175,6 @@ export function NewGameModal() {
   const setSetupTab = useReversiStore((state) => state.setSetupTab);
   const setupError = useReversiStore((state) => state.setupError);
   const startFromSetup = useReversiStore((state) => state.startFromSetup);
-
-  const persistAISettings = (nextSettings: GameSettings) => {
-    setGameMode(nextSettings.gameMode);
-    setAILevelChange(nextSettings.aiLevel);
-    setAIMode(nextSettings.aiMode);
-    setGameTimeLimit(nextSettings.gameTimeLimit);
-  };
 
   const initialSettings: GameSettings = {
     gameMode,
@@ -231,16 +191,17 @@ export function NewGameModal() {
 
   return (
     <Dialog open={isNewGameModalOpen} onOpenChange={handleOpenChange}>
+      {/* Conditional mount is the modal's own reset seam: opening mounts a
+          fresh draft + step-1, closing unmounts. No store-side remount
+          counter needed. */}
       {isNewGameModalOpen && (
         <NewGameModalContent
-          key={newGameModalSession}
           initialSettings={initialSettings}
           setupTab={setupTab}
           setSetupTab={setSetupTab}
           setupError={setupError}
           startGame={startGame}
           startFromSetup={startFromSetup}
-          persistAISettings={persistAISettings}
           closeNewGameModal={closeNewGameModal}
         />
       )}

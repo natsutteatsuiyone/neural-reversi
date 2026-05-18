@@ -10,8 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Play } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useGuardedStart } from "@/hooks/use-guarded-start";
 import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
 import { TranscriptTab } from "@/components/setup/TranscriptTab";
 import { BoardStringTab } from "@/components/setup/BoardStringTab";
@@ -56,20 +56,16 @@ export function SolverModal() {
         [closeSolverModal],
     );
 
-    const handleStart = async () => {
-        try {
-            const ok = await startSolverFromSetup({
-                selectivity: draftSelectivity,
-                mode: draftMode,
-            });
-            if (ok) {
-                closeSolverModal();
-            }
-        } catch (error) {
-            console.error("Failed to start solver:", error);
-            toast.error(t("notification.startGameFailed"));
-        }
-    };
+    const { isStarting, run } = useGuardedStart("notification.startGameFailed");
+    const handleStart = () =>
+        run(
+            () =>
+                startSolverFromSetup({
+                    selectivity: draftSelectivity,
+                    mode: draftMode,
+                }),
+            () => closeSolverModal(),
+        );
 
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
@@ -143,6 +139,7 @@ export function SolverModal() {
                     <Button
                         variant="ghost"
                         onClick={closeSolverModal}
+                        disabled={isStarting}
                         className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
                     >
                         {t("solver.cancel")}
@@ -150,7 +147,7 @@ export function SolverModal() {
                     <div className="flex-1" />
                     <Button
                         onClick={() => void handleStart()}
-                        disabled={!!setupError}
+                        disabled={isStarting || !!setupError}
                         className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
                     >
                         <Play className="w-4 h-4" />

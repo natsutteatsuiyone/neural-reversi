@@ -13,7 +13,6 @@ export function ManualSetupTab() {
   const setSetupCellColor = useReversiStore((state) => state.setSetupCellColor);
   const clearSetupBoard = useReversiStore((state) => state.clearSetupBoard);
   const resetSetupToInitial = useReversiStore((state) => state.resetSetupToInitial);
-  const setupError = useReversiStore((state) => state.setupError);
 
   return (
     <div className="flex gap-4 items-start">
@@ -47,7 +46,7 @@ export function ManualSetupTab() {
             {t("setup.initialPosition")}
           </Button>
         </div>
-        <SetupError error={setupError} />
+        <SetupError />
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TAURI_COMMAND } from "@/services/tauri-contract";
 import { useReversiStore } from "@/stores/use-reversi-store";
 
 type TabValue = "license" | "thirdParty";
@@ -21,16 +22,16 @@ function AboutModalContent() {
   const [tab, setTab] = useState<TabValue>("license");
 
   useEffect(() => {
-    void invoke<string>("get_app_version").then(setVersion).catch(() => {
+    void invoke<string>(TAURI_COMMAND.getAppVersion).then(setVersion).catch(() => {
       setVersion("");
     });
-    void invoke<string>("get_license_text")
+    void invoke<string>(TAURI_COMMAND.getLicenseText)
       .then(setLicenseText)
       .catch((err) => {
         console.error("Failed to load license text:", err);
         setLicenseText(t("about.loadFailed"));
       });
-    void invoke<string>("get_third_party_licenses_text")
+    void invoke<string>(TAURI_COMMAND.getThirdPartyLicensesText)
       .then(setThirdPartyText)
       .catch((err) => {
         console.error("Failed to load third-party licenses:", err);

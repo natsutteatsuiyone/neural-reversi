@@ -12,7 +12,6 @@ export function BoardStringTab() {
   const setSetupCurrentPlayer = useReversiStore((state) => state.setSetupCurrentPlayer);
   const boardStringInput = useReversiStore((state) => state.boardStringInput);
   const setBoardStringInput = useReversiStore((state) => state.setBoardStringInput);
-  const setupError = useReversiStore((state) => state.setupError);
 
   return (
     <div className="flex gap-4 items-start">
@@ -30,7 +29,7 @@ export function BoardStringTab() {
             className="flex w-full rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring h-20 resize-none"
             spellCheck={false}
           />
-          <SetupError error={setupError} />
+          <SetupError />
         </div>
 
         <TurnSelector

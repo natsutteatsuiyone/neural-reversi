@@ -216,54 +216,40 @@ describe("setHintLevel", () => {
     expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the abort guard until a newer hint abort finishes", async () => {
-    const abortDeferred1 = createDeferred<void>();
-    const abortDeferred2 = createDeferred<void>();
+  it("dedupes a redundant backend abort while a hint abort is pending", async () => {
+    // `hintAnalysisAbortPending` is the dedupe guard (not owned by the Engine
+    // Activity): a same-tick second level change must not issue a redundant
+    // backend abort while a hint abort is still in flight.
+    const backendAbort = createDeferred<void>();
     const { store, services } = createTestStore({
       ai: createMockAIService({
-        abortSearch: vi
-          .fn()
-          .mockReturnValueOnce(abortDeferred1.promise)
-          .mockReturnValueOnce(abortDeferred2.promise),
+        abortSearch: vi.fn().mockReturnValue(backendAbort.promise), // slow
       }),
     });
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
+    // A hint analysis is the current Engine Activity; isAnalyzing is its view.
     store.setState({
       isHintMode: true,
       isAnalyzing: true,
       isAIThinking: false,
+      engineActivity: { kind: "hint", runId: 1 },
     });
 
-    store.getState().setHintLevel(10);
-    store.getState().setHintMode(false);
-    // EngineSearch.abort awaits supersede() before onAbort/abort, so both queued
-    // abort chains (setHintLevel restart + setHintMode(false) restart) land one
-    // microtask later. setHintMode(false)'s restart never deduped on
-    // hintAnalysisAbortPending, so two backend aborts is unchanged behavior.
-    for (let i = 0; i < 10 && (services.ai.abortSearch as ReturnType<typeof vi.fn>).mock.calls.length < 2; i++) {
-      await Promise.resolve();
-    }
+    const base = store.getState().hintLevel;
+    store.getState().setHintLevel(base + 1); // aborts + restarts hint once
+    store.getState().setHintLevel(base + 2); // guarded out: no redundant abort
+    for (let i = 0; i < 5; i++) await Promise.resolve();
 
-    expect(services.ai.abortSearch).toHaveBeenCalledTimes(2);
+    expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
-
-    abortDeferred1.resolve();
-    await abortDeferred1.promise;
-    await Promise.resolve();
-
-    expect(store.getState().hintAnalysisAbortPending).toBe(true);
-    expect(store.getState().isAnalyzing).toBe(true);
-
-    store.getState().setHintMode(true);
     expect(analyzeBoardSpy).not.toHaveBeenCalled();
 
-    abortDeferred2.resolve();
-    await abortDeferred2.promise;
+    // The backend abort resolves: the guard releases and hint re-analyzes.
+    backendAbort.resolve();
     for (let i = 0; i < 10 && !analyzeBoardSpy.mock.calls.length; i++) {
       await Promise.resolve();
     }
-
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
     expect(store.getState().isAnalyzing).toBe(false);
     expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);

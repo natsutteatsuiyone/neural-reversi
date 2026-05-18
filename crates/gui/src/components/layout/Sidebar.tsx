@@ -7,7 +7,7 @@ export function Sidebar() {
   const { t } = useTranslation();
   const currentPlayer = useReversiStore((state) => state.currentPlayer);
   const gameMode = useReversiStore((state) => state.gameMode);
-  const gameStatus = useReversiStore((state) => state.gameStatus);
+  const isAITurn = useReversiStore((state) => state.isAITurn());
   const aiLevel = useReversiStore((state) => state.aiLevel);
   const aiMode = useReversiStore((state) => state.aiMode);
   const aiRemainingTime = useReversiStore((state) => state.aiRemainingTime);
@@ -26,10 +26,7 @@ export function Sidebar() {
     void abortAIMove();
   };
 
-  const isAITurn = gameStatus === "playing" && !isPvP && (
-    (blackIsAI && currentPlayer === "black") ||
-    (whiteIsAI && currentPlayer === "white")
-  );
+  // isAITurn (the AI-turn rule) has a single home in the game slice.
   const showResume = paused && isAITurn;
 
   return (

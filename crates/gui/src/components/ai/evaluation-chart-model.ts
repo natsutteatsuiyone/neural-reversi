@@ -1,5 +1,6 @@
 import type { MoveAnalysis } from "@/domain/game/game-analysis";
 import type { MoveRecord } from "@/domain/game/types";
+import { formatScore } from "@/lib/score-format";
 
 export interface ChartDataItem {
   move: number;
@@ -35,7 +36,7 @@ export function createEvaluationChartData(
       move: moveNumber,
       timelineIndex,
       score,
-      scoreDisplay: formatScore(score),
+      scoreDisplay: score === null ? null : formatScore(score, "tenth"),
       notation: move.notation,
       analysis,
     });
@@ -128,12 +129,4 @@ function resolveMoveScore(move: MoveRecord, analysis?: MoveAnalysis): number | n
   }
 
   return null;
-}
-
-function formatScore(score: number | null): string | null {
-  if (score === null) {
-    return null;
-  }
-
-  return score > 0 ? `+${score.toFixed(1)}` : `${score.toFixed(1)}`;
 }

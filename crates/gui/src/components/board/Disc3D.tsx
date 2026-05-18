@@ -7,9 +7,9 @@ import {
   DISC_HEIGHT,
   DISC_COLOR_BLACK,
   DISC_COLOR_WHITE,
-  FLIP_DURATION_S,
   cellToWorld,
 } from "./board3d-utils";
+import { FLIP_DURATION_S } from "@/lib/timing";
 
 interface Disc3DProps {
   row: number;

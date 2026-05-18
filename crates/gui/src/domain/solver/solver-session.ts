@@ -1,6 +1,3 @@
-import { boardToString } from "@/domain/game/board-parser";
-import { getNotation, opponentPlayer } from "@/domain/game/game-logic";
-import { applyMove, checkGameOver, type Move } from "@/domain/game/store-helpers";
 import type { Board, Player } from "@/domain/game/types";
 import type { EngineSearch, RunOutcome } from "@/domain/engine/engine-search";
 import type {
@@ -10,12 +7,13 @@ import type {
   SolverService,
   SolverSelectivity,
 } from "@/services/types";
-
-export interface SolverHistoryEntry {
-  board: Board;
-  player: Player;
-  moveFrom: string | null;
-}
+import { applySolverProgress } from "./solver-candidates";
+import {
+  advanceSolverPosition,
+  createSolverRootEntry,
+  type SolverHistoryEntry,
+} from "./solver-navigation";
+import { SolverResultCache } from "./solver-result-cache";
 
 export interface SolverSessionState {
   isSolverActive: boolean;
@@ -46,184 +44,19 @@ interface SolverSessionOptions {
   engineSearch: EngineSearch;
 }
 
-export type SolverResultCache = Map<string, Map<string, SolverCandidate>>;
-
-export function createSolverResultCache(): SolverResultCache {
-  return new Map();
-}
-
-export function createSolverRootEntry(board: Board, player: Player): SolverHistoryEntry {
-  return { board, player, moveFrom: null };
-}
-
-const SOLVER_CACHE_MAX_ENTRIES = 64;
-
-function solverCacheKey(
-  board: Board,
-  player: Player,
-  selectivity: SolverSelectivity,
-  mode: SolverMode,
-): string {
-  return `${boardToString(board)}:${player}:${selectivity}:${mode}`;
-}
-
-export function getCachedSolverResult(
-  solverResultCache: SolverResultCache,
-  board: Board,
-  player: Player,
-  selectivity: SolverSelectivity,
-  mode: SolverMode,
-): Map<string, SolverCandidate> | null {
-  const key = solverCacheKey(board, player, selectivity, mode);
-  const entry = solverResultCache.get(key);
-  if (!entry) return null;
-  solverResultCache.delete(key);
-  solverResultCache.set(key, entry);
-  // Fresh copy so store-side mutations cannot leak back into the cache.
-  return new Map(entry);
-}
-
-export function isCompleteSolverResult(candidates: Map<string, SolverCandidate>): boolean {
-  if (candidates.size === 0) return false;
-  for (const candidate of candidates.values()) {
-    if (!candidate.isComplete) return false;
-  }
-  return true;
-}
-
-export function cacheSolverResult(
-  solverResultCache: SolverResultCache,
-  board: Board,
-  player: Player,
-  selectivity: SolverSelectivity,
-  mode: SolverMode,
-  candidates: Map<string, SolverCandidate>,
-): void {
-  const key = solverCacheKey(board, player, selectivity, mode);
-  solverResultCache.delete(key);
-  // applySolverProgress always spreads into a fresh Map, so this ref is frozen.
-  solverResultCache.set(key, candidates);
-  if (solverResultCache.size > SOLVER_CACHE_MAX_ENTRIES) {
-    const oldest = solverResultCache.keys().next().value;
-    if (oldest !== undefined) solverResultCache.delete(oldest);
-  }
-}
-
-export function cacheCompleteSolverResult(
-  solverResultCache: SolverResultCache,
-  board: Board,
-  player: Player,
-  selectivity: SolverSelectivity,
-  mode: SolverMode,
-  candidates: Map<string, SolverCandidate>,
-): void {
-  if (isCompleteSolverResult(candidates)) {
-    cacheSolverResult(solverResultCache, board, player, selectivity, mode, candidates);
-  }
-}
-
-interface AdvanceSolverPositionResult {
-  board: Board;
-  player: Player;
-  entry: SolverHistoryEntry;
-  gameOver: boolean;
-}
-
-export function advanceSolverPosition(
-  board: Board,
-  player: Player,
-  row: number,
-  col: number,
-): AdvanceSolverPositionResult {
-  const move: Move = { row, col, isAI: false, score: 0 };
-  const nextBoard = applyMove(board, move, player);
-  let nextPlayer = opponentPlayer(player);
-
-  // Collapse an implicit pass into this solver step so one undo unwinds it.
-  const { gameOver, shouldPass } = checkGameOver(nextBoard, nextPlayer);
-  if (shouldPass) {
-    nextPlayer = opponentPlayer(nextPlayer);
-  }
-
-  return {
-    board: nextBoard,
-    player: nextPlayer,
-    entry: {
-      board: nextBoard,
-      player: nextPlayer,
-      moveFrom: getNotation(row, col),
-    },
-    gameOver,
-  };
-}
-
-export function applySolverProgress(
-  candidates: Map<string, SolverCandidate>,
-  payload: SolverProgressPayload,
-  targetSelectivity: SolverSelectivity,
-  mode: SolverMode,
-): Map<string, SolverCandidate> {
-  const isComplete = payload.isEndgame
-    ? payload.acc >= targetSelectivity
-    : payload.depth >= payload.targetDepth;
-  const key = `${payload.row},${payload.col}`;
-  const existing = candidates.get(key);
-
-  if (
-    existing &&
-    existing.score === payload.score &&
-    existing.depth === payload.depth &&
-    existing.targetDepth === payload.targetDepth &&
-    existing.acc === payload.acc &&
-    existing.isEndgame === payload.isEndgame &&
-    existing.isComplete === isComplete &&
-    existing.pvLine === payload.pvLine
-  ) {
-    return candidates;
-  }
-
-  const candidate: SolverCandidate = {
-    move: payload.bestMove,
-    row: payload.row,
-    col: payload.col,
-    score: payload.score,
-    depth: payload.depth,
-    targetDepth: payload.targetDepth,
-    acc: payload.acc,
-    pvLine: payload.pvLine,
-    isEndgame: payload.isEndgame,
-    isComplete,
-  };
-
-  if (mode === "bestOnly") {
-    return new Map([[key, candidate]]);
-  }
-
-  const next = new Map(candidates);
-  next.set(key, candidate);
-  return next;
-}
-
 /**
  * Owns Solver Session lifecycle: current position, navigation history,
  * candidate cache, stop/resume state, and stale Engine Search filtering.
+ * Pure position/candidate/cache logic lives behind `solver-navigation`,
+ * `solver-candidates`, and `solver-result-cache`; this class is the
+ * Engine Search choreography only.
  */
 export class SolverSession {
   private readonly solver: SolverService;
   private readonly read: () => SolverSessionState;
   private readonly commit: SolverSessionCommit;
   private readonly engineSearch: EngineSearch;
-  private readonly solverResultCache = createSolverResultCache();
-  /**
-   * Bumped by every solver-search `onClaim` that commits
-   * `isSolverSearching: true`. A run's teardown only clears the flag if no
-   * newer solver claim has happened since — this lets us distinguish
-   * "superseded by another solver run" (newer claim committed
-   * `isSolverSearching: true`, must NOT clear) from "superseded by a
-   * cross-feature search / aborted with no solver re-claim" (must clear so
-   * the flag does not stick true).
-   */
-  private solverClaimGeneration = 0;
+  private readonly cache = new SolverResultCache();
 
   constructor({ solver, read, commit, engineSearch }: SolverSessionOptions) {
     this.solver = solver;
@@ -252,7 +85,6 @@ export class SolverSession {
         solverCurrentPlayer: player,
         solverHistory: [rootEntry],
         solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverSearching: true,
         isSolverStopped: false,
       }),
       targetSelectivity,
@@ -270,7 +102,6 @@ export class SolverSession {
         solverCurrentBoard: null,
         solverCurrentPlayer: null,
         solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverSearching: false,
         isSolverStopped: false,
       }),
       abort: () => this.solver.abort(),
@@ -298,7 +129,6 @@ export class SolverSession {
           solverCurrentBoard: nextPosition.board,
           solverCurrentPlayer: nextPosition.player,
           solverCandidates: new Map<string, SolverCandidate>(),
-          isSolverSearching: false,
           isSolverStopped: false,
         })),
         abort: () => this.solver.abort(),
@@ -307,8 +137,7 @@ export class SolverSession {
     }
 
     const { targetSelectivity, solverMode } = current;
-    const cached = getCachedSolverResult(
-      this.solverResultCache,
+    const cached = this.cache.get(
       nextPosition.board,
       nextPosition.player,
       targetSelectivity,
@@ -324,7 +153,6 @@ export class SolverSession {
           solverCurrentBoard: nextPosition.board,
           solverCurrentPlayer: nextPosition.player,
           solverCandidates: cached,
-          isSolverSearching: false,
           isSolverStopped: false,
         })),
         abort: () => this.solver.abort(),
@@ -340,7 +168,6 @@ export class SolverSession {
         solverCurrentBoard: nextPosition.board,
         solverCurrentPlayer: nextPosition.player,
         solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverSearching: true,
         isSolverStopped: false,
       })),
       targetSelectivity,
@@ -383,7 +210,6 @@ export class SolverSession {
 
     await this.engineSearch.abort({
       onClaim: () => this.commit({
-        isSolverSearching: false,
         isSolverStopped: true,
       }),
       abort: () => this.solver.abort(),
@@ -402,8 +228,7 @@ export class SolverSession {
       return;
     }
 
-    const cached = getCachedSolverResult(
-      this.solverResultCache,
+    const cached = this.cache.get(
       board,
       player,
       state.targetSelectivity,
@@ -416,7 +241,6 @@ export class SolverSession {
       await this.engineSearch.abort({
         onClaim: () => this.commit({
           solverCandidates: cached,
-          isSolverSearching: false,
           isSolverStopped: false,
         }),
         abort: () => this.solver.abort(),
@@ -428,7 +252,6 @@ export class SolverSession {
       board,
       player,
       () => this.commit({
-        isSolverSearching: true,
         isSolverStopped: false,
       }),
       state.targetSelectivity,
@@ -465,7 +288,7 @@ export class SolverSession {
     mode: SolverMode,
     extra: SolverSessionPatch = {},
   ): Promise<void> {
-    const cached = getCachedSolverResult(this.solverResultCache, board, player, selectivity, mode);
+    const cached = this.cache.get(board, player, selectivity, mode);
 
     if (cached) {
       // Cache-hit: no new search, but still supersede + abort the prior run so
@@ -474,7 +297,6 @@ export class SolverSession {
         onClaim: () => this.commit({
           ...extra,
           solverCandidates: cached,
-          isSolverSearching: false,
           isSolverStopped: false,
         }),
         abort: () => this.solver.abort(),
@@ -488,7 +310,6 @@ export class SolverSession {
       () => this.commit({
         ...extra,
         solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverSearching: true,
         isSolverStopped: false,
       }),
       selectivity,
@@ -497,33 +318,25 @@ export class SolverSession {
   }
 
   /**
-   * Cache the completed result, then clear `isSolverSearching` — but only if
-   * no newer solver search has re-claimed it since `claimGeneration`. A run
-   * superseded by another solver navigation must NOT clear the flag (the newer
-   * run committed `isSolverSearching: true` via its own `onClaim`); a run
-   * superseded by a cross-feature search (AI/hint) or aborted with no solver
-   * re-claim MUST clear it so it does not stick true.
+   * Cache the completed result. `isSolverSearching` is no longer cleared
+   * here — it is a view of the Engine Activity (CONTEXT.md → Engine
+   * Activity): this run's teardown returns the activity to `idle` only while
+   * it is still the current run, which is exactly the old generation check.
    */
   private solverTeardown(
     board: Board,
     player: Player,
     selectivity: SolverSelectivity,
     mode: SolverMode,
-    claimGeneration: number,
   ): (outcome: RunOutcome) => void {
     return (outcome: RunOutcome) => {
       // Cache ONLY the run that completed naturally. A superseded run's teardown
       // runs in supersede()'s finally — AFTER the superseding onClaim already
       // committed the NEW position's solverCandidates — so caching
       // this.read().solverCandidates for a superseded/error run would store the
-      // wrong board's candidates under this run's (board,player) key. The old
-      // SearchOperation skipped a superseded run's onCurrentFinally entirely
-      // (finishCurrent gated on isCurrent); this restores that. (P1 #2)
+      // wrong board's candidates under this run's (board,player) key.
       if (outcome.status === "ok") {
-        cacheCompleteSolverResult(this.solverResultCache, board, player, selectivity, mode, this.read().solverCandidates);
-      }
-      if (this.solverClaimGeneration === claimGeneration) {
-        this.commit({ isSolverSearching: false });
+        this.cache.storeIfComplete(board, player, selectivity, mode, this.read().solverCandidates);
       }
     };
   }
@@ -535,8 +348,8 @@ export class SolverSession {
     selectivity = this.read().targetSelectivity,
     mode = this.read().solverMode,
   ): Promise<void> {
-    const claimGeneration = ++this.solverClaimGeneration;
     await this.engineSearch.start<never, void>({
+      kind: "solver",
       // Commit the breadcrumb synchronously (onClaim) so a rapidly-following
       // navigation reads this position before `await supersede()` defers it.
       onClaim,
@@ -554,7 +367,7 @@ export class SolverSession {
       onError: (error) => {
         console.error("Failed to start solver search:", error);
       },
-      onTeardown: this.solverTeardown(board, player, selectivity, mode, claimGeneration),
+      onTeardown: this.solverTeardown(board, player, selectivity, mode),
     });
   }
 }

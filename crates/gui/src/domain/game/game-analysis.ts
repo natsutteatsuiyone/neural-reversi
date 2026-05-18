@@ -1,8 +1,8 @@
 import { getNotation } from "@/domain/game/game-logic";
-import type { AIMoveProgress, GameAnalysisProgress } from "@/services/types";
-import type { MoveRecord, Player } from "@/domain/game/types";
+import { cellKey, type CellKey } from "@/domain/game/cell-key";
+import type { AIMoveProgress, GameAnalysisProgress, MoveRecord, Player } from "@/domain/game/types";
 
-export type HintAnalysisResults = Map<string, AIMoveProgress>;
+export type HintAnalysisResults = Map<CellKey, AIMoveProgress>;
 
 export interface MoveAnalysis {
   moveIndex: number;
@@ -23,7 +23,7 @@ export function applyHintAnalysisProgress(
     return null;
   }
 
-  const key = `${progress.row},${progress.col}`;
+  const key = cellKey(progress.row, progress.col);
   const existing = results.get(key);
   if (existing && isSameHintAnalysisProgress(existing, progress)) {
     return null;
