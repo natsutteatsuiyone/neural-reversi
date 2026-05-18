@@ -116,7 +116,6 @@ macro_rules! reduce_zmm_two_pairs_or_u64 {
 #[cfg(target_arch = "x86_64")]
 macro_rules! flip_prepared_ymm_body {
     ($x:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr) => {{
-        debug_assert!($x < 66);
         let mask_ptr =
             unsafe { super::lrmask::LRMASK.get_unchecked($x).0.as_ptr() as *const __m256i };
 
@@ -153,7 +152,6 @@ macro_rules! flip_prepared_ymm_body {
 #[cfg(target_arch = "x86_64")]
 macro_rules! flip_pair_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
-        debug_assert!($x0 < 66 && $x1 < 66);
         // Each `LrmaskEntry` is one 64-byte-aligned cache line laid out as
         // `[left(4 x u64), right(4 x u64)]`. One aligned ZMM load per square pulls the
         // whole line; the lane shuffles then split into `[left_x0, left_x1]` and
@@ -301,7 +299,6 @@ impl BoardCtx {
     /// paired `LZCNT` latency with the independent single-square work.
     #[inline(always)]
     pub fn flip3(&self, x0: usize, x1: usize, x2: usize) -> (u64, u64, u64) {
-        debug_assert!(x0 < 66 && x1 < 66 && x2 < 66);
         unsafe {
             let z0 = _mm512_load_si512(
                 super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m512i
@@ -375,7 +372,6 @@ impl BoardCtx {
     /// dependency chains for instruction-level parallelism.
     #[inline(always)]
     pub fn flip4(&self, x0: usize, x1: usize, x2: usize, x3: usize) -> (u64, u64, u64, u64) {
-        debug_assert!(x0 < 66 && x1 < 66 && x2 < 66 && x3 < 66);
         unsafe {
             let z0 = _mm512_load_si512(
                 super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m512i
