@@ -119,12 +119,6 @@ impl TTProbeResult {
             TTProbeResult::Miss { .. } => Square::None,
         }
     }
-
-    /// Returns `true` if the probe was a hit.
-    #[inline(always)]
-    pub fn is_hit(&self) -> bool {
-        matches!(self, TTProbeResult::Hit { .. })
-    }
 }
 
 /// Packed metadata for a transposition-table entry.
@@ -323,9 +317,6 @@ impl TTEntry {
     /// 7-bit generation mask for the generation ring.
     const GENERATION_MASK: u8 = 0x7F;
 
-    /// Retry budget for reading a stable SeqLock snapshot when a writer is mid-update.
-    const READ_RETRIES: u32 = 3;
-
     /// Retry budget for the save CAS loop when another writer wins the race.
     const SAVE_RETRIES: u32 = 4;
 
@@ -394,46 +385,6 @@ impl TTEntry {
         let seq2 = self.seq.load(Ordering::Relaxed);
         if seq1 == seq2 {
             return Some(TTEntryData::from_u64(raw));
-        }
-
-        None
-    }
-
-    /// Reads the slot and returns metadata if it matches `board`.
-    #[inline(always)]
-    pub fn read(&self, board: &Board) -> Option<TTEntryData> {
-        let board_player = board.player.bits();
-        let board_opponent = board.opponent.bits();
-
-        for _ in 0..Self::READ_RETRIES {
-            let seq1 = self.seq.load(Ordering::Acquire);
-            if (seq1 & 1) != 0 {
-                std::hint::spin_loop();
-                continue;
-            }
-
-            // For lookup misses, avoid loading the metadata word at all. Most
-            // random TT probes miss by board, not by bound/depth metadata.
-            let player = self.player.load(Ordering::Relaxed);
-            let opponent = self.opponent.load(Ordering::Relaxed);
-            if !same_board_bits(player, opponent, board_player, board_opponent) {
-                fence(Ordering::Acquire);
-                let seq2 = self.seq.load(Ordering::Relaxed);
-                if seq1 == seq2 {
-                    return None;
-                }
-                std::hint::spin_loop();
-                continue;
-            }
-
-            let raw = self.data.load(Ordering::Relaxed);
-            fence(Ordering::Acquire);
-            let seq2 = self.seq.load(Ordering::Relaxed);
-            if seq1 == seq2 {
-                return Some(TTEntryData::from_u64(raw));
-            }
-
-            std::hint::spin_loop();
         }
 
         None
@@ -868,6 +819,16 @@ mod tests {
         }
     }
 
+    /// Reads `entry` through the production lookup path, matched on `board`.
+    fn read(entry: &TTEntry, board: &Board) -> Option<TTEntryData> {
+        entry.read_for_lookup(board.player.bits(), board.opponent.bits())
+    }
+
+    /// Returns `true` if `probe` found a matching entry.
+    fn is_hit(probe: &TTProbeResult) -> bool {
+        matches!(probe, TTProbeResult::Hit { .. })
+    }
+
     /// Tests that TTEntry correctly packs and unpacks all fields.
     #[test]
     fn test_ttentry_store_and_read() {
@@ -893,7 +854,7 @@ mod tests {
             ),
         );
 
-        let data = entry.read(&board).expect("should hit");
+        let data = read(&entry, &board).expect("should hit");
         assert_eq!(data.score(), test_score);
         assert_eq!(data.bound(), test_bound);
         assert_eq!(data.depth(), test_depth);
@@ -922,8 +883,8 @@ mod tests {
             ),
         );
 
-        assert!(entry.read(&board1).is_some());
-        assert!(entry.read(&board2).is_none());
+        assert!(read(&entry, &board1).is_some());
+        assert!(read(&entry, &board2).is_none());
     }
 
     /// Tests the replacement policy in TTEntry::save.
@@ -945,7 +906,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.depth(), 10);
 
         // Slightly shallower (within 2 plies) - should replace
@@ -961,7 +922,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.depth(), 8);
         assert_eq!(data.score().value(), 60);
 
@@ -978,7 +939,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.depth(), 12);
 
         // Exact bound - always replaces
@@ -994,7 +955,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.depth(), 5);
         assert_eq!(data.bound(), Bound::Exact);
 
@@ -1012,9 +973,9 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board2).unwrap();
+        let data = read(&entry, &board2).unwrap();
         assert_eq!(data.score().value(), 90);
-        assert!(entry.read(&board).is_none()); // old board no longer matches
+        assert!(read(&entry, &board).is_none()); // old board no longer matches
 
         // Newer generation - should replace
         entry.save(
@@ -1029,7 +990,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board2).unwrap();
+        let data = read(&entry, &board2).unwrap();
         assert_eq!(data.generation(), 5);
     }
 
@@ -1065,7 +1026,7 @@ mod tests {
             ),
         );
 
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.best_move(), sq(11));
         assert_eq!(data.score().value(), 40);
     }
@@ -1105,7 +1066,7 @@ mod tests {
                 false,
             ),
         );
-        assert!(entry.read(&board).unwrap().is_occupied());
+        assert!(read(&entry, &board).unwrap().is_occupied());
 
         // can_cut tests
         entry.save(
@@ -1121,14 +1082,12 @@ mod tests {
             ),
         );
         assert!(
-            entry
-                .read(&board)
+            read(&entry, &board)
                 .unwrap()
                 .can_cut(s(50), 0, Selectivity::Level1, false)
         );
         assert!(
-            !entry
-                .read(&board)
+            !read(&entry, &board)
                 .unwrap()
                 .can_cut(s(150), 0, Selectivity::Level1, false)
         );
@@ -1146,14 +1105,12 @@ mod tests {
             ),
         );
         assert!(
-            entry
-                .read(&board)
+            read(&entry, &board)
                 .unwrap()
                 .can_cut(s(50), 0, Selectivity::Level1, false)
         );
         assert!(
-            !entry
-                .read(&board)
+            !read(&entry, &board)
                 .unwrap()
                 .can_cut(s(20), 0, Selectivity::Level1, false)
         );
@@ -1171,34 +1128,29 @@ mod tests {
             ),
         );
         assert!(
-            entry
-                .read(&board)
+            read(&entry, &board)
                 .unwrap()
                 .can_cut(s(50), 0, Selectivity::Level1, false)
         );
         assert!(
-            entry
-                .read(&board)
+            read(&entry, &board)
                 .unwrap()
                 .can_cut(s(20), 0, Selectivity::Level1, false)
         );
 
         // Stricter depth, selectivity, or endgame requirement must reject the cutoff.
         assert!(
-            !entry
-                .read(&board)
+            !read(&entry, &board)
                 .unwrap()
                 .can_cut(s(50), 1, Selectivity::Level1, false)
         );
         assert!(
-            !entry
-                .read(&board)
+            !read(&entry, &board)
                 .unwrap()
                 .can_cut(s(50), 0, Selectivity::Level2, false)
         );
         assert!(
-            !entry
-                .read(&board)
+            !read(&entry, &board)
                 .unwrap()
                 .can_cut(s(50), 0, Selectivity::Level1, true)
         );
@@ -1225,7 +1177,7 @@ mod tests {
         let key = board.hash();
         let generation = tt.increment_generation();
 
-        assert!(!tt.probe(&board, key).is_hit());
+        assert!(!is_hit(&tt.probe(&board, key)));
 
         let idx = tt.probe(&board, key).index();
         tt.store(
@@ -1240,7 +1192,7 @@ mod tests {
         );
 
         let result = tt.probe(&board, key);
-        assert!(result.is_hit());
+        assert!(is_hit(&result));
         let d = result.data().unwrap();
         assert_eq!(d.score().value(), 100);
         assert_eq!(d.bound(), Bound::Exact);
@@ -1270,10 +1222,10 @@ mod tests {
             false,
         );
 
-        assert!(tt.probe(&board, key).is_hit());
+        assert!(is_hit(&tt.probe(&board, key)));
 
         tt.clear();
-        assert!(!tt.probe(&board, key).is_hit());
+        assert!(!is_hit(&tt.probe(&board, key)));
     }
 
     /// Tests that generation wraps at 128 (7-bit), not 256.
@@ -1320,8 +1272,7 @@ mod tests {
         );
 
         assert_eq!(
-            tt.entries[cluster_idx]
-                .read(&live_board)
+            read(&tt.entries[cluster_idx], &live_board)
                 .unwrap()
                 .generation(),
             127
@@ -1337,7 +1288,7 @@ mod tests {
             .expect("should find a second board in the same cluster");
 
         let probe = tt.probe(&miss_board, miss_board.hash());
-        assert!(!probe.is_hit());
+        assert!(!is_hit(&probe));
         assert_eq!(probe.index(), cluster_idx + 1);
     }
 
@@ -1384,7 +1335,7 @@ mod tests {
             .expect("should find a second board in the same cluster");
 
         let probe = tt.probe(&miss_board, miss_board.hash());
-        assert!(!probe.is_hit());
+        assert!(!is_hit(&probe));
         assert_eq!(probe.index(), cluster_idx);
     }
 
@@ -1421,7 +1372,7 @@ mod tests {
             .expect("should find a second board in the same cluster");
 
         let probe = tt.probe(&miss_board, miss_board.hash());
-        assert!(!probe.is_hit());
+        assert!(!is_hit(&probe));
         assert_eq!(probe.index(), cluster_idx + 1);
     }
 
@@ -1449,7 +1400,7 @@ mod tests {
             .expect("should find a board in the same cluster");
 
         let probe = tt.probe(&miss_board, miss_board.hash());
-        assert!(!probe.is_hit());
+        assert!(!is_hit(&probe));
         assert_eq!(probe.index(), cluster_idx);
     }
 
@@ -1472,7 +1423,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.generation(), 126);
 
         // Global generation wrapped to 2: age = (2 - 126) & 0x7F = 4
@@ -1504,7 +1455,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.generation(), 127);
         assert!(!data.is_endgame(), "is_endgame should be false");
 
@@ -1521,7 +1472,7 @@ mod tests {
                 true,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.generation(), 127);
         assert!(data.is_endgame(), "is_endgame should be true");
 
@@ -1538,7 +1489,7 @@ mod tests {
                 false,
             ),
         );
-        let data = entry.read(&board).unwrap();
+        let data = read(&entry, &board).unwrap();
         assert_eq!(data.generation(), 127);
         assert!(
             !data.is_endgame(),
@@ -1633,8 +1584,8 @@ mod tests {
             ),
         ));
 
-        assert!(entry.read(&board1).is_none());
-        let data = entry.read(&board2).unwrap();
+        assert!(read(&entry, &board1).is_none());
+        let data = read(&entry, &board2).unwrap();
         assert_eq!(data.score().value(), 20);
         assert_eq!(data.depth(), 6);
         assert_eq!(data.best_move(), sq(2));
