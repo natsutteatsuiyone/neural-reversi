@@ -175,7 +175,7 @@ into a shallow variant.
 (`CLUSTER_SIZE` slots each); the byte budget is `mb_size`. Each slot stores
 
 - the full `Board` (raw 64-bit player / opponent),
-- `TTDataFields` packed into 8 bytes (`score / best_move / bound / depth /
+- `TTEntryData` packed into 8 bytes (`score / best_move / bound / depth /
   selectivity / generation / is_endgame`),
 - a 64-bit SeqLock sequence counter,
 

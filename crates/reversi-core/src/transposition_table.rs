@@ -127,13 +127,13 @@ impl TTProbeResult {
     }
 }
 
-/// Byte-aligned fields packed into 64 bits for atomic load/store.
+/// Packed metadata for a transposition-table entry.
 ///
-/// Each field occupies a full byte (or two for `score`), eliminating
-/// bit-shift/mask operations on the hot read path.
+/// `#[repr(C)]`, exactly 8 bytes, no padding — field order and widths are
+/// load-bearing for the SeqLock packing.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct TTDataFields {
+pub struct TTEntryData {
     score: i16,
     best_move: u8,
     bound: u8,
@@ -143,18 +143,18 @@ pub(crate) struct TTDataFields {
     is_endgame: u8,
 }
 
-const _: () = assert!(mem::size_of::<TTDataFields>() == 8);
+const _: () = assert!(mem::size_of::<TTEntryData>() == 8);
 
-impl TTDataFields {
+impl TTEntryData {
     #[inline(always)]
     fn to_u64(self) -> u64 {
-        // SAFETY: TTDataFields is #[repr(C)], 8 bytes, no padding.
+        // SAFETY: TTEntryData is #[repr(C)], 8 bytes, no padding.
         unsafe { mem::transmute(self) }
     }
 
     #[inline(always)]
     fn from_u64(raw: u64) -> Self {
-        // SAFETY: TTDataFields is #[repr(C)] with no padding (static-asserted
+        // SAFETY: TTEntryData is #[repr(C)] with no padding (static-asserted
         // to be exactly 8 bytes), so every u64 bit pattern maps to a valid
         // instance whose individual integer fields accept all bit patterns.
         unsafe { mem::transmute(raw) }
@@ -181,7 +181,7 @@ impl TTDataFields {
         }
     }
 
-    /// Creates a new `TTDataFields` with a substituted best move.
+    /// Creates a new `TTEntryData` with a substituted best move.
     #[inline(always)]
     fn with_best_move(self, best_move: Square) -> Self {
         Self {
@@ -189,57 +189,49 @@ impl TTDataFields {
             ..self
         }
     }
-}
 
-/// Packed metadata from a validated transposition-table entry.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TTEntryData {
-    fields: TTDataFields,
-}
-
-impl TTEntryData {
     /// Returns the cached search score.
     #[inline(always)]
     pub fn score(&self) -> ScaledScore {
-        ScaledScore::from_raw(self.fields.score as i32)
+        ScaledScore::from_raw(self.score as i32)
     }
 
     /// Returns the best move found for this position.
     #[inline(always)]
     pub fn best_move(&self) -> Square {
         // SAFETY: only valid Square indices (0..=64) are stored.
-        unsafe { Square::from_u8_unchecked(self.fields.best_move) }
+        unsafe { Square::from_u8_unchecked(self.best_move) }
     }
 
     /// Returns the [`Bound`] type of this entry.
     #[inline(always)]
     pub fn bound(&self) -> Bound {
         // SAFETY: bound was stored from a valid Bound enum discriminant (0–3).
-        unsafe { Bound::from_u8_unchecked(self.fields.bound) }
+        unsafe { Bound::from_u8_unchecked(self.bound) }
     }
 
     /// Returns the search depth at which this entry was computed.
     #[inline(always)]
     pub fn depth(&self) -> Depth {
-        self.fields.depth as Depth
+        self.depth as Depth
     }
 
     /// Returns the [`Selectivity`] level used during search.
     #[inline(always)]
     pub fn selectivity(&self) -> Selectivity {
-        Selectivity::from_u8(self.fields.selectivity)
+        Selectivity::from_u8(self.selectivity)
     }
 
     /// Returns the generation counter when this entry was stored.
     #[inline(always)]
     pub fn generation(&self) -> u8 {
-        self.fields.generation
+        self.generation
     }
 
     /// Returns `true` if this entry is from an endgame search.
     #[inline(always)]
     pub fn is_endgame(&self) -> bool {
-        self.fields.is_endgame != 0
+        self.is_endgame != 0
     }
 
     /// Returns whether this entry allows an immediate return in a null-window
@@ -272,31 +264,31 @@ impl TTEntryData {
         } else {
             Bound::Upper as u8
         };
-        (self.fields.bound & required) != 0
+        (self.bound & required) != 0
     }
 
     /// Returns `true` if the entry contains initialized metadata.
     #[inline(always)]
     pub fn is_occupied(&self) -> bool {
-        self.fields.bound != 0
+        self.bound != 0
     }
 
     /// Returns the age distance in the 7-bit generation ring.
     #[inline(always)]
     fn relative_age(&self, generation: u8) -> i32 {
-        (generation.wrapping_sub(self.fields.generation) & TTEntry::GENERATION_MASK) as i32
+        (generation.wrapping_sub(self.generation) & TTEntry::GENERATION_MASK) as i32
     }
 
     /// Returns the replacement priority; lower values are replaced first.
     #[inline(always)]
     fn replacement_score(&self, generation: u8) -> i32 {
-        self.fields.depth as i32 - self.relative_age(generation) * TTEntry::AGE_WEIGHT
+        self.depth as i32 - self.relative_age(generation) * TTEntry::AGE_WEIGHT
     }
 }
 
 /// One slot inside a transposition-table cluster.
 ///
-/// Stores the full board, `TTDataFields` (transmuted through an [`AtomicU64`]),
+/// Stores the full board, `TTEntryData` (transmuted through an [`AtomicU64`]),
 /// and a 64-bit SeqLock sequence counter used to read the split payload
 /// consistently.
 #[repr(C, align(32))]
@@ -348,9 +340,9 @@ impl TTEntry {
         // Load metadata first. Empty slots are common during table warm-up and
         // do not need the two board-word loads.
         let raw = self.data.load(Ordering::Relaxed);
-        let fields = TTDataFields::from_u64(raw);
+        let data = TTEntryData::from_u64(raw);
 
-        if fields.bound == Bound::None as u8 {
+        if data.bound == Bound::None as u8 {
             // Empty entries are physically all-zero. A real board never has
             // (player, opponent) == (0, 0), so callers can check occupancy
             // before board equality without creating a false hit.
@@ -360,7 +352,7 @@ impl TTEntry {
                 return None;
             }
 
-            return Some((0, 0, seq1, TTEntryData { fields }));
+            return Some((0, 0, seq1, data));
         }
 
         let player = self.player.load(Ordering::Relaxed);
@@ -374,7 +366,7 @@ impl TTEntry {
             return None;
         }
 
-        Some((player, opponent, seq1, TTEntryData { fields }))
+        Some((player, opponent, seq1, data))
     }
 
     /// Fast read path used by [`TranspositionTable::lookup`].
@@ -401,9 +393,7 @@ impl TTEntry {
         fence(Ordering::Acquire);
         let seq2 = self.seq.load(Ordering::Relaxed);
         if seq1 == seq2 {
-            return Some(TTEntryData {
-                fields: TTDataFields::from_u64(raw),
-            });
+            return Some(TTEntryData::from_u64(raw));
         }
 
         None
@@ -440,9 +430,7 @@ impl TTEntry {
             fence(Ordering::Acquire);
             let seq2 = self.seq.load(Ordering::Relaxed);
             if seq1 == seq2 {
-                return Some(TTEntryData {
-                    fields: TTDataFields::from_u64(raw),
-                });
+                return Some(TTEntryData::from_u64(raw));
             }
 
             std::hint::spin_loop();
@@ -459,7 +447,7 @@ impl TTEntry {
     /// higher, or generation changed. If `best_move` is [`Square::None`], the
     /// existing move is preserved for same-board non-exact updates.
     #[inline(always)]
-    pub(crate) fn save(&self, board: &Board, data: TTDataFields) {
+    pub(crate) fn save(&self, board: &Board, data: TTEntryData) {
         let new_player = board.player.bits();
         let new_opponent = board.opponent.bits();
 
@@ -520,7 +508,7 @@ impl TTEntry {
 
     /// Stores an exact entry without loading the old board/data payload.
     #[inline(always)]
-    fn save_exact(&self, player: u64, opponent: u64, data: TTDataFields) {
+    fn save_exact(&self, player: u64, opponent: u64, data: TTEntryData) {
         for _ in 0..Self::SAVE_RETRIES {
             let seq = self.seq.load(Ordering::Acquire);
             if (seq & 1) != 0 {
@@ -543,7 +531,7 @@ impl TTEntry {
         expected_seq: u64,
         player: u64,
         opponent: u64,
-        data: TTDataFields,
+        data: TTEntryData,
     ) -> bool {
         debug_assert_eq!(expected_seq & 1, 0, "expected stable snapshot");
 
@@ -680,7 +668,7 @@ impl TranspositionTable {
 
     /// Increments the generation counter and returns the new value.
     ///
-    /// The counter wraps at 128 (7-bit range) to match `TTDataFields::generation`.
+    /// The counter wraps at 128 (7-bit range) to match `TTEntryData::generation`.
     #[inline(always)]
     pub fn increment_generation(&self) -> u8 {
         let new =
@@ -841,7 +829,7 @@ impl TranspositionTable {
             "TT store index {} out of bounds",
             entry_index
         );
-        let data = TTDataFields::new(
+        let data = TTEntryData::new(
             score,
             best_move,
             bound,
@@ -894,7 +882,7 @@ mod tests {
 
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 test_score,
                 test_best_move,
                 test_bound,
@@ -923,7 +911,7 @@ mod tests {
 
         entry.save(
             &board1,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(50),
                 sq(5),
                 Bound::Exact,
@@ -947,7 +935,7 @@ mod tests {
         // Initial save
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(50),
                 sq(5),
                 Bound::Lower,
@@ -963,7 +951,7 @@ mod tests {
         // Slightly shallower (within 2 plies) - should replace
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(60),
                 sq(6),
                 Bound::Lower,
@@ -980,7 +968,7 @@ mod tests {
         // Deeper - should replace
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(70),
                 sq(7),
                 Bound::Lower,
@@ -996,7 +984,7 @@ mod tests {
         // Exact bound - always replaces
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(80),
                 sq(8),
                 Bound::Exact,
@@ -1014,7 +1002,7 @@ mod tests {
         let board2 = make_board(300, 400);
         entry.save(
             &board2,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(90),
                 sq(9),
                 Bound::Upper,
@@ -1031,7 +1019,7 @@ mod tests {
         // Newer generation - should replace
         entry.save(
             &board2,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(100),
                 sq(10),
                 Bound::Lower,
@@ -1053,7 +1041,7 @@ mod tests {
 
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(30),
                 sq(11),
                 Bound::Lower,
@@ -1066,7 +1054,7 @@ mod tests {
 
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(40),
                 Square::None,
                 Bound::Lower,
@@ -1107,7 +1095,7 @@ mod tests {
         // After storing with Lower bound
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 s(0),
                 Square::None,
                 Bound::Lower,
@@ -1122,7 +1110,7 @@ mod tests {
         // can_cut tests
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 s(100),
                 Square::None,
                 Bound::Lower,
@@ -1147,7 +1135,7 @@ mod tests {
 
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 s(30),
                 Square::None,
                 Bound::Upper,
@@ -1172,7 +1160,7 @@ mod tests {
 
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 s(30),
                 Square::None,
                 Bound::Exact,
@@ -1474,7 +1462,7 @@ mod tests {
         // Store entry at generation 126
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(0),
                 Square::None,
                 Bound::Exact,
@@ -1506,7 +1494,7 @@ mod tests {
         // Store with generation=127, is_endgame=false
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(50),
                 sq(5),
                 Bound::Exact,
@@ -1523,7 +1511,7 @@ mod tests {
         // Store with generation=127, is_endgame=true
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(50),
                 sq(5),
                 Bound::Exact,
@@ -1540,7 +1528,7 @@ mod tests {
         // Defense-in-depth: even if generation=255 is passed (should be masked to 127)
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(50),
                 sq(5),
                 Bound::Exact,
@@ -1566,7 +1554,7 @@ mod tests {
 
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(10),
                 sq(1),
                 Bound::Lower,
@@ -1581,7 +1569,7 @@ mod tests {
 
         entry.save(
             &board,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(20),
                 sq(2),
                 Bound::Exact,
@@ -1605,7 +1593,7 @@ mod tests {
 
         entry.save(
             &board1,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(10),
                 sq(1),
                 Bound::Exact,
@@ -1619,7 +1607,7 @@ mod tests {
 
         entry.save(
             &board2,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(20),
                 sq(2),
                 Bound::Exact,
@@ -1634,7 +1622,7 @@ mod tests {
             snapshot_seq,
             1,
             2,
-            TTDataFields::new(
+            TTEntryData::new(
                 ScaledScore::from_raw(30),
                 sq(3),
                 Bound::Exact,
