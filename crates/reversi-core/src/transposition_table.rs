@@ -195,16 +195,9 @@ impl TTDataFields {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TTEntryData {
     fields: TTDataFields,
-    seq: u64,
 }
 
 impl TTEntryData {
-    /// Returns the 64-bit SeqLock sequence counter.
-    #[inline(always)]
-    pub fn sequence(&self) -> u64 {
-        self.seq
-    }
-
     /// Returns the cached search score.
     #[inline(always)]
     pub fn score(&self) -> ScaledScore {
@@ -346,7 +339,7 @@ impl TTEntry {
 
     /// Attempts to read a stable snapshot of the slot.
     #[inline(always)]
-    fn try_load_snapshot(&self) -> Option<(u64, u64, TTEntryData)> {
+    fn try_load_snapshot(&self) -> Option<(u64, u64, u64, TTEntryData)> {
         let seq1 = self.seq.load(Ordering::Acquire);
         if (seq1 & 1) != 0 {
             return None;
@@ -367,7 +360,7 @@ impl TTEntry {
                 return None;
             }
 
-            return Some((0, 0, TTEntryData { fields, seq: seq1 }));
+            return Some((0, 0, seq1, TTEntryData { fields }));
         }
 
         let player = self.player.load(Ordering::Relaxed);
@@ -381,7 +374,7 @@ impl TTEntry {
             return None;
         }
 
-        Some((player, opponent, TTEntryData { fields, seq: seq1 }))
+        Some((player, opponent, seq1, TTEntryData { fields }))
     }
 
     /// Fast read path used by [`TranspositionTable::lookup`].
@@ -410,7 +403,6 @@ impl TTEntry {
         if seq1 == seq2 {
             return Some(TTEntryData {
                 fields: TTDataFields::from_u64(raw),
-                seq: seq1,
             });
         }
 
@@ -450,7 +442,6 @@ impl TTEntry {
             if seq1 == seq2 {
                 return Some(TTEntryData {
                     fields: TTDataFields::from_u64(raw),
-                    seq: seq1,
                 });
             }
 
@@ -484,14 +475,15 @@ impl TTEntry {
         // Retry the full replacement policy if another writer wins the race
         // between snapshot acquisition and the claim CAS.
         for _ in 0..Self::SAVE_RETRIES {
-            let Some((stored_player, stored_opponent, stored_data)) = self.try_load_snapshot()
+            let Some((stored_player, stored_opponent, stored_seq, stored_data)) =
+                self.try_load_snapshot()
             else {
                 std::hint::spin_loop();
                 continue;
             };
 
             if !stored_data.is_occupied() {
-                if self.seqlock_write(stored_data.seq, new_player, new_opponent, data) {
+                if self.seqlock_write(stored_seq, new_player, new_opponent, data) {
                     return;
                 }
 
@@ -518,7 +510,7 @@ impl TTEntry {
                 data.with_best_move(stored_data.best_move())
             };
 
-            if self.seqlock_write(stored_data.seq, new_player, new_opponent, write_data) {
+            if self.seqlock_write(stored_seq, new_player, new_opponent, write_data) {
                 return;
             }
 
@@ -583,6 +575,19 @@ impl TTEntry {
         self.seq
             .store(expected_seq.wrapping_add(2), Ordering::Release);
         true
+    }
+}
+
+#[cfg(test)]
+impl TTEntry {
+    /// Test helper: SeqLock sequence of the current stable snapshot.
+    fn snapshot_seq(&self) -> u64 {
+        self.try_load_snapshot().unwrap().2
+    }
+
+    /// Test helper: data of the current stable snapshot.
+    fn snapshot_data(&self) -> TTEntryData {
+        self.try_load_snapshot().unwrap().3
     }
 }
 
@@ -657,7 +662,7 @@ impl TranspositionTable {
         for i in 0..sample_clusters {
             let base = i * step * CLUSTER_SIZE;
             for j in 0..CLUSTER_SIZE {
-                if let Some((_, _, data)) = self.entries[base + j].try_load_snapshot()
+                if let Some((_, _, _, data)) = self.entries[base + j].try_load_snapshot()
                     && data.is_occupied()
                 {
                     occupied += 1;
@@ -747,7 +752,7 @@ impl TranspositionTable {
             // (CLUSTER_SIZE == 2, asserted above).
             let entry0 = unsafe { self.entries.get_unchecked(cluster_idx) };
             match entry0.try_load_snapshot() {
-                Some((player, opponent, tt_data)) => {
+                Some((player, opponent, _seq, tt_data)) => {
                     if !tt_data.is_occupied() {
                         return TTProbeResult::Miss { index: cluster_idx };
                     }
@@ -766,7 +771,7 @@ impl TranspositionTable {
             let idx1 = cluster_idx + 1;
             let entry1 = unsafe { self.entries.get_unchecked(idx1) };
             match entry1.try_load_snapshot() {
-                Some((player, opponent, tt_data)) => {
+                Some((player, opponent, _seq, tt_data)) => {
                     if !tt_data.is_occupied() {
                         return TTProbeResult::Miss { index: idx1 };
                     }
@@ -1097,7 +1102,7 @@ mod tests {
         let board = make_board(1, 2);
 
         // Test is_occupied on an empty entry.
-        assert!(!entry.try_load_snapshot().unwrap().2.is_occupied());
+        assert!(!entry.snapshot_data().is_occupied());
 
         // After storing with Lower bound
         entry.save(
@@ -1333,13 +1338,7 @@ mod tests {
                 .generation(),
             127
         );
-        assert!(
-            !tt.entries[cluster_idx + 1]
-                .try_load_snapshot()
-                .unwrap()
-                .2
-                .is_occupied()
-        );
+        assert!(!tt.entries[cluster_idx + 1].snapshot_data().is_occupied());
 
         tt.increment_generation();
         assert_eq!(tt.generation(), 0);
@@ -1577,7 +1576,7 @@ mod tests {
                 false,
             ),
         );
-        let v1 = entry.read(&board).unwrap().sequence();
+        let v1 = entry.snapshot_seq();
         assert!(v1 & 1 == 0, "sequence should be even after save");
 
         entry.save(
@@ -1592,7 +1591,7 @@ mod tests {
                 false,
             ),
         );
-        let v2 = entry.read(&board).unwrap().sequence();
+        let v2 = entry.snapshot_seq();
         assert!(v2 > v1, "sequence should increment");
         assert!(v2 & 1 == 0, "sequence should be even after save");
     }
@@ -1616,7 +1615,7 @@ mod tests {
                 false,
             ),
         );
-        let (_, _, snapshot) = entry.try_load_snapshot().unwrap();
+        let snapshot_seq = entry.snapshot_seq();
 
         entry.save(
             &board2,
@@ -1632,7 +1631,7 @@ mod tests {
         );
 
         assert!(!entry.seqlock_write(
-            snapshot.seq,
+            snapshot_seq,
             1,
             2,
             TTDataFields::new(
