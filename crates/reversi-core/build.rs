@@ -1,5 +1,5 @@
 //! Emits `EVAL_FEATURE_U16_SUM` (16 MiB) to `$OUT_DIR/eval_feature_u16_sum.bin`
-//! when the target enables `avx2` or `avx512bw`. Generating the table as a
+//! when the target enables AVX2/AVX-512BW or AArch64 NEON. Generating the table as a
 //! `const fn` exceeds rustc's `long_running_const_eval` budget; the data and
 //! the index helper live in `src/eval/pattern_table_data.rs` so both this
 //! script and the runtime module use the same definitions.
@@ -71,8 +71,11 @@ fn main() {
 
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
-    let needs_table =
-        arch == "x86_64" && features.split(',').any(|f| f == "avx2" || f == "avx512bw");
+    let needs_table = match arch.as_str() {
+        "x86_64" => features.split(',').any(|f| f == "avx2" || f == "avx512bw"),
+        "aarch64" => features.split(',').any(|f| f == "neon"),
+        _ => false,
+    };
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     let path = out_dir.join("eval_feature_u16_sum.bin");
