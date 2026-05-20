@@ -464,6 +464,7 @@ impl<
     ) {
         use crate::eval::util::ceil_to_multiple;
         use crate::eval::util::clone_biases;
+        use crate::eval::util::neon_dpbusd_s32_dotprod;
         use std::arch::aarch64::*;
         use std::ptr::copy_nonoverlapping;
 
@@ -477,24 +478,55 @@ impl<
             let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
 
             let high_bit = vdupq_n_u8(0x80);
-            let zero = vdupq_n_s32(0);
+
+            let weights_base = self.weights.as_ptr();
+            let input_ptr = input.as_ptr() as *const u8;
+            let main_end = num_chunks & !3;
+
+            let mut i = 0;
+            while i < main_end {
+                let input16 = vld1q_u8(input_ptr.add(i * 4));
+                let a_low7_s8 = vreinterpretq_s8_u8(vbicq_u8(input16, high_bit));
+                let a_msb_i8 = vreinterpretq_s8_u8(vandq_u8(input16, high_bit));
+
+                let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
+                let col1 = weights_base.add((i + 1) * OUTPUT_DIMS * 4);
+                let col2 = weights_base.add((i + 2) * OUTPUT_DIMS * 4);
+                let col3 = weights_base.add((i + 3) * OUTPUT_DIMS * 4);
+
+                for j in 0..num_regs {
+                    let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
+                    let mut pos = vld1q_s32(a_ptr);
+                    let mut neg = vdupq_n_s32(0);
+                    let w0 = vld1q_s8(col0.add(j * 16));
+                    let w1 = vld1q_s8(col1.add(j * 16));
+                    let w2 = vld1q_s8(col2.add(j * 16));
+                    let w3 = vld1q_s8(col3.add(j * 16));
+                    pos = vdotq_laneq_s32::<0>(pos, w0, a_low7_s8);
+                    pos = vdotq_laneq_s32::<1>(pos, w1, a_low7_s8);
+                    pos = vdotq_laneq_s32::<2>(pos, w2, a_low7_s8);
+                    pos = vdotq_laneq_s32::<3>(pos, w3, a_low7_s8);
+                    neg = vdotq_laneq_s32::<0>(neg, w0, a_msb_i8);
+                    neg = vdotq_laneq_s32::<1>(neg, w1, a_msb_i8);
+                    neg = vdotq_laneq_s32::<2>(neg, w2, a_msb_i8);
+                    neg = vdotq_laneq_s32::<3>(neg, w3, a_msb_i8);
+                    vst1q_s32(a_ptr, vsubq_s32(pos, neg));
+                }
+                i += 4;
+            }
 
             let input32 = input.as_ptr() as *const i32;
-            for i in 0..num_chunks {
+            while i < num_chunks {
                 let packed = *input32.add(i);
                 let in0 = vreinterpretq_u8_s32(vdupq_n_s32(packed));
-                let a_low7_s8 = vreinterpretq_s8_u8(vbicq_u8(in0, high_bit));
-                let a_msb_i8 = vreinterpretq_s8_u8(vandq_u8(in0, high_bit));
-                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4);
-
+                let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
                 for j in 0..num_regs {
                     let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
                     let a = vld1q_s32(a_ptr);
                     let w = vld1q_s8(col0.add(j * 16));
-                    let with_low = vdotq_s32(a, a_low7_s8, w);
-                    let neg_high = vdotq_s32(zero, a_msb_i8, w);
-                    vst1q_s32(a_ptr, vsubq_s32(with_low, neg_high));
+                    vst1q_s32(a_ptr, neon_dpbusd_s32_dotprod(a, in0, w));
                 }
+                i += 1;
             }
 
             copy_nonoverlapping(
@@ -506,6 +538,10 @@ impl<
     }
 
     /// Runs the ARM NEON forward pass using the `USDOT` instruction via FEAT_I8MM.
+    ///
+    /// The main loop fuses four chunks per `j` register: one 16-byte input load
+    /// plus four laneq `usdot`s replace four broadcast loads, cutting
+    /// accumulator reload/store traffic by 4× while keeping it resident.
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon,i8mm")]
     #[inline]
@@ -529,19 +565,46 @@ impl<
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
             let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
 
+            let weights_base = self.weights.as_ptr();
+            let input_ptr = input.as_ptr() as *const u8;
+            let main_end = num_chunks & !3;
+
+            let mut i = 0;
+            while i < main_end {
+                let input16 = vld1q_u8(input_ptr.add(i * 4));
+                let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
+                let col1 = weights_base.add((i + 1) * OUTPUT_DIMS * 4);
+                let col2 = weights_base.add((i + 2) * OUTPUT_DIMS * 4);
+                let col3 = weights_base.add((i + 3) * OUTPUT_DIMS * 4);
+
+                for j in 0..num_regs {
+                    let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
+                    let mut a = vld1q_s32(a_ptr);
+                    let w0 = vld1q_s8(col0.add(j * 16));
+                    let w1 = vld1q_s8(col1.add(j * 16));
+                    let w2 = vld1q_s8(col2.add(j * 16));
+                    let w3 = vld1q_s8(col3.add(j * 16));
+                    a = vsudotq_laneq_s32::<0>(a, w0, input16);
+                    a = vsudotq_laneq_s32::<1>(a, w1, input16);
+                    a = vsudotq_laneq_s32::<2>(a, w2, input16);
+                    a = vsudotq_laneq_s32::<3>(a, w3, input16);
+                    vst1q_s32(a_ptr, a);
+                }
+                i += 4;
+            }
+
             let input32 = input.as_ptr() as *const i32;
-            for i in 0..num_chunks {
+            while i < num_chunks {
                 let packed = *input32.add(i);
                 let in0 = vreinterpretq_u8_s32(vdupq_n_s32(packed));
-                let col0 = self.weights.as_ptr().add(i * OUTPUT_DIMS * 4);
-
+                let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
                 for j in 0..num_regs {
                     let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
                     let a = vld1q_s32(a_ptr);
                     let w = vld1q_s8(col0.add(j * 16));
-                    let updated = neon_dpbusd_s32_i8mm(a, in0, w);
-                    vst1q_s32(a_ptr, updated);
+                    vst1q_s32(a_ptr, neon_dpbusd_s32_i8mm(a, in0, w));
                 }
+                i += 1;
             }
 
             copy_nonoverlapping(

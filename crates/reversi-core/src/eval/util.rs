@@ -179,6 +179,31 @@ pub fn neon_dpbusd_s32_i8mm(
     vusdotq_s32(src, a, b)
 }
 
+/// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
+///
+/// Emulates `USDOT` on dotprod-only hardware (no FEAT_I8MM) by splitting the
+/// unsigned input into its low 7 bits and the sign bit, then issuing two
+/// `SDOT`s. The sign-bit contribution is subtracted to recover the +128
+/// magnitude that the i8 reinterpret negates.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[target_feature(enable = "neon,dotprod")]
+#[inline]
+#[allow(dead_code)]
+pub fn neon_dpbusd_s32_dotprod(
+    src: std::arch::aarch64::int32x4_t,
+    a: std::arch::aarch64::uint8x16_t,
+    b: std::arch::aarch64::int8x16_t,
+) -> std::arch::aarch64::int32x4_t {
+    use std::arch::aarch64::*;
+
+    let high_bit = vdupq_n_u8(0x80);
+    let a_low7_s8 = vreinterpretq_s8_u8(vbicq_u8(a, high_bit));
+    let a_msb_i8 = vreinterpretq_s8_u8(vandq_u8(a, high_bit));
+    let with_low = vdotq_s32(src, a_low7_s8, b);
+    let neg_high = vdotq_s32(vdupq_n_s32(0), a_msb_i8, b);
+    vsubq_s32(with_low, neg_high)
+}
+
 /// Horizontally adds all 32-bit lanes in a 256-bit vector.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]

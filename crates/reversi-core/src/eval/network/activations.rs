@@ -126,11 +126,14 @@ fn clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             let v2 = vld1q_s32(input_ptr.add(base + 8));
             let v3 = vld1q_s32(input_ptr.add(base + 12));
 
-            let w0 = vcombine_u16(vqmovun_s32(v0), vqmovun_s32(v1));
-            let w1 = vcombine_u16(vqmovun_s32(v2), vqmovun_s32(v3));
-
-            let w0 = vshrq_n_u16::<HIDDEN_WEIGHT_SCALE_BITS>(w0);
-            let w1 = vshrq_n_u16::<HIDDEN_WEIGHT_SCALE_BITS>(w1);
+            let w0 = vcombine_u16(
+                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v0),
+                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v1),
+            );
+            let w1 = vcombine_u16(
+                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v2),
+                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v3),
+            );
 
             let bytes = vcombine_u8(vqmovn_u16(w0), vqmovn_u16(w1));
             vst1q_u8(output_ptr.add(base), bytes);
