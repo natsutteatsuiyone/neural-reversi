@@ -775,33 +775,31 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         ctx.update(mv.sq, mv.flipped);
 
         let alpha = split_point.state().alpha();
-        let mut score = -ScaledScore::INF;
 
-        if !NT::PV_NODE || move_count > 1 {
-            let reduction =
-                compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
+        debug_assert!(!NT::PV_NODE || move_count > 1);
+        let reduction =
+            compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
 
+        let mut score = -search::<NonPV, SS>(
+            ctx,
+            &next,
+            depth - 1 - reduction,
+            -(alpha + 1),
+            -alpha,
+            thread,
+            reduction > 0 || !cut_node,
+        );
+
+        if reduction > 0 && score > alpha {
             score = -search::<NonPV, SS>(
                 ctx,
                 &next,
-                depth - 1 - reduction,
+                depth - 1,
                 -(alpha + 1),
                 -alpha,
                 thread,
-                reduction > 0 || !cut_node,
+                !cut_node,
             );
-
-            if reduction > 0 && score > alpha {
-                score = -search::<NonPV, SS>(
-                    ctx,
-                    &next,
-                    depth - 1,
-                    -(alpha + 1),
-                    -alpha,
-                    thread,
-                    !cut_node,
-                );
-            }
         }
 
         // PV re-search
@@ -823,7 +821,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
         // Root move update
         if NT::ROOT_NODE {
-            ctx.update_root_move(mv.sq, score, move_count == 1 || score > sp.alpha());
+            ctx.update_root_move(mv.sq, score, score > sp.alpha());
         }
 
         // Best score update
