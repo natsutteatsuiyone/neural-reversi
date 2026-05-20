@@ -475,10 +475,11 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     let org_alpha = alpha;
 
     if NT::PV_NODE {
-        ctx.prepare_pv();
         if depth == 0 {
+            ctx.clear_pv();
             return SS::evaluate(ctx, board);
         }
+        ctx.prepare_pv();
     } else {
         if depth <= SS::DEPTH_TO_SHALLOW {
             return SS::shallow_search(ctx, board, depth, alpha, beta);
