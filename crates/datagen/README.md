@@ -129,6 +129,22 @@ datagen score-openings --depth 9 --mid-depth 16 --end-depth 24 --selectivity 0 -
 
 Same binary record format as `selfplay`. The `game_score` field stores the rounded evaluation score (since no full game is played), and the random move flag is always 0.
 
+### overwrite-scores
+
+Overwrites the `score`, `game_score`, and `is_random` fields of records inside binary data files based on a source binary file. Matching is performed via `Board::unique()`, so symmetric variants of the same position are treated as equal. All other fields (`game_id`, `ply`, `side_to_move`, `sq`, the player/opponent bitboards) are preserved.
+
+```bash
+datagen overwrite-scores --source ./rescored.bin --target-dir ./data --pattern "*.bin"
+```
+
+#### Options
+
+- `--source`: Source binary file (same format as `selfplay`). Each record contributes a `(Board::unique(), patch)` entry to the lookup table.
+- `--target-dir`: Directory containing files to be updated in place.
+- `--pattern`: Glob pattern relative to `--target-dir` (default: `*.bin`).
+
+Records in target files whose canonical board is absent from the source are left unchanged. Files are rewritten via a `.tmp` sibling and renamed only after a successful write.
+
 ## Workflow
 
 1. Generate self-play data

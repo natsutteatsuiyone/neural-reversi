@@ -1,4 +1,5 @@
 mod opening;
+mod overwrite_scores;
 mod probcut;
 mod record;
 mod score_openings;
@@ -128,6 +129,20 @@ enum SubCommands {
 
         #[arg(short, long)]
         output: String,
+    },
+    OverwriteScores {
+        #[arg(
+            short,
+            long,
+            help = "Source binary file whose scores overwrite the targets"
+        )]
+        source: String,
+
+        #[arg(short = 't', long, help = "Directory containing files to be updated")]
+        target_dir: String,
+
+        #[arg(short = 'p', long, default_value = "*.bin")]
+        pattern: String,
     },
 }
 
@@ -270,6 +285,14 @@ fn main() {
                 &output,
             )
             .expect("Failed to execute score-openings");
+        }
+        SubCommands::OverwriteScores {
+            source,
+            target_dir,
+            pattern,
+        } => {
+            overwrite_scores::execute(&source, &target_dir, &pattern)
+                .expect("Failed to execute overwrite-scores");
         }
     }
 }
