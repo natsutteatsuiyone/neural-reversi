@@ -473,8 +473,8 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
     beta: ScaledScore,
     best_score: &mut ScaledScore,
 ) -> Option<ScaledScore> {
-    let flipped = flip::flip(sq, board.player, board.opponent);
-    if flipped == board.opponent {
+    let flipped = flip::flip(sq, board.player(), board.opponent());
+    if flipped == board.opponent() {
         return Some(ScaledScore::MAX);
     }
     let next = board.make_move_with_flipped(flipped, sq);

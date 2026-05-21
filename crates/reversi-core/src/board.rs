@@ -15,9 +15,9 @@ use crate::types::{ScaledScore, Score};
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Board {
     /// Bitboard representing the player's discs.
-    pub player: Bitboard,
+    player: Bitboard,
     /// Bitboard representing the opponent's discs.
-    pub opponent: Bitboard,
+    opponent: Bitboard,
 }
 
 impl Default for Board {
@@ -40,16 +40,27 @@ impl Board {
         Default::default()
     }
 
+    /// Returns the bitboard representing the current player's discs.
+    #[inline(always)]
+    pub fn player(&self) -> Bitboard {
+        self.player
+    }
+
+    /// Returns the bitboard representing the opponent's discs.
+    #[inline(always)]
+    pub fn opponent(&self) -> Bitboard {
+        self.opponent
+    }
+
     /// Creates a [`Board`] from given bitboards.
     ///
     /// # Panics
     ///
-    /// In debug builds only, panics if `player` and `opponent` overlap.
-    /// In release builds, overlapping bitboards produce an invalid board state without panicking.
+    /// Panics if `player` and `opponent` overlap.
     pub fn from_bitboards(player: impl Into<Bitboard>, opponent: impl Into<Bitboard>) -> Board {
         let player = player.into();
         let opponent = opponent.into();
-        debug_assert!(
+        assert!(
             (player & opponent).is_empty(),
             "player and opponent bitboards must not overlap"
         );
@@ -520,8 +531,14 @@ mod tests {
         let player = Square::A1.bitboard();
         let opponent = Square::H8.bitboard();
         let board = Board::from_bitboards(player, opponent);
-        assert!(board.player.contains(Square::A1));
-        assert!(board.opponent.contains(Square::H8));
+        assert!(board.player().contains(Square::A1));
+        assert!(board.opponent().contains(Square::H8));
+    }
+
+    #[test]
+    #[should_panic(expected = "player and opponent bitboards must not overlap")]
+    fn test_from_bitboards_rejects_overlap() {
+        Board::from_bitboards(Square::A1.bitboard(), Square::A1.bitboard());
     }
 
     #[test]
@@ -535,10 +552,10 @@ mod tests {
                             --------\
                             --------";
         let board = Board::from_string(board_string, Disc::Black).unwrap();
-        assert!(board.player.contains(Square::D5));
-        assert!(board.player.contains(Square::E4));
-        assert!(board.opponent.contains(Square::D4));
-        assert!(board.opponent.contains(Square::E5));
+        assert!(board.player().contains(Square::D5));
+        assert!(board.player().contains(Square::E4));
+        assert!(board.opponent().contains(Square::D4));
+        assert!(board.opponent().contains(Square::E5));
     }
 
     #[test]
@@ -553,10 +570,10 @@ mod tests {
                             --------";
         let board = Board::from_string(board_string, Disc::White).unwrap();
         // From White's perspective, O discs are the player
-        assert!(board.player.contains(Square::E4));
-        assert!(board.player.contains(Square::D5));
-        assert!(board.opponent.contains(Square::D4));
-        assert!(board.opponent.contains(Square::E5));
+        assert!(board.player().contains(Square::E4));
+        assert!(board.player().contains(Square::D5));
+        assert!(board.opponent().contains(Square::D4));
+        assert!(board.opponent().contains(Square::E5));
     }
 
     #[test]
@@ -639,10 +656,10 @@ mod tests {
         let board = Board::new();
         let switched_board = board.switch_players();
 
-        assert!(switched_board.player.contains(Square::D4));
-        assert!(switched_board.player.contains(Square::E5));
-        assert!(switched_board.opponent.contains(Square::D5));
-        assert!(switched_board.opponent.contains(Square::E4));
+        assert!(switched_board.player().contains(Square::D4));
+        assert!(switched_board.player().contains(Square::E5));
+        assert!(switched_board.opponent().contains(Square::D5));
+        assert!(switched_board.opponent().contains(Square::E4));
 
         // Double switch should return to original
         let double_switched = switched_board.switch_players();
@@ -657,8 +674,8 @@ mod tests {
         let result = board.try_make_move(Square::D3);
         assert!(result.is_some());
         let new_board = result.unwrap();
-        assert!(new_board.opponent.contains(Square::D3));
-        assert!(new_board.opponent.contains(Square::D4));
+        assert!(new_board.opponent().contains(Square::D3));
+        assert!(new_board.opponent().contains(Square::D4));
 
         // Invalid move - no adjacent opponent discs
         let result = board.try_make_move(Square::A1);
@@ -675,8 +692,8 @@ mod tests {
 
         // Make a valid move
         let new_board = board.make_move(Square::D3);
-        assert!(new_board.opponent.contains(Square::D3));
-        assert!(new_board.opponent.contains(Square::D4));
+        assert!(new_board.opponent().contains(Square::D3));
+        assert!(new_board.opponent().contains(Square::D4));
         assert_eq!(new_board.get_opponent_count(), 4); // 2 original + 1 new + 1 flipped
         assert_eq!(new_board.get_player_count(), 1); // 2 original - 1 flipped
     }
@@ -687,8 +704,8 @@ mod tests {
         let flipped = Square::D4.bitboard();
         let new_board = board.make_move_with_flipped(flipped, Square::D3);
 
-        assert!(new_board.opponent.contains(Square::D3));
-        assert!(new_board.opponent.contains(Square::D4));
+        assert!(new_board.opponent().contains(Square::D3));
+        assert!(new_board.opponent().contains(Square::D4));
     }
 
     #[test]

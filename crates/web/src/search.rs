@@ -503,8 +503,8 @@ pub fn evaluate_depth1(
 
     let mut best_score = -ScaledScore::INF;
     for sq in moves.iter() {
-        let flipped = flip::flip(sq, board.player, board.opponent);
-        if flipped == board.opponent {
+        let flipped = flip::flip(sq, board.player(), board.opponent());
+        if flipped == board.opponent() {
             return ScaledScore::MAX;
         }
         let next = board.make_move_with_flipped(flipped, sq);

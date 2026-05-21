@@ -314,7 +314,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
         0 => board.final_score(),
         1 => {
             let sq = ctx.empty_list.first();
-            solve1(ctx, board.player, alpha, sq)
+            solve1(ctx, board.player(), alpha, sq)
         }
         2 => {
             let sq1 = ctx.empty_list.first();
@@ -370,8 +370,8 @@ fn null_window_search_with_ec(
 
     if moves.has_single_bit_nonzero() {
         let sq = moves.lsb_square_unchecked();
-        let flipped = flip::flip(sq, board.player, board.opponent);
-        if flipped == board.opponent {
+        let flipped = flip::flip(sq, board.player(), board.opponent());
+        if flipped == board.opponent() {
             return SCORE_MAX;
         }
         let next = board.make_move_with_flipped(flipped, sq);
@@ -680,8 +680,8 @@ fn solve4_avx512(
     sq3: Square,
     sq4: Square,
 ) -> Score {
-    let player = board.player;
-    let opponent = board.opponent;
+    let player = board.player();
+    let opponent = board.opponent();
     let beta = alpha + 1;
     let mut best_score = -SCORE_INF;
 
@@ -942,8 +942,8 @@ fn solve3_avx512(
     sq3: Square,
 ) -> Score {
     ctx.increment_nodes();
-    let player = board.player;
-    let opponent = board.opponent;
+    let player = board.player();
+    let opponent = board.opponent();
     let beta = alpha + 1;
     let mut best_score = -SCORE_INF;
 
@@ -1132,8 +1132,8 @@ fn solve2_avx512(
     sq2: Square,
 ) -> Score {
     ctx.increment_nodes();
-    let player = board.player;
-    let opponent = board.opponent;
+    let player = board.player();
+    let opponent = board.opponent();
     let beta = alpha + 1;
 
     // Player to move.
@@ -1190,8 +1190,8 @@ fn solve2_fallback(
     sq2: Square,
 ) -> Score {
     ctx.increment_nodes();
-    let player = board.player;
-    let opponent = board.opponent;
+    let player = board.player();
+    let opponent = board.opponent();
     let beta = alpha + 1;
     let mut flipped: Bitboard;
     let best_score: Score;

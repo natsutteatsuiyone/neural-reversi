@@ -49,8 +49,8 @@ pub fn write_records_to_file(path: &Path, records: &[GameRecord]) -> io::Result<
 /// Writes game records to the given writer.
 fn write_records(writer: &mut impl Write, records: &[GameRecord]) -> io::Result<()> {
     for record in records {
-        writer.write_u64::<LittleEndian>(record.board.player.bits())?;
-        writer.write_u64::<LittleEndian>(record.board.opponent.bits())?;
+        writer.write_u64::<LittleEndian>(record.board.player().bits())?;
+        writer.write_u64::<LittleEndian>(record.board.opponent().bits())?;
         writer.write_f32::<LittleEndian>(record.score)?;
         writer.write_i8(record.game_score)?;
         writer.write_u8(record.ply)?;

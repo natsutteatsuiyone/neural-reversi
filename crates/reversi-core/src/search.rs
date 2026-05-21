@@ -362,7 +362,7 @@ impl Search {
         let mut best_score = -ScaledScore::INF;
 
         for sq in moves.iter() {
-            let flipped = flip::flip(sq, board.player, board.opponent);
+            let flipped = flip::flip(sq, board.player(), board.opponent());
             let next = board.make_move_with_flipped(flipped, sq);
             let score = -self.eval.evaluate_simple(&next);
 
@@ -573,7 +573,10 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     if !NT::PV_NODE && (n_moves == 1 || tt_move != Square::None) {
         let (sq, flipped) = if tt_move != Square::None {
-            (tt_move, flip::flip(tt_move, board.player, board.opponent))
+            (
+                tt_move,
+                flip::flip(tt_move, board.player(), board.opponent()),
+            )
         } else {
             let mv = move_list.get_move(0);
             (mv.sq, mv.flipped)

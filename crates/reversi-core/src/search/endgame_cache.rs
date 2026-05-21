@@ -56,8 +56,8 @@ impl RawEntry {
 
     #[inline(always)]
     fn overwrite(&mut self, board: &Board, alpha: Score, score: Score) {
-        self.player = board.player.bits();
-        self.opponent = board.opponent.bits();
+        self.player = board.player().bits();
+        self.opponent = board.opponent().bits();
         self.lower = Self::LOWER_UNSET;
         self.upper = Self::UPPER_UNSET;
         self.store_nws_result(alpha, score);
@@ -95,7 +95,7 @@ impl EndGameCache {
     pub fn probe(&self, cache_idx: usize, board: &Board, alpha: Score) -> Option<Score> {
         let entry = unsafe { self.table.get_unchecked(cache_idx) };
 
-        if entry.player != board.player.bits() || entry.opponent != board.opponent.bits() {
+        if entry.player != board.player().bits() || entry.opponent != board.opponent().bits() {
             return None;
         }
 
@@ -106,7 +106,7 @@ impl EndGameCache {
     #[inline(always)]
     pub fn store(&mut self, cache_idx: usize, board: &Board, alpha: Score, score: Score) {
         let entry = unsafe { &mut self.table.get_unchecked_mut(cache_idx) };
-        if entry.player == board.player.bits() && entry.opponent == board.opponent.bits() {
+        if entry.player == board.player().bits() && entry.opponent == board.opponent().bits() {
             entry.store_nws_result(alpha, score);
         } else {
             entry.overwrite(board, alpha, score);
@@ -124,13 +124,8 @@ mod tests {
     use std::mem::size_of;
 
     use super::*;
-    use crate::bitboard::Bitboard;
-
     fn make_board(player: u64, opponent: u64) -> Board {
-        Board {
-            player: Bitboard::new(player),
-            opponent: Bitboard::new(opponent),
-        }
+        Board::from_bitboards(player, opponent)
     }
 
     #[test]
@@ -225,7 +220,7 @@ mod tests {
     #[test]
     fn test_store_extreme_scores() {
         let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
-        let board = make_board(0x1234, 0x5678);
+        let board = make_board(0x000f, 0x00f0);
         let cache_idx = cache.index(board.hash());
 
         cache.store(cache_idx, &board, 63, 64);

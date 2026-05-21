@@ -153,7 +153,7 @@ mod tests {
             crate::disc::Disc::Black,
         )
         .unwrap();
-        let flipped = flip(Square::A8, board.player, board.opponent);
+        let flipped = flip(Square::A8, board.player(), board.opponent());
         let expected = Bitboard::from_square(Square::B7)
             | Bitboard::from_square(Square::C6)
             | Bitboard::from_square(Square::D5)

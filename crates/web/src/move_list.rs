@@ -66,7 +66,7 @@ fn evaluate_moves_midgame(
     };
 
     for mv in move_list.iter_mut() {
-        if mv.flipped == board.opponent {
+        if mv.flipped == board.opponent() {
             // Wipeout move
             mv.value = WIPEOUT_VALUE;
         } else if mv.sq == tt_move {
@@ -108,7 +108,7 @@ fn evaluate_moves_endgame(
     };
 
     for mv in move_list.iter_mut() {
-        if mv.flipped == board.opponent {
+        if mv.flipped == board.opponent() {
             // Wipeout move
             mv.value = WIPEOUT_VALUE;
         } else if mv.sq == tt_move {
@@ -163,7 +163,7 @@ pub(crate) fn evaluate_moves_fast(
     const MOBILITY_WEIGHT: i32 = 16384;
 
     for mv in move_list.iter_mut() {
-        mv.value = if mv.flipped == board.opponent {
+        mv.value = if mv.flipped == board.opponent() {
             // Wipeout move (capture all opponent pieces)
             WIPEOUT_VALUE
         } else if mv.sq == tt_move {
@@ -173,7 +173,7 @@ pub(crate) fn evaluate_moves_fast(
             ctx.increment_nodes();
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             let moves = next.get_moves();
-            let corner_stability = next.opponent.corner_stability() as i32;
+            let corner_stability = next.opponent().corner_stability() as i32;
             let weighted_mobility = moves.corner_weighted_count() as i32;
             let mut value = SQUARE_VALUE[mv.sq.index()] * SQUARE_VALUE_WEIGHT;
             value += corner_stability * CORNER_STABILITY_WEIGHT;

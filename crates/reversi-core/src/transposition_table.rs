@@ -399,8 +399,8 @@ impl TTEntry {
     /// existing move is preserved for same-board non-exact updates.
     #[inline(always)]
     pub(crate) fn save(&self, board: &Board, data: TTEntryData) {
-        let new_player = board.player.bits();
-        let new_opponent = board.opponent.bits();
+        let new_player = board.player().bits();
+        let new_opponent = board.opponent().bits();
 
         // Exact entries always replace and never preserve the old best move, so
         // they only need the sequence word before claiming the slot.
@@ -652,8 +652,8 @@ impl TranspositionTable {
     #[inline(always)]
     pub fn lookup(&self, board: &Board, key: u64) -> Option<TTEntryData> {
         let cluster_idx = self.get_cluster_idx(key);
-        let board_player = board.player.bits();
-        let board_opponent = board.opponent.bits();
+        let board_player = board.player().bits();
+        let board_opponent = board.opponent().bits();
 
         // SAFETY: `get_cluster_idx` returns a multiple of `CLUSTER_SIZE` in
         // `0..cluster_count * CLUSTER_SIZE`, so `cluster_idx` and
@@ -674,8 +674,8 @@ impl TranspositionTable {
     #[inline(always)]
     pub fn probe(&self, board: &Board, key: u64) -> TTProbeResult {
         let cluster_idx = self.get_cluster_idx(key);
-        let board_player = board.player.bits();
-        let board_opponent = board.opponent.bits();
+        let board_player = board.player().bits();
+        let board_opponent = board.opponent().bits();
         // Keep the last stable victim so a persistently busy slot does not
         // force replacement back to the cluster head.
         let mut fallback_replace_idx = None;
@@ -805,7 +805,6 @@ impl TranspositionTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bitboard::Bitboard;
     use crate::search::node_type::{NonPV, PV};
 
     fn sq(idx: usize) -> Square {
@@ -813,15 +812,12 @@ mod tests {
     }
 
     fn make_board(player: u64, opponent: u64) -> Board {
-        Board {
-            player: Bitboard::new(player),
-            opponent: Bitboard::new(opponent),
-        }
+        Board::from_bitboards(player, opponent)
     }
 
     /// Reads `entry` through the production lookup path, matched on `board`.
     fn read(entry: &TTEntry, board: &Board) -> Option<TTEntryData> {
-        entry.read_for_lookup(board.player.bits(), board.opponent.bits())
+        entry.read_for_lookup(board.player().bits(), board.opponent().bits())
     }
 
     /// Returns `true` if `probe` found a matching entry.
@@ -891,7 +887,7 @@ mod tests {
     #[test]
     fn test_ttentry_replacement_policy() {
         let entry = TTEntry::default();
-        let board = make_board(100, 200);
+        let board = make_board(0x00000000000000ff, 0x000000000000ff00);
 
         // Initial save
         entry.save(
@@ -960,7 +956,7 @@ mod tests {
         assert_eq!(data.bound(), Bound::Exact);
 
         // Different board - always replaces
-        let board2 = make_board(300, 400);
+        let board2 = make_board(0x0000000000ff0000, 0x00000000ff000000);
         entry.save(
             &board2,
             TTEntryData::new(
@@ -998,7 +994,7 @@ mod tests {
     #[test]
     fn test_ttentry_preserves_best_move_when_new_move_is_none() {
         let entry = TTEntry::default();
-        let board = make_board(123, 456);
+        let board = make_board(0x0000000000000f0f, 0x000000000000f0f0);
 
         entry.save(
             &board,

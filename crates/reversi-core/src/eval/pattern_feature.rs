@@ -1003,9 +1003,9 @@ pub fn set_features(board: &Board, patterns: &mut [u16]) {
 /// Returns the ternary color of a square: 0 = player, 1 = opponent, 2 = empty.
 #[inline]
 fn get_square_color(board: &Board, sq: Square) -> u16 {
-    if board.player.contains(sq) {
+    if board.player().contains(sq) {
         0
-    } else if board.opponent.contains(sq) {
+    } else if board.opponent().contains(sq) {
         1
     } else {
         2
@@ -1522,10 +1522,7 @@ mod tests {
                 | (1u64 << Square::D1.index()),
         );
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1553,10 +1550,7 @@ mod tests {
                 | (1u64 << Square::D4.index()),
         );
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1597,10 +1591,7 @@ mod tests {
                 | (1u64 << Square::D7.index()),
         );
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1625,10 +1616,7 @@ mod tests {
         let sq = Square::D3;
         let flipped = Bitboard::new(1u64 << Square::D4.index());
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1647,10 +1635,7 @@ mod tests {
         let sq = Square::D3;
         let flipped = Bitboard::new(1u64 << Square::D4.index());
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1675,10 +1660,7 @@ mod tests {
         let sq = Square::A1;
         let flipped = Bitboard::new(1u64 << Square::B1.index());
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1702,10 +1684,7 @@ mod tests {
         let sq = Square::H8;
         let flipped = Bitboard::new(1u64 << Square::G8.index());
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1728,9 +1707,10 @@ mod tests {
 
         // Compute expected board state after opponent's move
         // Opponent places disc, player's disc gets flipped
-        let mut new_board = board;
-        new_board.opponent |= sq.bitboard() | flipped;
-        new_board.player &= !flipped;
+        let new_board = Board::from_bitboards(
+            board.player() & !flipped,
+            board.opponent() | sq.bitboard() | flipped,
+        );
         // Don't switch players - the update is from current perspective
 
         pf.update(sq, flipped, ply, SideToMove::Opponent);
@@ -1761,9 +1741,10 @@ mod tests {
                 | (1u64 << Square::D1.index()),
         );
 
-        let mut new_board = board;
-        new_board.opponent |= sq.bitboard() | flipped;
-        new_board.player &= !flipped;
+        let new_board = Board::from_bitboards(
+            board.player() & !flipped,
+            board.opponent() | sq.bitboard() | flipped,
+        );
 
         pf.update(sq, flipped, ply, SideToMove::Opponent);
 
@@ -1814,10 +1795,7 @@ mod tests {
         }
         let flipped = Bitboard::new(flipped_bits);
 
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
 
         pf.update(sq, flipped, ply, SideToMove::Player);
 
@@ -1840,10 +1818,7 @@ mod tests {
         pf.update_fallback(sq, flipped, ply, SideToMove::Player);
 
         // Compute expected result
-        let mut new_board = board;
-        new_board.player |= sq.bitboard() | flipped;
-        new_board.opponent &= !flipped;
-        let new_board = new_board.switch_players();
+        let new_board = board.make_move_with_flipped(flipped, sq);
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
         assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Fallback Player");
@@ -1861,9 +1836,10 @@ mod tests {
 
         pf.update_fallback(sq, flipped, ply, SideToMove::Opponent);
 
-        let mut new_board = board;
-        new_board.opponent |= sq.bitboard() | flipped;
-        new_board.player &= !flipped;
+        let new_board = Board::from_bitboards(
+            board.player() & !flipped,
+            board.opponent() | sq.bitboard() | flipped,
+        );
         let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
 
         assert_update_matches_fresh(

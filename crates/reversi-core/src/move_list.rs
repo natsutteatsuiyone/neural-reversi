@@ -139,7 +139,7 @@ impl MoveList {
         let len_ptr = unsafe { MoveArray::len_ptr_from(moves_array_ptr) };
         let wipeout_ptr = unsafe { &raw mut (*out).wipeout_move };
 
-        let opponent = board.opponent;
+        let opponent = board.opponent();
         let mut bb = moves_bb.bits();
 
         if !SKIP_EMPTY && bb == 0 {
@@ -154,7 +154,7 @@ impl MoveList {
             let x = bb.trailing_zeros() as u8;
             // SAFETY: `x` is a bit position of a legal-move bitboard (0..=63).
             let sq = unsafe { Square::from_u8_unchecked(x) };
-            let flipped = flip::flip(sq, board.player, opponent);
+            let flipped = flip::flip(sq, board.player(), opponent);
             unsafe {
                 data_ptr.write(Move::new(sq, flipped));
                 len_ptr.write(1);
@@ -169,7 +169,7 @@ impl MoveList {
 
         cfg_select! {
             all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-                let ctx = flip::Avx512BoardCtx::new(board.player.bits(), opponent.bits());
+                let ctx = flip::Avx512BoardCtx::new(board.player().bits(), opponent.bits());
                 let opponent_bits = opponent.bits();
                 let pair_count = bb.count_ones() as usize / 2;
                 for _ in 0..pair_count {
@@ -216,7 +216,7 @@ impl MoveList {
                 }
             }
             _ => {
-                let player = board.player;
+                let player = board.player();
                 while bb != 0 {
                     let x = bb.trailing_zeros() as u8;
                     bb &= bb - 1;
@@ -316,7 +316,7 @@ impl MoveList {
         self.wipeout_move = self
             .moves
             .iter()
-            .find(|mv| mv.flipped == board.opponent)
+            .find(|mv| mv.flipped == board.opponent())
             .map(|mv| mv.sq);
     }
 }

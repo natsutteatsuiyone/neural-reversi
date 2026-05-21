@@ -121,7 +121,7 @@ impl MoveList {
         };
 
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
-        // reaching this loop, so `mv.flipped == board.opponent` cannot occur here.
+        // reaching this loop, so `mv.flipped == board.opponent()` cannot occur here.
         for mv in self.iter_mut() {
             if mv.sq == tt_move {
                 mv.value = TT_MOVE_VALUE;
@@ -150,7 +150,7 @@ impl MoveList {
     /// Evaluates moves using fast heuristics for move ordering.
     pub fn evaluate_moves_fast(&mut self, ctx: &mut SearchContext, board: &Board, tt_move: Square) {
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
-        // reaching this loop, so `mv.flipped == board.opponent` cannot occur here.
+        // reaching this loop, so `mv.flipped == board.opponent()` cannot occur here.
         if tt_move == Square::None {
             for mv in self.iter_mut() {
                 mv.value = evaluate_fast_value(ctx, board, *mv);
@@ -191,7 +191,7 @@ fn shallow_search_score(ctx: &mut SearchContext, next: &Board, sort_depth: i32) 
 fn evaluate_fast_value(ctx: &mut SearchContext, board: &Board, mv: Move) -> i32 {
     ctx.increment_nodes();
     let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-    let corner_stability = next.opponent.corner_stability() as i32;
+    let corner_stability = next.opponent().corner_stability() as i32;
     let weighted_mobility = next.get_moves().corner_weighted_count() as i32;
     // SAFETY: `mv.sq.index() < 64` since `Move::new` rejects `Square::None`.
     let square_value = unsafe { SQUARE_VALUE.get_unchecked(mv.sq.index()) };

@@ -496,7 +496,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
     let mut score = board.get_player_count() as Score * 2 - 64 + 2;
-    let mut n_flipped = count_last_flip(board.player, sq);
+    let mut n_flipped = count_last_flip(board.player(), sq);
     score += n_flipped;
 
     if n_flipped == 0 {
@@ -507,7 +507,7 @@ fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> S
         }
 
         if score > alpha {
-            n_flipped = count_last_flip(board.opponent, sq);
+            n_flipped = count_last_flip(board.opponent(), sq);
             if n_flipped != 0 {
                 score = score2 - n_flipped;
             }
