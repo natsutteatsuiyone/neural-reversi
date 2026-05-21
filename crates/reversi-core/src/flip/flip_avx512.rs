@@ -153,10 +153,50 @@ macro_rules! flip_prepared_ymm_body {
 macro_rules! flip_pair_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
         // Each `LrmaskEntry` is one 64-byte-aligned cache line laid out as
-        // `[left(4 x u64), right(4 x u64)]`. One aligned ZMM load per square pulls the
-        // whole line; the lane shuffles then split into `[left_x0, left_x1]` and
-        // `[right_x0, right_x1]`. This halves load-port uops vs. the legacy
-        // four-32B-load + two-insert sequence at the same port-5 cost.
+        // `[left(4 x u64), right(4 x u64)]`. For the latency-sensitive
+        // endgame `flip2` path, load right-side masks first so the LZCNT chain
+        // starts before the independent left-side loads.
+        let mask_ptr0 =
+            unsafe { super::lrmask::LRMASK.get_unchecked($x0).0.as_ptr() as *const __m256i };
+        let mask_ptr1 =
+            unsafe { super::lrmask::LRMASK.get_unchecked($x1).0.as_ptr() as *const __m256i };
+        let right0 = unsafe { _mm256_load_si256(mask_ptr0.add(1)) };
+        let right1 = unsafe { _mm256_load_si256(mask_ptr1.add(1)) };
+        let right_mask = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(right0), right1);
+
+        let mut right_bit = _mm512_lzcnt_epi64(_mm512_and_si512($no, right_mask));
+
+        let left0 = unsafe { _mm256_load_si256(mask_ptr0) };
+        let left1 = unsafe { _mm256_load_si256(mask_ptr1) };
+        let left_mask = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(left0), left1);
+        let mut left_bit = _mm512_and_si512($no, left_mask);
+        left_bit =
+            _mm512_ternarylogic_epi64(left_bit, _mm512_sub_epi64($zero, left_bit), $pp, 0x80);
+
+        // left_flank = signed-min(-left_bit, -1) = -1 if left_bit == 0 else -left_bit.
+        // Relies on -left_bit being <= 0 for any non-negative left_bit so the
+        // i64 min picks the more-negative side.
+        let left_flank = _mm512_min_epi64(_mm512_sub_epi64($zero, left_bit), $all_ones);
+
+        right_bit = _mm512_and_si512(vpsrlvq_raw_zmm!($msb, right_bit), $pp);
+        let right_flips = _mm512_ternarylogic_epi64(
+            _mm512_sub_epi64($zero, right_bit),
+            right_bit,
+            right_mask,
+            0x28,
+        );
+
+        let flips = _mm512_ternarylogic_epi64(right_flips, left_flank, left_mask, 0xf2);
+        reduce_zmm_pair_or_u64!(flips)
+    }};
+}
+
+#[cfg(target_arch = "x86_64")]
+macro_rules! flip_pair_wide_load_body {
+    ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
+        // Move-list generation calls `flip2` in a dense loop. Two 64B loads
+        // plus lane shuffles have lower instruction count and benchmark better
+        // there than the latency-first split-load schedule above.
         let z0 = unsafe {
             _mm512_load_si512(super::lrmask::LRMASK.get_unchecked($x0).0.as_ptr() as *const __m512i)
         };
@@ -169,6 +209,7 @@ macro_rules! flip_pair_body {
         let right_mask = _mm512_shuffle_i64x2::<0xee>(z0, z1);
 
         let mut right_bit = _mm512_lzcnt_epi64(_mm512_and_si512($no, right_mask));
+
         let mut left_bit = _mm512_and_si512($no, left_mask);
         left_bit =
             _mm512_ternarylogic_epi64(left_bit, _mm512_sub_epi64($zero, left_bit), $pp, 0x80);
@@ -290,6 +331,15 @@ impl BoardCtx {
         unsafe { flip_pair_body!(x0, x1, self.pp, self.no, self.zero, self.msb, self.all_ones) }
     }
 
+    /// Computes two flip masks with the load schedule that is fastest in the
+    /// dense move-list loop.
+    #[inline(always)]
+    pub fn flip2_wide_load(&self, x0: usize, x1: usize) -> (u64, u64) {
+        unsafe {
+            flip_pair_wide_load_body!(x0, x1, self.pp, self.no, self.zero, self.msb, self.all_ones)
+        }
+    }
+
     /// Computes flip masks for three runtime squares sharing this board.
     ///
     /// `(x0, x1)` use the paired 512-bit path, while `x2` uses the YMM
@@ -300,19 +350,15 @@ impl BoardCtx {
     #[inline(always)]
     pub fn flip3(&self, x0: usize, x1: usize, x2: usize) -> (u64, u64, u64) {
         unsafe {
-            let z0 = _mm512_load_si512(
-                super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m512i
-            );
-            let z1 = _mm512_load_si512(
-                super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m512i
-            );
-            let left_mask01 = _mm512_shuffle_i64x2::<0x44>(z0, z1);
-            let right_mask01 = _mm512_shuffle_i64x2::<0xee>(z0, z1);
+            let mask_ptr0 = super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m256i;
+            let mask_ptr1 = super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m256i;
+            let right0 = _mm256_load_si256(mask_ptr0.add(1));
+            let right1 = _mm256_load_si256(mask_ptr1.add(1));
+            let right_mask01 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(right0), right1);
             let mut right_bit01 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask01));
 
             let mask_ptr2 = super::lrmask::LRMASK.get_unchecked(x2).0.as_ptr() as *const __m256i;
             let right_mask2 = _mm256_load_si256(mask_ptr2.add(1));
-            let left_mask2 = _mm256_load_si256(mask_ptr2);
 
             let pp2 = _mm512_castsi512_si256(self.pp);
             let no2 = _mm512_castsi512_si256(self.no);
@@ -322,6 +368,11 @@ impl BoardCtx {
 
             // Start both high-latency right-side chains before doing either left side.
             let mut right_bit2 = _mm256_lzcnt_epi64(_mm256_and_si256(no2, right_mask2));
+
+            let left0 = _mm256_load_si256(mask_ptr0);
+            let left1 = _mm256_load_si256(mask_ptr1);
+            let left_mask01 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(left0), left1);
+            let left_mask2 = _mm256_load_si256(mask_ptr2);
 
             let mut left_bit01 = _mm512_and_si512(self.no, left_mask01);
             let mut left_bit2 = _mm256_and_si256(no2, left_mask2);
@@ -373,28 +424,28 @@ impl BoardCtx {
     #[inline(always)]
     pub fn flip4(&self, x0: usize, x1: usize, x2: usize, x3: usize) -> (u64, u64, u64, u64) {
         unsafe {
-            let z0 = _mm512_load_si512(
-                super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m512i
-            );
-            let z1 = _mm512_load_si512(
-                super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m512i
-            );
-            let z2 = _mm512_load_si512(
-                super::lrmask::LRMASK.get_unchecked(x2).0.as_ptr() as *const __m512i
-            );
-            let z3 = _mm512_load_si512(
-                super::lrmask::LRMASK.get_unchecked(x3).0.as_ptr() as *const __m512i
-            );
-
-            let left_mask01 = _mm512_shuffle_i64x2::<0x44>(z0, z1);
-            let right_mask01 = _mm512_shuffle_i64x2::<0xee>(z0, z1);
+            let mask_ptr0 = super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m256i;
+            let mask_ptr1 = super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m256i;
+            let right0 = _mm256_load_si256(mask_ptr0.add(1));
+            let right1 = _mm256_load_si256(mask_ptr1.add(1));
+            let right_mask01 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(right0), right1);
             let mut right_bit01 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask01));
 
-            let left_mask23 = _mm512_shuffle_i64x2::<0x44>(z2, z3);
-            let right_mask23 = _mm512_shuffle_i64x2::<0xee>(z2, z3);
+            let mask_ptr2 = super::lrmask::LRMASK.get_unchecked(x2).0.as_ptr() as *const __m256i;
+            let mask_ptr3 = super::lrmask::LRMASK.get_unchecked(x3).0.as_ptr() as *const __m256i;
+            let right2 = _mm256_load_si256(mask_ptr2.add(1));
+            let right3 = _mm256_load_si256(mask_ptr3.add(1));
+            let right_mask23 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(right2), right3);
 
             // Fire both right-side LZCNT chains before either waits on VPSRLVQ.
             let mut right_bit23 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask23));
+
+            let left0 = _mm256_load_si256(mask_ptr0);
+            let left1 = _mm256_load_si256(mask_ptr1);
+            let left_mask01 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(left0), left1);
+            let left2 = _mm256_load_si256(mask_ptr2);
+            let left3 = _mm256_load_si256(mask_ptr3);
+            let left_mask23 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(left2), left3);
 
             let mut left_bit01 = _mm512_and_si512(self.no, left_mask01);
             let mut left_bit23 = _mm512_and_si512(self.no, left_mask23);

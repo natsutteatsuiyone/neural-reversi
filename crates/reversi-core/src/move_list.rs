@@ -179,7 +179,7 @@ impl MoveList {
                     let x1 = bb.trailing_zeros() as u8;
                     bb &= bb - 1;
 
-                    let (f0, f1) = ctx.flip2(x0 as usize, x1 as usize);
+                    let (f0, f1) = ctx.flip2_wide_load(x0 as usize, x1 as usize);
                     let flipped0 = Bitboard::new(f0);
                     let flipped1 = Bitboard::new(f1);
                     // SAFETY: `x0`, `x1` are bit positions from a legal-move bitboard (0..=63).
