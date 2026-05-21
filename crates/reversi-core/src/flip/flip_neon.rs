@@ -1,8 +1,9 @@
 //! NEON variant of flip function.
 //!
-//! NEON has no 256-bit lane, so each 4-direction group from the AVX2
-//! reference is split into two 128-bit `uint64x2_t` pairs running the
-//! same parallel-prefix scan.
+//! NEON has no 256-bit lane, so the eight direction masks are processed as
+//! four `uint64x2_t` pairs. The kernel uses carry propagation for the
+//! LSB-to-MSB directions; MSB-to-LSB directions are bit-reversed and run
+//! through the same carry-propagation primitive.
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_avx_ppseq.c>
 
@@ -10,16 +11,28 @@ use super::lrmask::LRMASK;
 use crate::square::Square;
 use std::arch::aarch64::*;
 
-// Per-lane right-shift counts (encoded as negative `vshlq_u64` arguments).
-// Pair A holds the orthogonal directions (W=1, N=8); pair B holds the
-// diagonals (NW=9, NE=7). Hoisted to statics so the addresses are taken
-// once, not materialized on the stack each call.
-static SH1_A: [i64; 2] = [-1, -8];
-static SH1_B: [i64; 2] = [-9, -7];
-static SH2_A: [i64; 2] = [-2, -16];
-static SH2_B: [i64; 2] = [-18, -14];
-static SH4_A: [i64; 2] = [-4, -32];
-static SH4_B: [i64; 2] = [-36, -28];
+#[repr(align(64))]
+#[derive(Copy, Clone)]
+struct NeonMaskEntry([u64; 8]);
+
+static NEON_MASK: [NeonMaskEntry; 66] = build_neon_masks();
+
+const fn build_neon_masks() -> [NeonMaskEntry; 66] {
+    let mut out = [NeonMaskEntry([0; 8]); 66];
+    let mut i = 0;
+    while i < 66 {
+        let mut j = 0;
+        while j < 4 {
+            out[i].0[j] = LRMASK[i].0[j];
+            // Store right-side masks in bit-reversed form so they can reuse
+            // the same lowest-outflank primitive as left-side masks.
+            out[i].0[j + 4] = LRMASK[i].0[j + 4].reverse_bits();
+            j += 1;
+        }
+        i += 1;
+    }
+    out
+}
 
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
 ///
@@ -30,75 +43,127 @@ static SH4_B: [i64; 2] = [-36, -28];
 #[target_feature(enable = "neon")]
 #[inline]
 pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
-    unsafe {
-        let pos = sq.index();
+    BoardCtx::new(player, opponent).flip1(sq.index())
+}
+
+/// SIMD board context for runtime squares that share the same `(player,
+/// opponent)` board.
+#[derive(Copy, Clone)]
+pub(super) struct BoardCtx {
+    pp: uint64x2_t,
+    no: uint64x2_t,
+    pp_rev: uint64x2_t,
+    no_rev: uint64x2_t,
+    zero: uint64x2_t,
+    one: uint64x2_t,
+}
+
+impl BoardCtx {
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn new(player: u64, opponent: u64) -> Self {
+        let not_opponent = !opponent;
         let pp = vdupq_n_u64(player);
-        let oo = vdupq_n_u64(opponent);
-        let mask_ptr = LRMASK.get_unchecked(pos).0.as_ptr();
-
-        // === LEFT side: lanes 0..3 are E, S, SE, SW (shifts toward higher bits).
-        // Uses the BLSMSK identity: ((x - 1) ^ x) & mask isolates the lowest set bit
-        // and below; combined with a non-opponent mask it picks out a contiguous
-        // run of opponents bracketed by a player on the far side.
-        let mask_l_a = vld1q_u64(mask_ptr);
-        let mask_l_b = vld1q_u64(mask_ptr.add(2));
-
-        // lo = ~oo & mask  (vbicq(a, b) = a & ~b)
-        let lo_a = vbicq_u64(mask_l_a, oo);
-        let lo_b = vbicq_u64(mask_l_b, oo);
-
-        let neg_one = vdupq_n_u64(u64::MAX);
-        // ((lo + (-1)) ^ lo) & mask
-        let blsm_a = vandq_u64(veorq_u64(vaddq_u64(lo_a, neg_one), lo_a), mask_l_a);
-        let blsm_b = vandq_u64(veorq_u64(vaddq_u64(lo_b, neg_one), lo_b), mask_l_b);
-        // lf = ~pp & blsm
-        let lf_a = vbicq_u64(blsm_a, pp);
-        let lf_b = vbicq_u64(blsm_b, pp);
-        // flip_left = lf if lf != blsm, else 0  →  lf & ~(lf == blsm)
-        let eq_a = vceqq_u64(lf_a, blsm_a);
-        let eq_b = vceqq_u64(lf_b, blsm_b);
-        let flip_l_a = vbicq_u64(lf_a, eq_a);
-        let flip_l_b = vbicq_u64(lf_b, eq_b);
-
-        // === RIGHT side: lanes 0..3 are W (1), N (8), NW (9), NE (7) — right shifts.
-        // Pair A holds shifts 1, 8 (orthogonal). Pair B holds shifts 9, 7 (diagonal).
-        let mask_r_a = vld1q_u64(mask_ptr.add(4));
-        let mask_r_b = vld1q_u64(mask_ptr.add(6));
-
-        let rp_a = vandq_u64(pp, mask_r_a);
-        let rp_b = vandq_u64(pp, mask_r_b);
-
-        // Per-lane right shifts via vshlq with negative counts.
-        let sh1_a = vld1q_s64(SH1_A.as_ptr());
-        let sh1_b = vld1q_s64(SH1_B.as_ptr());
-        let sh2_a = vld1q_s64(SH2_A.as_ptr());
-        let sh2_b = vld1q_s64(SH2_B.as_ptr());
-        let sh4_a = vld1q_s64(SH4_A.as_ptr());
-        let sh4_b = vld1q_s64(SH4_B.as_ptr());
-
-        let mut rs_a = vorrq_u64(rp_a, vshlq_u64(rp_a, sh1_a));
-        let mut rs_b = vorrq_u64(rp_b, vshlq_u64(rp_b, sh1_b));
-        rs_a = vorrq_u64(rs_a, vshlq_u64(rs_a, sh2_a));
-        rs_b = vorrq_u64(rs_b, vshlq_u64(rs_b, sh2_b));
-        rs_a = vorrq_u64(rs_a, vshlq_u64(rs_a, sh4_a));
-        rs_b = vorrq_u64(rs_b, vshlq_u64(rs_b, sh4_b));
-
-        let re_a = veorq_u64(vbicq_u64(mask_r_a, oo), rp_a);
-        let re_b = veorq_u64(vbicq_u64(mask_r_b, oo), rp_b);
-
-        // vcgtq_s64 is signed; rp/re are bitboards but the compare is correct
-        // because the BLSMSK and prefix-OR steps preserve the leading-bit ordering.
-        let cmp_a = vcgtq_s64(vreinterpretq_s64_u64(rp_a), vreinterpretq_s64_u64(re_a));
-        let cmp_b = vcgtq_s64(vreinterpretq_s64_u64(rp_b), vreinterpretq_s64_u64(re_b));
-        let flip_r_a = vandq_u64(vbicq_u64(mask_r_a, rs_a), cmp_a);
-        let flip_r_b = vandq_u64(vbicq_u64(mask_r_b, rs_b), cmp_b);
-
-        let flip_a = vorrq_u64(flip_l_a, flip_r_a);
-        let flip_b = vorrq_u64(flip_l_b, flip_r_b);
-        let flip = vorrq_u64(flip_a, flip_b);
-        let folded = vorr_u64(vget_low_u64(flip), vget_high_u64(flip));
-        vget_lane_u64::<0>(folded)
+        let no = vdupq_n_u64(not_opponent);
+        Self {
+            pp,
+            no,
+            pp_rev: vdupq_n_u64(player.reverse_bits()),
+            no_rev: vdupq_n_u64(not_opponent.reverse_bits()),
+            zero: vdupq_n_u64(0),
+            one: vdupq_n_u64(1),
+        }
     }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn flip1(&self, pos: usize) -> u64 {
+        unsafe {
+            flip_index_prepared(
+                pos,
+                self.pp,
+                self.no,
+                self.pp_rev,
+                self.no_rev,
+                self.zero,
+                self.one,
+            )
+        }
+    }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn flip2(&self, x0: usize, x1: usize) -> (u64, u64) {
+        (self.flip1(x0), self.flip1(x1))
+    }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn flip3(&self, x0: usize, x1: usize, x2: usize) -> (u64, u64, u64) {
+        (self.flip1(x0), self.flip1(x1), self.flip1(x2))
+    }
+
+    #[target_feature(enable = "neon")]
+    #[inline]
+    pub fn flip4(&self, x0: usize, x1: usize, x2: usize, x3: usize) -> (u64, u64, u64, u64) {
+        (
+            self.flip1(x0),
+            self.flip1(x1),
+            self.flip1(x2),
+            self.flip1(x3),
+        )
+    }
+}
+
+#[target_feature(enable = "neon")]
+#[inline]
+unsafe fn flip_index_prepared(
+    pos: usize,
+    pp: uint64x2_t,
+    no: uint64x2_t,
+    pp_rev: uint64x2_t,
+    no_rev: uint64x2_t,
+    zero: uint64x2_t,
+    one: uint64x2_t,
+) -> u64 {
+    let mask_ptr = unsafe { NEON_MASK.get_unchecked(pos).0.as_ptr() };
+
+    let mask_l_a = unsafe { vld1q_u64(mask_ptr) };
+    let mask_l_b = unsafe { vld1q_u64(mask_ptr.add(2)) };
+    let flip_l_a = unsafe { flip_left_pair(mask_l_a, pp, no, zero, one) };
+    let flip_l_b = unsafe { flip_left_pair(mask_l_b, pp, no, zero, one) };
+
+    let mask_rr_a = unsafe { vld1q_u64(mask_ptr.add(4)) };
+    let mask_rr_b = unsafe { vld1q_u64(mask_ptr.add(6)) };
+    let flip_rr_a = unsafe { flip_left_pair(mask_rr_a, pp_rev, no_rev, zero, one) };
+    let flip_rr_b = unsafe { flip_left_pair(mask_rr_b, pp_rev, no_rev, zero, one) };
+
+    let flip_l = vorrq_u64(flip_l_a, flip_l_b);
+    let flip_rr = vorrq_u64(flip_rr_a, flip_rr_b);
+    unsafe { fold_or_pair(flip_l) | fold_or_pair(flip_rr).reverse_bits() }
+}
+
+/// LEFT side masks: E, S, SE, SW. The closest square is the least significant
+/// bit in each mask.
+#[inline]
+#[target_feature(enable = "neon")]
+unsafe fn flip_left_pair(
+    mask: uint64x2_t,
+    pp: uint64x2_t,
+    no: uint64x2_t,
+    zero: uint64x2_t,
+    one: uint64x2_t,
+) -> uint64x2_t {
+    let non_opponent = vandq_u64(mask, no);
+    let outflank = vandq_u64(vandq_u64(non_opponent, vsubq_u64(zero, non_opponent)), pp);
+    vandq_u64(mask, vqsubq_u64(outflank, one))
+}
+
+#[inline]
+#[target_feature(enable = "neon")]
+unsafe fn fold_or_pair(x: uint64x2_t) -> u64 {
+    let folded = vorr_u64(vget_low_u64(x), vget_high_u64(x));
+    vget_lane_u64::<0>(folded)
 }
 
 #[cfg(test)]

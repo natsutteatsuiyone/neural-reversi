@@ -48,14 +48,19 @@ pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
 
 /// Computes flips for two squares sharing the same `(player, opponent)` board.
 ///
-/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o))`; on AVX-512 both are
-/// computed from one shared `BoardCtx` in a paired 512-bit pass.
+/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o))`; SIMD backends reuse
+/// shared board broadcasts when that is profitable.
 #[inline(always)]
 pub fn flip2(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboard, Bitboard) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
             let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
+            (Bitboard::new(f0), Bitboard::new(f1))
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            let ctx = unsafe { flip_neon::BoardCtx::new(p.bits(), o.bits()) };
+            let (f0, f1) = unsafe { ctx.flip2(sq1.index(), sq2.index()) };
             (Bitboard::new(f0), Bitboard::new(f1))
         }
         _ => {
@@ -66,9 +71,8 @@ pub fn flip2(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboard, B
 
 /// Computes flips for three squares sharing the same `(player, opponent)` board.
 ///
-/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o))`; on
-/// AVX-512 `(sq1, sq2)` is computed in one paired 512-bit pass and `sq3`
-/// uses the single-square path from the same broadcast context.
+/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o))`;
+/// SIMD backends reuse shared board broadcasts when that is profitable.
 #[inline(always)]
 pub fn flip3(
     sq1: Square,
@@ -83,6 +87,11 @@ pub fn flip3(
             let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            let ctx = unsafe { flip_neon::BoardCtx::new(p.bits(), o.bits()) };
+            let (f0, f1, f2) = unsafe { ctx.flip3(sq1.index(), sq2.index(), sq3.index()) };
+            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
+        }
         _ => {
             (flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o))
         }
@@ -91,9 +100,8 @@ pub fn flip3(
 
 /// Computes flips for four squares sharing the same `(player, opponent)` board.
 ///
-/// Equivalent to applying [`flip`] to each square; on AVX-512 it is two
-/// paired 512-bit passes (`(sq1, sq2)` and `(sq3, sq4)`) sharing one set of
-/// broadcast constants.
+/// Equivalent to applying [`flip`] to each square; SIMD backends reuse shared
+/// board broadcasts when that is profitable.
 #[inline(always)]
 pub fn flip4(
     sq1: Square,
@@ -107,6 +115,12 @@ pub fn flip4(
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
+            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            let ctx = unsafe { flip_neon::BoardCtx::new(p.bits(), o.bits()) };
+            let (f0, f1, f2, f3) =
+                unsafe { ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index()) };
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
         }
         _ => {
