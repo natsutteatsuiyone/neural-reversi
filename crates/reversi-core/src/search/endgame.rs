@@ -639,7 +639,7 @@ fn sort_last4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
 
 /// Specialized solver for positions with exactly 4 empty squares.
 ///
-/// Uses the eager AVX-512 flip path when available, otherwise the guarded fallback.
+/// Uses the eager SIMD flip path when available, otherwise the guarded fallback.
 ///
 /// Both paths produce identical scores and node counts.
 #[inline(always)]
@@ -654,7 +654,10 @@ fn solve4(
 ) -> Score {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve4_avx512(ctx, board, alpha, sq1, sq2, sq3, sq4)
+            solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
         _ => {
             solve4_fallback(ctx, board, alpha, sq1, sq2, sq3, sq4)
@@ -662,16 +665,19 @@ fn solve4(
     }
 }
 
-/// AVX-512 `solve4` dispatch target. A non-empty flip already
+/// Eager-SIMD `solve4` dispatch target. A non-empty flip already
 /// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
 /// guard is safe; the `is_empty` checks subsume it. Like
 /// `solve4_fallback`, this function does not count itself as a node.
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "avx512cd",
-    target_feature = "avx512vl"
+#[cfg(any(
+    all(
+        target_arch = "x86_64",
+        target_feature = "avx512cd",
+        target_feature = "avx512vl"
+    ),
+    all(target_arch = "aarch64", target_feature = "neon")
 ))]
-fn solve4_avx512(
+fn solve4_eager(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -813,13 +819,16 @@ fn solve4_avx512(
     best_score
 }
 
-/// Fallback `solve4` dispatch target (non-AVX-512): the original
+/// Fallback `solve4` dispatch target: the original
 /// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
 /// fallback is not slowed by eager unguarded flips.
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "avx512cd",
-    target_feature = "avx512vl"
+#[cfg(not(any(
+    all(
+        target_arch = "x86_64",
+        target_feature = "avx512cd",
+        target_feature = "avx512vl"
+    ),
+    all(target_arch = "aarch64", target_feature = "neon")
 )))]
 fn solve4_fallback(
     ctx: &mut SearchContext,
@@ -903,7 +912,7 @@ fn solve4_fallback(
 
 /// Specialized solver for positions with exactly 3 empty squares.
 ///
-/// Uses the eager AVX-512 flip path when available, otherwise the guarded fallback.
+/// Uses the eager SIMD flip path when available, otherwise the guarded fallback.
 ///
 /// Both paths produce identical scores and node counts.
 #[inline(always)]
@@ -917,7 +926,10 @@ fn solve3(
 ) -> Score {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve3_avx512(ctx, board, alpha, sq1, sq2, sq3)
+            solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
         }
         _ => {
             solve3_fallback(ctx, board, alpha, sq1, sq2, sq3)
@@ -925,15 +937,18 @@ fn solve3(
     }
 }
 
-/// AVX-512 `solve3` dispatch target. A non-empty flip already
+/// Eager-SIMD `solve3` dispatch target. A non-empty flip already
 /// implies an adjacent opponent disc, so dropping the `has_adjacent_bit`
 /// guard is safe; the `is_empty` checks subsume it.
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "avx512cd",
-    target_feature = "avx512vl"
+#[cfg(any(
+    all(
+        target_arch = "x86_64",
+        target_feature = "avx512cd",
+        target_feature = "avx512vl"
+    ),
+    all(target_arch = "aarch64", target_feature = "neon")
 ))]
-fn solve3_avx512(
+fn solve3_eager(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -1025,13 +1040,16 @@ fn solve3_avx512(
     board.solve(3)
 }
 
-/// Fallback `solve3` dispatch target (non-AVX-512): the original
+/// Fallback `solve3` dispatch target: the original
 /// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
 /// fallback is not slowed by eager unguarded flips.
-#[cfg(not(all(
-    target_arch = "x86_64",
-    target_feature = "avx512cd",
-    target_feature = "avx512vl"
+#[cfg(not(any(
+    all(
+        target_arch = "x86_64",
+        target_feature = "avx512cd",
+        target_feature = "avx512vl"
+    ),
+    all(target_arch = "aarch64", target_feature = "neon")
 )))]
 fn solve3_fallback(
     ctx: &mut SearchContext,
@@ -1107,7 +1125,7 @@ fn solve3_fallback(
 fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve2_avx512(ctx, board, alpha, sq1, sq2)
+            solve2_eager(ctx, board, alpha, sq1, sq2)
         }
         _ => {
             solve2_fallback(ctx, board, alpha, sq1, sq2)
@@ -1124,7 +1142,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
     target_feature = "avx512vl"
 ))]
 #[inline(always)]
-fn solve2_avx512(
+fn solve2_eager(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
