@@ -528,21 +528,20 @@ impl NetworkSmall {
     ///
     /// # Algorithm
     ///
-    /// 1. Accumulate input weights based on pattern features into 16 × `int16x8_t`
+    /// 1. Accumulate input weights based on pattern features in two 64-unit halves
     /// 2. Clamp values to [0, 1023] (10-bit range)
     /// 3. Apply squared activation: `(v * v) >> 10` via `sqdmulh((v << 5), v)`
     ///    (mathematically identical to the x86 `mulhi_epu16((v<<6), v)` form)
-    /// 4. Compute dot product with output weights using four `int32x4_t` accumulators
-    ///    for instruction-level parallelism
+    /// 4. Compute dot products with output weights using two `int32x4_t`
+    ///    accumulators per half, then reduce each half to a scalar
     ///
     /// # Load strategy
     ///
-    /// Structured loads (`vld1q_s16_x4`) constrain the register allocator to
-    /// four consecutive NEON registers per quad load. With 16 live i16×8
-    /// accumulators the compiler can't satisfy that and decomposes them into
-    /// individual loads, often rematerialising the base pointer between them.
-    /// Using plain `vld1q_s16` with explicit element offsets frees the
-    /// allocator and lets LLVM fuse pairs into `ldp` with a resident base.
+    /// Keeping all 16 i16×8 accumulators live at once causes LLVM to spill on
+    /// Apple AArch64. This path processes two 8-register halves and dots each
+    /// half immediately, trading repeated feature-index loads for lower
+    /// register pressure. Plain `vld1q_s16` loads with explicit element offsets
+    /// still let LLVM fuse pairs into `ldp` where profitable.
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     #[inline]
@@ -561,81 +560,6 @@ impl NetworkSmall {
         let bias_ptr = input_layer.biases.as_ptr() as *const i16;
 
         unsafe {
-            let mut acc0 = vld1q_s16(bias_ptr);
-            let mut acc1 = vld1q_s16(bias_ptr.add(8));
-            let mut acc2 = vld1q_s16(bias_ptr.add(16));
-            let mut acc3 = vld1q_s16(bias_ptr.add(24));
-            let mut acc4 = vld1q_s16(bias_ptr.add(32));
-            let mut acc5 = vld1q_s16(bias_ptr.add(40));
-            let mut acc6 = vld1q_s16(bias_ptr.add(48));
-            let mut acc7 = vld1q_s16(bias_ptr.add(56));
-            let mut acc8 = vld1q_s16(bias_ptr.add(64));
-            let mut acc9 = vld1q_s16(bias_ptr.add(72));
-            let mut acc10 = vld1q_s16(bias_ptr.add(80));
-            let mut acc11 = vld1q_s16(bias_ptr.add(88));
-            let mut acc12 = vld1q_s16(bias_ptr.add(96));
-            let mut acc13 = vld1q_s16(bias_ptr.add(104));
-            let mut acc14 = vld1q_s16(bias_ptr.add(112));
-            let mut acc15 = vld1q_s16(bias_ptr.add(120));
-
-            // Fully unrolled so PATTERN_FEATURE_OFFSETS[feat] constant-folds
-            // into each load's immediate; a runtime loop regresses by ~5%.
-            macro_rules! accumulate_feature {
-                ($feat:expr) => {{
-                    let idx = feature_offset(pattern_feature, $feat) * NUM_REGS;
-                    let base = weights_ptr.add(idx * 8);
-                    acc0 = vaddq_s16(acc0, vld1q_s16(base));
-                    acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
-                    acc2 = vaddq_s16(acc2, vld1q_s16(base.add(16)));
-                    acc3 = vaddq_s16(acc3, vld1q_s16(base.add(24)));
-                    acc4 = vaddq_s16(acc4, vld1q_s16(base.add(32)));
-                    acc5 = vaddq_s16(acc5, vld1q_s16(base.add(40)));
-                    acc6 = vaddq_s16(acc6, vld1q_s16(base.add(48)));
-                    acc7 = vaddq_s16(acc7, vld1q_s16(base.add(56)));
-                    acc8 = vaddq_s16(acc8, vld1q_s16(base.add(64)));
-                    acc9 = vaddq_s16(acc9, vld1q_s16(base.add(72)));
-                    acc10 = vaddq_s16(acc10, vld1q_s16(base.add(80)));
-                    acc11 = vaddq_s16(acc11, vld1q_s16(base.add(88)));
-                    acc12 = vaddq_s16(acc12, vld1q_s16(base.add(96)));
-                    acc13 = vaddq_s16(acc13, vld1q_s16(base.add(104)));
-                    acc14 = vaddq_s16(acc14, vld1q_s16(base.add(112)));
-                    acc15 = vaddq_s16(acc15, vld1q_s16(base.add(120)));
-                }};
-            }
-
-            accumulate_feature!(0);
-            accumulate_feature!(1);
-            accumulate_feature!(2);
-            accumulate_feature!(3);
-            accumulate_feature!(4);
-            accumulate_feature!(5);
-            accumulate_feature!(6);
-            accumulate_feature!(7);
-            accumulate_feature!(8);
-            accumulate_feature!(9);
-            accumulate_feature!(10);
-            accumulate_feature!(11);
-            accumulate_feature!(12);
-            accumulate_feature!(13);
-            accumulate_feature!(14);
-            accumulate_feature!(15);
-            accumulate_feature!(16);
-            accumulate_feature!(17);
-            accumulate_feature!(18);
-            accumulate_feature!(19);
-            accumulate_feature!(20);
-            accumulate_feature!(21);
-            accumulate_feature!(22);
-            accumulate_feature!(23);
-            accumulate_feature!(24);
-            accumulate_feature!(25);
-            accumulate_feature!(26);
-            accumulate_feature!(27);
-            accumulate_feature!(28);
-            accumulate_feature!(29);
-            accumulate_feature!(30);
-            accumulate_feature!(31);
-
             let clamp_max = vdupq_n_s16(ACTIVATION_CLAMP_MAX);
 
             // Squared activation v² >> 10. SQSHLU<5> fuses clamp-to-non-negative
@@ -650,41 +574,126 @@ impl NetworkSmall {
 
             let out_w_ptr = output_layer.weights.as_ptr() as *const i16;
 
-            // Four independent i32x4 accumulators to expose ILP across SIMD issue ports
-            let mut s0 = vdupq_n_s32(0);
-            let mut s1 = vdupq_n_s32(0);
-            let mut s2 = vdupq_n_s32(0);
-            let mut s3 = vdupq_n_s32(0);
+            macro_rules! accumulate_half {
+                ($lane_base:expr) => {{
+                    let mut acc0 = vld1q_s16(bias_ptr.add($lane_base));
+                    let mut acc1 = vld1q_s16(bias_ptr.add($lane_base + 8));
+                    let mut acc2 = vld1q_s16(bias_ptr.add($lane_base + 16));
+                    let mut acc3 = vld1q_s16(bias_ptr.add($lane_base + 24));
+                    let mut acc4 = vld1q_s16(bias_ptr.add($lane_base + 32));
+                    let mut acc5 = vld1q_s16(bias_ptr.add($lane_base + 40));
+                    let mut acc6 = vld1q_s16(bias_ptr.add($lane_base + 48));
+                    let mut acc7 = vld1q_s16(bias_ptr.add($lane_base + 56));
+
+                    // Fully unrolled so PATTERN_FEATURE_OFFSETS[feat] constant-folds
+                    // into each load's immediate; a runtime loop regresses by ~5%.
+                    macro_rules! accumulate_feature {
+                        ($feat:expr) => {{
+                            let idx = feature_offset(pattern_feature, $feat) * PA_OUTPUT_DIMS
+                                + $lane_base;
+                            let base = weights_ptr.add(idx);
+                            acc0 = vaddq_s16(acc0, vld1q_s16(base));
+                            acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
+                            acc2 = vaddq_s16(acc2, vld1q_s16(base.add(16)));
+                            acc3 = vaddq_s16(acc3, vld1q_s16(base.add(24)));
+                            acc4 = vaddq_s16(acc4, vld1q_s16(base.add(32)));
+                            acc5 = vaddq_s16(acc5, vld1q_s16(base.add(40)));
+                            acc6 = vaddq_s16(acc6, vld1q_s16(base.add(48)));
+                            acc7 = vaddq_s16(acc7, vld1q_s16(base.add(56)));
+                        }};
+                    }
+
+                    accumulate_feature!(0);
+                    accumulate_feature!(1);
+                    accumulate_feature!(2);
+                    accumulate_feature!(3);
+                    accumulate_feature!(4);
+                    accumulate_feature!(5);
+                    accumulate_feature!(6);
+                    accumulate_feature!(7);
+                    accumulate_feature!(8);
+                    accumulate_feature!(9);
+                    accumulate_feature!(10);
+                    accumulate_feature!(11);
+                    accumulate_feature!(12);
+                    accumulate_feature!(13);
+                    accumulate_feature!(14);
+                    accumulate_feature!(15);
+                    accumulate_feature!(16);
+                    accumulate_feature!(17);
+                    accumulate_feature!(18);
+                    accumulate_feature!(19);
+                    accumulate_feature!(20);
+                    accumulate_feature!(21);
+                    accumulate_feature!(22);
+                    accumulate_feature!(23);
+                    accumulate_feature!(24);
+                    accumulate_feature!(25);
+                    accumulate_feature!(26);
+                    accumulate_feature!(27);
+                    accumulate_feature!(28);
+                    accumulate_feature!(29);
+                    accumulate_feature!(30);
+                    accumulate_feature!(31);
+
+                    (acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7)
+                }};
+            }
+
+            macro_rules! reduce_dot_sum {
+                ($s0:ident, $s1:ident) => {{ vaddvq_s32(vaddq_s32($s0, $s1)) }};
+            }
 
             macro_rules! dot_block {
-                ($base:expr, $a0:ident, $a1:ident, $a2:ident, $a3:ident) => {{
+                (
+                    $out_base:expr,
+                    $s0:ident,
+                    $s1:ident,
+                    $a0:ident,
+                    $a1:ident,
+                    $a2:ident,
+                    $a3:ident
+                ) => {{
                     let act0 = clamp_and_square!($a0);
                     let act1 = clamp_and_square!($a1);
                     let act2 = clamp_and_square!($a2);
                     let act3 = clamp_and_square!($a3);
-                    let ow0 = vld1q_s16(out_w_ptr.add($base * 8));
-                    let ow1 = vld1q_s16(out_w_ptr.add($base * 8 + 8));
-                    let ow2 = vld1q_s16(out_w_ptr.add($base * 8 + 16));
-                    let ow3 = vld1q_s16(out_w_ptr.add($base * 8 + 24));
-                    s0 = vmlal_s16(s0, vget_low_s16(act0), vget_low_s16(ow0));
-                    s0 = vmlal_high_s16(s0, act0, ow0);
-                    s1 = vmlal_s16(s1, vget_low_s16(act1), vget_low_s16(ow1));
-                    s1 = vmlal_high_s16(s1, act1, ow1);
-                    s2 = vmlal_s16(s2, vget_low_s16(act2), vget_low_s16(ow2));
-                    s2 = vmlal_high_s16(s2, act2, ow2);
-                    s3 = vmlal_s16(s3, vget_low_s16(act3), vget_low_s16(ow3));
-                    s3 = vmlal_high_s16(s3, act3, ow3);
+                    let ow0 = vld1q_s16(out_w_ptr.add($out_base));
+                    let ow1 = vld1q_s16(out_w_ptr.add($out_base + 8));
+                    let ow2 = vld1q_s16(out_w_ptr.add($out_base + 16));
+                    let ow3 = vld1q_s16(out_w_ptr.add($out_base + 24));
+                    $s0 = vmlal_s16($s0, vget_low_s16(act0), vget_low_s16(ow0));
+                    $s0 = vmlal_high_s16($s0, act0, ow0);
+                    $s1 = vmlal_s16($s1, vget_low_s16(act1), vget_low_s16(ow1));
+                    $s1 = vmlal_high_s16($s1, act1, ow1);
+                    $s0 = vmlal_s16($s0, vget_low_s16(act2), vget_low_s16(ow2));
+                    $s0 = vmlal_high_s16($s0, act2, ow2);
+                    $s1 = vmlal_s16($s1, vget_low_s16(act3), vget_low_s16(ow3));
+                    $s1 = vmlal_high_s16($s1, act3, ow3);
                 }};
             }
 
-            dot_block!(0, acc0, acc1, acc2, acc3);
-            dot_block!(4, acc4, acc5, acc6, acc7);
-            dot_block!(8, acc8, acc9, acc10, acc11);
-            dot_block!(12, acc12, acc13, acc14, acc15);
+            let mut total = 0;
+            total += {
+                let mut s0 = vdupq_n_s32(0);
+                let mut s1 = vdupq_n_s32(0);
 
-            let sum01 = vaddq_s32(s0, s1);
-            let sum23 = vaddq_s32(s2, s3);
-            vaddvq_s32(vaddq_s32(sum01, sum23))
+                let (acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7) = accumulate_half!(0);
+                dot_block!(0, s0, s1, acc0, acc1, acc2, acc3);
+                dot_block!(32, s0, s1, acc4, acc5, acc6, acc7);
+                reduce_dot_sum!(s0, s1)
+            };
+            total += {
+                let mut s0 = vdupq_n_s32(0);
+                let mut s1 = vdupq_n_s32(0);
+
+                let (acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7) = accumulate_half!(64);
+                dot_block!(64, s0, s1, acc0, acc1, acc2, acc3);
+                dot_block!(96, s0, s1, acc4, acc5, acc6, acc7);
+                reduce_dot_sum!(s0, s1)
+            };
+
+            total
         }
     }
 
