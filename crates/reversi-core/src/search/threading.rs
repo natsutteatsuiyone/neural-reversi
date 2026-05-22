@@ -19,6 +19,7 @@ use crate::eval::EvalMode;
 use crate::eval::pattern_feature::PatternFeature;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::Selectivity;
+use crate::search::endgame::EndGameCaches;
 use crate::search::node_type::{NodeTypeId, NonPV, PV, Root};
 use crate::search::root_move::RootMoves;
 use crate::search::search_context::SearchContext;
@@ -374,6 +375,12 @@ pub struct Thread {
     /// Cached pool size, avoids `Weak::upgrade()` in `can_split()`.
     pool_size: usize,
 
+    /// Endgame cache set owned by this search thread.
+    ///
+    /// Access is owner-only through `endgame_caches`, on the OS thread that is
+    /// currently executing search work for this `Thread`.
+    endgame_caches: UnsafeCell<EndGameCaches>,
+
     /// Shared flag indicating if the engine is thinking.
     thinking: Arc<AtomicBool>,
 
@@ -403,8 +410,10 @@ pub struct Thread {
     exit: AtomicBool,
 }
 
-// SAFETY: `active_split_point` (the only `UnsafeCell`) is mediated by
-// `mutex_for_state`. All other concurrent fields are either atomic
+// SAFETY: `active_split_point` is mediated by `mutex_for_state`.
+// `endgame_caches` is owner-only: search code only accesses the cache set
+// through the `Thread` belonging to the currently executing OS thread. All
+// other concurrent fields are either atomic
 // (`searching`, `exit`, `ready`, `split_points_size`,
 // `local_seen_cutoff_epoch`, `local_chain_cutoff`) or immutable after
 // construction (`split_points`).
@@ -433,6 +442,7 @@ impl Thread {
             local_seen_cutoff_epoch: AtomicU64::new(0),
             local_chain_cutoff: AtomicBool::new(false),
             pool_size,
+            endgame_caches: UnsafeCell::new(EndGameCaches::for_thread_count(pool_size)),
             thinking,
             split_points_size: Align64(AtomicUsize::new(0)),
             split_points,
@@ -443,6 +453,15 @@ impl Thread {
         }
     }
 
+    /// Borrows this thread's endgame cache set.
+    #[inline]
+    #[allow(clippy::mut_from_ref)]
+    pub(in crate::search) fn endgame_caches(&self) -> &mut EndGameCaches {
+        // SAFETY: endgame caches are owner-only search scratch state. Search
+        // recursion receives the `Thread` for the currently executing OS thread,
+        // and no cross-thread code calls this method.
+        unsafe { &mut *self.endgame_caches.get() }
+    }
     /// Acquires the thread's state lock.
     pub fn lock(&self) {
         self.mutex_for_state.lock();

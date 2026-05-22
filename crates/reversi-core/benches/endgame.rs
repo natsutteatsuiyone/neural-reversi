@@ -7,8 +7,8 @@ use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::eval::Eval;
 use reversi_core::probcut::Selectivity;
-use reversi_core::search::null_window_search;
 use reversi_core::search::search_context::SearchContext;
+use reversi_core::search::{EndGameCaches, null_window_search};
 use reversi_core::transposition_table::TranspositionTable;
 use reversi_core::types::Score;
 
@@ -213,9 +213,10 @@ fn bench_cases<const N_EMPTY: u32>(
     group.measurement_time(Duration::from_secs(5));
 
     for case in cases {
+        let mut caches = EndGameCaches::for_thread_count(1);
         let mut ctx = make_context(&case.board, eval, tt);
         assert_eq!(
-            null_window_search(&mut ctx, &case.board, case.alpha),
+            null_window_search(&mut ctx, &case.board, case.alpha, &mut caches),
             case.expected,
             "benchmark case {} expected score mismatch",
             case.name
@@ -228,6 +229,7 @@ fn bench_cases<const N_EMPTY: u32>(
                     black_box(&mut ctx),
                     black_box(&case.board),
                     black_box(case.alpha),
+                    black_box(&mut caches),
                 );
                 black_box(score)
             });

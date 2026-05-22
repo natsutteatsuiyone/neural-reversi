@@ -42,6 +42,7 @@ pub trait SearchStrategy: Copy + Clone + 'static {
         depth: Depth,
         alpha: ScaledScore,
         beta: ScaledScore,
+        thread: &Arc<Thread>,
     ) -> ScaledScore;
 
     /// Calls the phase-specific probcut implementation.
@@ -83,6 +84,7 @@ impl SearchStrategy for MidGameStrategy {
         depth: Depth,
         alpha: ScaledScore,
         beta: ScaledScore,
+        _thread: &Arc<Thread>,
     ) -> ScaledScore {
         match depth {
             0 => midgame::evaluate(ctx, board),
@@ -125,8 +127,10 @@ impl SearchStrategy for EndGameStrategy {
         _depth: Depth,
         alpha: ScaledScore,
         _beta: ScaledScore,
+        thread: &Arc<Thread>,
     ) -> ScaledScore {
-        let score = endgame::null_window_search(ctx, board, alpha.to_disc_diff());
+        let score =
+            endgame::null_window_search(ctx, board, alpha.to_disc_diff(), thread.endgame_caches());
         ScaledScore::from_disc_diff(score)
     }
 

@@ -19,7 +19,7 @@ pub mod threading;
 pub mod time_control;
 
 #[doc(hidden)]
-pub use endgame::null_window_search;
+pub use endgame::{EndGameCaches, null_window_search};
 
 use std::sync::Arc;
 
@@ -482,7 +482,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         ctx.prepare_pv();
     } else {
         if depth <= SS::DEPTH_TO_SHALLOW {
-            return SS::shallow_search(ctx, board, depth, alpha, beta);
+            return SS::shallow_search(ctx, board, depth, alpha, beta, thread);
         }
 
         if let Some(score) = stability_cutoff(board, ctx.empty_list.count(), alpha.to_disc_diff()) {

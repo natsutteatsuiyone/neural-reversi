@@ -2,7 +2,6 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c>
 
-use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::bitboard::Bitboard;
@@ -33,11 +32,17 @@ pub const DEPTH_TO_NWS: Depth = 11;
 /// Depth threshold for switching to specialized shallow search.
 const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 
-/// Memory budget for the EC cache, in bytes.
-const EC_CACHE_BYTES: usize = 128 * 1024;
+/// Total EC cache budget distributed across endgame search threads, in bytes.
+const TOTAL_EC_CACHE_BYTES: usize = 4 * 1024 * 1024;
 
-/// Memory budget for the shallow cache, in bytes.
-const SHALLOW_CACHE_BYTES: usize = 128 * 1024;
+/// Total shallow cache budget distributed across endgame search threads, in bytes.
+const TOTAL_SHALLOW_CACHE_BYTES: usize = 256 * 1024;
+
+/// Minimum per-thread EC cache budget, in bytes.
+const MIN_EC_CACHE_BYTES: usize = 128 * 1024;
+
+/// Minimum per-thread shallow cache budget, in bytes.
+const MIN_SHALLOW_CACHE_BYTES: usize = 32 * 1024;
 
 /// Initial aspiration window half-width.
 const INITIAL_ASPIRATION_WINDOW: ScaledScore = ScaledScore::from_disc_diff(1);
@@ -48,22 +53,22 @@ const INTER_SELECTIVITY_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
 /// Initial aspiration window widening delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
 
-struct EndGameCaches {
+#[doc(hidden)]
+pub struct EndGameCaches {
     ec: EndGameCache,
     shallow: EndGameCache,
 }
 
 impl EndGameCaches {
-    fn new() -> Self {
+    pub fn for_thread_count(n_threads: usize) -> Self {
+        let n_threads = n_threads.max(1);
         Self {
-            ec: EndGameCache::new(EC_CACHE_BYTES),
-            shallow: EndGameCache::new(SHALLOW_CACHE_BYTES),
+            ec: EndGameCache::new((TOTAL_EC_CACHE_BYTES / n_threads).max(MIN_EC_CACHE_BYTES)),
+            shallow: EndGameCache::new(
+                (TOTAL_SHALLOW_CACHE_BYTES / n_threads).max(MIN_SHALLOW_CACHE_BYTES),
+            ),
         }
     }
-}
-
-thread_local! {
-    static ENDGAME_CACHES: RefCell<EndGameCaches> = RefCell::new(EndGameCaches::new());
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
@@ -301,13 +306,17 @@ pub fn try_probcut(
 ///
 /// Dispatches to the optimal solver based on empty square count.
 #[inline(always)]
-pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
+#[doc(hidden)]
+pub fn null_window_search(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    caches: &mut EndGameCaches,
+) -> Score {
     let n_empties = ctx.empty_list.count();
 
     if n_empties > DEPTH_TO_SHALLOW_SEARCH {
-        return ENDGAME_CACHES.with_borrow_mut(|caches| {
-            null_window_search_with_ec(ctx, board, alpha, &mut caches.ec, &mut caches.shallow)
-        });
+        return null_window_search_with_ec(ctx, board, alpha, &mut caches.ec, &mut caches.shallow);
     }
 
     match n_empties {
@@ -331,8 +340,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
             let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
             solve4(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
-        _ => ENDGAME_CACHES
-            .with_borrow_mut(|caches| shallow_search(ctx, board, alpha, &mut caches.shallow)),
+        _ => shallow_search(ctx, board, alpha, &mut caches.shallow),
     }
 }
 
