@@ -309,8 +309,8 @@ PatternFeature ─►            │
   `forward_avx512 / forward_avx2 / forward_neon / forward_scalar`. The
   SIMD paths pre-permute the matrices (`simd_layout::permute_rows`) so
   loads stay contiguous.
-- The working buffers (`NetworkBuffers`) are thread-local; one evaluation
-  is computed in-place.
+- The working buffers (`NetworkBuffers`) are stack-allocated per call; one
+  evaluation is computed in-place.
 - The output is shifted right by `OUTPUT_WEIGHT_SCALE_BITS`, clamped to
   `±INF`, and saturated into `ScaledScore::MIN+1 ..= MAX-1`.
 

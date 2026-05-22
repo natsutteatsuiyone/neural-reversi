@@ -48,7 +48,7 @@ type L2Layer =
     LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>;
 type FinalOutputLayer = OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>;
 
-/// Thread-local working buffers for network computation.
+/// Working buffers for one network forward pass.
 struct NetworkBuffers {
     l1_input: Align64<[u8; L1_PADDED_INPUT_DIMS]>,
     l1_li_out: Align64<[i32; L1_PADDED_OUTPUT_DIMS]>,
@@ -58,15 +58,11 @@ struct NetworkBuffers {
 }
 
 impl NetworkBuffers {
-    #[inline]
+    #[inline(always)]
     fn new() -> Self {
-        Self {
-            l1_input: Align64([0; L1_PADDED_INPUT_DIMS]),
-            l1_li_out: Align64([0; L1_PADDED_OUTPUT_DIMS]),
-            l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
-            l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
-            l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
-        }
+        // SAFETY: all fields are `u8`/`i32` arrays; the all-zero pattern is
+        // valid and is what the SIMD kernels need in the L1 padding tail.
+        unsafe { std::mem::MaybeUninit::zeroed().assume_init() }
     }
 
     #[inline(always)]
@@ -87,11 +83,6 @@ impl NetworkBuffers {
             &self.l1_input[PA_INPUT_START..PA_INPUT_END],
         ]
     }
-}
-
-thread_local! {
-    static NETWORK_BUFFERS: std::cell::RefCell<NetworkBuffers> =
-        std::cell::RefCell::new(NetworkBuffers::new());
 }
 
 /// Layer stack for a specific game ply.
@@ -200,15 +191,13 @@ impl Network {
         debug_assert!(ply < self.layer_stacks.len());
         let mobility = board.get_moves().count() as u8;
 
-        NETWORK_BUFFERS.with(|buffers| {
-            let mut buffers = buffers.borrow_mut();
-            self.base_input
-                .forward(pattern_feature, buffers.base_input_mut());
-            self.pa_input
-                .forward(pattern_feature, ply, buffers.pa_input_mut());
-            buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility.saturating_mul(MOBILITY_SCALE);
-            let score = self.layer_stacks[ply].forward(&mut buffers);
-            score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
-        })
+        let mut buffers = NetworkBuffers::new();
+        self.base_input
+            .forward(pattern_feature, buffers.base_input_mut());
+        self.pa_input
+            .forward(pattern_feature, ply, buffers.pa_input_mut());
+        buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility.saturating_mul(MOBILITY_SCALE);
+        let score = self.layer_stacks[ply].forward(&mut buffers);
+        score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 }
