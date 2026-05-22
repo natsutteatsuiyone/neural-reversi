@@ -656,6 +656,9 @@ fn solve4(
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
+        }
         all(target_arch = "aarch64", target_feature = "neon") => {
             solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
@@ -675,6 +678,7 @@ fn solve4(
         target_feature = "avx512cd",
         target_feature = "avx512vl"
     ),
+    all(target_arch = "x86_64", target_feature = "avx2"),
     all(target_arch = "aarch64", target_feature = "neon")
 ))]
 fn solve4_eager(
@@ -750,77 +754,79 @@ fn solve4_eager(
         return score.max(best_score);
     }
 
-    if best_score == -SCORE_INF {
-        let pass = board.switch_players();
-        best_score = SCORE_INF;
-        let (fo1, fo2, fo3, fo4) = flip::flip4(sq1, sq2, sq3, sq4, opponent, player);
+    if best_score != -SCORE_INF {
+        return best_score;
+    }
 
-        if !fo1.is_empty() {
-            best_score = solve3(
-                ctx,
-                &pass.make_move_with_flipped(fo1, sq1),
-                alpha,
-                sq2,
-                sq3,
-                sq4,
-            );
-            if best_score <= alpha {
-                return best_score;
-            }
-        }
+    let pass = board.switch_players();
+    best_score = SCORE_INF;
+    let (fo1, fo2, fo3, fo4) = flip::flip4(sq1, sq2, sq3, sq4, opponent, player);
 
-        if !fo2.is_empty() {
-            let score = solve3(
-                ctx,
-                &pass.make_move_with_flipped(fo2, sq2),
-                alpha,
-                sq1,
-                sq3,
-                sq4,
-            );
-            if score <= alpha {
-                return score;
-            }
-            best_score = score.min(best_score);
+    if !fo1.is_empty() {
+        best_score = solve3(
+            ctx,
+            &pass.make_move_with_flipped(fo1, sq1),
+            alpha,
+            sq2,
+            sq3,
+            sq4,
+        );
+        if best_score <= alpha {
+            return best_score;
         }
+    }
 
-        if !fo3.is_empty() {
-            let score = solve3(
-                ctx,
-                &pass.make_move_with_flipped(fo3, sq3),
-                alpha,
-                sq1,
-                sq2,
-                sq4,
-            );
-            if score <= alpha {
-                return score;
-            }
-            best_score = score.min(best_score);
+    if !fo2.is_empty() {
+        let score = solve3(
+            ctx,
+            &pass.make_move_with_flipped(fo2, sq2),
+            alpha,
+            sq1,
+            sq3,
+            sq4,
+        );
+        if score <= alpha {
+            return score;
         }
+        best_score = score.min(best_score);
+    }
 
-        if !fo4.is_empty() {
-            let score = solve3(
-                ctx,
-                &pass.make_move_with_flipped(fo4, sq4),
-                alpha,
-                sq1,
-                sq2,
-                sq3,
-            );
-            return score.min(best_score);
+    if !fo3.is_empty() {
+        let score = solve3(
+            ctx,
+            &pass.make_move_with_flipped(fo3, sq3),
+            alpha,
+            sq1,
+            sq2,
+            sq4,
+        );
+        if score <= alpha {
+            return score;
         }
+        best_score = score.min(best_score);
+    }
 
-        if best_score == SCORE_INF {
-            return board.solve(4);
-        }
+    if !fo4.is_empty() {
+        let score = solve3(
+            ctx,
+            &pass.make_move_with_flipped(fo4, sq4),
+            alpha,
+            sq1,
+            sq2,
+            sq3,
+        );
+        return score.min(best_score);
+    }
+
+    if best_score == SCORE_INF {
+        return board.solve(4);
     }
 
     best_score
 }
 
 /// Fallback `solve4` dispatch target: the original
-/// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
+/// `try_make_move`-guarded, short-circuiting path, kept so the scalar
 /// fallback is not slowed by eager unguarded flips.
 #[cfg(not(any(
     all(
@@ -828,6 +834,7 @@ fn solve4_eager(
         target_feature = "avx512cd",
         target_feature = "avx512vl"
     ),
+    all(target_arch = "x86_64", target_feature = "avx2"),
     all(target_arch = "aarch64", target_feature = "neon")
 )))]
 fn solve4_fallback(
@@ -928,6 +935,9 @@ fn solve3(
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
         }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
+        }
         all(target_arch = "aarch64", target_feature = "neon") => {
             solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
         }
@@ -946,6 +956,7 @@ fn solve3(
         target_feature = "avx512cd",
         target_feature = "avx512vl"
     ),
+    all(target_arch = "x86_64", target_feature = "avx2"),
     all(target_arch = "aarch64", target_feature = "neon")
 ))]
 fn solve3_eager(
@@ -1007,10 +1018,9 @@ fn solve3_eager(
         return best_score;
     }
 
-    // All player moves illegal: opponent to move.
     ctx.increment_nodes();
-    best_score = SCORE_INF;
     let pass = board.switch_players();
+    best_score = SCORE_INF;
     let (fo1, fo2, fo3) = flip::flip3(sq1, sq2, sq3, opponent, player);
 
     if !fo1.is_empty() {
@@ -1041,7 +1051,7 @@ fn solve3_eager(
 }
 
 /// Fallback `solve3` dispatch target: the original
-/// `try_make_move`-guarded, short-circuiting path, kept so the scalar/AVX2
+/// `try_make_move`-guarded, short-circuiting path, kept so the scalar
 /// fallback is not slowed by eager unguarded flips.
 #[cfg(not(any(
     all(
@@ -1049,6 +1059,7 @@ fn solve3_eager(
         target_feature = "avx512cd",
         target_feature = "avx512vl"
     ),
+    all(target_arch = "x86_64", target_feature = "avx2"),
     all(target_arch = "aarch64", target_feature = "neon")
 )))]
 fn solve3_fallback(

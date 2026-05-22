@@ -58,6 +58,11 @@ pub fn flip2(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboard, B
             let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
         }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            let ctx = flip_avx2::BoardCtx::new(p.bits(), o.bits());
+            let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
+            (Bitboard::new(f0), Bitboard::new(f1))
+        }
         all(target_arch = "aarch64", target_feature = "neon") => {
             let ctx = unsafe { flip_neon::BoardCtx::new(p.bits(), o.bits()) };
             let (f0, f1) = unsafe { ctx.flip2(sq1.index(), sq2.index()) };
@@ -84,6 +89,11 @@ pub fn flip3(
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
+            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
+        }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            let ctx = flip_avx2::BoardCtx::new(p.bits(), o.bits());
             let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
@@ -114,6 +124,11 @@ pub fn flip4(
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
             let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
+            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
+        }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            let ctx = flip_avx2::BoardCtx::new(p.bits(), o.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
         }

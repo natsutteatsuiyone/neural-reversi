@@ -41,6 +41,21 @@ impl<const N_EMPTY: u32> EndgameCase<N_EMPTY> {
             expected,
         }
     }
+
+    fn from_board(name: &'static str, board: Board, alpha: Score, expected: Score) -> Self {
+        assert_eq!(
+            board.get_empty_count(),
+            N_EMPTY,
+            "benchmark case {name} must have exactly {N_EMPTY} empties"
+        );
+
+        Self {
+            name,
+            board,
+            alpha,
+            expected,
+        }
+    }
 }
 
 fn solve4_cases() -> Vec<EndgameCase<4>> {
@@ -70,6 +85,68 @@ fn solve4_cases() -> Vec<EndgameCase<4>> {
             "pass",
             concat!(
                 "OOOOOOOO", "OOOOOOOO", "OO---OOO", "OO-XOOOO", "OOOOOOOO", "OOOOOOOO", "OOOOOOOO",
+                "OOOOOOOO"
+            ),
+            Disc::Black,
+            -62,
+            -64,
+        ),
+    ]
+}
+
+fn solve4_pass_cases() -> Vec<EndgameCase<4>> {
+    let base = Board::from_string(
+        concat!(
+            "OOOOOOOO", "OOOOOOOO", "OO---OOO", "OO-XOOOO", "OOOOOOOO", "OOOOOOOO", "OOOOOOOO",
+            "OOOOOOOO"
+        ),
+        Disc::Black,
+    )
+    .expect("benchmark board must parse");
+    let cases = [
+        ("base", base),
+        ("flip_h", base.flip_horizontal()),
+        ("flip_v", base.flip_vertical()),
+        ("rot90", base.rotate_90_clockwise()),
+        ("rot180", base.rotate_180_clockwise()),
+        ("rot270", base.rotate_270_clockwise()),
+        ("diag_a1h8", base.flip_diag_a1h8()),
+        ("diag_a8h1", base.flip_diag_a8h1()),
+    ];
+
+    cases
+        .into_iter()
+        .map(|(name, board)| EndgameCase::from_board(name, board, -62, -64))
+        .collect()
+}
+
+fn solve3_cases() -> Vec<EndgameCase<3>> {
+    vec![
+        EndgameCase::new(
+            "case1",
+            "XXXXXXXXXXOOOOOOXXXOXOOOXXOOOOOOXXXOOOOOXXOOXOOOXO-OOOOOOOO-XXX-",
+            Disc::White,
+            31,
+            -12,
+        ),
+        EndgameCase::new(
+            "case2",
+            "XXXXXX-OXXXXXXOOXXXOXOOOXXXXOOOOXXXXOOOOXXXOXOOOXXXXOX-XOOOOOOX-",
+            Disc::White,
+            19,
+            -10,
+        ),
+        EndgameCase::new(
+            "case3",
+            "XXXXXXXXXXOXOOXXXXXXXOOXXXXXXXOOXXXXXXXOXXXXXXX-XXXXXX-XXXXXXOO-",
+            Disc::Black,
+            -53,
+            52,
+        ),
+        EndgameCase::new(
+            "pass",
+            concat!(
+                "OOOOOOOO", "OOOOOOOO", "OOX--OOO", "OO-XOOOO", "OOOOOOOO", "OOOOOOOO", "OOOOOOOO",
                 "OOOOOOOO"
             ),
             Disc::Black,
@@ -165,11 +242,15 @@ fn endgame_benchmark(c: &mut Criterion) {
         Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
     );
     let tt = Arc::new(TranspositionTable::new(0));
+    let solve3_cases = solve3_cases();
     let solve4_cases = solve4_cases();
+    let solve4_pass_cases = solve4_pass_cases();
     let shallow5_cases = shallow5_cases();
     let shallow6_cases = shallow6_cases();
 
+    bench_cases(c, "endgame::solve3", &solve3_cases, &eval, &tt);
     bench_cases(c, "endgame::solve4", &solve4_cases, &eval, &tt);
+    bench_cases(c, "endgame::solve4_pass", &solve4_pass_cases, &eval, &tt);
     bench_cases(c, "endgame::shallow_search::5", &shallow5_cases, &eval, &tt);
     bench_cases(c, "endgame::shallow_search::6", &shallow6_cases, &eval, &tt);
 }
