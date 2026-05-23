@@ -89,6 +89,12 @@ pub struct SplitPointState {
     /// Parent split point in the tree hierarchy.
     parent_split_point: Option<Arc<SplitPoint>>,
 
+    /// Depth in the split-point tree.
+    ///
+    /// Immutable after initialization, like `parent_split_point`; cached so
+    /// idle helpers do not walk ancestors when choosing which split point to join.
+    level: usize,
+
     /// Whether this split point uses endgame search strategy.
     is_endgame: bool,
 
@@ -255,6 +261,7 @@ impl Default for SplitPoint {
                 counters: std::sync::Mutex::new(SearchCounters::default()),
                 task: None,
                 parent_split_point: None,
+                level: 0,
                 is_endgame: false,
                 cut_node: false,
             }),
@@ -695,6 +702,10 @@ impl Thread {
         let sp_state = sp.state_mut();
         sp_state.owner_thread_idx = self.idx;
         sp_state.parent_split_point = self.active_split_point().clone();
+        sp_state.level = sp_state
+            .parent_split_point
+            .as_ref()
+            .map_or(0, |parent| parent.state().level + 1);
         sp_state.helpers_mask.clear();
         sp_state.helpers_mask.set(self.idx);
         sp_state.depth = depth;
@@ -949,7 +960,7 @@ impl Thread {
         };
 
         let mut best_sp = None;
-        let mut min_level = i32::MAX;
+        let mut min_level = usize::MAX;
 
         for th in &pool.threads {
             // split_points_size is atomic; Acquire pairs with Release in split()/finalize_split_point().
@@ -973,15 +984,7 @@ impl Thread {
                 continue;
             }
 
-            // Calculate level by walking the split point's parent chain.
-            // parent_split_point is immutable after initialization in split().
-            let mut level = 0;
-            let mut ancestor = sp_state.parent_split_point.as_ref();
-            while let Some(p) = ancestor {
-                level += 1;
-                ancestor = p.state().parent_split_point.as_ref();
-            }
-
+            let level = sp_state.level;
             if level < min_level {
                 min_level = level;
                 best_sp = Some(sp);
