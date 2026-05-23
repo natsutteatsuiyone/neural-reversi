@@ -80,9 +80,6 @@ pub struct SplitPointState {
     /// Search depth remaining from this position.
     depth: Depth,
 
-    /// Accumulated search counters from all threads that searched this split point.
-    counters: std::sync::Mutex<SearchCounters>,
-
     /// Task data containing the position and search context.
     pub task: Option<SplitPointTask>,
 
@@ -234,12 +231,19 @@ pub struct SplitPoint {
     /// split-point lock without creating a `&mut SplitPointState` that aliases
     /// lock-free `state()` borrows in late-join pre-checks.
     pv: UnsafeCell<[Square; MAX_PLY]>,
+
+    /// Accumulated search counters from all threads that searched this split point.
+    ///
+    /// Stored outside `state` so active searchers can merge under the
+    /// split-point lock without creating a `&mut SplitPointState` that aliases
+    /// lock-free `state()` borrows in late-join pre-checks.
+    counters: UnsafeCell<SearchCounters>,
 }
 
 // SAFETY: `state` access is mediated by the spinlock or through atomic fields.
-// `move_iter` and `pv` are mutated only while the split-point lock is held or
-// after all searchers finish (each searcher resets `helpers_mask` with Release
-// before the owner proceeds).
+// `move_iter`, `pv`, and `counters` are mutated only while the split-point lock
+// is held or after all searchers finish (each searcher resets `helpers_mask`
+// with Release before the owner proceeds).
 unsafe impl Sync for SplitPoint {}
 
 impl Default for SplitPoint {
@@ -258,7 +262,6 @@ impl Default for SplitPoint {
                 owner_thread_idx: 0,
                 helpers_mask: Align64(AtomicBitSet::new()),
                 depth: 0,
-                counters: std::sync::Mutex::new(SearchCounters::default()),
                 task: None,
                 parent_split_point: None,
                 level: 0,
@@ -267,6 +270,7 @@ impl Default for SplitPoint {
             }),
             move_iter: UnsafeCell::new(None),
             pv: UnsafeCell::new([Square::None; MAX_PLY]),
+            counters: UnsafeCell::new(SearchCounters::default()),
         }
     }
 }
@@ -334,6 +338,29 @@ impl SplitPoint {
         // SAFETY: Called after all searchers have finished this split point,
         // so no concurrent writer exists.
         unsafe { &*self.pv.get() }
+    }
+
+    /// Resets counters while initializing or reusing a split point.
+    #[inline]
+    fn reset_counters_locked(&self) {
+        // SAFETY: Caller holds the split-point lock, or no helpers are active.
+        unsafe { *self.counters.get() = SearchCounters::default() };
+    }
+
+    /// Merges helper counters into this split point's aggregate counters.
+    #[inline]
+    fn merge_counters_locked(&self, counters: &SearchCounters) {
+        // SAFETY: Caller holds the split-point lock, so no other writer can
+        // access the aggregate counters concurrently.
+        unsafe { (&mut *self.counters.get()).merge(counters) };
+    }
+
+    /// Takes counters after all searchers have finished this split point.
+    #[inline]
+    fn take_counters_after_finished(&self) -> SearchCounters {
+        // SAFETY: The owner calls this only after observing all `helpers_mask`
+        // bits cleared with Acquire, so no searcher can still merge counters.
+        unsafe { std::mem::take(&mut *self.counters.get()) }
     }
 
     /// Acquires the split point's lock.
@@ -664,13 +691,13 @@ impl Thread {
 
         // All searchers have finished this split point, but other threads may
         // still hold brief lock-free `&SplitPointState` borrows via
-        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`): `pv` lives
-        // outside `SplitPointState`, and `counters` uses an interior `Mutex`,
-        // so neither requires `&mut SplitPointState`; this follows the same aliasing discipline
-        // as the atomic fields.
+        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`): `pv` and
+        // `counters` live outside `SplitPointState`, so neither requires
+        // `&mut SplitPointState`; this follows the same aliasing discipline as
+        // the atomic fields.
         let sp_state = sp.state();
         ctx.set_pv(sp.pv());
-        let counters = std::mem::take(&mut *sp_state.counters.lock().unwrap());
+        let counters = sp.take_counters_after_finished();
 
         (sp_state.best_score(), sp_state.best_move(), counters)
     }
@@ -727,7 +754,7 @@ impl Thread {
             p_feature: *ctx.pattern_features.p_feature(ply),
             o_feature: *ctx.pattern_features.o_feature(ply),
         });
-        *sp_state.counters.lock().unwrap() = SearchCounters::default();
+        sp.reset_counters_locked();
         sp_state.clear_cutoff();
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
         sp.copy_pv(ctx.get_pv());
@@ -820,12 +847,12 @@ impl Thread {
 
                 // Publish counters before clearing helpers_mask: the Release on
                 // reset() pairs with the owner's Acquire in helpers_mask.none().
-                // Stay on `sp.state()` (`&`): the Mutex provides interior
-                // mutability for `counters`, and the remaining writes are
-                // atomic, so this path stays aliasing-compatible with
-                // concurrent lock-free readers in `try_late_join`.
+                // Stay on `sp.state()` (`&`): counters live outside `state`,
+                // and the remaining writes are atomic, so this path stays
+                // aliasing-compatible with concurrent lock-free readers in
+                // `try_late_join`.
                 let sp_state = sp.state();
-                sp_state.counters.lock().unwrap().merge(&ctx.counters);
+                sp.merge_counters_locked(&ctx.counters);
                 sp_state.set_all_helpers_searching(false);
                 sp_state.helpers_mask.reset(self.idx);
 
