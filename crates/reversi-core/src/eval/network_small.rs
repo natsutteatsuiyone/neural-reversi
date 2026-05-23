@@ -164,6 +164,7 @@ impl NetworkSmall {
     /// # Panics
     ///
     /// Panics if `ply` is outside the endgame range `[30, 60)`.
+    #[inline(always)]
     pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
         debug_assert!(ply >= ENDGAME_START_PLY);
         debug_assert!(ply < ENDGAME_START_PLY + NUM_OUTPUT_LAYERS);
