@@ -459,7 +459,7 @@ impl std::fmt::Display for Bitboard {
 
 /// Returns the legal moves for the player.
 ///
-/// Dispatches to the best available SIMD implementation at compile time.
+/// Dispatches to the best available implementation at compile time.
 ///
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L822>
 #[inline(always)]
@@ -471,44 +471,73 @@ fn get_moves(player: u64, opponent: u64) -> u64 {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { get_moves_avx2(player, opponent) }
         }
-        all(target_arch = "aarch64", target_feature = "neon") => {
-            unsafe { get_moves_neon(player, opponent) }
-        }
         all(target_arch = "wasm32", target_feature = "simd128") => {
             get_moves_wasm(player, opponent)
         }
         _ => {
-            get_moves_fallback(player, opponent)
+            get_moves_portable(player, opponent)
         }
     }
 }
 
-/// Scalar fallback implementation of `get_moves` for architectures without SIMD.
-#[inline(always)]
-#[allow(dead_code)]
-fn get_moves_fallback(player: u64, opponent: u64) -> u64 {
-    let empty = !(player | opponent);
-    let diag_opp = opponent & DIAGONAL_MASK;
-    (get_some_moves(player, diag_opp, 7) & empty)
-        | (get_some_moves(player, diag_opp, 9) & empty)
-        | (get_some_moves(player, opponent & HORIZONTAL_MASK, 1) & empty)
-        | (get_some_moves(player, opponent & VERTICAL_MASK, 8) & empty)
-}
-
-/// Propagates flipped discs bidirectionally along a given axis for move generation.
+/// Portable scalar implementation of `get_moves`.
 ///
-/// Shifts in both `<< dir` and `>> dir` simultaneously, so a single call
-/// covers both directions of an axis (e.g., left and right for horizontal).
+/// Direction-specific scalar implementation used when no faster `get_moves`
+/// SIMD path is selected.
 #[inline(always)]
 #[allow(dead_code)]
-fn get_some_moves(b: u64, mask: u64, dir: u32) -> u64 {
-    let mut flip = ((b << dir) | (b >> dir)) & mask;
-    flip |= ((flip << dir) | (flip >> dir)) & mask;
-    flip |= ((flip << dir) | (flip >> dir)) & mask;
-    flip |= ((flip << dir) | (flip >> dir)) & mask;
-    flip |= ((flip << dir) | (flip >> dir)) & mask;
-    flip |= ((flip << dir) | (flip >> dir)) & mask;
-    (flip << dir) | (flip >> dir)
+fn get_moves_portable(player: u64, opponent: u64) -> u64 {
+    let h_opp = opponent & HORIZONTAL_MASK;
+
+    let mut flip7 = h_opp & (player << 7);
+    let mut flip9 = h_opp & (player << 9);
+    let mut flip8 = opponent & (player << 8);
+    let mut flip1 = h_opp & (player << 1);
+
+    flip7 |= h_opp & (flip7 << 7);
+    flip9 |= h_opp & (flip9 << 9);
+    flip8 |= opponent & (flip8 << 8);
+    let mut moves = h_opp.wrapping_add(flip1);
+
+    let mut pre7 = h_opp & (h_opp << 7);
+    let mut pre9 = h_opp & (h_opp << 9);
+    let mut pre8 = opponent & (opponent << 8);
+
+    flip7 |= pre7 & (flip7 << 14);
+    flip9 |= pre9 & (flip9 << 18);
+    flip8 |= pre8 & (flip8 << 16);
+    flip7 |= pre7 & (flip7 << 14);
+    flip9 |= pre9 & (flip9 << 18);
+    flip8 |= pre8 & (flip8 << 16);
+
+    moves |= (flip7 << 7) | (flip9 << 9) | (flip8 << 8);
+
+    flip7 = h_opp & (player >> 7);
+    flip9 = h_opp & (player >> 9);
+    flip8 = opponent & (player >> 8);
+    flip1 = h_opp & (player >> 1);
+
+    flip7 |= h_opp & (flip7 >> 7);
+    flip9 |= h_opp & (flip9 >> 9);
+    flip8 |= opponent & (flip8 >> 8);
+    flip1 |= h_opp & (flip1 >> 1);
+
+    pre7 >>= 7;
+    pre9 >>= 9;
+    pre8 >>= 8;
+    let pre1 = h_opp & (h_opp >> 1);
+
+    flip7 |= pre7 & (flip7 >> 14);
+    flip9 |= pre9 & (flip9 >> 18);
+    flip8 |= pre8 & (flip8 >> 16);
+    flip1 |= pre1 & (flip1 >> 2);
+    flip7 |= pre7 & (flip7 >> 14);
+    flip9 |= pre9 & (flip9 >> 18);
+    flip8 |= pre8 & (flip8 >> 16);
+    flip1 |= pre1 & (flip1 >> 2);
+
+    moves |= (flip7 >> 7) | (flip9 >> 9) | (flip8 >> 8) | (flip1 >> 1);
+    moves & !(player | opponent)
 }
 
 /// Reduces a 256-bit vector to a single `u64` by OR-ing all four 64-bit lanes.
@@ -702,75 +731,6 @@ fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
     (h_moves | v_moves | d7_moves | d9_moves) & empty
 }
 
-/// Expands a ray bidirectionally using NEON.
-///
-/// Two axes with different shift amounts are packed into the two lanes of a
-/// 128-bit vector. `sh` holds the per-lane signed shift amount: positive for
-/// forward propagation, negative for the opposite direction. NEON's
-/// `vshlq_u64` treats the amount as signed and accepts per-lane values, so a
-/// single helper covers both directions through the sign of `sh`.
-///
-/// Mirrors the AVX2/AVX-512 formulation: after the initial step, precompute the
-/// opponent prefix masks for `d` and reuse them for the two `2d` rounds instead
-/// of rebuilding the shifted mask chain independently for both directions.
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-#[target_feature(enable = "neon")]
-#[inline]
-fn get_some_moves_neon(
-    player: std::arch::aarch64::uint64x2_t,
-    mask: std::arch::aarch64::uint64x2_t,
-    sh: std::arch::aarch64::int64x2_t,
-) -> std::arch::aarch64::uint64x2_t {
-    use std::arch::aarch64::*;
-    let sh_neg = vnegq_s64(sh);
-    let mut fl = vandq_u64(mask, vshlq_u64(player, sh));
-    let mut fr = vandq_u64(mask, vshlq_u64(player, sh_neg));
-
-    fl = vorrq_u64(fl, vandq_u64(mask, vshlq_u64(fl, sh)));
-    fr = vorrq_u64(fr, vandq_u64(mask, vshlq_u64(fr, sh_neg)));
-
-    let pre_l = vandq_u64(mask, vshlq_u64(mask, sh));
-    let pre_r = vshlq_u64(pre_l, sh_neg);
-    let sh2 = vaddq_s64(sh, sh);
-    let sh2_neg = vnegq_s64(sh2);
-
-    fl = vorrq_u64(fl, vandq_u64(pre_l, vshlq_u64(fl, sh2)));
-    fr = vorrq_u64(fr, vandq_u64(pre_r, vshlq_u64(fr, sh2_neg)));
-
-    fl = vorrq_u64(fl, vandq_u64(pre_l, vshlq_u64(fl, sh2)));
-    fr = vorrq_u64(fr, vandq_u64(pre_r, vshlq_u64(fr, sh2_neg)));
-
-    vorrq_u64(vshlq_u64(fl, sh), vshlq_u64(fr, sh_neg))
-}
-
-/// NEON-optimized implementation of `get_moves`.
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-#[target_feature(enable = "neon")]
-#[inline]
-fn get_moves_neon(player: u64, opponent: u64) -> u64 {
-    use std::arch::aarch64::*;
-    unsafe {
-        let empty = !(player | opponent);
-        let pp = vdupq_n_u64(player);
-        let oo = vdupq_n_u64(opponent);
-
-        // Lane 0 = horizontal (shift 1), lane 1 = vertical (shift 8).
-        let hv_masks = vld1q_u64([HORIZONTAL_MASK, VERTICAL_MASK].as_ptr());
-        let mask_hv = vandq_u64(oo, hv_masks);
-        let sh_hv = vld1q_s64([1_i64, 8].as_ptr());
-        let moves_hv = get_some_moves_neon(pp, mask_hv, sh_hv);
-
-        // Lane 0 = anti-diagonal (shift 7), lane 1 = main-diagonal (shift 9); shared mask.
-        let mask_d = vandq_u64(oo, vdupq_n_u64(DIAGONAL_MASK));
-        let sh_d = vld1q_s64([7_i64, 9].as_ptr());
-        let moves_d = get_some_moves_neon(pp, mask_d, sh_d);
-
-        let combined = vorrq_u64(moves_hv, moves_d);
-        let moves = vgetq_lane_u64::<0>(combined) | vgetq_lane_u64::<1>(combined);
-        moves & empty
-    }
-}
-
 /// Returns the potential moves for the player.
 ///
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L944>
@@ -790,23 +750,97 @@ fn get_potential_moves(p: u64, o: u64) -> u64 {
 
 /// Returns both legal and potential moves for the current player.
 ///
-/// Dispatches to the best available SIMD implementation at compile time.
+/// Dispatches to the best available implementation at compile time.
 #[inline(always)]
 fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
     cfg_select! {
-            all(target_arch = "x86_64", target_feature = "avx512vl") => {
-                unsafe { get_moves_and_potential_avx512(player, opponent) }
-            }
-            all(target_arch = "x86_64", target_feature = "avx2") => {
-                unsafe { get_moves_and_potential_avx2(player, opponent) }
-            }
-            all(target_arch = "aarch64", target_feature = "neon") => {
-                unsafe { get_moves_and_potential_neon(player, opponent) }
-            }
-            _ => {
-                (get_moves(player, opponent), get_potential_moves(player, opponent))
+        all(target_arch = "x86_64", target_feature = "avx512vl") => {
+            unsafe { get_moves_and_potential_avx512(player, opponent) }
+        }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            unsafe { get_moves_and_potential_avx2(player, opponent) }
+        }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            unsafe { get_moves_and_potential_neon(player, opponent) }
+        }
+        all(target_arch = "wasm32", target_feature = "simd128") => {
+            (get_moves_wasm(player, opponent), get_potential_moves(player, opponent))
+        }
+        _ => {
+            get_moves_and_potential_portable(player, opponent)
         }
     }
+}
+
+/// Portable scalar implementation of `get_moves_and_potential`.
+#[inline(always)]
+#[allow(dead_code)]
+fn get_moves_and_potential_portable(player: u64, opponent: u64) -> (u64, u64) {
+    let empty = !(player | opponent);
+    let h_opp = opponent & HORIZONTAL_MASK;
+
+    let mut flip7 = h_opp & (player << 7);
+    let mut flip9 = h_opp & (player << 9);
+    let mut flip8 = opponent & (player << 8);
+    let mut flip1 = h_opp & (player << 1);
+
+    flip7 |= h_opp & (flip7 << 7);
+    flip9 |= h_opp & (flip9 << 9);
+    flip8 |= opponent & (flip8 << 8);
+    let mut moves = h_opp.wrapping_add(flip1);
+
+    let mut pre7 = h_opp & (h_opp << 7);
+    let mut pre9 = h_opp & (h_opp << 9);
+    let mut pre8 = opponent & (opponent << 8);
+
+    flip7 |= pre7 & (flip7 << 14);
+    flip9 |= pre9 & (flip9 << 18);
+    flip8 |= pre8 & (flip8 << 16);
+    flip7 |= pre7 & (flip7 << 14);
+    flip9 |= pre9 & (flip9 << 18);
+    flip8 |= pre8 & (flip8 << 16);
+
+    moves |= (flip7 << 7) | (flip9 << 9) | (flip8 << 8);
+
+    flip7 = h_opp & (player >> 7);
+    flip9 = h_opp & (player >> 9);
+    flip8 = opponent & (player >> 8);
+    flip1 = h_opp & (player >> 1);
+
+    flip7 |= h_opp & (flip7 >> 7);
+    flip9 |= h_opp & (flip9 >> 9);
+    flip8 |= opponent & (flip8 >> 8);
+    flip1 |= h_opp & (flip1 >> 1);
+
+    pre7 >>= 7;
+    pre9 >>= 9;
+    pre8 >>= 8;
+    let pre1 = h_opp & (h_opp >> 1);
+
+    flip7 |= pre7 & (flip7 >> 14);
+    flip9 |= pre9 & (flip9 >> 18);
+    flip8 |= pre8 & (flip8 >> 16);
+    flip1 |= pre1 & (flip1 >> 2);
+    flip7 |= pre7 & (flip7 >> 14);
+    flip9 |= pre9 & (flip9 >> 18);
+    flip8 |= pre8 & (flip8 >> 16);
+    flip1 |= pre1 & (flip1 >> 2);
+
+    moves |= (flip7 >> 7) | (flip9 >> 9) | (flip8 >> 8) | (flip1 >> 1);
+
+    let v_opp = opponent & VERTICAL_MASK;
+    let d_opp = opponent & DIAGONAL_MASK;
+    let potential = ((h_opp << 1)
+        | (h_opp >> 1)
+        | (v_opp << 8)
+        | (v_opp >> 8)
+        | (d_opp << 7)
+        | (d_opp >> 7)
+        | (d_opp << 9)
+        | (d_opp >> 9))
+        & empty;
+
+    (moves & empty, potential)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -922,47 +956,84 @@ fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     (moves & empty, potential)
 }
 
-/// NEON-optimized implementation of `get_moves_and_potential`.
+/// AArch64 implementation of `get_moves_and_potential`.
 ///
-/// Shares the HV/Diag packing used by [`get_moves_neon`]: potential moves are
-/// the masked opponent shifted in both directions, while legal moves reuse the
-/// packed-prefix helper from [`get_some_moves_neon`].
+/// Legal moves use the portable scalar shape. Potential moves use NEON lanes so
+/// they do not add to the scalar move-generation dependency chain.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 #[inline]
 fn get_moves_and_potential_neon(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::aarch64::*;
-    unsafe {
-        let empty = !(player | opponent);
-        let pp = vdupq_n_u64(player);
-        let oo = vdupq_n_u64(opponent);
+    let empty = !(player | opponent);
+    let h_opp = opponent & HORIZONTAL_MASK;
 
-        // Lane 0 = horizontal (shift 1), lane 1 = vertical (shift 8).
-        let hv_masks = vld1q_u64([HORIZONTAL_MASK, VERTICAL_MASK].as_ptr());
-        let mask_hv = vandq_u64(oo, hv_masks);
-        let sh_hv = vld1q_s64([1_i64, 8].as_ptr());
-        let sh_hv_neg = vnegq_s64(sh_hv);
+    // Lane 0 = horizontal (shift 1), lane 1 = vertical (shift 8).
+    let mask_hv = vcombine_u64(vdup_n_u64(h_opp), vdup_n_u64(opponent & VERTICAL_MASK));
+    let sh_hv = vcombine_s64(vdup_n_s64(1), vdup_n_s64(8));
+    let sh_hv_neg = vcombine_s64(vdup_n_s64(-1), vdup_n_s64(-8));
 
-        // Lane 0 = anti-diagonal (shift 7), lane 1 = main-diagonal (shift 9); shared mask.
-        let mask_d = vandq_u64(oo, vdupq_n_u64(DIAGONAL_MASK));
-        let sh_d = vld1q_s64([7_i64, 9].as_ptr());
-        let sh_d_neg = vnegq_s64(sh_d);
+    // Lane 0 = anti-diagonal (shift 7), lane 1 = main-diagonal (shift 9); shared mask.
+    let mask_d = vdupq_n_u64(opponent & DIAGONAL_MASK);
+    let sh_d = vcombine_s64(vdup_n_s64(7), vdup_n_s64(9));
+    let sh_d_neg = vcombine_s64(vdup_n_s64(-7), vdup_n_s64(-9));
 
-        // Potential: shift the masked opponent both ways and combine.
-        let pot_hv = vorrq_u64(vshlq_u64(mask_hv, sh_hv), vshlq_u64(mask_hv, sh_hv_neg));
-        let pot_d = vorrq_u64(vshlq_u64(mask_d, sh_d), vshlq_u64(mask_d, sh_d_neg));
-        let pot_all = vorrq_u64(pot_hv, pot_d);
-        let potential = vgetq_lane_u64::<0>(pot_all) | vgetq_lane_u64::<1>(pot_all);
+    // Potential: shift the masked opponent both ways and combine.
+    let pot_hv = vorrq_u64(vshlq_u64(mask_hv, sh_hv), vshlq_u64(mask_hv, sh_hv_neg));
+    let pot_d = vorrq_u64(vshlq_u64(mask_d, sh_d), vshlq_u64(mask_d, sh_d_neg));
+    let pot_all = vorrq_u64(pot_hv, pot_d);
+    let potential = vgetq_lane_u64::<0>(pot_all) | vgetq_lane_u64::<1>(pot_all);
 
-        // Moves: expand rays anchored by the player.
-        let moves_hv = get_some_moves_neon(pp, mask_hv, sh_hv);
-        let moves_d = get_some_moves_neon(pp, mask_d, sh_d);
+    let mut flip7 = h_opp & (player << 7);
+    let mut flip9 = h_opp & (player << 9);
+    let mut flip8 = opponent & (player << 8);
+    let mut flip1 = h_opp & (player << 1);
 
-        let combined = vorrq_u64(moves_hv, moves_d);
-        let moves = vgetq_lane_u64::<0>(combined) | vgetq_lane_u64::<1>(combined);
+    flip7 |= h_opp & (flip7 << 7);
+    flip9 |= h_opp & (flip9 << 9);
+    flip8 |= opponent & (flip8 << 8);
+    let mut moves = h_opp.wrapping_add(flip1);
 
-        (moves & empty, potential & empty)
-    }
+    let mut pre7 = h_opp & (h_opp << 7);
+    let mut pre9 = h_opp & (h_opp << 9);
+    let mut pre8 = opponent & (opponent << 8);
+
+    flip7 |= pre7 & (flip7 << 14);
+    flip9 |= pre9 & (flip9 << 18);
+    flip8 |= pre8 & (flip8 << 16);
+    flip7 |= pre7 & (flip7 << 14);
+    flip9 |= pre9 & (flip9 << 18);
+    flip8 |= pre8 & (flip8 << 16);
+
+    moves |= (flip7 << 7) | (flip9 << 9) | (flip8 << 8);
+
+    flip7 = h_opp & (player >> 7);
+    flip9 = h_opp & (player >> 9);
+    flip8 = opponent & (player >> 8);
+    flip1 = h_opp & (player >> 1);
+
+    flip7 |= h_opp & (flip7 >> 7);
+    flip9 |= h_opp & (flip9 >> 9);
+    flip8 |= opponent & (flip8 >> 8);
+    flip1 |= h_opp & (flip1 >> 1);
+
+    pre7 >>= 7;
+    pre9 >>= 9;
+    pre8 >>= 8;
+    let pre1 = h_opp & (h_opp >> 1);
+
+    flip7 |= pre7 & (flip7 >> 14);
+    flip9 |= pre9 & (flip9 >> 18);
+    flip8 |= pre8 & (flip8 >> 16);
+    flip1 |= pre1 & (flip1 >> 2);
+    flip7 |= pre7 & (flip7 >> 14);
+    flip9 |= pre9 & (flip9 >> 18);
+    flip8 |= pre8 & (flip8 >> 16);
+    flip1 |= pre1 & (flip1 >> 2);
+
+    moves |= (flip7 >> 7) | (flip9 >> 9) | (flip8 >> 8) | (flip1 >> 1);
+
+    (moves & empty, potential & empty)
 }
 
 /// Swaps bit pairs separated by `delta` positions where `mask` has bits set.
@@ -1140,7 +1211,7 @@ mod tests {
         ];
 
         for (player, opponent) in test_positions {
-            let moves_fallback = get_moves_fallback(player, opponent);
+            let moves_portable = get_moves_portable(player, opponent);
 
             let moves_avx2 = if has_avx2 {
                 Some(unsafe { get_moves_avx2(player, opponent) })
@@ -1156,15 +1227,15 @@ mod tests {
 
             if let Some(moves) = moves_avx2 {
                 assert_eq!(
-                    moves_fallback, moves,
-                    "Fallback and AVX2 implementations differ for player={player:016x}, opponent={opponent:016x}"
+                    moves_portable, moves,
+                    "Portable and AVX2 implementations differ for player={player:016x}, opponent={opponent:016x}"
                 );
             }
 
             if let Some(moves) = moves_avx512 {
                 assert_eq!(
-                    moves_fallback, moves,
-                    "Fallback and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}"
+                    moves_portable, moves,
+                    "Portable and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}"
                 );
             }
 
@@ -1174,33 +1245,6 @@ mod tests {
                     "AVX2 and AVX-512 implementations differ for player={player:016x}, opponent={opponent:016x}"
                 );
             }
-        }
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn test_get_moves_consistency_neon() {
-        let test_positions: [(u64, u64); 7] = [
-            (
-                Square::D5.bitboard().0 | Square::E4.bitboard().0,
-                Square::D4.bitboard().0 | Square::E5.bitboard().0,
-            ),
-            (0x00003C3C3C000000, 0x0000C3C3C3000000),
-            (0xFF00000000000000, 0x00FF000000000000),
-            // Axis isolators: one axis can flip, others have no candidates.
-            (0x0000000000000001, 0x000000000000007E), // horizontal only (A1 + B1..G1)
-            (0x0000000000000001, 0x0001010101010100), // vertical only (A1 + A2..A7)
-            (0x0000000000000001, 0x0040201008040200), // main diagonal (A1 + B2..G7)
-            (0x0000000000000080, 0x0002040810204000), // anti-diagonal (H1 + G2..B7)
-        ];
-
-        for (player, opponent) in test_positions {
-            let expected = get_moves_fallback(player, opponent);
-            let actual = unsafe { get_moves_neon(player, opponent) };
-            assert_eq!(
-                expected, actual,
-                "Fallback and NEON implementations differ for player={player:016x}, opponent={opponent:016x}"
-            );
         }
     }
 
@@ -1249,6 +1293,35 @@ mod tests {
     }
 
     #[test]
+    fn test_get_moves_and_potential_portable_consistency() {
+        let test_positions: [(u64, u64); 4] = [
+            (
+                Square::D5.bitboard().0 | Square::E4.bitboard().0,
+                Square::D4.bitboard().0 | Square::E5.bitboard().0,
+            ),
+            (0x00003C3C3C000000, 0x0000C3C3C3000000),
+            (0xFF00000000000000, 0x00FF000000000000),
+            (0x0000001824428100, 0x0000002442810000),
+        ];
+
+        for (player, opponent) in test_positions {
+            let (moves_portable, potential_portable) =
+                get_moves_and_potential_portable(player, opponent);
+
+            assert_eq!(
+                get_moves_portable(player, opponent),
+                moves_portable,
+                "Moves mismatch portable combined for player={player:016x}, opponent={opponent:016x}"
+            );
+            assert_eq!(
+                get_potential_moves(player, opponent),
+                potential_portable,
+                "Potential mismatch portable combined for player={player:016x}, opponent={opponent:016x}"
+            );
+        }
+    }
+
+    #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_get_moves_and_potential_consistency() {
         let has_avx2 = is_x86_feature_detected!("avx2");
@@ -1270,14 +1343,14 @@ mod tests {
         ];
 
         for (player, opponent) in test_positions {
-            let moves_fallback = get_moves_fallback(player, opponent);
+            let moves_portable = get_moves_portable(player, opponent);
             let potential_scalar = get_potential_moves(player, opponent);
 
             if has_avx2 {
                 let (moves_avx2, pot_avx2) =
                     unsafe { get_moves_and_potential_avx2(player, opponent) };
                 assert_eq!(
-                    moves_fallback, moves_avx2,
+                    moves_portable, moves_avx2,
                     "Moves mismatch AVX2 for player={player:016x}, opponent={opponent:016x}"
                 );
                 assert_eq!(
@@ -1290,7 +1363,7 @@ mod tests {
                 let (moves_avx512, pot_avx512) =
                     unsafe { get_moves_and_potential_avx512(player, opponent) };
                 assert_eq!(
-                    moves_fallback, moves_avx512,
+                    moves_portable, moves_avx512,
                     "Moves mismatch AVX512 for player={player:016x}, opponent={opponent:016x}"
                 );
                 assert_eq!(
@@ -1315,7 +1388,7 @@ mod tests {
         ];
 
         for (player, opponent) in test_positions {
-            let moves_scalar = get_moves_fallback(player, opponent);
+            let moves_scalar = get_moves_portable(player, opponent);
             let potential_scalar = get_potential_moves(player, opponent);
             let (moves_neon, pot_neon) = unsafe { get_moves_and_potential_neon(player, opponent) };
 
@@ -2045,21 +2118,21 @@ mod tests {
                 continue;
             }
 
-            let moves_fallback = get_moves_fallback(player, opponent);
+            let moves_portable = get_moves_portable(player, opponent);
 
             if has_avx2 {
                 let moves_avx2 = unsafe { get_moves_avx2(player, opponent) };
                 assert_eq!(
-                    moves_fallback, moves_avx2,
-                    "Extended: Fallback vs AVX2 differ for player={player:016x}, opponent={opponent:016x}"
+                    moves_portable, moves_avx2,
+                    "Extended: Portable vs AVX2 differ for player={player:016x}, opponent={opponent:016x}"
                 );
             }
 
             if has_avx512 {
                 let moves_avx512 = unsafe { get_moves_avx512(player, opponent) };
                 assert_eq!(
-                    moves_fallback, moves_avx512,
-                    "Extended: Fallback vs AVX-512 differ for player={player:016x}, opponent={opponent:016x}"
+                    moves_portable, moves_avx512,
+                    "Extended: Portable vs AVX-512 differ for player={player:016x}, opponent={opponent:016x}"
                 );
             }
         }
@@ -2099,7 +2172,7 @@ mod tests {
                 continue;
             }
 
-            let moves_scalar = get_moves_fallback(player, opponent);
+            let moves_scalar = get_moves_portable(player, opponent);
             let potential_scalar = get_potential_moves(player, opponent);
 
             if has_avx2 {
