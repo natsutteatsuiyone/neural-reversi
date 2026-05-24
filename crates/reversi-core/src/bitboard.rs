@@ -3,9 +3,6 @@
 //! This module provides a [`Bitboard`] type that represents a 64-square Reversi board
 //! using a single `u64`, where each bit corresponds to a square (bit 0 = A1, bit 63 = H8).
 
-#[cfg(target_arch = "wasm32")]
-use std::arch::wasm32::*;
-
 use crate::square::Square;
 
 const A1_MASK: u64 = 0x0000000000000001;
@@ -471,9 +468,6 @@ fn get_moves(player: u64, opponent: u64) -> u64 {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { get_moves_avx2(player, opponent) }
         }
-        all(target_arch = "wasm32", target_feature = "simd128") => {
-            get_moves_wasm(player, opponent)
-        }
         _ => {
             get_moves_portable(player, opponent)
         }
@@ -641,96 +635,6 @@ fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     moves & empty
 }
 
-/// Expands a ray in the left-shift direction using SIMD.
-///
-/// Uses the "parallel prefix" (doubling) algorithm to propagate bits along a ray in O(log n)
-/// iterations instead of O(n). For a 6-square maximum ray length in Reversi:
-///
-/// 1. Shift by 1 and OR with masked bits → covers distances 1-2
-/// 2. Shift by 2 and OR with masked bits → covers distances 1-4
-/// 3. Shift by 4 and OR with masked bits → covers distances 1-7 (sufficient for 6-max)
-///
-/// The mask is also doubled at each step to track valid continuation squares, preventing
-/// ray expansion from wrapping around board edges.
-#[cfg(target_arch = "wasm32")]
-#[inline(always)]
-fn expand_ray_double_shl(mut mask: v128, mut x: v128, shift: u32) -> v128 {
-    let mut tmp = u64x2_shl(x, shift);
-    x = v128_or(x, v128_and(mask, tmp));
-    mask = v128_and(mask, u64x2_shl(mask, shift));
-
-    tmp = u64x2_shl(x, shift * 2);
-    x = v128_or(x, v128_and(mask, tmp));
-    mask = v128_and(mask, u64x2_shl(mask, shift * 2));
-
-    v128_or(x, v128_and(mask, u64x2_shl(x, shift * 4)))
-}
-
-/// Expands a ray in the right-shift direction using SIMD.
-///
-/// Mirror of [`expand_ray_double_shl`] for the opposite direction. See that function
-/// for algorithm details.
-#[cfg(target_arch = "wasm32")]
-#[inline(always)]
-fn expand_ray_double_shr(mut mask: v128, mut x: v128, shift: u32) -> v128 {
-    let mut tmp = u64x2_shr(x, shift);
-    x = v128_or(x, v128_and(mask, tmp));
-    mask = v128_and(mask, u64x2_shr(mask, shift));
-
-    tmp = u64x2_shr(x, shift * 2);
-    x = v128_or(x, v128_and(mask, tmp));
-    mask = v128_and(mask, u64x2_shr(mask, shift * 2));
-
-    v128_or(x, v128_and(mask, u64x2_shr(x, shift * 4)))
-}
-
-/// WASM SIMD128-optimized implementation of `get_moves`.
-#[cfg(target_arch = "wasm32")]
-#[target_feature(enable = "simd128")]
-fn get_moves_wasm(player: u64, opponent: u64) -> u64 {
-    let empty = !(player | opponent);
-
-    let pp = u64x2_splat(player);
-    let oo = u64x2_splat(opponent);
-
-    let masked_oo_hv = v128_and(oo, u64x2(HORIZONTAL_MASK, VERTICAL_MASK));
-
-    let adj_h_l = v128_and(masked_oo_hv, u64x2_shl(pp, 1));
-    let adj_h_r = v128_and(masked_oo_hv, u64x2_shr(pp, 1));
-    let adj_v_l = v128_and(masked_oo_hv, u64x2_shl(pp, 8));
-    let adj_v_r = v128_and(masked_oo_hv, u64x2_shr(pp, 8));
-
-    let flip_h_l = expand_ray_double_shl(masked_oo_hv, adj_h_l, 1);
-    let flip_h_r = expand_ray_double_shr(masked_oo_hv, adj_h_r, 1);
-    let flip_v_l = expand_ray_double_shl(masked_oo_hv, adj_v_l, 8);
-    let flip_v_r = expand_ray_double_shr(masked_oo_hv, adj_v_r, 8);
-
-    let moves_h = v128_or(u64x2_shl(flip_h_l, 1), u64x2_shr(flip_h_r, 1));
-    let moves_v = v128_or(u64x2_shl(flip_v_l, 8), u64x2_shr(flip_v_r, 8));
-
-    let masked_oo_d = v128_and(oo, u64x2_splat(DIAGONAL_MASK));
-
-    let adj_d7_l = v128_and(masked_oo_d, u64x2_shl(pp, 7));
-    let adj_d7_r = v128_and(masked_oo_d, u64x2_shr(pp, 7));
-    let adj_d9_l = v128_and(masked_oo_d, u64x2_shl(pp, 9));
-    let adj_d9_r = v128_and(masked_oo_d, u64x2_shr(pp, 9));
-
-    let flip_d7_l = expand_ray_double_shl(masked_oo_d, adj_d7_l, 7);
-    let flip_d7_r = expand_ray_double_shr(masked_oo_d, adj_d7_r, 7);
-    let flip_d9_l = expand_ray_double_shl(masked_oo_d, adj_d9_l, 9);
-    let flip_d9_r = expand_ray_double_shr(masked_oo_d, adj_d9_r, 9);
-
-    let moves_d7 = v128_or(u64x2_shl(flip_d7_l, 7), u64x2_shr(flip_d7_r, 7));
-    let moves_d9 = v128_or(u64x2_shl(flip_d9_l, 9), u64x2_shr(flip_d9_r, 9));
-
-    let h_moves = u64x2_extract_lane::<0>(moves_h);
-    let v_moves = u64x2_extract_lane::<1>(moves_v);
-    let d7_moves = u64x2_extract_lane::<0>(moves_d7);
-    let d9_moves = u64x2_extract_lane::<1>(moves_d9);
-
-    (h_moves | v_moves | d7_moves | d9_moves) & empty
-}
-
 /// Returns the potential moves for the player.
 ///
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L944>
@@ -762,9 +666,6 @@ fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
             unsafe { get_moves_and_potential_neon(player, opponent) }
-        }
-        all(target_arch = "wasm32", target_feature = "simd128") => {
-            (get_moves_wasm(player, opponent), get_potential_moves(player, opponent))
         }
         _ => {
             get_moves_and_potential_portable(player, opponent)
