@@ -1,10 +1,13 @@
-use criterion::{Criterion, criterion_group, criterion_main};
-use reversi_core::board::Board;
-use reversi_core::disc::Disc;
-use reversi_core::eval::pattern_feature::{PatternFeature, PatternFeatures};
-use reversi_core::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME};
-use reversi_core::eval::{Network, NetworkSmall};
 use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
+
+mod common;
+
+use common::{board_from_rows, board_ply, weights_path};
+use reversi_core::board::Board;
+use reversi_core::eval::pattern_feature::{PatternFeature, PatternFeatures};
+use reversi_core::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME, Network, NetworkSmall};
 
 struct BenchInput {
     board: Board,
@@ -14,7 +17,7 @@ struct BenchInput {
 
 impl BenchInput {
     fn new(board: Board) -> Self {
-        let ply = (board.get_player_count() + board.get_opponent_count()) as usize;
+        let ply = board_ply(&board);
         let pattern_features = PatternFeatures::new(&board, ply);
         Self {
             board,
@@ -28,27 +31,15 @@ impl BenchInput {
     }
 }
 
-fn board_from_rows(rows: [&str; 8]) -> Board {
-    let mut board_string = String::with_capacity(64);
-    for row in rows {
-        board_string.push_str(row);
-    }
-    Board::from_string(&board_string, Disc::Black).unwrap()
-}
-
 fn load_main_network() -> Network {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let eval_path = format!("{}/../../{}", manifest_dir, EVAL_FILE_NAME);
-    let bytes =
-        std::fs::read(&eval_path).expect("failed to read main evaluation network weights file");
+    let bytes = std::fs::read(weights_path(EVAL_FILE_NAME))
+        .expect("failed to read main evaluation network weights file");
     Network::from_bytes(&bytes).expect("failed to load main evaluation network weights")
 }
 
 fn load_small_network() -> NetworkSmall {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let eval_path = format!("{}/../../{}", manifest_dir, EVAL_SM_FILE_NAME);
-    let bytes =
-        std::fs::read(&eval_path).expect("failed to read small evaluation network weights file");
+    let bytes = std::fs::read(weights_path(EVAL_SM_FILE_NAME))
+        .expect("failed to read small evaluation network weights file");
     NetworkSmall::from_bytes(&bytes).expect("failed to load small evaluation network weights")
 }
 
@@ -66,32 +57,44 @@ fn endgame_input() -> BenchInput {
     ]))
 }
 
+fn bench_main_network(c: &mut Criterion, network: &Network, input: &BenchInput) {
+    c.bench_function("network::evaluate", |b| {
+        b.iter(|| {
+            let score = black_box(network).evaluate(
+                black_box(&input.board),
+                black_box(input.pattern_feature()),
+                black_box(input.ply),
+            );
+            black_box(score.value())
+        })
+    });
+}
+
+fn bench_small_network(c: &mut Criterion, network: &NetworkSmall, input: &BenchInput) {
+    assert!(
+        input.ply >= 30,
+        "network_small expects ply >= 30 for benchmarking"
+    );
+
+    c.bench_function("network_small::evaluate", |b| {
+        b.iter(|| {
+            let score = black_box(network)
+                .evaluate(black_box(input.pattern_feature()), black_box(input.ply));
+            black_box(score.value())
+        })
+    });
+}
+
 fn criterion_benchmark(c: &mut Criterion) {
+    // Keep zstd decoding and weight layout setup outside the timed loops.
     let network = load_main_network();
     let network_small = load_small_network();
 
-    let midgame = midgame_input();
-    let endgame = endgame_input();
+    let main_input = midgame_input();
+    let small_input = endgame_input();
 
-    c.bench_function("network::evaluate_midgame", |b| {
-        b.iter(|| {
-            black_box(network.evaluate(
-                black_box(&midgame.board),
-                black_box(midgame.pattern_feature()),
-                midgame.ply,
-            ))
-        });
-    });
-
-    c.bench_function("network_small::evaluate_endgame", |b| {
-        assert!(
-            endgame.ply >= 30,
-            "network_small expects ply >= 30 for benchmarking"
-        );
-        b.iter(|| {
-            black_box(network_small.evaluate(black_box(endgame.pattern_feature()), endgame.ply))
-        });
-    });
+    bench_main_network(c, &network, &main_input);
+    bench_small_network(c, &network_small, &small_input);
 }
 
 criterion_group!(benches, criterion_benchmark);

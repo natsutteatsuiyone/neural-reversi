@@ -7,12 +7,16 @@ use crate::search::side_to_move::SideToMove;
 
 /// Counts the total nodes reachable from the standard initial position.
 ///
-/// A depth of 1 counts the immediate legal moves; larger values walk the
-/// tree recursively. Also exercises [`PatternFeatures`] updates to verify
-/// incremental feature consistency.
+/// A depth of 0 counts the root node; depth 1 counts the immediate legal
+/// moves. Larger values walk the tree recursively while exercising
+/// [`PatternFeatures`] updates along each move.
 ///
 /// [`PatternFeatures`]: crate::eval::pattern_feature::PatternFeatures
 pub fn perft_root(depth: u32) -> u64 {
+    if depth == 0 {
+        return 1;
+    }
+
     let board = Board::new();
     let mut pattern_features = PatternFeatures::new(&board, 0);
     let side_to_move = SideToMove::Player;
@@ -27,6 +31,8 @@ fn perft(
     side_to_move: SideToMove,
     depth: u32,
 ) -> u64 {
+    debug_assert!(depth > 0);
+
     let mut nodes = 0;
     let move_list = MoveList::new(board);
 

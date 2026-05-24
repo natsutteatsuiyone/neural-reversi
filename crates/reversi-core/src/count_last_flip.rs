@@ -32,7 +32,7 @@ pub fn solve1(player: Bitboard, alpha: Score, sq: Square) -> Score {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::SCORE_MAX;
+    use crate::constants::{SCORE_MAX, SCORE_MIN};
     use crate::flip::flip;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
@@ -78,7 +78,7 @@ mod tests {
 
                 let sq = Square::from_u8(sq_idx).unwrap();
                 let player = Bitboard::new(p);
-                let alpha = rng.random_range((SCORE_MAX - 128)..=SCORE_MAX);
+                let alpha = rng.random_range(SCORE_MIN..=SCORE_MAX);
                 let mut n_flipped = count_last_flip(player, sq);
                 let mut expected = 2 * player.count() as Score - SCORE_MAX + 2 + n_flipped;
 

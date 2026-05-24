@@ -6,6 +6,7 @@ use reversi_core::perft::perft_root;
 
 const BENCH_DEPTHS: [u32; 1] = [9];
 const REFERENCE_COUNTS: &[(u32, u64)] = &[
+    (0, 1),
     (1, 4),
     (2, 12),
     (3, 56),
@@ -24,7 +25,7 @@ fn expected_nodes(depth: u32) -> Option<u64> {
 }
 
 fn perft_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("perft_root");
+    let mut group = c.benchmark_group("perft");
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(8));
 

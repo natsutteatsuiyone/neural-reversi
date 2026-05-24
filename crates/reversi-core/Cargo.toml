@@ -3,6 +3,7 @@ name = "reversi-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autobenches = false
 
 [features]
 search-stats = []
@@ -20,6 +21,10 @@ criterion = "0.8"
 
 [[bench]]
 name = "network"
+harness = false
+
+[[bench]]
+name = "pattern_feature"
 harness = false
 
 [[bench]]

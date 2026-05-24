@@ -149,11 +149,6 @@ const fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
     table
 }
 
-#[doc(hidden)]
-pub fn build_edge_stability_table_for_bench() -> [u8; EDGE_STABILITY_SIZE] {
-    init_edge_stability()
-}
-
 /// Unpacks bits 1-6 of an edge stability byte to the A2-A7 squares on the board.
 #[inline]
 fn unpack_a2a7(x: u8) -> u64 {
