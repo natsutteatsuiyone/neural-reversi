@@ -196,6 +196,9 @@ pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { sqr_clipped_and_clipped_relu_16_avx2(input, output) };
         }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            unsafe { sqr_clipped_and_clipped_relu_16_neon(input, output) };
+        }
         _ => {
             let (sqr_out, relu_out) = output[..32].split_at_mut(16);
             sqr_clipped_relu::<16>(input, sqr_out);
@@ -234,6 +237,59 @@ unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8])
         _mm_store_si128(
             output_ptr.add(1),
             _mm_packus_epi16(relu_words0, relu_words1),
+        );
+    }
+}
+
+/// Applies the fused L1 activation using ARM NEON.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[target_feature(enable = "neon")]
+#[inline]
+fn sqr_clipped_and_clipped_relu_16_neon(input: &[i32], output: &mut [u8]) {
+    use std::arch::aarch64::*;
+
+    unsafe {
+        let input_ptr = input.as_ptr();
+        let output_ptr = output.as_mut_ptr();
+
+        let v0 = vld1q_s32(input_ptr);
+        let v1 = vld1q_s32(input_ptr.add(4));
+        let v2 = vld1q_s32(input_ptr.add(8));
+        let v3 = vld1q_s32(input_ptr.add(12));
+
+        let relu_w0 = vcombine_u16(
+            vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v0),
+            vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v1),
+        );
+        let relu_w1 = vcombine_u16(
+            vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v2),
+            vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v3),
+        );
+        vst1q_u8(
+            output_ptr.add(16),
+            vcombine_u8(vqmovn_u16(relu_w0), vqmovn_u16(relu_w1)),
+        );
+
+        let s0 = vcombine_s16(vqmovn_s32(v0), vqmovn_s32(v1));
+        let s1 = vcombine_s16(vqmovn_s32(v2), vqmovn_s32(v3));
+
+        let p0_lo = vmull_s16(vget_low_s16(s0), vget_low_s16(s0));
+        let p0_hi = vmull_high_s16(s0, s0);
+        let p1_lo = vmull_s16(vget_low_s16(s1), vget_low_s16(s1));
+        let p1_hi = vmull_high_s16(s1, s1);
+
+        const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8;
+        let sqr_w0 = vcombine_u16(
+            vqmovn_u32(vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p0_lo))),
+            vqmovn_u32(vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p0_hi))),
+        );
+        let sqr_w1 = vcombine_u16(
+            vqmovn_u32(vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p1_lo))),
+            vqmovn_u32(vreinterpretq_u32_s32(vshrq_n_s32::<SHIFT>(p1_hi))),
+        );
+        vst1q_u8(
+            output_ptr,
+            vcombine_u8(vqmovn_u16(sqr_w0), vqmovn_u16(sqr_w1)),
         );
     }
 }
@@ -616,6 +672,29 @@ mod tests {
         let (expected_sqr, expected_relu) = expected.0.split_at_mut(SIZE);
 
         sqr_clipped_and_clipped_relu_16(input.as_slice(), combined.as_mut_slice());
+        sqr_clipped_relu::<SIZE>(input.as_slice(), expected_sqr);
+        clipped_relu::<SIZE>(input.as_slice(), expected_relu);
+
+        assert_eq!(combined.as_ref(), expected.as_ref());
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn combined_l1_activation_neon_matches_separate_paths() {
+        const SIZE: usize = 16;
+        let mut input_data = [0i32; SIZE];
+
+        for (idx, value) in input_data.iter_mut().enumerate() {
+            *value = ((idx as i32 * 7919) % 70_000) - 35_000;
+        }
+
+        let input = Align64(input_data);
+        let mut combined = Align64([0u8; SIZE * 2]);
+        let mut expected = Align64([0u8; SIZE * 2]);
+        let (expected_sqr, expected_relu) = expected.0.split_at_mut(SIZE);
+
+        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+        unsafe { sqr_clipped_and_clipped_relu_16_neon(input.as_slice(), combined.as_mut_slice()) };
         sqr_clipped_relu::<SIZE>(input.as_slice(), expected_sqr);
         clipped_relu::<SIZE>(input.as_slice(), expected_relu);
 
