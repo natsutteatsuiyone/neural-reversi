@@ -13,8 +13,11 @@ pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> 
     bias: i32,
     /// Weight vector aligned for SIMD access.
     weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
+    /// Weights packed as per-chunk low/high bytes for the AArch64 I8MM path.
+    #[cfg(target_arch = "aarch64")]
+    i8mm_weights: AlignedBuffer<u8, CACHE_LINE_SIZE>,
     /// Function pointer to the optimal forward implementation, selected at load time
-    /// based on detected CPU SIMD capabilities (AVX512+VNNI > AVX512 > AVX2+VNNI > AVX2 > scalar).
+    /// based on detected CPU SIMD capabilities.
     forward_fn: unsafe fn(&Self, [&[u8]; 3]) -> i32,
 }
 
@@ -28,13 +31,41 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED_INPUT_DIMS);
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
+        #[cfg(target_arch = "aarch64")]
+        let i8mm_weights = Self::pack_i8mm_weights(weights.as_slice());
+
         let forward_fn = Self::select_forward_fn();
 
         Ok(Self {
             bias,
             weights,
+            #[cfg(target_arch = "aarch64")]
+            i8mm_weights,
             forward_fn,
         })
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn pack_i8mm_weights(weights: &[i16]) -> AlignedBuffer<u8, CACHE_LINE_SIZE> {
+        const CHUNK: usize = 16;
+
+        debug_assert!(weights.len() >= PADDED_INPUT_DIMS);
+
+        let packed_len = PADDED_INPUT_DIMS.div_ceil(CHUNK) * CHUNK * 2;
+        let mut packed = AlignedBuffer::<u8, CACHE_LINE_SIZE>::from_elem(0, packed_len);
+        let mut offset = 0usize;
+        while offset < PADDED_INPUT_DIMS {
+            let packed_offset = offset * 2;
+            let chunk_len = (PADDED_INPUT_DIMS - offset).min(CHUNK);
+            for lane in 0..chunk_len {
+                let weight = weights[offset + lane];
+                packed[packed_offset + lane] = weight as u8;
+                packed[packed_offset + CHUNK + lane] = (weight >> 8) as u8;
+            }
+            offset += CHUNK;
+        }
+
+        packed
     }
 
     /// Selects the optimal forward implementation based on CPU features.
@@ -44,8 +75,9 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     /// 2. AVX-512 without VNNI (if compiled with `target-feature=+avx512bw`)
     /// 3. AVX2 with VNNI (if compiled with `target-feature=+avx2` and CPU supports `avxvnni`)
     /// 4. AVX2 without VNNI (if compiled with `target-feature=+avx2`)
-    /// 5. ARM NEON (if compiled for `aarch64` with `target-feature=+neon`)
-    /// 6. Scalar fallback (all other cases)
+    /// 5. ARM NEON with I8MM/DotProd (if compiled for `aarch64` with NEON and CPU supports both)
+    /// 6. ARM NEON (if compiled for `aarch64` with `target-feature=+neon`)
+    /// 7. Scalar fallback (all other cases)
     fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 3]) -> i32 {
         #[cfg(target_arch = "x86_64")]
         {
@@ -76,7 +108,15 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         {
             cfg_select! {
                 target_feature = "neon" => {
-                    Self::forward_neon
+                    use std::arch::is_aarch64_feature_detected;
+
+                    if is_aarch64_feature_detected!("i8mm")
+                        && is_aarch64_feature_detected!("dotprod")
+                    {
+                        Self::forward_neon_i8mm
+                    } else {
+                        Self::forward_neon
+                    }
                 }
                 _ => {
                     Self::forward_scalar_wrapper
@@ -154,7 +194,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         const UNROLL: usize = 2;
 
         unsafe {
-            // Four independent i32x4 accumulators to expose ILP across SIMD issue ports.
+            // Eight independent i32x4 accumulators expose ILP across SIMD issue ports.
             let mut acc0 = vdupq_n_s32(0);
             let mut acc1 = vdupq_n_s32(0);
             let mut acc2 = vdupq_n_s32(0);
@@ -223,6 +263,86 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
             let sum01 = vaddq_s32(acc0, acc1);
             let sum23 = vaddq_s32(acc2, acc3);
             vaddvq_s32(vaddq_s32(sum01, sum23)) + self.bias
+        }
+    }
+
+    /// Computes the forward pass on ARM NEON using I8MM/DotProd instructions.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon,dotprod,i8mm")]
+    #[inline]
+    fn forward_neon_i8mm(&self, segments: [&[u8]; 3]) -> i32 {
+        use std::arch::aarch64::*;
+
+        const CHUNK: usize = 16;
+        const UNROLL: usize = 4;
+
+        unsafe {
+            // `i8mm_weights` stores each i16 chunk as low bytes followed by
+            // signed high bytes. `udot` handles the low byte, `usdot` handles
+            // the high byte, and the two partial dot products are recombined in
+            // i32 lanes as low + (high << 8).
+            let mut acc0 = vdupq_n_s32(0);
+            let mut acc1 = vdupq_n_s32(0);
+            let mut acc2 = vdupq_n_s32(0);
+            let mut acc3 = vdupq_n_s32(0);
+
+            let zero_u32 = vdupq_n_u32(0);
+            let zero_s32 = vdupq_n_s32(0);
+
+            let mut weight_offset = 0usize;
+            for input in segments {
+                let len = input.len();
+                debug_assert_eq!(len % CHUNK, 0);
+
+                let num_chunks = len / CHUNK;
+                let input_ptr = input.as_ptr();
+                let weight_ptr = self.i8mm_weights.as_ptr().add(weight_offset * 2);
+                let mut chunk_idx = 0usize;
+
+                macro_rules! accumulate_chunk {
+                    ($input_u8:expr, $weight_low:expr, $weight_high:expr, $acc:ident) => {{
+                        let input_u8 = $input_u8;
+                        let weight_low = $weight_low;
+                        let weight_high = vreinterpretq_s8_u8($weight_high);
+
+                        let low = vreinterpretq_s32_u32(vdotq_u32(zero_u32, input_u8, weight_low));
+                        let high = vshlq_n_s32::<8>(vusdotq_s32(zero_s32, input_u8, weight_high));
+                        $acc = vaddq_s32($acc, vaddq_s32(low, high));
+                    }};
+                }
+
+                while chunk_idx + UNROLL <= num_chunks {
+                    let offset = chunk_idx * CHUNK;
+                    let input01_u8 = vld1q_u8_x2(input_ptr.add(offset));
+                    let packed01 = vld1q_u8_x4(weight_ptr.add(offset * 2));
+
+                    accumulate_chunk!(input01_u8.0, packed01.0, packed01.1, acc0);
+                    accumulate_chunk!(input01_u8.1, packed01.2, packed01.3, acc1);
+
+                    let input23_u8 = vld1q_u8_x2(input_ptr.add(offset + CHUNK * 2));
+                    let packed23 = vld1q_u8_x4(weight_ptr.add((offset + CHUNK * 2) * 2));
+
+                    accumulate_chunk!(input23_u8.0, packed23.0, packed23.1, acc2);
+                    accumulate_chunk!(input23_u8.1, packed23.2, packed23.3, acc3);
+
+                    chunk_idx += UNROLL;
+                }
+
+                while chunk_idx < num_chunks {
+                    let offset = chunk_idx * CHUNK;
+                    let input_u8 = vld1q_u8(input_ptr.add(offset));
+                    let packed = vld1q_u8_x2(weight_ptr.add(offset * 2));
+
+                    accumulate_chunk!(input_u8, packed.0, packed.1, acc0);
+                    chunk_idx += 1;
+                }
+
+                weight_offset += len;
+            }
+
+            acc0 = vaddq_s32(acc0, acc1);
+            acc2 = vaddq_s32(acc2, acc3);
+            vaddvq_s32(vaddq_s32(acc0, acc2)) + self.bias
         }
     }
 
@@ -413,9 +533,34 @@ mod tests {
             *w = ((i as i32 * 29 + 11) % 97 - 48) as i16;
         }
 
+        #[cfg(target_arch = "aarch64")]
+        let i8mm_weights = OutputLayer::<INPUT, PADDED>::pack_i8mm_weights(weights.as_slice());
+
         OutputLayer {
             bias: 12345,
             weights,
+            #[cfg(target_arch = "aarch64")]
+            i8mm_weights,
+            forward_fn: OutputLayer::<INPUT, PADDED>::forward_scalar_wrapper,
+        }
+    }
+
+    #[allow(dead_code)]
+    fn build_wide_weight_layer<const INPUT: usize, const PADDED: usize>()
+    -> OutputLayer<INPUT, PADDED> {
+        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED);
+        for (i, w) in weights.iter_mut().enumerate().take(INPUT) {
+            *w = ((i as i32 * 4099 + 17) % 60001 - 30000) as i16;
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        let i8mm_weights = OutputLayer::<INPUT, PADDED>::pack_i8mm_weights(weights.as_slice());
+
+        OutputLayer {
+            bias: -6789,
+            weights,
+            #[cfg(target_arch = "aarch64")]
+            i8mm_weights,
             forward_fn: OutputLayer::<INPUT, PADDED>::forward_scalar_wrapper,
         }
     }
@@ -453,6 +598,44 @@ mod tests {
         ]);
         (seg0, seg1)
     }
+    #[allow(dead_code)]
+    fn patterned_segment<const N: usize>(seed: u32) -> Align64<[u8; N]> {
+        let mut segment = Align64([0u8; N]);
+        for (i, value) in segment.iter_mut().enumerate() {
+            *value = ((i as u32 * 37 + seed * 19 + 11) & 0xff) as u8;
+        }
+        segment
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn assert_neon_matches_scalar<const INPUT: usize, const PADDED: usize>(
+        layer: &OutputLayer<INPUT, PADDED>,
+        segments: [&[u8]; 3],
+    ) {
+        let scalar = layer.forward_scalar(segments);
+        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+        let neon = unsafe { layer.forward_neon(segments) };
+
+        assert_eq!(neon, scalar);
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn assert_neon_i8mm_matches_scalar<const INPUT: usize, const PADDED: usize>(
+        layer: &OutputLayer<INPUT, PADDED>,
+        segments: [&[u8]; 3],
+    ) {
+        if !std::arch::is_aarch64_feature_detected!("i8mm")
+            || !std::arch::is_aarch64_feature_detected!("dotprod")
+        {
+            return;
+        }
+
+        let scalar = layer.forward_scalar(segments);
+        // SAFETY: Guarded by runtime i8mm+dotprod detection.
+        let neon = unsafe { layer.forward_neon_i8mm(segments) };
+
+        assert_eq!(neon, scalar);
+    }
 
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -464,11 +647,47 @@ mod tests {
         let (seg0, seg1, seg2) = segments_chunk16();
         let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
 
-        let scalar = layer.forward_scalar(segments);
-        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-        let neon = unsafe { layer.forward_neon(segments) };
+        assert_neon_matches_scalar(&layer, segments);
+    }
 
-        assert_eq!(neon, scalar);
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_matches_scalar_with_four_chunk_segment() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+
+        let layer = build_layer::<INPUT, PADDED>();
+        let seg0 = patterned_segment::<64>(5);
+        let segments = [&seg0.0[..], &[][..], &[][..]];
+
+        assert_neon_matches_scalar(&layer, segments);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_matches_scalar_with_three_chunk_segment() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+
+        let layer = build_layer::<INPUT, PADDED>();
+        let seg0 = patterned_segment::<48>(7);
+        let seg1 = patterned_segment::<16>(13);
+        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
+
+        assert_neon_matches_scalar(&layer, segments);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_i8mm_matches_scalar_with_wide_i16_weights() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+
+        let layer = build_wide_weight_layer::<INPUT, PADDED>();
+        let seg0 = patterned_segment::<64>(21);
+        let segments = [&seg0.0[..], &[][..], &[][..]];
+
+        assert_neon_i8mm_matches_scalar(&layer, segments);
     }
 
     #[test]
