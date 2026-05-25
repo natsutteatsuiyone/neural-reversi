@@ -267,7 +267,7 @@ impl MoveList {
     #[inline(always)]
     pub fn swap_moves(&mut self, a: usize, b: usize) {
         let len = self.moves.len();
-        assert!(
+        debug_assert!(
             a < len && b < len,
             "move index out of bounds: len is {len}, indexes are {a} and {b}"
         );
