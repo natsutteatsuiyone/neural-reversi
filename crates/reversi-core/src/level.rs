@@ -24,8 +24,8 @@ impl Level {
     /// Progresses from aggressive pruning to exact solving.
     pub const ENDGAME_SELECTIVITY: [Selectivity; 4] = [
         Selectivity::Level1,
+        Selectivity::Level2,
         Selectivity::Level3,
-        Selectivity::Level5,
         Selectivity::None,
     ];
 
@@ -147,8 +147,8 @@ mod tests {
         };
 
         assert_eq!(level.get_end_depth(Selectivity::Level1), 20);
-        assert_eq!(level.get_end_depth(Selectivity::Level3), 22);
-        assert_eq!(level.get_end_depth(Selectivity::Level5), 24);
+        assert_eq!(level.get_end_depth(Selectivity::Level2), 22);
+        assert_eq!(level.get_end_depth(Selectivity::Level3), 24);
         assert_eq!(level.get_end_depth(Selectivity::None), 25);
     }
 

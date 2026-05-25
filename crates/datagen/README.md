@@ -28,8 +28,8 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12
 - `--records_per_file`: Number of records to store in each output file (default: 1,000,000)
 - `--hash-size`: Transposition table size in MB for the search algorithm (default: 128)
 - `--mid-depth`: Midgame search depth (1-60, default: 12)
-- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level3,Level5,None) (default: 21)
-- `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
+- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,None) (default: 21)
+- `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
 - `--prefix`: Output file prefix for generated data files (default: "game")
 - `--output-dir`: Output directory where game data will be stored
 - `--openings`: Optional path to a file containing opening sequences. If provided, selfplay will iterate through these openings instead of generating a set number of games.
@@ -121,8 +121,8 @@ datagen score-openings --depth 9 --mid-depth 16 --end-depth 24 --selectivity 0 -
 - `--depth`: Number of plies to enumerate from the initial position (1-20).
 - `--hash-size`: Transposition table size in MB (default: 512).
 - `--mid-depth`: Midgame search depth (1-60, default: 16).
-- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level3,Level5,None) (default: 24).
-- `--selectivity`: Search selectivity parameter (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0).
+- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,None) (default: 24).
+- `--selectivity`: Search selectivity parameter (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0).
 - `--output`: Output file path where scored positions are written.
 
 #### Data format

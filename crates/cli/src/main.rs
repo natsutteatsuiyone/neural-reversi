@@ -41,8 +41,8 @@ struct EngineParams {
     #[arg(
         long,
         default_value = "0",
-        value_parser = clap::value_parser!(u8).range(0..=5),
-        help = "Search selectivity for ProbCut pruning (0 = most selective, 5 = least selective)"
+        value_parser = clap::value_parser!(u8).range(0..=3),
+        help = "Search selectivity for ProbCut pruning (0: 73%, 1: 95%, 2: 99%, 3: 100%)"
     )]
     selectivity: u8,
 

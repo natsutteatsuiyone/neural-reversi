@@ -1016,8 +1016,8 @@ struct Args {
     #[arg(short, long, default_value = "60")]
     depth: Depth,
 
-    /// Search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%)
-    #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=5))]
+    /// Search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%)
+    #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=3))]
     selectivity: u8,
 
     /// Transposition table size in MB

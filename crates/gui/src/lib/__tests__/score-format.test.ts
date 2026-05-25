@@ -48,6 +48,6 @@ describe("formatDepth", () => {
   });
 
   it("shows depth@acc% below full accuracy", () => {
-    expect(formatDepth(20, 87)).toBe("20@87%");
+    expect(formatDepth(20, 95)).toBe("20@95%");
   });
 });

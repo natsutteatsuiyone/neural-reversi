@@ -36,10 +36,10 @@ enum SubCommands {
         mid_depth: u32,
 
         #[arg(long, default_value = "21", value_parser = parse_end_depth,
-            help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values (Level1,Level3,Level5,None)")]
+            help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values (Level1,Level2,Level3,None)")]
         end_depth: [Depth; 4],
 
-        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=5))]
+        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=3))]
         selectivity: u8,
 
         #[arg(long, help = "Output file prefix [default: hostname]")]
@@ -124,7 +124,7 @@ enum SubCommands {
             help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values")]
         end_depth: [Depth; 4],
 
-        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=5))]
+        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=3))]
         selectivity: u8,
 
         #[arg(short, long)]

@@ -189,9 +189,7 @@ where
 }
 
 /// Builds a [`reversi_core::level::Level`] whose endgame iterative-deepening
-/// loop stops at `target`. Selectivities missing from
-/// [`reversi_core::level::Level::ENDGAME_SELECTIVITY`] round **down** to the
-/// next more-aggressive entry.
+/// loop stops at `target`.
 fn solver_level(target: Selectivity) -> reversi_core::level::Level {
     let mut end_depth = [0u32; 4];
     for (i, &sel) in reversi_core::level::Level::ENDGAME_SELECTIVITY
@@ -328,9 +326,9 @@ async fn solver_search_command(
     multi_pv: bool,
     run_id: u64,
 ) -> Result<(), String> {
-    if target_selectivity > 5 {
+    if target_selectivity > 3 {
         return Err(format!(
-            "Invalid target_selectivity: {target_selectivity} (expected 0..=5)"
+            "Invalid target_selectivity: {target_selectivity} (expected 0..=3)"
         ));
     }
 
@@ -537,14 +535,14 @@ mod tests {
     }
 
     #[test]
-    fn solver_level_level5_caps_last_entry() {
-        let lvl = solver_level(Selectivity::Level5);
+    fn solver_level_level3_caps_last_entry() {
+        let lvl = solver_level(Selectivity::Level3);
         assert_eq!(lvl.end_depth, [60, 60, 60, 0]);
     }
 
     #[test]
-    fn solver_level_level3_caps_after_level3() {
-        let lvl = solver_level(Selectivity::Level3);
+    fn solver_level_level2_caps_after_level2() {
+        let lvl = solver_level(Selectivity::Level2);
         assert_eq!(lvl.end_depth, [60, 60, 0, 0]);
     }
 
@@ -552,17 +550,5 @@ mod tests {
     fn solver_level_level1_only_first() {
         let lvl = solver_level(Selectivity::Level1);
         assert_eq!(lvl.end_depth, [60, 0, 0, 0]);
-    }
-
-    #[test]
-    fn solver_level_level2_rounds_down_to_level1() {
-        let lvl = solver_level(Selectivity::Level2);
-        assert_eq!(lvl.end_depth, [60, 0, 0, 0]);
-    }
-
-    #[test]
-    fn solver_level_level4_rounds_down_to_level3() {
-        let lvl = solver_level(Selectivity::Level4);
-        assert_eq!(lvl.end_depth, [60, 60, 0, 0]);
     }
 }

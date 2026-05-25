@@ -197,7 +197,7 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
     let n_empties = ctx.empty_list.count();
     let score = estimate_aspiration_base_score(ctx, board, n_empties);
     let final_selectivity = if n_empties > level.perfect_depth {
-        Selectivity::Level4
+        Selectivity::Level3
     } else {
         Selectivity::None
     };
@@ -206,7 +206,7 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
     let mut alpha = score - ScaledScore::from_disc_diff(5);
     let mut beta = score + ScaledScore::from_disc_diff(5);
 
-    for selectivity in 1..=final_selectivity.as_u8() {
+    for selectivity in 0..=final_selectivity.as_u8() {
         ctx.selectivity = Selectivity::from_u8(selectivity);
         let mut delta = ScaledScore::from_disc_diff(3);
 

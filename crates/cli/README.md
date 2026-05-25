@@ -16,7 +16,7 @@ Options:
 
 - `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI difficulty level (default: 21)
-- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
+- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
 
 In interactive mode, you can use the following commands:
@@ -50,7 +50,7 @@ Options:
 
 - `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `--level <level>` - Set the AI search level (default: 21)
-- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
+- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
 
 In GTP mode, the program accepts standard GTP commands plus some Reversi-specific extensions:
@@ -108,7 +108,7 @@ Options:
 - `--port <port>` - GGS server port. Default: `5000`.
 - `--hash-size <size>` - Transposition table size in MB. Default: `512`.
 - `-l, --level <level>` - Fallback search level when server time is unparseable. Default: `21`.
-- `--selectivity <0-5>` - Search selectivity. Default: `0`.
+- `--selectivity <0-3>` - Search selectivity. Default: `0`.
 - `--threads <n>` - Number of search threads. Default: CPU count.
 
 A template lives at `crates/cli/init.ggs.example`. Copy it to `init.ggs`, fill in your credentials, and pass it via `--script`. The first two lines answer the `Enter login` / `Enter your password` prompts:
@@ -142,7 +142,7 @@ Options:
 - `--exact` - Solve for exact score with perfect play (ignores level setting)
 - `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI search level (default: 21)
-- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 87%, 2: 95%, 3: 98%, 4: 99%, 5: 100%) (default: 0)
+- `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
 
 The position file should contain one position per line in the following format:

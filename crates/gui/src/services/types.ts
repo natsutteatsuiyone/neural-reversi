@@ -96,11 +96,11 @@ export type SolverSelectivity = typeof SOLVER_SELECTIVITIES[number];
  * Maps UI selectivity percentages to the backend `u8` expected by
  * `solver_search_command` (matches `reversi_core::probcut::Selectivity` discriminants).
  */
-export const SOLVER_SELECTIVITY_TO_U8: Record<SolverSelectivity, 0 | 2 | 4 | 5> = {
+export const SOLVER_SELECTIVITY_TO_U8: Record<SolverSelectivity, 0 | 1 | 2 | 3> = {
   73: 0,   // Level1
-  95: 2,   // Level3
-  99: 4,   // Level5
-  100: 5,  // None
+  95: 1,   // Level2
+  99: 2,   // Level3
+  100: 3,  // None
 };
 
 export const SOLVER_MODES = ["bestOnly", "multiPv"] as const;

@@ -151,7 +151,7 @@ grows to two.
 
 Iterative selectivity. The depth is fixed (all remaining empties are
 solved); what changes between iterations is the confidence level. The loop
-walks `Level::ENDGAME_SELECTIVITY = [Level1, Level3, Level5, None]`,
+walks `Level::ENDGAME_SELECTIVITY = [Level1, Level2, Level3, None]`,
 ending with `None` for an exact solve.
 
 - Before the loop, a shallow PVS estimates a centre score for the
@@ -209,11 +209,11 @@ a cutoff.
 - The verification threshold is `compute_probcut_beta(beta, t, mean, sigma)
   = ceil(beta + t·sigma − mean)`. If a shallow PVS clears it, the deep
   search is skipped.
-- `Selectivity` enumerates discrete confidence levels (`Level1` → `Level5`,
-  ordered from most aggressive to most conservative) plus `None` for an
-  exact solve. Per-level `t` multipliers and confidence percentages live
-  in `Selectivity::CONFIG`. PV nodes and the final endgame confirmation
-  push selectivity to `None`.
+- `Selectivity` enumerates discrete confidence levels (`Level1`, `Level2`,
+  `Level3`, ordered from most aggressive to most conservative) plus `None`
+  for an exact solve. Per-level `t` multipliers and confidence percentages
+  are defined by `Selectivity::t_value` and `Selectivity::probability`. PV
+  nodes and the final endgame confirmation push selectivity to `None`.
 
 ### Stability cutoff
 
@@ -361,7 +361,7 @@ pub struct ScaledScore(i32);
 ### Level
 
 `Level { mid_depth, end_depth: [Depth; 4] }`. The `end_depth` slots line
-up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level3 / Level5 / None`).
+up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level2 / Level3 / None`).
 
 - `get_level(i)` returns a preset configuration for UIs (see the array at
   the bottom of `level.rs`).

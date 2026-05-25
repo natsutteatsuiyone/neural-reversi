@@ -834,7 +834,7 @@ mod tests {
         let test_bound = Bound::Exact;
         let test_depth: Depth = 60;
         let test_best_move = sq(3);
-        let test_selectivity = Selectivity::Level5;
+        let test_selectivity = Selectivity::Level3;
         let test_generation: u8 = 127;
 
         entry.save(
@@ -873,7 +873,7 @@ mod tests {
                 sq(5),
                 Bound::Exact,
                 10,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -897,7 +897,7 @@ mod tests {
                 sq(5),
                 Bound::Lower,
                 10,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -913,7 +913,7 @@ mod tests {
                 sq(6),
                 Bound::Lower,
                 8,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -930,7 +930,7 @@ mod tests {
                 sq(7),
                 Bound::Lower,
                 12,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -946,7 +946,7 @@ mod tests {
                 sq(8),
                 Bound::Exact,
                 5,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -964,7 +964,7 @@ mod tests {
                 sq(9),
                 Bound::Upper,
                 3,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -981,7 +981,7 @@ mod tests {
                 sq(10),
                 Bound::Lower,
                 2,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 5,
                 false,
             ),
@@ -1003,7 +1003,7 @@ mod tests {
                 sq(11),
                 Bound::Lower,
                 12,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -1016,7 +1016,7 @@ mod tests {
                 Square::None,
                 Bound::Lower,
                 11,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),
@@ -1143,7 +1143,7 @@ mod tests {
         assert!(
             !read(&entry, &board)
                 .unwrap()
-                .can_cut(s(50), 0, Selectivity::Level2, false)
+                .can_cut(s(50), 0, Selectivity::Level3, false)
         );
         assert!(
             !read(&entry, &board)
@@ -1559,7 +1559,7 @@ mod tests {
                 sq(2),
                 Bound::Exact,
                 6,
-                Selectivity::Level2,
+                Selectivity::Level3,
                 1,
                 false,
             ),

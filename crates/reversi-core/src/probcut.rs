@@ -21,39 +21,35 @@ pub enum Selectivity {
     /// Most aggressive: 73% confidence (t=1.1)
     #[default]
     Level1 = 0,
-    /// 87% confidence (t=1.5)
-    Level2 = 1,
     /// 95% confidence (t=2.0)
-    Level3 = 2,
-    /// 98% confidence (t=2.6)
-    Level4 = 3,
+    Level2 = 1,
     /// Most conservative: 99% confidence (t=3.3)
-    Level5 = 4,
+    Level3 = 2,
     /// ProbCut disabled.
-    None = 5,
+    None = 3,
 }
 
 impl Selectivity {
-    /// Selectivity configuration: (t_multiplier, probability_percent)
-    const CONFIG: [(f64, i32); 6] = [
-        (1.1, 73),    // Level1: Most aggressive
-        (1.5, 87),    // Level2
-        (2.0, 95),    // Level3
-        (2.6, 98),    // Level4
-        (3.3, 99),    // Level5: Most conservative
-        (999.0, 100), // None: Effectively disabled
-    ];
-
     /// Returns the statistical confidence multiplier (t-value).
     #[inline]
     pub fn t_value(self) -> f64 {
-        Self::CONFIG[self as usize].0
+        match self {
+            Selectivity::Level1 => 1.1,
+            Selectivity::Level2 => 2.0,
+            Selectivity::Level3 => 3.3,
+            Selectivity::None => 999.0,
+        }
     }
 
     /// Returns the probability percentage for this level.
     #[inline]
     pub fn probability(self) -> i32 {
-        Self::CONFIG[self as usize].1
+        match self {
+            Selectivity::Level1 => 73,
+            Selectivity::Level2 => 95,
+            Selectivity::Level3 => 99,
+            Selectivity::None => 100,
+        }
     }
 
     /// Converts to [`u8`].
@@ -64,15 +60,13 @@ impl Selectivity {
 
     /// Creates a [`Selectivity`] from a [`u8`] value, clamping to valid range.
     ///
-    /// Values > 5 are clamped to [`Selectivity::None`].
+    /// Values > 3 are clamped to [`Selectivity::None`].
     #[inline]
     pub fn from_u8(value: u8) -> Self {
         match value {
             0 => Selectivity::Level1,
             1 => Selectivity::Level2,
             2 => Selectivity::Level3,
-            3 => Selectivity::Level4,
-            4 => Selectivity::Level5,
             _ => Selectivity::None,
         }
     }
@@ -754,3 +748,25 @@ const PROBCUT_PARAMS: [ProbcutParams; 60] = [
 ];
 
 const _: () = assert!(PROBCUT_PARAMS.len() == NUM_PLY);
+
+#[cfg(test)]
+mod tests {
+    use super::Selectivity;
+
+    #[test]
+    fn from_u8_maps_to_the_four_supported_selectivities() {
+        assert_eq!(Selectivity::from_u8(0), Selectivity::Level1);
+        assert_eq!(Selectivity::from_u8(1), Selectivity::Level2);
+        assert_eq!(Selectivity::from_u8(2), Selectivity::Level3);
+        assert_eq!(Selectivity::from_u8(3), Selectivity::None);
+        assert_eq!(Selectivity::from_u8(4), Selectivity::None);
+    }
+
+    #[test]
+    fn probability_reports_supported_confidence_levels() {
+        assert_eq!(Selectivity::Level1.probability(), 73);
+        assert_eq!(Selectivity::Level2.probability(), 95);
+        assert_eq!(Selectivity::Level3.probability(), 99);
+        assert_eq!(Selectivity::None.probability(), 100);
+    }
+}
