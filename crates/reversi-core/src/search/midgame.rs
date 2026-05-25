@@ -248,23 +248,22 @@ pub fn try_probcut(
     let sigma0 = probcut::get_sigma(ply, 0, depth);
     let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0, cut_node);
 
-    if eval_score >= eval_beta {
-        let current_selectivity = ctx.selectivity;
-        ctx.selectivity = Selectivity::None; // Disable nested probcut
-        let score = search::<NonPV, MidGameStrategy>(
-            ctx,
-            board,
-            pc_depth,
-            pc_beta - 1,
-            pc_beta,
-            thread,
-            true,
-        );
-        ctx.selectivity = current_selectivity;
+    if eval_score < eval_beta {
+        return None;
+    }
 
-        if score >= pc_beta {
-            return Some(beta);
-        }
+    if pc_depth == 0 {
+        return (eval_score >= pc_beta).then_some(beta);
+    }
+
+    let current_selectivity = ctx.selectivity;
+    ctx.selectivity = Selectivity::None; // Disable nested probcut
+    let score =
+        search::<NonPV, MidGameStrategy>(ctx, board, pc_depth, pc_beta - 1, pc_beta, thread, true);
+    ctx.selectivity = current_selectivity;
+
+    if score >= pc_beta {
+        return Some(beta);
     }
 
     None
