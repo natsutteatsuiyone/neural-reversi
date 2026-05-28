@@ -1086,6 +1086,14 @@ mod tests {
         }
     }
 
+    #[cfg(any(
+        all(
+            target_arch = "x86_64",
+            any(target_feature = "avx512bw", target_feature = "avx2")
+        ),
+        all(target_arch = "aarch64", target_feature = "neon"),
+        all(target_arch = "wasm32", target_feature = "simd128")
+    ))]
     #[track_caller]
     fn assert_features_match(
         label: &str,
