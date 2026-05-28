@@ -440,8 +440,8 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
                     _mm256_load_si256(input_ptr.add(i * 4 + 3)),
                 );
 
-                words0 = _mm256_min_epi16(words0, max_val);
-                words1 = _mm256_min_epi16(words1, max_val);
+                words0 = _mm256_min_epu16(words0, max_val);
+                words1 = _mm256_min_epu16(words1, max_val);
 
                 const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
                 words0 = _mm256_srli_epi16(_mm256_mulhi_epu16(words0, words0), SHIFT);
@@ -470,8 +470,8 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
                 _mm_load_si128(input_ptr.add(i * 4 + 3)),
             );
 
-            words0 = _mm_min_epi16(words0, max_val);
-            words1 = _mm_min_epi16(words1, max_val);
+            words0 = _mm_min_epu16(words0, max_val);
+            words1 = _mm_min_epu16(words1, max_val);
 
             const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
             words0 = _mm_srli_epi16(_mm_mulhi_epu16(words0, words0), SHIFT);
