@@ -1015,16 +1015,77 @@ fn get_square_color(board: &Board, sq: Square) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flip;
 
-    fn compute_pattern_feature_index(board: u64, feature: &FeatureToCoordinate) -> u32 {
-        let squares = feature.squares.map(|s| s as u8);
-        compute_pattern_feature_index_raw(board, feature.n_square, squares)
+    #[derive(Clone, Copy)]
+    struct MoveCase {
+        label: &'static str,
+        board: Board,
+        sq: Square,
+        flipped: Bitboard,
+        side_to_move: SideToMove,
+        ply: usize,
     }
 
-    #[cfg(all(
-        target_arch = "x86_64",
-        any(target_feature = "avx2", target_feature = "avx512bw")
-    ))]
+    fn bitboard(squares: &[Square]) -> Bitboard {
+        let mut bits = 0u64;
+        for &sq in squares {
+            bits |= 1u64 << sq.index();
+        }
+        Bitboard::new(bits)
+    }
+
+    fn board(player: &[Square], opponent: &[Square]) -> Board {
+        Board::from_bitboards(bitboard(player), bitboard(opponent))
+    }
+
+    fn pow3(exp: usize) -> usize {
+        let mut value = 1;
+        for _ in 0..exp {
+            value *= 3;
+        }
+        value
+    }
+
+    fn reference_color(board: &Board, sq: Square) -> u16 {
+        if board.player().contains(sq) {
+            0
+        } else if board.opponent().contains(sq) {
+            1
+        } else {
+            2
+        }
+    }
+
+    fn reference_pattern_value(board: &Board, feature: &FeatureToCoordinate) -> u16 {
+        let mut value = 0u16;
+        for &sq in &feature.squares[..feature.n_square] {
+            value = value * 3 + reference_color(board, sq);
+        }
+        value
+    }
+
+    fn expected_square_power(feature: &FeatureToCoordinate, sq: Square) -> Option<u32> {
+        for (pos, &pattern_sq) in feature.squares[..feature.n_square].iter().enumerate() {
+            if pattern_sq == sq {
+                return Some(pow3(feature.n_square - pos - 1) as u32);
+            }
+        }
+        None
+    }
+
+    #[track_caller]
+    fn assert_pattern_feature_eq(
+        label: &str,
+        slot: &str,
+        expected: &PatternFeature,
+        actual: &PatternFeature,
+    ) {
+        for idx in 0..FEATURE_VECTOR_SIZE {
+            assert_eq!(actual[idx], expected[idx], "{label} {slot}[{idx}]");
+        }
+    }
+
     #[track_caller]
     fn assert_features_match(
         label: &str,
@@ -1032,389 +1093,422 @@ mod tests {
         actual: &PatternFeatures,
         ply: usize,
     ) {
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                expected.p_feature(ply)[i],
-                actual.p_feature(ply)[i],
-                "{label} p[{i}]"
-            );
-            assert_eq!(
-                expected.o_feature(ply)[i],
-                actual.o_feature(ply)[i],
-                "{label} o[{i}]"
-            );
+        assert_pattern_feature_eq(
+            label,
+            "player",
+            expected.p_feature(ply),
+            actual.p_feature(ply),
+        );
+        assert_pattern_feature_eq(
+            label,
+            "opponent",
+            expected.o_feature(ply),
+            actual.o_feature(ply),
+        );
+    }
+
+    fn rebuilt_board_after(case: MoveCase) -> Board {
+        match case.side_to_move {
+            SideToMove::Player => case.board.make_move_with_flipped(case.flipped, case.sq),
+            SideToMove::Opponent => Board::from_bitboards(
+                case.board.player() & !case.flipped,
+                case.board.opponent() | case.flipped | case.sq.bitboard(),
+            ),
         }
     }
 
-    #[test]
-    fn test_pattern_feature_new() {
-        let pf = PatternFeature::new();
-        for i in 0..FEATURE_VECTOR_SIZE {
-            assert_eq!(pf[i], 0);
+    #[track_caller]
+    fn assert_case_matches_full_rebuild(updated: &PatternFeatures, case: MoveCase) {
+        let rebuilt = rebuilt_board_after(case);
+        let fresh = PatternFeatures::new(&rebuilt, case.ply + 1);
+
+        match case.side_to_move {
+            SideToMove::Player => {
+                assert_pattern_feature_eq(
+                    case.label,
+                    "player",
+                    fresh.o_feature(case.ply + 1),
+                    updated.p_feature(case.ply + 1),
+                );
+                assert_pattern_feature_eq(
+                    case.label,
+                    "opponent",
+                    fresh.p_feature(case.ply + 1),
+                    updated.o_feature(case.ply + 1),
+                );
+            }
+            SideToMove::Opponent => {
+                assert_pattern_feature_eq(
+                    case.label,
+                    "player",
+                    fresh.p_feature(case.ply + 1),
+                    updated.p_feature(case.ply + 1),
+                );
+                assert_pattern_feature_eq(
+                    case.label,
+                    "opponent",
+                    fresh.o_feature(case.ply + 1),
+                    updated.o_feature(case.ply + 1),
+                );
+            }
         }
     }
 
-    #[test]
-    fn test_pattern_feature_from_array() {
-        let mut data = [0u16; FEATURE_VECTOR_SIZE];
-        data[0] = 100;
-        data[5] = 200;
-        data[23] = 300;
+    #[track_caller]
+    fn assert_case_flips_match_move_generator(case: MoveCase) {
+        let generated = match case.side_to_move {
+            SideToMove::Player => flip::flip(case.sq, case.board.player(), case.board.opponent()),
+            SideToMove::Opponent => flip::flip(case.sq, case.board.opponent(), case.board.player()),
+        };
 
-        let pf = PatternFeature::from_array(data);
-        assert_eq!(pf[0], 100);
-        assert_eq!(pf[5], 200);
-        assert_eq!(pf[23], 300);
+        assert_eq!(generated, case.flipped, "{} flipped discs", case.label);
+    }
+
+    fn update_cases() -> [MoveCase; 6] {
+        [
+            MoveCase {
+                label: "opening player move",
+                board: Board::new(),
+                sq: Square::D3,
+                flipped: Square::D4.bitboard(),
+                side_to_move: SideToMove::Player,
+                ply: 0,
+            },
+            MoveCase {
+                label: "opening opponent move",
+                board: Board::new(),
+                sq: Square::C5,
+                flipped: Square::D5.bitboard(),
+                side_to_move: SideToMove::Opponent,
+                ply: 1,
+            },
+            MoveCase {
+                label: "edge line flip",
+                board: board(&[Square::A1], &[Square::B1, Square::C1, Square::D1]),
+                sq: Square::E1,
+                flipped: bitboard(&[Square::B1, Square::C1, Square::D1]),
+                side_to_move: SideToMove::Player,
+                ply: 10,
+            },
+            MoveCase {
+                label: "multi direction flip",
+                board: board(
+                    &[Square::D1, Square::A4, Square::D8],
+                    &[
+                        Square::D2,
+                        Square::D3,
+                        Square::B4,
+                        Square::C4,
+                        Square::D5,
+                        Square::D6,
+                        Square::D7,
+                    ],
+                ),
+                sq: Square::D4,
+                flipped: bitboard(&[
+                    Square::D2,
+                    Square::D3,
+                    Square::B4,
+                    Square::C4,
+                    Square::D5,
+                    Square::D6,
+                    Square::D7,
+                ]),
+                side_to_move: SideToMove::Player,
+                ply: 15,
+            },
+            MoveCase {
+                label: "diagonal flip across every u16 chunk",
+                board: board(
+                    &[Square::A1],
+                    &[
+                        Square::B2,
+                        Square::C3,
+                        Square::D4,
+                        Square::E5,
+                        Square::F6,
+                        Square::G7,
+                    ],
+                ),
+                sq: Square::H8,
+                flipped: bitboard(&[
+                    Square::B2,
+                    Square::C3,
+                    Square::D4,
+                    Square::E5,
+                    Square::F6,
+                    Square::G7,
+                ]),
+                side_to_move: SideToMove::Player,
+                ply: 3,
+            },
+            MoveCase {
+                label: "high ply opponent corner move",
+                board: board(&[Square::B1], &[Square::C1]),
+                sq: Square::A1,
+                flipped: Square::B1.bitboard(),
+                side_to_move: SideToMove::Opponent,
+                ply: MAX_PLY - 2,
+            },
+        ]
     }
 
     #[test]
-    fn test_pattern_feature_index_mut() {
-        let mut pf = PatternFeature::new();
-        pf[0] = 42;
-        pf[15] = 123;
-        assert_eq!(pf[0], 42);
-        assert_eq!(pf[15], 123);
-    }
+    fn pattern_feature_storage_preserves_values_and_alignment() {
+        let zeros = PatternFeature::new();
+        assert_eq!(zeros.data, [0; FEATURE_VECTOR_SIZE]);
+        assert_eq!(std::mem::align_of::<PatternFeature>(), 64);
+        assert_eq!(
+            std::mem::size_of::<PatternFeature>(),
+            FEATURE_VECTOR_SIZE * std::mem::size_of::<u16>()
+        );
 
-    #[test]
-    fn test_pattern_feature_get_unchecked() {
-        let mut data = [0u16; FEATURE_VECTOR_SIZE];
-        data[10] = 999;
-        let pf = PatternFeature::from_array(data);
+        let data = std::array::from_fn(|idx| (idx as u16).wrapping_mul(17).wrapping_add(3));
+        let mut feature = PatternFeature::from_array(data);
 
+        for idx in 0..FEATURE_VECTOR_SIZE {
+            assert_eq!(feature[idx], data[idx], "idx {idx}");
+        }
+
+        feature[7] = 0xBEEF;
+        assert_eq!(feature[7], 0xBEEF);
         unsafe {
-            assert_eq!(pf.get_unchecked(10), 999);
-            assert_eq!(pf.get_unchecked(0), 0);
+            assert_eq!(feature.get_unchecked(7), 0xBEEF);
         }
     }
 
     #[test]
-    fn test_calc_pattern_size() {
-        // Patterns with 8 squares: 3^8 = 6561
-        assert_eq!(calc_pattern_size(0), 6561);
-        assert_eq!(calc_pattern_size(4), 6561);
-        assert_eq!(calc_pattern_size(8), 6561);
-
-        // Patterns with 9 squares: 3^9 = 19683
-        assert_eq!(calc_pattern_size(20), 19683);
-        assert_eq!(calc_pattern_size(21), 19683);
-        assert_eq!(calc_pattern_size(24), 19683);
-        assert_eq!(calc_pattern_size(27), 19683);
-
-        // Patterns with 7 squares: 3^7 = 2187
-        assert_eq!(calc_pattern_size(28), 2187);
-        assert_eq!(calc_pattern_size(29), 2187);
-        assert_eq!(calc_pattern_size(30), 2187);
-        assert_eq!(calc_pattern_size(31), 2187);
-    }
-
-    #[test]
-    fn test_sum_eval_f2x() {
-        // 20 patterns with 8 squares + 8 patterns with 9 squares + 4 patterns with 7 squares
-        // = 20 * 6561 + 8 * 19683 + 4 * 2187 = 131220 + 157464 + 8748 = 297432
-        let expected = 20 * 6561 + 8 * 19683 + 4 * 2187;
-        assert_eq!(sum_eval_f2x(), expected);
-        assert_eq!(INPUT_FEATURE_DIMS, expected);
-    }
-
-    #[test]
-    fn test_calc_feature_offsets() {
-        let offsets = calc_feature_offsets();
-
-        // First offset should be 0
-        assert_eq!(offsets[0], 0);
-
-        // Each offset should be previous + pattern size
-        for i in 1..NUM_PATTERN_FEATURES {
-            assert_eq!(offsets[i], offsets[i - 1] + calc_pattern_size(i - 1));
-        }
-
-        // Verify PATTERN_FEATURE_OFFSETS matches
-        assert_eq!(PATTERN_FEATURE_OFFSETS, offsets);
-    }
-
-    #[test]
-    fn test_eval_f2x_pattern_definitions() {
-        // Verify all patterns have expected number of squares
-        for (i, f2x) in EVAL_F2X.iter().enumerate().take(20) {
-            assert_eq!(f2x.n_square, 8, "Pattern {} should have 8 squares", i);
-        }
-        for (i, f2x) in EVAL_F2X.iter().enumerate().skip(20).take(8) {
-            assert_eq!(f2x.n_square, 9, "Pattern {} should have 9 squares", i);
-        }
-        for (i, f2x) in EVAL_F2X.iter().enumerate().skip(28) {
-            assert_eq!(f2x.n_square, 7, "Pattern {} should have 7 squares", i);
-        }
-
-        // Verify no None squares within n_square range
-        for (i, f2x) in EVAL_F2X.iter().enumerate() {
-            for j in 0..f2x.n_square {
-                assert_ne!(
-                    f2x.squares[j],
-                    Square::None,
-                    "Pattern {} square {} should not be None",
-                    i,
-                    j
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_get_square_color() {
-        let board = Board::new(); // Initial position
-
-        // D5 and E4 are player's discs (Black)
-        assert_eq!(get_square_color(&board, Square::D5), 0);
-        assert_eq!(get_square_color(&board, Square::E4), 0);
-
-        // D4 and E5 are opponent's discs (White)
-        assert_eq!(get_square_color(&board, Square::D4), 1);
-        assert_eq!(get_square_color(&board, Square::E5), 1);
-
-        // Empty squares
-        assert_eq!(get_square_color(&board, Square::A1), 2);
-        assert_eq!(get_square_color(&board, Square::H8), 2);
-        assert_eq!(get_square_color(&board, Square::C3), 2);
-    }
-
-    #[test]
-    fn test_set_features_initial_position() {
-        let board = Board::new();
-        let mut patterns = [0u16; NUM_PATTERN_FEATURES];
-        set_features(&board, &mut patterns);
-
-        // Verify values are within valid range
-        for (i, &pattern) in patterns.iter().enumerate().take(NUM_PATTERN_FEATURES) {
-            let max_val = calc_pattern_size(i) as u16;
-            assert!(
-                pattern < max_val,
-                "Pattern {} = {} >= max {}",
-                i,
-                pattern,
-                max_val
-            );
-        }
-
-        // Verify not all patterns are at "all empty" value (regression check)
-        // Initial position has 4 discs, so patterns covering center must differ from empty
-        let mut has_non_empty_pattern = false;
-        for (i, &pattern) in patterns.iter().enumerate() {
-            let empty_val = (calc_pattern_size(i) - 1) as u16;
-            if pattern != empty_val {
-                has_non_empty_pattern = true;
-                break;
-            }
-        }
-        assert!(
-            has_non_empty_pattern,
-            "Initial position should have at least one non-empty pattern encoding"
-        );
-    }
-
-    #[test]
-    fn test_set_features_golden_values() {
-        // Golden test: verify specific pattern values for initial position
-        // These values are derived from the encoding scheme and pattern definitions
-        let board = Board::new();
-        let mut patterns = [0u16; NUM_PATTERN_FEATURES];
-        set_features(&board, &mut patterns);
-
-        // Feature 6: Center pattern [D3, E4, F5, D4, E5, C4, D5, E6]
-        // Initial position: D4=opponent(1), D5=player(0), E4=player(0), E5=opponent(1)
-        // Others are empty(2)
-        // This pattern covers the center, so it should not be all-empty
-        assert_ne!(
-            patterns[6], 6560,
-            "Feature 6 (center) should not be all-empty"
-        );
-
-        // Feature 7: Another center pattern [E3, D4, C5, E4, D5, F4, E5, D6]
-        assert_ne!(
-            patterns[7], 6560,
-            "Feature 7 (center) should not be all-empty"
-        );
-
-        // Features 8-11 are edge/corner patterns that don't cover center - should be all empty
-        assert_eq!(
-            patterns[8], 6560,
-            "Feature 8 (row 1) should be all-empty initially"
-        );
-        assert_eq!(
-            patterns[9], 6560,
-            "Feature 9 (row 8) should be all-empty initially"
-        );
-    }
-
-    #[test]
-    fn test_pattern_features_new() {
-        let board = Board::new();
-        let ply = 0;
-        let pf = PatternFeatures::new(&board, ply);
-
-        // Features should be computed for both players
-        for i in 0..NUM_PATTERN_FEATURES {
-            // Features should be within valid range
-            let p_val = pf.p_feature(ply)[i];
-            let o_val = pf.o_feature(ply)[i];
-            let max_val = calc_pattern_size(i) as u16;
-            assert!(
-                p_val < max_val,
-                "p_features[{}] = {} >= {}",
-                i,
-                p_val,
-                max_val
-            );
-            assert!(
-                o_val < max_val,
-                "o_features[{}] = {} >= {}",
-                i,
-                o_val,
-                max_val
-            );
-        }
-    }
-
-    #[test]
-    fn test_pattern_features_symmetry() {
-        // For the initial symmetric position, switching players should give
-        // consistent feature patterns
-        let board = Board::new();
-        let switched = board.switch_players();
-
-        let pf1 = PatternFeatures::new(&board, 0);
-        let pf2 = PatternFeatures::new(&switched, 0);
-
-        // Player features of board should match opponent features of switched board
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf1.p_feature(0)[i],
-                pf2.o_feature(0)[i],
-                "Feature {} mismatch: p1={} != o2={}",
-                i,
-                pf1.p_feature(0)[i],
-                pf2.o_feature(0)[i]
-            );
-        }
-    }
-
-    #[test]
-    fn test_eval_x2f_coverage() {
-        // Verify that EVAL_X2F correctly maps squares to features
-        for (sq_idx, x2f) in EVAL_X2F.iter().enumerate() {
-            // n_features should be within bounds
-            assert!(
-                x2f.n_features <= MAX_FEATURES_PER_SQUARE_U32,
-                "Square {} has {} features, max is {}",
-                sq_idx,
-                x2f.n_features,
-                MAX_FEATURES_PER_SQUARE
-            );
-
-            // Every square should participate in at least one pattern
-            assert!(
-                x2f.n_features > 0,
-                "Square {} has no features - should participate in at least one pattern",
-                sq_idx
-            );
-
-            // Verify each feature reference is valid and check for duplicates
-            let mut seen_features = [false; NUM_PATTERN_FEATURES];
-            for i in 0..x2f.n_features as usize {
-                let [feature_idx, power] = x2f.features[i];
-                assert!(
-                    (feature_idx as usize) < NUM_PATTERN_FEATURES,
-                    "Square {} feature {} has invalid index {}",
-                    sq_idx,
-                    i,
-                    feature_idx
-                );
-                assert!(power > 0, "Square {} feature {} has zero power", sq_idx, i);
-
-                // Check for duplicate feature indices
-                assert!(
-                    !seen_features[feature_idx as usize],
-                    "Square {} has duplicate feature index {}",
-                    sq_idx, feature_idx
-                );
-                seen_features[feature_idx as usize] = true;
-
-                // Verify power is a valid power of 3 (1, 3, 9, 27, ...)
-                let mut valid_power = false;
-                let mut p = 1u32;
-                for _ in 0..10 {
-                    // max 10 squares per pattern
-                    if p == power {
-                        valid_power = true;
-                        break;
-                    }
-                    p *= 3;
-                }
-                assert!(
-                    valid_power,
-                    "Square {} feature {} has invalid power {} (not a power of 3)",
-                    sq_idx, feature_idx, power
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_all_squares_covered_by_patterns() {
-        // Verify every square is included in at least one pattern definition
-        for sq_idx in 0..BOARD_SQUARES {
-            let Some(sq) = Square::from_u8(sq_idx as u8) else {
-                continue;
-            };
-            if matches!(sq, Square::None) {
-                continue;
-            }
-
-            let mut found_in_pattern = false;
-            for f2x in &EVAL_F2X {
-                for j in 0..f2x.n_square {
-                    if f2x.squares[j] == sq {
-                        found_in_pattern = true;
-                        break;
-                    }
-                }
-                if found_in_pattern {
-                    break;
-                }
-            }
-
-            assert!(
-                found_in_pattern,
-                "Square {:?} (index {}) is not covered by any pattern",
-                sq, sq_idx
-            );
-        }
-    }
-
-    #[test]
-    fn test_eval_feature_consistency() {
-        // Verify EVAL_FEATURE values are consistent with EVAL_X2F
-        for sq_idx in 0..BOARD_SQUARES {
-            let feature = &EVAL_FEATURE[sq_idx];
-            let x2f = &EVAL_X2F[sq_idx];
-
-            // For each pattern this square participates in
-            for i in 0..x2f.n_features as usize {
-                let [feature_idx, power] = x2f.features[i];
-                // The power in EVAL_X2F should match the value in EVAL_FEATURE
-                assert_eq!(
-                    feature[feature_idx as usize] as u32, power,
-                    "Square {} feature {}: EVAL_FEATURE={} but EVAL_X2F power={}",
-                    sq_idx, feature_idx, feature[feature_idx as usize], power
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_num_features_constant() {
+    fn pattern_definitions_have_expected_shape_padding_and_unique_squares() {
         assert_eq!(NUM_FEATURES, NUM_PATTERN_FEATURES);
         assert_eq!(NUM_PATTERN_FEATURES, 32);
+        assert_eq!(FEATURE_VECTOR_SIZE, 32);
+
+        for (idx, feature) in EVAL_F2X.iter().enumerate() {
+            let expected_len = match idx {
+                0..=19 => 8,
+                20..=27 => 9,
+                28..=31 => 7,
+                _ => unreachable!(),
+            };
+            assert_eq!(feature.n_square, expected_len, "pattern {idx}");
+
+            let mut seen = [false; BOARD_SQUARES];
+            for pos in 0..feature.n_square {
+                let sq = feature.squares[pos];
+                assert_ne!(sq, Square::None, "pattern {idx} active slot {pos}");
+                assert!(
+                    !seen[sq.index()],
+                    "pattern {idx} contains {sq:?} more than once"
+                );
+                seen[sq.index()] = true;
+            }
+
+            for pos in feature.n_square..feature.squares.len() {
+                assert_eq!(
+                    feature.squares[pos],
+                    Square::None,
+                    "pattern {idx} tail {pos}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn feature_dimensions_are_derived_from_pattern_lengths() {
+        let mut expected_offsets = [0usize; NUM_PATTERN_FEATURES];
+        let mut running_total = 0usize;
+
+        for (idx, feature) in EVAL_F2X.iter().enumerate() {
+            expected_offsets[idx] = running_total;
+            let expected_size = pow3(feature.n_square);
+            assert_eq!(calc_pattern_size(idx), expected_size, "pattern {idx}");
+            running_total += expected_size;
+        }
+
+        assert_eq!(calc_feature_offsets(), expected_offsets);
+        assert_eq!(PATTERN_FEATURE_OFFSETS, expected_offsets);
+        assert_eq!(sum_eval_f2x(), running_total);
+        assert_eq!(INPUT_FEATURE_DIMS, running_total);
+    }
+
+    #[test]
+    fn square_color_uses_player_perspective() {
+        let board = Board::new();
+
+        assert_eq!(get_square_color(&board, Square::D5), 0);
+        assert_eq!(get_square_color(&board, Square::E4), 0);
+        assert_eq!(get_square_color(&board, Square::D4), 1);
+        assert_eq!(get_square_color(&board, Square::E5), 1);
+        assert_eq!(get_square_color(&board, Square::A1), 2);
+
+        let switched = board.switch_players();
+        assert_eq!(get_square_color(&switched, Square::D5), 1);
+        assert_eq!(get_square_color(&switched, Square::D4), 0);
+    }
+
+    #[test]
+    fn set_features_encodes_pattern_digits_in_declared_order() {
+        let board = board(
+            &[Square::A1, Square::D1, Square::D5, Square::E4],
+            &[Square::B1, Square::H1, Square::D4, Square::E5],
+        );
+        let mut patterns = [0xFFFF; NUM_PATTERN_FEATURES];
+
+        set_features(&board, &mut patterns);
+
+        let row_1_expected = 729 + 2 * 243 + 2 * 27 + 2 * 9 + 2 * 3 + 1;
+        assert_eq!(patterns[8], row_1_expected);
+
+        for (idx, feature) in EVAL_F2X.iter().enumerate() {
+            let expected = reference_pattern_value(&board, feature);
+            assert_eq!(patterns[idx], expected, "pattern {idx}");
+            assert!(
+                usize::from(patterns[idx]) < calc_pattern_size(idx),
+                "pattern {idx} value {} outside ternary range",
+                patterns[idx]
+            );
+        }
+    }
+
+    #[test]
+    fn set_features_overwrites_existing_buffer_contents() {
+        let board = Board::new();
+        let mut zeroed = [0; NUM_PATTERN_FEATURES];
+        let mut filled = [0xFFFF; NUM_PATTERN_FEATURES];
+
+        set_features(&board, &mut zeroed);
+        set_features(&board, &mut filled);
+
+        assert_eq!(filled, zeroed);
+    }
+
+    #[test]
+    fn pattern_features_new_matches_set_features_for_both_perspectives() {
+        let board = board(
+            &[Square::A1, Square::D4, Square::G7],
+            &[Square::B1, Square::C3, Square::H8],
+        );
+        let ply = 7;
+        let features = PatternFeatures::new(&board, ply);
+        let mut expected_player = [0; NUM_PATTERN_FEATURES];
+        let mut expected_opponent = [0; NUM_PATTERN_FEATURES];
+
+        set_features(&board, &mut expected_player);
+        set_features(&board.switch_players(), &mut expected_opponent);
+
+        for idx in 0..NUM_PATTERN_FEATURES {
+            assert_eq!(
+                features.p_feature(ply)[idx],
+                expected_player[idx],
+                "player {idx}"
+            );
+            assert_eq!(
+                features.o_feature(ply)[idx],
+                expected_opponent[idx],
+                "opponent {idx}"
+            );
+        }
+    }
+
+    #[test]
+    fn pattern_features_from_features_copies_the_requested_ply() {
+        let board = board(
+            &[Square::A1, Square::B2, Square::C3],
+            &[Square::H8, Square::G7],
+        );
+        let source_ply = 4;
+        let target_ply = 11;
+        let source = PatternFeatures::new(&board, source_ply);
+
+        let copied = PatternFeatures::from_features(
+            target_ply,
+            source.p_feature(source_ply),
+            source.o_feature(source_ply),
+        );
+
+        assert_pattern_feature_eq(
+            "from_features",
+            "player",
+            source.p_feature(source_ply),
+            copied.p_feature(target_ply),
+        );
+        assert_pattern_feature_eq(
+            "from_features",
+            "opponent",
+            source.o_feature(source_ply),
+            copied.o_feature(target_ply),
+        );
+    }
+
+    #[test]
+    fn forward_and_reverse_square_maps_are_exact_inverses() {
+        for (sq_idx, sq) in Square::iter().enumerate() {
+            let mut expected_feature = [0u16; FEATURE_VECTOR_SIZE];
+            let mut expected_pairs = [[0u32; 2]; MAX_FEATURES_PER_SQUARE];
+            let mut expected_count = 0usize;
+
+            for (feature_idx, feature) in EVAL_F2X.iter().enumerate() {
+                if let Some(power) = expected_square_power(feature, sq) {
+                    expected_feature[feature_idx] = power as u16;
+                    assert!(
+                        expected_count < MAX_FEATURES_PER_SQUARE,
+                        "{sq:?} participates in more than {MAX_FEATURES_PER_SQUARE} patterns"
+                    );
+                    expected_pairs[expected_count] = [feature_idx as u32, power];
+                    expected_count += 1;
+                }
+            }
+
+            assert!(expected_count > 0, "{sq:?} is not covered by any pattern");
+            assert_eq!(EVAL_FEATURE[sq_idx].data, expected_feature, "{sq:?}");
+
+            let x2f = &EVAL_X2F[sq_idx];
+            assert_eq!(x2f.n_features as usize, expected_count, "{sq:?}");
+            assert_eq!(x2f.features(), &expected_pairs[..expected_count], "{sq:?}");
+        }
+    }
+
+    #[test]
+    fn single_square_raw_encoder_matches_eval_feature_table() {
+        for (sq_idx, eval_feature) in EVAL_FEATURE.iter().enumerate() {
+            let board = 1u64 << sq_idx;
+
+            for (pattern_idx, feature) in EVAL_F2X.iter().enumerate() {
+                let raw_squares = feature.squares.map(|sq| sq as u8);
+                let encoded =
+                    compute_pattern_feature_index_raw(board, feature.n_square, raw_squares);
+
+                assert_eq!(
+                    encoded,
+                    u32::from(eval_feature[pattern_idx]),
+                    "square {sq_idx}, pattern {pattern_idx}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_update_matches_full_rebuild_for_movegen_verified_cases() {
+        for case in update_cases() {
+            assert_case_flips_match_move_generator(case);
+
+            let mut updated = PatternFeatures::new(&case.board, case.ply);
+            updated.update(case.sq, case.flipped, case.ply, case.side_to_move);
+
+            assert_case_matches_full_rebuild(&updated, case);
+        }
+    }
+
+    #[test]
+    fn scalar_fallback_update_matches_full_rebuild_for_movegen_verified_cases() {
+        for case in update_cases() {
+            assert_case_flips_match_move_generator(case);
+
+            let mut updated = PatternFeatures::new(&case.board, case.ply);
+            updated.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+
+            assert_case_matches_full_rebuild(&updated, case);
+        }
     }
 
     #[cfg(any(
@@ -1425,1102 +1519,86 @@ mod tests {
         all(target_arch = "aarch64", target_feature = "neon")
     ))]
     #[test]
-    fn test_eval_feature_u16_sum_layout() {
-        // Spot-check the embedded blob's slots; the DP itself is exercised
-        // transitively by every search that hits the SIMD update path.
+    fn eval_feature_u16_sum_matches_scalar_square_sums_for_every_mask() {
         for (chunk_idx, chunk) in EVAL_FEATURE_U16_SUM.iter().enumerate() {
-            assert_eq!(
-                chunk[0].data, [0u16; FEATURE_VECTOR_SIZE],
-                "chunk {chunk_idx}"
-            );
-            for bit in 0..FLIP_U16_BITS {
-                let square_idx = chunk_idx * FLIP_U16_BITS + bit;
-                assert_eq!(
-                    chunk[1 << bit].data,
-                    EVAL_FEATURE[square_idx].data,
-                    "chunk {chunk_idx}, bit {bit}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_feature_vector_size_alignment() {
-        // FEATURE_VECTOR_SIZE should be 32 for SIMD alignment
-        assert_eq!(FEATURE_VECTOR_SIZE, 32);
-        // PatternFeature should have correct alignment
-        assert!(std::mem::align_of::<PatternFeature>() >= 64);
-    }
-
-    #[test]
-    fn test_coordinate_to_feature_features() {
-        // Test that features returns correct slice
-        for x2f in &EVAL_X2F {
-            let slice = x2f.features();
-            assert_eq!(slice.len(), x2f.n_features as usize);
-        }
-    }
-
-    /// Helper to verify update matches fresh computation (both p and o features).
-    /// For Player moves, the board is switched so updated p/o map to fresh o/p.
-    /// For Opponent moves, p/o map directly.
-    fn assert_update_matches_fresh(
-        pf: &PatternFeatures,
-        pf_fresh: &PatternFeatures,
-        ply: usize,
-        side_to_move: SideToMove,
-        context: &str,
-    ) {
-        for i in 0..NUM_PATTERN_FEATURES {
-            let (expected_p, expected_o) = match side_to_move {
-                SideToMove::Player => (
-                    pf_fresh.o_feature(ply + 1)[i],
-                    pf_fresh.p_feature(ply + 1)[i],
-                ),
-                SideToMove::Opponent => (
-                    pf_fresh.p_feature(ply + 1)[i],
-                    pf_fresh.o_feature(ply + 1)[i],
-                ),
-            };
-            assert_eq!(
-                pf.p_feature(ply + 1)[i],
-                expected_p,
-                "{}: p_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.p_feature(ply + 1)[i],
-                expected_p
-            );
-            assert_eq!(
-                pf.o_feature(ply + 1)[i],
-                expected_o,
-                "{}: o_features[{}] mismatch: {} != {}",
-                context,
-                i,
-                pf.o_feature(ply + 1)[i],
-                expected_o
-            );
-        }
-    }
-
-    #[test]
-    fn test_update_multiple_flips_horizontal() {
-        // Test flipping multiple discs in a horizontal line
-        // Setup: A1(player), B1-D1(opponent) -> move to E1 flips B1, C1, D1
-        let player = 1u64 << Square::A1.index();
-        let opponent = (1u64 << Square::B1.index())
-            | (1u64 << Square::C1.index())
-            | (1u64 << Square::D1.index());
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 10;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        let sq = Square::E1;
-        let flipped = Bitboard::new(
-            (1u64 << Square::B1.index())
-                | (1u64 << Square::C1.index())
-                | (1u64 << Square::D1.index()),
-        );
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Horizontal flip");
-    }
-
-    #[test]
-    fn test_update_multiple_flips_diagonal() {
-        // Test flipping multiple discs along diagonal
-        // Setup: A1(player), B2-D4(opponent) -> move to E5 flips B2, C3, D4
-        let player = 1u64 << Square::A1.index();
-        let opponent = (1u64 << Square::B2.index())
-            | (1u64 << Square::C3.index())
-            | (1u64 << Square::D4.index());
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 8;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        let sq = Square::E5;
-        let flipped = Bitboard::new(
-            (1u64 << Square::B2.index())
-                | (1u64 << Square::C3.index())
-                | (1u64 << Square::D4.index()),
-        );
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Diagonal flip");
-    }
-
-    #[test]
-    fn test_update_multiple_directions() {
-        // Test flipping in multiple directions simultaneously
-        // Setup position where one move flips discs in 2+ directions
-        // Player at D1 and D8, opponent at D2-D7 (vertical)
-        // Also player at A4, opponent at B4, C4 (horizontal towards D4)
-        let player = (1u64 << Square::D1.index())
-            | (1u64 << Square::A4.index())
-            | (1u64 << Square::D8.index());
-        let opponent = (1u64 << Square::D2.index())
-            | (1u64 << Square::D3.index())
-            | (1u64 << Square::B4.index())
-            | (1u64 << Square::C4.index())
-            | (1u64 << Square::D5.index())
-            | (1u64 << Square::D6.index())
-            | (1u64 << Square::D7.index());
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 15;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        // Move to D4 flips in multiple directions
-        let sq = Square::D4;
-        let flipped = Bitboard::new(
-            (1u64 << Square::D2.index())
-                | (1u64 << Square::D3.index())
-                | (1u64 << Square::B4.index())
-                | (1u64 << Square::C4.index())
-                | (1u64 << Square::D5.index())
-                | (1u64 << Square::D6.index())
-                | (1u64 << Square::D7.index()),
-        );
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(
-            &pf,
-            &pf_fresh,
-            ply,
-            SideToMove::Player,
-            "Multi-direction flip",
-        );
-    }
-
-    #[test]
-    fn test_update_at_ply_zero() {
-        // Test update at ply = 0 (first move of the game)
-        let board = Board::new();
-        let ply = 0;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D4.index());
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Ply 0");
-    }
-
-    #[test]
-    fn test_update_at_high_ply() {
-        // Test update at a high ply value (near but not at MAX_PLY)
-        let board = Board::new();
-        let ply = MAX_PLY - 2; // Last valid ply for update
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D4.index());
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "High ply");
-    }
-
-    #[test]
-    fn test_update_corner_a1() {
-        // Test move to corner A1
-        // Setup: opponent has B1, A2, B2
-        let player = (1u64 << Square::C1.index()) | (1u64 << Square::A3.index());
-        let opponent = (1u64 << Square::B1.index())
-            | (1u64 << Square::A2.index())
-            | (1u64 << Square::B2.index());
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 10;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        // Move to A1, flipping B1
-        let sq = Square::A1;
-        let flipped = Bitboard::new(1u64 << Square::B1.index());
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Corner A1");
-    }
-
-    #[test]
-    fn test_update_corner_h8() {
-        // Test move to corner H8
-        let player = (1u64 << Square::F8.index()) | (1u64 << Square::H6.index());
-        let opponent = (1u64 << Square::G8.index())
-            | (1u64 << Square::H7.index())
-            | (1u64 << Square::G7.index());
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 15;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        // Move to H8, flipping G8
-        let sq = Square::H8;
-        let flipped = Bitboard::new(1u64 << Square::G8.index());
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Corner H8");
-    }
-
-    #[test]
-    fn test_update_opponent_move() {
-        // Test update when opponent makes a move (SideToMove::Opponent)
-        // When opponent moves, the roles are swapped: opponent places, player's discs flip
-        let board = Board::new();
-        let ply = 0;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        // From opponent's perspective: opponent places at D3, flips D5 (player's disc)
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D5.index());
-
-        // Compute expected board state after opponent's move
-        // Opponent places disc, player's disc gets flipped
-        let new_board = Board::from_bitboards(
-            board.player() & !flipped,
-            board.opponent() | sq.bitboard() | flipped,
-        );
-        // Don't switch players - the update is from current perspective
-
-        pf.update(sq, flipped, ply, SideToMove::Opponent);
-
-        // Verify against fresh computation
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Opponent, "Opponent move");
-    }
-
-    #[test]
-    fn test_update_opponent_move_multiple_flips() {
-        // Test opponent move with multiple flips
-        // Setup: player has B1-D1, opponent has A1
-        let player = (1u64 << Square::B1.index())
-            | (1u64 << Square::C1.index())
-            | (1u64 << Square::D1.index());
-        let opponent = 1u64 << Square::A1.index();
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 5;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        // Opponent moves to E1, flipping B1-D1
-        let sq = Square::E1;
-        let flipped = Bitboard::new(
-            (1u64 << Square::B1.index())
-                | (1u64 << Square::C1.index())
-                | (1u64 << Square::D1.index()),
-        );
-
-        let new_board = Board::from_bitboards(
-            board.player() & !flipped,
-            board.opponent() | sq.bitboard() | flipped,
-        );
-
-        pf.update(sq, flipped, ply, SideToMove::Opponent);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(
-            &pf,
-            &pf_fresh,
-            ply,
-            SideToMove::Opponent,
-            "Opponent multi-flip",
-        );
-    }
-
-    #[test]
-    fn test_update_large_flip_count() {
-        // Test with many discs being flipped (stress test for SIMD loop)
-        // Create a line of opponent discs that will all be flipped
-        let player = 1u64 << Square::A1.index();
-        let mut opponent = 0u64;
-        // B1 through G1 are opponent's
-        for sq in [
-            Square::B1,
-            Square::C1,
-            Square::D1,
-            Square::E1,
-            Square::F1,
-            Square::G1,
-        ] {
-            opponent |= 1u64 << sq.index();
-        }
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 20;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        // Move to H1, flipping all 6 discs
-        let sq = Square::H1;
-        let mut flipped_bits = 0u64;
-        for sq in [
-            Square::B1,
-            Square::C1,
-            Square::D1,
-            Square::E1,
-            Square::F1,
-            Square::G1,
-        ] {
-            flipped_bits |= 1u64 << sq.index();
-        }
-        let flipped = Bitboard::new(flipped_bits);
-
-        let new_board = board.make_move_with_flipped(flipped, sq);
-
-        pf.update(sq, flipped, ply, SideToMove::Player);
-
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Large flip");
-    }
-
-    #[test]
-    fn test_fallback_implementation_directly() {
-        // Directly test the fallback implementation
-        let board = Board::new();
-        let ply = 0;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D4.index());
-
-        // Call fallback directly
-        pf.update_fallback(sq, flipped, ply, SideToMove::Player);
-
-        // Compute expected result
-        let new_board = board.make_move_with_flipped(flipped, sq);
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(&pf, &pf_fresh, ply, SideToMove::Player, "Fallback Player");
-    }
-
-    #[test]
-    fn test_fallback_opponent_move() {
-        // Test fallback implementation with opponent move
-        let board = Board::new();
-        let ply = 0;
-        let mut pf = PatternFeatures::new(&board, ply);
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D5.index());
-
-        pf.update_fallback(sq, flipped, ply, SideToMove::Opponent);
-
-        let new_board = Board::from_bitboards(
-            board.player() & !flipped,
-            board.opponent() | sq.bitboard() | flipped,
-        );
-        let pf_fresh = PatternFeatures::new(&new_board, ply + 1);
-
-        assert_update_matches_fresh(
-            &pf,
-            &pf_fresh,
-            ply,
-            SideToMove::Opponent,
-            "Fallback Opponent",
-        );
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    #[test]
-    fn test_avx2_fallback_equivalence() {
-        // Test that AVX2 and fallback implementations produce identical results
-        let board = Board::new();
-        let ply = 0;
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D4.index());
-
-        // Compute with fallback
-        let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Player);
-
-        // Compute with AVX2
-        let mut pf_avx2 = PatternFeatures::new(&board, ply);
-        unsafe {
-            pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Player);
-        }
-
-        // Compare results
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_avx2.p_feature(ply + 1)[i],
-                "AVX2 vs fallback p_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_avx2.p_feature(ply + 1)[i]
-            );
-            assert_eq!(
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_avx2.o_feature(ply + 1)[i],
-                "AVX2 vs fallback o_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_avx2.o_feature(ply + 1)[i]
-            );
-        }
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    #[test]
-    fn test_avx2_fallback_equivalence_multiple_positions() {
-        // Test equivalence across multiple different positions for Player moves
-        let test_cases = [
-            // (player_squares, opponent_squares, move_square, flipped_squares)
-            (
-                vec![Square::D5, Square::E4],
-                vec![Square::D4, Square::E5],
-                Square::C4,
-                vec![Square::D4],
-            ),
-            (
-                vec![Square::D5, Square::E4, Square::C4],
-                vec![Square::E5, Square::F4],
-                Square::G4,
-                vec![Square::F4],
-            ),
-        ];
-
-        for (player_sqs, opponent_sqs, move_sq, flip_sqs) in test_cases {
-            let mut player = 0u64;
-            for sq in &player_sqs {
-                player |= 1u64 << sq.index();
-            }
-            let mut opponent = 0u64;
-            for sq in &opponent_sqs {
-                opponent |= 1u64 << sq.index();
-            }
-            let mut flipped_bits = 0u64;
-            for sq in &flip_sqs {
-                flipped_bits |= 1u64 << sq.index();
-            }
-
-            let board = Board::from_bitboards(player, opponent);
-            let ply = 5;
-            let flipped = Bitboard::new(flipped_bits);
-
-            let mut pf_fallback = PatternFeatures::new(&board, ply);
-            pf_fallback.update_fallback(move_sq, flipped, ply, SideToMove::Player);
-
-            let mut pf_avx2 = PatternFeatures::new(&board, ply);
-            unsafe {
-                pf_avx2.update_avx2(move_sq, flipped, ply, SideToMove::Player);
-            }
-
-            for i in 0..NUM_PATTERN_FEATURES {
-                assert_eq!(
-                    pf_fallback.p_feature(ply + 1)[i],
-                    pf_avx2.p_feature(ply + 1)[i],
-                    "Player position {:?} feature {} p mismatch",
-                    move_sq,
-                    i
-                );
-                assert_eq!(
-                    pf_fallback.o_feature(ply + 1)[i],
-                    pf_avx2.o_feature(ply + 1)[i],
-                    "Player position {:?} feature {} o mismatch",
-                    move_sq,
-                    i
-                );
-            }
-        }
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    #[test]
-    fn test_avx2_fallback_equivalence_opponent_move() {
-        // Test AVX2 vs fallback for Opponent moves
-        let board = Board::new();
-        let ply = 0;
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D5.index());
-
-        // Compute with fallback
-        let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
-
-        // Compute with AVX2
-        let mut pf_avx2 = PatternFeatures::new(&board, ply);
-        unsafe {
-            pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Opponent);
-        }
-
-        // Compare results
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_avx2.p_feature(ply + 1)[i],
-                "AVX2 Opponent vs fallback p_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_avx2.p_feature(ply + 1)[i]
-            );
-            assert_eq!(
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_avx2.o_feature(ply + 1)[i],
-                "AVX2 Opponent vs fallback o_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_avx2.o_feature(ply + 1)[i]
-            );
-        }
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    #[test]
-    fn test_avx2_fallback_equivalence_opponent_multiple_flips() {
-        // Test AVX2 vs fallback for Opponent moves with multiple flips
-        let player = (1u64 << Square::B1.index())
-            | (1u64 << Square::C1.index())
-            | (1u64 << Square::D1.index());
-        let opponent = 1u64 << Square::A1.index();
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 5;
-
-        let sq = Square::E1;
-        let flipped = Bitboard::new(
-            (1u64 << Square::B1.index())
-                | (1u64 << Square::C1.index())
-                | (1u64 << Square::D1.index()),
-        );
-
-        let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
-
-        let mut pf_avx2 = PatternFeatures::new(&board, ply);
-        unsafe {
-            pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Opponent);
-        }
-
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_avx2.p_feature(ply + 1)[i],
-                "AVX2 Opponent multi-flip p[{}] mismatch",
-                i
-            );
-            assert_eq!(
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_avx2.o_feature(ply + 1)[i],
-                "AVX2 Opponent multi-flip o[{}] mismatch",
-                i
-            );
-        }
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn run_avx512_against_fallback(
-        board: &Board,
-        ply: usize,
-        sq: Square,
-        flipped: Bitboard,
-        side: SideToMove,
-        label: &str,
-    ) {
-        let mut pf_fallback = PatternFeatures::new(board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, side);
-
-        let mut pf_avx512 = PatternFeatures::new(board, ply);
-        unsafe {
-            pf_avx512.update_avx512(sq, flipped, ply, side);
-        }
-
-        assert_features_match(label, &pf_fallback, &pf_avx512, ply + 1);
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    #[test]
-    fn test_avx512_fallback_equivalence() {
-        run_avx512_against_fallback(
-            &Board::new(),
-            0,
-            Square::D3,
-            Bitboard::new(1u64 << Square::D4.index()),
-            SideToMove::Player,
-            "AVX-512 Player",
-        );
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    #[test]
-    fn test_avx512_fallback_equivalence_multiple_positions() {
-        let cases = [
-            (
-                vec![Square::D5, Square::E4],
-                vec![Square::D4, Square::E5],
-                Square::C4,
-                vec![Square::D4],
-            ),
-            (
-                vec![Square::D5, Square::E4, Square::C4],
-                vec![Square::E5, Square::F4],
-                Square::G4,
-                vec![Square::F4],
-            ),
-        ];
-
-        for (player_sqs, opponent_sqs, move_sq, flip_sqs) in cases {
-            let player = player_sqs.iter().fold(0u64, |b, s| b | 1u64 << s.index());
-            let opponent = opponent_sqs.iter().fold(0u64, |b, s| b | 1u64 << s.index());
-            let flipped = Bitboard::new(flip_sqs.iter().fold(0u64, |b, s| b | 1u64 << s.index()));
-
-            run_avx512_against_fallback(
-                &Board::from_bitboards(player, opponent),
-                5,
-                move_sq,
-                flipped,
-                SideToMove::Player,
-                &format!("AVX-512 Player {move_sq:?}"),
-            );
-        }
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    #[test]
-    fn test_avx512_fallback_equivalence_opponent_move() {
-        run_avx512_against_fallback(
-            &Board::new(),
-            0,
-            Square::D3,
-            Bitboard::new(1u64 << Square::D5.index()),
-            SideToMove::Opponent,
-            "AVX-512 Opponent",
-        );
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    #[test]
-    fn test_avx512_fallback_equivalence_opponent_multiple_flips() {
-        let player = (1u64 << Square::B1.index())
-            | (1u64 << Square::C1.index())
-            | (1u64 << Square::D1.index());
-        let opponent = 1u64 << Square::A1.index();
-        let flipped = Bitboard::new(player);
-
-        run_avx512_against_fallback(
-            &Board::from_bitboards(player, opponent),
-            5,
-            Square::E1,
-            flipped,
-            SideToMove::Opponent,
-            "AVX-512 Opponent multi-flip",
-        );
-    }
-
-    // Diagonal flip spanning all four 16-bit chunks of `flipped`; catches a
-    // swap among the four `load_u16_sum(i)` calls in the SIMD update paths.
-    #[cfg(all(
-        target_arch = "x86_64",
-        any(target_feature = "avx2", target_feature = "avx512bw")
-    ))]
-    #[test]
-    fn test_simd_fallback_equivalence_all_chunks() {
-        let player = 1u64 << Square::A1.index();
-        let opponent = (1u64 << Square::B2.index())
-            | (1u64 << Square::C3.index())
-            | (1u64 << Square::D4.index())
-            | (1u64 << Square::E5.index())
-            | (1u64 << Square::F6.index())
-            | (1u64 << Square::G7.index());
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 3;
-        let sq = Square::H8;
-        let flipped = Bitboard::new(opponent);
-
-        let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Player);
-
-        #[cfg(target_feature = "avx2")]
-        {
-            let mut pf_avx2 = PatternFeatures::new(&board, ply);
-            unsafe {
-                pf_avx2.update_avx2(sq, flipped, ply, SideToMove::Player);
-            }
-            assert_features_match("AVX2 all-chunks", &pf_fallback, &pf_avx2, ply + 1);
-        }
-
-        #[cfg(target_feature = "avx512bw")]
-        {
-            let mut pf_avx512 = PatternFeatures::new(&board, ply);
-            unsafe {
-                pf_avx512.update_avx512(sq, flipped, ply, SideToMove::Player);
-            }
-            assert_features_match("AVX-512 all-chunks", &pf_fallback, &pf_avx512, ply + 1);
-        }
-    }
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[test]
-    fn test_neon_fallback_equivalence() {
-        let board = Board::new();
-        let ply = 0;
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D4.index());
-
-        let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Player);
-
-        let mut pf_neon = PatternFeatures::new(&board, ply);
-        unsafe {
-            pf_neon.update_neon(sq, flipped, ply, SideToMove::Player);
-        }
-
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_neon.p_feature(ply + 1)[i],
-                "NEON vs fallback p_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_neon.p_feature(ply + 1)[i]
-            );
-            assert_eq!(
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_neon.o_feature(ply + 1)[i],
-                "NEON vs fallback o_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_neon.o_feature(ply + 1)[i]
-            );
-        }
-    }
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[test]
-    fn test_neon_fallback_equivalence_multiple_positions() {
-        let test_cases = [
-            (
-                vec![Square::D5, Square::E4],
-                vec![Square::D4, Square::E5],
-                Square::C4,
-                vec![Square::D4],
-            ),
-            (
-                vec![Square::D5, Square::E4, Square::C4],
-                vec![Square::E5, Square::F4],
-                Square::G4,
-                vec![Square::F4],
-            ),
-        ];
-
-        for (player_sqs, opponent_sqs, move_sq, flip_sqs) in test_cases {
-            let mut player = 0u64;
-            for sq in &player_sqs {
-                player |= 1u64 << sq.index();
-            }
-            let mut opponent = 0u64;
-            for sq in &opponent_sqs {
-                opponent |= 1u64 << sq.index();
-            }
-            let mut flipped_bits = 0u64;
-            for sq in &flip_sqs {
-                flipped_bits |= 1u64 << sq.index();
-            }
-
-            let board = Board::from_bitboards(player, opponent);
-            let ply = 5;
-            let flipped = Bitboard::new(flipped_bits);
-
-            let mut pf_fallback = PatternFeatures::new(&board, ply);
-            pf_fallback.update_fallback(move_sq, flipped, ply, SideToMove::Player);
-
-            let mut pf_neon = PatternFeatures::new(&board, ply);
-            unsafe {
-                pf_neon.update_neon(move_sq, flipped, ply, SideToMove::Player);
-            }
-
-            for i in 0..NUM_PATTERN_FEATURES {
-                assert_eq!(
-                    pf_fallback.p_feature(ply + 1)[i],
-                    pf_neon.p_feature(ply + 1)[i],
-                    "NEON Player position {:?} feature {} p mismatch",
-                    move_sq,
-                    i
-                );
-                assert_eq!(
-                    pf_fallback.o_feature(ply + 1)[i],
-                    pf_neon.o_feature(ply + 1)[i],
-                    "NEON Player position {:?} feature {} o mismatch",
-                    move_sq,
-                    i
-                );
-            }
-        }
-    }
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[test]
-    fn test_neon_fallback_equivalence_opponent_move() {
-        let board = Board::new();
-        let ply = 0;
-
-        let sq = Square::D3;
-        let flipped = Bitboard::new(1u64 << Square::D5.index());
-
-        let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
-
-        let mut pf_neon = PatternFeatures::new(&board, ply);
-        unsafe {
-            pf_neon.update_neon(sq, flipped, ply, SideToMove::Opponent);
-        }
-
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_neon.p_feature(ply + 1)[i],
-                "NEON Opponent vs fallback p_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_neon.p_feature(ply + 1)[i]
-            );
-            assert_eq!(
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_neon.o_feature(ply + 1)[i],
-                "NEON Opponent vs fallback o_features[{}] mismatch: {} != {}",
-                i,
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_neon.o_feature(ply + 1)[i]
-            );
-        }
-    }
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[test]
-    fn test_neon_fallback_equivalence_opponent_multiple_flips() {
-        let player = (1u64 << Square::B1.index())
-            | (1u64 << Square::C1.index())
-            | (1u64 << Square::D1.index());
-        let opponent = 1u64 << Square::A1.index();
-        let board = Board::from_bitboards(player, opponent);
-        let ply = 5;
-
-        let sq = Square::E1;
-        let flipped = Bitboard::new(
-            (1u64 << Square::B1.index())
-                | (1u64 << Square::C1.index())
-                | (1u64 << Square::D1.index()),
-        );
-
-        let mut pf_fallback = PatternFeatures::new(&board, ply);
-        pf_fallback.update_fallback(sq, flipped, ply, SideToMove::Opponent);
-
-        let mut pf_neon = PatternFeatures::new(&board, ply);
-        unsafe {
-            pf_neon.update_neon(sq, flipped, ply, SideToMove::Opponent);
-        }
-
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                pf_fallback.p_feature(ply + 1)[i],
-                pf_neon.p_feature(ply + 1)[i],
-                "NEON Opponent multi-flip p[{}] mismatch",
-                i
-            );
-            assert_eq!(
-                pf_fallback.o_feature(ply + 1)[i],
-                pf_neon.o_feature(ply + 1)[i],
-                "NEON Opponent multi-flip o[{}] mismatch",
-                i
-            );
-        }
-    }
-
-    #[test]
-    fn test_set_features_clears_buffer() {
-        // Test that set_features clears the buffer before computing features
-        // This ensures safety regardless of the input buffer's initial state
-        let board = Board::new();
-
-        // First, establish baseline with zero-initialized buffer
-        let mut patterns = [0u16; NUM_PATTERN_FEATURES];
-        set_features(&board, &mut patterns);
-
-        // Now test with a non-zero initial buffer - should get the same results
-        // because set_features clears the buffer first
-        let mut patterns_with_init = [1u16; NUM_PATTERN_FEATURES];
-        set_features(&board, &mut patterns_with_init);
-
-        // Both should produce identical results
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                patterns_with_init[i], patterns[i],
-                "Pattern {} should be identical regardless of initial buffer state: {} != {}",
-                i, patterns_with_init[i], patterns[i]
-            );
-        }
-
-        // Also test with arbitrary garbage values
-        let mut patterns_garbage = [0xFFFFu16; NUM_PATTERN_FEATURES];
-        set_features(&board, &mut patterns_garbage);
-
-        for i in 0..NUM_PATTERN_FEATURES {
-            assert_eq!(
-                patterns_garbage[i], patterns[i],
-                "Pattern {} should be identical with garbage initial values: {} != {}",
-                i, patterns_garbage[i], patterns[i]
-            );
-        }
-    }
-
-    #[test]
-    fn test_max_features_per_square_not_exceeded() {
-        // Verify that no square participates in more features than MAX_FEATURES_PER_SQUARE
-        // by counting from EVAL_F2X definitions directly (independent of EVAL_X2F)
-        let mut feature_counts = [0usize; BOARD_SQUARES];
-
-        for f2x in &EVAL_F2X {
-            for j in 0..f2x.n_square {
-                let sq = f2x.squares[j];
-                if !matches!(sq, Square::None) {
-                    feature_counts[sq.index()] += 1;
+            for (mask, entry) in chunk.iter().enumerate() {
+                let mut expected = [0u16; FEATURE_VECTOR_SIZE];
+
+                for bit in 0..FLIP_U16_BITS {
+                    if (mask & (1usize << bit)) == 0 {
+                        continue;
+                    }
+
+                    let square_idx = chunk_idx * FLIP_U16_BITS + bit;
+                    for (feature_idx, expected_value) in expected.iter_mut().enumerate() {
+                        *expected_value += EVAL_FEATURE[square_idx][feature_idx];
+                    }
                 }
+
+                assert_eq!(entry.data, expected, "chunk {chunk_idx}, mask {mask:#06x}");
             }
         }
+    }
 
-        for (sq_idx, &count) in feature_counts.iter().enumerate() {
-            assert!(
-                count <= MAX_FEATURES_PER_SQUARE,
-                "Square {} participates in {} features, exceeds MAX_FEATURES_PER_SQUARE={}. \
-                 EVAL_X2F may be silently truncating features!",
-                sq_idx,
-                count,
-                MAX_FEATURES_PER_SQUARE
-            );
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[test]
+    fn avx512_update_matches_fallback_for_move_cases() {
+        for case in update_cases() {
+            let mut expected = PatternFeatures::new(&case.board, case.ply);
+            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
 
-            // Also verify EVAL_X2F has the same count
-            assert_eq!(
-                EVAL_X2F[sq_idx].n_features as usize, count,
-                "Square {}: EVAL_X2F.n_features={} but EVAL_F2X shows {} features",
-                sq_idx, EVAL_X2F[sq_idx].n_features, count
-            );
+            let mut actual = PatternFeatures::new(&case.board, case.ply);
+            unsafe {
+                actual.update_avx512(case.sq, case.flipped, case.ply, case.side_to_move);
+            }
+
+            assert_features_match(case.label, &expected, &actual, case.ply + 1);
         }
     }
 
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[test]
-    fn test_compute_pattern_feature_index_corner() {
-        // Test that corner squares have correct pattern indices
-        // A1 should participate in corner patterns (features 8, 10, 20)
-        let board = 1u64 << Square::A1.index();
+    fn avx2_update_matches_fallback_for_move_cases() {
+        for case in update_cases() {
+            let mut expected = PatternFeatures::new(&case.board, case.ply);
+            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
 
-        // Feature 8: Row 1 [A1, B1, C1, D1, E1, F1, G1, H1]
-        // A1 is the first square, so its weight is 3^7 = 2187
-        let idx = compute_pattern_feature_index(board, &EVAL_F2X[8]);
-        assert_eq!(idx, 2187, "A1 in feature 8 should have weight 3^7 = 2187");
-
-        // Feature 10: Column A [A1, A2, A3, A4, A5, A6, A7, A8]
-        // A1 is the first square, so its weight is 3^7 = 2187
-        let idx = compute_pattern_feature_index(board, &EVAL_F2X[10]);
-        assert_eq!(idx, 2187, "A1 in feature 10 should have weight 3^7 = 2187");
-
-        // Feature 20: 3x3 corner [A1, B1, C1, A2, B2, C2, A3, B3, C3]
-        // A1 is the first square, so its weight is 3^8 = 6561
-        let idx = compute_pattern_feature_index(board, &EVAL_F2X[20]);
-        assert_eq!(idx, 6561, "A1 in feature 20 should have weight 3^8 = 6561");
-    }
-
-    #[test]
-    fn test_compute_pattern_feature_index_h8() {
-        // Test H8 corner
-        let board = 1u64 << Square::H8.index();
-
-        // Feature 9: Row 8 [A8, B8, C8, D8, E8, F8, G8, H8]
-        // H8 is the last (8th) square, so its weight is 3^0 = 1
-        let idx = compute_pattern_feature_index(board, &EVAL_F2X[9]);
-        assert_eq!(idx, 1, "H8 in feature 9 should have weight 3^0 = 1");
-
-        // Feature 11: Column H [H1, H2, H3, H4, H5, H6, H7, H8]
-        // H8 is the last (8th) square, so its weight is 3^0 = 1
-        let idx = compute_pattern_feature_index(board, &EVAL_F2X[11]);
-        assert_eq!(idx, 1, "H8 in feature 11 should have weight 3^0 = 1");
-
-        // Feature 23: 3x3 corner H8 [H8, G8, F8, H7, G7, F7, H6, G6, F6]
-        // H8 is the first square, so its weight is 3^8 = 6561
-        let idx = compute_pattern_feature_index(board, &EVAL_F2X[23]);
-        assert_eq!(idx, 6561, "H8 in feature 23 should have weight 3^8 = 6561");
-    }
-
-    #[test]
-    fn test_compute_pattern_feature_index_center() {
-        // Test center squares with golden values
-        // Feature 6: [C4, D4, E4, F4, C5, D5, E5, F5]
-        // D4 is at position 1 (0-indexed), so weight is 3^(7-1) = 3^6 = 729
-        let board_d4 = 1u64 << Square::D4.index();
-        let idx = compute_pattern_feature_index(board_d4, &EVAL_F2X[6]);
-        assert_eq!(idx, 729, "D4 in feature 6 should have weight 3^6 = 729");
-
-        // E5 is at position 6, so weight is 3^(7-6) = 3^1 = 3
-        let board_e5 = 1u64 << Square::E5.index();
-        let idx = compute_pattern_feature_index(board_e5, &EVAL_F2X[6]);
-        assert_eq!(idx, 3, "E5 in feature 6 should have weight 3^1 = 3");
-
-        // D5 is at position 5, so weight is 3^(7-5) = 3^2 = 9
-        let board_d5 = 1u64 << Square::D5.index();
-        let idx = compute_pattern_feature_index(board_d5, &EVAL_F2X[6]);
-        assert_eq!(idx, 9, "D5 in feature 6 should have weight 3^2 = 9");
-    }
-
-    #[test]
-    fn test_compute_pattern_feature_index_not_in_pattern() {
-        // Test that squares not in a pattern return 0
-        // A1 is not in feature 0 (which covers B-D columns, rows 2-4)
-        let board_a1 = 1u64 << Square::A1.index();
-        let idx = compute_pattern_feature_index(board_a1, &EVAL_F2X[0]);
-        assert_eq!(idx, 0, "A1 should not be in feature 0");
-
-        // H8 is not in feature 0
-        let board_h8 = 1u64 << Square::H8.index();
-        let idx = compute_pattern_feature_index(board_h8, &EVAL_F2X[0]);
-        assert_eq!(idx, 0, "H8 should not be in feature 0");
-    }
-
-    #[test]
-    fn test_compute_pattern_feature_index_consistency_with_eval_feature() {
-        // Verify compute_pattern_feature_index matches EVAL_FEATURE lookup
-        for (sq_idx, eval_feature) in EVAL_FEATURE.iter().enumerate() {
-            let board = 1u64 << sq_idx;
-            for pattern_idx in 0..NUM_PATTERN_FEATURES {
-                let computed = compute_pattern_feature_index(board, &EVAL_F2X[pattern_idx]);
-                let lookup = eval_feature[pattern_idx] as u32;
-                assert_eq!(
-                    computed, lookup,
-                    "Square {} pattern {}: computed {} != lookup {}",
-                    sq_idx, pattern_idx, computed, lookup
-                );
+            let mut actual = PatternFeatures::new(&case.board, case.ply);
+            unsafe {
+                actual.update_avx2(case.sq, case.flipped, case.ply, case.side_to_move);
             }
+
+            assert_features_match(case.label, &expected, &actual, case.ply + 1);
+        }
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[test]
+    fn neon_update_matches_fallback_for_move_cases() {
+        for case in update_cases() {
+            let mut expected = PatternFeatures::new(&case.board, case.ply);
+            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+
+            let mut actual = PatternFeatures::new(&case.board, case.ply);
+            unsafe {
+                actual.update_neon(case.sq, case.flipped, case.ply, case.side_to_move);
+            }
+
+            assert_features_match(case.label, &expected, &actual, case.ply + 1);
+        }
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    #[test]
+    fn wasm_simd_update_matches_fallback_for_move_cases() {
+        for case in update_cases() {
+            let mut expected = PatternFeatures::new(&case.board, case.ply);
+            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+
+            let mut actual = PatternFeatures::new(&case.board, case.ply);
+            actual.update_wasm_simd(case.sq, case.flipped, case.ply, case.side_to_move);
+
+            assert_features_match(case.label, &expected, &actual, case.ply + 1);
         }
     }
 }

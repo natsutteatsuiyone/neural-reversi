@@ -419,44 +419,129 @@ impl BaseInput {
 }
 
 #[cfg(test)]
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(target_arch = "x86_64", target_feature = "avx2"),
-))]
 mod tests {
     use super::*;
+    use crate::eval::pattern_feature::{PATTERN_FEATURE_OFFSETS, calc_pattern_size};
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     use super::super::simd_layout::permute_rows;
 
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_256_matches_fallback() {
+    fn valid_pattern_feature(seed: usize) -> PatternFeature {
         let mut pattern_feature = PatternFeature::new();
-        for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
-            pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
+        for idx in 0..NUM_FEATURES {
+            pattern_feature[idx] = ((idx * seed + 17) % calc_pattern_size(idx)) as u16;
         }
+        pattern_feature
+    }
 
+    fn build_layer(pattern_feature: &PatternFeature, seed: i32) -> BaseInput {
         let mut layer = BaseInput {
-            biases: AlignedBuffer::from_elem(0i16, HIDDEN_DIMS),
-            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * HIDDEN_DIMS),
+            biases: AlignedBuffer::from_elem(0, HIDDEN_DIMS),
+            weights: AlignedBuffer::from_elem(0, INPUT_FEATURE_DIMS * HIDDEN_DIMS),
         };
 
         for (idx, bias) in layer.biases.iter_mut().enumerate() {
-            *bias = ((idx as i32 * 19 + 7) % 997 - 498) as i16;
+            *bias = ((idx as i32 * 37 + seed).rem_euclid(1400) - 450) as i16;
         }
 
-        for (idx, weight) in layer.weights.iter_mut().enumerate() {
-            *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
+        for feature_idx in 0..NUM_FEATURES {
+            let row =
+                PATTERN_FEATURE_OFFSETS[feature_idx] + usize::from(pattern_feature[feature_idx]);
+            let start = row * HIDDEN_DIMS;
+            for (dim, weight) in layer.weights[start..start + HIDDEN_DIMS]
+                .iter_mut()
+                .enumerate()
+            {
+                *weight =
+                    ((feature_idx as i32 * 17 + dim as i32 * 7 + seed).rem_euclid(41) - 20) as i16;
+            }
         }
 
-        let mut expected = Align64([0u8; OUTPUT_DIMS]);
-        let mut actual = Align64([0u8; OUTPUT_DIMS]);
-        layer.forward_fallback(&pattern_feature, expected.as_mut_slice());
-        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
+        layer
+    }
+
+    fn reference_forward(layer: &BaseInput, pattern_feature: &PatternFeature) -> [u8; OUTPUT_DIMS] {
+        let mut acc = [0i16; HIDDEN_DIMS];
+        acc.copy_from_slice(&layer.biases[..HIDDEN_DIMS]);
+
+        for feature_idx in 0..NUM_FEATURES {
+            let row =
+                PATTERN_FEATURE_OFFSETS[feature_idx] + usize::from(pattern_feature[feature_idx]);
+            let start = row * HIDDEN_DIMS;
+            for (acc_value, &weight) in acc
+                .iter_mut()
+                .zip(&layer.weights[start..start + HIDDEN_DIMS])
+            {
+                *acc_value += weight;
+            }
+        }
+
+        let mut output = [0; OUTPUT_DIMS];
+        for idx in 0..OUTPUT_DIMS {
+            let lo = acc[idx].clamp(0, ACTIVATION_MAX) as u32;
+            let hi = acc[idx + OUTPUT_DIMS].clamp(0, ACTIVATION_MAX) as u32;
+            output[idx] = ((lo * hi) >> ACTIVATION_SHIFT) as u8;
+        }
+        output
+    }
+
+    fn dispatch_ready_layer(natural: &BaseInput) -> BaseInput {
+        let layer = BaseInput {
+            biases: natural.biases.clone(),
+            weights: natural.weights.clone(),
+        };
+
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+        {
+            let mut layer = layer;
+            permute_rows(layer.biases.as_mut_slice(), HIDDEN_DIMS);
+            permute_rows(layer.weights.as_mut_slice(), HIDDEN_DIMS);
+            layer
+        }
+
+        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+        {
+            layer
+        }
+    }
+
+    #[test]
+    fn forward_fallback_matches_independent_accumulate_and_activation_reference() {
+        let pattern_feature = valid_pattern_feature(4099);
+        let layer = build_layer(&pattern_feature, 23);
+        let expected = reference_forward(&layer, &pattern_feature);
+        let mut actual = Align64([0xCC; OUTPUT_DIMS + 4]);
+
+        layer.forward_fallback(&pattern_feature, actual.as_mut_slice());
+
+        assert_eq!(&actual.as_ref()[..OUTPUT_DIMS], &expected);
+        assert_eq!(&actual.as_ref()[OUTPUT_DIMS..], &[0xCC; 4]);
+    }
+
+    #[test]
+    fn forward_dispatch_matches_fallback_for_the_runtime_layout() {
+        let pattern_feature = valid_pattern_feature(2053);
+        let natural = build_layer(&pattern_feature, 71);
+        let dispatch = dispatch_ready_layer(&natural);
+        let expected = reference_forward(&natural, &pattern_feature);
+        let mut actual = Align64([0; OUTPUT_DIMS]);
+
+        dispatch.forward(&pattern_feature, actual.as_mut_slice());
+
+        assert_eq!(actual.as_ref(), &expected);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn forward_neon_matches_fallback_for_natural_layout() {
+        let pattern_feature = valid_pattern_feature(1237);
+        let layer = build_layer(&pattern_feature, 101);
+        let expected = reference_forward(&layer, &pattern_feature);
+        let mut actual = Align64([0; OUTPUT_DIMS]);
+
         unsafe { layer.forward_neon(&pattern_feature, actual.as_mut_slice()) };
 
-        assert_eq!(actual.as_ref(), expected.as_ref());
+        assert_eq!(actual.as_ref(), &expected);
     }
 
     #[test]
@@ -465,75 +550,29 @@ mod tests {
         target_feature = "avx2",
         not(target_feature = "avx512bw"),
     ))]
-    fn forward_avx2_256_matches_fallback() {
-        let mut pattern_feature = PatternFeature::new();
-        for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
-            pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
-        }
+    fn forward_avx2_matches_fallback_for_permuted_layout() {
+        let pattern_feature = valid_pattern_feature(1237);
+        let natural = build_layer(&pattern_feature, 101);
+        let simd = dispatch_ready_layer(&natural);
+        let expected = reference_forward(&natural, &pattern_feature);
+        let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        let mut natural = BaseInput {
-            biases: AlignedBuffer::from_elem(0i16, HIDDEN_DIMS),
-            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * HIDDEN_DIMS),
-        };
-
-        for (idx, bias) in natural.biases.iter_mut().enumerate() {
-            *bias = ((idx as i32 * 19 + 7) % 997 - 498) as i16;
-        }
-
-        for (idx, weight) in natural.weights.iter_mut().enumerate() {
-            *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
-        }
-
-        let mut simd = BaseInput {
-            biases: natural.biases.clone(),
-            weights: natural.weights.clone(),
-        };
-        permute_rows(simd.biases.as_mut_slice(), HIDDEN_DIMS);
-        permute_rows(simd.weights.as_mut_slice(), HIDDEN_DIMS);
-
-        let mut expected = Align64([0u8; OUTPUT_DIMS]);
-        let mut actual = Align64([0u8; OUTPUT_DIMS]);
-        natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
-        // SAFETY: AVX2 is asserted by the cfg above; output is 64-byte aligned.
         unsafe { simd.forward_avx2(&pattern_feature, actual.as_mut_slice()) };
 
-        assert_eq!(actual.as_ref(), expected.as_ref());
+        assert_eq!(actual.as_ref(), &expected);
     }
 
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_avx512_256_matches_fallback() {
-        let mut pattern_feature = PatternFeature::new();
-        for idx in 0..crate::eval::pattern_feature::NUM_FEATURES {
-            pattern_feature[idx] = ((idx * 17 + 5) % 113) as u16;
-        }
+    fn forward_avx512_matches_fallback_for_permuted_layout() {
+        let pattern_feature = valid_pattern_feature(1237);
+        let natural = build_layer(&pattern_feature, 101);
+        let simd = dispatch_ready_layer(&natural);
+        let expected = reference_forward(&natural, &pattern_feature);
+        let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        let mut natural = BaseInput {
-            biases: AlignedBuffer::from_elem(0i16, HIDDEN_DIMS),
-            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * HIDDEN_DIMS),
-        };
-
-        for (idx, bias) in natural.biases.iter_mut().enumerate() {
-            *bias = ((idx as i32 * 19 + 7) % 997 - 498) as i16;
-        }
-
-        for (idx, weight) in natural.weights.iter_mut().enumerate() {
-            *weight = ((idx as i32 * 23 + 11) % 31 - 15) as i16;
-        }
-
-        let mut simd = BaseInput {
-            biases: natural.biases.clone(),
-            weights: natural.weights.clone(),
-        };
-        permute_rows(simd.biases.as_mut_slice(), HIDDEN_DIMS);
-        permute_rows(simd.weights.as_mut_slice(), HIDDEN_DIMS);
-
-        let mut expected = Align64([0u8; OUTPUT_DIMS]);
-        let mut actual = Align64([0u8; OUTPUT_DIMS]);
-        natural.forward_fallback(&pattern_feature, expected.as_mut_slice());
-        // SAFETY: AVX-512BW is asserted by the cfg above; output is 64-byte aligned.
         unsafe { simd.forward_avx512(&pattern_feature, actual.as_mut_slice()) };
 
-        assert_eq!(actual.as_ref(), expected.as_ref());
+        assert_eq!(actual.as_ref(), &expected);
     }
 }

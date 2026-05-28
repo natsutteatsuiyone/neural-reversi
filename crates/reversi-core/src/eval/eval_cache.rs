@@ -99,64 +99,149 @@ impl EvalCache {
 mod tests {
     use super::*;
 
+    fn colliding_keys() -> (u64, u64) {
+        // `index()` uses the high bits after `rotate_left(16)`, so these
+        // share a bucket for a 16-entry cache while keeping distinct stored
+        // 48-bit keys.
+        (0x1234_0000_0000_0001, 0x1234_0000_0000_0002)
+    }
+
     #[test]
-    fn test_new() {
+    fn new_allocates_power_of_two_entries_and_masks_indices() {
+        let one_entry = EvalCache::new(0);
+        assert_eq!(one_entry.table.len(), 1);
+        assert_eq!(one_entry.mask, 0);
+        assert_eq!(one_entry.index(0), 0);
+        assert_eq!(one_entry.index(u64::MAX), 0);
+
         let cache = EvalCache::new(4);
-        assert_eq!(cache.mask, 15);
         assert_eq!(cache.table.len(), 16);
+        assert_eq!(cache.mask, 15);
     }
 
     #[test]
-    fn test_store_and_probe() {
+    fn index_uses_rotated_high_key_bits() {
         let cache = EvalCache::new(4);
-        let key = 0x123456789ABCDEF0;
-        let score = ScaledScore::from_raw(42);
 
-        cache.store(key, score);
-        assert_eq!(cache.probe(key), Some(score));
+        for bucket in 0..16 {
+            let key = (bucket as u64) << 48;
+            assert_eq!(cache.index(key), bucket, "bucket {bucket}");
+        }
     }
 
     #[test]
-    fn test_probe_nonexistent() {
-        let cache = EvalCache::new(4);
-        assert_eq!(cache.probe(0x123456789ABCDEF0), None);
+    fn pack_preserves_low_48_key_bits_and_signed_score_bits() {
+        let key = 0xABCD_FEDC_BA98_7654;
+
+        for raw_score in [
+            -ScaledScore::INF.value(),
+            -1,
+            0,
+            1,
+            ScaledScore::INF.value(),
+        ] {
+            let packed = EvalCache::pack(key, raw_score);
+
+            assert_eq!(packed >> SCORE_BITS, key & KEY_MASK, "score {raw_score}");
+            assert_eq!(packed as i16 as i32, raw_score, "score {raw_score}");
+        }
     }
 
     #[test]
-    fn test_store_overwrite() {
+    fn probe_returns_only_exact_stored_truncated_key() {
         let cache = EvalCache::new(4);
-        let key = 0x123456789ABCDEF0;
+        let (stored_key, colliding_key) = colliding_keys();
+        let score = ScaledScore::from_raw(-1234);
+
+        assert_eq!(cache.index(stored_key), cache.index(colliding_key));
+        cache.store(stored_key, score);
+
+        assert_eq!(cache.probe(stored_key), Some(score));
+        assert_eq!(cache.probe(colliding_key), None);
+        assert_eq!(cache.probe(0x9876_0000_0000_0001), None);
+    }
+
+    #[test]
+    fn store_overwrites_previous_value_for_same_key() {
+        let cache = EvalCache::new(4);
+        let key = 0x1234_5678_9ABC_DEF0;
 
         cache.store(key, ScaledScore::from_raw(42));
-        cache.store(key, ScaledScore::from_raw(84));
-        assert_eq!(cache.probe(key), Some(ScaledScore::from_raw(84)));
+        cache.store(key, ScaledScore::from_raw(-84));
+
+        assert_eq!(cache.probe(key), Some(ScaledScore::from_raw(-84)));
     }
 
     #[test]
-    fn test_different_keys() {
-        let cache = EvalCache::new(10);
-        let key1 = 0x123456789ABCDEF0;
-        let key2 = 0xDEF0123456789ABC;
-
-        cache.store(key1, ScaledScore::from_raw(42));
-        cache.store(key2, ScaledScore::from_raw(84));
-
-        assert_eq!(cache.probe(key1), Some(ScaledScore::from_raw(42)));
-        assert_eq!(cache.probe(key2), Some(ScaledScore::from_raw(84)));
-    }
-
-    #[test]
-    fn test_clear() {
+    fn store_replaces_existing_entry_on_bucket_collision() {
         let cache = EvalCache::new(4);
-        let key1 = 0x123456789ABCDEF0;
-        let key2 = 0xDEF0123456789ABC;
+        let (old_key, new_key) = colliding_keys();
 
-        cache.store(key1, ScaledScore::from_raw(42));
-        cache.store(key2, ScaledScore::from_raw(84));
+        cache.store(old_key, ScaledScore::from_raw(11));
+        cache.store(new_key, ScaledScore::from_raw(22));
+
+        assert_eq!(cache.probe(old_key), None);
+        assert_eq!(cache.probe(new_key), Some(ScaledScore::from_raw(22)));
+    }
+
+    #[test]
+    fn score_round_trips_across_signed_16_bit_cache_encoding() {
+        let cache = EvalCache::new(5);
+        let cases = [
+            (0x0001_0000_0000_0001, -ScaledScore::INF.value()),
+            (0x0002_0000_0000_0002, -1),
+            (0x0003_0000_0000_0003, 0),
+            (0x0004_0000_0000_0004, 1),
+            (0x0005_0000_0000_0005, ScaledScore::INF.value()),
+        ];
+
+        for (key, raw_score) in cases {
+            let score = ScaledScore::from_raw(raw_score);
+            cache.store(key, score);
+            assert_eq!(cache.probe(key), Some(score), "key {key:#018x}");
+        }
+    }
+
+    #[test]
+    fn clear_removes_all_stored_entries_and_resets_backing_slots() {
+        let cache = EvalCache::new(4);
+        let keys = [
+            0x0001_0000_0000_0001,
+            0x0002_0000_0000_0002,
+            0x0003_0000_0000_0003,
+        ];
+
+        for (idx, &key) in keys.iter().enumerate() {
+            cache.store(key, ScaledScore::from_raw((idx as i32 + 1) * 100));
+            assert!(cache.probe(key).is_some(), "precondition key {idx}");
+        }
 
         cache.clear();
 
-        assert_eq!(cache.probe(key1), None);
-        assert_eq!(cache.probe(key2), None);
+        for entry in cache.table.iter() {
+            assert_eq!(entry.load(Ordering::Relaxed), 0);
+        }
+        for &key in &keys {
+            assert_eq!(cache.probe(key), None, "key {key:#018x}");
+        }
+    }
+
+    #[test]
+    fn prefetch_targets_the_probe_bucket_without_changing_cache_contents() {
+        let cache = EvalCache::new(4);
+        let key = 0xF000_0000_0000_000F;
+        let score = ScaledScore::from_raw(321);
+
+        cache.store(key, score);
+        let before = cache.table[cache.index(key)].load(Ordering::Relaxed);
+
+        cache.prefetch(key);
+        cache.prefetch(u64::MAX);
+
+        assert_eq!(
+            cache.table[cache.index(key)].load(Ordering::Relaxed),
+            before
+        );
+        assert_eq!(cache.probe(key), Some(score));
     }
 }

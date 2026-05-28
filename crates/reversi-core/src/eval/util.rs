@@ -218,3 +218,220 @@ pub fn m256_hadd(sum_vec: __m256i) -> i32 {
     sum128 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b10_11_00_01));
     _mm_cvtsi128_si32(sum128)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::pattern_feature::calc_pattern_size;
+
+    #[test]
+    fn ceil_to_multiple_handles_const_zero_exact_and_rounded_values() {
+        const ZERO: usize = ceil_to_multiple(0, 8);
+        const EXACT: usize = ceil_to_multiple(64, 32);
+        const ROUNDED: usize = ceil_to_multiple(65, 32);
+        const BASE_ONE: usize = ceil_to_multiple(17, 1);
+
+        assert_eq!(ZERO, 0);
+        assert_eq!(EXACT, 64);
+        assert_eq!(ROUNDED, 96);
+        assert_eq!(BASE_ONE, 17);
+    }
+
+    #[test]
+    fn clone_biases_copies_the_prefix_into_a_64_byte_aligned_array() {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        struct Bias {
+            value: i16,
+            phase: u8,
+        }
+
+        let source = [
+            Bias {
+                value: -7,
+                phase: 0,
+            },
+            Bias {
+                value: 13,
+                phase: 1,
+            },
+            Bias {
+                value: i16::MIN,
+                phase: 2,
+            },
+            Bias {
+                value: i16::MAX,
+                phase: 3,
+            },
+            Bias {
+                value: 99,
+                phase: 4,
+            },
+        ];
+
+        let cloned: Align64<[Bias; 4]> = clone_biases(&source);
+
+        assert_eq!(cloned.as_slice(), &source[..4]);
+        assert_eq!((cloned.as_ptr() as usize) % 64, 0);
+    }
+
+    #[test]
+    fn clone_biases_supports_empty_outputs() {
+        let cloned: Align64<[u32; 0]> = clone_biases(&[]);
+
+        assert!(cloned.as_slice().is_empty());
+        assert_eq!((cloned.as_ptr() as usize) % 64, 0);
+    }
+
+    #[test]
+    fn feature_offset_adds_each_pattern_value_to_its_table_offset() {
+        let mut pattern_feature = PatternFeature::new();
+
+        for idx in 0..NUM_PATTERN_FEATURES {
+            let value = ((idx * 4099 + 17) % calc_pattern_size(idx)) as u16;
+            pattern_feature[idx] = value;
+
+            assert_eq!(
+                feature_offset(&pattern_feature, idx),
+                PATTERN_FEATURE_OFFSETS[idx] + usize::from(value),
+                "feature {idx}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "feature index")]
+    fn feature_offset_rejects_out_of_bounds_indices_in_debug_builds() {
+        let pattern_feature = PatternFeature::new();
+
+        let _ = feature_offset(&pattern_feature, NUM_PATTERN_FEATURES);
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn scalar_dpbusd(src: [i32; 4], a: [u8; 16], b: [i8; 16]) -> [i32; 4] {
+        let mut out = src;
+        for (lane, out_lane) in out.iter_mut().enumerate() {
+            let base = lane * 4;
+            *out_lane += i32::from(a[base]) * i32::from(b[base])
+                + i32::from(a[base + 1]) * i32::from(b[base + 1])
+                + i32::from(a[base + 2]) * i32::from(b[base + 2])
+                + i32::from(a[base + 3]) * i32::from(b[base + 3]);
+        }
+        out
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn generated_dpbusd_case(mut state: u32) -> ([i32; 4], [u8; 16], [i8; 16]) {
+        fn next_u32(state: &mut u32) -> u32 {
+            *state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *state
+        }
+
+        let mut src = [0i32; 4];
+        let mut a = [0u8; 16];
+        let mut b = [0i8; 16];
+
+        for v in &mut src {
+            *v = (next_u32(&mut state) & 0x3fff) as i32 - 8192;
+        }
+        for v in &mut a {
+            *v = (next_u32(&mut state) >> 24) as u8;
+        }
+        for v in &mut b {
+            *v = (next_u32(&mut state) >> 24) as u8 as i8;
+        }
+
+        (src, a, b)
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    macro_rules! assert_dpbusd_kernel_matches_scalar {
+        ($kernel:path, $src:expr, $a:expr, $b:expr) => {{
+            let src = $src;
+            let a = $a;
+            let b = $b;
+            let mut actual = [0i32; 4];
+            unsafe {
+                let actual_vec = $kernel(
+                    std::arch::aarch64::vld1q_s32(src.as_ptr()),
+                    std::arch::aarch64::vld1q_u8(a.as_ptr()),
+                    std::arch::aarch64::vld1q_s8(b.as_ptr()),
+                );
+                std::arch::aarch64::vst1q_s32(actual.as_mut_ptr(), actual_vec);
+            }
+
+            assert_eq!(actual, scalar_dpbusd(src, a, b));
+        }};
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    const DPBUSD_EDGE_CASES: [([i32; 4], [u8; 16], [i8; 16]); 3] = [
+        (
+            [0, 1, -2, 12_345],
+            [0, 1, 127, 128, 255, 200, 129, 64, 32, 16, 8, 4, 3, 2, 1, 0],
+            [
+                -128, -1, 0, 1, 127, -127, 64, -64, 32, -32, 16, -16, 8, -8, 4, -4,
+            ],
+        ),
+        (
+            [i32::MIN / 4, -1024, 1024, i32::MAX / 4],
+            [
+                255, 255, 255, 255, 128, 128, 128, 128, 127, 127, 127, 127, 1, 2, 3, 4,
+            ],
+            [
+                127, -128, 1, -1, 127, -128, 1, -1, 127, -128, 1, -1, -1, 1, -2, 2,
+            ],
+        ),
+        (
+            [-31, 0, 31, 1024],
+            [1, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53],
+            [
+                53, -47, 43, -41, 37, -31, 29, -23, 19, -17, 13, -11, 7, -5, 3, -1,
+            ],
+        ),
+    ];
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn neon_dpbusd_s32_matches_scalar_reference() {
+        for &(src, a, b) in &DPBUSD_EDGE_CASES {
+            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32, src, a, b);
+        }
+        for seed in 0..32 {
+            let (src, a, b) = generated_dpbusd_case(seed);
+            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32, src, a, b);
+        }
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn neon_dpbusd_s32_dotprod_matches_scalar_reference() {
+        if !std::arch::is_aarch64_feature_detected!("dotprod") {
+            return;
+        }
+
+        for &(src, a, b) in &DPBUSD_EDGE_CASES {
+            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32_dotprod, src, a, b);
+        }
+        for seed in 32..64 {
+            let (src, a, b) = generated_dpbusd_case(seed);
+            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32_dotprod, src, a, b);
+        }
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    fn neon_dpbusd_s32_i8mm_matches_scalar_reference() {
+        if !std::arch::is_aarch64_feature_detected!("i8mm") {
+            return;
+        }
+
+        for &(src, a, b) in &DPBUSD_EDGE_CASES {
+            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32_i8mm, src, a, b);
+        }
+        for seed in 64..96 {
+            let (src, a, b) = generated_dpbusd_case(seed);
+            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32_i8mm, src, a, b);
+        }
+    }
+}

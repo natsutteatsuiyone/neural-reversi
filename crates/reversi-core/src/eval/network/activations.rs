@@ -549,552 +549,227 @@ mod tests {
     use super::*;
     use crate::util::align::Align64;
 
-    fn expected_screlu(val: i32) -> u8 {
-        let clamped = val.clamp(0, 255 << HIDDEN_WEIGHT_SCALE_BITS) as u64;
-        let shift = (HIDDEN_WEIGHT_SCALE_BITS * 2 + 8) as u32;
-        ((clamped * clamped) >> shift) as u8
+    const ACTIVATION_CEILING: i32 = 255 << HIDDEN_WEIGHT_SCALE_BITS;
+    const SQR_SHIFT: u32 = (HIDDEN_WEIGHT_SCALE_BITS * 2 + 8) as u32;
+
+    fn reference_clipped_relu(value: i32) -> u8 {
+        (value >> HIDDEN_WEIGHT_SCALE_BITS).clamp(0, 255) as u8
     }
 
-    #[test]
-    fn test_clipped_relu_fallback() {
-        const SIZE: usize = 6;
-
-        let input_data = [100, -50, 200, i32::MAX, i32::MIN, 0];
-        let input = Align64(input_data);
-        let mut output = Align64([0; SIZE]);
-
-        clipped_relu_fallback(input.as_slice(), output.as_mut_slice(), 0);
-
-        let expected = [1, 0, 3, 255, 0, 0];
-        assert_eq!(output.as_ref(), &expected);
+    fn reference_sqr_clipped_relu(value: i32) -> u8 {
+        let squared = i64::from(value) * i64::from(value);
+        ((squared as u64 >> SQR_SHIFT).min(255)) as u8
     }
 
-    #[test]
-    fn test_clipped_relu() {
-        const SIZE: usize = 32;
-
-        let mut input_data = [0i32; SIZE];
-        let mut expected = [0u8; SIZE];
-
-        input_data[0] = 100;
-        expected[0] = 1;
-
-        input_data[1] = 0;
-        expected[1] = 0;
-
-        input_data[2] = 1000;
-        expected[2] = 15;
-
-        input_data[3] = i32::MAX;
-        expected[3] = 255;
-
-        input_data[4] = i32::MIN;
-        expected[4] = 0;
-
-        input_data[5] = 0;
-        expected[5] = 0;
-
-        input_data[6] = 255 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[6] = 255;
-
-        input_data[7] = (255 << HIDDEN_WEIGHT_SCALE_BITS) + 1;
-        expected[7] = 255;
-
-        let input = Align64(input_data);
-        let mut output = Align64::<[u8; SIZE]>::default();
-        clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-        assert_eq!(output.as_ref(), &expected);
+    fn reference_screlu(value: i32) -> u8 {
+        let clamped = value.clamp(0, ACTIVATION_CEILING) as u64;
+        ((clamped * clamped) >> SQR_SHIFT) as u8
     }
 
-    #[test]
-    fn test_sqr_clipped_relu_fallback() {
-        const SIZE: usize = 6;
-
-        let input_data = [10, -5, 20, 5000, -5000, 256 << HIDDEN_WEIGHT_SCALE_BITS];
-        let input = Align64(input_data);
-        let mut output = Align64([0; SIZE]);
-
-        sqr_clipped_relu_fallback(input.as_slice(), output.as_mut_slice(), 0);
-
-        let expected = [0, 0, 0, 23, 23, 255];
-        assert_eq!(output.as_ref(), &expected);
+    fn patterned_input<const SIZE: usize>(seed: i32, step: i32, bias: i32) -> [i32; SIZE] {
+        let mut input = [0; SIZE];
+        for (idx, value) in input.iter_mut().enumerate() {
+            *value = ((idx as i32 * step + seed).rem_euclid(50_000)) - bias;
+        }
+        input
     }
 
-    #[test]
-    fn test_sqr_clipped_relu() {
-        const SIZE: usize = 16;
+    fn assert_clipped_relu_matches_reference<const SIZE: usize>(input: [i32; SIZE]) {
+        let input = Align64(input);
+        let mut actual = Align64([0xA5; SIZE]);
+        let mut expected = [0; SIZE];
 
-        let mut input_data = [0i32; SIZE];
-        let mut expected = [0u8; SIZE];
-
-        input_data[0] = 10;
-        expected[0] = 0;
-
-        input_data[1] = -5;
-        expected[1] = 0;
-
-        input_data[2] = 5000;
-        expected[2] = 23;
-
-        input_data[3] = -5000;
-        expected[3] = 23;
-
-        input_data[4] = 1000;
-        expected[4] = 0;
-
-        input_data[5] = -1000;
-        expected[5] = 0;
-
-        input_data[6] = 255 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[6] = 254;
-
-        input_data[7] = 256 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[7] = 255;
-
-        let input = Align64(input_data);
-        let mut output = Align64([0; SIZE]);
-        sqr_clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-        assert_eq!(output.as_ref(), &expected);
-    }
-
-    #[test]
-    fn test_combined_l1_activation_matches_separate_paths() {
-        const SIZE: usize = 16;
-        let mut input_data = [0i32; SIZE];
-
-        for (idx, value) in input_data.iter_mut().enumerate() {
-            *value = ((idx as i32 * 3571) % 40_000) - 20_000;
+        clipped_relu::<SIZE>(input.as_slice(), actual.as_mut_slice());
+        for (out, &value) in expected.iter_mut().zip(input.iter()) {
+            *out = reference_clipped_relu(value);
         }
 
-        let input = Align64(input_data);
-        let mut combined = Align64([0u8; SIZE * 2]);
-        let mut expected = Align64([0u8; SIZE * 2]);
-        let (expected_sqr, expected_relu) = expected.0.split_at_mut(SIZE);
-
-        sqr_clipped_and_clipped_relu_16(input.as_slice(), combined.as_mut_slice());
-        sqr_clipped_relu::<SIZE>(input.as_slice(), expected_sqr);
-        clipped_relu::<SIZE>(input.as_slice(), expected_relu);
-
-        assert_eq!(combined.as_ref(), expected.as_ref());
+        assert_eq!(actual.as_ref(), &expected);
     }
 
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn combined_l1_activation_neon_matches_separate_paths() {
-        const SIZE: usize = 16;
-        let mut input_data = [0i32; SIZE];
+    fn assert_sqr_clipped_relu_matches_reference<const SIZE: usize>(input: [i32; SIZE]) {
+        let input = Align64(input);
+        let mut actual = Align64([0xA5; SIZE]);
+        let mut expected = [0; SIZE];
 
-        for (idx, value) in input_data.iter_mut().enumerate() {
-            *value = ((idx as i32 * 7919) % 70_000) - 35_000;
+        sqr_clipped_relu::<SIZE>(input.as_slice(), actual.as_mut_slice());
+        for (out, &value) in expected.iter_mut().zip(input.iter()) {
+            *out = reference_sqr_clipped_relu(value);
         }
 
-        let input = Align64(input_data);
-        let mut combined = Align64([0u8; SIZE * 2]);
-        let mut expected = Align64([0u8; SIZE * 2]);
-        let (expected_sqr, expected_relu) = expected.0.split_at_mut(SIZE);
+        assert_eq!(actual.as_ref(), &expected);
+    }
 
-        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-        unsafe { sqr_clipped_and_clipped_relu_16_neon(input.as_slice(), combined.as_mut_slice()) };
-        sqr_clipped_relu::<SIZE>(input.as_slice(), expected_sqr);
-        clipped_relu::<SIZE>(input.as_slice(), expected_relu);
+    fn assert_screlu_matches_reference<const SIZE: usize>(input: [i32; SIZE]) {
+        let input = Align64(input);
+        let mut actual = Align64([0xA5; SIZE]);
+        let mut expected = [0; SIZE];
 
-        assert_eq!(combined.as_ref(), expected.as_ref());
+        screlu::<SIZE>(input.as_slice(), actual.as_mut_slice());
+        for (out, &value) in expected.iter_mut().zip(input.iter()) {
+            *out = reference_screlu(value);
+        }
+
+        assert_eq!(actual.as_ref(), &expected);
     }
 
     #[test]
-    fn test_screlu_fallback() {
-        const SIZE: usize = 8;
-
-        let input_data = [
-            -5000,
+    fn clipped_relu_matches_shift_and_saturation_boundaries() {
+        assert_clipped_relu_matches_reference([
+            i32::MIN,
+            -65,
+            -64,
             -1,
             0,
+            1,
             (1 << HIDDEN_WEIGHT_SCALE_BITS) - 1,
-            1 << (HIDDEN_WEIGHT_SCALE_BITS + 4),
-            2048,
+            1 << HIDDEN_WEIGHT_SCALE_BITS,
+            (2 << HIDDEN_WEIGHT_SCALE_BITS) - 1,
+            2 << HIDDEN_WEIGHT_SCALE_BITS,
+            (254 << HIDDEN_WEIGHT_SCALE_BITS) + 63,
+            255 << HIDDEN_WEIGHT_SCALE_BITS,
+            (255 << HIDDEN_WEIGHT_SCALE_BITS) + 1,
+            i32::MAX,
+            1234,
+            -1234,
+        ]);
+    }
+
+    #[test]
+    fn clipped_relu_matches_reference_for_vector_chunks_and_tail() {
+        assert_clipped_relu_matches_reference(patterned_input::<32>(7, 7919, 25_000));
+        assert_clipped_relu_matches_reference(patterned_input::<37>(17, 3571, 12_000));
+    }
+
+    #[test]
+    fn sqr_clipped_relu_squares_signed_inputs_and_matches_tail_reference() {
+        assert_sqr_clipped_relu_matches_reference([
+            -32_768, -16_321, -16_320, -4096, -1024, -1, 0, 1, 1023, 1024, 4096, 16_319, 16_320,
+            16_321, 32_767, 257, -257, 8191, -8191, 12_345, -12_345, 2222, -3333,
+        ]);
+    }
+
+    #[test]
+    fn screlu_rectifies_before_squaring_and_saturates_at_255() {
+        assert_screlu_matches_reference([
+            i32::MIN,
+            -1,
+            0,
+            1,
+            (1 << HIDDEN_WEIGHT_SCALE_BITS) - 1,
+            1 << HIDDEN_WEIGHT_SCALE_BITS,
+            4096,
             8192,
-            (255 << HIDDEN_WEIGHT_SCALE_BITS) + 1024,
+            ACTIVATION_CEILING - 1,
+            ACTIVATION_CEILING,
+            ACTIVATION_CEILING + 1,
+            i32::MAX,
+            17_000,
+            31,
+            63,
+            64,
+            patterned_input::<1>(123, 1, 0)[0],
+        ]);
+        assert_screlu_matches_reference(patterned_input::<32>(19, 3011, 18_000));
+        assert_screlu_matches_reference(patterned_input::<37>(23, 4099, 20_000));
+    }
+
+    #[test]
+    fn fused_l1_activation_writes_square_then_clipped_outputs_only() {
+        let input_values = [
+            -16_321, -16_320, -4096, -1024, -1, 0, 1, 1024, 4096, 8192, 16_319, 16_320, 16_321,
+            1234, -5678, 9999,
         ];
-        let input = Align64(input_data);
-        let mut output = Align64([0u8; SIZE]);
+        let input = Align64(input_values);
+        let mut output = Align64([0xCC; 40]);
+        let mut expected_prefix = [0; 32];
 
-        screlu_fallback(input.as_slice(), output.as_mut_slice(), 0);
-
-        let mut expected = [0u8; SIZE];
-        for (idx, value) in input_data.iter().enumerate() {
-            expected[idx] = expected_screlu(*value);
+        sqr_clipped_and_clipped_relu_16(input.as_slice(), output.as_mut_slice());
+        for (out, &value) in expected_prefix[..16].iter_mut().zip(input.iter()) {
+            *out = reference_sqr_clipped_relu(value);
+        }
+        for (out, &value) in expected_prefix[16..].iter_mut().zip(input.iter()) {
+            *out = reference_clipped_relu(value);
         }
 
-        assert_eq!(output.as_ref(), &expected);
+        assert_eq!(&output.as_ref()[..32], &expected_prefix);
+        assert_eq!(&output.as_ref()[32..], &[0xCC; 8]);
     }
 
     #[test]
-    fn test_screlu() {
-        // Size divisible by AVX2 width
-        {
-            const SIZE: usize = 32;
-            let mut input_data = [0i32; SIZE];
-            let mut expected = [0u8; SIZE];
+    fn fallback_helpers_resume_at_start_index_without_touching_prefix() {
+        let input_values = [-2048, -64, -1, 0, 63, 64, 4096, 16_320];
+        let input = Align64(input_values);
 
-            for i in 0..SIZE {
-                input_data[i] = (i as i32 - 10) * 1024;
-                expected[i] = expected_screlu(input_data[i]);
-            }
-
-            let input = Align64(input_data);
-            let mut output = Align64([0u8; SIZE]);
-            screlu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
+        let mut clipped = Align64([0xEE; 8]);
+        clipped_relu_fallback(input.as_slice(), clipped.as_mut_slice(), 3);
+        assert_eq!(&clipped.as_ref()[..3], &[0xEE; 3]);
+        for (idx, &value) in input.iter().enumerate().skip(3) {
+            assert_eq!(clipped[idx], reference_clipped_relu(value), "clipped {idx}");
         }
 
-        // Size not divisible by AVX2 width
-        {
-            const SIZE: usize = 37;
-            let mut input_data = [0i32; SIZE];
-            let mut expected = [0u8; SIZE];
-
-            for i in 0..SIZE {
-                input_data[i] = (i as i32 * 1500) - 20000;
-                expected[i] = expected_screlu(input_data[i]);
-            }
-
-            let input = Align64(input_data);
-            let mut output = Align64([0u8; SIZE]);
-            screlu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
-        }
-    }
-
-    #[test]
-    fn test_screlu_consistency() {
-        const SIZE: usize = 96;
-        let mut input_data = [0i32; SIZE];
-
-        for (idx, value) in input_data.iter_mut().enumerate() {
-            let raw = ((idx * 9876 + 4321) % (400 << HIDDEN_WEIGHT_SCALE_BITS)) as i32;
-            *value = raw - (200 << HIDDEN_WEIGHT_SCALE_BITS);
+        let mut sqr = Align64([0xEE; 8]);
+        sqr_clipped_relu_fallback(input.as_slice(), sqr.as_mut_slice(), 3);
+        assert_eq!(&sqr.as_ref()[..3], &[0xEE; 3]);
+        for (idx, &value) in input.iter().enumerate().skip(3) {
+            assert_eq!(sqr[idx], reference_sqr_clipped_relu(value), "sqr {idx}");
         }
 
-        let input = Align64(input_data);
-        let mut output_main = Align64([0u8; SIZE]);
-        let mut output_fallback = Align64([0u8; SIZE]);
-
-        screlu::<SIZE>(input.as_slice(), output_main.as_mut_slice());
-        screlu_fallback(input.as_slice(), output_fallback.as_mut_slice(), 0);
-
-        assert_eq!(output_main.as_ref(), output_fallback.as_ref());
-    }
-
-    #[test]
-    fn test_clipped_relu_edge_cases() {
-        const SIZE: usize = 16;
-        let mut input_data = [0i32; SIZE];
-        let mut expected = [0u8; SIZE];
-
-        // Test negative values get clipped to 0
-        input_data[0] = -1;
-        expected[0] = 0;
-
-        input_data[1] = -1000;
-        expected[1] = 0;
-
-        // Test exact boundary values
-        input_data[2] = 255 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[2] = 255;
-
-        input_data[3] = 256 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[3] = 255; // Should be clipped to 255
-
-        // Test values just below the boundary
-        input_data[4] = (255 << HIDDEN_WEIGHT_SCALE_BITS) - 1;
-        expected[4] = 254;
-
-        // Test very large positive values
-        input_data[5] = 1000000;
-        expected[5] = 255; // Should be clipped to 255
-
-        // Test scaling edge cases
-        input_data[6] = (1 << HIDDEN_WEIGHT_SCALE_BITS) - 1;
-        expected[6] = 0; // Just below 1 after shifting
-
-        input_data[7] = 1 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[7] = 1; // Exactly 1 after shifting
-
-        let input = Align64(input_data);
-        let mut output = Align64([0; SIZE]);
-        clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-        assert_eq!(output.as_ref(), &expected);
-    }
-
-    #[test]
-    fn test_sqr_clipped_relu_edge_cases() {
-        const SIZE: usize = 16;
-        let mut input_data = [0i32; SIZE];
-        let mut expected = [0u8; SIZE];
-
-        // Test that negative values squared become positive
-        input_data[0] = -100;
-        input_data[1] = 100;
-        // Both should produce same result after squaring
-        expected[0] = 0;
-        expected[1] = 0;
-
-        // Test maximum safe value that won't overflow
-        // sqrt(255 * 2^20) ≈ 16352
-        input_data[2] = 255 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[2] = 254;
-
-        input_data[3] = -(255 << HIDDEN_WEIGHT_SCALE_BITS);
-        expected[3] = 254;
-
-        // Test values that will saturate to 255
-        input_data[4] = 256 << HIDDEN_WEIGHT_SCALE_BITS;
-        expected[4] = 255;
-
-        input_data[5] = -(256 << HIDDEN_WEIGHT_SCALE_BITS);
-        expected[5] = 255;
-
-        // Test boundary for producing 1
-        // sqrt(1 * 2^20) = 1024; smaller magnitudes like 724 still round to 0
-        input_data[6] = 724;
-        expected[6] = 0; // Actually produces 0 with this implementation
-
-        input_data[7] = -724;
-        expected[7] = 0; // Actually produces 0 with this implementation
-
-        let input = Align64(input_data);
-        let mut output = Align64([0; SIZE]);
-        sqr_clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-        assert_eq!(output.as_ref(), &expected);
-    }
-
-    #[test]
-    fn test_clipped_relu_different_sizes() {
-        // Test size 8 (smaller than AVX2 width)
-        {
-            const SIZE: usize = 8;
-            let input_data = [
-                100,
-                -50,
-                8192,
-                16384,
-                -8192,
-                0,
-                127 << HIDDEN_WEIGHT_SCALE_BITS,
-                128 << HIDDEN_WEIGHT_SCALE_BITS,
-            ];
-            let expected = [1, 0, 128, 255, 0, 0, 127, 128];
-
-            let input = Align64(input_data);
-            let mut output = Align64([0; SIZE]);
-            clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
+        let mut screlu_out = Align64([0xEE; 8]);
+        screlu_fallback(input.as_slice(), screlu_out.as_mut_slice(), 3);
+        assert_eq!(&screlu_out.as_ref()[..3], &[0xEE; 3]);
+        for (idx, &value) in input.iter().enumerate().skip(3) {
+            assert_eq!(screlu_out[idx], reference_screlu(value), "screlu {idx}");
         }
-
-        // Test size 64 (multiple of AVX2 width)
-        {
-            const SIZE: usize = 64;
-            let mut input_data = [0i32; SIZE];
-            let mut expected = [0u8; SIZE];
-
-            // Set some test values
-            for i in 0..SIZE {
-                input_data[i] = (i as i32 - 32) * 100;
-                let val = input_data[i] >> HIDDEN_WEIGHT_SCALE_BITS;
-                expected[i] = val.clamp(0, 255) as u8;
-            }
-
-            let input = Align64(input_data);
-            let mut output = Align64([0; SIZE]);
-            clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
-        }
-
-        // Test odd size (not divisible by AVX2 width)
-        {
-            const SIZE: usize = 37;
-            let mut input_data = [0i32; SIZE];
-            let mut expected = [0u8; SIZE];
-
-            for i in 0..SIZE {
-                input_data[i] = (i as i32) * 200 - 2000;
-                let val = input_data[i] >> HIDDEN_WEIGHT_SCALE_BITS;
-                expected[i] = val.clamp(0, 255) as u8;
-            }
-
-            let input = Align64(input_data);
-            let mut output = Align64([0; SIZE]);
-            clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
-        }
-    }
-
-    #[test]
-    fn test_sqr_clipped_relu_different_sizes() {
-        // Test size 16 (exactly one chunk)
-        {
-            const SIZE: usize = 16;
-            let mut input_data = [0i32; SIZE];
-            let mut expected = [0u8; SIZE];
-
-            for i in 0..SIZE {
-                input_data[i] = (i as i32 - 8) * 500;
-                let val = ((input_data[i] as i64 * input_data[i] as i64)
-                    >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8))
-                    .min(255);
-                expected[i] = val as u8;
-            }
-
-            let input = Align64(input_data);
-            let mut output = Align64([0; SIZE]);
-            sqr_clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
-        }
-
-        // Test size 48 (multiple chunks)
-        {
-            const SIZE: usize = 48;
-            let mut input_data = [0i32; SIZE];
-            let mut expected = [0u8; SIZE];
-
-            for i in 0..SIZE {
-                input_data[i] = (i as i32 - 24) * 300;
-                let val = ((input_data[i] as i64 * input_data[i] as i64)
-                    >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8))
-                    .min(255);
-                expected[i] = val as u8;
-            }
-
-            let input = Align64(input_data);
-            let mut output = Align64([0; SIZE]);
-            sqr_clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
-        }
-
-        // Test odd size
-        {
-            const SIZE: usize = 23;
-            let mut input_data = [0i32; SIZE];
-            let mut expected = [0u8; SIZE];
-
-            for i in 0..SIZE {
-                input_data[i] = (i as i32) * 400 - 4000;
-                let val = ((input_data[i] as i64 * input_data[i] as i64)
-                    >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8))
-                    .min(255);
-                expected[i] = val as u8;
-            }
-
-            let input = Align64(input_data);
-            let mut output = Align64([0; SIZE]);
-            sqr_clipped_relu::<SIZE>(input.as_slice(), output.as_mut_slice());
-            assert_eq!(output.as_ref(), &expected);
-        }
-    }
-
-    #[test]
-    fn test_clipped_relu_consistency() {
-        // Test that AVX2 and fallback produce same results
-        const SIZE: usize = 128;
-        let mut input_data = [0i32; SIZE];
-
-        for (i, val) in input_data.iter_mut().enumerate() {
-            *val = ((i * 12345 + 6789) % 20000) as i32 - 10000;
-        }
-
-        let input = Align64(input_data);
-        let mut output_main = Align64([0; SIZE]);
-        let mut output_fallback = Align64([0; SIZE]);
-
-        clipped_relu::<SIZE>(input.as_slice(), output_main.as_mut_slice());
-        clipped_relu_fallback(input.as_slice(), output_fallback.as_mut_slice(), 0);
-
-        assert_eq!(output_main.as_ref(), output_fallback.as_ref());
     }
 
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn clipped_relu_neon_matches_fallback() {
-        fn run<const SIZE: usize>(seed: usize) {
-            let mut input_data = [0i32; SIZE];
-            for (i, v) in input_data.iter_mut().enumerate() {
-                *v = ((i * 13 + seed) as i32 * 257).wrapping_sub(12_000);
+    fn neon_activation_kernels_match_references_for_chunks_and_tails() {
+        fn run_clipped<const SIZE: usize>(input: [i32; SIZE]) {
+            let input = Align64(input);
+            let mut actual = Align64([0; SIZE]);
+            let mut expected = [0; SIZE];
+
+            unsafe { clipped_relu_neon::<SIZE>(input.as_slice(), actual.as_mut_slice()) };
+            for (out, &value) in expected.iter_mut().zip(input.iter()) {
+                *out = reference_clipped_relu(value);
             }
-            let input = Align64(input_data);
-            let mut out_neon = Align64([0u8; SIZE]);
-            let mut out_fb = Align64([0u8; SIZE]);
-            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-            unsafe { clipped_relu_neon::<SIZE>(input.as_slice(), out_neon.as_mut_slice()) };
-            clipped_relu_fallback(input.as_slice(), out_fb.as_mut_slice(), 0);
-            assert_eq!(out_neon.as_ref(), out_fb.as_ref());
-        }
-        run::<32>(1);
-        run::<80>(7);
-        run::<37>(11);
-    }
 
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn sqr_clipped_relu_neon_matches_fallback() {
-        // Keep inputs under sqrt(i32::MAX) so the fallback's i32*i32 multiplication
-        // does not wrap (NEON pre-saturates to i16, producing a different result).
-        fn run<const SIZE: usize>(seed: usize) {
-            let mut input_data = [0i32; SIZE];
-            for (i, v) in input_data.iter_mut().enumerate() {
-                *v = ((i * 9 + seed) as i32 * 37).wrapping_sub(2_000);
+            assert_eq!(actual.as_ref(), &expected);
+        }
+
+        fn run_sqr<const SIZE: usize>(input: [i32; SIZE]) {
+            let input = Align64(input);
+            let mut actual = Align64([0; SIZE]);
+            let mut expected = [0; SIZE];
+
+            unsafe { sqr_clipped_relu_neon::<SIZE>(input.as_slice(), actual.as_mut_slice()) };
+            for (out, &value) in expected.iter_mut().zip(input.iter()) {
+                *out = reference_sqr_clipped_relu(value);
             }
-            let input = Align64(input_data);
-            let mut out_neon = Align64([0u8; SIZE]);
-            let mut out_fb = Align64([0u8; SIZE]);
-            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-            unsafe { sqr_clipped_relu_neon::<SIZE>(input.as_slice(), out_neon.as_mut_slice()) };
-            sqr_clipped_relu_fallback(input.as_slice(), out_fb.as_mut_slice(), 0);
-            assert_eq!(out_neon.as_ref(), out_fb.as_ref());
-        }
-        run::<16>(2);
-        run::<48>(5);
-        run::<23>(9);
-    }
 
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn screlu_neon_matches_fallback() {
-        fn run<const SIZE: usize>(seed: usize) {
-            let mut input_data = [0i32; SIZE];
-            for (i, v) in input_data.iter_mut().enumerate() {
-                let raw = ((i * 9876 + seed) % (400 << HIDDEN_WEIGHT_SCALE_BITS)) as i32;
-                *v = raw - (200 << HIDDEN_WEIGHT_SCALE_BITS);
+            assert_eq!(actual.as_ref(), &expected);
+        }
+
+        fn run_screlu<const SIZE: usize>(input: [i32; SIZE]) {
+            let input = Align64(input);
+            let mut actual = Align64([0; SIZE]);
+            let mut expected = [0; SIZE];
+
+            unsafe { screlu_neon::<SIZE>(input.as_slice(), actual.as_mut_slice()) };
+            for (out, &value) in expected.iter_mut().zip(input.iter()) {
+                *out = reference_screlu(value);
             }
-            let input = Align64(input_data);
-            let mut out_neon = Align64([0u8; SIZE]);
-            let mut out_fb = Align64([0u8; SIZE]);
-            // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-            unsafe { screlu_neon::<SIZE>(input.as_slice(), out_neon.as_mut_slice()) };
-            screlu_fallback(input.as_slice(), out_fb.as_mut_slice(), 0);
-            assert_eq!(out_neon.as_ref(), out_fb.as_ref());
-        }
-        run::<32>(4321);
-        run::<96>(1234);
-        run::<37>(777);
-    }
 
-    #[test]
-    fn test_sqr_clipped_relu_consistency() {
-        // Test that AVX2 and fallback produce same results
-        const SIZE: usize = 80;
-        let mut input_data = [0i32; SIZE];
-
-        for (i, val) in input_data.iter_mut().enumerate() {
-            *val = ((i * 9876 + 1000) % 10000) as i32 - 3000;
+            assert_eq!(actual.as_ref(), &expected);
         }
 
-        let input = Align64(input_data);
-        let mut output_main = Align64([0; SIZE]);
-        let mut output_fallback = Align64([0; SIZE]);
-
-        sqr_clipped_relu::<SIZE>(input.as_slice(), output_main.as_mut_slice());
-        sqr_clipped_relu_fallback(input.as_slice(), output_fallback.as_mut_slice(), 0);
-
-        assert_eq!(output_main.as_ref(), output_fallback.as_ref());
+        run_clipped(patterned_input::<32>(1, 257, 4096));
+        run_clipped(patterned_input::<37>(3, 509, 8192));
+        run_sqr(patterned_input::<48>(5, 97, 5000));
+        run_sqr(patterned_input::<23>(7, 211, 7000));
+        run_screlu(patterned_input::<32>(11, 1234, 20_000));
+        run_screlu(patterned_input::<37>(13, 1777, 25_000));
     }
 }

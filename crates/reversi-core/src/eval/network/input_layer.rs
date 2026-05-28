@@ -123,3 +123,96 @@ fn accumulate_scalar<const DIMS: usize>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, calc_pattern_size};
+
+    fn valid_pattern_feature() -> PatternFeature {
+        let mut pattern_feature = PatternFeature::new();
+        for idx in 0..NUM_FEATURES {
+            pattern_feature[idx] = ((idx * 4099 + 17) % calc_pattern_size(idx)) as u16;
+        }
+        pattern_feature
+    }
+
+    #[test]
+    fn accumulate_scalar_adds_the_active_feature_rows_to_existing_accumulator() {
+        const DIMS: usize = 6;
+
+        let pattern_feature = valid_pattern_feature();
+        let mut weights = vec![0i16; INPUT_FEATURE_DIMS * DIMS];
+        let mut expected = [11, -22, 33, -44, 55, -66];
+        let mut actual = expected;
+
+        for feature_idx in 0..NUM_FEATURES {
+            let row = feature_offset(&pattern_feature, feature_idx);
+            let values = [
+                feature_idx as i16 - 17,
+                31 - feature_idx as i16,
+                (feature_idx as i16 % 7) - 3,
+                2 * feature_idx as i16 - 19,
+                13 - (feature_idx as i16 % 11),
+                (feature_idx as i16 % 5) * 3 - 6,
+            ];
+            let start = row * DIMS;
+            weights[start..start + DIMS].copy_from_slice(&values);
+            for (expected_value, value) in expected.iter_mut().zip(values) {
+                *expected_value += value;
+            }
+        }
+
+        accumulate_scalar::<DIMS>(&pattern_feature, &weights, &mut actual);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn accumulate_scalar_uses_pattern_values_as_row_offsets() {
+        const DIMS: usize = 5;
+
+        let pattern_feature = valid_pattern_feature();
+        let mut weights = vec![0i16; INPUT_FEATURE_DIMS * DIMS];
+        let mut expected = [0; DIMS];
+        let mut actual = [0; DIMS];
+
+        for feature_idx in 0..NUM_FEATURES {
+            let active_row = feature_offset(&pattern_feature, feature_idx);
+            let inactive_row = crate::eval::pattern_feature::PATTERN_FEATURE_OFFSETS[feature_idx];
+
+            let active = [
+                feature_idx as i16 + 1,
+                -(feature_idx as i16) - 2,
+                7,
+                -3,
+                feature_idx as i16 % 13,
+            ];
+            let active_start = active_row * DIMS;
+            weights[active_start..active_start + DIMS].copy_from_slice(&active);
+            for (expected_value, value) in expected.iter_mut().zip(active) {
+                *expected_value += value;
+            }
+
+            if inactive_row != active_row {
+                let inactive_start = inactive_row * DIMS;
+                weights[inactive_start..inactive_start + DIMS].fill(1234);
+            }
+        }
+
+        accumulate_scalar::<DIMS>(&pattern_feature, &weights, &mut actual);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn accumulate_scalar_accepts_zero_width_accumulators() {
+        let pattern_feature = valid_pattern_feature();
+        let weights: [i16; 0] = [];
+        let mut actual: [i16; 0] = [];
+
+        accumulate_scalar::<0>(&pattern_feature, &weights, &mut actual);
+
+        assert_eq!(actual, []);
+    }
+}

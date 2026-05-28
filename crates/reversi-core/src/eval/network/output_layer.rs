@@ -523,71 +523,63 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
 mod tests {
     use super::*;
     use crate::util::align::Align64;
+    use byteorder::{LittleEndian, WriteBytesExt};
+    use std::io::Cursor;
 
-    /// `forward_fn` is unused by these tests (each calls a specific path directly),
-    /// so it points at the always-available scalar wrapper.
-    #[allow(dead_code)]
-    fn build_layer<const INPUT: usize, const PADDED: usize>() -> OutputLayer<INPUT, PADDED> {
+    fn build_layer<const INPUT: usize, const PADDED: usize>(
+        bias: i32,
+        seed: i32,
+    ) -> OutputLayer<INPUT, PADDED> {
         let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED);
-        for (i, w) in weights.iter_mut().enumerate().take(INPUT) {
-            *w = ((i as i32 * 29 + 11) % 97 - 48) as i16;
+        for (idx, weight) in weights.iter_mut().take(INPUT).enumerate() {
+            *weight = ((idx as i32 * 4099 + seed).rem_euclid(60_001) - 30_000) as i16;
         }
 
         #[cfg(target_arch = "aarch64")]
         let i8mm_weights = OutputLayer::<INPUT, PADDED>::pack_i8mm_weights(weights.as_slice());
 
         OutputLayer {
-            bias: 12345,
+            bias,
             weights,
             #[cfg(target_arch = "aarch64")]
             i8mm_weights,
-            forward_fn: OutputLayer::<INPUT, PADDED>::forward_scalar_wrapper,
+            forward_fn: OutputLayer::<INPUT, PADDED>::select_forward_fn(),
         }
     }
 
-    #[allow(dead_code)]
-    fn build_wide_weight_layer<const INPUT: usize, const PADDED: usize>()
-    -> OutputLayer<INPUT, PADDED> {
-        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED);
-        for (i, w) in weights.iter_mut().enumerate().take(INPUT) {
-            *w = ((i as i32 * 4099 + 17) % 60001 - 30000) as i16;
+    fn reference_forward<const INPUT: usize, const PADDED: usize>(
+        layer: &OutputLayer<INPUT, PADDED>,
+        segments: [&[u8]; 3],
+    ) -> i32 {
+        let mut acc = layer.bias;
+        let mut weight_offset = 0;
+        for segment in segments {
+            for (idx, &value) in segment.iter().enumerate() {
+                acc += i32::from(value) * i32::from(layer.weights[weight_offset + idx]);
+            }
+            weight_offset += segment.len();
         }
-
-        #[cfg(target_arch = "aarch64")]
-        let i8mm_weights = OutputLayer::<INPUT, PADDED>::pack_i8mm_weights(weights.as_slice());
-
-        OutputLayer {
-            bias: -6789,
-            weights,
-            #[cfg(target_arch = "aarch64")]
-            i8mm_weights,
-            forward_fn: OutputLayer::<INPUT, PADDED>::forward_scalar_wrapper,
-        }
+        debug_assert_eq!(weight_offset, INPUT);
+        acc
     }
 
     type Chunk16Segments = (Align64<[u8; 16]>, Align64<[u8; 32]>, Align64<[u8; 16]>);
     type Chunk32Segments = (Align64<[u8; 32]>, Align64<[u8; 32]>);
 
-    /// Three segments totaling 64 bytes, each length divisible by 16 — matches
-    /// the NEON (CHUNK=16) and AVX2 (CHUNK=16) requirements. `Align64` ensures
-    /// the 16-byte alignment that AVX2 `_mm_load_si128` demands.
-    #[allow(dead_code)]
-    fn segments_chunk16() -> Chunk16Segments {
-        let seg0 = Align64([3u8; 16]);
-        let seg1 = Align64([
-            0, 1, 5, 9, 13, 17, 21, 25, 2, 6, 10, 14, 18, 22, 26, 30, 7, 11, 15, 19, 23, 27, 31,
-            35, 4, 8, 12, 16, 20, 24, 28, 32,
+    fn chunk16_segments() -> Chunk16Segments {
+        let seg0 = Align64([
+            3, 17, 31, 45, 59, 73, 87, 101, 115, 129, 143, 157, 171, 185, 199, 213,
         ]);
-        let seg2 = Align64([255, 200, 150, 100, 50, 25, 12, 6, 3, 1, 0, 7, 9, 11, 13, 15]);
+        let seg1 = Align64([
+            255, 200, 150, 100, 50, 25, 12, 6, 3, 1, 0, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27,
+            29, 31, 33, 35, 37, 39, 41, 43, 45, 47,
+        ]);
+        let seg2 = Align64([8, 6, 7, 5, 3, 0, 9, 11, 13, 15, 17, 19, 23, 29, 31, 37]);
         (seg0, seg1, seg2)
     }
 
-    /// Two segments totaling 64 bytes, each length divisible by 32 — matches the
-    /// AVX-512 (CHUNK=32) requirement. `Align64` ensures the 32-byte alignment
-    /// that `_mm256_load_si256` demands. The third slot is intentionally empty to
-    /// also exercise the zero-length segment path.
     #[allow(dead_code)]
-    fn segments_chunk32() -> Chunk32Segments {
+    fn chunk32_segments() -> Chunk32Segments {
         let seg0 = Align64([
             3, 17, 31, 45, 59, 73, 87, 101, 115, 129, 143, 157, 171, 185, 199, 213, 227, 241, 255,
             5, 19, 33, 47, 61, 75, 89, 103, 117, 131, 145, 159, 173,
@@ -598,169 +590,196 @@ mod tests {
         ]);
         (seg0, seg1)
     }
-    #[allow(dead_code)]
-    fn patterned_segment<const N: usize>(seed: u32) -> Align64<[u8; N]> {
-        let mut segment = Align64([0u8; N]);
-        for (i, value) in segment.iter_mut().enumerate() {
-            *value = ((i as u32 * 37 + seed * 19 + 11) & 0xff) as u8;
+
+    #[test]
+    fn load_reads_bias_and_every_padded_weight() {
+        const INPUT: usize = 5;
+        const PADDED: usize = 8;
+        let bias = -123_456;
+        let weights = [-30000, -257, -1, 0, 1, 255, 1024, 30_000];
+        let mut data = Vec::new();
+        data.write_i32::<LittleEndian>(bias).unwrap();
+        for weight in weights {
+            data.write_i16::<LittleEndian>(weight).unwrap();
         }
-        segment
+
+        let mut cursor = Cursor::new(data);
+        let layer = OutputLayer::<INPUT, PADDED>::load(&mut cursor).unwrap();
+
+        assert_eq!(layer.bias, bias);
+        assert_eq!(&layer.weights[..], &weights);
     }
 
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn assert_neon_matches_scalar<const INPUT: usize, const PADDED: usize>(
-        layer: &OutputLayer<INPUT, PADDED>,
-        segments: [&[u8]; 3],
-    ) {
-        let scalar = layer.forward_scalar(segments);
-        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-        let neon = unsafe { layer.forward_neon(segments) };
+    #[test]
+    fn load_reports_truncated_biases_or_weights() {
+        type Layer = OutputLayer<4, 8>;
 
-        assert_eq!(neon, scalar);
+        let mut missing_bias = Cursor::new([0u8; 3]);
+        assert!(Layer::load(&mut missing_bias).is_err());
+
+        let mut missing_weight = Vec::new();
+        missing_weight.write_i32::<LittleEndian>(1).unwrap();
+        for _ in 0..7 {
+            missing_weight.write_i16::<LittleEndian>(2).unwrap();
+        }
+        assert!(Layer::load(&mut Cursor::new(missing_weight)).is_err());
     }
 
+    #[test]
+    fn forward_scalar_matches_reference_for_arbitrary_segment_lengths() {
+        const INPUT: usize = 7;
+        const PADDED: usize = 8;
+        let layer = build_layer::<INPUT, PADDED>(1234, 17);
+        let seg0 = [255, 0, 7];
+        let seg1 = [];
+        let seg2 = [1, 2, 3, 4];
+        let segments = [&seg0[..], &seg1[..], &seg2[..]];
+        let expected = reference_forward(&layer, segments);
+
+        assert_eq!(layer.forward_scalar(segments), expected);
+    }
+
+    #[test]
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512bw")))]
+    fn forward_dispatch_matches_reference_for_16_byte_chunked_segments() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
+        let (seg0, seg1, seg2) = chunk16_segments();
+        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+        let expected = reference_forward(&layer, segments);
+
+        assert_eq!(layer.forward(segments), expected);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn forward_dispatch_matches_reference_for_32_byte_chunked_segments() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
+        let (seg0, seg1) = chunk32_segments();
+        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
+        let expected = reference_forward(&layer, segments);
+
+        assert_eq!(layer.forward(segments), expected);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "assertion `left == right` failed")]
+    fn forward_rejects_segment_lengths_that_do_not_sum_to_input_dims() {
+        let layer = build_layer::<16, 16>(0, 1);
+        let seg0 = Align64([0u8; 16]);
+        let extra = [1u8];
+
+        let _ = layer.forward([&seg0.0[..], &extra[..], &[][..]]);
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn pack_i8mm_weights_splits_low_and_high_bytes_by_chunk() {
+        const INPUT: usize = 20;
+        const PADDED: usize = 20;
+        let mut weights = [0i16; PADDED];
+        weights[0] = 0x1234;
+        weights[1] = -2;
+        weights[15] = i16::MIN;
+        weights[16] = i16::MAX;
+        weights[17] = -30_000;
+
+        let packed = OutputLayer::<INPUT, PADDED>::pack_i8mm_weights(&weights);
+
+        assert_eq!(packed.len(), 64);
+        assert_eq!(packed[0], 0x34);
+        assert_eq!(packed[16], 0x12);
+        assert_eq!(packed[1], 0xFE);
+        assert_eq!(packed[17], 0xFF);
+        assert_eq!(packed[15], 0x00);
+        assert_eq!(packed[31], 0x80);
+        assert_eq!(packed[32], 0xFF);
+        assert_eq!(packed[48], 0x7F);
+        assert_eq!(packed[33], weights[17] as u8);
+        assert_eq!(packed[49], (weights[17] >> 8) as u8);
+        assert!(packed[34..48].iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn assert_neon_i8mm_matches_scalar<const INPUT: usize, const PADDED: usize>(
-        layer: &OutputLayer<INPUT, PADDED>,
-        segments: [&[u8]; 3],
-    ) {
-        if !std::arch::is_aarch64_feature_detected!("i8mm")
-            || !std::arch::is_aarch64_feature_detected!("dotprod")
+    fn neon_forward_kernels_match_reference_for_chunked_segments() {
+        const INPUT: usize = 64;
+        const PADDED: usize = 64;
+        let layer = build_layer::<INPUT, PADDED>(-6789, 4099);
+        let (seg0, seg1, seg2) = chunk16_segments();
+        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+        let expected = reference_forward(&layer, segments);
+
+        unsafe {
+            assert_eq!(layer.forward_neon(segments), expected, "neon");
+        }
+
+        if std::arch::is_aarch64_feature_detected!("i8mm")
+            && std::arch::is_aarch64_feature_detected!("dotprod")
         {
-            return;
+            unsafe {
+                assert_eq!(layer.forward_neon_i8mm(segments), expected, "i8mm");
+            }
+
+            let mut single = Align64([0; INPUT]);
+            for (idx, value) in single.iter_mut().enumerate() {
+                *value = ((idx * 37 + 11) & 0xff) as u8;
+            }
+            let single_segments = [&single.0[..], &[][..], &[][..]];
+            let single_expected = reference_forward(&layer, single_segments);
+            unsafe {
+                assert_eq!(
+                    layer.forward_neon_i8mm(single_segments),
+                    single_expected,
+                    "i8mm unrolled",
+                );
+            }
         }
-
-        let scalar = layer.forward_scalar(segments);
-        // SAFETY: Guarded by runtime i8mm+dotprod detection.
-        let neon = unsafe { layer.forward_neon_i8mm(segments) };
-
-        assert_eq!(neon, scalar);
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_matches_scalar() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
-
-        let layer = build_layer::<INPUT, PADDED>();
-        let (seg0, seg1, seg2) = segments_chunk16();
-        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
-
-        assert_neon_matches_scalar(&layer, segments);
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_matches_scalar_with_four_chunk_segment() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
-
-        let layer = build_layer::<INPUT, PADDED>();
-        let seg0 = patterned_segment::<64>(5);
-        let segments = [&seg0.0[..], &[][..], &[][..]];
-
-        assert_neon_matches_scalar(&layer, segments);
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_matches_scalar_with_three_chunk_segment() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
-
-        let layer = build_layer::<INPUT, PADDED>();
-        let seg0 = patterned_segment::<48>(7);
-        let seg1 = patterned_segment::<16>(13);
-        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
-
-        assert_neon_matches_scalar(&layer, segments);
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_i8mm_matches_scalar_with_wide_i16_weights() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
-
-        let layer = build_wide_weight_layer::<INPUT, PADDED>();
-        let seg0 = patterned_segment::<64>(21);
-        let segments = [&seg0.0[..], &[][..], &[][..]];
-
-        assert_neon_i8mm_matches_scalar(&layer, segments);
     }
 
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    fn forward_avx2_no_vnni_matches_scalar() {
+    fn avx2_forward_kernels_match_reference_for_chunked_segments() {
         const INPUT: usize = 64;
         const PADDED: usize = 64;
-
-        let layer = build_layer::<INPUT, PADDED>();
-        let (seg0, seg1, seg2) = segments_chunk16();
+        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
+        let (seg0, seg1, seg2) = chunk16_segments();
         let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+        let expected = reference_forward(&layer, segments);
 
-        let scalar = layer.forward_scalar(segments);
-        // SAFETY: AVX2 is asserted by the cfg above; segments are 64-byte aligned.
-        let simd = unsafe { layer.forward_avx2_no_vnni(segments) };
-
-        assert_eq!(simd, scalar);
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    fn forward_avx2_vnni_matches_scalar() {
-        if !std::arch::is_x86_feature_detected!("avxvnni") {
-            return;
+        unsafe {
+            assert_eq!(layer.forward_avx2_no_vnni(segments), expected, "avx2");
         }
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
 
-        let layer = build_layer::<INPUT, PADDED>();
-        let (seg0, seg1, seg2) = segments_chunk16();
-        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
-
-        let scalar = layer.forward_scalar(segments);
-        // SAFETY: Guarded by runtime avxvnni detection; segments are 64-byte aligned.
-        let simd = unsafe { layer.forward_avx2_vnni(segments) };
-
-        assert_eq!(simd, scalar);
+        if std::arch::is_x86_feature_detected!("avxvnni") {
+            unsafe {
+                assert_eq!(layer.forward_avx2_vnni(segments), expected, "avx2 vnni");
+            }
+        }
     }
 
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_avx512_no_vnni_matches_scalar() {
+    fn avx512_forward_kernels_match_reference_for_chunked_segments() {
         const INPUT: usize = 64;
         const PADDED: usize = 64;
-
-        let layer = build_layer::<INPUT, PADDED>();
-        let (seg0, seg1) = segments_chunk32();
+        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
+        let (seg0, seg1) = chunk32_segments();
         let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
+        let expected = reference_forward(&layer, segments);
 
-        let scalar = layer.forward_scalar(segments);
-        // SAFETY: AVX-512BW is asserted by the cfg above; segments are 64-byte aligned.
-        let simd = unsafe { layer.forward_avx512_no_vnni(segments) };
-
-        assert_eq!(simd, scalar);
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_avx512_vnni_matches_scalar() {
-        if !std::arch::is_x86_feature_detected!("avx512vnni") {
-            return;
+        unsafe {
+            assert_eq!(layer.forward_avx512_no_vnni(segments), expected, "avx512");
         }
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
 
-        let layer = build_layer::<INPUT, PADDED>();
-        let (seg0, seg1) = segments_chunk32();
-        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
-
-        let scalar = layer.forward_scalar(segments);
-        // SAFETY: Guarded by runtime avx512vnni detection; segments are 64-byte aligned.
-        let simd = unsafe { layer.forward_avx512_vnni(segments) };
-
-        assert_eq!(simd, scalar);
+        if std::arch::is_x86_feature_detected!("avx512vnni") {
+            unsafe {
+                assert_eq!(layer.forward_avx512_vnni(segments), expected, "avx512 vnni",);
+            }
+        }
     }
 }

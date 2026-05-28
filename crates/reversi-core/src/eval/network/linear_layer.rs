@@ -641,408 +641,243 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use byteorder::{LittleEndian, WriteBytesExt};
     use std::io::Cursor;
 
-    /// Helper to create a test LinearLayer with known weights and biases
-    fn create_test_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>()
-    -> LinearLayer<I, O, PI, PO> {
-        let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
-        let mut layer = LinearLayer::<I, O, PI, PO> {
-            biases: AlignedBuffer::from_elem(0i32, PO),
-            weights: AlignedBuffer::from_elem(0i8, PI * PO),
-            forward_fn,
+    fn build_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>(
+        seed: i32,
+    ) -> LinearLayer<I, O, PI, PO> {
+        let mut layer = LinearLayer {
+            biases: AlignedBuffer::from_elem(0, PO),
+            weights: AlignedBuffer::from_elem(0, PI * PO),
+            forward_fn: LinearLayer::<I, O, PI, PO>::select_forward_fn(),
         };
 
-        // Set some test biases
-        for i in 0..O {
-            layer.biases[i] = (i as i32 + 1) * 100;
-        }
-
-        // Set some test weights using the proper packing function
         for output_idx in 0..O {
+            layer.biases[output_idx] = (output_idx as i32 * 101 + seed).rem_euclid(20_000) - 10_000;
             for input_idx in 0..I {
-                let idx = layer.get_packed_weight_index(input_idx, output_idx);
-                // Use a simple pattern that avoids zero
-                layer.weights[idx] = ((output_idx + input_idx + 1) % 127) as i8;
+                let weight_idx = layer.get_packed_weight_index(input_idx, output_idx);
+                layer.weights[weight_idx] =
+                    ((output_idx as i32 * 37 + input_idx as i32 * 19 + seed).rem_euclid(255) - 127)
+                        as i8;
             }
         }
 
         layer
     }
 
-    #[test]
-    fn test_weight_index_calculation() {
-        // Test the weight index calculation for a small matrix
-        const INPUT_SIZE: usize = 8;
-        const OUTPUT_SIZE: usize = 4;
+    fn reference_forward<const I: usize, const O: usize, const PI: usize, const PO: usize>(
+        layer: &LinearLayer<I, O, PI, PO>,
+        input: &Align64<[u8; PI]>,
+    ) -> [i32; O] {
+        let mut output = [0; O];
+        output.copy_from_slice(&layer.biases[..O]);
 
-        // Test various indices
-        let idx0 = LinearLayer::<4, 4, 8, 4>::get_weight_index(0, INPUT_SIZE, OUTPUT_SIZE);
-        let idx1 = LinearLayer::<4, 4, 8, 4>::get_weight_index(1, INPUT_SIZE, OUTPUT_SIZE);
-        let idx4 = LinearLayer::<4, 4, 8, 4>::get_weight_index(4, INPUT_SIZE, OUTPUT_SIZE);
+        for input_idx in 0..I {
+            let input_value = i32::from(input[input_idx]);
+            if input_value == 0 {
+                continue;
+            }
+            for (output_idx, out) in output.iter_mut().enumerate() {
+                let weight_idx = layer.get_packed_weight_index(input_idx, output_idx);
+                *out += input_value * i32::from(layer.weights[weight_idx]);
+            }
+        }
 
-        // Verify that indices are unique and within bounds
-        assert_ne!(idx0, idx1);
-        assert_ne!(idx0, idx4);
-        assert!(idx0 < INPUT_SIZE * OUTPUT_SIZE);
-        assert!(idx1 < INPUT_SIZE * OUTPUT_SIZE);
-        assert!(idx4 < INPUT_SIZE * OUTPUT_SIZE);
+        output
+    }
+
+    fn patterned_input<const I: usize, const PI: usize>(seed: usize) -> Align64<[u8; PI]> {
+        let mut input = Align64([0; PI]);
+        for (idx, value) in input.iter_mut().take(I).enumerate() {
+            *value = ((idx * 53 + seed * 17 + 11) & 0xff) as u8;
+        }
+        for value in input.iter_mut().skip(I) {
+            *value = 239;
+        }
+        input
+    }
+
+    fn assert_forward_matches_reference<
+        const I: usize,
+        const O: usize,
+        const PI: usize,
+        const PO: usize,
+    >(
+        seed: i32,
+        input_seed: usize,
+    ) {
+        let layer = build_layer::<I, O, PI, PO>(seed);
+        let input = patterned_input::<I, PI>(input_seed);
+        let expected = reference_forward(&layer, &input);
+        let mut actual = Align64([i32::MIN; PO]);
+
+        layer.forward(&input, &mut actual);
+
+        assert_eq!(&actual.as_ref()[..O], &expected);
     }
 
     #[test]
-    fn test_load_from_reader() {
-        const I: usize = 4;
-        const O: usize = 2;
-        const PI: usize = 32; // Padded to SIMD width
-        const PO: usize = 32;
+    fn weight_index_maps_row_major_matrix_into_unique_packed_slots() {
+        const INPUT_SIZE: usize = 8;
+        const OUTPUT_SIZE: usize = 3;
+        let expected = [
+            0, 1, 2, 3, 12, 13, 14, 15, 4, 5, 6, 7, 16, 17, 18, 19, 8, 9, 10, 11, 20, 21, 22, 23,
+        ];
+        let mut seen = [false; INPUT_SIZE * OUTPUT_SIZE];
 
-        // Create test data
+        for (conceptual_idx, &expected_idx) in expected.iter().enumerate() {
+            let packed_idx = LinearLayer::<6, OUTPUT_SIZE, INPUT_SIZE, 8>::get_weight_index(
+                conceptual_idx,
+                INPUT_SIZE,
+                OUTPUT_SIZE,
+            );
+            assert_eq!(
+                packed_idx, expected_idx,
+                "conceptual index {conceptual_idx}"
+            );
+            assert!(!seen[packed_idx], "duplicate packed index {packed_idx}");
+            seen[packed_idx] = true;
+        }
+
+        assert!(seen.into_iter().all(|hit| hit));
+    }
+
+    #[test]
+    fn load_reads_biases_and_repackages_row_major_weights() {
+        const I: usize = 6;
+        const O: usize = 3;
+        const PI: usize = 8;
+        const PO: usize = 8;
+        let biases = [-100, 0, 250];
         let mut data = Vec::new();
-
-        // Write biases (2 x i32 little-endian)
-        data.extend_from_slice(&100i32.to_le_bytes());
-        data.extend_from_slice(&200i32.to_le_bytes());
-
-        // Write weights (PI * O = 32 * 2 = 64 bytes)
-        for i in 0..PI * O {
-            data.push((i % 127) as u8);
+        for bias in biases {
+            data.write_i32::<LittleEndian>(bias).unwrap();
+        }
+        for conceptual_idx in 0..PI * O {
+            data.write_i8(conceptual_idx as i8 - 40).unwrap();
         }
 
         let mut cursor = Cursor::new(data);
         let layer = LinearLayer::<I, O, PI, PO>::load(&mut cursor).unwrap();
 
-        // Verify biases were loaded correctly
-        assert_eq!(layer.biases[0], 100);
-        assert_eq!(layer.biases[1], 200);
-    }
-
-    #[test]
-    fn test_forward_multiple_outputs() {
-        const I: usize = 4;
-        const O: usize = 8;
-        const PI: usize = 32;
-        const PO: usize = 32;
-
-        let layer = create_test_layer::<I, O, PI, PO>();
-
-        let mut input = Align64([0; PI]);
-        let mut output = Align64([0; PO]);
-
-        // Set input values
-        for i in 0..I {
-            input[i] = (i + 1) as u8 * 10;
-        }
-
-        layer.forward(&input, &mut output);
-
-        // Verify all outputs are computed
-        for i in 0..O {
-            // Each output should at least have the bias value
-            assert!(output[i] >= (i as i32 + 1) * 100);
-        }
-    }
-
-    #[test]
-    fn test_forward_with_zero_input() {
-        const I: usize = 8;
-        const O: usize = 8; // Must be multiple of 8 for AVX2
-        const PI: usize = 32;
-        const PO: usize = 32;
-
-        let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
-        let mut layer = LinearLayer::<I, O, PI, PO> {
-            biases: AlignedBuffer::from_elem(0i32, PO),
-            weights: AlignedBuffer::from_elem(0i8, PI * PO),
-            forward_fn,
-        };
-
-        // Set biases
-        for i in 0..O {
-            layer.biases[i] = (i as i32 + 1) * 100;
-        }
-
-        let input = Align64([0; PI]); // All zeros
-        let mut output = Align64([0; PO]);
-
-        layer.forward(&input, &mut output);
-
-        // With zero input, output should equal biases
-        for i in 0..O {
-            assert_eq!(output[i], (i as i32 + 1) * 100);
-        }
-    }
-
-    #[test]
-    fn test_packed_weight_index_bounds() {
-        const I: usize = 64;
-        const O: usize = 16;
-        const PI: usize = 64;
-        const PO: usize = 32;
-
-        let layer = create_test_layer::<I, O, PI, PO>();
-
-        // Test that all valid input/output combinations produce valid indices
+        assert_eq!(&layer.biases[..O], &biases);
+        assert_eq!(&layer.biases[O..PO], &[0; PO - O]);
         for output_idx in 0..O {
-            for input_idx in 0..I {
-                let idx = layer.get_packed_weight_index(input_idx, output_idx);
-                assert!(
-                    idx < PI * PO,
-                    "Index {idx} out of bounds for input={input_idx}, output={output_idx}"
+            for input_idx in 0..PI {
+                let conceptual_idx = output_idx * PI + input_idx;
+                let packed_idx = layer.get_packed_weight_index(input_idx, output_idx);
+                assert_eq!(
+                    layer.weights[packed_idx],
+                    conceptual_idx as i8 - 40,
+                    "input {input_idx}, output {output_idx}",
                 );
             }
         }
     }
 
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn neon_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
-        let layer = create_test_layer::<I, O, PI, PO>();
-        let mut input = Align64([0u8; PI]);
-        for (idx, v) in input.iter_mut().take(I).enumerate() {
-            *v = ((idx * 17 + 3) % 251) as u8;
-        }
+    #[test]
+    fn load_reports_truncated_biases_or_weights() {
+        type Layer = LinearLayer<2, 2, 4, 4>;
 
-        let mut neon_out = Align64([0i32; PO]);
-        let mut fb_out = Align64([0i32; PO]);
+        let mut missing_bias = Cursor::new(1i32.to_le_bytes().to_vec());
+        assert!(Layer::load(&mut missing_bias).is_err());
 
-        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
-        unsafe { layer.forward_neon(&input, &mut neon_out) };
-        layer.forward_fallback(&input, &mut fb_out);
+        let mut missing_weight = Vec::new();
+        missing_weight.write_i32::<LittleEndian>(1).unwrap();
+        missing_weight.write_i32::<LittleEndian>(2).unwrap();
+        missing_weight.extend([7u8; 7]);
+        assert!(Layer::load(&mut Cursor::new(missing_weight)).is_err());
+    }
 
-        assert_eq!(neon_out.as_ref(), fb_out.as_ref());
+    #[test]
+    fn forward_fallback_matches_reference_and_preserves_padded_outputs() {
+        const I: usize = 6;
+        const O: usize = 5;
+        const PI: usize = 8;
+        const PO: usize = 8;
+        let layer = build_layer::<I, O, PI, PO>(31);
+        let input = Align64([0, 255, 7, 0, 31, 128, 200, 201]);
+        let expected = reference_forward(&layer, &input);
+        let mut actual = Align64([777; PO]);
+
+        layer.forward_fallback(&input, &mut actual);
+
+        assert_eq!(&actual.as_ref()[..O], &expected);
+        assert_eq!(&actual.as_ref()[O..], &[777; PO - O]);
+    }
+
+    #[test]
+    fn forward_dispatch_matches_reference_with_main_chunks_and_padding() {
+        assert_forward_matches_reference::<18, 8, 24, 8>(43, 3);
+        assert_forward_matches_reference::<64, 16, 64, 16>(97, 11);
     }
 
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_matches_fallback() {
-        // Exercise both num_regs=4 (L1-shaped) and num_regs=16 (L2-shaped) loops.
-        neon_cross_check::<32, 16, 32, 32>();
-        neon_cross_check::<64, 64, 64, 64>();
-    }
+    fn neon_forward_kernels_match_reference_for_main_and_remainder_chunks() {
+        fn run<const I: usize, const O: usize, const PI: usize, const PO: usize>(
+            seed: i32,
+            input_seed: usize,
+        ) {
+            let layer = build_layer::<I, O, PI, PO>(seed);
+            let input = patterned_input::<I, PI>(input_seed);
+            let expected = reference_forward(&layer, &input);
+            let mut actual = Align64([0; PO]);
 
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn neon_dotprod_cross_check<
-        const I: usize,
-        const O: usize,
-        const PI: usize,
-        const PO: usize,
-    >() {
-        if !std::arch::is_aarch64_feature_detected!("dotprod") {
-            return;
-        }
+            unsafe { layer.forward_neon(&input, &mut actual) };
+            assert_eq!(&actual.as_ref()[..O], &expected, "neon");
 
-        let layer = create_test_layer::<I, O, PI, PO>();
-        let mut input = Align64([0u8; PI]);
-        // Cover the full u8 range so the msb sign-correction path gets exercised.
-        for (idx, v) in input.iter_mut().take(I).enumerate() {
-            *v = ((idx * 23 + 7) % 251) as u8;
-        }
+            if std::arch::is_aarch64_feature_detected!("dotprod") {
+                let mut dotprod = Align64([0; PO]);
+                unsafe { layer.forward_neon_dotprod(&input, &mut dotprod) };
+                assert_eq!(&dotprod.as_ref()[..O], &expected, "dotprod");
+            }
 
-        let mut dp_out = Align64([0i32; PO]);
-        let mut fb_out = Align64([0i32; PO]);
-
-        // SAFETY: Guarded by runtime dotprod detection and the cfg above.
-        unsafe { layer.forward_neon_dotprod(&input, &mut dp_out) };
-        layer.forward_fallback(&input, &mut fb_out);
-
-        assert_eq!(dp_out.as_ref(), fb_out.as_ref());
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_dotprod_matches_fallback() {
-        neon_dotprod_cross_check::<32, 16, 32, 32>();
-        neon_dotprod_cross_check::<64, 64, 64, 64>();
-    }
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn neon_i8mm_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
-        if !std::arch::is_aarch64_feature_detected!("i8mm") {
-            return;
-        }
-
-        let layer = create_test_layer::<I, O, PI, PO>();
-        let mut input = Align64([0u8; PI]);
-        for (idx, v) in input.iter_mut().take(I).enumerate() {
-            *v = ((idx * 29 + 11) % 251) as u8;
-        }
-
-        let mut i8mm_out = Align64([0i32; PO]);
-        let mut fb_out = Align64([0i32; PO]);
-
-        // SAFETY: Guarded by runtime i8mm detection and the cfg above.
-        unsafe { layer.forward_neon_i8mm(&input, &mut i8mm_out) };
-        layer.forward_fallback(&input, &mut fb_out);
-
-        assert_eq!(i8mm_out.as_ref(), fb_out.as_ref());
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_i8mm_matches_fallback() {
-        neon_i8mm_cross_check::<32, 16, 32, 32>();
-        neon_i8mm_cross_check::<64, 64, 64, 64>();
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    fn avx2_no_vnni_cross_check<
-        const I: usize,
-        const O: usize,
-        const PI: usize,
-        const PO: usize,
-    >() {
-        let layer = create_test_layer::<I, O, PI, PO>();
-        let mut input = Align64([0u8; PI]);
-        for (idx, v) in input.iter_mut().take(I).enumerate() {
-            *v = ((idx * 17 + 3) % 251) as u8;
-        }
-
-        let mut simd_out = Align64([0i32; PO]);
-        let mut fb_out = Align64([0i32; PO]);
-
-        // SAFETY: AVX2 is asserted by the cfg above.
-        unsafe { layer.forward_avx2_no_vnni(&input, &mut simd_out) };
-        layer.forward_fallback(&input, &mut fb_out);
-
-        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    fn forward_avx2_no_vnni_matches_fallback() {
-        avx2_no_vnni_cross_check::<32, 16, 32, 32>();
-        avx2_no_vnni_cross_check::<64, 64, 64, 64>();
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    fn avx2_vnni_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
-        if !std::arch::is_x86_feature_detected!("avxvnni") {
-            return;
-        }
-
-        let layer = create_test_layer::<I, O, PI, PO>();
-        let mut input = Align64([0u8; PI]);
-        // Cover the full u8 range so the VNNI path's u8×i8 semantics are exercised.
-        for (idx, v) in input.iter_mut().take(I).enumerate() {
-            *v = ((idx * 23 + 7) % 251) as u8;
-        }
-
-        let mut simd_out = Align64([0i32; PO]);
-        let mut fb_out = Align64([0i32; PO]);
-
-        // SAFETY: Guarded by runtime avxvnni detection and the cfg above.
-        unsafe { layer.forward_avx2_vnni(&input, &mut simd_out) };
-        layer.forward_fallback(&input, &mut fb_out);
-
-        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    fn forward_avx2_vnni_matches_fallback() {
-        avx2_vnni_cross_check::<32, 16, 32, 32>();
-        avx2_vnni_cross_check::<64, 64, 64, 64>();
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn avx512_no_vnni_cross_check<
-        const I: usize,
-        const O: usize,
-        const PI: usize,
-        const PO: usize,
-    >() {
-        let layer = create_test_layer::<I, O, PI, PO>();
-        let mut input = Align64([0u8; PI]);
-        for (idx, v) in input.iter_mut().take(I).enumerate() {
-            *v = ((idx * 17 + 3) % 251) as u8;
-        }
-
-        let mut simd_out = Align64([0i32; PO]);
-        let mut fb_out = Align64([0i32; PO]);
-
-        // SAFETY: AVX-512BW is asserted by the cfg above.
-        unsafe { layer.forward_avx512_no_vnni(&input, &mut simd_out) };
-        layer.forward_fallback(&input, &mut fb_out);
-
-        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_avx512_no_vnni_matches_fallback() {
-        avx512_no_vnni_cross_check::<32, 16, 32, 32>();
-        avx512_no_vnni_cross_check::<64, 64, 64, 64>();
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn avx512_vnni_cross_check<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
-        if !std::arch::is_x86_feature_detected!("avx512vnni") {
-            return;
-        }
-
-        let layer = create_test_layer::<I, O, PI, PO>();
-        let mut input = Align64([0u8; PI]);
-        for (idx, v) in input.iter_mut().take(I).enumerate() {
-            *v = ((idx * 23 + 7) % 251) as u8;
-        }
-
-        let mut simd_out = Align64([0i32; PO]);
-        let mut fb_out = Align64([0i32; PO]);
-
-        // SAFETY: Guarded by runtime avx512vnni detection and the cfg above.
-        unsafe { layer.forward_avx512_vnni(&input, &mut simd_out) };
-        layer.forward_fallback(&input, &mut fb_out);
-
-        assert_eq!(simd_out.as_ref(), fb_out.as_ref());
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_avx512_vnni_matches_fallback() {
-        avx512_vnni_cross_check::<32, 16, 32, 32>();
-        avx512_vnni_cross_check::<64, 64, 64, 64>();
-    }
-
-    #[test]
-    fn test_forward_sparse_input() {
-        // Test the zero-skipping optimization
-        const I: usize = 32;
-        const O: usize = 8; // Must be multiple of 8 for AVX2
-        const PI: usize = 32;
-        const PO: usize = 32;
-
-        let forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn();
-        let mut layer = LinearLayer::<I, O, PI, PO> {
-            biases: AlignedBuffer::from_elem(0i32, PO),
-            weights: AlignedBuffer::from_elem(0i8, PI * PO),
-            forward_fn,
-        };
-
-        // Set positive biases
-        for i in 0..O {
-            layer.biases[i] = 1000;
-        }
-
-        // Set some weights
-        for i in 0..O {
-            for j in 0..I {
-                let idx = layer.get_packed_weight_index(j, i);
-                layer.weights[idx] = 1;
+            if std::arch::is_aarch64_feature_detected!("i8mm") {
+                let mut i8mm = Align64([0; PO]);
+                unsafe { layer.forward_neon_i8mm(&input, &mut i8mm) };
+                assert_eq!(&i8mm.as_ref()[..O], &expected, "i8mm");
             }
         }
 
-        let mut input = Align64([0; PI]);
-        let mut output = Align64([0; PO]);
+        run::<18, 8, 24, 8>(23, 5);
+        run::<64, 16, 64, 16>(71, 13);
+    }
 
-        // Set only a few non-zero values (sparse input)
-        input[5] = 100;
-        input[15] = 200;
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn avx2_forward_kernels_match_reference() {
+        let layer = build_layer::<64, 8, 64, 8>(71);
+        let input = patterned_input::<64, 64>(13);
+        let expected = reference_forward(&layer, &input);
+        let mut actual = Align64([0; 8]);
 
-        layer.forward(&input, &mut output);
+        unsafe { layer.forward_avx2_no_vnni(&input, &mut actual) };
+        assert_eq!(actual.as_ref(), &expected, "avx2");
 
-        // Verify computation completed successfully
-        for i in 0..O {
-            // Output should be bias (1000) plus contribution from non-zero inputs (300)
-            assert_eq!(output[i], 1300);
+        if std::arch::is_x86_feature_detected!("avxvnni") {
+            let mut vnni = Align64([0; 8]);
+            unsafe { layer.forward_avx2_vnni(&input, &mut vnni) };
+            assert_eq!(vnni.as_ref(), &expected, "avx2 vnni");
+        }
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn avx512_forward_kernels_match_reference() {
+        let layer = build_layer::<64, 16, 64, 16>(71);
+        let input = patterned_input::<64, 64>(13);
+        let expected = reference_forward(&layer, &input);
+        let mut actual = Align64([0; 16]);
+
+        unsafe { layer.forward_avx512_no_vnni(&input, &mut actual) };
+        assert_eq!(actual.as_ref(), &expected, "avx512");
+
+        if std::arch::is_x86_feature_detected!("avx512vnni") {
+            let mut vnni = Align64([0; 16]);
+            unsafe { layer.forward_avx512_vnni(&input, &mut vnni) };
+            assert_eq!(vnni.as_ref(), &expected, "avx512 vnni");
         }
     }
 }

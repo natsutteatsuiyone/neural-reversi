@@ -736,37 +736,113 @@ impl NetworkSmall {
 }
 
 #[cfg(test)]
-#[cfg(any(
-    all(target_arch = "aarch64", target_feature = "neon"),
-    all(
-        target_arch = "x86_64",
-        any(target_feature = "avx2", target_feature = "avx512bw"),
-    ),
-))]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
-    fn build_test_fixture() -> (PatternFeature, InputLayer, OutputLayer) {
+    use crate::eval::pattern_feature::calc_pattern_size;
+    use byteorder::{LittleEndian, WriteBytesExt};
+
+    fn empty_input_layer(layer_idx: usize) -> InputLayer {
+        let mut biases = Align64([0i16; PA_OUTPUT_DIMS]);
+        biases[0] = ((layer_idx + 1) as i16) << 12;
+
+        InputLayer {
+            biases,
+            weights: AlignedBuffer::from_elem(0i16, 0),
+        }
+    }
+
+    fn empty_output_layer(output_idx: usize) -> OutputLayer {
+        let mut weights = Align64([0i16; PA_OUTPUT_DIMS]);
+        weights[0] = (output_idx as i16) << 8;
+
+        OutputLayer { bias: 0, weights }
+    }
+
+    fn network_with_forward_fn(
+        forward_fn: unsafe fn(&PatternFeature, &InputLayer, &OutputLayer) -> i32,
+    ) -> NetworkSmall {
+        NetworkSmall {
+            input_layers: (0..NUM_INPUT_LAYERS).map(empty_input_layer).collect(),
+            output_layers: (0..NUM_OUTPUT_LAYERS).map(empty_output_layer).collect(),
+            forward_fn,
+        }
+    }
+
+    unsafe fn route_probe_forward(
+        _pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        i32::from(input_layer.biases[0]) + i32::from(output_layer.weights[0])
+    }
+
+    unsafe fn zero_forward(
+        _pattern_feature: &PatternFeature,
+        _input_layer: &InputLayer,
+        _output_layer: &OutputLayer,
+    ) -> i32 {
+        0
+    }
+
+    fn activation(value: i32) -> i32 {
+        if value <= 0 {
+            return 0;
+        }
+
+        let clamped = value.min(i32::from(ACTIVATION_CLAMP_MAX));
+        (clamped * clamped) >> 10
+    }
+
+    fn expected_dot(acc: &[i32; PA_OUTPUT_DIMS], output_layer: &OutputLayer) -> i32 {
+        acc.iter()
+            .zip(output_layer.weights.iter())
+            .map(|(&value, &weight)| activation(value) * i32::from(weight))
+            .sum()
+    }
+
+    fn build_forward_fixture() -> (
+        PatternFeature,
+        InputLayer,
+        OutputLayer,
+        [i32; PA_OUTPUT_DIMS],
+    ) {
         let mut pattern_feature = PatternFeature::new();
-        for i in 0..NUM_FEATURES {
-            pattern_feature[i] = ((i * 13 + 7) % 193) as u16;
+        for feature_idx in 0..NUM_FEATURES {
+            pattern_feature[feature_idx] =
+                ((feature_idx * 4099 + 17) % calc_pattern_size(feature_idx)) as u16;
         }
 
         let mut input_layer = InputLayer {
             biases: Align64([0i16; PA_OUTPUT_DIMS]),
             weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS),
         };
+        let mut expected_acc = [0i32; PA_OUTPUT_DIMS];
 
-        for (i, bias) in input_layer.biases.as_mut_slice().iter_mut().enumerate() {
-            *bias = ((i % 9) as i16) - 4;
+        for (idx, bias) in input_layer.biases.as_mut_slice().iter_mut().enumerate() {
+            *bias = match idx % 8 {
+                0 => -200,
+                1 => -1,
+                2 => 0,
+                3 => 10,
+                4 => 700,
+                5 => 1023,
+                6 => 1400,
+                _ => 3000,
+            };
+            expected_acc[idx] = i32::from(*bias);
         }
 
+        let weights = input_layer.weights.as_mut_slice();
         for feature_idx in 0..NUM_FEATURES {
-            let offset = feature_offset(&pattern_feature, feature_idx);
-            let row =
-                &mut input_layer.weights[offset * PA_OUTPUT_DIMS..(offset + 1) * PA_OUTPUT_DIMS];
-            for (j, w) in row.iter_mut().enumerate() {
-                *w = (((feature_idx * 11 + j * 3) % 17) as i16) - 8;
+            let offset = feature_offset(&pattern_feature, feature_idx) * PA_OUTPUT_DIMS;
+            let row = &mut weights[offset..offset + PA_OUTPUT_DIMS];
+
+            for (idx, weight) in row.iter_mut().enumerate() {
+                let value = (((feature_idx * 13 + idx * 7) % 9) as i16) - 4;
+                *weight = if value == 0 { 5 } else { value };
+                expected_acc[idx] += i32::from(*weight);
             }
         }
 
@@ -774,80 +850,170 @@ mod tests {
             bias: 0,
             weights: Align64([0i16; PA_OUTPUT_DIMS]),
         };
-        for (i, w) in output_layer.weights.as_mut_slice().iter_mut().enumerate() {
-            *w = ((i % 11) as i16) - 5;
+        for (idx, weight) in output_layer.weights.as_mut_slice().iter_mut().enumerate() {
+            *weight = ((idx * 7 % 19) as i16) - 9;
         }
 
-        (pattern_feature, input_layer, output_layer)
+        (pattern_feature, input_layer, output_layer, expected_acc)
+    }
+
+    #[test]
+    fn output_layer_load_reads_little_endian_bias_and_weights() {
+        let mut bytes = Vec::with_capacity(4 + PA_OUTPUT_DIMS * 2);
+        bytes.write_i32::<LittleEndian>(-123_456).unwrap();
+        for idx in 0..PA_OUTPUT_DIMS {
+            bytes
+                .write_i16::<LittleEndian>((idx as i16 * 3) - 127)
+                .unwrap();
+        }
+
+        let loaded = OutputLayer::load(&mut Cursor::new(bytes)).unwrap();
+
+        assert_eq!(loaded.bias, -123_456);
+        for idx in 0..PA_OUTPUT_DIMS {
+            assert_eq!(loaded.weights[idx], (idx as i16 * 3) - 127, "weight {idx}");
+        }
+    }
+
+    #[test]
+    fn from_bytes_rejects_invalid_or_truncated_weight_streams() {
+        assert!(NetworkSmall::from_bytes(b"not a zstd stream").is_err());
+
+        let empty_frame = zstd::stream::encode_all(&[][..], 0).unwrap();
+        let err = NetworkSmall::from_bytes(&empty_frame).err().unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn evaluate_routes_plies_to_expected_input_and_output_layers() {
+        let network = network_with_forward_fn(route_probe_forward);
+        let pattern_feature = PatternFeature::new();
+
+        let cases = [(30, 16), (39, 25), (40, 42), (49, 51), (50, 68), (59, 77)];
+
+        for (ply, expected_raw) in cases {
+            assert_eq!(
+                network.evaluate(&pattern_feature, ply),
+                ScaledScore::from_raw(expected_raw),
+                "ply {ply}"
+            );
+        }
+    }
+
+    #[test]
+    fn evaluate_clamps_scores_inside_search_bounds() {
+        let mut network = network_with_forward_fn(zero_forward);
+        network.output_layers[0].bias = (ScaledScore::MAX.value() + 10) << OUTPUT_WEIGHT_SCALE_BITS;
+        network.output_layers[1].bias = (ScaledScore::MIN.value() - 10) << OUTPUT_WEIGHT_SCALE_BITS;
+        let pattern_feature = PatternFeature::new();
+
+        assert_eq!(
+            network.evaluate(&pattern_feature, ENDGAME_START_PLY),
+            ScaledScore::MAX - 1
+        );
+        assert_eq!(
+            network.evaluate(&pattern_feature, ENDGAME_START_PLY + 1),
+            ScaledScore::MIN + 1
+        );
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic]
+    fn evaluate_rejects_plies_before_the_endgame_window_in_debug_builds() {
+        let network = network_with_forward_fn(zero_forward);
+
+        let _ = network.evaluate(&PatternFeature::new(), ENDGAME_START_PLY - 1);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic]
+    fn evaluate_rejects_plies_after_the_endgame_window_in_debug_builds() {
+        let network = network_with_forward_fn(zero_forward);
+
+        let _ = network.evaluate(
+            &PatternFeature::new(),
+            ENDGAME_START_PLY + NUM_OUTPUT_LAYERS,
+        );
+    }
+
+    #[test]
+    fn scalar_forward_matches_independent_activation_and_dot_reference() {
+        let (pattern_feature, input_layer, output_layer, expected_acc) = build_forward_fixture();
+
+        let expected = expected_dot(&expected_acc, &output_layer);
+        let actual = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn scalar_wrapper_matches_scalar_forward() {
+        let (pattern_feature, input_layer, output_layer, _) = build_forward_fixture();
+
+        assert_eq!(
+            unsafe {
+                NetworkSmall::forward_scalar_wrapper(&pattern_feature, &input_layer, &output_layer)
+            },
+            NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer)
+        );
     }
 
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    fn forward_avx2_matches_scalar() {
+    fn forward_avx2_matches_scalar_for_sparse_feature_rows() {
         if !is_x86_feature_detected!("avx2") {
             return;
         }
 
-        let (pattern_feature, input_layer, output_layer) = build_test_fixture();
+        let (pattern_feature, input_layer, output_layer, _) = build_forward_fixture();
         let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
-        // SAFETY: Guarded by runtime AVX2 feature detection above.
         let avx2_no_vnni = unsafe {
             NetworkSmall::forward_avx2_no_vnni(&pattern_feature, &input_layer, &output_layer)
         };
-        assert_eq!(scalar, avx2_no_vnni, "scalar and avx2(no_vnni) mismatch");
+        assert_eq!(avx2_no_vnni, scalar);
 
         if is_x86_feature_detected!("avxvnni") {
-            // SAFETY: Guarded by runtime AVX2+AVXVNNI feature detection above.
             let avx2_vnni = unsafe {
                 NetworkSmall::forward_avx2_vnni(&pattern_feature, &input_layer, &output_layer)
             };
-            assert_eq!(scalar, avx2_vnni, "scalar and avx2(vnni) mismatch");
-            assert_eq!(
-                avx2_no_vnni, avx2_vnni,
-                "avx2(no_vnni) and avx2(vnni) mismatch"
-            );
+            assert_eq!(avx2_vnni, scalar);
+            assert_eq!(avx2_vnni, avx2_no_vnni);
+        }
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    fn forward_avx512_matches_scalar_for_sparse_feature_rows() {
+        if !is_x86_feature_detected!("avx512bw") {
+            return;
+        }
+
+        let (pattern_feature, input_layer, output_layer, _) = build_forward_fixture();
+        let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
+        let avx512_no_vnni = unsafe {
+            NetworkSmall::forward_avx512_no_vnni(&pattern_feature, &input_layer, &output_layer)
+        };
+        assert_eq!(avx512_no_vnni, scalar);
+
+        if is_x86_feature_detected!("avx512vnni") {
+            let avx512_vnni = unsafe {
+                NetworkSmall::forward_avx512_vnni(&pattern_feature, &input_layer, &output_layer)
+            };
+            assert_eq!(avx512_vnni, scalar);
+            assert_eq!(avx512_vnni, avx512_no_vnni);
         }
     }
 
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_matches_scalar() {
-        let (pattern_feature, input_layer, output_layer) = build_test_fixture();
+    fn forward_neon_matches_scalar_for_sparse_feature_rows() {
+        let (pattern_feature, input_layer, output_layer, _) = build_forward_fixture();
         let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
-        // SAFETY: NEON is the aarch64 baseline, asserted by the cfg above.
         let neon =
             unsafe { NetworkSmall::forward_neon(&pattern_feature, &input_layer, &output_layer) };
-        assert_eq!(scalar, neon, "scalar and neon mismatch");
-    }
 
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_avx512_matches_scalar() {
-        if !is_x86_feature_detected!("avx512bw") {
-            return;
-        }
-
-        let (pattern_feature, input_layer, output_layer) = build_test_fixture();
-        let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
-        // SAFETY: Guarded by runtime AVX-512BW feature detection above.
-        let avx512_no_vnni = unsafe {
-            NetworkSmall::forward_avx512_no_vnni(&pattern_feature, &input_layer, &output_layer)
-        };
-        assert_eq!(
-            scalar, avx512_no_vnni,
-            "scalar and avx512(no_vnni) mismatch"
-        );
-
-        if is_x86_feature_detected!("avx512vnni") {
-            // SAFETY: Guarded by runtime AVX-512BW+AVX-512VNNI feature detection above.
-            let avx512_vnni = unsafe {
-                NetworkSmall::forward_avx512_vnni(&pattern_feature, &input_layer, &output_layer)
-            };
-            assert_eq!(scalar, avx512_vnni, "scalar and avx512(vnni) mismatch");
-            assert_eq!(
-                avx512_no_vnni, avx512_vnni,
-                "avx512(no_vnni) and avx512(vnni) mismatch"
-            );
-        }
+        assert_eq!(neon, scalar);
     }
 }
