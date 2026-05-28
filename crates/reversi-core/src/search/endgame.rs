@@ -670,6 +670,9 @@ fn solve4(
         all(target_arch = "aarch64", target_feature = "neon") => {
             solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
+        all(target_arch = "wasm32", target_feature = "simd128") => {
+            solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
+        }
         _ => {
             solve4_fallback(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
@@ -687,7 +690,8 @@ fn solve4(
         target_feature = "avx512vl"
     ),
     all(target_arch = "x86_64", target_feature = "avx2"),
-    all(target_arch = "aarch64", target_feature = "neon")
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 fn solve4_eager(
     ctx: &mut SearchContext,
@@ -843,7 +847,8 @@ fn solve4_eager(
         target_feature = "avx512vl"
     ),
     all(target_arch = "x86_64", target_feature = "avx2"),
-    all(target_arch = "aarch64", target_feature = "neon")
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "wasm32", target_feature = "simd128")
 )))]
 fn solve4_fallback(
     ctx: &mut SearchContext,
@@ -949,6 +954,9 @@ fn solve3(
         all(target_arch = "aarch64", target_feature = "neon") => {
             solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
         }
+        all(target_arch = "wasm32", target_feature = "simd128") => {
+            solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
+        }
         _ => {
             solve3_fallback(ctx, board, alpha, sq1, sq2, sq3)
         }
@@ -965,7 +973,8 @@ fn solve3(
         target_feature = "avx512vl"
     ),
     all(target_arch = "x86_64", target_feature = "avx2"),
-    all(target_arch = "aarch64", target_feature = "neon")
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 fn solve3_eager(
     ctx: &mut SearchContext,
@@ -1068,7 +1077,8 @@ fn solve3_eager(
         target_feature = "avx512vl"
     ),
     all(target_arch = "x86_64", target_feature = "avx2"),
-    all(target_arch = "aarch64", target_feature = "neon")
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "wasm32", target_feature = "simd128")
 )))]
 fn solve3_fallback(
     ctx: &mut SearchContext,
