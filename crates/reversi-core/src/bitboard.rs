@@ -192,10 +192,13 @@ impl Bitboard {
         self.flip_diag_a1h8().flip_vertical()
     }
 
-    /// Checks whether any bit adjacent to the given square is set.
+    /// Checks whether any bit is adjacent to `sq` in a bracketable direction.
+    ///
+    /// Edge-adjacent directions with no square beyond the adjacent bit are excluded
+    /// because they cannot produce a legal Reversi flip.
     #[inline(always)]
     pub fn has_adjacent_bit(self, sq: Square) -> bool {
-        /// Pre-computed masks for adjacent squares around each board position.
+        /// Pre-computed masks for bracketable adjacent squares around each board position.
         /// Reference: <https://eukaryote.hateblo.jp/entry/2020/04/26/031246>
         #[rustfmt::skip]
         const NEIGHBOUR_MASK: [u64; 65] = [
@@ -293,8 +296,8 @@ impl Bitboard {
 
     /// Returns the potential moves for the player.
     ///
-    /// Potential moves are empty squares adjacent (including diagonally) to at least
-    /// one opponent disc.
+    /// Potential moves are empty squares next to an opponent disc in a direction
+    /// where a bracketing player disc could exist beyond that opponent disc.
     #[inline(always)]
     pub fn get_potential_moves(self, opponent: Bitboard) -> Bitboard {
         Bitboard(movegen::get_potential_moves(self.0, opponent.0))
