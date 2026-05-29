@@ -201,100 +201,145 @@ impl fmt::Display for ScaledScore {
 mod scaled_score_tests {
     use super::*;
 
+    const EPSILON: f32 = f32::EPSILON;
+
+    fn assert_disc_diff_f32_eq(score: ScaledScore, expected: Scoref) {
+        let actual = score.to_disc_diff_f32();
+        assert!(
+            (actual - expected).abs() <= EPSILON,
+            "expected {expected}, got {actual} for raw value {}",
+            score.value()
+        );
+    }
+
     #[test]
-    fn test_conversions() {
+    fn constants_preserve_score_domain_and_search_sentinel_ordering() {
+        assert_eq!(ScaledScore::SCALE_BITS, 8);
+        assert_eq!(ScaledScore::SCALE, 256);
+        assert_eq!(ScaledScore::ZERO.value(), 0);
+        assert_eq!(ScaledScore::MIN.value(), SCORE_MIN * ScaledScore::SCALE);
+        assert_eq!(ScaledScore::MAX.value(), SCORE_MAX * ScaledScore::SCALE);
+        assert!(ScaledScore::MIN < ScaledScore::ZERO);
+        assert!(ScaledScore::ZERO < ScaledScore::MAX);
+        assert!(ScaledScore::MAX < ScaledScore::INF);
+        assert!(-ScaledScore::INF < ScaledScore::MIN);
+    }
+
+    #[test]
+    fn from_disc_diff_scales_whole_disc_scores() {
+        for disc_diff in [SCORE_MIN, -1, 0, 1, SCORE_MAX] {
+            let score = ScaledScore::from_disc_diff(disc_diff);
+
+            assert_eq!(score.value(), disc_diff * ScaledScore::SCALE);
+            assert_eq!(score.to_disc_diff(), disc_diff);
+            assert_disc_diff_f32_eq(score, disc_diff as Scoref);
+        }
+    }
+
+    #[test]
+    fn from_raw_preserves_fractional_scores() {
+        for (raw_value, expected_disc_diff, expected_disc_diff_f32) in [
+            (1, 0, 1.0 / 256.0),
+            (127, 0, 127.0 / 256.0),
+            (128, 0, 0.5),
+            (255, 0, 255.0 / 256.0),
+            (256, 1, 1.0),
+            (257, 1, 257.0 / 256.0),
+            (-1, -1, -1.0 / 256.0),
+            (-127, -1, -127.0 / 256.0),
+            (-128, -1, -0.5),
+            (-255, -1, -255.0 / 256.0),
+            (-256, -1, -1.0),
+            (-257, -2, -257.0 / 256.0),
+        ] {
+            let score = ScaledScore::from_raw(raw_value);
+
+            assert_eq!(score.value(), raw_value);
+            assert_eq!(score.to_disc_diff(), expected_disc_diff);
+            assert_disc_diff_f32_eq(score, expected_disc_diff_f32);
+        }
+    }
+
+    #[test]
+    fn scaled_score_arithmetic_preserves_raw_units() {
+        let one_and_half = ScaledScore::from_raw(ScaledScore::SCALE + ScaledScore::SCALE / 2);
+        let quarter = ScaledScore::from_raw(ScaledScore::SCALE / 4);
+
+        assert_eq!((one_and_half + quarter).value(), 448);
+        assert_eq!((one_and_half - quarter).value(), 320);
+        assert_eq!((-one_and_half).value(), -384);
+        assert_eq!((quarter * 3).value(), 192);
+        assert_eq!((one_and_half / 3).value(), 128);
+    }
+
+    #[test]
+    fn assignment_arithmetic_updates_the_raw_value_in_place() {
+        let mut score = ScaledScore::from_raw(ScaledScore::SCALE);
+
+        score += ScaledScore::from_raw(ScaledScore::SCALE / 2);
+        assert_eq!(score.value(), 384);
+
+        score -= ScaledScore::from_raw(ScaledScore::SCALE / 4);
+        assert_eq!(score.value(), 320);
+
+        score *= 3;
+        assert_eq!(score.value(), 960);
+
+        score /= 5;
+        assert_eq!(score.value(), 192);
+    }
+
+    #[test]
+    fn raw_i32_addition_and_subtraction_use_scaled_units_not_disc_diffs() {
         let score = ScaledScore::from_disc_diff(10);
-        assert_eq!(score.value(), 2560);
-        assert_eq!(score.to_disc_diff(), 10);
-        assert!((score.to_disc_diff_f32() - 10.0).abs() < 0.001);
 
-        let neg_score = ScaledScore::from_disc_diff(-5);
-        assert_eq!(neg_score.to_disc_diff(), -5);
+        assert_eq!((score + 100).value(), 10 * ScaledScore::SCALE + 100);
+        assert_eq!((score - 50).value(), 10 * ScaledScore::SCALE - 50);
     }
 
     #[test]
-    fn test_from_raw() {
-        let score = ScaledScore::from_raw(1000);
-        assert_eq!(score.value(), 1000);
-        assert_eq!(score.to_disc_diff(), 3); // 1000 >> 8 = 3
+    fn ordering_and_min_max_follow_raw_score_ordering() {
+        let lower_fraction = ScaledScore::from_raw(ScaledScore::SCALE + 1);
+        let higher_fraction = ScaledScore::from_raw(ScaledScore::SCALE + 2);
+        let same_as_higher = ScaledScore::from_raw(ScaledScore::SCALE + 2);
+
+        assert!(higher_fraction > lower_fraction);
+        assert_eq!(higher_fraction, same_as_higher);
+        assert_eq!(higher_fraction.max(lower_fraction), higher_fraction);
+        assert_eq!(higher_fraction.min(lower_fraction), lower_fraction);
     }
 
     #[test]
-    fn test_arithmetic() {
-        let a = ScaledScore::from_disc_diff(10);
-        let b = ScaledScore::from_disc_diff(5);
-
-        assert_eq!((a + b).to_disc_diff(), 15);
-        assert_eq!((a - b).to_disc_diff(), 5);
-        assert_eq!((-a).to_disc_diff(), -10);
+    fn display_formats_disc_difference_with_two_decimal_places() {
+        assert_eq!(ScaledScore::from_disc_diff(10).to_string(), "10.00");
+        assert_eq!(
+            ScaledScore::from_raw(ScaledScore::SCALE + ScaledScore::SCALE / 2).to_string(),
+            "1.50"
+        );
+        assert_eq!(
+            ScaledScore::from_raw(-(ScaledScore::SCALE / 2)).to_string(),
+            "-0.50"
+        );
     }
 
     #[test]
-    fn test_arithmetic_assign() {
-        let mut score = ScaledScore::from_disc_diff(10);
-        score += ScaledScore::from_disc_diff(5);
-        assert_eq!(score.to_disc_diff(), 15);
-
-        score -= ScaledScore::from_disc_diff(3);
-        assert_eq!(score.to_disc_diff(), 12);
-    }
-
-    #[test]
-    fn test_i32_arithmetic() {
-        let score = ScaledScore::from_disc_diff(10);
-
-        // Adding raw value (not disc diff)
-        let result = score + 100;
-        assert_eq!(result.value(), 2560 + 100);
-
-        let result = score - 50;
-        assert_eq!(result.value(), 2560 - 50);
-    }
-
-    #[test]
-    fn test_comparison() {
-        let a = ScaledScore::from_disc_diff(10);
-        let b = ScaledScore::from_disc_diff(5);
-        let c = ScaledScore::from_disc_diff(10);
-
-        assert!(a > b);
-        assert!(b < a);
-        assert_eq!(a, c);
-        assert!(a >= c);
-        assert!(a <= c);
-    }
-
-    #[test]
-    fn test_min_max() {
-        let a = ScaledScore::from_disc_diff(10);
-        let b = ScaledScore::from_disc_diff(5);
-
-        assert_eq!(a.max(b), a);
-        assert_eq!(a.min(b), b);
-    }
-
-    #[test]
-    fn test_display() {
-        let score = ScaledScore::from_disc_diff(10);
-        assert_eq!(format!("{}", score), "10.00");
-
-        let score = ScaledScore::from_raw(256 + 128); // 1.5
-        assert_eq!(format!("{}", score), "1.50");
-    }
-
-    #[test]
-    fn test_default() {
+    fn default_is_zero_score() {
         let score: ScaledScore = Default::default();
+
         assert_eq!(score, ScaledScore::ZERO);
     }
 
     #[test]
-    fn test_boundary_values() {
-        // Test that boundary values work correctly
-        let max = ScaledScore::from_disc_diff(SCORE_MAX);
-        assert_eq!(max, ScaledScore::MAX);
+    #[cfg(debug_assertions)]
+    #[should_panic]
+    fn from_disc_diff_rejects_values_beyond_search_sentinel_in_debug_builds() {
+        let _ = ScaledScore::from_disc_diff(SCORE_INF + 1);
+    }
 
-        let min = ScaledScore::from_disc_diff(SCORE_MIN);
-        assert_eq!(min, ScaledScore::MIN);
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic]
+    fn from_raw_rejects_values_beyond_scaled_score_sentinel_in_debug_builds() {
+        let _ = ScaledScore::from_raw(ScaledScore::INF.value() + 1);
     }
 }
