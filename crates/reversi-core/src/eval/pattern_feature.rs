@@ -571,15 +571,10 @@ impl PatternFeatures {
             let f = _mm512_load_si512(ef.get_unchecked(sq.index()).as_m512_ptr());
             let flipped_bits = flipped.bits();
 
+            let sum_table = EVAL_FEATURE_U16_SUM.as_ptr().cast::<PatternFeature>();
             let load_u16_sum = |i: usize| {
-                _mm512_load_si512(
-                    EVAL_FEATURE_U16_SUM
-                        .get_unchecked(i)
-                        .get_unchecked(
-                            ((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize,
-                        )
-                        .as_m512_ptr(),
-                )
+                let mask = ((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize;
+                _mm512_load_si512((&*sum_table.add(i * FLIP_U16_VALUES + mask)).as_m512_ptr())
             };
             let s0 = load_u16_sum(0);
             let s1 = load_u16_sum(1);
@@ -626,11 +621,10 @@ impl PatternFeatures {
             let f1 = _mm256_load_si256(f_ptr.add(1));
 
             let flipped_bits = flipped.bits();
+            let sum_table = EVAL_FEATURE_U16_SUM.as_ptr().cast::<PatternFeature>();
             let load_u16_sum = |i: usize| {
-                EVAL_FEATURE_U16_SUM
-                    .get_unchecked(i)
-                    .get_unchecked(((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize)
-                    .as_m256_ptr()
+                let mask = ((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize;
+                (&*sum_table.add(i * FLIP_U16_VALUES + mask)).as_m256_ptr()
             };
 
             let s0 = load_u16_sum(0);
