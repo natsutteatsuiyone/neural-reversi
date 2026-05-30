@@ -384,7 +384,8 @@ fn sqr_clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 #[allow(dead_code)]
 fn sqr_clipped_relu_fallback(input: &[i32], output: &mut [u8], start_idx: usize) {
     for i in start_idx..input.len() {
-        let val = ((input[i] * input[i]) as u64 >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)).min(255);
+        let saturated = i64::from(input[i].clamp(i16::MIN as i32, i16::MAX as i32));
+        let val = ((saturated * saturated) as u64 >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)).min(255);
         output[i] = val as u8;
     }
 }
@@ -720,6 +721,41 @@ mod tests {
         assert_eq!(&screlu_out.as_ref()[..3], &[0xEE; 3]);
         for (idx, &value) in input.iter().enumerate().skip(3) {
             assert_eq!(screlu_out[idx], reference_screlu(value), "screlu {idx}");
+        }
+    }
+
+    #[test]
+    fn sqr_clipped_relu_fallback_matches_hand_computed_values_across_the_i32_range() {
+        // The scalar fallback computes `(clamp_i16(x))^2 >> SQR_SHIFT`, capped at
+        // 255, widening to i64 so the square cannot overflow. The i16 clamp mirrors
+        // the SIMD backends' signed-saturating pack (e.g. AVX2 `_mm_packs_epi32`).
+        // Any |x| at or above 16_352 already pins the u8 output to 255, so the
+        // clamp never changes the result for out-of-i16 inputs; its job is to keep
+        // the square from overflowing the way the previous `x * x` (i32) did for
+        // |x| > 46_340. Expected values are computed by hand (SQR_SHIFT = 20, i.e.
+        // `(x^2 >> 20).min(255)`) so the test pins the arithmetic instead of just
+        // restating the implementation against a same-formula reference.
+        let cases: [(i32, u8); 11] = [
+            (0, 0),
+            (4_096, 16),
+            (-4_096, 16),
+            (8_192, 64),
+            (16_000, 244),
+            (16_352, 255), // x^2 >> 20 first reaches the 255 ceiling here
+            (32_767, 255), // i16::MAX, still within range
+            (46_341, 255), // beyond i16: the old `x * x` overflowed i32 here
+            (-100_000, 255),
+            (i32::MAX, 255),
+            (i32::MIN, 255),
+        ];
+
+        let input: [i32; 11] = cases.map(|(value, _)| value);
+        let mut actual = [0u8; 11];
+
+        sqr_clipped_relu_fallback(&input, &mut actual, 0);
+
+        for (out, &(value, expected)) in actual.iter().zip(cases.iter()) {
+            assert_eq!(*out, expected, "value={value}");
         }
     }
 

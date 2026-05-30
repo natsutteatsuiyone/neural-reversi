@@ -53,7 +53,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 
     if ctx.root_moves_count() == 0 {
-        return SearchResult::new_no_moves(false);
+        return SearchResult::new_no_moves();
     }
 
     let n_empties = ctx.empty_list.count();
@@ -513,4 +513,62 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     }
 
     ctx.eval.evaluate(ctx, board)
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+
+    #[test]
+    fn start_depth_is_two_for_even_targets_and_one_for_odd() {
+        assert_eq!(compute_start_depth(1), 1);
+        assert_eq!(compute_start_depth(2), 2);
+    }
+
+    #[test]
+    fn fixed_depth_iteration_steps_by_two_then_by_one() {
+        let mut sel = Selectivity::Level1;
+        // At/below the threshold: +2.
+        assert_eq!(next_iteration_depth(4, 60, &mut sel, false), 6);
+        assert_eq!(
+            next_iteration_depth(DEPTH_STEP_THRESHOLD, 60, &mut sel, false),
+            DEPTH_STEP_THRESHOLD + 2
+        );
+        // Above the threshold: +1.
+        assert_eq!(
+            next_iteration_depth(DEPTH_STEP_THRESHOLD + 1, 60, &mut sel, false),
+            DEPTH_STEP_THRESHOLD + 2
+        );
+        assert_eq!(
+            next_iteration_depth(DEPTH_STEP_THRESHOLD + 2, 60, &mut sel, false),
+            DEPTH_STEP_THRESHOLD + 3
+        );
+        // Selectivity is left untouched without time control.
+        assert_eq!(sel, Selectivity::Level1);
+    }
+
+    #[test]
+    fn time_control_deepens_selectivity_at_the_penultimate_depth() {
+        let mut sel = Selectivity::Level1;
+        // current == max - 1 under time control: hold the depth, advance selectivity.
+        assert_eq!(next_iteration_depth(14, 15, &mut sel, true), 14);
+        assert_eq!(sel, Selectivity::Level2);
+        assert_eq!(next_iteration_depth(14, 15, &mut sel, true), 14);
+        assert_eq!(sel, Selectivity::Level3);
+    }
+
+    #[test]
+    fn time_control_terminates_once_selectivity_is_exhausted() {
+        let mut sel = Selectivity::None;
+        assert_eq!(next_iteration_depth(14, 15, &mut sel, true), 0);
+        assert_eq!(sel, Selectivity::None);
+    }
+
+    #[test]
+    fn time_control_steps_normally_away_from_the_penultimate_depth() {
+        let mut sel = Selectivity::Level1;
+        // current != max - 1: normal stepping, selectivity untouched.
+        assert_eq!(next_iteration_depth(5, 15, &mut sel, true), 7);
+        assert_eq!(sel, Selectivity::Level1);
+    }
 }

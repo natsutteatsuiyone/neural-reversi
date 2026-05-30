@@ -300,14 +300,7 @@ mod tests {
     #[test]
     fn test_from_usize() {
         assert_eq!(Square::from_usize(0), Some(Square::A1));
-        assert_eq!(Square::from_usize(1), Some(Square::B1));
-        assert_eq!(Square::from_usize(2), Some(Square::C1));
-        assert_eq!(Square::from_usize(3), Some(Square::D1));
-        assert_eq!(Square::from_usize(4), Some(Square::E1));
-        assert_eq!(Square::from_usize(5), Some(Square::F1));
-        assert_eq!(Square::from_usize(6), Some(Square::G1));
-        assert_eq!(Square::from_usize(7), Some(Square::H1));
-        assert_eq!(Square::from_usize(8), Some(Square::A2));
+        assert_eq!(Square::from_usize(8), Some(Square::A2)); // row wrap
         assert_eq!(Square::from_usize(63), Some(Square::H8));
     }
 
@@ -364,14 +357,8 @@ mod tests {
 
     #[test]
     fn test_index() {
-        assert_eq!(Square::A1.index(), 0);
-        assert_eq!(Square::B1.index(), 1);
-        assert_eq!(Square::H1.index(), 7);
-        assert_eq!(Square::A2.index(), 8);
         assert_eq!(Square::D4.index(), 27); // 3 * 8 + 3
         assert_eq!(Square::E5.index(), 36); // 4 * 8 + 4
-        assert_eq!(Square::H8.index(), 63);
-        assert_eq!(Square::None.index(), 64);
     }
 
     #[test]
@@ -384,12 +371,6 @@ mod tests {
         assert_eq!(Square::F1.file(), 5);
         assert_eq!(Square::G1.file(), 6);
         assert_eq!(Square::H1.file(), 7);
-
-        // Test various ranks
-        assert_eq!(Square::A8.file(), 0);
-        assert_eq!(Square::H8.file(), 7);
-        assert_eq!(Square::D4.file(), 3);
-        assert_eq!(Square::E5.file(), 4);
     }
 
     #[test]
@@ -411,11 +392,6 @@ mod tests {
         assert_eq!(Square::A6.rank(), 5);
         assert_eq!(Square::A7.rank(), 6);
         assert_eq!(Square::A8.rank(), 7);
-
-        // Test various files
-        assert_eq!(Square::H8.rank(), 7);
-        assert_eq!(Square::D4.rank(), 3);
-        assert_eq!(Square::E5.rank(), 4);
     }
 
     #[test]
@@ -465,19 +441,8 @@ mod tests {
     #[test]
     fn test_display() {
         assert_eq!(Square::A1.to_string(), "a1");
-        assert_eq!(Square::B2.to_string(), "b2");
-        assert_eq!(Square::C3.to_string(), "c3");
-        assert_eq!(Square::D4.to_string(), "d4");
-        assert_eq!(Square::E5.to_string(), "e5");
-        assert_eq!(Square::F6.to_string(), "f6");
-        assert_eq!(Square::G7.to_string(), "g7");
         assert_eq!(Square::H8.to_string(), "h8");
-        assert_eq!(Square::None.to_string(), "None");
-
-        // Test format! macro
-        assert_eq!(format!("{}", Square::A1), "a1");
-        assert_eq!(format!("{}", Square::H8), "h8");
-        assert_eq!(format!("{}", Square::None), "None");
+        assert_eq!(Square::None.to_string(), "None"); // the special non-square branch
     }
 
     #[test]

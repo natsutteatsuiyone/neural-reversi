@@ -96,3 +96,58 @@ impl RawSpinLock {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::thread;
+
+    use lock_api::Mutex;
+
+    use super::RawSpinLock;
+
+    type SpinMutex<T> = Mutex<RawSpinLock, T>;
+
+    #[test]
+    fn try_lock_is_exclusive_until_the_guard_drops() {
+        let mutex: SpinMutex<i32> = Mutex::new(0);
+
+        let guard = mutex.try_lock().expect("first try_lock should succeed");
+        assert!(mutex.is_locked());
+        assert!(
+            mutex.try_lock().is_none(),
+            "a second try_lock must fail while the lock is held"
+        );
+
+        drop(guard);
+        assert!(!mutex.is_locked());
+        assert!(
+            mutex.try_lock().is_some(),
+            "try_lock should succeed again after release"
+        );
+    }
+
+    #[test]
+    fn concurrent_increments_do_not_lose_updates() {
+        const THREADS: u64 = 8;
+        const ITERS: u64 = 10_000;
+
+        let counter: Arc<SpinMutex<u64>> = Arc::new(Mutex::new(0));
+        let handles: Vec<_> = (0..THREADS)
+            .map(|_| {
+                let counter = Arc::clone(&counter);
+                thread::spawn(move || {
+                    for _ in 0..ITERS {
+                        *counter.lock() += 1;
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(*counter.lock(), THREADS * ITERS);
+    }
+}

@@ -105,7 +105,7 @@ impl EndGameCache {
     /// Stores or merges an entry at a precomputed `cache_idx`.
     #[inline(always)]
     pub fn store(&mut self, cache_idx: usize, board: &Board, alpha: Score, score: Score) {
-        let entry = unsafe { &mut self.table.get_unchecked_mut(cache_idx) };
+        let entry = unsafe { self.table.get_unchecked_mut(cache_idx) };
         if entry.player == board.player().bits() && entry.opponent == board.opponent().bits() {
             entry.store_nws_result(alpha, score);
         } else {

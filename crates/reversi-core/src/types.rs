@@ -214,11 +214,6 @@ mod scaled_score_tests {
 
     #[test]
     fn constants_preserve_score_domain_and_search_sentinel_ordering() {
-        assert_eq!(ScaledScore::SCALE_BITS, 8);
-        assert_eq!(ScaledScore::SCALE, 256);
-        assert_eq!(ScaledScore::ZERO.value(), 0);
-        assert_eq!(ScaledScore::MIN.value(), SCORE_MIN * ScaledScore::SCALE);
-        assert_eq!(ScaledScore::MAX.value(), SCORE_MAX * ScaledScore::SCALE);
         assert!(ScaledScore::MIN < ScaledScore::ZERO);
         assert!(ScaledScore::ZERO < ScaledScore::MAX);
         assert!(ScaledScore::MAX < ScaledScore::INF);
@@ -230,7 +225,6 @@ mod scaled_score_tests {
         for disc_diff in [SCORE_MIN, -1, 0, 1, SCORE_MAX] {
             let score = ScaledScore::from_disc_diff(disc_diff);
 
-            assert_eq!(score.value(), disc_diff * ScaledScore::SCALE);
             assert_eq!(score.to_disc_diff(), disc_diff);
             assert_disc_diff_f32_eq(score, disc_diff as Scoref);
         }

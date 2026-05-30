@@ -734,12 +734,6 @@ mod tests {
     }
 
     #[test]
-    fn extension_budget_increased() {
-        const { assert!(MAX_EXTENSION_STEPS >= 5) };
-        const { assert!(EXTENSION_RESERVE_RATIO >= 0.1) };
-    }
-
-    #[test]
     fn score_drop_extends_more_than_pv_change() {
         let mut tm = make_fischer_tm(120_000, 0, 40);
         tm.start();

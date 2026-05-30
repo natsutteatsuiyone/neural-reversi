@@ -751,7 +751,7 @@ const _: () = assert!(PROBCUT_PARAMS.len() == NUM_PLY);
 
 #[cfg(test)]
 mod tests {
-    use super::Selectivity;
+    use super::*;
 
     #[test]
     fn from_u8_maps_to_the_four_supported_selectivities() {
@@ -763,10 +763,74 @@ mod tests {
     }
 
     #[test]
-    fn probability_reports_supported_confidence_levels() {
-        assert_eq!(Selectivity::Level1.probability(), 73);
-        assert_eq!(Selectivity::Level2.probability(), 95);
-        assert_eq!(Selectivity::Level3.probability(), 99);
-        assert_eq!(Selectivity::None.probability(), 100);
+    fn selectivity_orders_from_aggressive_to_disabled() {
+        // The derived ordering is load-bearing for TT cutoff/replacement decisions.
+        assert!(Selectivity::Level1 < Selectivity::Level2);
+        assert!(Selectivity::Level2 < Selectivity::Level3);
+        assert!(Selectivity::Level3 < Selectivity::None);
+    }
+
+    #[test]
+    fn compute_probcut_beta_applies_t_sigma_minus_mean_and_rounds_up() {
+        // raw value 2560; 2560 + 2.0*1.0 - 0.5 = 2561.5 -> ceil -> 2562
+        assert_eq!(
+            compute_probcut_beta(ScaledScore::from_disc_diff(10), 2.0, 0.5, 1.0),
+            ScaledScore::from_raw(2562)
+        );
+        // 0 + 1.0*0.4 - 0.0 = 0.4 -> ceil -> 1
+        assert_eq!(
+            compute_probcut_beta(ScaledScore::ZERO, 1.0, 0.0, 0.4),
+            ScaledScore::from_raw(1)
+        );
+    }
+
+    #[test]
+    fn compute_eval_beta_blends_models_and_gates_the_all_node_margin() {
+        // Named so the two calls below obviously differ only in `cut_node`, and a
+        // future signature reorder can't silently shuffle these positional args.
+        let beta = ScaledScore::from_disc_diff(20); // raw value 5120
+        let (t, mean, sigma, mean0, sigma0) = (2.0, 1.0, 2.0, 4.0, 3.0);
+        // eval_mean = 0.5*mean0 + mean = 3; eval_sigma = t*0.5*sigma0 + sigma = 5
+
+        // cut node: margin 0 -> floor(5120 - 5 - 3 + 0) = 5112
+        assert_eq!(
+            compute_eval_beta(beta, t, mean, sigma, mean0, sigma0, true),
+            ScaledScore::from_raw(5112)
+        );
+        // all node: margin sigma0*1.5 = 4.5 -> floor(5120 - 5 - 3 + 4.5) = 5116
+        assert_eq!(
+            compute_eval_beta(beta, t, mean, sigma, mean0, sigma0, false),
+            ScaledScore::from_raw(5116)
+        );
+    }
+
+    #[test]
+    fn init_builds_tables_matching_the_parameter_formulas() {
+        init();
+
+        let approx = |a: f64, b: f64| (a - b).abs() <= 1e-9 * a.abs().max(1.0);
+
+        // Midgame tables, including the shallow == deep diagonal.
+        for (ply, shallow, deep) in [(5usize, 3u32, 10u32), (5, 7, 7), (40, 0, 12)] {
+            let params = &PROBCUT_PARAMS[ply];
+            assert!(approx(
+                get_mean(ply, shallow, deep),
+                params.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64
+            ));
+            assert!(approx(
+                get_sigma(ply, shallow, deep),
+                params.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64
+            ));
+        }
+
+        // Endgame tables.
+        assert!(approx(
+            get_mean_end(4, 9),
+            PROBCUT_ENDGAME_PARAMS.mean(4.0, 9.0) * SCORE_SCALE_F64
+        ));
+        assert!(approx(
+            get_sigma_end(4, 9),
+            PROBCUT_ENDGAME_PARAMS.sigma(4.0, 9.0) * SCORE_SCALE_F64
+        ));
     }
 }

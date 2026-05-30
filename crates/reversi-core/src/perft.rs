@@ -63,3 +63,43 @@ fn perft(
     }
     nodes
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pass_recurses_on_the_opponent_without_consuming_depth() {
+        // Player (row 2) has no legal move while the opponent (row 1) does: a
+        // forced pass. Both preconditions are asserted so a mis-built board fails
+        // loudly rather than silently passing.
+        let board = Board::from_bitboards(0x000000000000ff00, 0x00000000000000ff);
+        assert!(!board.has_legal_moves(), "player must have no move");
+        assert!(
+            board.switch_players().has_legal_moves(),
+            "opponent must have a move"
+        );
+
+        let depth = 3;
+        let switched = board.switch_players();
+        let mut pf_pass = PatternFeatures::new(&board, 0);
+        let via_pass = perft(&board, &mut pf_pass, 0, SideToMove::Player, depth);
+        let mut pf_direct = PatternFeatures::new(&board, 0);
+        let direct = perft(&switched, &mut pf_direct, 0, SideToMove::Opponent, depth);
+
+        // A pass consumes no ply or depth.
+        assert_eq!(via_pass, direct);
+        assert!(via_pass > 0);
+    }
+
+    #[test]
+    fn terminal_position_counts_as_a_single_node() {
+        // A full board has no moves for either side: a terminal (game-over) node.
+        let board = Board::from_bitboards(u64::MAX, 0);
+        assert!(!board.has_legal_moves());
+        assert!(!board.switch_players().has_legal_moves());
+
+        let mut pf = PatternFeatures::new(&board, 0);
+        assert_eq!(perft(&board, &mut pf, 0, SideToMove::Player, 5), 1);
+    }
+}

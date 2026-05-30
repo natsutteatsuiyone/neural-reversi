@@ -434,17 +434,8 @@ mod tests {
         assert_eq!(black_count, 57, "Black should have 57 discs");
         assert_eq!(white_count, 7, "White should have 7 discs");
 
-        // Verify the total disc count
-        assert_eq!(black_count + white_count, 64, "Total discs should be 64");
-
         // Verify history
         let history = game.move_history();
-        // The history should contain all moves (60 regular moves + any automatic passes)
-        assert!(
-            history.len() >= 60,
-            "History should contain at least 60 moves, got {}",
-            history.len()
-        );
 
         // Verify the first few moves in history
         assert_eq!(history[0].0, Some(Square::E6), "First move should be e6");

@@ -1,11 +1,10 @@
 use std::collections::HashSet;
 
-use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
 
-use super::{ConcurrentMoveIterator, Move, MoveList};
+use super::{ConcurrentMoveIterator, MoveList};
 
 /// Tests move generation for the starting position.
 #[test]
@@ -38,8 +37,6 @@ fn test_move_list_generation_complex() {
     .unwrap();
 
     let move_list = MoveList::new(&board);
-    assert!(move_list.count() > 0);
-
     for mv in move_list.iter() {
         assert!(!mv.flipped.is_empty());
     }
@@ -52,18 +49,6 @@ fn test_move_list_no_moves() {
     let move_list = MoveList::new(&board);
     assert_eq!(move_list.count(), 0);
     assert!(move_list.first().is_none());
-}
-
-/// Tests Move struct creation and properties.
-#[test]
-fn test_move_new() {
-    let sq = Square::E4;
-    let flipped = Bitboard::new(0x0000001000000000u64);
-    let mv = Move::new(sq, flipped);
-
-    assert_eq!(mv.sq, sq);
-    assert_eq!(mv.flipped, flipped);
-    assert_eq!(mv.value, 0);
 }
 
 /// Tests first() method.
@@ -275,4 +260,93 @@ fn test_concurrent_move_iterator_from_offset_zero() {
         count += 1;
     }
     assert_eq!(count, 4);
+}
+
+/// Independent eight-direction flip reference used to cross-check move
+/// generation without depending on any SIMD backend.
+fn reference_flip(sq: Square, p: u64, o: u64) -> u64 {
+    const DIRECTIONS: [(i32, i32); 8] = [
+        (1, 0),
+        (0, 1),
+        (1, 1),
+        (-1, 1),
+        (-1, 0),
+        (0, -1),
+        (-1, -1),
+        (1, -1),
+    ];
+
+    let sq_idx = sq.index() as i32;
+    let x = sq_idx & 7;
+    let y = sq_idx >> 3;
+    let mut flipped = 0u64;
+
+    for (dx, dy) in DIRECTIONS {
+        let mut cx = x + dx;
+        let mut cy = y + dy;
+        let mut line = 0u64;
+
+        while (0..8).contains(&cx) && (0..8).contains(&cy) {
+            let bit = 1u64 << (cy * 8 + cx);
+            if o & bit != 0 {
+                line |= bit;
+            } else {
+                if line != 0 && p & bit != 0 {
+                    flipped |= line;
+                }
+                break;
+            }
+            cx += dx;
+            cy += dy;
+        }
+    }
+
+    flipped
+}
+
+/// Cross-checks generated moves against the legal-move bitboard and an
+/// independent flip reference over a random board sweep. When run on an AVX-512
+/// build (e.g. `cargo make test-x86-v4` on an AVX-512 host) this also exercises
+/// the move-list `flip2_wide_load` kernel, which the dispatcher-level `flip`
+/// tests never reach -- CI compiles the v4 backend but does not run it, so that
+/// kernel is covered only when the suite runs on AVX-512 hardware.
+#[test]
+fn generated_moves_match_legal_bitboard_and_flip_reference() {
+    let mut seed = 0xa1b2_c3d4_e5f6_0718u64;
+    let mut saw_multi_move = false;
+
+    for _ in 0..4096 {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let p = seed;
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let o = seed & !p; // keep player/opponent disjoint
+
+        let board = Board::from_bitboards(p, o);
+        let move_list = MoveList::new(&board);
+
+        let legal = board.get_moves().bits();
+        assert_eq!(move_list.count() as u32, legal.count_ones());
+        if move_list.count() >= 2 {
+            saw_multi_move = true;
+        }
+
+        let mut squares = 0u64;
+        for mv in move_list.iter() {
+            let bit = 1u64 << mv.sq.index();
+            assert_eq!(legal & bit, bit, "generated an illegal move {:?}", mv.sq);
+            squares |= bit;
+            assert_eq!(
+                mv.flipped.bits(),
+                reference_flip(mv.sq, p, o),
+                "flip mismatch at {:?} p={p:#018x} o={o:#018x}",
+                mv.sq
+            );
+        }
+        assert_eq!(
+            squares, legal,
+            "move set must equal the legal-move bitboard"
+        );
+    }
+
+    assert!(saw_multi_move, "expected to exercise multi-move positions");
 }

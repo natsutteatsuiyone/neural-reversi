@@ -227,3 +227,88 @@ impl Eval {
         self.cache.clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::Board;
+    use std::path::Path;
+
+    #[test]
+    fn main_mode_uses_the_main_network_at_every_ply() {
+        for ply in [
+            0,
+            1,
+            ENDGAME_START_PLY - 1,
+            ENDGAME_START_PLY,
+            ENDGAME_START_PLY + 1,
+            59,
+        ] {
+            assert!(
+                Eval::should_use_main_network(EvalMode::Main, ply),
+                "Main mode must use the main network at ply {ply}"
+            );
+        }
+    }
+
+    #[test]
+    fn small_mode_switches_networks_at_the_endgame_boundary() {
+        assert!(Eval::should_use_main_network(EvalMode::Small, 0));
+        assert!(Eval::should_use_main_network(
+            EvalMode::Small,
+            ENDGAME_START_PLY - 1
+        ));
+        assert!(!Eval::should_use_main_network(
+            EvalMode::Small,
+            ENDGAME_START_PLY
+        ));
+        assert!(!Eval::should_use_main_network(
+            EvalMode::Small,
+            ENDGAME_START_PLY + 1
+        ));
+        assert!(!Eval::should_use_main_network(EvalMode::Small, 59));
+    }
+
+    #[test]
+    fn missing_weights_error_is_not_found_and_names_the_file() {
+        let err = missing_weights_error(Path::new("some/dir/eval-test.zst"));
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert!(
+            err.to_string().contains("eval-test.zst"),
+            "message should name the file: {err}"
+        );
+    }
+
+    #[test]
+    fn missing_weights_error_falls_back_when_path_has_no_file_name() {
+        // `..` has no file name component, exercising the `unwrap_or` fallback.
+        let err = missing_weights_error(Path::new(".."));
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("weights file"));
+    }
+
+    #[test]
+    fn evaluate_simple_returns_the_exact_terminal_score_with_no_empties() {
+        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
+        // A full board has zero empties, so the network is bypassed for the
+        // exact final score.
+        let board = Board::from_bitboards(u64::MAX, 0);
+        assert_eq!(board.get_empty_count(), 0);
+        assert_eq!(eval.evaluate_simple(&board), board.final_score_scaled());
+    }
+
+    #[test]
+    fn evaluate_simple_runs_the_network_for_a_non_terminal_position() {
+        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
+        // The opening position has empty squares, so evaluate_simple takes the
+        // network path (ply + pattern-feature construction) rather than the
+        // terminal early return exercised above.
+        let board = Board::new();
+        assert!(board.get_empty_count() > 0);
+
+        // evaluate_simple bypasses the eval cache, so repeated calls recompute
+        // the same value deterministically.
+        let score = eval.evaluate_simple(&board);
+        assert_eq!(eval.evaluate_simple(&board), score);
+    }
+}

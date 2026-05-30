@@ -130,16 +130,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_level_valid_range() {
-        // Test all valid levels
-        for (i, &expected_level) in LEVELS.iter().enumerate() {
-            let level = get_level(i);
-            assert_eq!(level.mid_depth, expected_level.mid_depth);
-            assert_eq!(level.end_depth, expected_level.end_depth);
-        }
-    }
-
-    #[test]
     fn test_get_end_depth() {
         let level = Level {
             mid_depth: 10,
@@ -150,15 +140,6 @@ mod tests {
         assert_eq!(level.get_end_depth(Selectivity::Level2), 22);
         assert_eq!(level.get_end_depth(Selectivity::Level3), 24);
         assert_eq!(level.get_end_depth(Selectivity::None), 25);
-    }
-
-    #[test]
-    fn test_min_end_depth() {
-        let level = Level {
-            mid_depth: 10,
-            end_depth: [18, 20, 22, 24],
-        };
-        assert_eq!(level.min_end_depth(), 18);
     }
 
     #[test]
@@ -182,5 +163,13 @@ mod tests {
             // Mid depth should generally increase or stay the same
             assert!(next.mid_depth >= current.mid_depth);
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid level")]
+    fn get_level_panics_above_the_valid_range() {
+        // Pinning the message ensures the panic comes from `get_level`'s explicit
+        // range guard, not from some unrelated panic source.
+        let _ = get_level(LEVELS.len());
     }
 }

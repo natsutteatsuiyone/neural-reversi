@@ -53,7 +53,7 @@ impl SearchResult {
     }
 
     /// Creates a result when no legal moves are available.
-    pub fn new_no_moves(_is_endgame: bool) -> Self {
+    pub fn new_no_moves() -> Self {
         Self::NoLegalMove
     }
 
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn no_legal_move_has_no_best_move_data() {
-        let result = SearchResult::new_no_moves(true);
+        let result = SearchResult::new_no_moves();
 
         assert_eq!(result.best_move(), None);
         assert_eq!(result.score(), None);

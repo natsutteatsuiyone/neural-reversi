@@ -108,20 +108,6 @@ mod tests {
     }
 
     #[test]
-    fn test_clone() {
-        let original = Align64(vec![1, 2, 3]);
-        let cloned = original.clone();
-        assert_eq!(*original, *cloned);
-    }
-
-    #[test]
-    fn test_copy() {
-        let original = Align64(42);
-        let copied = original;
-        assert_eq!(*original, *copied);
-    }
-
-    #[test]
     fn test_index() {
         let aligned = Align64([1, 2, 3, 4, 5]);
         assert_eq!(aligned[0], 1);

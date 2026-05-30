@@ -80,7 +80,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
     if ctx.root_moves_count() == 0 {
         // Handle no legal moves
-        return SearchResult::new_no_moves(true);
+        return SearchResult::new_no_moves();
     }
 
     if let Some(ref tm) = time_manager {

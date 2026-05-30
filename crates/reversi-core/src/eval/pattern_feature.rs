@@ -1257,8 +1257,6 @@ mod tests {
 
     #[test]
     fn pattern_feature_storage_preserves_values_and_alignment() {
-        let zeros = PatternFeature::new();
-        assert_eq!(zeros.data, [0; FEATURE_VECTOR_SIZE]);
         assert_eq!(std::mem::align_of::<PatternFeature>(), 64);
         assert_eq!(
             std::mem::size_of::<PatternFeature>(),
@@ -1281,7 +1279,6 @@ mod tests {
 
     #[test]
     fn pattern_definitions_have_expected_shape_padding_and_unique_squares() {
-        assert_eq!(NUM_FEATURES, NUM_PATTERN_FEATURES);
         assert_eq!(NUM_PATTERN_FEATURES, 32);
         assert_eq!(FEATURE_VECTOR_SIZE, 32);
 

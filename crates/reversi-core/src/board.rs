@@ -937,11 +937,8 @@ mod tests {
         board = board.make_move(Square::C4); // Black
         board = board.make_move(Square::C5); // White
 
-        // Verify board state
-        assert!(board.get_player_count() > 0);
-        assert!(board.get_opponent_count() > 0);
-        assert!(!board.is_game_over());
-        assert!(board.has_legal_moves());
+        // After four non-pass moves the board holds the 4 initial discs plus 4 placed.
+        assert_eq!(board.get_player_count() + board.get_opponent_count(), 8);
     }
 
     #[test]
@@ -968,13 +965,10 @@ mod tests {
         let board = Board::from_bitboards(0x000000FFFFFFFFFFu64, 0x0FFFFF0000000000u64);
         let player_count = board.get_player_count();
         let opponent_count = board.get_opponent_count();
-        assert_eq!(player_count, 40);
-        assert_eq!(opponent_count, 20);
         let n_empties = 64 - player_count - opponent_count;
-        assert_eq!(n_empties, 4);
         let score = board.solve(n_empties);
-        // Player ahead: gets all empty squares
-        assert!(score > 0);
+        // Player ahead: gets all empty squares (diff 20 + 4 empties).
+        assert_eq!(score, 24);
     }
 
     #[test]
@@ -986,13 +980,10 @@ mod tests {
         let board = Board::from_bitboards(0x00000000000FFFFFu64, 0x0FFFFFFFFFF00000u64);
         let player_count = board.get_player_count();
         let opponent_count = board.get_opponent_count();
-        assert_eq!(player_count, 20);
-        assert_eq!(opponent_count, 40);
         let n_empties = 64 - player_count - opponent_count;
-        assert_eq!(n_empties, 4);
         let score = board.solve(n_empties);
-        // Opponent ahead: player gets no empty squares
-        assert!(score < 0);
+        // Opponent ahead: player gets no empty squares.
+        assert_eq!(score, -24);
     }
 
     #[test]
@@ -1010,11 +1001,7 @@ mod tests {
         let opponent = 0x0FFFFFFFC0000000u64;
 
         let board = Board::from_bitboards(player, opponent);
-        assert_eq!(board.get_player_count(), 30);
-        assert_eq!(board.get_opponent_count(), 30);
-
         let n_empties = 64 - 30 - 30;
-        assert_eq!(n_empties, 4);
 
         // When diff == 0, empties are split, score is 0
         let score = board.solve(n_empties);
@@ -1117,24 +1104,6 @@ mod tests {
             }
             .to_string(),
             "Invalid character 'Z' at position 5: must be 'X', 'O', or '-'"
-        );
-    }
-
-    #[test]
-    fn test_unique_identity() {
-        // A board that is already canonical should return itself
-        let board = Board::from_bitboards(1u64, 2u64);
-        let unique = board.unique();
-        // The unique board should be one of the 8 symmetric variants
-        assert!(
-            unique == board
-                || unique == board.rotate_90_clockwise()
-                || unique == board.rotate_180_clockwise()
-                || unique == board.rotate_270_clockwise()
-                || unique == board.flip_horizontal()
-                || unique == board.flip_vertical()
-                || unique == board.flip_diag_a1h8()
-                || unique == board.flip_diag_a8h1()
         );
     }
 

@@ -127,3 +127,50 @@ impl SearchRunOptions {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_thread_count_stays_within_bounds() {
+        // The default caps the machine's parallelism at MAX_THREADS.
+        let opts = SearchOptions::default();
+        assert!(opts.n_threads <= MAX_THREADS);
+    }
+
+    #[test]
+    fn with_threads_overrides_only_when_some() {
+        let default_threads = SearchOptions::default().n_threads;
+        assert_eq!(
+            SearchOptions::new(64).with_threads(None).n_threads,
+            default_threads
+        );
+        assert_eq!(SearchOptions::new(64).with_threads(Some(3)).n_threads, 3);
+    }
+
+    #[test]
+    fn with_eval_paths_maps_optional_paths() {
+        let opts = SearchOptions::new(64).with_eval_paths(Some("a.zst"), Some("b.zst"));
+        assert_eq!(opts.eval_path.as_deref(), Some(Path::new("a.zst")));
+        assert_eq!(opts.eval_sm_path.as_deref(), Some(Path::new("b.zst")));
+
+        let cleared = SearchOptions::new(64).with_eval_paths::<&str, &str>(None, None);
+        assert!(cleared.eval_path.is_none());
+        assert!(cleared.eval_sm_path.is_none());
+    }
+
+    #[test]
+    fn run_options_with_level_sets_a_level_constraint() {
+        let opts = SearchRunOptions::with_level(Level::unlimited(), Selectivity::Level2);
+        assert!(matches!(opts.constraint, SearchConstraint::Level(_)));
+        assert_eq!(opts.selectivity, Selectivity::Level2);
+    }
+
+    #[test]
+    fn run_options_with_time_sets_a_time_constraint() {
+        let opts = SearchRunOptions::with_time(TimeControlMode::Infinite, Selectivity::None);
+        assert!(matches!(opts.constraint, SearchConstraint::Time(_)));
+        assert_eq!(opts.selectivity, Selectivity::None);
+    }
+}

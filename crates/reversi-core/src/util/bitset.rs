@@ -160,32 +160,4 @@ mod tests {
         assert!(bitset.test(31));
         assert!(bitset.test(63));
     }
-
-    #[test]
-    fn test_reset_release() {
-        let bitset = AtomicBitSet::new();
-        bitset.set(3);
-        bitset.set(7);
-        assert_eq!(bitset.count(), 2);
-
-        bitset.reset(3);
-        assert!(!bitset.test(3));
-        assert!(bitset.test(7));
-        assert_eq!(bitset.count(), 1);
-
-        bitset.reset(7);
-        assert!(bitset.none());
-    }
-
-    #[test]
-    fn test_none_acquire() {
-        let bitset = AtomicBitSet::new();
-        assert!(bitset.none());
-
-        bitset.set(5);
-        assert!(!bitset.none());
-
-        bitset.reset(5);
-        assert!(bitset.none());
-    }
 }

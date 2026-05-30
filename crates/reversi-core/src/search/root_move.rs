@@ -165,3 +165,186 @@ impl RootMoves {
         moves.iter().skip(pv_idx).any(|rm| rm.sq == sq)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pv_array(line: &[Square]) -> [Square; MAX_PLY] {
+        let mut pv = [Square::None; MAX_PLY];
+        pv[..line.len()].copy_from_slice(line);
+        pv
+    }
+
+    fn find<T>(rms: &RootMoves, sq: Square, f: impl Fn(&RootMove) -> T) -> T {
+        rms.map(|rm| (rm.sq, f(rm)))
+            .into_iter()
+            .find(|(s, _)| *s == sq)
+            .map(|(_, v)| v)
+            .expect("square should be present in the root moves")
+    }
+
+    #[test]
+    fn new_builds_one_root_move_per_legal_move() {
+        let rms = RootMoves::new(&Board::new());
+        assert_eq!(rms.count(), 4); // the standard opening has four legal moves
+        assert_eq!(rms.pv_idx(), 0);
+    }
+
+    #[test]
+    fn update_seeds_then_halves_the_running_average() {
+        let rms = RootMoves::new(&Board::new());
+        let sq = rms.map(|rm| rm.sq)[0];
+        let pv = pv_array(&[sq]);
+
+        rms.update(sq, ScaledScore::from_disc_diff(4), true, &pv);
+        assert_eq!(
+            find(&rms, sq, |rm| rm.score),
+            ScaledScore::from_disc_diff(4)
+        );
+        // Seeded from the -INF sentinel, the average takes the first score verbatim.
+        assert_eq!(
+            find(&rms, sq, |rm| rm.average_score),
+            ScaledScore::from_disc_diff(4)
+        );
+
+        rms.update(sq, ScaledScore::from_disc_diff(8), true, &pv);
+        assert_eq!(
+            find(&rms, sq, |rm| rm.score),
+            ScaledScore::from_disc_diff(8)
+        );
+        // (4 + 8) / 2 == 6
+        assert_eq!(
+            find(&rms, sq, |rm| rm.average_score),
+            ScaledScore::from_disc_diff(6)
+        );
+    }
+
+    #[test]
+    fn update_non_pv_resets_score_but_still_folds_the_average() {
+        let rms = RootMoves::new(&Board::new());
+        let sq = rms.map(|rm| rm.sq)[0];
+        let pv = pv_array(&[sq]);
+
+        rms.update(sq, ScaledScore::from_disc_diff(4), true, &pv);
+        rms.update(sq, ScaledScore::from_disc_diff(8), false, &pv);
+
+        assert_eq!(find(&rms, sq, |rm| rm.score), -ScaledScore::INF);
+        assert_eq!(
+            find(&rms, sq, |rm| rm.average_score),
+            ScaledScore::from_disc_diff(6)
+        );
+    }
+
+    #[test]
+    fn update_copies_the_pv_until_the_none_sentinel() {
+        let rms = RootMoves::new(&Board::new());
+        let sq = rms.map(|rm| rm.sq)[0];
+        let pv = pv_array(&[sq, Square::C3, Square::H8]); // trailing entries stay None
+
+        rms.update(sq, ScaledScore::from_disc_diff(1), true, &pv);
+
+        assert_eq!(
+            find(&rms, sq, |rm| rm.pv.clone()),
+            vec![sq, Square::C3, Square::H8]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "on a `None` value")]
+    fn update_panics_for_a_square_not_in_the_root_list() {
+        // The expected message pins the missing-square `Option::unwrap()` panic,
+        // distinguishing it from the lock's `Result::unwrap()` (an `Err` value).
+        let rms = RootMoves::new(&Board::new());
+        // A1 is never a legal opening move, so it is absent from the root list.
+        rms.update(
+            Square::A1,
+            ScaledScore::ZERO,
+            true,
+            &pv_array(&[Square::A1]),
+        );
+    }
+
+    #[test]
+    fn sort_from_pv_idx_orders_the_tail_by_descending_score() {
+        let rms = RootMoves::new(&Board::new());
+        let sqs = rms.map(|rm| rm.sq);
+        for (i, &sq) in sqs.iter().enumerate() {
+            rms.update(
+                sq,
+                ScaledScore::from_disc_diff(i as i32),
+                true,
+                &pv_array(&[sq]),
+            );
+        }
+
+        rms.sort_from_pv_idx();
+
+        let best = rms.get_best().unwrap();
+        assert_eq!(best.sq, sqs[sqs.len() - 1]);
+        assert_eq!(
+            best.score,
+            ScaledScore::from_disc_diff((sqs.len() - 1) as i32)
+        );
+    }
+
+    #[test]
+    fn sort_from_pv_idx_is_a_noop_when_pv_idx_is_out_of_range() {
+        let rms = RootMoves::new(&Board::new());
+        let before = rms.map(|rm| rm.sq);
+
+        rms.set_pv_idx(rms.count() + 5);
+        rms.sort_from_pv_idx(); // must neither panic nor reorder
+
+        assert_eq!(rms.map(|rm| rm.sq), before);
+    }
+
+    #[test]
+    fn current_pv_tracks_the_pv_index_and_its_bounds() {
+        let rms = RootMoves::new(&Board::new());
+
+        rms.set_pv_idx(1);
+        assert_eq!(rms.pv_idx(), 1);
+        assert!(rms.get_current_pv().is_some());
+
+        rms.set_pv_idx(rms.count());
+        assert!(rms.get_current_pv().is_none());
+    }
+
+    #[test]
+    fn contains_from_pv_idx_respects_membership_and_the_pv_window() {
+        let rms = RootMoves::new(&Board::new());
+        let sq = rms.map(|rm| rm.sq)[0];
+
+        assert!(rms.contains_from_pv_idx(sq));
+        assert!(!rms.contains_from_pv_idx(Square::A1));
+
+        rms.set_pv_idx(rms.count()); // skip every move
+        assert!(!rms.contains_from_pv_idx(sq));
+    }
+
+    #[test]
+    fn save_previous_scores_snapshots_the_current_scores() {
+        let rms = RootMoves::new(&Board::new());
+        let sq = rms.map(|rm| rm.sq)[0];
+        rms.update(sq, ScaledScore::from_disc_diff(5), true, &pv_array(&[sq]));
+
+        rms.save_previous_scores();
+
+        assert_eq!(
+            find(&rms, sq, |rm| rm.previous_score),
+            ScaledScore::from_disc_diff(5)
+        );
+    }
+
+    #[test]
+    fn empty_root_moves_have_no_best_or_current_pv() {
+        // A full board has no empty squares and thus no legal moves.
+        let board = Board::from_bitboards(u64::MAX, 0);
+        let rms = RootMoves::new(&board);
+
+        assert_eq!(rms.count(), 0);
+        assert!(rms.get_best().is_none());
+        assert!(rms.get_current_pv().is_none());
+    }
+}

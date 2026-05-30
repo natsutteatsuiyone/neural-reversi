@@ -883,3 +883,124 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
         0
     }
 }
+
+#[cfg(test)]
+mod lmr_tests {
+    use super::compute_lmr_reduction;
+    use crate::probcut::Selectivity;
+    use crate::search::midgame::{LMR_DEEPER_DEPTH, LMR_MIN_DEPTH};
+    use crate::search::node_type::{NonPV, PV};
+    use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
+
+    #[test]
+    fn no_reduction_below_the_gating_thresholds() {
+        // Depth below LMR_MIN_DEPTH.
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_MIN_DEPTH - 1,
+                10,
+                10
+            ),
+            0
+        );
+        // move_count must exceed 2.
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_DEEPER_DEPTH,
+                2,
+                10
+            ),
+            0
+        );
+        // n_moves must be at least 4.
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_DEEPER_DEPTH,
+                6,
+                3
+            ),
+            0
+        );
+        // ProbCut verification search runs with selectivity disabled.
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::None,
+                LMR_DEEPER_DEPTH,
+                6,
+                10
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn shallow_late_moves_reduce_by_one() {
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_MIN_DEPTH,
+                3,
+                4
+            ),
+            1
+        );
+        // Deep enough, but not enough late moves for a two-ply reduction.
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_DEEPER_DEPTH,
+                5,
+                10
+            ),
+            1
+        );
+        // Many late moves, but not deep enough for a two-ply reduction.
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_DEEPER_DEPTH - 1,
+                6,
+                10
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn deep_and_late_moves_reduce_by_two() {
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_DEEPER_DEPTH,
+                6,
+                10
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn pv_and_endgame_nodes_are_never_reduced() {
+        assert_eq!(
+            compute_lmr_reduction::<PV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_DEEPER_DEPTH,
+                6,
+                10
+            ),
+            0
+        );
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, EndGameStrategy>(
+                Selectivity::Level1,
+                LMR_DEEPER_DEPTH,
+                6,
+                10
+            ),
+            0
+        );
+    }
+}
