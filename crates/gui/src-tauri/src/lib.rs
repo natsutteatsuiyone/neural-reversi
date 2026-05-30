@@ -13,6 +13,8 @@ use reversi_core::{board, search};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod game_analysis;
+
 const SELECTIVITY: Selectivity = Selectivity::Level1;
 
 /// The current game-analysis generation (CONTEXT.md → Engine Search).
@@ -120,6 +122,35 @@ fn build_progress_payload(progress: &search::SearchProgress) -> SearchProgressPa
             .join(" "),
         is_endgame: progress.is_endgame,
     }
+}
+
+fn build_game_analysis(result: SearchResult) -> Result<game_analysis::Analysis, String> {
+    match (result.best_move(), result.score()) {
+        (Some(best_move), Some(score)) => Ok(game_analysis::Analysis {
+            best_move,
+            score: round_score(score),
+            depth: result.depth(),
+        }),
+        _ => Err("search returned no legal move for game analysis position".to_string()),
+    }
+}
+
+fn decode_game_analysis_moves(
+    moves: Vec<String>,
+) -> Result<Vec<game_analysis::GameAnalysisMove>, String> {
+    moves
+        .into_iter()
+        .map(|move_notation| {
+            if move_notation == "--" {
+                Ok(game_analysis::GameAnalysisMove::Pass)
+            } else {
+                let square: Square = move_notation
+                    .parse()
+                    .map_err(|e| format!("Invalid move notation '{move_notation}': {e}"))?;
+                Ok(game_analysis::GameAnalysisMove::Play(square))
+            }
+        })
+        .collect()
 }
 
 fn lock_search(
@@ -364,98 +395,44 @@ async fn analyze_game_command(
     moves: Vec<String>,
     level: usize,
 ) -> Result<(), String> {
-    // Claim a unique run id. Any later claim/supersede makes our guard
-    // checks observe a mismatch and this run bail.
+    // Claim a unique run id. Any later claim/supersede makes the injected
+    // `is_cancelled` predicate observe a mismatch and this run bail.
     let run_id = state.game_analysis_run_id.claim();
     let search_arc = state.search.clone();
     let current_run_id = state.game_analysis_run_id.clone();
 
     spawn_blocking_result(move || {
-        let initial_board = board::Board::from_string(&board_string, Disc::Black)
+        let initial = board::Board::from_string(&board_string, Disc::Black)
             .map_err(|e| format!("Invalid board string: {e}"))?;
-        let lv = get_level(level);
+        let moves = decode_game_analysis_moves(moves)?;
+        let options = SearchRunOptions::with_level(get_level(level), SELECTIVITY);
 
-        let mut boards: Vec<board::Board> = Vec::with_capacity(moves.len() + 1);
-        let mut is_pass: Vec<bool> = Vec::with_capacity(moves.len());
-        let mut current = initial_board;
-        boards.push(current);
-
-        for move_notation in &moves {
-            if move_notation == "--" {
-                is_pass.push(true);
-                current = current.switch_players();
-            } else {
-                is_pass.push(false);
-                let sq: Square = move_notation
-                    .parse()
-                    .map_err(|e| format!("Invalid move notation '{move_notation}': {e}"))?;
-                current = current.make_move(sq);
-            }
-            boards.push(current);
-        }
-
-        if !current_run_id.is_current(run_id) {
-            return Ok(());
-        }
-
-        let options = SearchRunOptions::with_level(lv, SELECTIVITY);
-        let final_board = boards.last().unwrap();
-        let mut score: Scoref = if !final_board.get_moves().is_empty() {
-            let mut guard = lock_search(&search_arc)?;
-            let result = guard.run(final_board, &options);
-            drop(guard);
-
-            if !current_run_id.is_current(run_id) {
-                return Ok(());
-            }
-
-            round_score(result.score().expect("search returned no legal move"))
-        } else {
-            round_score(final_board.solve(final_board.get_empty_count()) as Scoref)
-        };
-
-        for i in (0..moves.len()).rev() {
-            if !current_run_id.is_current(run_id) {
-                return Ok(());
-            }
-
-            if is_pass[i] {
-                score = -score;
-                continue;
-            }
-
-            let board = &boards[i];
-            let mut search_guard = lock_search(&search_arc)?;
-            let result = search_guard.run(board, &options);
-            drop(search_guard);
-
-            if !current_run_id.is_current(run_id) {
-                return Ok(());
-            }
-
-            let best_move_str = result
-                .best_move()
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let best_score = round_score(result.score().expect("search returned no legal move"));
-
-            let played_score = -score;
-            let score_loss = (best_score - played_score).max(0.0);
-
-            let payload = GameAnalysisProgressPayload {
-                move_index: i,
-                best_move: best_move_str,
-                best_score,
-                played_score,
-                score_loss,
-                depth: result.depth(),
-            };
-            let _ = app.emit("game-analysis-progress", payload);
-
-            score = best_score.max(played_score);
-        }
-
-        Ok(())
+        game_analysis::analyze_game(
+            initial,
+            &moves,
+            // Engine seam: lock per Position (never held across the loop), run,
+            // and narrow the SearchResult to the data the analysis needs.
+            |board| {
+                let mut guard = lock_search(&search_arc)?;
+                let result = guard.run(board, &options);
+                drop(guard);
+                build_game_analysis(result)
+            },
+            || !current_run_id.is_current(run_id),
+            |progress| {
+                let _ = app.emit(
+                    "game-analysis-progress",
+                    GameAnalysisProgressPayload {
+                        move_index: progress.move_index,
+                        best_move: progress.best_move.to_string(),
+                        best_score: progress.best_score,
+                        played_score: progress.played_score,
+                        score_loss: progress.score_loss,
+                        depth: progress.depth,
+                    },
+                );
+            },
+        )
     })
     .await
 }
@@ -550,5 +527,23 @@ mod tests {
     fn solver_level_level1_only_first() {
         let lvl = solver_level(Selectivity::Level1);
         assert_eq!(lvl.end_depth, [60, 0, 0, 0]);
+    }
+
+    #[test]
+    fn decode_game_analysis_moves_converts_play_and_pass() {
+        let moves = decode_game_analysis_moves(vec!["d3".to_string(), "--".to_string()]).unwrap();
+        assert_eq!(
+            moves,
+            vec![
+                game_analysis::GameAnalysisMove::Play(Square::D3),
+                game_analysis::GameAnalysisMove::Pass
+            ]
+        );
+    }
+
+    #[test]
+    fn decode_game_analysis_moves_rejects_invalid_notation() {
+        let err = decode_game_analysis_moves(vec!["zz".to_string()]).unwrap_err();
+        assert!(err.contains("Invalid move notation"), "got: {err}");
     }
 }
