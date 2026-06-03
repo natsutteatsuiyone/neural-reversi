@@ -4,6 +4,7 @@
 //! midgame and endgame phases, and parallel search support via split points.
 
 mod endgame;
+#[path = "search/endgame/cache.rs"]
 pub mod endgame_cache;
 pub mod midgame;
 pub mod node_type;
