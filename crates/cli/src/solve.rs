@@ -27,6 +27,7 @@ pub fn solve(
     eval_path: Option<&Path>,
     eval_sm_path: Option<&Path>,
     exact: bool,
+    all_moves: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -44,15 +45,9 @@ pub fn solve(
         get_level(level)
     };
 
-    let dashes = "-".repeat(NUM_WIDTH);
-    println!(
-        "| {:^NUM_WIDTH$} | {:^6} | {:^5} | {:^11} | {:^19} | {:^13} | {:^23} |",
-        "#", "Depth", "Score", "Time", "Nodes", "N/s", "Principal Variation"
-    );
-    println!(
-        "|{dashes:->nw$}--|--------|-------|-------------|---------------------|---------------|-------------------------|",
-        nw = NUM_WIDTH
-    );
+    if !all_moves {
+        print_table_header();
+    }
 
     let mut total_time = Duration::ZERO;
     let mut total_nodes: u64 = 0;
@@ -74,9 +69,14 @@ pub fn solve(
             level_config,
             selectivity,
             line_num + 1,
+            all_moves,
         );
         total_time += elapsed;
         total_nodes += nodes;
+        if all_moves {
+            print_position_stats(elapsed, nodes);
+            println!();
+        }
     }
 
     let total_secs = total_time.as_secs_f64();
@@ -85,18 +85,58 @@ pub fn solve(
     } else {
         0.0
     };
-    print_row(
-        "Total",
-        "",
-        "",
-        format_time(total_time),
-        total_nodes.to_formatted_string(&Locale::en),
-        (total_nps.round() as u64).to_formatted_string(&Locale::en),
-        "",
-    );
+    if all_moves {
+        println!(
+            "Total: time {}, nodes {}, n/s {}",
+            format_time(total_time),
+            total_nodes.to_formatted_string(&Locale::en),
+            (total_nps.round() as u64).to_formatted_string(&Locale::en)
+        );
+    } else {
+        print_row(
+            "Total",
+            "",
+            "",
+            format_time(total_time),
+            total_nodes.to_formatted_string(&Locale::en),
+            (total_nps.round() as u64).to_formatted_string(&Locale::en),
+            "",
+        );
+    }
     println!();
 
     Ok(())
+}
+
+fn print_table_header() {
+    println!(
+        "| {:^NUM_WIDTH$} | {:^6} | {:^5} | {:^11} | {:^19} | {:^13} | {:^23} |",
+        "#", "Depth", "Score", "Time", "Nodes", "N/s", "Principal Variation"
+    );
+    println!(
+        "|{:-<width$}|--------|-------|-------------|---------------------|---------------|-------------------------|",
+        "",
+        width = NUM_WIDTH + 2
+    );
+}
+
+fn print_all_moves_table_header() {
+    println!("| {:^5} | {:^23} |", "Score", "Principal Variation");
+    println!("|-------|-------------------------|");
+}
+
+fn print_position_stats(elapsed: Duration, nodes: u64) {
+    let nps = if elapsed.as_secs_f64() > 0.0 {
+        nodes as f64 / elapsed.as_secs_f64()
+    } else {
+        0.0
+    };
+    println!(
+        "Time: {}  Nodes: {}  N/s: {}",
+        format_time(elapsed),
+        nodes.to_formatted_string(&Locale::en),
+        (nps.round() as u64).to_formatted_string(&Locale::en)
+    );
 }
 
 fn print_header(file_path: &Path, options: &SearchOptions) {
@@ -123,11 +163,18 @@ fn solve_position(
     level: Level,
     selectivity: Selectivity,
     position_num: usize,
+    all_moves: bool,
 ) -> (Duration, u64) {
     let is_pass = !board.has_legal_moves();
 
     if is_pass && !board.switch_players().has_legal_moves() {
         let score = board.solve(board.get_empty_count());
+        if all_moves {
+            println!("Position #{}  Depth: END", position_num);
+            print_all_moves_table_header();
+            print_all_moves_row(format!("{:+03}", score), "--");
+            return (Duration::ZERO, 0);
+        }
         print_row(
             position_num,
             "END",
@@ -147,16 +194,9 @@ fn solve_position(
 
     search.init();
     let start_time = Instant::now();
-    let options = SearchRunOptions::with_level(level, selectivity);
+    let options = SearchRunOptions::with_level(level, selectivity).multi_pv(all_moves);
     let result = search.run(&search_board, &options);
     let elapsed = start_time.elapsed();
-    let result_score = result.score().expect("search returned no legal move");
-
-    let score = if is_pass {
-        -(result_score as i32)
-    } else {
-        result_score as i32
-    };
 
     let depth = if result.get_probability() == 100 {
         format!("{}", result.depth())
@@ -174,6 +214,33 @@ fn solve_position(
         side_to_move.opposite()
     } else {
         side_to_move
+    };
+
+    if all_moves && !result.pv_moves().is_empty() {
+        println!("Position #{}  Depth: {}", position_num, depth);
+        print_all_moves_table_header();
+        for pv_move in result.pv_moves() {
+            let score = if is_pass {
+                -(pv_move.score as i32)
+            } else {
+                pv_move.score as i32
+            };
+            let pv_string = if pv_move.pv_line.is_empty() {
+                format_root_move(pv_move.sq, move_side, is_pass, side_to_move)
+            } else {
+                format_pv_with_passes(&board, side_to_move, &pv_move.pv_line, 8)
+            };
+
+            print_all_moves_row(format!("{:+03}", score), pv_string);
+        }
+
+        return (elapsed, result.n_nodes());
+    }
+    let result_score = result.score().expect("search returned no legal move");
+    let score = if is_pass {
+        -(result_score as i32)
+    } else {
+        result_score as i32
     };
     let pv_string = if result.pv_line().is_empty() {
         result
@@ -194,6 +261,10 @@ fn solve_position(
     );
 
     (elapsed, result.n_nodes())
+}
+
+fn print_all_moves_row(score: impl Display, pv: impl Display) {
+    println!("| {score:^5} | {pv:<23} |");
 }
 
 fn print_row(
@@ -247,6 +318,17 @@ fn format_pv_with_passes(
         count += 1;
     }
 
+    result
+}
+
+fn format_root_move(sq: Square, move_side: Disc, is_pass: bool, side_to_move: Disc) -> String {
+    if !is_pass {
+        return format_square(sq, move_side);
+    }
+
+    let mut result = String::from(format_pass(side_to_move));
+    result.push(' ');
+    result.push_str(&format_square(sq, move_side));
     result
 }
 

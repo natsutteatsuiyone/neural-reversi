@@ -96,6 +96,12 @@ enum SubCommands {
         )]
         exact: bool,
 
+        #[arg(
+            long,
+            help = "Report the evaluation for every legal move in each position"
+        )]
+        all_moves: bool,
+
         #[command(flatten)]
         engine_params: EngineParams,
     },
@@ -163,6 +169,7 @@ fn main() {
         Some(SubCommands::Solve {
             file,
             exact,
+            all_moves,
             engine_params,
         }) => {
             validate_weight_paths(
@@ -178,6 +185,7 @@ fn main() {
                 engine_params.eval_file.as_deref(),
                 engine_params.eval_sm_file.as_deref(),
                 exact,
+                all_moves,
             ) {
                 eprintln!("Error solving game: {e}");
             }

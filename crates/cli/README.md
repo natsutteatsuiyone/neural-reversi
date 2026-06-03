@@ -140,6 +140,7 @@ Options:
 
 - `<file>` - Path to the position file (required)
 - `--exact` - Solve for exact score with perfect play (ignores level setting)
+- `--all-moves` - Report the score and principal variation for every legal move in each position
 - `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI search level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
