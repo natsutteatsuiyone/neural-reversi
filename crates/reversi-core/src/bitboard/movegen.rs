@@ -186,6 +186,19 @@ pub(super) fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L944>
 #[inline(always)]
 pub(super) fn get_potential_moves(p: u64, o: u64) -> u64 {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            unsafe { get_potential_moves_avx2(p, o) }
+        }
+        _ => {
+            get_potential_moves_portable(p, o)
+        }
+    }
+}
+
+#[inline(always)]
+#[allow(dead_code)]
+fn get_potential_moves_portable(p: u64, o: u64) -> u64 {
     let h_opp = o & HORIZONTAL_MASK;
     let v_opp = o & VERTICAL_MASK;
     let d_opp = o & DIAGONAL_MASK;
@@ -196,6 +209,28 @@ pub(super) fn get_potential_moves(p: u64, o: u64) -> u64 {
     let d2 = (d_opp << 9) | (d_opp >> 9);
 
     (h | v | d1 | d2) & !(p | o)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(dead_code)]
+fn get_potential_moves_avx2(p: u64, o: u64) -> u64 {
+    use std::arch::x86_64::*;
+
+    let sh = _mm256_set_epi64x(7, 9, 8, 1);
+    let masks = _mm256_set_epi64x(
+        DIAGONAL_MASK as i64,
+        DIAGONAL_MASK as i64,
+        VERTICAL_MASK as i64,
+        HORIZONTAL_MASK as i64,
+    );
+    let oo = _mm256_set1_epi64x(o as i64);
+    let masked_oo = _mm256_and_si256(oo, masks);
+
+    horizontal_or_u64!(_mm256_or_si256(
+        _mm256_sllv_epi64(masked_oo, sh),
+        _mm256_srlv_epi64(masked_oo, sh),
+    )) & !(p | o)
 }
 
 /// Returns both legal and potential moves for the current player.
@@ -305,23 +340,14 @@ pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64
     );
     let empty = !(player | opponent);
 
-    let h_opp = opponent & HORIZONTAL_MASK;
-    let v_opp = opponent & VERTICAL_MASK;
-    let d_opp = opponent & DIAGONAL_MASK;
-    let potential = ((h_opp << 1)
-        | (h_opp >> 1)
-        | (v_opp << 8)
-        | (v_opp >> 8)
-        | (d_opp << 7)
-        | (d_opp >> 7)
-        | (d_opp << 9)
-        | (d_opp >> 9))
-        & empty;
-
     let pp = _mm256_set1_epi64x(player as i64);
     let oo = _mm256_set1_epi64x(opponent as i64);
 
     let masked_oo = _mm256_and_si256(oo, masks);
+    let potential = horizontal_or_u64!(_mm256_or_si256(
+        _mm256_sllv_epi64(masked_oo, sh),
+        _mm256_srlv_epi64(masked_oo, sh),
+    )) & empty;
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
@@ -362,22 +388,13 @@ pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, 
     );
     let empty = !(player | opponent);
 
-    let h_opp = opponent & HORIZONTAL_MASK;
-    let v_opp = opponent & VERTICAL_MASK;
-    let d_opp = opponent & DIAGONAL_MASK;
-    let potential = ((h_opp << 1)
-        | (h_opp >> 1)
-        | (v_opp << 8)
-        | (v_opp >> 8)
-        | (d_opp << 7)
-        | (d_opp >> 7)
-        | (d_opp << 9)
-        | (d_opp >> 9))
-        & empty;
-
     let pp = _mm256_set1_epi64x(player as i64);
     let oo = _mm256_set1_epi64x(opponent as i64);
     let masked_oo = _mm256_and_si256(oo, masks);
+    let potential = horizontal_or_u64!(_mm256_or_si256(
+        _mm256_sllv_epi64(masked_oo, sh),
+        _mm256_srlv_epi64(masked_oo, sh),
+    )) & empty;
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
