@@ -18,7 +18,7 @@ pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> 
     i8mm_weights: AlignedBuffer<u8, CACHE_LINE_SIZE>,
     /// Function pointer to the optimal forward implementation, selected at load time
     /// based on detected CPU SIMD capabilities.
-    forward_fn: unsafe fn(&Self, [&[u8]; 3]) -> i32,
+    forward_fn: unsafe fn(&Self, [&[u8]; 2]) -> i32,
 }
 
 impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
@@ -78,7 +78,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     /// 5. ARM NEON with I8MM/DotProd (if compiled for `aarch64` with NEON and CPU supports both)
     /// 6. ARM NEON (if compiled for `aarch64` with `target-feature=+neon`)
     /// 7. Scalar fallback (all other cases)
-    fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 3]) -> i32 {
+    fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 2]) -> i32 {
         #[cfg(target_arch = "x86_64")]
         {
             cfg_select! {
@@ -144,7 +144,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     /// - On NEON builds (`target_arch=aarch64`, `target-feature=+neon`), each non-empty
     ///   segment must have length as a multiple of 16.
     #[inline(always)]
-    pub fn forward(&self, segments: [&[u8]; 3]) -> i32 {
+    pub fn forward(&self, segments: [&[u8]; 2]) -> i32 {
         debug_assert_eq!(
             segments.iter().map(|segment| segment.len()).sum::<usize>(),
             INPUT_DIMS
@@ -156,14 +156,14 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     /// Computes the forward pass on AVX-512 with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
-    fn forward_avx512_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_avx512_vnni(&self, segments: [&[u8]; 2]) -> i32 {
         self.forward_avx512::<true>(segments)
     }
 
     /// Computes the forward pass on AVX-512 without VNNI (emulated via `VPMADDWD` + `VPADDD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
-    fn forward_avx512_no_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_avx512_no_vnni(&self, segments: [&[u8]; 2]) -> i32 {
         self.forward_avx512::<false>(segments)
     }
 
@@ -171,7 +171,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2,avxvnni")]
     #[allow(dead_code)]
-    fn forward_avx2_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_avx2_vnni(&self, segments: [&[u8]; 2]) -> i32 {
         self.forward_avx2::<true>(segments)
     }
 
@@ -179,7 +179,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[allow(dead_code)]
-    fn forward_avx2_no_vnni(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_avx2_no_vnni(&self, segments: [&[u8]; 2]) -> i32 {
         self.forward_avx2::<false>(segments)
     }
 
@@ -187,7 +187,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     #[inline]
-    fn forward_neon(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_neon(&self, segments: [&[u8]; 2]) -> i32 {
         use std::arch::aarch64::*;
 
         const CHUNK: usize = 16;
@@ -270,7 +270,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon,dotprod,i8mm")]
     #[inline]
-    fn forward_neon_i8mm(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_neon_i8mm(&self, segments: [&[u8]; 2]) -> i32 {
         use std::arch::aarch64::*;
 
         const CHUNK: usize = 16;
@@ -353,7 +353,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     /// This wrapper has no additional safety requirements; it exists only to
     /// match the `unsafe fn` signature of the SIMD forward implementations.
     #[allow(dead_code)]
-    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 3]) -> i32 {
+    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 2]) -> i32 {
         self.forward_scalar(segments)
     }
 
@@ -361,7 +361,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[inline]
-    fn forward_avx512<const USE_VNNI: bool>(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_avx512<const USE_VNNI: bool>(&self, segments: [&[u8]; 2]) -> i32 {
         use crate::eval::util::mm512_dpwssd_epi32;
         use std::arch::x86_64::*;
 
@@ -434,7 +434,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[inline]
-    fn forward_avx2<const USE_VNNI: bool>(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_avx2<const USE_VNNI: bool>(&self, segments: [&[u8]; 2]) -> i32 {
         use crate::eval::util::{m256_hadd, mm256_dpwssd_epi32};
         use std::arch::x86_64::*;
 
@@ -504,7 +504,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     }
 
     /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
-    fn forward_scalar(&self, segments: [&[u8]; 3]) -> i32 {
+    fn forward_scalar(&self, segments: [&[u8]; 2]) -> i32 {
         let mut acc = self.bias;
 
         let mut weight_offset = 0usize;
@@ -549,7 +549,7 @@ mod tests {
 
     fn reference_forward<const INPUT: usize, const PADDED: usize>(
         layer: &OutputLayer<INPUT, PADDED>,
-        segments: [&[u8]; 3],
+        segments: [&[u8]; 2],
     ) -> i32 {
         let mut acc = layer.bias;
         let mut weight_offset = 0;
@@ -563,7 +563,7 @@ mod tests {
         acc
     }
 
-    type Chunk16Segments = (Align64<[u8; 16]>, Align64<[u8; 32]>, Align64<[u8; 16]>);
+    type Chunk16Segments = (Align64<[u8; 16]>, Align64<[u8; 48]>);
     type Chunk32Segments = (Align64<[u8; 32]>, Align64<[u8; 32]>);
 
     fn chunk16_segments() -> Chunk16Segments {
@@ -572,10 +572,10 @@ mod tests {
         ]);
         let seg1 = Align64([
             255, 200, 150, 100, 50, 25, 12, 6, 3, 1, 0, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27,
-            29, 31, 33, 35, 37, 39, 41, 43, 45, 47,
+            29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 8, 6, 7, 5, 3, 0, 9, 11, 13, 15, 17, 19, 23,
+            29, 31, 37,
         ]);
-        let seg2 = Align64([8, 6, 7, 5, 3, 0, 9, 11, 13, 15, 17, 19, 23, 29, 31, 37]);
-        (seg0, seg1, seg2)
+        (seg0, seg1)
     }
 
     #[allow(dead_code)]
@@ -614,7 +614,7 @@ mod tests {
     fn load_reports_truncated_biases_or_weights() {
         type Layer = OutputLayer<4, 8>;
 
-        let mut missing_bias = Cursor::new([0u8; 3]);
+        let mut missing_bias = Cursor::new([0u8; 2]);
         assert!(Layer::load(&mut missing_bias).is_err());
 
         let mut missing_weight = Vec::new();
@@ -631,9 +631,8 @@ mod tests {
         const PADDED: usize = 8;
         let layer = build_layer::<INPUT, PADDED>(1234, 17);
         let seg0 = [255, 0, 7];
-        let seg1 = [];
-        let seg2 = [1, 2, 3, 4];
-        let segments = [&seg0[..], &seg1[..], &seg2[..]];
+        let seg1 = [1, 2, 3, 4];
+        let segments = [&seg0[..], &seg1[..]];
         let expected = reference_forward(&layer, segments);
 
         assert_eq!(layer.forward_scalar(segments), expected);
@@ -645,8 +644,8 @@ mod tests {
         const INPUT: usize = 64;
         const PADDED: usize = 64;
         let layer = build_layer::<INPUT, PADDED>(-6789, 29);
-        let (seg0, seg1, seg2) = chunk16_segments();
-        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+        let (seg0, seg1) = chunk16_segments();
+        let segments = [&seg0.0[..], &seg1.0[..]];
         let expected = reference_forward(&layer, segments);
 
         assert_eq!(layer.forward(segments), expected);
@@ -659,7 +658,7 @@ mod tests {
         const PADDED: usize = 64;
         let layer = build_layer::<INPUT, PADDED>(-6789, 29);
         let (seg0, seg1) = chunk32_segments();
-        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
+        let segments = [&seg0.0[..], &seg1.0[..]];
         let expected = reference_forward(&layer, segments);
 
         assert_eq!(layer.forward(segments), expected);
@@ -673,7 +672,7 @@ mod tests {
         let seg0 = Align64([0u8; 16]);
         let extra = [1u8];
 
-        let _ = layer.forward([&seg0.0[..], &extra[..], &[][..]]);
+        let _ = layer.forward([&seg0.0[..], &extra[..]]);
     }
 
     #[test]
@@ -710,8 +709,8 @@ mod tests {
         const INPUT: usize = 64;
         const PADDED: usize = 64;
         let layer = build_layer::<INPUT, PADDED>(-6789, 4099);
-        let (seg0, seg1, seg2) = chunk16_segments();
-        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+        let (seg0, seg1) = chunk16_segments();
+        let segments = [&seg0.0[..], &seg1.0[..]];
         let expected = reference_forward(&layer, segments);
 
         unsafe {
@@ -729,7 +728,7 @@ mod tests {
             for (idx, value) in single.iter_mut().enumerate() {
                 *value = ((idx * 37 + 11) & 0xff) as u8;
             }
-            let single_segments = [&single.0[..], &[][..], &[][..]];
+            let single_segments = [&single.0[..], &[][..]];
             let single_expected = reference_forward(&layer, single_segments);
             unsafe {
                 assert_eq!(
@@ -747,8 +746,8 @@ mod tests {
         const INPUT: usize = 64;
         const PADDED: usize = 64;
         let layer = build_layer::<INPUT, PADDED>(-6789, 29);
-        let (seg0, seg1, seg2) = chunk16_segments();
-        let segments = [&seg0.0[..], &seg1.0[..], &seg2.0[..]];
+        let (seg0, seg1) = chunk16_segments();
+        let segments = [&seg0.0[..], &seg1.0[..]];
         let expected = reference_forward(&layer, segments);
 
         unsafe {
@@ -769,7 +768,7 @@ mod tests {
         const PADDED: usize = 64;
         let layer = build_layer::<INPUT, PADDED>(-6789, 29);
         let (seg0, seg1) = chunk32_segments();
-        let segments = [&seg0.0[..], &seg1.0[..], &[][..]];
+        let segments = [&seg0.0[..], &seg1.0[..]];
         let expected = reference_forward(&layer, segments);
 
         unsafe {

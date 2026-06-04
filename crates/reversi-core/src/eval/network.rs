@@ -24,7 +24,6 @@ mod output_layer;
 const L1_INPUT_DIMS: usize = BASE_OUTPUT_DIMS + PA_OUTPUT_DIMS + 1;
 const L1_PADDED_INPUT_DIMS: usize = ceil_to_multiple(L1_INPUT_DIMS, 32);
 const L1_OUTPUT_DIMS: usize = 16;
-const _: () = assert!(L1_OUTPUT_DIMS == 16);
 const L1_PADDED_OUTPUT_DIMS: usize = ceil_to_multiple(L1_OUTPUT_DIMS, 32);
 
 const L2_INPUT_DIMS: usize = L1_OUTPUT_DIMS * 2;
@@ -76,11 +75,10 @@ impl NetworkBuffers {
     }
 
     #[inline(always)]
-    fn output_segments(&self) -> [&[u8]; 3] {
+    fn output_segments(&self) -> [&[u8]; 2] {
         [
             &self.l2_out[..L2_OUTPUT_DIMS],
-            &self.l1_input[..BASE_OUTPUT_DIMS],
-            &self.l1_input[PA_INPUT_START..PA_INPUT_END],
+            &self.l1_input[..PA_INPUT_END],
         ]
     }
 }
@@ -188,7 +186,6 @@ impl Network {
         pattern_feature: &PatternFeature,
         ply: usize,
     ) -> ScaledScore {
-        debug_assert!(ply < self.layer_stacks.len());
         let mobility = board.get_moves().count() as u8;
 
         let mut buffers = NetworkBuffers::new();
@@ -196,7 +193,7 @@ impl Network {
             .forward(pattern_feature, buffers.base_input_mut());
         self.pa_input
             .forward(pattern_feature, ply, buffers.pa_input_mut());
-        buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility.saturating_mul(MOBILITY_SCALE);
+        buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility * MOBILITY_SCALE;
         let score = self.layer_stacks[ply].forward(&mut buffers);
         score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
