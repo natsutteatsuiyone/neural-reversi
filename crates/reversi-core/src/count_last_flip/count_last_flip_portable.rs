@@ -9,9 +9,8 @@
 //! are handled by a single uniform formula (see `count_one`).
 //!
 //! Squares that don't need the second diagonal set `mask_d9 = mult_d9 = 0`,
-//! which makes `idx3 = 0` and `COUNT_FLIP[t3][0] = 0` (always true for the
-//! kindergarten table), contributing nothing to the sum. The fourth load
-//! happens but overlaps with the other three in flight.
+//! so `count_one` skips that multiply and table lookup instead of adding a
+//! known-zero contribution.
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/count_last_flip_kindergarten.c>
 
@@ -193,47 +192,55 @@ const PARAMS: [SqParams; 64] = [
 fn count_one(p: u64, pp: &SqParams) -> i32 {
     let idx0 = ((p & pp.mask_v).wrapping_mul(pp.mult_v) >> 56) as usize;
     let idx1 = ((p >> pp.row_shift) & 0xff) as usize;
-    let idx2 = ((((p & pp.mask_d7).wrapping_add(pp.addend7)) & pp.post_mask7)
-        .wrapping_mul(pp.mult_d7)
-        >> 56) as usize;
-    let idx3 = ((p & pp.mask_d9).wrapping_mul(pp.mult_d9) >> 56) as usize;
+    let masked_d7 = p & pp.mask_d7;
+    // Most squares use the simple diagonal extractor; only the 16 inner squares
+    // need the addend-and-mask variant.
+    let idx2 = if pp.addend7 == 0 {
+        (masked_d7.wrapping_mul(pp.mult_d7) >> 56) as usize
+    } else {
+        (((masked_d7.wrapping_add(pp.addend7)) & pp.post_mask7).wrapping_mul(pp.mult_d7) >> 56)
+            as usize
+    };
 
-    // SAFETY: t0..=t3 are 0..=7 (verified at table-construction time);
-    // idx0..=idx3 are 0..=255 (one byte by `>> 56` or `& 0xff`).
-    unsafe {
+    let count = unsafe {
         *COUNT_FLIP.get_unchecked(pp.t0 as usize).get_unchecked(idx0) as i32
             + *COUNT_FLIP.get_unchecked(pp.t1 as usize).get_unchecked(idx1) as i32
             + *COUNT_FLIP.get_unchecked(pp.t2 as usize).get_unchecked(idx2) as i32
-            + *COUNT_FLIP.get_unchecked(pp.t3 as usize).get_unchecked(idx3) as i32
+    };
+
+    if pp.mask_d9 == 0 {
+        count
+    } else {
+        let idx3 = ((p & pp.mask_d9).wrapping_mul(pp.mult_d9) >> 56) as usize;
+        count + unsafe { *COUNT_FLIP.get_unchecked(pp.t3 as usize).get_unchecked(idx3) as i32 }
     }
 }
 
 #[inline(always)]
 pub(super) fn count_last_flip(p: u64, sq: Square) -> i32 {
-    // SAFETY: Square::index() returns 0..=63 by construction.
     let pp = unsafe { PARAMS.get_unchecked(sq.index()) };
     count_one(p, pp)
 }
 
 #[inline(always)]
 pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
-    let player_count = player.count_ones() as Score;
-    let n_flipped = count_last_flip(player, sq);
-    let score = 2 * player_count - SCORE_MAX + 2 + n_flipped;
+    let pp = unsafe { PARAMS.get_unchecked(sq.index()) };
+    let mut n_flipped = count_one(player, pp);
+    let mut score = 2 * player.count_ones() as Score - SCORE_MAX + 2 + n_flipped;
 
-    if n_flipped != 0 {
-        return score;
-    }
-
-    let score_if_opp_passes = if score > 0 { score } else { score - 2 };
-    if score_if_opp_passes <= alpha {
-        score_if_opp_passes
-    } else {
-        let n_flipped = count_last_flip(!player, sq);
-        if n_flipped > 0 {
-            score - 2 - n_flipped
+    if n_flipped == 0 {
+        let score_if_opp_passes = if score > 0 { score } else { score - 2 };
+        if score_if_opp_passes > alpha {
+            n_flipped = count_one(!player, pp);
+            score = if n_flipped > 0 {
+                score - 2 - n_flipped
+            } else {
+                score_if_opp_passes
+            };
         } else {
-            score_if_opp_passes
+            score = score_if_opp_passes;
         }
     }
+
+    score
 }
