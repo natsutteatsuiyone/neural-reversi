@@ -1,4 +1,5 @@
 mod endgame;
+mod endgame_cache;
 pub mod search_context;
 pub mod search_result;
 pub(crate) mod search_strategy;

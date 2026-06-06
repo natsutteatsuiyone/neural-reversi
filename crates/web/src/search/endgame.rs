@@ -3,12 +3,12 @@ use std::cell::RefCell;
 use reversi_core::board::Board;
 use reversi_core::constants::{SCORE_INF, SCORE_MAX};
 use reversi_core::count_last_flip::count_last_flip;
-use reversi_core::search::endgame_cache::EndGameCache;
 use reversi_core::square::Square;
 use reversi_core::types::{Depth, Score};
 use reversi_core::{bitboard, stability};
 
 use crate::move_list::{MoveList, evaluate_moves_fast};
+use crate::search::endgame_cache::EndGameCache;
 use crate::search::search_context::SearchContext;
 
 /// Quadrant masks for move ordering in shallow search.
@@ -26,15 +26,24 @@ pub const DEPTH_TO_NWS: Depth = 11;
 /// Depth threshold for switching to specialized shallow search.
 const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 
+const EC_CACHE_BYTES: usize = 2 * 1024 * 1024;
+const SHALLOW_CACHE_BYTES: usize = 256 * 1024;
+
 struct EndGameCaches {
     ec: EndGameCache,
     shallow: EndGameCache,
 }
 
+#[derive(Clone, Copy)]
+struct CacheSlot {
+    index: usize,
+    key: u64,
+}
+
 thread_local! {
     static ENDGAME_CACHES: RefCell<EndGameCaches> = RefCell::new(EndGameCaches {
-        ec: EndGameCache::new(128 * 1024),
-        shallow: EndGameCache::new(128 * 1024),
+        ec: EndGameCache::new(EC_CACHE_BYTES),
+        shallow: EndGameCache::new(SHALLOW_CACHE_BYTES),
     });
 }
 
@@ -89,9 +98,12 @@ fn null_window_search_with_ec(
         return score;
     }
 
-    let cache_idx = ec.index(board.hash());
-    if let Some(score) = ec.probe(cache_idx, board, alpha) {
-        return score;
+    let hash_key = board.hash();
+    let cache_idx = ec.index(hash_key);
+    if let Some(entry) = ec.probe(cache_idx, hash_key)
+        && entry.can_cut(beta)
+    {
+        return entry.score;
     }
 
     let mut move_list = MoveList::new(board);
@@ -139,7 +151,7 @@ fn null_window_search_with_ec(
         ctx.undo_endgame(mv.sq);
     }
 
-    ec.store(cache_idx, board, alpha, best_score);
+    ec.store(cache_idx, hash_key, best_score, beta);
 
     best_score
 }
@@ -170,9 +182,15 @@ fn shallow_search(
         }
     }
 
-    let cache_idx = sc.index(board.hash());
-    if let Some(score) = sc.probe(cache_idx, board, alpha) {
-        return score;
+    let hash_key = board.hash();
+    let cache_slot = CacheSlot {
+        index: sc.index(hash_key),
+        key: hash_key,
+    };
+    if let Some(entry) = sc.probe(cache_slot.index, cache_slot.key)
+        && entry.can_cut(beta)
+    {
+        return entry.score;
     }
 
     let mut best_score = -SCORE_INF;
@@ -186,7 +204,7 @@ fn shallow_search(
         ctx,
         board,
         odd_moves.corners(),
-        cache_idx,
+        cache_slot,
         beta,
         &mut best_score,
         sc,
@@ -198,7 +216,7 @@ fn shallow_search(
         ctx,
         board,
         odd_moves.non_corners(),
-        cache_idx,
+        cache_slot,
         beta,
         &mut best_score,
         sc,
@@ -210,7 +228,7 @@ fn shallow_search(
         ctx,
         board,
         even_moves.corners(),
-        cache_idx,
+        cache_slot,
         beta,
         &mut best_score,
         sc,
@@ -222,7 +240,7 @@ fn shallow_search(
         ctx,
         board,
         even_moves.non_corners(),
-        cache_idx,
+        cache_slot,
         beta,
         &mut best_score,
         sc,
@@ -230,7 +248,7 @@ fn shallow_search(
         return score;
     }
 
-    sc.store(cache_idx, board, alpha, best_score);
+    sc.store(cache_slot.index, cache_slot.key, best_score, beta);
 
     best_score
 }
@@ -248,15 +266,18 @@ fn shallow_search_move(
     ctx.update_endgame(sq);
     let next_alpha = -beta;
     let score = if ctx.empty_list.count() == 4 {
-        let next_cache_idx = sc.index(next.hash());
-        if let Some(score) = sc.probe(next_cache_idx, &next, next_alpha) {
-            -score
+        let next_hash_key = next.hash();
+        let next_cache_idx = sc.index(next_hash_key);
+        if let Some(entry) = sc.probe(next_cache_idx, next_hash_key)
+            && entry.can_cut(next_alpha + 1)
+        {
+            -entry.score
         } else if let Some(score) = stability::stability_cutoff(&next, 4, next_alpha) {
             -score
         } else {
             let (sq1, sq2, sq3, sq4) = sort_empties_at_4(ctx);
             let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
-            sc.store(next_cache_idx, &next, next_alpha, score);
+            sc.store(next_cache_idx, next_hash_key, score, next_alpha + 1);
             -score
         }
     } else {
@@ -272,7 +293,7 @@ fn shallow_search_moves(
     ctx: &mut SearchContext,
     board: &Board,
     moves: bitboard::Bitboard,
-    cache_idx: usize,
+    cache_slot: CacheSlot,
     beta: Score,
     best_score: &mut Score,
     sc: &mut EndGameCache,
@@ -283,7 +304,7 @@ fn shallow_search_moves(
         if score > *best_score {
             *best_score = score;
             if score >= beta {
-                sc.store(cache_idx, board, beta - 1, score);
+                sc.store(cache_slot.index, cache_slot.key, score, beta);
                 return Some(score);
             }
         }
