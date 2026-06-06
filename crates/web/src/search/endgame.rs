@@ -2,10 +2,10 @@ use std::cell::RefCell;
 
 use reversi_core::board::Board;
 use reversi_core::constants::{SCORE_INF, SCORE_MAX};
-use reversi_core::count_last_flip::count_last_flip;
+use reversi_core::count_last_flip::solve1 as solve_last1;
 use reversi_core::square::Square;
 use reversi_core::types::{Depth, Score};
-use reversi_core::{bitboard, stability};
+use reversi_core::{bitboard, flip, stability};
 
 use crate::move_list::{MoveList, evaluate_moves_fast};
 use crate::search::endgame_cache::EndGameCache;
@@ -106,10 +106,8 @@ fn null_window_search_with_ec(
         return entry.score;
     }
 
-    let mut move_list = MoveList::new(board);
-    if move_list.wipeout_move().is_some() {
-        return SCORE_MAX;
-    } else if move_list.count() == 0 {
+    let moves = board.get_moves();
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             return -null_window_search_with_ec(ctx, &next, -beta, ec, sc);
@@ -118,42 +116,62 @@ fn null_window_search_with_ec(
         }
     }
 
-    let mut best_score = -SCORE_INF;
-    if move_list.count() >= 2 {
-        evaluate_moves_fast(&mut move_list, ctx, board, Square::None);
-        for mv in move_list.best_first_iter() {
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update_endgame(mv.sq);
-            let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-                -shallow_search(ctx, &next, -beta, sc)
-            } else {
-                -null_window_search_with_ec(ctx, &next, -beta, ec, sc)
-            };
-            ctx.undo_endgame(mv.sq);
+    if moves.has_single_bit_nonzero() {
+        let sq = moves.lsb_square_unchecked();
+        let flipped = flip::flip(sq, board.player(), board.opponent());
+        if flipped == board.opponent() {
+            return SCORE_MAX;
+        }
 
-            if score > best_score {
-                best_score = score;
-                if score >= beta {
-                    break;
-                }
+        let next = board.make_move_with_flipped(flipped, sq);
+        let score = search_move_nws_ec(ctx, &next, sq, beta, ec, sc);
+        ec.store(cache_idx, hash_key, score, beta);
+        return score;
+    }
+
+    let mut move_list = MoveList::with_moves(board, moves);
+    if move_list.wipeout_move().is_some() {
+        return SCORE_MAX;
+    }
+
+    let mut best_score = -SCORE_INF;
+
+    evaluate_moves_fast(&mut move_list, ctx, board, Square::None);
+    for mv in move_list.best_first_iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+        let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc);
+
+        if score > best_score {
+            best_score = score;
+            if score >= beta {
+                break;
             }
         }
-    } else {
-        // only one move available
-        let mv = move_list.first().unwrap();
-        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        ctx.update_endgame(mv.sq);
-        best_score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-            -shallow_search(ctx, &next, -beta, sc)
-        } else {
-            -null_window_search_with_ec(ctx, &next, -beta, ec, sc)
-        };
-        ctx.undo_endgame(mv.sq);
     }
 
     ec.store(cache_idx, hash_key, best_score, beta);
 
     best_score
+}
+
+/// Searches a move with null window, dispatching to shallow or EC search based on depth.
+#[inline(always)]
+fn search_move_nws_ec(
+    ctx: &mut SearchContext,
+    next: &Board,
+    sq: Square,
+    beta: Score,
+    ec: &mut EndGameCache,
+    sc: &mut EndGameCache,
+) -> Score {
+    ctx.update_endgame(sq);
+    let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
+        -shallow_search(ctx, next, -beta, sc)
+    } else {
+        -null_window_search_with_ec(ctx, next, -beta, ec, sc)
+    };
+    ctx.undo_endgame(sq);
+    score
 }
 
 /// Performs a null window search optimized for shallow endgame positions.
@@ -516,24 +534,5 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 #[inline(always)]
 fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
-    let mut score = board.get_player_count() as Score * 2 - 64 + 2;
-    let mut n_flipped = count_last_flip(board.player(), sq);
-    score += n_flipped;
-
-    if n_flipped == 0 {
-        // pass
-        let score2 = score - 2;
-        if score <= 0 {
-            score = score2;
-        }
-
-        if score > alpha {
-            n_flipped = count_last_flip(board.opponent(), sq);
-            if n_flipped != 0 {
-                score = score2 - n_flipped;
-            }
-        }
-    }
-
-    score
+    solve_last1(board.player(), alpha, sq)
 }
