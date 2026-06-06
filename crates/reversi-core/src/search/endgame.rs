@@ -264,14 +264,9 @@ pub fn try_probcut(
         return None;
     }
 
-    let pc_depth = match depth {
-        45.. => 4,
-        12.. => 2,
-        _ => 1,
-    };
-
-    let mean = probcut::get_mean_end(pc_depth, depth);
-    let sigma = probcut::get_sigma_end(pc_depth, depth);
+    const PC_DEPTH: Depth = 2;
+    let mean = probcut::get_mean_end(PC_DEPTH, depth);
+    let sigma = probcut::get_sigma_end(PC_DEPTH, depth);
     let t = ctx.selectivity.t_value();
 
     let pc_beta = probcut::compute_probcut_beta(beta, t, mean, sigma);
@@ -290,7 +285,7 @@ pub fn try_probcut(
         let score = search::<NonPV, MidGameStrategy>(
             ctx,
             board,
-            pc_depth,
+            PC_DEPTH,
             pc_beta - 1,
             pc_beta,
             thread,
