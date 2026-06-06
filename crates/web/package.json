@@ -4,7 +4,8 @@
   "type": "module",
   "bin": {
     "probcut-datagen": "./probcut-cli.js",
-    "endgame-bench": "./endgame-bench.js"
+    "endgame-bench": "./endgame-bench.js",
+    "network-bench": "./network-bench.js"
   },
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir pkg --release",
@@ -13,6 +14,7 @@
     "dev": "bun run build:wasm:dev && vite",
     "bench": "bun run build:wasm && cross-env BENCHMARK=true vite --open /benchmark.html",
     "build": "bun run build:wasm && vite build",
+    "bench:network": "bun run build:wasm:node && node network-bench.js",
     "bench:endgame": "bun run build:wasm:node && bun endgame-bench.js",
     "build:bench": "bun run build:wasm && cross-env BENCHMARK=true vite build",
     "preview": "vite preview"

@@ -16,15 +16,16 @@ use crate::{
     transposition_table::TranspositionTable,
 };
 use js_sys::Function;
-use rand::RngExt;
 use reversi_core::board::Board;
+use reversi_core::constants::INITIAL_EMPTY_COUNT;
 use reversi_core::disc::Disc;
-use reversi_core::eval::pattern_feature::PatternFeatures;
+use reversi_core::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use reversi_core::move_list::MoveList;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::side_to_move::SideToMove;
 use reversi_core::square::{Square, TOTAL_SQUARES};
 use reversi_core::types::Depth;
+use std::hint::black_box;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
@@ -306,6 +307,22 @@ const FFO_40_EXPECTED_SCORE: i32 = 38;
 const FFO_41_BOARD_STR: &str = "-OOOOO----OOOOX--OOOOOO-XXXXXOO--XXOOX--OOXOXX----OXXO---OOO--O-";
 const FFO_41_EXPECTED_SCORE: i32 = 0;
 
+struct NetworkBenchInput {
+    pattern_feature: PatternFeature,
+    ply: usize,
+}
+
+impl NetworkBenchInput {
+    fn from_board(board: &Board) -> Self {
+        let ply = INITIAL_EMPTY_COUNT - board.get_empty_count() as usize;
+        let pattern_features = PatternFeatures::new(board, ply);
+        Self {
+            pattern_feature: *pattern_features.p_feature(ply),
+            ply,
+        }
+    }
+}
+
 /// Aggregated timing statistics returned by a benchmark run.
 #[wasm_bindgen]
 pub struct BenchmarkResult {
@@ -349,6 +366,7 @@ impl BenchmarkResult {
 pub struct BenchmarkRunner {
     eval: Rc<Eval>,
     test_boards: Vec<Board>,
+    network_inputs: Vec<NetworkBenchInput>,
 }
 
 #[wasm_bindgen]
@@ -367,8 +385,16 @@ impl BenchmarkRunner {
         })?);
 
         let test_boards = Self::generate_test_boards();
+        let network_inputs = test_boards
+            .iter()
+            .map(NetworkBenchInput::from_board)
+            .collect();
 
-        Ok(BenchmarkRunner { eval, test_boards })
+        Ok(BenchmarkRunner {
+            eval,
+            test_boards,
+            network_inputs,
+        })
     }
 
     /// Generates a variety of test positions for benchmarking.
@@ -376,18 +402,17 @@ impl BenchmarkRunner {
         let mut boards = Vec::with_capacity(BENCH_TEST_POSITIONS);
         boards.push(Board::new()); // Opening position
 
-        // Create midgame positions by making random moves
-        let mut rng = rand::rng();
+        // Create reproducible midgame positions by making deterministic legal moves.
         for seed in 0..10 {
             let mut board = Board::new();
             let moves_to_make = BENCH_MOVES_PER_POSITION_BASE + (seed * BENCH_MOVES_STEP);
 
-            for _ in 0..moves_to_make {
+            for step in 0..moves_to_make {
                 let moves = MoveList::new(&board);
                 if moves.count() == 0 {
                     break;
                 }
-                let move_idx = rng.random_range(0..moves.count());
+                let move_idx = (seed + step) % moves.count();
                 if let Some(mv) = moves.iter().nth(move_idx) {
                     board = board.make_move(mv.sq);
                 } else {
@@ -469,6 +494,31 @@ impl BenchmarkRunner {
                 }
             },
         )
+    }
+
+    /// Returns how many positions are evaluated by one network-forward iteration.
+    pub fn network_forward_positions(&self) -> u32 {
+        self.network_inputs.len() as u32
+    }
+
+    /// Runs raw neural network forward passes without cache or context setup.
+    pub fn run_network_forward(&self, iterations: u32) -> i32 {
+        let eval = &self.eval;
+        let inputs = &self.network_inputs;
+        let mut checksum = 0i32;
+
+        for _ in 0..iterations {
+            for input in inputs {
+                let score =
+                    eval.evaluate_network(black_box(&input.pattern_feature), black_box(input.ply));
+                let score_value = black_box(score.value());
+                checksum = checksum
+                    .wrapping_add(score_value.wrapping_mul(31))
+                    .wrapping_add(input.ply as i32);
+            }
+        }
+
+        black_box(checksum)
     }
 
     /// Benchmarks search performance at the given fixed depth.

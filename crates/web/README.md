@@ -73,6 +73,38 @@ bun endgame-bench.js -p fforum-60-79 -t 64
 bun endgame-bench.js -p fforum-40-59 -e 20
 ```
 
+## Network Forward Benchmark
+
+Run the raw `crates/web/src/eval/network.rs` forward path from the terminal.
+
+### Build and Run
+
+```bash
+bun run bench:network
+```
+
+### Usage
+
+```bash
+bun run build:wasm:node
+bun network-bench.js [options]
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `-n, --iterations` | Timed outer iterations (default: `10000`) |
+| `-w, --warmup` | Warmup outer iterations (default: `1000`) |
+| `-h, --help` | Show help message |
+
+### Examples
+
+```bash
+bun network-bench.js
+bun network-bench.js --iterations 50000 --warmup 1000
+```
+
 ## ProbCut Training Data Generation
 
 Generate ProbCut training data from game sequences using the WebAssembly engine.

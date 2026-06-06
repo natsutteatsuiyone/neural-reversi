@@ -2,7 +2,11 @@ mod network;
 
 use std::io;
 
-use reversi_core::{board::Board, eval::eval_cache::EvalCache, types::ScaledScore};
+use reversi_core::{
+    board::Board,
+    eval::{eval_cache::EvalCache, pattern_feature::PatternFeature},
+    types::ScaledScore,
+};
 
 use crate::{eval::network::Network, search::search_context::SearchContext};
 
@@ -50,5 +54,15 @@ impl Eval {
 
         self.cache.store(key, score);
         score
+    }
+
+    /// Evaluates a precomputed pattern feature without cache or search context overhead.
+    #[inline(always)]
+    pub(crate) fn evaluate_network(
+        &self,
+        pattern_feature: &PatternFeature,
+        ply: usize,
+    ) -> ScaledScore {
+        self.network.evaluate(pattern_feature, ply)
     }
 }
