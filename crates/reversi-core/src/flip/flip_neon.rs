@@ -159,11 +159,14 @@ unsafe fn flip_left_pair(
     vandq_u64(mask, vqsubq_u64(outflank, one))
 }
 
+/// The two lanes in each pair represent distinct rays from the origin square,
+/// so their bitboards never overlap. A horizontal add therefore matches OR
+/// and compiles to a cheaper reduction on AArch64.
 #[inline]
 #[target_feature(enable = "neon")]
 unsafe fn fold_or_pair(x: uint64x2_t) -> u64 {
-    let folded = vorr_u64(vget_low_u64(x), vget_high_u64(x));
-    vget_lane_u64::<0>(folded)
+    let summed = vadd_u64(vget_low_u64(x), vget_high_u64(x));
+    vget_lane_u64::<0>(summed)
 }
 
 #[cfg(test)]
@@ -237,5 +240,15 @@ mod tests {
             let got = unsafe { flip(sq, p, o) };
             assert_eq!(got, expected, "sq={:?} p={:#x} o={:#x}", sq, p, o);
         }
+    }
+
+    #[test]
+    fn fold_pair_matches_or_for_disjoint_lanes() {
+        let pair = unsafe {
+            vsetq_lane_u64::<0>(0x0000_0000_0000_0015, vdupq_n_u64(0x0240_0000_0000_0000))
+        };
+        let expected = 0x0240_0000_0000_0015u64;
+        let got = unsafe { fold_or_pair(pair) };
+        assert_eq!(got, expected);
     }
 }
