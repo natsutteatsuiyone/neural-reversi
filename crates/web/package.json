@@ -8,9 +8,13 @@
     "network-bench": "./network-bench.js"
   },
   "scripts": {
-    "build:wasm": "wasm-pack build --target web --out-dir pkg --release",
+    "build:wasm:base": "wasm-pack build --target web --out-dir pkg --release",
+    "build:wasm:relaxed": "cross-env RUSTFLAGS=\"-C target-feature=+simd128,+relaxed-simd\" wasm-pack build --target web --out-dir pkg-relaxed --release",
+    "build:wasm": "bun run build:wasm:base && bun run build:wasm:relaxed",
     "build:wasm:dev": "wasm-pack build --target web --out-dir pkg --dev",
-    "build:wasm:node": "wasm-pack build --target nodejs --out-dir pkg-node --release",
+    "build:wasm:node:base": "wasm-pack build --target nodejs --out-dir pkg-node --release",
+    "build:wasm:node:relaxed": "cross-env RUSTFLAGS=\"-C target-feature=+simd128,+relaxed-simd\" wasm-pack build --target nodejs --out-dir pkg-node-relaxed --release",
+    "build:wasm:node": "bun run build:wasm:node:base && bun run build:wasm:node:relaxed",
     "dev": "bun run build:wasm:dev && vite",
     "bench": "bun run build:wasm && cross-env BENCHMARK=true vite --open /benchmark.html",
     "build": "bun run build:wasm && vite build",

@@ -1,6 +1,8 @@
 // reversi_web/reversi-worker.js
 // trunk builds the WASM module and places it in the dist directory
 // We dynamically import it when needed
+import { importPreferredWasmModule } from "./wasm-loader.js";
+
 let Game;
 let initModule;
 
@@ -12,8 +14,10 @@ self.onmessage = async (event) => {
 
   if (type === "init") {
     try {
-      // Dynamically import the WASM module built by wasm-pack
-      const module = await import('/pkg/web.js');
+      const { module } = await importPreferredWasmModule({
+        relaxedPath: "/pkg-relaxed/web.js",
+        fallbackPath: "/pkg/web.js",
+      });
       initModule = module.default;
       Game = module.Game;
 

@@ -1,4 +1,6 @@
-import init, { BenchmarkRunner } from './pkg/web.js';
+import { importPreferredWasmModule } from './wasm-loader.js';
+
+let BenchmarkRunner;
 
 // Constants
 const UI_UPDATE_DELAY = 100;
@@ -68,13 +70,23 @@ const benchmarks = {
 // Initialize WASM module
 async function initializeWasm() {
   try {
+    const { module, relaxedSimd } = await importPreferredWasmModule({
+      relaxedPath: '/pkg-relaxed/web.js',
+      fallbackPath: '/pkg/web.js',
+    });
+    const init = module.default;
+    BenchmarkRunner = module.BenchmarkRunner;
+
     await init();
     benchmarkRunner = new BenchmarkRunner();
 
     elements.loading.classList.add('hidden');
     elements.controls.classList.remove('hidden');
 
-    showStatus('Initialization complete', 'success');
+    showStatus(
+      `Initialization complete (${relaxedSimd ? 'relaxed-simd' : 'simd128'})`,
+      'success',
+    );
     setTimeout(() => hideStatus(), STATUS_HIDE_DELAY_SUCCESS);
   } catch (error) {
     console.error('Failed to initialize WASM:', error);
