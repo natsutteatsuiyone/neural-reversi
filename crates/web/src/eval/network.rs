@@ -135,39 +135,49 @@ impl<const IN_DIMS: usize, const WEIGHTS_LEN: usize> HiddenLayer<IN_DIMS, WEIGHT
             let input_ptr = input.as_ptr() as *const v128;
             let weights_ptr = self.weights.0.as_ptr() as *const v128;
             let chunks = IN_DIMS / 8;
-            let mut sums: [v128; HIDDEN_DIMS] = std::mem::zeroed();
+            let mut sum0 = i32x4_splat(0);
+            let mut sum1 = i32x4_splat(0);
+            let mut sum2 = i32x4_splat(0);
+            let mut sum3 = i32x4_splat(0);
+            let mut sum4 = i32x4_splat(0);
+            let mut sum5 = i32x4_splat(0);
+            let mut sum6 = i32x4_splat(0);
+            let mut sum7 = i32x4_splat(0);
 
             macro_rules! process_row {
-                ($out_idx:expr, $activation:expr, $chunk:expr) => {{
+                ($sum:ident, $out_idx:expr, $activation:expr, $chunk:expr) => {{
                     let weight = v128_load(weights_ptr.add($out_idx * chunks + $chunk));
-                    sums[$out_idx] =
-                        i32x4_add(sums[$out_idx], i32x4_extmul_low_i16x8($activation, weight));
-                    sums[$out_idx] =
-                        i32x4_add(sums[$out_idx], i32x4_extmul_high_i16x8($activation, weight));
+                    $sum = i32x4_add($sum, i32x4_dot_i16x8($activation, weight));
                 }};
             }
 
             for chunk in 0..chunks {
                 let activation = v128_load(input_ptr.add(chunk));
-                process_row!(0, activation, chunk);
-                process_row!(1, activation, chunk);
-                process_row!(2, activation, chunk);
-                process_row!(3, activation, chunk);
-                process_row!(4, activation, chunk);
-                process_row!(5, activation, chunk);
-                process_row!(6, activation, chunk);
-                process_row!(7, activation, chunk);
+                process_row!(sum0, 0, activation, chunk);
+                process_row!(sum1, 1, activation, chunk);
+                process_row!(sum2, 2, activation, chunk);
+                process_row!(sum3, 3, activation, chunk);
+                process_row!(sum4, 4, activation, chunk);
+                process_row!(sum5, 5, activation, chunk);
+                process_row!(sum6, 6, activation, chunk);
+                process_row!(sum7, 7, activation, chunk);
             }
 
-            for (out_idx, value) in output.iter_mut().enumerate() {
-                let sum = sums[out_idx];
-                let acc = self.biases[out_idx] as i64
-                    + i32x4_extract_lane::<0>(sum) as i64
-                    + i32x4_extract_lane::<1>(sum) as i64
-                    + i32x4_extract_lane::<2>(sum) as i64
-                    + i32x4_extract_lane::<3>(sum) as i64;
-                *value = screlu_quantized_i64(acc >> HIDDEN_WEIGHT_SCALE_BITS);
+            macro_rules! finish_row {
+                ($out_idx:expr, $sum:expr) => {{
+                    let acc = self.biases[$out_idx] + horizontal_sum_i32x4($sum);
+                    output[$out_idx] = screlu_quantized(acc >> HIDDEN_WEIGHT_SCALE_BITS);
+                }};
             }
+
+            finish_row!(0, sum0);
+            finish_row!(1, sum1);
+            finish_row!(2, sum2);
+            finish_row!(3, sum3);
+            finish_row!(4, sum4);
+            finish_row!(5, sum5);
+            finish_row!(6, sum6);
+            finish_row!(7, sum7);
         }
 
         output
@@ -268,6 +278,10 @@ impl Network {
     }
 
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    #[cfg_attr(
+        target_feature = "relaxed-simd",
+        target_feature(enable = "relaxed-simd")
+    )]
     #[target_feature(enable = "simd128")]
     fn forward_simd(
         &self,
@@ -298,14 +312,30 @@ impl Network {
             let input_activation_ptr =
                 std::ptr::addr_of_mut!((*input_activation.as_mut_ptr()).0) as *mut i16;
             let out_w = layer_stack.output.weights.0.as_ptr().add(HIDDEN_DIMS) as *const v128;
+            let mut skip0 = i32x4_splat(0);
+            let mut skip1 = i32x4_splat(0);
+            let mut skip2 = i32x4_splat(0);
+            let mut skip3 = i32x4_splat(0);
+
+            // Relaxed-SIMD fuses each feature pair's i8->i16 widening and addition into a
+            // single `i16x8_relaxed_dot_i8x16_i7x16(weights, ones)`: the dot's pairwise
+            // horizontal sum over byte-interleaved rows yields `w_a[col] + w_b[col]`.
+            // `ones` is the i7 operand (top bit clear, portable); the i8 weight slot is the
+            // signed full-range operand, and the partial sums (|w| <= 127, range +-254) never
+            // saturate, so the result is bit-identical to the simd128 extend+add path.
+            #[cfg(target_feature = "relaxed-simd")]
+            let ones = i8x16_splat(1);
 
             macro_rules! activate_store {
-                ($idx:expr, $acc:expr) => {{
+                ($idx:expr, $acc:expr, $skip_sum:expr) => {{
                     let relu = i16x8_max($acc, zero);
                     let clamped = i16x8_min(relu, one);
                     let sq = u16x8_mul(clamped, clamped);
                     let activation = u16x8_shr(sq, 8);
                     v128_store(input_activation_ptr.add($idx * 8) as *mut v128, activation);
+
+                    let skip_weight = v128_load(out_w.add($idx));
+                    $skip_sum = i32x4_add($skip_sum, i32x4_dot_i16x8(activation, skip_weight));
                 }};
             }
 
@@ -321,6 +351,7 @@ impl Network {
                     let mut a6 = v128_load(bias_ptr.add(c * 2 + 6));
                     let mut a7 = v128_load(bias_ptr.add(c * 2 + 7));
 
+                    #[cfg(not(target_feature = "relaxed-simd"))]
                     for &row_ptr in &row_ptrs {
                         let w0 = v128_load(row_ptr.add(c));
                         let w1 = v128_load(row_ptr.add(c + 1));
@@ -336,14 +367,74 @@ impl Network {
                         a7 = i16x8_add(a7, i16x8_extend_high_i8x16(w3));
                     }
 
-                    activate_store!(c * 2, a0);
-                    activate_store!(c * 2 + 1, a1);
-                    activate_store!(c * 2 + 2, a2);
-                    activate_store!(c * 2 + 3, a3);
-                    activate_store!(c * 2 + 4, a4);
-                    activate_store!(c * 2 + 5, a5);
-                    activate_store!(c * 2 + 6, a6);
-                    activate_store!(c * 2 + 7, a7);
+                    #[cfg(target_feature = "relaxed-simd")]
+                    {
+                        let mut pair = 0;
+                        while pair < NUM_FEATURES {
+                            let row_a = row_ptrs[pair];
+                            let row_b = row_ptrs[pair + 1];
+
+                            macro_rules! pair_acc {
+                                ($k:expr, $lo:ident, $hi:ident) => {{
+                                    let wa = v128_load(row_a.add(c + $k));
+                                    let wb = v128_load(row_b.add(c + $k));
+                                    let lo = i8x16_shuffle::<
+                                        0,
+                                        16,
+                                        1,
+                                        17,
+                                        2,
+                                        18,
+                                        3,
+                                        19,
+                                        4,
+                                        20,
+                                        5,
+                                        21,
+                                        6,
+                                        22,
+                                        7,
+                                        23,
+                                    >(wa, wb);
+                                    let hi = i8x16_shuffle::<
+                                        8,
+                                        24,
+                                        9,
+                                        25,
+                                        10,
+                                        26,
+                                        11,
+                                        27,
+                                        12,
+                                        28,
+                                        13,
+                                        29,
+                                        14,
+                                        30,
+                                        15,
+                                        31,
+                                    >(wa, wb);
+                                    $lo = i16x8_add($lo, i16x8_relaxed_dot_i8x16_i7x16(lo, ones));
+                                    $hi = i16x8_add($hi, i16x8_relaxed_dot_i8x16_i7x16(hi, ones));
+                                }};
+                            }
+
+                            pair_acc!(0, a0, a1);
+                            pair_acc!(1, a2, a3);
+                            pair_acc!(2, a4, a5);
+                            pair_acc!(3, a6, a7);
+                            pair += 2;
+                        }
+                    }
+
+                    activate_store!(c * 2, a0, skip0);
+                    activate_store!(c * 2 + 1, a1, skip1);
+                    activate_store!(c * 2 + 2, a2, skip2);
+                    activate_store!(c * 2 + 3, a3, skip3);
+                    activate_store!(c * 2 + 4, a4, skip0);
+                    activate_store!(c * 2 + 5, a5, skip1);
+                    activate_store!(c * 2 + 6, a6, skip2);
+                    activate_store!(c * 2 + 7, a7, skip3);
                 }};
             }
 
@@ -352,45 +443,17 @@ impl Network {
             process_block!(2);
             process_block!(3);
 
-            let act_ptr = input_activation_ptr as *const v128;
-            let mut s0 = i32x4_splat(0);
-            let mut s1 = i32x4_splat(0);
-            let mut s2 = i32x4_splat(0);
-            let mut s3 = i32x4_splat(0);
-
-            macro_rules! skip_dot {
-                ($idx:expr, $sum:expr) => {{
-                    let a = v128_load(act_ptr.add($idx));
-                    let w = v128_load(out_w.add($idx));
-                    $sum = i32x4_add($sum, i32x4_extmul_low_i16x8(a, w));
-                    $sum = i32x4_add($sum, i32x4_extmul_high_i16x8(a, w));
-                }};
-            }
-
-            let mut idx = 0;
-            while idx < NN_DIMS / 8 {
-                skip_dot!(idx, s0);
-                skip_dot!(idx + 1, s1);
-                skip_dot!(idx + 2, s2);
-                skip_dot!(idx + 3, s3);
-                idx += 4;
-            }
-
-            let total = i32x4_add(i32x4_add(s0, s1), i32x4_add(s2, s3));
-            let mut output = layer_stack.output.bias
-                + i32x4_extract_lane::<0>(total)
-                + i32x4_extract_lane::<1>(total)
-                + i32x4_extract_lane::<2>(total)
-                + i32x4_extract_lane::<3>(total);
+            let total = i32x4_add(i32x4_add(skip0, skip1), i32x4_add(skip2, skip3));
+            let mut output = layer_stack.output.bias + horizontal_sum_i32x4(total);
 
             // SAFETY: the 4 blocks above write all 32 i16x8 lanes in NN_DIMS.
             let input_activation = input_activation.assume_init();
             let l1 = layer_stack.l1.forward_simd(&input_activation.0);
             let l2 = layer_stack.l2.forward_simd(&l1);
 
-            for (idx, &value) in l2.iter().enumerate() {
-                output += value as i32 * layer_stack.output.weights.0[idx] as i32;
-            }
+            let l2_vec = v128_load(l2.as_ptr() as *const v128);
+            let l2_weights = v128_load(layer_stack.output.weights.0.as_ptr() as *const v128);
+            output += horizontal_sum_i32x4(i32x4_dot_i16x8(l2_vec, l2_weights));
 
             output
         }
@@ -444,13 +507,13 @@ fn input_activation_scalar(
     AlignedI16Array(acc)
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
 #[inline(always)]
 fn screlu_quantized(value: i32) -> i16 {
     let clamped = value.clamp(0, QUANTIZED_ONE);
     ((clamped * clamped) >> 8) as i16
 }
 
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
 #[inline(always)]
 fn screlu_quantized_i64(value: i64) -> i16 {
     let clamped = value.clamp(0, QUANTIZED_ONE as i64);
@@ -461,4 +524,14 @@ fn screlu_quantized_i64(value: i64) -> i16 {
 fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
     *unsafe { PATTERN_FEATURE_OFFSETS.get_unchecked(idx) }
         + unsafe { pattern_feature.get_unchecked(idx) } as usize
+}
+
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+fn horizontal_sum_i32x4(sum: std::arch::wasm32::v128) -> i32 {
+    use std::arch::wasm32::*;
+
+    let pair_sums = i32x4_add(sum, i32x4_shuffle::<2, 3, 0, 1>(sum, sum));
+    let total = i32x4_add(pair_sums, i32x4_shuffle::<1, 0, 3, 2>(pair_sums, pair_sums));
+    i32x4_extract_lane::<0>(total)
 }

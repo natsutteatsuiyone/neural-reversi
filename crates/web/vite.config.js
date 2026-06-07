@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
-import { readFileSync } from 'fs';
+import { cpSync, existsSync, readFileSync } from 'fs';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
@@ -26,9 +26,30 @@ function serveWasm() {
   };
 }
 
+function copyWasmPackages() {
+  const packageDirs = ['pkg', 'pkg-relaxed'];
+
+  return {
+    name: 'copy-wasm-packages',
+    writeBundle() {
+      for (const dir of packageDirs) {
+        const src = resolve(__dirname, dir);
+        if (!existsSync(src)) {
+          console.warn(`[copy-wasm-packages] ${dir} not found; skipping copy.`);
+          continue;
+        }
+        cpSync(src, resolve(__dirname, 'dist', dir), {
+          recursive: true,
+        });
+      }
+    }
+  };
+}
+
 export default defineConfig({
   plugins: [
     serveWasm(),
+    copyWasmPackages(),
     wasm(),
     topLevelAwait()
   ],
