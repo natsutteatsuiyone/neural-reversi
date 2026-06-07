@@ -12,7 +12,7 @@ use crate::{eval::network::Network, search::search_context::SearchContext};
 
 macro_rules! eval_weights_literal {
     () => {
-        "eval_wasm-e6bbc4f6.zst"
+        "eval_wasm-9c7b9796.zst"
     };
 }
 
