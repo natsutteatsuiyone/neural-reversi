@@ -14,6 +14,9 @@ pub(super) fn get_moves(player: u64, opponent: u64) -> u64 {
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { get_moves_avx2(player, opponent) }
         }
+        all(target_arch = "aarch64", target_feature = "neon") => {
+            unsafe { get_moves_neon(player, opponent) }
+        }
         _ => {
             get_moves_portable(player, opponent)
         }
@@ -78,6 +81,84 @@ pub(super) fn get_moves_portable(player: u64, opponent: u64) -> u64 {
 
     moves |= (flip7 >> 7) | (flip9 >> 9) | (flip8 >> 8) | (flip1 >> 1);
     moves & !(player | opponent)
+}
+
+/// AArch64 NEON implementation of `get_moves`.
+///
+/// Uses NEON for the two diagonal directions and scalar code for horizontal and
+/// vertical scans.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[target_feature(enable = "neon")]
+#[cfg_attr(target_feature = "sha3", target_feature(enable = "sha3"))]
+#[inline]
+#[allow(dead_code)]
+pub(super) fn get_moves_neon(player: u64, opponent: u64) -> u64 {
+    use std::arch::aarch64::*;
+
+    let empty = !(player | opponent);
+    let h_opp = opponent & HORIZONTAL_MASK;
+
+    // --- Diagonals (shifts 7 and 9) on NEON. ---
+    // Lane 0 = shift 7, lane 1 = shift 9; both share the horizontal mask, which
+    // blocks column-edge wraparound. `pre_neg == m & (m >> s)` because
+    // `(m & (m << s)) >> s == m & (m >> s)`.
+    let pv = vdupq_n_u64(player);
+    let mv = vdupq_n_u64(h_opp);
+    let sh = vcombine_s64(vdup_n_s64(7), vdup_n_s64(9));
+    let sh_neg = vcombine_s64(vdup_n_s64(-7), vdup_n_s64(-9));
+    let sh2 = vcombine_s64(vdup_n_s64(14), vdup_n_s64(18));
+    let sh2_neg = vcombine_s64(vdup_n_s64(-14), vdup_n_s64(-18));
+
+    let pre = vandq_u64(mv, vshlq_u64(mv, sh));
+    let pre_neg = vshlq_u64(pre, sh_neg);
+
+    let mut fl = vandq_u64(mv, vshlq_u64(pv, sh));
+    let mut fr = vandq_u64(mv, vshlq_u64(pv, sh_neg));
+    // First fill step. The squares it adds are disjoint from `f`, so the OR is
+    // an XOR and fuses into one `bcax` (`a ^ (b & ~c)`) when SHA3 is present.
+    #[cfg(target_feature = "sha3")]
+    {
+        let nmv = vdupq_n_u64(!h_opp);
+        fl = vbcaxq_u64(fl, vshlq_u64(fl, sh), nmv);
+        fr = vbcaxq_u64(fr, vshlq_u64(fr, sh_neg), nmv);
+    }
+    #[cfg(not(target_feature = "sha3"))]
+    {
+        fl = vorrq_u64(fl, vandq_u64(mv, vshlq_u64(fl, sh)));
+        fr = vorrq_u64(fr, vandq_u64(mv, vshlq_u64(fr, sh_neg)));
+    }
+    // Two doublings reach the maximum diagonal run length of 6. These are not
+    // disjoint, so they stay as OR.
+    fl = vorrq_u64(fl, vandq_u64(pre, vshlq_u64(fl, sh2)));
+    fl = vorrq_u64(fl, vandq_u64(pre, vshlq_u64(fl, sh2)));
+    fr = vorrq_u64(fr, vandq_u64(pre_neg, vshlq_u64(fr, sh2_neg)));
+    fr = vorrq_u64(fr, vandq_u64(pre_neg, vshlq_u64(fr, sh2_neg)));
+
+    let md = vorrq_u64(vshlq_u64(fl, sh), vshlq_u64(fr, sh_neg));
+    let diag = vgetq_lane_u64::<0>(md) | vgetq_lane_u64::<1>(md);
+
+    // --- Horizontal (shift 1): additive carry trick, both directions. ---
+    let rp = player.reverse_bits();
+    let rh = h_opp.reverse_bits();
+    let mut moves = h_opp.wrapping_add(h_opp & (player << 1));
+    moves |= rh.wrapping_add(rh & (rp << 1)).reverse_bits();
+
+    // --- Vertical (shift 8): scalar parallel-prefix fill, both directions. ---
+    let mut flip8 = opponent & (player << 8);
+    flip8 |= opponent & (flip8 << 8);
+    let mut pre8 = opponent & (opponent << 8);
+    flip8 |= pre8 & (flip8 << 16);
+    flip8 |= pre8 & (flip8 << 16);
+    moves |= flip8 << 8;
+
+    flip8 = opponent & (player >> 8);
+    flip8 |= opponent & (flip8 >> 8);
+    pre8 >>= 8;
+    flip8 |= pre8 & (flip8 >> 16);
+    flip8 |= pre8 & (flip8 >> 16);
+    moves |= flip8 >> 8;
+
+    (moves | diag) & empty
 }
 
 /// Reduces a 256-bit vector to a single `u64` by OR-ing all four 64-bit lanes.

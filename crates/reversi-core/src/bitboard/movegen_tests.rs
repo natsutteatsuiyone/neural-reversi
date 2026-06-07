@@ -377,6 +377,18 @@ fn assert_combined_matches_separate_paths(position: Position) {
 }
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn assert_neon_moves_match_scalar(position: Position) {
+    let expected_moves = get_moves_portable(position.player, position.opponent);
+    let moves_neon = unsafe { get_moves_neon(position.player, position.opponent) };
+
+    assert_eq!(
+        moves_neon, expected_moves,
+        "{}: NEON moves differ from scalar for player={:016x}, opponent={:016x}",
+        position.name, position.player, position.opponent
+    );
+}
+
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn assert_neon_combined_matches_scalar(position: Position) {
     let expected_moves = get_moves_portable(position.player, position.opponent);
     let expected_potential = get_potential_moves(position.player, position.opponent);
@@ -582,6 +594,12 @@ fn initial_position_has_exact_legal_and_potential_moves() {
 #[test]
 fn combined_move_and_potential_matches_separate_paths() {
     for_each_reference_position(assert_combined_matches_separate_paths);
+}
+
+#[test]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn neon_moves_match_scalar_paths() {
+    for_each_reference_position(assert_neon_moves_match_scalar);
 }
 
 #[test]
