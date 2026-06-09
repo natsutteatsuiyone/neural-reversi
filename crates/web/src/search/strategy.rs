@@ -118,6 +118,6 @@ impl SearchStrategy for EndGameStrategy {
         depth: Depth,
         beta: ScaledScore,
     ) -> Option<ScaledScore> {
-        web_probcut::probcut_midgame(ctx, board, depth, beta)
+        web_probcut::probcut_endgame(ctx, board, depth, beta)
     }
 }

@@ -29,6 +29,12 @@ const MIN_DEPTH_DIFFERENCE: Depth = 2;
 /// Search selectivity level (none for accurate measurements).
 const SELECTIVITY: Selectivity = Selectivity::None;
 
+/// Shallow search depth used for endgame ProbCut analysis.
+const ENDGAME_SHALLOW_DEPTH: Depth = 2;
+
+/// Starting ply for endgame ProbCut analysis (positions earlier than this are skipped).
+const ENDGAME_START_PLY: u32 = 30;
+
 /// Represents a single ProbCut training data sample.
 #[derive(Debug)]
 struct ProbCutSample {
@@ -42,6 +48,15 @@ struct ProbCutSample {
     deep_depth: Depth,
     /// Score from deep search
     deep_score: f32,
+}
+
+/// A pending endgame sample whose deep score is resolved once the final game result is known.
+struct EndgameSample {
+    ply: u32,
+    shallow_depth: Depth,
+    shallow_score: f32,
+    deep_depth: Depth,
+    side_to_move: Disc,
 }
 
 /// Result returned to JavaScript containing generated samples and statistics.
@@ -175,6 +190,66 @@ impl ProbCutDatagen {
         self.build_result(all_samples)
     }
 
+    /// Processes a single game sequence and generates endgame training samples.
+    ///
+    /// Only positions with ply >= 30 are analyzed. The shallow search runs at a fixed
+    /// depth and the deep score is the exact final game result (disc difference).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the game sequence contains an invalid move token.
+    pub fn process_game_endgame(
+        &mut self,
+        game_sequence: &str,
+    ) -> Result<ProbCutDatagenResult, JsValue> {
+        let samples = self.process_game_endgame_internal(game_sequence)?;
+        self.build_result(samples)
+    }
+
+    /// Processes multiple newline-separated game sequences for endgame ProbCut analysis.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any game sequence contains an invalid move token, or
+    /// if the progress callback invocation fails.
+    pub fn process_games_endgame(
+        &mut self,
+        games: &str,
+        progress_callback: Option<Function>,
+    ) -> Result<ProbCutDatagenResult, JsValue> {
+        let lines: Vec<&str> = games.lines().filter(|l| !l.trim().is_empty()).collect();
+        let total_games = lines.len();
+        let mut all_samples = Vec::new();
+
+        for (idx, line) in lines.iter().enumerate() {
+            let samples = self.process_game_endgame_internal(line)?;
+            all_samples.extend(samples);
+
+            // Call progress callback if provided
+            if let Some(ref callback) = progress_callback {
+                let progress = js_sys::Object::new();
+                js_sys::Reflect::set(
+                    &progress,
+                    &JsValue::from_str("game_index"),
+                    &JsValue::from_f64((idx + 1) as f64),
+                )?;
+                js_sys::Reflect::set(
+                    &progress,
+                    &JsValue::from_str("total_games"),
+                    &JsValue::from_f64(total_games as f64),
+                )?;
+                js_sys::Reflect::set(
+                    &progress,
+                    &JsValue::from_str("samples_so_far"),
+                    &JsValue::from_f64(all_samples.len() as f64),
+                )?;
+                callback.call1(&JsValue::NULL, &progress)?;
+            }
+        }
+
+        self.build_result(all_samples)
+    }
+
     /// Clears all caches and resets statistics.
     pub fn clear(&mut self) {
         self.score_cache.clear();
@@ -249,6 +324,96 @@ impl ProbCutDatagen {
         }
 
         Ok(samples)
+    }
+
+    /// Processes a single game for endgame ProbCut and returns the collected samples.
+    ///
+    /// Mirrors `execute_endgame` in `crates/datagen/src/probcut.rs`: for each position
+    /// at or beyond [`ENDGAME_START_PLY`], a single fixed-depth shallow search is run and
+    /// paired with the exact final game result as the deep score.
+    fn process_game_endgame_internal(
+        &mut self,
+        game_sequence: &str,
+    ) -> Result<Vec<ProbCutSample>, JsValue> {
+        let game_sequence = game_sequence.trim();
+        if game_sequence.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut pending = Vec::new();
+        let mut board = Board::new();
+        let mut side_to_move = Disc::Black;
+
+        for token in game_sequence.as_bytes().chunks_exact(2) {
+            let move_str = std::str::from_utf8(token)
+                .map_err(|e| JsValue::from_str(&format!("Invalid UTF-8 in move token: {}", e)))?;
+
+            let sq = move_str
+                .parse::<Square>()
+                .map_err(|e| JsValue::from_str(&format!("Invalid move '{}': {}", move_str, e)))?;
+
+            // Handle pass if no legal moves
+            if !board.has_legal_moves() {
+                board = board.switch_players();
+                side_to_move = side_to_move.opposite();
+                if !board.has_legal_moves() {
+                    break;
+                }
+            }
+
+            let n_empties = board.get_empty_count();
+            let ply = 60 - n_empties;
+            if ply >= ENDGAME_START_PLY && ENDGAME_SHALLOW_DEPTH < n_empties {
+                let shallow_score = self.search_endgame_shallow(&board);
+                pending.push(EndgameSample {
+                    ply,
+                    shallow_depth: ENDGAME_SHALLOW_DEPTH,
+                    shallow_score,
+                    deep_depth: n_empties,
+                    side_to_move,
+                });
+            }
+
+            // Make the move
+            board = board.make_move(sq);
+            side_to_move = side_to_move.opposite();
+        }
+
+        // The deep score is the exact final result, oriented to each sample's side to move.
+        let final_score = board.solve(board.get_empty_count()) as f32;
+        let samples = pending
+            .into_iter()
+            .map(|p| {
+                let deep_score = if p.side_to_move == side_to_move {
+                    final_score
+                } else {
+                    -final_score
+                };
+                ProbCutSample {
+                    ply: p.ply,
+                    shallow_depth: p.shallow_depth,
+                    shallow_score: p.shallow_score,
+                    deep_depth: p.deep_depth,
+                    deep_score,
+                }
+            })
+            .collect();
+
+        Ok(samples)
+    }
+
+    /// Runs the fixed-depth shallow endgame search and returns its score.
+    ///
+    /// The transposition table is cleared first so the score reflects a clean
+    /// fixed-depth search, uncontaminated by deeper entries from earlier positions.
+    fn search_endgame_shallow(&mut self, board: &Board) -> f32 {
+        self.search.init();
+        let level = Level {
+            mid_depth: ENDGAME_SHALLOW_DEPTH,
+            end_depth: ENDGAME_SHALLOW_DEPTH,
+            perfect_depth: ENDGAME_SHALLOW_DEPTH,
+        };
+        self.search.run(board, level, SELECTIVITY, None).score
     }
 
     /// Searches at all depths from 0 to `NUM_SEARCH_DEPTHS`.
