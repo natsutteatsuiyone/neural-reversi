@@ -3,6 +3,7 @@
 
   /* Board sizing */
   --board-max-width: min(80vw, 540px);
+  --site-header-height: 54px;
 
   /* Palette ported from the Tauri GUI (crates/gui App.css) */
   --background: #1c1c21;
@@ -634,7 +635,7 @@ button:disabled {
 /* --- Settings modal --- */
 .settings-modal {
   position: fixed;
-  inset: 0;
+  inset: var(--site-header-height) 0 0;
   background: rgba(12, 12, 15, 0.82);
   backdrop-filter: blur(6px);
   display: flex;
@@ -653,7 +654,7 @@ button:disabled {
   padding: 32px 28px 28px;
   box-shadow: var(--shadow-xl);
   text-align: left;
-  max-height: calc(100vh - 40px);
+  max-height: calc(100vh - var(--site-header-height) - 40px);
   overflow-y: auto;
   position: relative;
 }
