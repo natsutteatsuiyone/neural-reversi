@@ -31,12 +31,22 @@ impl Eval {
     ///
     /// [`io::Error`]: std::io::Error
     pub fn new() -> io::Result<Self> {
-        let network = Network::from_bytes(include_bytes!(concat!(
+        Self::from_bytes(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../",
             eval_weights_literal!()
-        )))?;
+        )))
+    }
 
+    /// Creates a new evaluator from zstd-compressed weight data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the weight data cannot be decompressed or parsed.
+    ///
+    /// [`io::Error`]: std::io::Error
+    pub fn from_bytes(bytes: &[u8]) -> io::Result<Self> {
+        let network = Network::from_bytes(bytes)?;
         Ok(Eval {
             network,
             cache: EvalCache::new(17),

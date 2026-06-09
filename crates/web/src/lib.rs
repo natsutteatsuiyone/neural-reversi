@@ -6,8 +6,10 @@ mod move_list;
 mod probcut;
 mod probcut_datagen;
 mod search;
+mod weight_match;
 
 pub use probcut_datagen::{ProbCutDatagen, ProbCutDatagenResult};
+pub use weight_match::{WeightMatchGameResult, WeightMatchRunner};
 
 use crate::{
     eval::Eval,

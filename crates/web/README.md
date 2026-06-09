@@ -126,6 +126,53 @@ bun network-bench.js
 bun network-bench.js --iterations 50000 --warmup 1000
 ```
 
+## Weight Match
+
+Run a simple in-process one-ply match between two wasm weight files. This does
+not use GTP or any other protocol; both evaluators are loaded into the same
+WebAssembly module and play directly against each other. If an opening file is
+provided, it uses the same compact opening format as `crates/match-runner` and
+plays each opening twice with colors swapped.
+
+### Build
+
+```bash
+bun run build:wasm:node
+```
+
+### Usage
+
+```bash
+bun weight-match.js <engine1-weight.zst> <engine2-weight.zst> [options]
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `-o, --opening-file` | Opening file in match-runner format |
+| `--details` | Print one row per game |
+| `--show-moves` | Include full move sequences with `--details` |
+| `--name1` | Display name for engine 1 |
+| `--name2` | Display name for engine 2 |
+| `-h, --help` | Show help message |
+
+### Examples
+
+```bash
+bun weight-match.js ../../eval_wasm-9c7b9796.zst ../../eval_wasm-test1.zst
+bun weight-match.js a.zst b.zst --opening-file ../../openings.txt
+bun weight-match.js a.zst b.zst --opening-file ../../openings.txt --details
+```
+
+To find the strongest `.zst` file in a folder with the minimum number of
+pairwise comparisons, run a winner-stays tournament:
+
+```bash
+bun weight-tournament.js <weights-dir> --opening-file <openings.txt>
+bun weight-tournament.js ../../weights --opening-file ../../openings.txt
+```
+
 ## ProbCut Training Data Generation
 
 Generate ProbCut training data from game sequences using the WebAssembly engine.
