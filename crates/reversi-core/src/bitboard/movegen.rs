@@ -556,81 +556,10 @@ pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, 
 }
 
 /// AArch64 implementation of `get_moves_and_potential`.
-///
-/// Legal moves use the portable scalar shape. Potential moves use NEON lanes so
-/// they do not add to the scalar move-generation dependency chain.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 #[inline]
 pub(super) fn get_moves_and_potential_neon(player: u64, opponent: u64) -> (u64, u64) {
-    use std::arch::aarch64::*;
-    let empty = !(player | opponent);
-    let h_opp = opponent & HORIZONTAL_MASK;
-
-    // Lane 0 = horizontal (shift 1), lane 1 = vertical (shift 8).
-    let mask_hv = vcombine_u64(vdup_n_u64(h_opp), vdup_n_u64(opponent & VERTICAL_MASK));
-    let sh_hv = vcombine_s64(vdup_n_s64(1), vdup_n_s64(8));
-    let sh_hv_neg = vcombine_s64(vdup_n_s64(-1), vdup_n_s64(-8));
-
-    // Lane 0 = anti-diagonal (shift 7), lane 1 = main-diagonal (shift 9); shared mask.
-    let mask_d = vdupq_n_u64(opponent & DIAGONAL_MASK);
-    let sh_d = vcombine_s64(vdup_n_s64(7), vdup_n_s64(9));
-    let sh_d_neg = vcombine_s64(vdup_n_s64(-7), vdup_n_s64(-9));
-
-    // Potential: shift the masked opponent both ways and combine.
-    let pot_hv = vorrq_u64(vshlq_u64(mask_hv, sh_hv), vshlq_u64(mask_hv, sh_hv_neg));
-    let pot_d = vorrq_u64(vshlq_u64(mask_d, sh_d), vshlq_u64(mask_d, sh_d_neg));
-    let pot_all = vorrq_u64(pot_hv, pot_d);
-    let potential = vgetq_lane_u64::<0>(pot_all) | vgetq_lane_u64::<1>(pot_all);
-
-    let mut flip7 = h_opp & (player << 7);
-    let mut flip9 = h_opp & (player << 9);
-    let mut flip8 = opponent & (player << 8);
-    let mut flip1 = h_opp & (player << 1);
-
-    flip7 |= h_opp & (flip7 << 7);
-    flip9 |= h_opp & (flip9 << 9);
-    flip8 |= opponent & (flip8 << 8);
-    let mut moves = h_opp.wrapping_add(flip1);
-
-    let mut pre7 = h_opp & (h_opp << 7);
-    let mut pre9 = h_opp & (h_opp << 9);
-    let mut pre8 = opponent & (opponent << 8);
-
-    flip7 |= pre7 & (flip7 << 14);
-    flip9 |= pre9 & (flip9 << 18);
-    flip8 |= pre8 & (flip8 << 16);
-    flip7 |= pre7 & (flip7 << 14);
-    flip9 |= pre9 & (flip9 << 18);
-    flip8 |= pre8 & (flip8 << 16);
-
-    moves |= (flip7 << 7) | (flip9 << 9) | (flip8 << 8);
-
-    flip7 = h_opp & (player >> 7);
-    flip9 = h_opp & (player >> 9);
-    flip8 = opponent & (player >> 8);
-    flip1 = h_opp & (player >> 1);
-
-    flip7 |= h_opp & (flip7 >> 7);
-    flip9 |= h_opp & (flip9 >> 9);
-    flip8 |= opponent & (flip8 >> 8);
-    flip1 |= h_opp & (flip1 >> 1);
-
-    pre7 >>= 7;
-    pre9 >>= 9;
-    pre8 >>= 8;
-    let pre1 = h_opp & (h_opp >> 1);
-
-    flip7 |= pre7 & (flip7 >> 14);
-    flip9 |= pre9 & (flip9 >> 18);
-    flip8 |= pre8 & (flip8 >> 16);
-    flip1 |= pre1 & (flip1 >> 2);
-    flip7 |= pre7 & (flip7 >> 14);
-    flip9 |= pre9 & (flip9 >> 18);
-    flip8 |= pre8 & (flip8 >> 16);
-    flip1 |= pre1 & (flip1 >> 2);
-
-    moves |= (flip7 >> 7) | (flip9 >> 9) | (flip8 >> 8) | (flip1 >> 1);
-
-    (moves & empty, potential & empty)
+    let moves = get_moves_neon(player, opponent);
+    (moves, get_potential_moves_portable(player, opponent))
 }
