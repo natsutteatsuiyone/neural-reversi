@@ -5,6 +5,11 @@
   --board-max-width: min(80vw, 540px);
   --site-header-height: 54px;
 
+  /* Shared content width so the header edges line up with the board/panel below */
+  --content-width: 1000px;
+  --content-pad-x: clamp(16px, 3vw, 28px);
+  --panel-width: 300px;
+
   /* Palette ported from the Tauri GUI (crates/gui App.css) */
   --background: #1c1c21;
   --background-secondary: #252529;
@@ -46,15 +51,17 @@
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
 }
 
-@media (max-width: 600px) {
+/* Single-column layout: no side panel competing for width, so let the board grow. */
+@media (max-width: 900px) {
   :root {
-    --board-max-width: calc(100vw - 80px);
+    --board-max-width: min(94vw, 580px);
   }
 }
 
-@media (max-width: 440px) {
+/* Phones: fill the column (the min(100%, …) cap keeps it within the .app padding). */
+@media (max-width: 600px) {
   :root {
-    --board-max-width: calc(100vw - 32px);
+    --board-max-width: 100vw;
   }
 }
 
@@ -119,14 +126,11 @@ body {
 }
 
 .app {
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: var(--shadow-xl);
-  margin: 0 6px;
+  width: min(100%, var(--content-width));
+  padding: 10px var(--content-pad-x) 24px;
+  margin: 0 auto;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* --- Loading overlay --- */
@@ -246,9 +250,9 @@ body {
 }
 
 .site-header__inner {
-  width: min(960px, 100%);
+  width: min(var(--content-width), 100%);
   margin: 0 auto;
-  padding: 8px 18px;
+  padding: 8px var(--content-pad-x);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -347,29 +351,35 @@ body {
 }
 
 /* --- Layout --- */
+/* Single surface holding the board and the info panel as one unit. */
 .content-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 24px;
-  align-items: flex-start;
+  grid-template-columns: minmax(0, 1fr) var(--panel-width);
+  gap: clamp(16px, 2.5vw, 28px);
+  align-items: stretch;
   margin-bottom: 12px;
+  padding: clamp(14px, 2vw, 22px);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-xl);
 }
 
 .board-column {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 640px;
   width: 100%;
   margin: 0 auto;
+  justify-content: center;
 }
 
 .info-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  position: sticky;
-  top: 24px;
+  gap: 0;
+  padding-left: clamp(16px, 2vw, 22px);
+  border-left: 1px solid var(--border);
 }
 
 .info-panel > * {
@@ -377,13 +387,24 @@ body {
 }
 
 @media (max-width: 900px) {
+  /* Drop the framing card on narrow screens so the content flows and the whole
+     page scrolls naturally instead of trapping the move log inside the card. */
   .content-layout {
     grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .info-panel {
-    position: static;
     max-width: none;
+    padding-left: 0;
+    padding-top: 16px;
+    border-left: none;
+    border-top: none;
   }
 }
 
@@ -397,10 +418,10 @@ body {
 .board3d {
   width: min(100%, var(--board-max-width));
   aspect-ratio: 1 / 1;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
-  background: #25252b;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), var(--shadow-lg);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .board3d canvas {
@@ -445,6 +466,8 @@ button:disabled {
   justify-content: flex-start;
   gap: 12px;
   width: 100%;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .control-buttons button {
@@ -452,15 +475,13 @@ button:disabled {
   min-height: 44px;
 }
 
-/* --- Settings info card --- */
+/* --- Settings info (panel section) --- */
 .settings-info {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  background: var(--background-secondary);
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .settings-info__item {
@@ -481,17 +502,15 @@ button:disabled {
   letter-spacing: 0.03em;
 }
 
-/* --- Scoreboard --- */
+/* --- Scoreboard (panel section) --- */
 .scoreboard {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 12px 16px;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: var(--background-secondary);
-  border: 1px solid var(--card-border);
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
   width: 100%;
 }
 
@@ -524,21 +543,22 @@ button:disabled {
   color: var(--foreground);
 }
 
-/* --- Move log --- */
+/* --- Move log (panel section, fills remaining height) --- */
 .move-log {
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  background: var(--background-secondary);
+  flex: 1 1 0;
+  min-height: 0;
+  padding-top: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
 .move-log__body {
-  min-height: 320px;
-  max-height: 320px;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
+  /* Reserve the scrollbar track so the list doesn't shift when it appears. */
+  scrollbar-gutter: stable;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 12px;
@@ -1054,8 +1074,7 @@ button:disabled {
 
 @media (max-width: 600px) {
   .app {
-    padding: 14px;
-    margin: 0 4px;
+    padding: 10px 14px 16px;
   }
 
   .control-buttons {
@@ -1065,8 +1084,7 @@ button:disabled {
 
 @media (max-width: 480px) {
   .app {
-    padding: 12px;
-    margin: 0 2px;
+    padding: 8px 12px 14px;
   }
 
   body {
@@ -1083,5 +1101,23 @@ button:disabled {
 
   .game-over-modal__title {
     font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 900px) {
+  /* On narrow screens the panel has no board column to stretch against, so the
+     board-height fill (flex: 1 1 0) would collapse the log. Let it grow with its
+     content and scroll the whole page instead. Placed after the base rules so it
+     wins on source order. */
+  .move-log {
+    flex: none;
+  }
+
+  .move-log__body {
+    flex: none;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: visible;
   }
 }
