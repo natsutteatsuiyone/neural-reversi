@@ -4,3 +4,5 @@ pkg-relaxed
 pkg-node
 pkg-node-relaxed
 node_modules
+playwright-report
+test-results
