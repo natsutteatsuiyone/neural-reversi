@@ -99,7 +99,7 @@
                             <span>{{ localeTexts.levelLabel }}</span>
                             <span class="settings-field__value">{{ state.pendingLevel }}</span>
                         </label>
-                        <input type="range" class="level-slider" min="1" max="15" :value="state.pendingLevel"
+                        <input type="range" class="level-slider" min="1" max="24" :value="state.pendingLevel"
                             :style="{ '--level-value': Number(state.pendingLevel) }" @input="handleModalLevelChange"
                             :disabled="state.initialLoading" />
                     </div>
@@ -152,6 +152,14 @@
             <div class="board-column">
                 <div class="board-wrapper">
                     <div id="board-3d" class="board3d" role="img" :aria-label="localeTexts.boardAria"></div>
+                    <div class="thinking-badge" role="status" aria-live="polite" v-cloak v-if="state.aiThinking">
+                        <span class="thinking-badge__dots" aria-hidden="true">
+                            <span class="thinking-badge__dot"></span>
+                            <span class="thinking-badge__dot"></span>
+                            <span class="thinking-badge__dot"></span>
+                        </span>
+                        <span class="thinking-badge__title">{{ localeTexts.messages.aiThinking }}</span>
+                    </div>
                 </div>
             </div>
             <aside class="info-panel">

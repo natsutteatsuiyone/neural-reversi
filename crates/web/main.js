@@ -3,8 +3,8 @@ import { createBoard3D } from "./board3d.js";
 
 const FILES = "abcdefgh";
 const LEVEL_MIN = 1;
-const LEVEL_MAX = 15;
-const DEFAULT_LEVEL = 1;
+const LEVEL_MAX = 24;
+const DEFAULT_LEVEL = 10;
 const PASS_TOAST_DURATION_MS = 1400;
 const TOAST_FADE_DURATION_MS = 250;
 let toastSequenceId = 0;
