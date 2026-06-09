@@ -177,16 +177,10 @@ bun weight-tournament.js ../../weights --opening-file ../../openings.txt
 
 Generate ProbCut training data from game sequences using the WebAssembly engine.
 
-### Build
+### Build and Run
 
 ```bash
-bun run build:wasm:node
-```
-
-### Usage
-
-```bash
-node probcut-cli.js -i <input> -o <output>
+bun run probcut -- -i <input> -o <output>
 ```
 
 Options:

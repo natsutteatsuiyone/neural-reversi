@@ -1,10 +1,10 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * ProbCut training data generation CLI for WebAssembly.
  *
  * Usage:
- *   node probcut-cli.js --input games.txt --output probcut.csv
- *   node probcut-cli.js -i games.txt -o probcut.csv
+ *   bun probcut-cli.js --input games.txt --output probcut.csv
+ *   bun probcut-cli.js -i games.txt -o probcut.csv
  *
  * Input format: One game per line, moves concatenated (e.g., "D3C5F6F5E6C6D6...")
  * Output format: CSV with columns: ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
@@ -12,6 +12,7 @@
 
 import { readFileSync, writeFileSync } from 'fs';
 import { parseArgs } from 'util';
+import { importPreferredWasmModule } from './wasm-loader.js';
 
 // Parse command line arguments
 const { values } = parseArgs({
@@ -27,8 +28,8 @@ if (values.help || !values.input || !values.output) {
 ProbCut training data generation CLI
 
 Usage:
-  node probcut-cli.js --input <file> --output <file>
-  node probcut-cli.js -i <file> -o <file>
+  bun probcut-cli.js --input <file> --output <file>
+  bun probcut-cli.js -i <file> -o <file>
 
 Options:
   -i, --input   Input file containing game sequences (one per line)
@@ -45,11 +46,16 @@ Output format:
 }
 
 async function main() {
-  // Dynamic import for WASM module
-  const { ProbCutDatagen } = await import('./pkg-node/web.js');
+  // Dynamic import for WASM module (prefer relaxed-simd, fall back to simd128)
+  const { module, relaxedSimd } = await importPreferredWasmModule({
+    relaxedPath: './pkg-node-relaxed/web.js',
+    fallbackPath: './pkg-node/web.js',
+  });
+  const { ProbCutDatagen } = module;
 
   console.log('Loading evaluation network...');
   const datagen = new ProbCutDatagen();
+  console.log(`Wasm SIMD: ${relaxedSimd ? 'relaxed-simd' : 'simd128'}`);
 
   console.log(`Reading input file: ${values.input}`);
   const gamesText = readFileSync(values.input, 'utf-8');
