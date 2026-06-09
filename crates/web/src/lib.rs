@@ -31,7 +31,7 @@ use std::hint::black_box;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-const DEFAULT_TT_MB: usize = 64;
+const DEFAULT_TT_MB: usize = 128;
 const DEFAULT_MID_DEPTH: Depth = 7;
 const MIDGAME_SELECTIVITY: Selectivity = Selectivity::Level2;
 const MIN_MID_DEPTH: u8 = 1;

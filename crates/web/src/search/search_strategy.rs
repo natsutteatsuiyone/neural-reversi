@@ -1,5 +1,6 @@
 use reversi_core::{
     board::Board,
+    search::node_type::NonPV,
     types::{Depth, ScaledScore},
 };
 
@@ -54,7 +55,7 @@ impl SearchStrategy for MidGameStrategy {
     const IS_ENDGAME: bool = false;
     const MIN_ETC_DEPTH: Depth = 6;
     const MIN_PROBCUT_DEPTH: Depth = 3;
-    const DEPTH_TO_SHALLOW: Depth = 2;
+    const DEPTH_TO_SHALLOW: Depth = 3;
 
     #[inline(always)]
     fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
@@ -73,7 +74,7 @@ impl SearchStrategy for MidGameStrategy {
             0 => super::evaluate(ctx, board),
             1 => super::evaluate_depth1(ctx, board, alpha, beta),
             2 => super::evaluate_depth2(ctx, board, alpha, beta),
-            _ => unreachable!("midgame shallow search only supports depth <= 2"),
+            _ => super::evaluate_depth3::<NonPV>(ctx, board, alpha, beta),
         }
     }
 

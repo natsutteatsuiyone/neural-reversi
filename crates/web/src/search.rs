@@ -435,6 +435,85 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     best_score
 }
 
+/// Performs alpha-beta search specialized for depth 3.
+pub fn evaluate_depth3<NT: NodeType>(
+    ctx: &mut SearchContext,
+    board: &Board,
+    mut alpha: ScaledScore,
+    beta: ScaledScore,
+) -> ScaledScore {
+    let org_alpha = alpha;
+
+    let moves = board.get_moves();
+    if moves.is_empty() {
+        let next = board.switch_players();
+        if next.has_legal_moves() {
+            ctx.update_pass();
+            let score = -evaluate_depth3::<NT>(ctx, &next, -beta, -alpha);
+            ctx.undo_pass();
+            return score;
+        } else {
+            return board.solve_scaled(ctx.empty_list.count());
+        }
+    }
+
+    let tt_key = board.hash();
+    let tt_probe_result = ctx.tt.probe(tt_key);
+    let tt_move = tt_probe_result.best_move();
+
+    if !NT::PV_NODE
+        && let Some(tt_data) = tt_probe_result.data()
+        && tt_data.depth >= 3
+        && tt_data.can_cut(beta)
+    {
+        return tt_data.score;
+    }
+
+    let mut move_list = MoveList::with_moves(board, moves);
+    if move_list.wipeout_move().is_some() {
+        return ScaledScore::MAX;
+    }
+
+    if move_list.count() >= 2 {
+        evaluate_moves_fast(&mut move_list, ctx, board, tt_move);
+    }
+
+    let mut best_score = -ScaledScore::INF;
+    let mut best_move = Square::None;
+    for mv in move_list.best_first_iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+
+        ctx.update(mv.sq, mv.flipped);
+        let score = -evaluate_depth2(ctx, &next, -beta, -alpha);
+        ctx.undo(mv.sq);
+
+        if score > best_score {
+            best_score = score;
+            if score >= beta {
+                best_move = mv.sq;
+                break;
+            }
+            if score > alpha {
+                best_move = mv.sq;
+                alpha = score;
+            }
+        }
+    }
+
+    ctx.tt.store(
+        tt_probe_result.index(),
+        tt_key,
+        best_score,
+        Bound::classify::<NT>(best_score, org_alpha, beta),
+        3,
+        best_move,
+        Selectivity::None,
+        false,
+    );
+
+    best_score
+}
+
 /// Performs alpha-beta search specialized for depth 2.
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
@@ -442,8 +521,8 @@ pub fn evaluate_depth2(
     mut alpha: ScaledScore,
     beta: ScaledScore,
 ) -> ScaledScore {
-    let mut move_list = MoveList::new(board);
-    if move_list.count() == 0 {
+    let moves = board.get_moves();
+    if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -455,7 +534,12 @@ pub fn evaluate_depth2(
         }
     }
 
-    if move_list.count() >= 3 {
+    let mut move_list = MoveList::with_moves(board, moves);
+    if move_list.wipeout_move().is_some() {
+        return ScaledScore::MAX;
+    }
+
+    if move_list.count() >= 2 {
         evaluate_moves_fast(&mut move_list, ctx, board, Square::None);
     }
 
@@ -502,26 +586,48 @@ pub fn evaluate_depth1(
     }
 
     let mut best_score = -ScaledScore::INF;
-    for sq in moves.iter() {
-        let flipped = flip::flip(sq, board.player(), board.opponent());
-        if flipped == board.opponent() {
-            return ScaledScore::MAX;
+
+    for sq in moves.corners().iter() {
+        if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
+            return score;
         }
-        let next = board.make_move_with_flipped(flipped, sq);
+    }
 
-        ctx.update(sq, flipped);
-        let score = -evaluate(ctx, &next);
-        ctx.undo(sq);
-
-        if score > best_score {
-            best_score = score;
-            if score >= beta {
-                break;
-            }
+    for sq in moves.non_corners().iter() {
+        if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
+            return score;
         }
     }
 
     best_score
+}
+
+/// Searches a single move within [`evaluate_depth1`], returning on beta cutoff.
+#[inline(always)]
+fn search_move_in_evaluate_depth1(
+    ctx: &mut SearchContext,
+    board: &Board,
+    sq: Square,
+    beta: ScaledScore,
+    best_score: &mut ScaledScore,
+) -> Option<ScaledScore> {
+    let flipped = flip::flip(sq, board.player(), board.opponent());
+    if flipped == board.opponent() {
+        return Some(ScaledScore::MAX);
+    }
+    let next = board.make_move_with_flipped(flipped, sq);
+
+    ctx.update(sq, flipped);
+    let score = -evaluate(ctx, &next);
+    ctx.undo(sq);
+
+    if score > *best_score {
+        *best_score = score;
+        if score >= beta {
+            return Some(score);
+        }
+    }
+    None
 }
 
 /// Evaluates a leaf node position using the neural network.
