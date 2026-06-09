@@ -32,7 +32,7 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 const DEFAULT_TT_MB: usize = 128;
-const DEFAULT_MID_DEPTH: Depth = 10;
+const DEFAULT_MID_DEPTH: Depth = 12;
 const MIDGAME_SELECTIVITY: Selectivity = Selectivity::Level1;
 const MIN_MID_DEPTH: u8 = 1;
 const MAX_MID_DEPTH: u8 = 24;
