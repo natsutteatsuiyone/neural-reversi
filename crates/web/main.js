@@ -1,10 +1,10 @@
 import { createApp, reactive } from "https://unpkg.com/petite-vue?module";
+import { createBoard3D } from "./board3d.js";
 
 const FILES = "abcdefgh";
 const LEVEL_MIN = 1;
 const LEVEL_MAX = 15;
 const DEFAULT_LEVEL = 1;
-const boardIndices = Array.from({ length: 64 }, (_, idx) => idx);
 const PASS_TOAST_DURATION_MS = 1400;
 const TOAST_FADE_DURATION_MS = 250;
 let toastSequenceId = 0;
@@ -204,7 +204,6 @@ const state = reactive({
 
 const view = {
   state,
-  boardIndices,
   get localeTexts() {
     return currentLocale();
   },
@@ -219,8 +218,6 @@ const view = {
     }));
   },
   toNotation,
-  cellClasses,
-  isCellDisabled,
   handleCellClick,
   handleNewGame,
   handleModalColorChange,
@@ -233,6 +230,35 @@ const view = {
 };
 
 createApp(view).mount();
+
+// --- 3D board (three.js) ---
+// Created after petite-vue enhances the existing markup so the mount element is
+// present. The board is driven imperatively via renderBoard3D() on every state
+// sync, rather than through reactive bindings.
+let board3d = null;
+let skipNextBoardAnimation = true;
+const board3dContainer = document.getElementById("board-3d");
+if (board3dContainer) {
+  board3d = createBoard3D(board3dContainer, { onCellClick: handleCellClick });
+}
+
+function renderBoard3D() {
+  if (!board3d) {
+    return;
+  }
+  const lastMove =
+    state.lastHumanMove ?? state.lastAiMove ?? null;
+  const showValidMoves =
+    state.isHumanTurn && !state.showSettingsModal && !state.aiThinking;
+  board3d.update({
+    board: state.board,
+    legalMoves: state.legalMoves,
+    showValidMoves,
+    lastMove,
+    skipAnimation: skipNextBoardAnimation,
+  });
+  skipNextBoardAnimation = false;
+}
 
 updateDocumentLang();
 updateDesktopLinkLocale();
@@ -253,6 +279,13 @@ worker.onmessage = async (event) => {
       ensureHumanPassIfNeeded();
       break;
     case "ai_moved": {
+      // Hold the AI's move until the player's flip/drop animation has settled, so
+      // the computer never plays on top of stones that are still flipping. The
+      // search ran concurrently in the worker, so this adds no wait when the
+      // search already outlasts the animation.
+      if (board3d) {
+        await board3d.waitForIdle();
+      }
       state.aiThinking = false;
       const nextState = payload.gameState;
       const aiMoveOccurred = payload.move !== undefined;
@@ -369,20 +402,6 @@ function toNotation(index) {
   return `${file}${rank}`;
 }
 
-function cellClasses(index) {
-  return {
-    black: state.board[index] === 1,
-    white: state.board[index] === 2,
-    legal: state.isHumanTurn && state.legalMoves.includes(index),
-    "last-human": state.lastHumanMove === index,
-    "last-ai": state.lastAiMove === index,
-  };
-}
-
-function isCellDisabled(index) {
-  return !(state.isHumanTurn && state.legalMoves.includes(index));
-}
-
 async function handleCellClick(index) {
   if (state.showSettingsModal) {
     return;
@@ -451,6 +470,7 @@ function handleCloseGameOverModal() {
 }
 
 async function resetGame() {
+  skipNextBoardAnimation = true;
   workerApi.reset(state.humanIsBlack, state.level);
   state.lastHumanMove = null;
   state.lastAiMove = null;
@@ -530,6 +550,7 @@ function syncStateFromGame(gameState) {
   state.messageKind = kind;
 
   updateSearchStatusText();
+  renderBoard3D();
 }
 
 function computeMessage() {
@@ -797,6 +818,7 @@ async function handleUndo() {
 
   // Replay moves to restore game state
   // Convert reactive array to plain array for Worker
+  skipNextBoardAnimation = true;
   const plainMoves = state.moveHistory.map(move => ({ player: move.player, index: move.index }));
   workerApi.replayMoves(state.humanIsBlack, state.level, plainMoves);
 }

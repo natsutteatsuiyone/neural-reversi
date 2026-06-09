@@ -7,7 +7,7 @@
     <meta name="description" content="Neural Reversi はニューラルネットワーク搭載のオセロAIです。ブラウザで対戦することもできます。" />
     <meta name="keywords" content="Neural Reversi,リバーシ,オセロ,AI,ニューラルネットワーク,ブラウザ" />
     <meta name="application-name" content="Neural Reversi" />
-    <meta name="theme-color" content="#030712" />
+    <meta name="theme-color" content="#1c1c21" />
     <meta name="robots" content="index,follow" />
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="ja_JP" />
@@ -151,27 +151,7 @@
         <div class="content-layout">
             <div class="board-column">
                 <div class="board-wrapper">
-                    <div class="board-grid">
-                        <span class="board-corner" aria-hidden="true"></span>
-                        <div class="board-coords-row board-coords-top" aria-hidden="true">
-                            <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
-                        </div>
-                        <span class="board-corner" aria-hidden="true"></span>
-                        <div class="board-coords-col board-coords-left" aria-hidden="true">
-                            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span>
-                        </div>
-                        <div id="board" class="board" role="grid" :aria-label="localeTexts.boardAria">
-                            <button v-for="idx in boardIndices" :key="idx" type="button" class="cell"
-                                :class="cellClasses(idx)" :data-index="idx" :title="toNotation(idx)"
-                                :aria-label="localeTexts.cellAria(toNotation(idx))"
-                                :disabled="state.showSettingsModal || isCellDisabled(idx)"
-                                @click="handleCellClick(idx)"></button>
-                        </div>
-                        <div class="board-coords-col board-coords-right board-coords-spacer" aria-hidden="true"></div>
-                        <span class="board-corner" aria-hidden="true"></span>
-                        <div class="board-coords-row board-coords-bottom board-coords-spacer" aria-hidden="true"></div>
-                        <span class="board-corner" aria-hidden="true"></span>
-                    </div>
+                    <div id="board-3d" class="board3d" role="img" :aria-label="localeTexts.boardAria"></div>
                 </div>
             </div>
             <aside class="info-panel">
