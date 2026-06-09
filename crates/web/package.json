@@ -5,7 +5,9 @@
   "bin": {
     "probcut-datagen": "./probcut-cli.js",
     "endgame-bench": "./endgame-bench.js",
-    "network-bench": "./network-bench.js"
+    "network-bench": "./network-bench.js",
+    "weight-match": "./weight-match.js",
+    "weight-tournament": "./weight-tournament.js"
   },
   "scripts": {
     "build:wasm:base": "wasm-pack build --target web --out-dir pkg --release",
@@ -24,6 +26,8 @@
     "test:e2e:install": "playwright install chromium",
     "bench:network": "bun run build:wasm:node && node network-bench.js",
     "bench:endgame": "bun run build:wasm:node && bun endgame-bench.js",
+    "match:weights": "bun run build:wasm:node && bun weight-match.js",
+    "match:weights:folder": "bun run build:wasm:node && bun weight-tournament.js",
     "build:bench": "bun run build:wasm && cross-env BENCHMARK=true vite build",
     "preview": "vite preview"
   },
