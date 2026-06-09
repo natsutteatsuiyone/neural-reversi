@@ -410,6 +410,7 @@ body {
 
 /* --- 3D board mount --- */
 .board-wrapper {
+  position: relative;
   width: 100%;
   display: flex;
   justify-content: center;
@@ -428,6 +429,67 @@ body {
   display: block;
   width: 100% !important;
   height: 100% !important;
+}
+
+/* --- AI thinking badge (floats over the board top) --- */
+.thinking-badge {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 24px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: rgba(42, 42, 47, 0.82);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-lg);
+  color: var(--foreground);
+  pointer-events: none;
+  animation: thinking-badge-in 0.22s ease;
+}
+
+.thinking-badge__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.thinking-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 8px rgba(61, 153, 112, 0.7);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.thinking-badge__dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-badge__dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.thinking-badge__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+@keyframes thinking-badge-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
 }
 
 /* --- Buttons (shadcn-like) --- */
@@ -847,7 +909,7 @@ button:disabled {
   width: 100%;
   height: 8px;
   --level-min: 1;
-  --level-max: 15;
+  --level-max: 24;
   --level-value: 1;
   --level-range: calc(var(--level-max) - var(--level-min));
   --level-progress: calc((var(--level-value) - var(--level-min)) / var(--level-range));

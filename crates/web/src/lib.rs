@@ -32,10 +32,10 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 const DEFAULT_TT_MB: usize = 128;
-const DEFAULT_MID_DEPTH: Depth = 7;
-const MIDGAME_SELECTIVITY: Selectivity = Selectivity::Level2;
+const DEFAULT_MID_DEPTH: Depth = 10;
+const MIDGAME_SELECTIVITY: Selectivity = Selectivity::Level1;
 const MIN_MID_DEPTH: u8 = 1;
-const MAX_MID_DEPTH: u8 = 15;
+const MAX_MID_DEPTH: u8 = 24;
 
 struct EngineState {
     search: Search,
@@ -277,7 +277,7 @@ impl Game {
 }
 
 fn level_for_position(mid_depth: Depth) -> Level {
-    let end_depth = (mid_depth as f64 * 1.6).round() as Depth;
+    let end_depth = ((mid_depth as f64 * 1.2).round() as Depth).min(26);
     Level {
         mid_depth,
         end_depth,
