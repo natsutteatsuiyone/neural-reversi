@@ -18,10 +18,10 @@ use crate::{eval::Eval, level::Level, search::Search, transposition_table::Trans
 const TT_SIZE_MB: usize = 64;
 
 /// Total number of search depths to test.
-const NUM_SEARCH_DEPTHS: usize = 10;
+const NUM_SEARCH_DEPTHS: usize = 9;
 
 /// Maximum shallow depth for ProbCut analysis.
-const MAX_SHALLOW_DEPTH: usize = 5;
+const MAX_SHALLOW_DEPTH: usize = 4;
 
 /// Minimum depth difference between shallow and deep search.
 const MIN_DEPTH_DIFFERENCE: Depth = 2;

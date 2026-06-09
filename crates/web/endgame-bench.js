@@ -11,6 +11,7 @@ import { readFileSync } from 'fs';
 import { parseArgs } from 'util';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { importPreferredWasmModule } from './wasm-loader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const problemDir = resolve(__dirname, '../../problem');
@@ -120,7 +121,11 @@ function pad(str, len, align = 'right') {
 }
 
 async function main() {
-  const { EndgameSolver } = await import('./pkg-node/web.js');
+  const { module, relaxedSimd } = await importPreferredWasmModule({
+    relaxedPath: './pkg-node-relaxed/web.js',
+    fallbackPath: './pkg-node/web.js',
+  });
+  const { EndgameSolver } = module;
 
   const ttSize = parseInt(values['tt-size'], 10);
   const maxEmpties = parseInt(values['max-empties'], 10);
@@ -129,6 +134,7 @@ async function main() {
 
   console.log('Loading evaluation network...');
   const solver = new EndgameSolver(ttSize);
+  console.log(`Wasm SIMD: ${relaxedSimd ? 'relaxed-simd' : 'simd128'}`);
 
   console.log(`Reading problem file: ${obfPath}`);
   const allCases = parseObfFile(obfPath);

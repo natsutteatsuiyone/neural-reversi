@@ -24,10 +24,11 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install chromium",
-    "bench:network": "bun run build:wasm:node && node network-bench.js",
+    "bench:network": "bun run build:wasm:node && bun network-bench.js",
     "bench:endgame": "bun run build:wasm:node && bun endgame-bench.js",
     "match:weights": "bun run build:wasm:node && bun weight-match.js",
     "match:weights:folder": "bun run build:wasm:node && bun weight-tournament.js",
+    "probcut": "bun run build:wasm:node && bun probcut-cli.js",
     "build:bench": "bun run build:wasm && cross-env BENCHMARK=true vite build",
     "preview": "vite preview"
   },
