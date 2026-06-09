@@ -9,6 +9,7 @@ const PASS_TOAST_DURATION_MS = 1400;
 const TOAST_FADE_DURATION_MS = 250;
 let toastSequenceId = 0;
 let forcedPassBlockId = 0;
+let siteHeaderResizeObserver = null;
 
 // --- Web Worker ---
 const worker = new Worker(new URL("./reversi-worker.js", import.meta.url), {
@@ -230,6 +231,7 @@ const view = {
 };
 
 createApp(view).mount();
+syncSiteHeaderHeight();
 
 // --- 3D board (three.js) ---
 // Created after petite-vue enhances the existing markup so the mount element is
@@ -240,6 +242,28 @@ let skipNextBoardAnimation = true;
 const board3dContainer = document.getElementById("board-3d");
 if (board3dContainer) {
   board3d = createBoard3D(board3dContainer, { onCellClick: handleCellClick });
+}
+
+function syncSiteHeaderHeight() {
+  const siteHeader = document.querySelector(".site-header");
+  if (!siteHeader) {
+    return;
+  }
+
+  const updateHeaderHeight = () => {
+    const headerHeight = Math.ceil(siteHeader.getBoundingClientRect().height);
+    document.documentElement.style.setProperty("--site-header-height", `${headerHeight}px`);
+  };
+
+  updateHeaderHeight();
+
+  if ("ResizeObserver" in window) {
+    siteHeaderResizeObserver = new ResizeObserver(updateHeaderHeight);
+    siteHeaderResizeObserver.observe(siteHeader);
+    return;
+  }
+
+  window.addEventListener("resize", updateHeaderHeight);
 }
 
 function renderBoard3D() {
