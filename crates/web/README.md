@@ -189,7 +189,15 @@ Options:
 |--------|-------------|
 | `-i, --input` | Input file containing game sequences (one per line) |
 | `-o, --output` | Output CSV file for ProbCut training data |
+| `-e, --endgame` | Generate endgame ProbCut data (depth-2 shallow search vs exact final result, ply >= 30 only) |
 | `-h, --help` | Show help message |
+
+### Examples
+
+```bash
+bun run probcut -- -i games.txt -o probcut.csv
+bun run probcut -- -i games.txt -o probcut_endgame.csv --endgame
+```
 
 ### Input Format
 

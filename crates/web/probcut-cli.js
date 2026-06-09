@@ -5,6 +5,7 @@
  * Usage:
  *   bun probcut-cli.js --input games.txt --output probcut.csv
  *   bun probcut-cli.js -i games.txt -o probcut.csv
+ *   bun probcut-cli.js -i games.txt -o probcut.csv --endgame
  *
  * Input format: One game per line, moves concatenated (e.g., "D3C5F6F5E6C6D6...")
  * Output format: CSV with columns: ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
@@ -19,6 +20,7 @@ const { values } = parseArgs({
   options: {
     input: { type: 'string', short: 'i' },
     output: { type: 'string', short: 'o' },
+    endgame: { type: 'boolean', short: 'e' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -30,11 +32,13 @@ ProbCut training data generation CLI
 Usage:
   bun probcut-cli.js --input <file> --output <file>
   bun probcut-cli.js -i <file> -o <file>
+  bun probcut-cli.js -i <file> -o <file> --endgame
 
 Options:
-  -i, --input   Input file containing game sequences (one per line)
-  -o, --output  Output CSV file for ProbCut training data
-  -h, --help    Show this help message
+  -i, --input    Input file containing game sequences (one per line)
+  -o, --output   Output CSV file for ProbCut training data
+  -e, --endgame  Generate endgame ProbCut data (shallow search vs final result)
+  -h, --help     Show this help message
 
 Input format:
   One game per line, moves concatenated (e.g., "D3C5F6F5E6C6D6...")
@@ -62,10 +66,13 @@ async function main() {
   const lines = gamesText.split('\n').filter(line => line.trim().length > 0);
   console.log(`Found ${lines.length} games`);
 
-  console.log('Processing games...');
-  const result = datagen.process_games(gamesText, (progress) => {
+  console.log(`Processing games (${values.endgame ? 'endgame' : 'midgame'})...`);
+  const onProgress = (progress) => {
     console.log(`Processed ${progress.game_index}/${progress.total_games} games (${progress.samples_so_far} samples)`);
-  });
+  };
+  const result = values.endgame
+    ? datagen.process_games_endgame(gamesText, onProgress)
+    : datagen.process_games(gamesText, onProgress);
   console.log('');
 
   console.log(`Writing output file: ${values.output}`);

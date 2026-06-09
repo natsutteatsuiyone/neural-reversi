@@ -70,7 +70,6 @@ impl Search {
     }
 
     /// Clears the transposition table to reset search state.
-    #[allow(dead_code)]
     pub fn init(&mut self) {
         self.tt.clear();
     }
