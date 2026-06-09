@@ -1,4 +1,4 @@
-import { createApp, reactive } from "https://unpkg.com/petite-vue?module";
+import { createApp, reactive } from "petite-vue";
 import { createBoard3D } from "./board3d.js";
 
 const FILES = "abcdefgh";

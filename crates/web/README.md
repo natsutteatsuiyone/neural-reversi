@@ -40,6 +40,27 @@ bun run build
 
 Output will be in the `dist/` directory.
 
+## Browser E2E Tests
+
+Install the Playwright browser once:
+
+```bash
+bun run test:e2e:install
+```
+
+Run the browser smoke tests:
+
+```bash
+bun run build:wasm:dev # only needed when pkg/ is missing or stale
+bun run test:e2e
+```
+
+Use the interactive runner while developing:
+
+```bash
+bun run test:e2e:ui
+```
+
 ## Endgame Solver Benchmark
 
 Run FFO endgame test positions against the WebAssembly engine from the terminal.
