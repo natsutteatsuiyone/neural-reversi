@@ -30,6 +30,7 @@
     "vite-plugin-top-level-await": "^1.6.0"
   },
   "dependencies": {
-    "petite-vue": "^0.4.1"
+    "petite-vue": "^0.4.1",
+    "three": "^0.184.0"
   }
 }
