@@ -277,17 +277,18 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         const UNROLL: usize = 4;
 
         unsafe {
-            // `i8mm_weights` stores each i16 chunk as low bytes followed by
-            // signed high bytes. `udot` handles the low byte, `usdot` handles
-            // the high byte, and the two partial dot products are recombined in
-            // i32 lanes as low + (high << 8).
-            let mut acc0 = vdupq_n_s32(0);
-            let mut acc1 = vdupq_n_s32(0);
-            let mut acc2 = vdupq_n_s32(0);
-            let mut acc3 = vdupq_n_s32(0);
-
-            let zero_u32 = vdupq_n_u32(0);
-            let zero_s32 = vdupq_n_s32(0);
+            // `i8mm_weights` stores each i16 chunk as low bytes then signed high
+            // bytes: `udot` accumulates the low partial, `usdot` the high. The
+            // `high << 8` recombination is deferred to the end
+            // (`Σ(h << 8) == (Σ h) << 8`), saving a shift and two adds per chunk.
+            let mut acc_lo0 = vdupq_n_u32(0);
+            let mut acc_lo1 = vdupq_n_u32(0);
+            let mut acc_lo2 = vdupq_n_u32(0);
+            let mut acc_lo3 = vdupq_n_u32(0);
+            let mut acc_hi0 = vdupq_n_s32(0);
+            let mut acc_hi1 = vdupq_n_s32(0);
+            let mut acc_hi2 = vdupq_n_s32(0);
+            let mut acc_hi3 = vdupq_n_s32(0);
 
             let mut weight_offset = 0usize;
             for input in segments {
@@ -300,14 +301,13 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
                 let mut chunk_idx = 0usize;
 
                 macro_rules! accumulate_chunk {
-                    ($input_u8:expr, $weight_low:expr, $weight_high:expr, $acc:ident) => {{
+                    ($input_u8:expr, $weight_low:expr, $weight_high:expr, $acc_lo:ident, $acc_hi:ident) => {{
                         let input_u8 = $input_u8;
                         let weight_low = $weight_low;
                         let weight_high = vreinterpretq_s8_u8($weight_high);
 
-                        let low = vreinterpretq_s32_u32(vdotq_u32(zero_u32, input_u8, weight_low));
-                        let high = vshlq_n_s32::<8>(vusdotq_s32(zero_s32, input_u8, weight_high));
-                        $acc = vaddq_s32($acc, vaddq_s32(low, high));
+                        $acc_lo = vdotq_u32($acc_lo, input_u8, weight_low);
+                        $acc_hi = vusdotq_s32($acc_hi, input_u8, weight_high);
                     }};
                 }
 
@@ -316,14 +316,14 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
                     let input01_u8 = vld1q_u8_x2(input_ptr.add(offset));
                     let packed01 = vld1q_u8_x4(weight_ptr.add(offset * 2));
 
-                    accumulate_chunk!(input01_u8.0, packed01.0, packed01.1, acc0);
-                    accumulate_chunk!(input01_u8.1, packed01.2, packed01.3, acc1);
+                    accumulate_chunk!(input01_u8.0, packed01.0, packed01.1, acc_lo0, acc_hi0);
+                    accumulate_chunk!(input01_u8.1, packed01.2, packed01.3, acc_lo1, acc_hi1);
 
                     let input23_u8 = vld1q_u8_x2(input_ptr.add(offset + CHUNK * 2));
                     let packed23 = vld1q_u8_x4(weight_ptr.add((offset + CHUNK * 2) * 2));
 
-                    accumulate_chunk!(input23_u8.0, packed23.0, packed23.1, acc2);
-                    accumulate_chunk!(input23_u8.1, packed23.2, packed23.3, acc3);
+                    accumulate_chunk!(input23_u8.0, packed23.0, packed23.1, acc_lo2, acc_hi2);
+                    accumulate_chunk!(input23_u8.1, packed23.2, packed23.3, acc_lo3, acc_hi3);
 
                     chunk_idx += UNROLL;
                 }
@@ -333,16 +333,16 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
                     let input_u8 = vld1q_u8(input_ptr.add(offset));
                     let packed = vld1q_u8_x2(weight_ptr.add(offset * 2));
 
-                    accumulate_chunk!(input_u8, packed.0, packed.1, acc0);
+                    accumulate_chunk!(input_u8, packed.0, packed.1, acc_lo0, acc_hi0);
                     chunk_idx += 1;
                 }
 
                 weight_offset += len;
             }
 
-            acc0 = vaddq_s32(acc0, acc1);
-            acc2 = vaddq_s32(acc2, acc3);
-            vaddvq_s32(vaddq_s32(acc0, acc2)) + self.bias
+            let lo = vaddq_u32(vaddq_u32(acc_lo0, acc_lo1), vaddq_u32(acc_lo2, acc_lo3));
+            let hi = vaddq_s32(vaddq_s32(acc_hi0, acc_hi1), vaddq_s32(acc_hi2, acc_hi3));
+            vaddvq_s32(vaddq_s32(vreinterpretq_s32_u32(lo), vshlq_n_s32::<8>(hi))) + self.bias
         }
     }
 

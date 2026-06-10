@@ -311,4 +311,36 @@ mod tests {
         let score = eval.evaluate_simple(&board);
         assert_eq!(eval.evaluate_simple(&board), score);
     }
+
+    #[test]
+    fn evaluate_simple_is_stable_across_interleaved_positions() {
+        use crate::square::Square;
+
+        // The main network reuses a per-thread scratch buffer, so a
+        // read-before-write would leak one position's leftover state into the
+        // next. Interleaving two positions and re-checking each guards that.
+        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
+
+        let board_a = Board::new();
+        let board_b = board_a.make_move(Square::D3);
+
+        let a1 = eval.evaluate_simple(&board_a);
+        let b1 = eval.evaluate_simple(&board_b);
+        // board_b dirtied the scratch buffer; re-evaluating board_a must be unaffected.
+        let a2 = eval.evaluate_simple(&board_a);
+        let b2 = eval.evaluate_simple(&board_b);
+
+        assert_eq!(
+            a1, a2,
+            "A must evaluate identically after the buffer was dirtied by B"
+        );
+        assert_eq!(
+            b1, b2,
+            "B must evaluate identically after the buffer was dirtied by A"
+        );
+        assert_ne!(
+            a1, b1,
+            "the two positions must differ so the test actually exercises cross-position reuse"
+        );
+    }
 }

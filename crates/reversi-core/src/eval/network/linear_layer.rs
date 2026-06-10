@@ -539,9 +539,13 @@ impl<
 
     /// Runs the ARM NEON forward pass using the `USDOT` instruction via FEAT_I8MM.
     ///
-    /// The main loop fuses four chunks per `j` register: one 16-byte input load
-    /// plus four laneq `usdot`s replace four broadcast loads, cutting
-    /// accumulator reload/store traffic by 4× while keeping it resident.
+    /// Fuses four chunks per `j` register (one 16-byte input load + four laneq
+    /// `usdot`s) and keeps accumulators register-resident for the whole pass. For
+    /// `num_regs <= 4` the four `usdot`s target independent per-lane partials to
+    /// break the latency chain, summed with the bias at the end.
+    // Index loops are deliberate: `iter_mut().enumerate()` defeats register
+    // promotion here (~2% slower), and the index drives the pointer math.
+    #[allow(clippy::needless_range_loop)]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon,i8mm")]
     #[inline]
@@ -551,67 +555,111 @@ impl<
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
         use crate::eval::util::ceil_to_multiple;
-        use crate::eval::util::clone_biases;
         use crate::eval::util::neon_dpbusd_s32_i8mm;
         use std::arch::aarch64::*;
-        use std::ptr::copy_nonoverlapping;
 
         const OUTPUT_SIMD_WIDTH: usize = 4;
+        // Fits both shapes: Shape B uses `num_regs` (<= 16, L2's 64/4); Shape A
+        // uses `num_regs * 4` partials but only runs for `num_regs <= 4`.
+        const MAX_REGS: usize = 16;
 
         unsafe {
-            let mut acc: Align64<[i32; OUTPUT_DIMS]> = clone_biases(&self.biases);
-            let acc_ptr = acc.as_mut_ptr() as *mut i32;
-
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
             let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
+            debug_assert!(num_regs <= MAX_REGS);
 
             let weights_base = self.weights.as_ptr();
             let input_ptr = input.as_ptr() as *const u8;
+            let input32 = input.as_ptr() as *const i32;
+            let bias_ptr = self.biases.as_ptr();
+            let out_ptr = output.as_mut_ptr() as *mut i32;
             let main_end = num_chunks & !3;
 
-            let mut i = 0;
-            while i < main_end {
-                let input16 = vld1q_u8(input_ptr.add(i * 4));
-                let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
-                let col1 = weights_base.add((i + 1) * OUTPUT_DIMS * 4);
-                let col2 = weights_base.add((i + 2) * OUTPUT_DIMS * 4);
-                let col3 = weights_base.add((i + 3) * OUTPUT_DIMS * 4);
+            if num_regs <= 4 {
+                // Shape A: four independent per-lane partials per register break
+                // the `usdot` latency chain; bias is folded in at the end.
+                let mut p = [vdupq_n_s32(0); MAX_REGS];
+
+                let mut i = 0;
+                while i < main_end {
+                    let input16 = vld1q_u8(input_ptr.add(i * 4));
+                    let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
+                    let col1 = weights_base.add((i + 1) * OUTPUT_DIMS * 4);
+                    let col2 = weights_base.add((i + 2) * OUTPUT_DIMS * 4);
+                    let col3 = weights_base.add((i + 3) * OUTPUT_DIMS * 4);
+                    for j in 0..num_regs {
+                        let w0 = vld1q_s8(col0.add(j * 16));
+                        let w1 = vld1q_s8(col1.add(j * 16));
+                        let w2 = vld1q_s8(col2.add(j * 16));
+                        let w3 = vld1q_s8(col3.add(j * 16));
+                        p[j * 4] = vsudotq_laneq_s32::<0>(p[j * 4], w0, input16);
+                        p[j * 4 + 1] = vsudotq_laneq_s32::<1>(p[j * 4 + 1], w1, input16);
+                        p[j * 4 + 2] = vsudotq_laneq_s32::<2>(p[j * 4 + 2], w2, input16);
+                        p[j * 4 + 3] = vsudotq_laneq_s32::<3>(p[j * 4 + 3], w3, input16);
+                    }
+                    i += 4;
+                }
+
+                while i < num_chunks {
+                    let in0 = vreinterpretq_u8_s32(vdupq_n_s32(*input32.add(i)));
+                    let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
+                    for j in 0..num_regs {
+                        let w = vld1q_s8(col0.add(j * 16));
+                        p[j * 4] = neon_dpbusd_s32_i8mm(p[j * 4], in0, w);
+                    }
+                    i += 1;
+                }
 
                 for j in 0..num_regs {
-                    let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
-                    let mut a = vld1q_s32(a_ptr);
-                    let w0 = vld1q_s8(col0.add(j * 16));
-                    let w1 = vld1q_s8(col1.add(j * 16));
-                    let w2 = vld1q_s8(col2.add(j * 16));
-                    let w3 = vld1q_s8(col3.add(j * 16));
-                    a = vsudotq_laneq_s32::<0>(a, w0, input16);
-                    a = vsudotq_laneq_s32::<1>(a, w1, input16);
-                    a = vsudotq_laneq_s32::<2>(a, w2, input16);
-                    a = vsudotq_laneq_s32::<3>(a, w3, input16);
-                    vst1q_s32(a_ptr, a);
+                    let s = vaddq_s32(
+                        vaddq_s32(p[j * 4], p[j * 4 + 1]),
+                        vaddq_s32(p[j * 4 + 2], p[j * 4 + 3]),
+                    );
+                    let b = vld1q_s32(bias_ptr.add(j * 4));
+                    vst1q_s32(out_ptr.add(j * 4), vaddq_s32(b, s));
                 }
-                i += 4;
-            }
-
-            let input32 = input.as_ptr() as *const i32;
-            while i < num_chunks {
-                let packed = *input32.add(i);
-                let in0 = vreinterpretq_u8_s32(vdupq_n_s32(packed));
-                let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
+            } else {
+                // Shape B: one resident accumulator per register — per-lane
+                // partials would need 4x the vectors and spill.
+                let mut acc = [vdupq_n_s32(0); MAX_REGS];
                 for j in 0..num_regs {
-                    let a_ptr = acc_ptr.add(j * OUTPUT_SIMD_WIDTH);
-                    let a = vld1q_s32(a_ptr);
-                    let w = vld1q_s8(col0.add(j * 16));
-                    vst1q_s32(a_ptr, neon_dpbusd_s32_i8mm(a, in0, w));
+                    acc[j] = vld1q_s32(bias_ptr.add(j * 4));
                 }
-                i += 1;
-            }
 
-            copy_nonoverlapping(
-                acc_ptr as *const i32,
-                output.as_mut_ptr() as *mut i32,
-                OUTPUT_DIMS,
-            );
+                let mut i = 0;
+                while i < main_end {
+                    let input16 = vld1q_u8(input_ptr.add(i * 4));
+                    let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
+                    let col1 = weights_base.add((i + 1) * OUTPUT_DIMS * 4);
+                    let col2 = weights_base.add((i + 2) * OUTPUT_DIMS * 4);
+                    let col3 = weights_base.add((i + 3) * OUTPUT_DIMS * 4);
+                    for j in 0..num_regs {
+                        let w0 = vld1q_s8(col0.add(j * 16));
+                        let w1 = vld1q_s8(col1.add(j * 16));
+                        let w2 = vld1q_s8(col2.add(j * 16));
+                        let w3 = vld1q_s8(col3.add(j * 16));
+                        acc[j] = vsudotq_laneq_s32::<0>(acc[j], w0, input16);
+                        acc[j] = vsudotq_laneq_s32::<1>(acc[j], w1, input16);
+                        acc[j] = vsudotq_laneq_s32::<2>(acc[j], w2, input16);
+                        acc[j] = vsudotq_laneq_s32::<3>(acc[j], w3, input16);
+                    }
+                    i += 4;
+                }
+
+                while i < num_chunks {
+                    let in0 = vreinterpretq_u8_s32(vdupq_n_s32(*input32.add(i)));
+                    let col0 = weights_base.add(i * OUTPUT_DIMS * 4);
+                    for j in 0..num_regs {
+                        let w = vld1q_s8(col0.add(j * 16));
+                        acc[j] = neon_dpbusd_s32_i8mm(acc[j], in0, w);
+                    }
+                    i += 1;
+                }
+
+                for j in 0..num_regs {
+                    vst1q_s32(out_ptr.add(j * 4), acc[j]);
+                }
+            }
         }
     }
 
@@ -843,6 +891,8 @@ mod tests {
 
         run::<18, 8, 24, 8>(23, 5);
         run::<64, 16, 64, 16>(71, 13);
+        run::<32, 64, 32, 64>(51, 7);
+        run::<18, 64, 24, 64>(89, 3);
     }
 
     #[test]

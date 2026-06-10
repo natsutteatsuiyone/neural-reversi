@@ -1,5 +1,6 @@
 //! Neural network for midgame evaluation.
 
+use std::cell::UnsafeCell;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
 use std::path::Path;
@@ -57,12 +58,18 @@ struct NetworkBuffers {
 }
 
 impl NetworkBuffers {
-    #[inline(always)]
-    fn new() -> Self {
-        // SAFETY: all fields are `u8`/`i32` arrays; the all-zero pattern is
-        // valid and is what the SIMD kernels need in the L1 padding tail.
-        unsafe { std::mem::MaybeUninit::zeroed().assume_init() }
-    }
+    /// All-zero buffers used to initialize the per-thread scratch once.
+    ///
+    /// Only the `l1_input` padding tail is read before being written each pass,
+    /// so it must stay zero; every other byte is fully overwritten, making reuse
+    /// across calls bit-identical to a fresh zeroed buffer.
+    const ZEROED: Self = NetworkBuffers {
+        l1_input: Align64([0; L1_PADDED_INPUT_DIMS]),
+        l1_li_out: Align64([0; L1_PADDED_OUTPUT_DIMS]),
+        l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
+        l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
+        l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
+    };
 
     #[inline(always)]
     fn base_input_mut(&mut self) -> &mut [u8] {
@@ -81,6 +88,14 @@ impl NetworkBuffers {
             &self.l1_input[..PA_INPUT_END],
         ]
     }
+}
+
+thread_local! {
+    /// Per-thread scratch reused across evaluations: the ~768-byte buffer is
+    /// zeroed once per thread, not per call. `const` init keeps the access on
+    /// the guard-free thread-local path.
+    static NETWORK_BUFFERS: UnsafeCell<NetworkBuffers> =
+        const { UnsafeCell::new(NetworkBuffers::ZEROED) };
 }
 
 /// Layer stack for a specific game ply.
@@ -188,13 +203,17 @@ impl Network {
     ) -> ScaledScore {
         let mobility = board.get_moves().count() as u8;
 
-        let mut buffers = NetworkBuffers::new();
-        self.base_input
-            .forward(pattern_feature, buffers.base_input_mut());
-        self.pa_input
-            .forward(pattern_feature, ply, buffers.pa_input_mut());
-        buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility * MOBILITY_SCALE;
-        let score = self.layer_stacks[ply].forward(&mut buffers);
-        score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
+        NETWORK_BUFFERS.with(|cell| {
+            // SAFETY: `evaluate` is not reentrant (no forward pass calls back
+            // into it), so this is the only live borrow of the scratch.
+            let buffers = unsafe { &mut *cell.get() };
+            self.base_input
+                .forward(pattern_feature, buffers.base_input_mut());
+            self.pa_input
+                .forward(pattern_feature, ply, buffers.pa_input_mut());
+            buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility * MOBILITY_SCALE;
+            let score = self.layer_stacks[ply].forward(buffers);
+            score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
+        })
     }
 }
