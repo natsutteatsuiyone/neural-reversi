@@ -186,7 +186,7 @@ pub fn probcut_midgame(
             );
             ctx.selectivity = current_selectivity; // Restore selectivity
             if score >= pc_beta {
-                return Some((beta + pc_beta) / 2);
+                return Some(beta);
             }
         }
     }
