@@ -289,6 +289,7 @@ fn random_move(board: &Board) -> Square {
     board.get_moves().iter().choose(&mut rng).unwrap()
 }
 
+
 /// Performs alpha-beta search specialized for depth 3.
 pub fn evaluate_depth3<NT: NodeType>(
     ctx: &mut SearchContext,
