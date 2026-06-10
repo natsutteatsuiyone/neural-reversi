@@ -9,15 +9,28 @@ use reversi_core::{
 };
 
 const NN_DIMS: usize = 256;
-const HIDDEN_DIMS: usize = 8;
+const HIDDEN_DIMS: usize = 16;
 const OUTPUT_DIMS: usize = HIDDEN_DIMS + NN_DIMS;
 const NUM_LAYER_STACKS: usize = 60;
-const HIDDEN_WEIGHT_SCALE_BITS: u32 = 6;
+const HIDDEN_WEIGHT_SCALE_BITS: u32 = 10;
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 7;
-const QUANTIZED_ONE: i32 = 255;
+const INPUT_QUANTIZED_ONE: i32 = 255;
+const HIDDEN_QUANTIZED_ONE: i32 = 1023;
+const INPUT_ACTIVATION_SCALE_BITS: u32 = 8;
+const HIDDEN_ACTIVATION_SCALE_BITS: u32 = 10;
 
 type L1Layer = HiddenLayer<NN_DIMS, { NN_DIMS * HIDDEN_DIMS }>;
 type L2Layer = HiddenLayer<HIDDEN_DIMS, { HIDDEN_DIMS * HIDDEN_DIMS }>;
+
+/// True when hidden-layer weights are stored in the blocked layout produced by
+/// `HiddenLayer::interleave_blocked`. The load-time permute and the
+/// `forward_simd` access pattern both key on this one constant so the two
+/// sides cannot drift apart.
+const BLOCKED_WEIGHT_LAYOUT: bool = cfg!(all(
+    target_arch = "wasm32",
+    target_feature = "simd128",
+    not(target_feature = "relaxed-simd")
+));
 
 #[repr(align(16))]
 #[derive(Clone, Copy)]
@@ -41,11 +54,6 @@ impl AlignedWeights {
     #[allow(dead_code)]
     fn as_ptr(&self) -> *const i8 {
         self.ptr
-    }
-
-    #[allow(dead_code)]
-    fn as_slice(&self) -> &[i8] {
-        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 
     fn as_mut_slice(&mut self) -> &mut [i8] {
@@ -98,10 +106,36 @@ impl<const IN_DIMS: usize, const WEIGHTS_LEN: usize> HiddenLayer<IN_DIMS, WEIGHT
         reader.read_i32_into::<LittleEndian>(&mut biases)?;
         reader.read_i16_into::<LittleEndian>(&mut weights)?;
 
+        let weights = if BLOCKED_WEIGHT_LAYOUT {
+            Self::interleave_blocked(&weights)
+        } else {
+            weights
+        };
+
         Ok(Self {
             biases,
             weights: AlignedI16Array(weights),
         })
+    }
+
+    /// Permutes row-major weights into a blocked layout: for each group of 8
+    /// output rows, the 8 rows' v128 chunks are interleaved chunk-major, so
+    /// `forward_simd` reads one contiguous stream with a single induction
+    /// pointer instead of 8 strided row pointers. Applied only when
+    /// [`BLOCKED_WEIGHT_LAYOUT`] is true; see `forward_simd`.
+    fn interleave_blocked(weights: &[i16; WEIGHTS_LEN]) -> [i16; WEIGHTS_LEN] {
+        let chunks = IN_DIMS / 8;
+        let mut out = [0i16; WEIGHTS_LEN];
+        for block in 0..HIDDEN_DIMS / 8 {
+            for chunk in 0..chunks {
+                for r in 0..8 {
+                    let src = (block * 8 + r) * IN_DIMS + chunk * 8;
+                    let dst = ((block * chunks + chunk) * 8 + r) * 8;
+                    out[dst..dst + 8].copy_from_slice(&weights[src..src + 8]);
+                }
+            }
+        }
+        out
     }
 
     #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
@@ -117,7 +151,9 @@ impl<const IN_DIMS: usize, const WEIGHTS_LEN: usize> HiddenLayer<IN_DIMS, WEIGHT
                 acc += input_value as i64 * weight as i64;
             }
 
-            *value = screlu_quantized_i64(acc >> HIDDEN_WEIGHT_SCALE_BITS);
+            let shifted = acc >> HIDDEN_WEIGHT_SCALE_BITS;
+            let clamped = shifted.clamp(0, HIDDEN_QUANTIZED_ONE as i64);
+            *value = ((clamped * clamped) >> HIDDEN_ACTIVATION_SCALE_BITS) as i16;
         }
 
         output
@@ -129,55 +165,122 @@ impl<const IN_DIMS: usize, const WEIGHTS_LEN: usize> HiddenLayer<IN_DIMS, WEIGHT
         use std::arch::wasm32::*;
 
         debug_assert_eq!(IN_DIMS % 8, 0);
+        debug_assert_eq!(HIDDEN_DIMS % 8, 0);
 
         let mut output = [0i16; HIDDEN_DIMS];
         unsafe {
             let input_ptr = input.as_ptr() as *const v128;
             let weights_ptr = self.weights.0.as_ptr() as *const v128;
             let chunks = IN_DIMS / 8;
-            let mut sum0 = i32x4_splat(0);
-            let mut sum1 = i32x4_splat(0);
-            let mut sum2 = i32x4_splat(0);
-            let mut sum3 = i32x4_splat(0);
-            let mut sum4 = i32x4_splat(0);
-            let mut sum5 = i32x4_splat(0);
-            let mut sum6 = i32x4_splat(0);
-            let mut sum7 = i32x4_splat(0);
 
-            macro_rules! process_row {
-                ($sum:ident, $out_idx:expr, $activation:expr, $chunk:expr) => {{
-                    let weight = v128_load(weights_ptr.add($out_idx * chunks + $chunk));
-                    $sum = i32x4_add($sum, i32x4_dot_i16x8($activation, weight));
-                }};
+            let zero = i32x4_splat(0);
+            let qone = i32x4_splat(HIDDEN_QUANTIZED_ONE);
+            let out_ptr = output.as_mut_ptr() as *mut v128;
+
+            // Four outputs share each activation load and keep their dot
+            // products in i32x4 accumulators; a shuffle transpose then yields
+            // all four horizontal sums at once. Lane sums stay within i32:
+            // |dot| <= IN_DIMS * 1022 * 32767 < i32::MAX for both layer shapes
+            // (1022 = max screlu output, HIDDEN_QUANTIZED_ONE^2 >>
+            // HIDDEN_ACTIVATION_SCALE_BITS), and trained biases are orders of
+            // magnitude below the remaining headroom.
+            for half in 0..HIDDEN_DIMS / 8 {
+                let out_base = half * 8;
+
+                let mut a0 = zero;
+                let mut a1 = zero;
+                let mut a2 = zero;
+                let mut a3 = zero;
+                let mut a4 = zero;
+                let mut a5 = zero;
+                let mut a6 = zero;
+                let mut a7 = zero;
+
+                // Engine-tuned loop shape (see the input-layer accumulate loop):
+                // V8 (relaxed-simd build) is fastest with row-major weights and a
+                // plain loop; JSC (simd128 build) gains ~3% from the blocked
+                // weight layout combined with a 2x unroll. The branch is folded
+                // at compile time.
+                if !BLOCKED_WEIGHT_LAYOUT {
+                    let row0 = weights_ptr.add(out_base * chunks);
+                    let row1 = weights_ptr.add((out_base + 1) * chunks);
+                    let row2 = weights_ptr.add((out_base + 2) * chunks);
+                    let row3 = weights_ptr.add((out_base + 3) * chunks);
+                    let row4 = weights_ptr.add((out_base + 4) * chunks);
+                    let row5 = weights_ptr.add((out_base + 5) * chunks);
+                    let row6 = weights_ptr.add((out_base + 6) * chunks);
+                    let row7 = weights_ptr.add((out_base + 7) * chunks);
+
+                    for chunk in 0..chunks {
+                        let act = v128_load(input_ptr.add(chunk));
+                        a0 = i32x4_add(a0, i32x4_dot_i16x8(act, v128_load(row0.add(chunk))));
+                        a1 = i32x4_add(a1, i32x4_dot_i16x8(act, v128_load(row1.add(chunk))));
+                        a2 = i32x4_add(a2, i32x4_dot_i16x8(act, v128_load(row2.add(chunk))));
+                        a3 = i32x4_add(a3, i32x4_dot_i16x8(act, v128_load(row3.add(chunk))));
+                        a4 = i32x4_add(a4, i32x4_dot_i16x8(act, v128_load(row4.add(chunk))));
+                        a5 = i32x4_add(a5, i32x4_dot_i16x8(act, v128_load(row5.add(chunk))));
+                        a6 = i32x4_add(a6, i32x4_dot_i16x8(act, v128_load(row6.add(chunk))));
+                        a7 = i32x4_add(a7, i32x4_dot_i16x8(act, v128_load(row7.add(chunk))));
+                    }
+                } else {
+                    debug_assert_eq!(chunks % 2, 0);
+                    let block_ptr = weights_ptr.add(out_base * chunks);
+                    let mut chunk = 0;
+                    while chunk < chunks {
+                        let act0 = v128_load(input_ptr.add(chunk));
+                        let act1 = v128_load(input_ptr.add(chunk + 1));
+                        let w = block_ptr.add(chunk * 8);
+                        a0 = i32x4_add(a0, i32x4_dot_i16x8(act0, v128_load(w)));
+                        a1 = i32x4_add(a1, i32x4_dot_i16x8(act0, v128_load(w.add(1))));
+                        a2 = i32x4_add(a2, i32x4_dot_i16x8(act0, v128_load(w.add(2))));
+                        a3 = i32x4_add(a3, i32x4_dot_i16x8(act0, v128_load(w.add(3))));
+                        a4 = i32x4_add(a4, i32x4_dot_i16x8(act0, v128_load(w.add(4))));
+                        a5 = i32x4_add(a5, i32x4_dot_i16x8(act0, v128_load(w.add(5))));
+                        a6 = i32x4_add(a6, i32x4_dot_i16x8(act0, v128_load(w.add(6))));
+                        a7 = i32x4_add(a7, i32x4_dot_i16x8(act0, v128_load(w.add(7))));
+                        a0 = i32x4_add(a0, i32x4_dot_i16x8(act1, v128_load(w.add(8))));
+                        a1 = i32x4_add(a1, i32x4_dot_i16x8(act1, v128_load(w.add(9))));
+                        a2 = i32x4_add(a2, i32x4_dot_i16x8(act1, v128_load(w.add(10))));
+                        a3 = i32x4_add(a3, i32x4_dot_i16x8(act1, v128_load(w.add(11))));
+                        a4 = i32x4_add(a4, i32x4_dot_i16x8(act1, v128_load(w.add(12))));
+                        a5 = i32x4_add(a5, i32x4_dot_i16x8(act1, v128_load(w.add(13))));
+                        a6 = i32x4_add(a6, i32x4_dot_i16x8(act1, v128_load(w.add(14))));
+                        a7 = i32x4_add(a7, i32x4_dot_i16x8(act1, v128_load(w.add(15))));
+                        chunk += 2;
+                    }
+                }
+
+                macro_rules! hsum_transpose {
+                    ($b0:expr, $b1:expr, $b2:expr, $b3:expr) => {{
+                        let p = i32x4_add(
+                            i32x4_shuffle::<0, 2, 4, 6>($b0, $b1),
+                            i32x4_shuffle::<1, 3, 5, 7>($b0, $b1),
+                        );
+                        let r = i32x4_add(
+                            i32x4_shuffle::<0, 2, 4, 6>($b2, $b3),
+                            i32x4_shuffle::<1, 3, 5, 7>($b2, $b3),
+                        );
+                        i32x4_add(
+                            i32x4_shuffle::<0, 2, 4, 6>(p, r),
+                            i32x4_shuffle::<1, 3, 5, 7>(p, r),
+                        )
+                    }};
+                }
+
+                macro_rules! activate {
+                    ($sums:expr, $bias_idx:expr) => {{
+                        let bias = v128_load(self.biases.as_ptr().add($bias_idx) as *const v128);
+                        let shifted = i32x4_shr(i32x4_add($sums, bias), HIDDEN_WEIGHT_SCALE_BITS);
+                        let clamped = i32x4_min(i32x4_max(shifted, zero), qone);
+                        let sq = i32x4_mul(clamped, clamped);
+                        i32x4_shr(sq, HIDDEN_ACTIVATION_SCALE_BITS)
+                    }};
+                }
+
+                let lo = activate!(hsum_transpose!(a0, a1, a2, a3), out_base);
+                let hi = activate!(hsum_transpose!(a4, a5, a6, a7), out_base + 4);
+                v128_store(out_ptr.add(half), i16x8_narrow_i32x4(lo, hi));
             }
-
-            for chunk in 0..chunks {
-                let activation = v128_load(input_ptr.add(chunk));
-                process_row!(sum0, 0, activation, chunk);
-                process_row!(sum1, 1, activation, chunk);
-                process_row!(sum2, 2, activation, chunk);
-                process_row!(sum3, 3, activation, chunk);
-                process_row!(sum4, 4, activation, chunk);
-                process_row!(sum5, 5, activation, chunk);
-                process_row!(sum6, 6, activation, chunk);
-                process_row!(sum7, 7, activation, chunk);
-            }
-
-            macro_rules! finish_row {
-                ($out_idx:expr, $sum:expr) => {{
-                    let acc = self.biases[$out_idx] + horizontal_sum_i32x4($sum);
-                    output[$out_idx] = screlu_quantized(acc >> HIDDEN_WEIGHT_SCALE_BITS);
-                }};
-            }
-
-            finish_row!(0, sum0);
-            finish_row!(1, sum1);
-            finish_row!(2, sum2);
-            finish_row!(3, sum3);
-            finish_row!(4, sum4);
-            finish_row!(5, sum5);
-            finish_row!(6, sum6);
-            finish_row!(7, sum7);
         }
 
         output
@@ -261,7 +364,7 @@ impl Network {
     /// Panics if `ply` is out of range for the layer stacks.
     pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
         let layer_stack = &self.layer_stacks[ply];
-        let score: i32;
+        let score: i64;
 
         #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         {
@@ -273,22 +376,20 @@ impl Network {
             score = self.forward_scalar(pattern_feature, &self.input_layer, layer_stack);
         }
 
-        let score = ScaledScore::from_raw(score >> OUTPUT_WEIGHT_SCALE_BITS);
+        let raw_score =
+            (score >> OUTPUT_WEIGHT_SCALE_BITS).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let score = ScaledScore::from_raw(raw_score);
         score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-    #[cfg_attr(
-        target_feature = "relaxed-simd",
-        target_feature(enable = "relaxed-simd")
-    )]
     #[target_feature(enable = "simd128")]
     fn forward_simd(
         &self,
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,
         layer_stack: &LayerStack,
-    ) -> i32 {
+    ) -> i64 {
         use std::arch::wasm32::*;
 
         unsafe {
@@ -307,7 +408,7 @@ impl Network {
 
             let bias_ptr = input_layer.biases.0.as_ptr() as *const v128;
             let zero = i16x8_splat(0);
-            let one = i16x8_splat(QUANTIZED_ONE as i16);
+            let one = i16x8_splat(INPUT_QUANTIZED_ONE as i16);
             let mut input_activation = std::mem::MaybeUninit::<AlignedI16Array<NN_DIMS>>::uninit();
             let input_activation_ptr =
                 std::ptr::addr_of_mut!((*input_activation.as_mut_ptr()).0) as *mut i16;
@@ -317,21 +418,12 @@ impl Network {
             let mut skip2 = i32x4_splat(0);
             let mut skip3 = i32x4_splat(0);
 
-            // Relaxed-SIMD fuses each feature pair's i8->i16 widening and addition into a
-            // single `i16x8_relaxed_dot_i8x16_i7x16(weights, ones)`: the dot's pairwise
-            // horizontal sum over byte-interleaved rows yields `w_a[col] + w_b[col]`.
-            // `ones` is the i7 operand (top bit clear, portable); the i8 weight slot is the
-            // signed full-range operand, and the partial sums (|w| <= 127, range +-254) never
-            // saturate, so the result is bit-identical to the simd128 extend+add path.
-            #[cfg(target_feature = "relaxed-simd")]
-            let ones = i8x16_splat(1);
-
             macro_rules! activate_store {
                 ($idx:expr, $acc:expr, $skip_sum:expr) => {{
                     let relu = i16x8_max($acc, zero);
                     let clamped = i16x8_min(relu, one);
                     let sq = u16x8_mul(clamped, clamped);
-                    let activation = u16x8_shr(sq, 8);
+                    let activation = u16x8_shr(sq, INPUT_ACTIVATION_SCALE_BITS);
                     v128_store(input_activation_ptr.add($idx * 8) as *mut v128, activation);
 
                     let skip_weight = v128_load(out_w.add($idx));
@@ -351,22 +443,14 @@ impl Network {
                     let mut a6 = v128_load(bias_ptr.add(c * 2 + 6));
                     let mut a7 = v128_load(bias_ptr.add(c * 2 + 7));
 
-                    #[cfg(not(target_feature = "relaxed-simd"))]
-                    for &row_ptr in &row_ptrs {
-                        let w0 = v128_load(row_ptr.add(c));
-                        let w1 = v128_load(row_ptr.add(c + 1));
-                        let w2 = v128_load(row_ptr.add(c + 2));
-                        let w3 = v128_load(row_ptr.add(c + 3));
-                        a0 = i16x8_add(a0, i16x8_extend_low_i8x16(w0));
-                        a1 = i16x8_add(a1, i16x8_extend_high_i8x16(w0));
-                        a2 = i16x8_add(a2, i16x8_extend_low_i8x16(w1));
-                        a3 = i16x8_add(a3, i16x8_extend_high_i8x16(w1));
-                        a4 = i16x8_add(a4, i16x8_extend_low_i8x16(w2));
-                        a5 = i16x8_add(a5, i16x8_extend_high_i8x16(w2));
-                        a6 = i16x8_add(a6, i16x8_extend_low_i8x16(w3));
-                        a7 = i16x8_add(a7, i16x8_extend_high_i8x16(w3));
-                    }
-
+                    // Each feature pair's i8->i16 widening and addition is fused via byte
+                    // interleave + pairwise widening add: the pairwise horizontal sum
+                    // over the interleaved rows yields `w_a[col] + w_b[col]`. Partial
+                    // sums (|w| <= 127) fit i16 exactly, so the result is bit-identical
+                    // to a plain extend+add path. The loop shape is engine-tuned: V8
+                    // (which loads the relaxed-simd build) is fastest accumulating one
+                    // pair at a time, while JSC (which falls back to the simd128 build)
+                    // gains ~5% from combining two pairs before each accumulator add.
                     #[cfg(target_feature = "relaxed-simd")]
                     {
                         let mut pair = 0;
@@ -378,44 +462,10 @@ impl Network {
                                 ($k:expr, $lo:ident, $hi:ident) => {{
                                     let wa = v128_load(row_a.add(c + $k));
                                     let wb = v128_load(row_b.add(c + $k));
-                                    let lo = i8x16_shuffle::<
-                                        0,
-                                        16,
-                                        1,
-                                        17,
-                                        2,
-                                        18,
-                                        3,
-                                        19,
-                                        4,
-                                        20,
-                                        5,
-                                        21,
-                                        6,
-                                        22,
-                                        7,
-                                        23,
-                                    >(wa, wb);
-                                    let hi = i8x16_shuffle::<
-                                        8,
-                                        24,
-                                        9,
-                                        25,
-                                        10,
-                                        26,
-                                        11,
-                                        27,
-                                        12,
-                                        28,
-                                        13,
-                                        29,
-                                        14,
-                                        30,
-                                        15,
-                                        31,
-                                    >(wa, wb);
-                                    $lo = i16x8_add($lo, i16x8_relaxed_dot_i8x16_i7x16(lo, ones));
-                                    $hi = i16x8_add($hi, i16x8_relaxed_dot_i8x16_i7x16(hi, ones));
+                                    let lo = interleave_lo_i8(wa, wb);
+                                    let hi = interleave_hi_i8(wa, wb);
+                                    $lo = i16x8_add($lo, pairwise_widen_add(lo));
+                                    $hi = i16x8_add($hi, pairwise_widen_add(hi));
                                 }};
                             }
 
@@ -424,6 +474,42 @@ impl Network {
                             pair_acc!(2, a4, a5);
                             pair_acc!(3, a6, a7);
                             pair += 2;
+                        }
+                    }
+
+                    #[cfg(not(target_feature = "relaxed-simd"))]
+                    {
+                        let mut quad = 0;
+                        while quad < NUM_FEATURES {
+                            let row_a = row_ptrs[quad];
+                            let row_b = row_ptrs[quad + 1];
+                            let row_c = row_ptrs[quad + 2];
+                            let row_d = row_ptrs[quad + 3];
+
+                            macro_rules! quad_acc {
+                                ($k:expr, $lo:ident, $hi:ident) => {{
+                                    let wa = v128_load(row_a.add(c + $k));
+                                    let wb = v128_load(row_b.add(c + $k));
+                                    let wc = v128_load(row_c.add(c + $k));
+                                    let wd = v128_load(row_d.add(c + $k));
+                                    let lo = i16x8_add(
+                                        pairwise_widen_add(interleave_lo_i8(wa, wb)),
+                                        pairwise_widen_add(interleave_lo_i8(wc, wd)),
+                                    );
+                                    let hi = i16x8_add(
+                                        pairwise_widen_add(interleave_hi_i8(wa, wb)),
+                                        pairwise_widen_add(interleave_hi_i8(wc, wd)),
+                                    );
+                                    $lo = i16x8_add($lo, lo);
+                                    $hi = i16x8_add($hi, hi);
+                                }};
+                            }
+
+                            quad_acc!(0, a0, a1);
+                            quad_acc!(1, a2, a3);
+                            quad_acc!(2, a4, a5);
+                            quad_acc!(3, a6, a7);
+                            quad += 4;
                         }
                     }
 
@@ -443,17 +529,27 @@ impl Network {
             process_block!(2);
             process_block!(3);
 
-            let total = i32x4_add(i32x4_add(skip0, skip1), i32x4_add(skip2, skip3));
-            let mut output = layer_stack.output.bias + horizontal_sum_i32x4(total);
+            let skip_sum = horizontal_sum_i32x4(skip0) as i64
+                + horizontal_sum_i32x4(skip1) as i64
+                + horizontal_sum_i32x4(skip2) as i64
+                + horizontal_sum_i32x4(skip3) as i64;
+            let mut output = layer_stack.output.bias as i64 + skip_sum;
 
             // SAFETY: the 4 blocks above write all 32 i16x8 lanes in NN_DIMS.
             let input_activation = input_activation.assume_init();
             let l1 = layer_stack.l1.forward_simd(&input_activation.0);
             let l2 = layer_stack.l2.forward_simd(&l1);
 
-            let l2_vec = v128_load(l2.as_ptr() as *const v128);
-            let l2_weights = v128_load(layer_stack.output.weights.0.as_ptr() as *const v128);
-            output += horizontal_sum_i32x4(i32x4_dot_i16x8(l2_vec, l2_weights));
+            debug_assert_eq!(HIDDEN_DIMS % 8, 0);
+            let l2_ptr = l2.as_ptr() as *const v128;
+            let l2_weights_ptr = layer_stack.output.weights.0.as_ptr() as *const v128;
+            let mut hidden_acc = i32x4_splat(0);
+            for chunk in 0..HIDDEN_DIMS / 8 {
+                let l2_vec = v128_load(l2_ptr.add(chunk));
+                let l2_weights = v128_load(l2_weights_ptr.add(chunk));
+                hidden_acc = i32x4_add(hidden_acc, i32x4_dot_i16x8(l2_vec, l2_weights));
+            }
+            output += horizontal_sum_i32x4(hidden_acc) as i64;
 
             output
         }
@@ -465,65 +561,90 @@ impl Network {
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,
         layer_stack: &LayerStack,
-    ) -> i32 {
-        let input_activation = input_activation_scalar(pattern_feature, input_layer);
+    ) -> i64 {
+        let mut input_activation = input_layer.biases.0;
+
+        // SAFETY: `input_layer.weights` owns `len` initialized bytes at `ptr`
+        // for the lifetime of the layer, and scalar forward only reads them.
+        let weights =
+            unsafe { std::slice::from_raw_parts(input_layer.weights.ptr, input_layer.weights.len) };
+        for feature_idx in 0..NUM_FEATURES {
+            let offset = feature_offset(pattern_feature, feature_idx);
+            let row = &weights[offset * NN_DIMS..(offset + 1) * NN_DIMS];
+            for i in 0..NN_DIMS {
+                input_activation[i] += row[i] as i16;
+            }
+        }
+
+        for value in &mut input_activation {
+            let clamped = (*value as i32).clamp(0, INPUT_QUANTIZED_ONE);
+            *value = ((clamped * clamped) >> INPUT_ACTIVATION_SCALE_BITS) as i16;
+        }
+
+        let input_activation = AlignedI16Array(input_activation);
         let l1 = layer_stack.l1.forward_scalar(&input_activation.0);
         let l2 = layer_stack.l2.forward_scalar(&l1);
 
-        let mut output = layer_stack.output.bias;
+        let mut output = layer_stack.output.bias as i64;
 
         for (idx, &value) in l2.iter().enumerate() {
-            output += value as i32 * layer_stack.output.weights.0[idx] as i32;
+            output += value as i64 * layer_stack.output.weights.0[idx] as i64;
         }
 
         for (idx, &value) in input_activation.0.iter().enumerate() {
-            output += value as i32 * layer_stack.output.weights.0[HIDDEN_DIMS + idx] as i32;
+            output += value as i64 * layer_stack.output.weights.0[HIDDEN_DIMS + idx] as i64;
         }
 
         output
     }
 }
 
-#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
-fn input_activation_scalar(
-    pattern_feature: &PatternFeature,
-    input_layer: &InputLayer,
-) -> AlignedI16Array<NN_DIMS> {
-    let mut acc: [i16; NN_DIMS] = input_layer.biases.0;
-
-    let weights = input_layer.weights.as_slice();
-    for feature_idx in 0..NUM_FEATURES {
-        let offset = feature_offset(pattern_feature, feature_idx);
-        let row = &weights[offset * NN_DIMS..(offset + 1) * NN_DIMS];
-        for i in 0..NN_DIMS {
-            acc[i] += row[i] as i16;
-        }
-    }
-
-    for value in &mut acc {
-        *value = screlu_quantized(*value as i32);
-    }
-
-    AlignedI16Array(acc)
-}
-
-#[inline(always)]
-fn screlu_quantized(value: i32) -> i16 {
-    let clamped = value.clamp(0, QUANTIZED_ONE);
-    ((clamped * clamped) >> 8) as i16
-}
-
-#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
-#[inline(always)]
-fn screlu_quantized_i64(value: i64) -> i16 {
-    let clamped = value.clamp(0, QUANTIZED_ONE as i64);
-    ((clamped * clamped) >> 8) as i16
-}
-
 #[inline(always)]
 fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
     *unsafe { PATTERN_FEATURE_OFFSETS.get_unchecked(idx) }
         + unsafe { pattern_feature.get_unchecked(idx) } as usize
+}
+
+/// Interleaves the low 8 bytes of `a` and `b`: `[a0, b0, a1, b1, ..., a7, b7]`.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+fn interleave_lo_i8(
+    a: std::arch::wasm32::v128,
+    b: std::arch::wasm32::v128,
+) -> std::arch::wasm32::v128 {
+    use std::arch::wasm32::*;
+    i8x16_shuffle::<0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23>(a, b)
+}
+
+/// Interleaves the high 8 bytes of `a` and `b`: `[a8, b8, a9, b9, ..., a15, b15]`.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+fn interleave_hi_i8(
+    a: std::arch::wasm32::v128,
+    b: std::arch::wasm32::v128,
+) -> std::arch::wasm32::v128 {
+    use std::arch::wasm32::*;
+    i8x16_shuffle::<8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31>(a, b)
+}
+
+/// Widens adjacent i8 pairs and adds them: `out[i] = in[2i] + in[2i+1]` as i16.
+///
+/// The relaxed-simd form is bit-identical here: with `ones` as the i7 operand
+/// the dot's partial sums are exactly the pairwise sums, and |w| <= 127 keeps
+/// them far from i16 saturation.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+fn pairwise_widen_add(x: std::arch::wasm32::v128) -> std::arch::wasm32::v128 {
+    use std::arch::wasm32::*;
+
+    #[cfg(target_feature = "relaxed-simd")]
+    {
+        i16x8_relaxed_dot_i8x16_i7x16(x, i8x16_splat(1))
+    }
+    #[cfg(not(target_feature = "relaxed-simd"))]
+    {
+        i16x8_extadd_pairwise_i8x16(x)
+    }
 }
 
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
