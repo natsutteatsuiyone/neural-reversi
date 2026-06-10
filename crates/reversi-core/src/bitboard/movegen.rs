@@ -380,6 +380,9 @@ pub(super) fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) 
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { get_moves_and_potential_avx2(player, opponent) }
         }
+        all(target_arch = "aarch64", target_feature = "neon", target_feature = "sha3") => {
+            unsafe { get_moves_and_potential_neon_sha3(player, opponent) }
+        }
         all(target_arch = "aarch64", target_feature = "neon") => {
             unsafe { get_moves_and_potential_neon(player, opponent) }
         }
@@ -555,11 +558,143 @@ pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, 
     (moves & empty, potential)
 }
 
-/// AArch64 implementation of `get_moves_and_potential`.
+/// Finishes the AArch64 NEON `get_moves_and_potential` paths.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[inline(always)]
+fn finish_get_moves_and_potential_neon(
+    player: u64,
+    opponent: u64,
+    h_opp: u64,
+    diag: u64,
+    pot_diag: u64,
+) -> (u64, u64) {
+    let empty = !(player | opponent);
+
+    // --- Horizontal (shift 1) moves: additive carry trick, both directions. ---
+    let rp = player.reverse_bits();
+    let rh = h_opp.reverse_bits();
+    let mut moves = h_opp.wrapping_add(h_opp & (player << 1));
+    moves |= rh.wrapping_add(rh & (rp << 1)).reverse_bits();
+
+    // --- Vertical (shift 8) moves: scalar parallel-prefix fill, both directions. ---
+    let mut flip8 = opponent & (player << 8);
+    flip8 |= opponent & (flip8 << 8);
+    let mut pre8 = opponent & (opponent << 8);
+    flip8 |= pre8 & (flip8 << 16);
+    flip8 |= pre8 & (flip8 << 16);
+    moves |= flip8 << 8;
+
+    flip8 = opponent & (player >> 8);
+    flip8 |= opponent & (flip8 >> 8);
+    pre8 >>= 8;
+    flip8 |= pre8 & (flip8 >> 16);
+    flip8 |= pre8 & (flip8 >> 16);
+    moves |= flip8 >> 8;
+
+    // --- Horizontal + vertical potential (one-step opponent neighbors). ---
+    let v_opp = opponent & VERTICAL_MASK;
+    let pot_hv = (h_opp << 1) | (h_opp >> 1) | (v_opp << 8) | (v_opp >> 8);
+
+    ((moves | diag) & empty, (pot_hv | pot_diag) & empty)
+}
+
+/// AArch64 NEON implementation of `get_moves_and_potential` without SHA3.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 #[inline]
+#[allow(dead_code)]
 pub(super) fn get_moves_and_potential_neon(player: u64, opponent: u64) -> (u64, u64) {
-    let moves = get_moves_neon(player, opponent);
-    (moves, get_potential_moves_portable(player, opponent))
+    use std::arch::aarch64::*;
+
+    let h_opp = opponent & HORIZONTAL_MASK;
+    let d_opp = opponent & DIAGONAL_MASK;
+
+    let pv = vdupq_n_u64(player);
+    let mv = vdupq_n_u64(h_opp);
+    let dd = vdupq_n_u64(d_opp);
+    let sh = vcombine_s64(vdup_n_s64(7), vdup_n_s64(9));
+    let sh_neg = vcombine_s64(vdup_n_s64(-7), vdup_n_s64(-9));
+    let sh2 = vcombine_s64(vdup_n_s64(14), vdup_n_s64(18));
+    let sh2_neg = vcombine_s64(vdup_n_s64(-14), vdup_n_s64(-18));
+
+    let pre = vandq_u64(mv, vshlq_u64(mv, sh));
+    let pre_neg = vshlq_u64(pre, sh_neg);
+
+    let mut fl = vandq_u64(mv, vshlq_u64(pv, sh));
+    let mut fr = vandq_u64(mv, vshlq_u64(pv, sh_neg));
+
+    fl = vorrq_u64(fl, vandq_u64(mv, vshlq_u64(fl, sh)));
+    fr = vorrq_u64(fr, vandq_u64(mv, vshlq_u64(fr, sh_neg)));
+
+    fl = vorrq_u64(fl, vandq_u64(pre, vshlq_u64(fl, sh2)));
+    fl = vorrq_u64(fl, vandq_u64(pre, vshlq_u64(fl, sh2)));
+    fr = vorrq_u64(fr, vandq_u64(pre_neg, vshlq_u64(fr, sh2_neg)));
+    fr = vorrq_u64(fr, vandq_u64(pre_neg, vshlq_u64(fr, sh2_neg)));
+
+    let md = vorrq_u64(vshlq_u64(fl, sh), vshlq_u64(fr, sh_neg));
+    // Diagonal potential: lane 0 = shift 7, lane 1 = shift 9 of the masked
+    // opponent — a one-step dilation in both directions.
+    let pd = vorrq_u64(vshlq_u64(dd, sh), vshlq_u64(dd, sh_neg));
+
+    // Interleave so lane 0 carries both diagonal-move halves and lane 1 carries
+    // both diagonal-potential halves, reducing both with one OR and two extracts.
+    let comb = vorrq_u64(vzip1q_u64(md, pd), vzip2q_u64(md, pd));
+    let diag = vgetq_lane_u64::<0>(comb);
+    let pot_diag = vgetq_lane_u64::<1>(comb);
+
+    finish_get_moves_and_potential_neon(player, opponent, h_opp, diag, pot_diag)
+}
+
+/// AArch64 NEON implementation of `get_moves_and_potential` using SHA3 `bcax`.
+#[cfg(all(
+    target_arch = "aarch64",
+    target_feature = "neon",
+    target_feature = "sha3"
+))]
+#[target_feature(enable = "neon,sha3")]
+#[inline]
+#[allow(dead_code)]
+pub(super) fn get_moves_and_potential_neon_sha3(player: u64, opponent: u64) -> (u64, u64) {
+    use std::arch::aarch64::*;
+
+    let h_opp = opponent & HORIZONTAL_MASK;
+    let d_opp = opponent & DIAGONAL_MASK;
+
+    let pv = vdupq_n_u64(player);
+    let mv = vdupq_n_u64(h_opp);
+    let dd = vdupq_n_u64(d_opp);
+    let sh = vcombine_s64(vdup_n_s64(7), vdup_n_s64(9));
+    let sh_neg = vcombine_s64(vdup_n_s64(-7), vdup_n_s64(-9));
+    let sh2 = vcombine_s64(vdup_n_s64(14), vdup_n_s64(18));
+    let sh2_neg = vcombine_s64(vdup_n_s64(-14), vdup_n_s64(-18));
+
+    let pre = vandq_u64(mv, vshlq_u64(mv, sh));
+    let pre_neg = vshlq_u64(pre, sh_neg);
+
+    let mut fl = vandq_u64(mv, vshlq_u64(pv, sh));
+    let mut fr = vandq_u64(mv, vshlq_u64(pv, sh_neg));
+
+    // The squares added here are disjoint from `f`, so the OR is an XOR and can
+    // use one `bcax` (`a ^ (b & ~c)`) with SHA3.
+    let nmv = vdupq_n_u64(!h_opp);
+    fl = vbcaxq_u64(fl, vshlq_u64(fl, sh), nmv);
+    fr = vbcaxq_u64(fr, vshlq_u64(fr, sh_neg), nmv);
+
+    fl = vorrq_u64(fl, vandq_u64(pre, vshlq_u64(fl, sh2)));
+    fl = vorrq_u64(fl, vandq_u64(pre, vshlq_u64(fl, sh2)));
+    fr = vorrq_u64(fr, vandq_u64(pre_neg, vshlq_u64(fr, sh2_neg)));
+    fr = vorrq_u64(fr, vandq_u64(pre_neg, vshlq_u64(fr, sh2_neg)));
+
+    let md = vorrq_u64(vshlq_u64(fl, sh), vshlq_u64(fr, sh_neg));
+    // Diagonal potential: lane 0 = shift 7, lane 1 = shift 9 of the masked
+    // opponent — a one-step dilation in both directions.
+    let pd = vorrq_u64(vshlq_u64(dd, sh), vshlq_u64(dd, sh_neg));
+
+    // Interleave so lane 0 carries both diagonal-move halves and lane 1 carries
+    // both diagonal-potential halves, reducing both with one OR and two extracts.
+    let comb = vorrq_u64(vzip1q_u64(md, pd), vzip2q_u64(md, pd));
+    let diag = vgetq_lane_u64::<0>(comb);
+    let pot_diag = vgetq_lane_u64::<1>(comb);
+
+    finish_get_moves_and_potential_neon(player, opponent, h_opp, diag, pot_diag)
 }

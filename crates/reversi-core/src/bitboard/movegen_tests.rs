@@ -423,6 +423,29 @@ fn assert_neon_combined_matches_scalar(position: Position) {
     );
 }
 
+#[cfg(all(
+    target_arch = "aarch64",
+    target_feature = "neon",
+    target_feature = "sha3"
+))]
+fn assert_neon_sha3_combined_matches_scalar(position: Position) {
+    let expected_moves = get_moves_portable(position.player, position.opponent);
+    let expected_potential = get_potential_moves(position.player, position.opponent);
+    let (moves_neon, potential_neon) =
+        unsafe { get_moves_and_potential_neon_sha3(position.player, position.opponent) };
+
+    assert_eq!(
+        moves_neon, expected_moves,
+        "{}: NEON SHA3 combined moves differ from scalar for player={:016x}, opponent={:016x}",
+        position.name, position.player, position.opponent
+    );
+    assert_eq!(
+        potential_neon, expected_potential,
+        "{}: NEON SHA3 combined potential differs from scalar for player={:016x}, opponent={:016x}",
+        position.name, position.player, position.opponent
+    );
+}
+
 #[cfg(target_arch = "x86_64")]
 fn detected_x86_backends() -> Option<(bool, bool)> {
     let has_avx2 = is_x86_feature_detected!("avx2");
@@ -632,6 +655,16 @@ fn neon_sha3_moves_match_scalar_paths() {
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn neon_combined_move_and_potential_matches_scalar_paths() {
     for_each_reference_position(assert_neon_combined_matches_scalar);
+}
+
+#[test]
+#[cfg(all(
+    target_arch = "aarch64",
+    target_feature = "neon",
+    target_feature = "sha3"
+))]
+fn neon_sha3_combined_move_and_potential_matches_scalar_paths() {
+    for_each_reference_position(assert_neon_sha3_combined_matches_scalar);
 }
 
 #[test]
