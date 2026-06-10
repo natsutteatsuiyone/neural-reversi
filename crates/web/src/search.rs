@@ -332,8 +332,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     } else if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {
             ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
-        } else if NT::PV_NODE {
-            ctx.update_pv(sq);
         }
         return ScaledScore::MAX;
     }
@@ -392,7 +390,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
 
         if NT::PV_NODE && (move_count == 1 || score > alpha) {
-            ctx.clear_pv();
             score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha);
         }
 
@@ -407,10 +404,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
             if score > alpha {
                 best_move = mv.sq;
-
-                if NT::PV_NODE && !NT::ROOT_NODE {
-                    ctx.update_pv(mv.sq);
-                }
 
                 if NT::PV_NODE && score < beta {
                     alpha = score;

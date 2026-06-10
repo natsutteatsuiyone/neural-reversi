@@ -4,11 +4,10 @@ use std::rc::Rc;
 use reversi_core::{
     bitboard::Bitboard,
     board::Board,
-    constants::MAX_PLY,
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
     probcut::Selectivity,
-    search::{root_move::RootMove, search_context::StackRecord, side_to_move::SideToMove},
+    search::{root_move::RootMove, side_to_move::SideToMove},
     square::Square,
     types::{Depth, ScaledScore, Scoref},
 };
@@ -38,8 +37,6 @@ pub struct SearchContext {
     pub pattern_features: PatternFeatures,
     /// Optional callback for reporting progress to the JavaScript UI.
     progress_callback: Option<Function>,
-    /// Search stack for PV and state at each ply.
-    stack: [StackRecord; MAX_PLY],
 }
 
 impl SearchContext {
@@ -64,9 +61,6 @@ impl SearchContext {
             root_moves: Self::create_root_moves(board),
             pattern_features: PatternFeatures::new(board, ply),
             progress_callback,
-            stack: [StackRecord {
-                pv: [Square::None; MAX_PLY],
-            }; MAX_PLY],
         }
     }
 
@@ -142,7 +136,7 @@ impl SearchContext {
         }
     }
 
-    /// Updates a root move with its search score and PV.
+    /// Updates a root move with its search score.
     pub fn update_root_move(
         &mut self,
         sq: Square,
@@ -151,11 +145,7 @@ impl SearchContext {
         alpha: ScaledScore,
     ) {
         let is_pv = move_count == 1 || score > alpha;
-        if is_pv {
-            self.update_pv(sq);
-        }
 
-        let ply = self.ply();
         let rm = self.root_moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
         rm.average_score = if rm.average_score == -ScaledScore::INF {
             score
@@ -165,13 +155,6 @@ impl SearchContext {
 
         if is_pv {
             rm.score = score;
-            rm.pv.clear();
-            for sq in self.stack[ply].pv.iter() {
-                if *sq == Square::None {
-                    break;
-                }
-                rm.pv.push(*sq);
-            }
         } else {
             rm.score = -ScaledScore::INF;
         }
@@ -190,26 +173,6 @@ impl SearchContext {
             root_moves.push(RootMove::new(m.sq));
         }
         root_moves
-    }
-
-    /// Updates the principal variation at the current ply.
-    pub fn update_pv(&mut self, sq: Square) {
-        let ply = self.ply();
-        self.stack[ply].pv[0] = sq;
-        if ply == 0 {
-            return;
-        }
-        let mut idx = 0;
-        while idx < self.stack[ply + 1].pv.len() && self.stack[ply + 1].pv[idx] != Square::None {
-            self.stack[ply].pv[idx + 1] = self.stack[ply + 1].pv[idx];
-            idx += 1;
-        }
-        self.stack[ply].pv[idx + 1] = Square::None;
-    }
-
-    /// Clears the principal variation at the current ply.
-    pub fn clear_pv(&mut self) {
-        self.stack[self.ply()].pv.fill(Square::None);
     }
 
     /// Sends search progress to the JavaScript UI via the registered callback.
