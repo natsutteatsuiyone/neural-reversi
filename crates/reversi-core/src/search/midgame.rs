@@ -15,7 +15,9 @@ use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, Root};
+use crate::search::root_move::RootMove;
 use crate::search::search_context::SearchContext;
+use crate::search::search_counters::SearchCounters;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::MidGameStrategy;
 use crate::search::threading::Thread;
@@ -69,9 +71,15 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
 
     let mut depth = compute_start_depth(max_depth);
+    // Depth of the last fully completed iteration; aborted iterations leave
+    // root-move scores mixed across depths and must not be reported as reached.
+    let mut completed_depth: Depth = 0;
+    let mut completed_selectivity = ctx.selectivity;
+    let mut completed_root_moves = ctx.root_moves.snapshot();
     while depth <= max_depth {
         ctx.save_previous_scores();
 
+        let mut completed_pv_count = 0;
         for pv_idx in 0..pv_count {
             ctx.set_pv_idx(pv_idx);
 
@@ -109,23 +117,40 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                     counters: ctx.counters.clone(),
                 });
             }
+
+            completed_pv_count += 1;
+            if thread.is_search_aborted() {
+                break;
+            }
+        }
+
+        if completed_pv_count < pv_count && thread.is_search_aborted() {
+            return search_result_from_completed_root_moves(
+                &completed_root_moves,
+                completed_depth.min(n_empties),
+                completed_selectivity,
+                ctx.counters.clone(),
+            );
         }
 
         ctx.sort_all_root_moves();
-        let best_move = ctx
-            .get_best_root_move()
-            .expect("internal error: no root moves after search");
+        completed_depth = depth;
+        completed_selectivity = ctx.selectivity;
+        completed_root_moves = ctx.root_moves.snapshot();
+        let best_move = completed_root_moves
+            .first()
+            .expect("internal error: no completed root moves after search");
 
         if let Some(ref tm) = time_manager {
             tm.report_iteration(best_move.sq, best_move.score.to_disc_diff_f32(), depth);
         }
 
         if thread.is_search_aborted() || should_stop_iteration(&time_manager) {
-            return SearchResult::from_root_move(
-                &ctx.root_moves,
-                &best_move,
-                depth.min(n_empties),
-                ctx.selectivity,
+            return SearchResult::from_root_move_snapshot(
+                &completed_root_moves,
+                best_move,
+                completed_depth.min(n_empties),
+                completed_selectivity,
                 false,
                 ctx.counters.clone(),
             );
@@ -137,16 +162,30 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
     }
 
-    let rm = ctx
-        .get_best_root_move()
-        .expect("internal error: no root moves after search");
-    SearchResult::from_root_move(
-        &ctx.root_moves,
-        &rm,
-        max_depth.min(n_empties),
-        ctx.selectivity,
-        false,
+    search_result_from_completed_root_moves(
+        &completed_root_moves,
+        completed_depth.min(n_empties),
+        completed_selectivity,
         ctx.counters.clone(),
+    )
+}
+
+fn search_result_from_completed_root_moves(
+    root_moves: &[RootMove],
+    depth: Depth,
+    selectivity: Selectivity,
+    counters: SearchCounters,
+) -> SearchResult {
+    let best_move = root_moves
+        .first()
+        .expect("internal error: no completed root moves after search");
+    SearchResult::from_root_move_snapshot(
+        root_moves,
+        best_move,
+        depth,
+        selectivity,
+        false,
+        counters,
     )
 }
 
@@ -518,6 +557,53 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
 #[cfg(test)]
 mod schedule_tests {
     use super::*;
+    use std::sync::{Arc, OnceLock};
+
+    use crate::level::Level;
+    use crate::search::threading::ThreadPool;
+    use crate::transposition_table::TranspositionTable;
+
+    fn shared_eval() -> Arc<Eval> {
+        static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
+        EVAL.get_or_init(|| {
+            Arc::new(
+                Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
+            )
+        })
+        .clone()
+    }
+
+    #[test]
+    fn boundary_abort_after_completed_iteration_reports_completed_depth() {
+        let pool = ThreadPool::new(1);
+        let abort_pool = pool.clone();
+        let board = Board::new().make_move(Square::D3);
+        let task = SearchTask {
+            board,
+            selectivity: Selectivity::None,
+            tt: Arc::new(TranspositionTable::new(0)),
+            pool: pool.clone(),
+            eval: shared_eval(),
+            level: Level {
+                mid_depth: 1,
+                end_depth: [1; 4],
+            },
+            multi_pv: false,
+            callback: Some(Arc::new(move |progress| {
+                if progress.depth == 1 {
+                    abort_pool.abort_search();
+                }
+            })),
+            time_manager: None,
+            eval_mode: None,
+        };
+
+        let result = search_root(task, pool.main());
+
+        assert_eq!(result.depth(), 1);
+        assert!(result.best_move().is_some());
+        assert!(!result.is_invalid_sentinel());
+    }
 
     #[test]
     fn start_depth_is_two_for_even_targets_and_one_for_odd() {

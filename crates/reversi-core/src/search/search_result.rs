@@ -85,6 +85,36 @@ impl SearchResult {
         }
     }
 
+    pub(crate) fn from_root_move_snapshot(
+        root_moves: &[RootMove],
+        best_move: &RootMove,
+        depth: Depth,
+        selectivity: Selectivity,
+        is_endgame: bool,
+        counters: SearchCounters,
+    ) -> Self {
+        let pv_moves: Vec<PvMove> = root_moves
+            .iter()
+            .map(|rm| PvMove {
+                sq: rm.sq,
+                score: rm.score.to_disc_diff_f32(),
+                pv_line: rm.pv.clone(),
+            })
+            .collect();
+
+        Self::BestMove {
+            sq: best_move.sq,
+            score: best_move.score.to_disc_diff_f32(),
+            n_nodes: counters.n_nodes,
+            pv_line: best_move.pv.clone(),
+            depth,
+            selectivity,
+            is_endgame,
+            pv_moves,
+            counters,
+        }
+    }
+
     /// Returns the best move square, if the search produced one.
     #[inline]
     pub fn best_move(&self) -> Option<Square> {
@@ -260,5 +290,38 @@ mod tests {
         assert_eq!(result.pv_moves().len(), 4);
         assert_eq!(result.counters().n_nodes, 42);
         assert!(!result.is_invalid_sentinel());
+    }
+
+    #[test]
+    fn root_move_snapshot_result_is_not_affected_by_later_root_move_updates() {
+        let root_moves = RootMoves::new(&Board::new());
+        let sq = root_moves.map(|rm| rm.sq)[0];
+        let best_move = RootMove {
+            sq,
+            score: ScaledScore::from_disc_diff(4),
+            previous_score: -ScaledScore::INF,
+            average_score: -ScaledScore::INF,
+            pv: vec![sq],
+        };
+        let snapshot = vec![best_move.clone()];
+
+        let mut live_pv = [Square::None; crate::constants::MAX_PLY];
+        live_pv[0] = sq;
+        live_pv[1] = Square::C3;
+        root_moves.update(sq, ScaledScore::from_disc_diff(9), true, &live_pv);
+
+        let result = SearchResult::from_root_move_snapshot(
+            &snapshot,
+            &best_move,
+            2,
+            Selectivity::Level1,
+            false,
+            SearchCounters::default(),
+        );
+
+        assert_eq!(result.score(), Some(4.0));
+        assert_eq!(result.pv_line(), &[sq]);
+        assert_eq!(result.pv_moves()[0].score, 4.0);
+        assert_eq!(result.pv_moves()[0].pv_line, vec![sq]);
     }
 }

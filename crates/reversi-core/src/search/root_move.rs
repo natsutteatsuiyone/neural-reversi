@@ -129,6 +129,11 @@ impl RootMoves {
         }
     }
 
+    /// Returns a detached snapshot of the current root move order and scores.
+    pub fn snapshot(&self) -> Vec<RootMove> {
+        self.moves.lock().unwrap().clone()
+    }
+
     /// Sorts root moves from pv_idx to end by score (stable sort).
     pub fn sort_from_pv_idx(&self) {
         let pv_idx = self.pv_idx();
@@ -335,6 +340,29 @@ mod tests {
             find(&rms, sq, |rm| rm.previous_score),
             ScaledScore::from_disc_diff(5)
         );
+    }
+
+    #[test]
+    fn snapshot_is_detached_from_later_updates() {
+        let rms = RootMoves::new(&Board::new());
+        let sq = rms.map(|rm| rm.sq)[0];
+        rms.update(sq, ScaledScore::from_disc_diff(5), true, &pv_array(&[sq]));
+
+        let snapshot = rms.snapshot();
+
+        rms.update(
+            sq,
+            ScaledScore::from_disc_diff(9),
+            true,
+            &pv_array(&[sq, Square::C3]),
+        );
+
+        let snapshotted = snapshot
+            .iter()
+            .find(|rm| rm.sq == sq)
+            .expect("square should be present in the snapshot");
+        assert_eq!(snapshotted.score, ScaledScore::from_disc_diff(5));
+        assert_eq!(snapshotted.pv, vec![sq]);
     }
 
     #[test]
