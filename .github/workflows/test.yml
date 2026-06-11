@@ -43,10 +43,12 @@ jobs:
         RUSTFLAGS: -C target-cpu=x86-64-v3
       run: cargo test -p reversi-core
 
+    # Explicit --target keeps RUSTFLAGS off build scripts, which run on the
+    # runner and would SIGILL if compiled with AVX-512 instructions.
     - name: Compile-check AVX-512 tier (icelake-server, not executed)
       env:
         RUSTFLAGS: -C target-cpu=icelake-server
-      run: cargo check -p reversi-core --all-targets
+      run: cargo check -p reversi-core --all-targets --target x86_64-unknown-linux-gnu
 
   lint:
     runs-on: ubuntu-latest
