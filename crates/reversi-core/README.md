@@ -432,7 +432,7 @@ The integration tests in `tests/` require real weights to load.
 | Game state                           | `src/game_state.rs`                                                       |
 | Search core                          | `src/search.rs`                                                           |
 | Midgame search                       | `src/search/midgame.rs`                                                   |
-| Endgame search                       | `src/search/endgame.rs`, `src/search/endgame_cache.rs`                    |
+| Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/solve.rs`, `src/search/endgame/cache.rs` |
 | Parallelisation                      | `src/search/threading.rs`                                                 |
 | Search context / stack               | `src/search/search_context.rs`, `src/search/search_stack.rs`              |
 | Strategy / node type                 | `src/search/search_strategy.rs`, `src/search/node_type.rs`                |
@@ -444,7 +444,7 @@ The integration tests in `tests/` require real weights to load.
 | Main NN                              | `src/eval/network.rs`, `src/eval/network/*`                               |
 | Endgame NN                           | `src/eval/network_small.rs`                                               |
 | Numeric types / constants            | `src/types.rs`, `src/constants.rs`                                        |
-| Utilities                            | `src/util/{align,bitset,spinlock}.rs`                                     |
+| Utilities                            | `src/util/{align,aligned_buffer,bitset,spinlock}.rs`                      |
 | Correctness checks                   | `src/perft.rs`, `tests/perft_tests.rs`, `tests/endgame_tests.rs`          |
 
 ## Build and test
@@ -455,12 +455,14 @@ cargo test  -p reversi-core
 cargo bench -p reversi-core
 
 cargo bench -p reversi-core --bench network
+cargo bench -p reversi-core --bench pattern_feature
 cargo bench -p reversi-core --bench perft
 cargo bench -p reversi-core --bench bitboard
 cargo bench -p reversi-core --bench flip
 cargo bench -p reversi-core --bench count_last_flip
 cargo bench -p reversi-core --bench stability
 cargo bench -p reversi-core --bench move_list
+cargo bench -p reversi-core --bench endgame
 ```
 
 `tests/perft_tests.rs` checks the move-generation node counts;
