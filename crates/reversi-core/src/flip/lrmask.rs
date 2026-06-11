@@ -5,9 +5,10 @@
 //!   `[4..8]` = RIGHT side (W, N, NW, NE shifts toward lower bits).
 //!
 //! Trailing entries 64 and 65 are zero placeholders for "pass" / out-of-range
-//! indices, matching the Edax `flip_avx_ppseq.c` reference.
+//! indices. The values match the Edax `MASK_LR` table (`flip.c`, duplicated
+//! as `LR_MASK` in `flip_avx_acepck.c`).
 //!
-//! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_avx_ppseq.c>
+//! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip.c>
 
 #[repr(align(64))]
 pub(super) struct LrmaskEntry(pub(super) [u64; 8]);
