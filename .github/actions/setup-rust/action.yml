@@ -2,9 +2,6 @@ name: Setup Rust environment
 description: Install system dependencies, Rust toolchain, cache, and neural network weights
 
 inputs:
-  components:
-    description: Comma-separated rustup components (e.g. "clippy, rustfmt")
-    default: ''
   cache-key:
     description: Extra cache key for Swatinem/rust-cache
     default: ''
@@ -20,8 +17,6 @@ runs:
 
   - name: Install Rust
     uses: dtolnay/rust-toolchain@stable
-    with:
-      components: ${{ inputs.components }}
 
   - name: Cache Rust dependencies
     uses: Swatinem/rust-cache@v2

@@ -56,8 +56,6 @@ jobs:
 
     - name: Setup Rust environment
       uses: ./.github/actions/setup-rust
-      with:
-        components: clippy, rustfmt
 
     - name: Check formatting
       run: cargo fmt --all -- --check
