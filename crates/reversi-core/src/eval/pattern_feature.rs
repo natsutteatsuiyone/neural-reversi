@@ -689,6 +689,140 @@ impl PatternFeatures {
         ply: usize,
         side_to_move: SideToMove,
     ) {
+        cfg_select! {
+            target_feature = "relaxed-simd" => {
+                self.update_wasm_simd_laneselect(sq, flipped, ply, side_to_move)
+            }
+            _ => {
+                self.update_wasm_simd_branch(sq, flipped, ply, side_to_move)
+            }
+        }
+    }
+
+    /// Relaxed-SIMD variant: simple per-flipped-square loop and a branchless
+    /// `side_to_move` blend via `i16x8_relaxed_laneselect`.
+    #[cfg(all(target_arch = "wasm32", target_feature = "relaxed-simd"))]
+    #[target_feature(enable = "relaxed-simd")]
+    fn update_wasm_simd_laneselect(
+        &mut self,
+        sq: Square,
+        flipped: Bitboard,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
+        use core::arch::wasm32::*;
+
+        unsafe {
+            let ef = &EVAL_FEATURE;
+            let f_ptr = ef.get_unchecked(sq.index()).as_v128_ptr();
+            let f0 = v128_load(f_ptr);
+            let f1 = v128_load(f_ptr.add(1));
+            let f2 = v128_load(f_ptr.add(2));
+            let f3 = v128_load(f_ptr.add(3));
+
+            let mut bits = flipped.bits();
+            let first_fp = ef
+                .get_unchecked(bits.trailing_zeros() as usize)
+                .as_v128_ptr();
+            bits &= bits - 1;
+            let mut sum0 = v128_load(first_fp);
+            let mut sum1 = v128_load(first_fp.add(1));
+            let mut sum2 = v128_load(first_fp.add(2));
+            let mut sum3 = v128_load(first_fp.add(3));
+
+            while bits != 0 {
+                let fp = ef
+                    .get_unchecked(bits.trailing_zeros() as usize)
+                    .as_v128_ptr();
+                bits &= bits - 1;
+                sum0 = i16x8_add(sum0, v128_load(fp));
+                sum1 = i16x8_add(sum1, v128_load(fp.add(1)));
+                sum2 = i16x8_add(sum2, v128_load(fp.add(2)));
+                sum3 = i16x8_add(sum3, v128_load(fp.add(3)));
+            }
+
+            // All-ones when the opponent moved.
+            let side_mask =
+                i16x8_splat(0i16.wrapping_sub((side_to_move != SideToMove::Player) as i16));
+            let select = |a: v128, b: v128| i16x8_relaxed_laneselect(a, b, side_mask);
+
+            let f2_0 = i16x8_shl(f0, 1);
+            let f2_1 = i16x8_shl(f1, 1);
+            let f2_2 = i16x8_shl(f2, 1);
+            let f2_3 = i16x8_shl(f3, 1);
+
+            let f_minus_sum_0 = i16x8_sub(f0, sum0);
+            let f_minus_sum_1 = i16x8_sub(f1, sum1);
+            let f_minus_sum_2 = i16x8_sub(f2, sum2);
+            let f_minus_sum_3 = i16x8_sub(f3, sum3);
+
+            let twof_plus_sum_0 = i16x8_add(f2_0, sum0);
+            let twof_plus_sum_1 = i16x8_add(f2_1, sum1);
+            let twof_plus_sum_2 = i16x8_add(f2_2, sum2);
+            let twof_plus_sum_3 = i16x8_add(f2_3, sum3);
+
+            let delta_p0 = select(f_minus_sum_0, twof_plus_sum_0);
+            let delta_p1 = select(f_minus_sum_1, twof_plus_sum_1);
+            let delta_p2 = select(f_minus_sum_2, twof_plus_sum_2);
+            let delta_p3 = select(f_minus_sum_3, twof_plus_sum_3);
+            let delta_o0 = select(twof_plus_sum_0, f_minus_sum_0);
+            let delta_o1 = select(twof_plus_sum_1, f_minus_sum_1);
+            let delta_o2 = select(twof_plus_sum_2, f_minus_sum_2);
+            let delta_o3 = select(twof_plus_sum_3, f_minus_sum_3);
+
+            let p_feats = &mut self.p_features;
+            let o_feats = &mut self.o_features;
+            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
+
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
+
+            v128_store(p_out_ptr, i16x8_sub(v128_load(p_in_ptr), delta_p0));
+            v128_store(
+                p_out_ptr.add(1),
+                i16x8_sub(v128_load(p_in_ptr.add(1)), delta_p1),
+            );
+            v128_store(
+                p_out_ptr.add(2),
+                i16x8_sub(v128_load(p_in_ptr.add(2)), delta_p2),
+            );
+            v128_store(
+                p_out_ptr.add(3),
+                i16x8_sub(v128_load(p_in_ptr.add(3)), delta_p3),
+            );
+
+            v128_store(o_out_ptr, i16x8_sub(v128_load(o_in_ptr), delta_o0));
+            v128_store(
+                o_out_ptr.add(1),
+                i16x8_sub(v128_load(o_in_ptr.add(1)), delta_o1),
+            );
+            v128_store(
+                o_out_ptr.add(2),
+                i16x8_sub(v128_load(o_in_ptr.add(2)), delta_o2),
+            );
+            v128_store(
+                o_out_ptr.add(3),
+                i16x8_sub(v128_load(o_in_ptr.add(3)), delta_o3),
+            );
+        }
+    }
+
+    /// Base-simd128 variant: unrolled per-flipped-square loop over
+    /// `EVAL_FEATURE` with a `side_to_move` branch.
+    #[cfg(all(
+        target_arch = "wasm32",
+        target_feature = "simd128",
+        not(target_feature = "relaxed-simd")
+    ))]
+    #[target_feature(enable = "simd128")]
+    fn update_wasm_simd_branch(
+        &mut self,
+        sq: Square,
+        flipped: Bitboard,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
         use core::arch::wasm32::*;
 
         unsafe {
