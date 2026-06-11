@@ -342,8 +342,10 @@ impl BoardCtx {
 
     /// Computes flip masks for three runtime squares sharing this board.
     ///
-    /// `(x0, x1)` use the paired 512-bit path, while `x2` uses the YMM
-    /// one-at-a-time path.
+    /// `x0` uses the YMM one-at-a-time path, while `(x1, x2)` use the paired
+    /// 512-bit path. `x0` gets the YMM chain because its reduction tail is
+    /// shorter than the paired ZMM one, and callers consume the first flip
+    /// first: shallow-solve callers feed `f0` straight into the next board.
     ///
     /// Both chains are issued from one body so the scheduler overlaps the
     /// paired `LZCNT` latency with the independent single-square work.
@@ -351,64 +353,64 @@ impl BoardCtx {
     pub fn flip3(&self, x0: usize, x1: usize, x2: usize) -> (u64, u64, u64) {
         unsafe {
             let mask_ptr0 = super::lrmask::LRMASK.get_unchecked(x0).0.as_ptr() as *const __m256i;
-            let mask_ptr1 = super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m256i;
-            let right0 = _mm256_load_si256(mask_ptr0.add(1));
-            let right1 = _mm256_load_si256(mask_ptr1.add(1));
-            let right_mask01 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(right0), right1);
-            let mut right_bit01 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask01));
+            let right_mask0 = _mm256_load_si256(mask_ptr0.add(1));
 
-            let mask_ptr2 = super::lrmask::LRMASK.get_unchecked(x2).0.as_ptr() as *const __m256i;
-            let right_mask2 = _mm256_load_si256(mask_ptr2.add(1));
-
-            let pp2 = _mm512_castsi512_si256(self.pp);
-            let no2 = _mm512_castsi512_si256(self.no);
-            let zero2 = _mm512_castsi512_si256(self.zero);
-            let msb2 = _mm512_castsi512_si256(self.msb);
-            let all_ones2 = _mm512_castsi512_si256(self.all_ones);
+            let pp0 = _mm512_castsi512_si256(self.pp);
+            let no0 = _mm512_castsi512_si256(self.no);
+            let zero0 = _mm512_castsi512_si256(self.zero);
+            let msb0 = _mm512_castsi512_si256(self.msb);
+            let all_ones0 = _mm512_castsi512_si256(self.all_ones);
 
             // Start both high-latency right-side chains before doing either left side.
-            let mut right_bit2 = _mm256_lzcnt_epi64(_mm256_and_si256(no2, right_mask2));
+            let mut right_bit0 = _mm256_lzcnt_epi64(_mm256_and_si256(no0, right_mask0));
 
-            let left0 = _mm256_load_si256(mask_ptr0);
+            let mask_ptr1 = super::lrmask::LRMASK.get_unchecked(x1).0.as_ptr() as *const __m256i;
+            let mask_ptr2 = super::lrmask::LRMASK.get_unchecked(x2).0.as_ptr() as *const __m256i;
+            let right1 = _mm256_load_si256(mask_ptr1.add(1));
+            let right2 = _mm256_load_si256(mask_ptr2.add(1));
+            let right_mask12 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(right1), right2);
+            let mut right_bit12 = _mm512_lzcnt_epi64(_mm512_and_si512(self.no, right_mask12));
+
+            let left_mask0 = _mm256_load_si256(mask_ptr0);
             let left1 = _mm256_load_si256(mask_ptr1);
-            let left_mask01 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(left0), left1);
-            let left_mask2 = _mm256_load_si256(mask_ptr2);
+            let left2 = _mm256_load_si256(mask_ptr2);
+            let left_mask12 = _mm512_inserti64x4::<1>(_mm512_castsi256_si512(left1), left2);
 
-            let mut left_bit01 = _mm512_and_si512(self.no, left_mask01);
-            let mut left_bit2 = _mm256_and_si256(no2, left_mask2);
-            left_bit01 = _mm512_ternarylogic_epi64(
-                left_bit01,
-                _mm512_sub_epi64(self.zero, left_bit01),
+            let mut left_bit0 = _mm256_and_si256(no0, left_mask0);
+            let mut left_bit12 = _mm512_and_si512(self.no, left_mask12);
+            left_bit0 =
+                _mm256_ternarylogic_epi64(left_bit0, _mm256_sub_epi64(zero0, left_bit0), pp0, 0x80);
+            left_bit12 = _mm512_ternarylogic_epi64(
+                left_bit12,
+                _mm512_sub_epi64(self.zero, left_bit12),
                 self.pp,
                 0x80,
             );
-            left_bit2 =
-                _mm256_ternarylogic_epi64(left_bit2, _mm256_sub_epi64(zero2, left_bit2), pp2, 0x80);
 
-            let left_flank01 =
-                _mm512_min_epi64(_mm512_sub_epi64(self.zero, left_bit01), self.all_ones);
-            let left_flank2 = _mm256_min_epi64(_mm256_sub_epi64(zero2, left_bit2), all_ones2);
+            let left_flank0 = _mm256_min_epi64(_mm256_sub_epi64(zero0, left_bit0), all_ones0);
+            let left_flank12 =
+                _mm512_min_epi64(_mm512_sub_epi64(self.zero, left_bit12), self.all_ones);
 
-            right_bit01 = _mm512_and_si512(vpsrlvq_raw_zmm!(self.msb, right_bit01), self.pp);
-            right_bit2 = _mm256_and_si256(vpsrlvq_raw_ymm!(msb2, right_bit2), pp2);
+            right_bit0 = _mm256_and_si256(vpsrlvq_raw_ymm!(msb0, right_bit0), pp0);
+            right_bit12 = _mm512_and_si512(vpsrlvq_raw_zmm!(self.msb, right_bit12), self.pp);
 
-            let right_flips01 = _mm512_ternarylogic_epi64(
-                _mm512_sub_epi64(self.zero, right_bit01),
-                right_bit01,
-                right_mask01,
+            let right_flips0 = _mm256_ternarylogic_epi64(
+                _mm256_sub_epi64(zero0, right_bit0),
+                right_bit0,
+                right_mask0,
                 0x28,
             );
-            let right_flips2 = _mm256_ternarylogic_epi64(
-                _mm256_sub_epi64(zero2, right_bit2),
-                right_bit2,
-                right_mask2,
+            let right_flips12 = _mm512_ternarylogic_epi64(
+                _mm512_sub_epi64(self.zero, right_bit12),
+                right_bit12,
+                right_mask12,
                 0x28,
             );
 
-            let flips01 = _mm512_ternarylogic_epi64(right_flips01, left_flank01, left_mask01, 0xf2);
-            let flips2 = _mm256_ternarylogic_epi64(right_flips2, left_flank2, left_mask2, 0xf2);
-            let (f0, f1) = reduce_zmm_pair_or_u64!(flips01);
-            let f2 = reduce_ymm_or_u64!(flips2);
+            let flips0 = _mm256_ternarylogic_epi64(right_flips0, left_flank0, left_mask0, 0xf2);
+            let flips12 = _mm512_ternarylogic_epi64(right_flips12, left_flank12, left_mask12, 0xf2);
+            let f0 = reduce_ymm_or_u64!(flips0);
+            let (f1, f2) = reduce_zmm_pair_or_u64!(flips12);
             (f0, f1, f2)
         }
     }

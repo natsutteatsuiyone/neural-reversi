@@ -168,8 +168,40 @@ fn solve4_eager(
         return best_score;
     }
 
+    solve4_eager_pass(ctx, board, alpha, sq1, sq2, sq3, sq4)
+}
+
+/// Cold continuation of [`solve4_eager`] for positions where the side to move
+/// has no legal move on any of the four empties.
+///
+/// Kept out of line so the hot path does not keep the shared flip masks and
+/// board broadcasts alive (spilled to the stack) across its `solve3` calls
+/// just to rematerialize them for this rare opponent-side retry.
+#[cfg(any(
+    all(
+        target_arch = "x86_64",
+        target_feature = "avx512cd",
+        target_feature = "avx512vl"
+    ),
+    all(target_arch = "x86_64", target_feature = "avx2"),
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "wasm32", target_feature = "simd128")
+))]
+#[cold]
+#[inline(never)]
+fn solve4_eager_pass(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: Score,
+    sq1: Square,
+    sq2: Square,
+    sq3: Square,
+    sq4: Square,
+) -> Score {
+    let player = board.player();
+    let opponent = board.opponent();
     let pass = board.switch_players();
-    best_score = SCORE_INF;
+    let mut best_score = SCORE_INF;
     let (fo1, fo2, fo3, fo4) = flip::flip4(sq1, sq2, sq3, sq4, opponent, player);
 
     if !fo1.is_empty() {
