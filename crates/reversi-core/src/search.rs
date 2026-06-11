@@ -34,7 +34,7 @@ use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::node_type::{NodeType, NonPV, PV};
-use crate::search::options::SearchOptions;
+use crate::search::options::{SearchOptions, available_cpus};
 use crate::search::search_context::SearchContext;
 use crate::search::search_counters::SearchCounters;
 use crate::search::search_result::SearchResult;
@@ -135,7 +135,10 @@ impl SearchSharedResources {
     ///
     /// Panics if the evaluation weight files cannot be loaded.
     pub fn new(options: &SearchOptions) -> Self {
-        let n_threads = options.n_threads.min(num_cpus::get()).clamp(1, MAX_THREADS);
+        let n_threads = options
+            .n_threads
+            .min(available_cpus())
+            .clamp(1, MAX_THREADS);
         let eval = Eval::with_weight_files(
             options.eval_path.as_deref(),
             options.eval_sm_path.as_deref(),

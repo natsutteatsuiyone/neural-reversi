@@ -11,6 +11,13 @@ use crate::probcut::Selectivity;
 use super::SearchProgressCallback;
 use super::time_control::TimeControlMode;
 
+/// Number of CPUs available to this process, falling back to 1.
+pub(crate) fn available_cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(1)
+}
+
 /// Configuration options for search initialization.
 pub struct SearchOptions {
     pub tt_mb_size: usize,
@@ -56,7 +63,7 @@ impl Default for SearchOptions {
     fn default() -> Self {
         SearchOptions {
             tt_mb_size: 512,
-            n_threads: num_cpus::get().min(MAX_THREADS),
+            n_threads: available_cpus().min(MAX_THREADS),
             eval_path: None,
             eval_sm_path: None,
         }

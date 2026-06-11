@@ -243,7 +243,7 @@ to move below alpha.
   (`CHECK_INTERVAL_MS`) so threads can exit on time-out or
   `Search::abort`.
 - The physical thread count is
-  `n_threads.min(num_cpus::get()).clamp(1, MAX_THREADS)`.
+  `n_threads.min(available_cpus()).clamp(1, MAX_THREADS)`.
 
 `SearchSharedResources` lets several `Search` instances share a single TT
 and `Eval` while keeping independent `ThreadPool`s.
