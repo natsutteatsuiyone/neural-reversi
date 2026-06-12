@@ -20,9 +20,15 @@ pub const fn ceil_to_multiple(n: usize, base: usize) -> usize {
 /// # Safety
 ///
 /// `biases` must have at least `N` elements. The function uses
-/// `copy_nonoverlapping` without bounds checking.
+/// `copy_nonoverlapping` without bounds checking (debug builds assert this).
 #[inline(always)]
 pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
+    debug_assert!(
+        biases.len() >= N,
+        "bias slice has {} elements, need at least {}",
+        biases.len(),
+        N
+    );
     let mut acc = std::mem::MaybeUninit::<Align64<[T; N]>>::uninit();
     unsafe {
         std::ptr::copy_nonoverlapping(
@@ -280,6 +286,13 @@ mod tests {
 
         assert!(cloned.as_slice().is_empty());
         assert_eq!((cloned.as_ptr() as usize) % 64, 0);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "bias slice")]
+    fn clone_biases_rejects_short_slices_in_debug_builds() {
+        let _: Align64<[u32; 4]> = clone_biases(&[1u32, 2, 3]);
     }
 
     #[test]
