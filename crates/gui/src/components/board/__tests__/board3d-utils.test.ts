@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  cellToWorld,
-  CELL_SIZE,
-  BOARD_OFFSET,
-  DISC_RADIUS,
-  DISC_HEIGHT,
-} from "../board3d-utils";
+import { cellToWorld, CELL_SIZE, BOARD_OFFSET, DISC_RADIUS, DISC_HEIGHT } from "../board3d-utils";
 
 describe("board3d-utils", () => {
   describe("cellToWorld", () => {

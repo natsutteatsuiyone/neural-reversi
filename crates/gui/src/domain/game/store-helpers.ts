@@ -23,7 +23,7 @@ export function createMoveRecord(
   moveId: number,
   player: Player,
   move: Move,
-  remainingTime?: number
+  remainingTime?: number,
 ): MoveRecord {
   return {
     id: moveId,
@@ -67,7 +67,7 @@ export function createPassMove(moveId: number, player: Player, remainingTime?: n
 export function reconstructBoardFromMoves(
   moves: readonly MoveRecord[],
   historyStartBoard: Board = initializeBoard(),
-  historyStartPlayer: Player = "black"
+  historyStartPlayer: Player = "black",
 ): {
   board: Board;
   currentPlayer: Player;
@@ -129,7 +129,10 @@ export function createGameStartState(
   };
 }
 
-export function checkGameOver(board: Board, currentPlayer: Player): {
+export function checkGameOver(
+  board: Board,
+  currentPlayer: Player,
+): {
   gameOver: boolean;
   shouldPass: boolean;
 } {

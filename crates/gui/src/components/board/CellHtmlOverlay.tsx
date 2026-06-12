@@ -11,7 +11,11 @@ interface CellHtmlOverlayProps {
 }
 
 export function CellHtmlOverlay({
-  row, col, cellPixelSize, children, zIndex = 10,
+  row,
+  col,
+  cellPixelSize,
+  children,
+  zIndex = 10,
 }: CellHtmlOverlayProps) {
   const [x, z] = cellToWorld(row, col);
 

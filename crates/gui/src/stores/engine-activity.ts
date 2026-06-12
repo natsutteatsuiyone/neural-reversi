@@ -10,9 +10,7 @@ import type { ReversiState } from "./slices/types";
  */
 export function isGameSearchActive(activity: EngineActivity): boolean {
   return (
-    activity.kind === "ai-move" ||
-    activity.kind === "hint" ||
-    activity.kind === "game-analysis"
+    activity.kind === "ai-move" || activity.kind === "hint" || activity.kind === "game-analysis"
   );
 }
 
@@ -25,9 +23,7 @@ export function isGameSearchActive(activity: EngineActivity): boolean {
  * All four feature "busy" booleans are now views of `engineActivity.kind`;
  * nothing else writes them.
  */
-export function engineActivityPatch(
-  activity: EngineActivity,
-): Partial<ReversiState> {
+export function engineActivityPatch(activity: EngineActivity): Partial<ReversiState> {
   return {
     engineActivity: activity,
     isAIThinking: activity.kind === "ai-move",

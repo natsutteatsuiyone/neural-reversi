@@ -40,10 +40,12 @@ export function useBoardScene(): Board3DSceneProps {
   const solverMode = useReversiStore((state) => state.solverMode);
   const advanceSolver = useReversiStore((state) => state.advanceSolver);
 
-  const [moveHistory, setMoveHistory] = useState<AIProgressTrailCell[]>(
-    EMPTY_AI_PROGRESS_TRAIL,
-  );
-  const [lastAIMove, setLastAIMove] = useState<{ row: number; col: number; timestamp: number } | null>(null);
+  const [moveHistory, setMoveHistory] = useState<AIProgressTrailCell[]>(EMPTY_AI_PROGRESS_TRAIL);
+  const [lastAIMove, setLastAIMove] = useState<{
+    row: number;
+    col: number;
+    timestamp: number;
+  } | null>(null);
 
   const solverLegalMoves = useMemo(() => {
     if (!isSolverActive || !solverCurrentBoard || !solverCurrentPlayer) {
@@ -83,14 +85,10 @@ export function useBoardScene(): Board3DSceneProps {
 
   useEffect(() => {
     const cell =
-      aiMoveProgress &&
-      aiMoveProgress.row !== undefined &&
-      aiMoveProgress.col !== undefined
+      aiMoveProgress && aiMoveProgress.row !== undefined && aiMoveProgress.col !== undefined
         ? { row: aiMoveProgress.row, col: aiMoveProgress.col }
         : null;
-    setMoveHistory((prev) =>
-      nextAIProgressTrail(prev, cell, isAITurnNow, Date.now()),
-    );
+    setMoveHistory((prev) => nextAIProgressTrail(prev, cell, isAITurnNow, Date.now()));
   }, [aiMoveProgress, isAITurnNow]);
 
   useEffect(() => {

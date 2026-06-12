@@ -37,14 +37,16 @@ describe("runAIMoveSearch", () => {
       vi.setSystemTime(0);
       const onProgress = vi.fn();
       const ai = createMockAIService({
-        getAIMove: vi.fn().mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
-          vi.setSystemTime(1_000);
-          callback(progress());
-          callback(progress());
-          vi.setSystemTime(1_500);
-          callback(progress({ depth: 11, nodes: 2_000 }));
-          return null;
-        }),
+        getAIMove: vi
+          .fn()
+          .mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
+            vi.setSystemTime(1_000);
+            callback(progress());
+            callback(progress());
+            vi.setSystemTime(1_500);
+            callback(progress({ depth: 11, nodes: 2_000 }));
+            return null;
+          }),
       });
 
       await runAIMoveSearch({
@@ -80,12 +82,14 @@ describe("runAIMoveSearch", () => {
   it("keeps progress updates when displayed fields change without depth or score changes", async () => {
     const onProgress = vi.fn();
     const ai = createMockAIService({
-      getAIMove: vi.fn().mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
-        callback(progress());
-        callback(progress({ row: 3, col: 2, bestMove: "c4" }));
-        callback(progress({ acc: 73, isEndgame: true }));
-        return null;
-      }),
+      getAIMove: vi
+        .fn()
+        .mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
+          callback(progress());
+          callback(progress({ row: 3, col: 2, bestMove: "c4" }));
+          callback(progress({ acc: 73, isEndgame: true }));
+          return null;
+        }),
     });
 
     await runAIMoveSearch({
@@ -216,21 +220,23 @@ describe("runAIMoveSearch", () => {
         getAIMove: vi.fn().mockRejectedValue(new Error("boom")),
       });
 
-      await expect(runAIMoveSearch({
-        ai,
-        board: initializeBoard(),
-        player: "black",
-        level: 1,
-        mode: "game-time",
-        timeLimitSeconds: 1,
-        remainingTimeMs: 60_000,
-        getRemainingTime: () => 60_000,
-        onStart: vi.fn(),
-        onTimerChange,
-        onRemainingTime: vi.fn(),
-        onProgress: vi.fn(),
-        onFinish,
-      })).rejects.toThrow("boom");
+      await expect(
+        runAIMoveSearch({
+          ai,
+          board: initializeBoard(),
+          player: "black",
+          level: 1,
+          mode: "game-time",
+          timeLimitSeconds: 1,
+          remainingTimeMs: 60_000,
+          getRemainingTime: () => 60_000,
+          onStart: vi.fn(),
+          onTimerChange,
+          onRemainingTime: vi.fn(),
+          onProgress: vi.fn(),
+          onFinish,
+        }),
+      ).rejects.toThrow("boom");
 
       expect(onTimerChange).toHaveBeenLastCalledWith(null);
       expect(onFinish).toHaveBeenCalledTimes(1);

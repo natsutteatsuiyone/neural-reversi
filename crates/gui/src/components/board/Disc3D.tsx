@@ -32,11 +32,20 @@ const DISC_Y_OFFSET = 0.001;
 const DISC_REST_Y = DISC_HEIGHT / 2 + DISC_Y_OFFSET;
 
 const sharedGeometry = new THREE.CylinderGeometry(
-  DISC_RADIUS - 0.02, DISC_RADIUS, DISC_HEIGHT, SEGMENTS,
+  DISC_RADIUS - 0.02,
+  DISC_RADIUS,
+  DISC_HEIGHT,
+  SEGMENTS,
 );
 
 function discMaterial(color: string, clearcoat: number) {
-  return new THREE.MeshPhysicalMaterial({ color, roughness: 0.55, metalness: 0, clearcoat, clearcoatRoughness: 0.15 });
+  return new THREE.MeshPhysicalMaterial({
+    color,
+    roughness: 0.55,
+    metalness: 0,
+    clearcoat,
+    clearcoatRoughness: 0.15,
+  });
 }
 
 const BLACK_MATERIALS = [
@@ -70,7 +79,7 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }:
   const materials = displayColor === "black" ? BLACK_MATERIALS : WHITE_MATERIALS;
 
   const [animState, setAnimState] = useState<AnimState>(
-    isNew && !skipAnimation ? "dropping" : "idle"
+    isNew && !skipAnimation ? "dropping" : "idle",
   );
   const animProgress = useRef(0);
   const flipWaitTime = useRef(0);

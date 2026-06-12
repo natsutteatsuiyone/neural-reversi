@@ -26,18 +26,16 @@ import type { ReversiState } from "./slices/types";
  * Routing it through `abortAIMove` supersedes that pending run via
  * EngineSearch, so its stale restart is dropped (CONTEXT.md → Engine Search).
  */
-export async function abortInFlightGameSearches(
-    get: () => ReversiState,
-): Promise<void> {
-    const state = get();
-    const aborts: Promise<void>[] = [];
-    if (state.isAIThinking || state.isAnalyzing || state.hintAnalysisAbortPending) {
-        aborts.push(state.abortAIMove());
-    }
-    if (state.isGameAnalyzing) {
-        aborts.push(state.abortGameAnalysis());
-    }
-    await Promise.all(aborts);
+export async function abortInFlightGameSearches(get: () => ReversiState): Promise<void> {
+  const state = get();
+  const aborts: Promise<void>[] = [];
+  if (state.isAIThinking || state.isAnalyzing || state.hintAnalysisAbortPending) {
+    aborts.push(state.abortAIMove());
+  }
+  if (state.isGameAnalyzing) {
+    aborts.push(state.abortGameAnalysis());
+  }
+  await Promise.all(aborts);
 }
 
 /**
@@ -61,37 +59,37 @@ export async function abortInFlightGameSearches(
  * leaves the current game intact.
  */
 export async function prepareGameReplacement(
-    services: Services,
-    get: () => ReversiState,
-    set: (partial: Partial<ReversiState>) => void,
+  services: Services,
+  get: () => ReversiState,
+  set: (partial: Partial<ReversiState>) => void,
 ): Promise<boolean> {
-    if (!(await get().checkAIReady())) {
-        return false;
+  if (!(await get().checkAIReady())) {
+    return false;
+  }
+
+  const shouldResumeGameAnalysis = get().isGameAnalyzing;
+  const wasPaused = get().paused;
+
+  get().cancelAutomation();
+  await abortInFlightGameSearches(get);
+  // Free the solver search too (it holds the same backend engine/mutex
+  // re-init contends for). Idempotent: a no-op when no solver is running.
+  await services.solver.abort();
+
+  try {
+    await services.ai.initialize();
+    await services.ai.resizeTT(get().hashSize);
+    return true;
+  } catch (error) {
+    console.error("Failed to prepare AI for a new position:", error);
+    if (shouldResumeGameAnalysis) {
+      void get().analyzeGame();
+      set({ paused: wasPaused });
+      get().queueResumeAutomation();
+    } else {
+      set({ paused: wasPaused });
+      get().triggerAutomation();
     }
-
-    const shouldResumeGameAnalysis = get().isGameAnalyzing;
-    const wasPaused = get().paused;
-
-    get().cancelAutomation();
-    await abortInFlightGameSearches(get);
-    // Free the solver search too (it holds the same backend engine/mutex
-    // re-init contends for). Idempotent: a no-op when no solver is running.
-    await services.solver.abort();
-
-    try {
-        await services.ai.initialize();
-        await services.ai.resizeTT(get().hashSize);
-        return true;
-    } catch (error) {
-        console.error("Failed to prepare AI for a new position:", error);
-        if (shouldResumeGameAnalysis) {
-            void get().analyzeGame();
-            set({ paused: wasPaused });
-            get().queueResumeAutomation();
-        } else {
-            set({ paused: wasPaused });
-            get().triggerAutomation();
-        }
-        return false;
-    }
+    return false;
+  }
 }

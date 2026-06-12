@@ -7,30 +7,52 @@ import {
   isGameSearchActive,
 } from "@/stores/engine-activity";
 
-const ALL_KINDS: EngineActivityKind[] = [
-  "idle",
-  "ai-move",
-  "hint",
-  "game-analysis",
-  "solver",
-];
+const ALL_KINDS: EngineActivityKind[] = ["idle", "ai-move", "hint", "game-analysis", "solver"];
 
 // The four busy booleans are views of `engineActivity.kind` and this is their
 // single source (CONTEXT.md → Engine Activity). These tests pin that mapping
 // so a fifth kind cannot silently desync a hand-listed reset.
 describe("engineActivityPatch", () => {
   it("sets exactly the one boolean that matches the kind", () => {
-    const expected: Record<EngineActivityKind, {
-      isAIThinking: boolean;
-      isAnalyzing: boolean;
-      isGameAnalyzing: boolean;
-      isSolverSearching: boolean;
-    }> = {
-      idle: { isAIThinking: false, isAnalyzing: false, isGameAnalyzing: false, isSolverSearching: false },
-      "ai-move": { isAIThinking: true, isAnalyzing: false, isGameAnalyzing: false, isSolverSearching: false },
-      hint: { isAIThinking: false, isAnalyzing: true, isGameAnalyzing: false, isSolverSearching: false },
-      "game-analysis": { isAIThinking: false, isAnalyzing: false, isGameAnalyzing: true, isSolverSearching: false },
-      solver: { isAIThinking: false, isAnalyzing: false, isGameAnalyzing: false, isSolverSearching: true },
+    const expected: Record<
+      EngineActivityKind,
+      {
+        isAIThinking: boolean;
+        isAnalyzing: boolean;
+        isGameAnalyzing: boolean;
+        isSolverSearching: boolean;
+      }
+    > = {
+      idle: {
+        isAIThinking: false,
+        isAnalyzing: false,
+        isGameAnalyzing: false,
+        isSolverSearching: false,
+      },
+      "ai-move": {
+        isAIThinking: true,
+        isAnalyzing: false,
+        isGameAnalyzing: false,
+        isSolverSearching: false,
+      },
+      hint: {
+        isAIThinking: false,
+        isAnalyzing: true,
+        isGameAnalyzing: false,
+        isSolverSearching: false,
+      },
+      "game-analysis": {
+        isAIThinking: false,
+        isAnalyzing: false,
+        isGameAnalyzing: true,
+        isSolverSearching: false,
+      },
+      solver: {
+        isAIThinking: false,
+        isAnalyzing: false,
+        isGameAnalyzing: false,
+        isSolverSearching: true,
+      },
     };
 
     for (const kind of ALL_KINDS) {
@@ -57,9 +79,7 @@ describe("idleEngineActivityPatch", () => {
   });
 
   it("is the same projection engineActivityPatch produces for idle", () => {
-    expect(idleEngineActivityPatch()).toEqual(
-      engineActivityPatch(IDLE_ENGINE_ACTIVITY),
-    );
+    expect(idleEngineActivityPatch()).toEqual(engineActivityPatch(IDLE_ENGINE_ACTIVITY));
   });
 });
 

@@ -155,18 +155,20 @@ describe("setHintMode", () => {
     const analyzeDeferred1 = createDeferred<void>();
     const analyzeDeferred2 = createDeferred<void>();
     const abortDeferred = createDeferred<void>();
-    const analyzeCallbacks: Array<(progress: {
-      row: number;
-      col: number;
-      depth: number;
-      score: number;
-      targetDepth: number;
-      acc: number;
-      nodes: number;
-      pvLine: string;
-      bestMove: string;
-      isEndgame: boolean;
-    }) => void> = [];
+    const analyzeCallbacks: Array<
+      (progress: {
+        row: number;
+        col: number;
+        depth: number;
+        score: number;
+        targetDepth: number;
+        acc: number;
+        nodes: number;
+        pvLine: string;
+        bestMove: string;
+        isEndgame: boolean;
+      }) => void
+    > = [];
 
     const { store, services } = createTestStore({
       ai: createMockAIService({
@@ -218,7 +220,11 @@ describe("setHintMode", () => {
     // EngineSearch.abort drains supersede() -> teardown -> onSettled ->
     // analyzeBoard -> start() -> supersede() before the re-analysis is issued,
     // so the restart now spans several microtasks (behavior unchanged).
-    for (let i = 0; i < 10 && (services.ai.analyze as ReturnType<typeof vi.fn>).mock.calls.length < 2; i++) {
+    for (
+      let i = 0;
+      i < 10 && (services.ai.analyze as ReturnType<typeof vi.fn>).mock.calls.length < 2;
+      i++
+    ) {
       await Promise.resolve();
     }
     expect(services.ai.analyze).toHaveBeenCalledTimes(2);
@@ -278,7 +284,8 @@ describe("setHintMode", () => {
     // guaranteed-once onTeardown must still release the guard (no newer hint
     // abort claimed since), or hint analysis is dead for the session.
     abortDeferred.resolve();
-    for (let i = 0; i < 10 && store.getState().hintAnalysisAbortPending; i++) await Promise.resolve();
+    for (let i = 0; i < 10 && store.getState().hintAnalysisAbortPending; i++)
+      await Promise.resolve();
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
   });
 
@@ -363,7 +370,7 @@ describe("Engine Activity ownership", () => {
     // still the current run, so it can never clobber a newer run's activity.
     const hintRunDeferred = createDeferred<void>();
     const gameRunDeferred = createDeferred<void>();
-    const analyzeMock = vi.fn().mockReturnValue(hintRunDeferred.promise);     // hint run stays live
+    const analyzeMock = vi.fn().mockReturnValue(hintRunDeferred.promise); // hint run stays live
     const analyzeGameMock = vi.fn().mockReturnValue(gameRunDeferred.promise); // newer run
     const { store } = createTestStore({
       ai: createMockAIService({
@@ -406,7 +413,7 @@ describe("analyzeGame", () => {
     const gameRunDeferred = createDeferred<void>();
     const { store } = createTestStore({
       ai: createMockAIService({
-        analyze: vi.fn().mockReturnValue(hintRunDeferred.promise),   // hint run stays live
+        analyze: vi.fn().mockReturnValue(hintRunDeferred.promise), // hint run stays live
         abortSearch: vi.fn().mockReturnValue(abortDeferred.promise), // SLOW supersede
         analyzeGame: vi.fn().mockReturnValue(gameRunDeferred.promise),
       }),
@@ -446,7 +453,7 @@ describe("analyzeGame", () => {
     const gameRunDeferred = createDeferred<void>();
     const { store } = createTestStore({
       ai: createMockAIService({
-        analyze: vi.fn().mockReturnValue(hintRunDeferred.promise),   // hint run stays live
+        analyze: vi.fn().mockReturnValue(hintRunDeferred.promise), // hint run stays live
         abortSearch: vi.fn().mockReturnValue(abortDeferred.promise), // SLOW supersede
         analyzeGame: vi.fn().mockReturnValue(gameRunDeferred.promise),
       }),

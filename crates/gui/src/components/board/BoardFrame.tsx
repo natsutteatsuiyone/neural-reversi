@@ -11,23 +11,47 @@ export function BoardFrame() {
     const halfBoard = BOARD_WORLD_SIZE / 2;
     const yPos = FRAME_HEIGHT / 2;
     return [
-      { position: [0, yPos, -(halfBoard + FRAME_WIDTH / 2)] as [number, number, number], size: [outerSize, FRAME_HEIGHT, FRAME_WIDTH] as [number, number, number] },
-      { position: [0, yPos, halfBoard + FRAME_WIDTH / 2] as [number, number, number], size: [outerSize, FRAME_HEIGHT, FRAME_WIDTH] as [number, number, number] },
-      { position: [-(halfBoard + FRAME_WIDTH / 2), yPos, 0] as [number, number, number], size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number] },
-      { position: [halfBoard + FRAME_WIDTH / 2, yPos, 0] as [number, number, number], size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number] },
+      {
+        position: [0, yPos, -(halfBoard + FRAME_WIDTH / 2)] as [number, number, number],
+        size: [outerSize, FRAME_HEIGHT, FRAME_WIDTH] as [number, number, number],
+      },
+      {
+        position: [0, yPos, halfBoard + FRAME_WIDTH / 2] as [number, number, number],
+        size: [outerSize, FRAME_HEIGHT, FRAME_WIDTH] as [number, number, number],
+      },
+      {
+        position: [-(halfBoard + FRAME_WIDTH / 2), yPos, 0] as [number, number, number],
+        size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number],
+      },
+      {
+        position: [halfBoard + FRAME_WIDTH / 2, yPos, 0] as [number, number, number],
+        size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number],
+      },
     ];
-  }, []);
+  }, [outerSize]);
 
   const chamferStrips = useMemo(() => {
     const halfBoard = BOARD_WORLD_SIZE / 2;
     const yPos = FRAME_HEIGHT + CHAMFER_HEIGHT / 2;
     return [
-      { position: [0, yPos, -(halfBoard + FRAME_WIDTH / 2)] as [number, number, number], size: [outerSize, CHAMFER_HEIGHT, FRAME_WIDTH] as [number, number, number] },
-      { position: [0, yPos, halfBoard + FRAME_WIDTH / 2] as [number, number, number], size: [outerSize, CHAMFER_HEIGHT, FRAME_WIDTH] as [number, number, number] },
-      { position: [-(halfBoard + FRAME_WIDTH / 2), yPos, 0] as [number, number, number], size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number] },
-      { position: [halfBoard + FRAME_WIDTH / 2, yPos, 0] as [number, number, number], size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number] },
+      {
+        position: [0, yPos, -(halfBoard + FRAME_WIDTH / 2)] as [number, number, number],
+        size: [outerSize, CHAMFER_HEIGHT, FRAME_WIDTH] as [number, number, number],
+      },
+      {
+        position: [0, yPos, halfBoard + FRAME_WIDTH / 2] as [number, number, number],
+        size: [outerSize, CHAMFER_HEIGHT, FRAME_WIDTH] as [number, number, number],
+      },
+      {
+        position: [-(halfBoard + FRAME_WIDTH / 2), yPos, 0] as [number, number, number],
+        size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number],
+      },
+      {
+        position: [halfBoard + FRAME_WIDTH / 2, yPos, 0] as [number, number, number],
+        size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE] as [number, number, number],
+      },
     ];
-  }, []);
+  }, [outerSize]);
 
   return (
     <group>

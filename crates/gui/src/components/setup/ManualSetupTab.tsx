@@ -16,17 +16,10 @@ export function ManualSetupTab() {
 
   return (
     <div className="flex gap-4 items-start">
-      <SetupMiniBoard
-        board={setupBoard}
-        editable
-        onCellClick={setSetupCellColor}
-      />
+      <SetupMiniBoard board={setupBoard} editable onCellClick={setSetupCellColor} />
 
       <div className="flex flex-col gap-4 min-w-0 flex-1">
-        <TurnSelector
-          currentPlayer={setupCurrentPlayer}
-          onPlayerChange={setSetupCurrentPlayer}
-        />
+        <TurnSelector currentPlayer={setupCurrentPlayer} onPlayerChange={setSetupCurrentPlayer} />
 
         <div className="flex flex-col gap-2">
           <Button

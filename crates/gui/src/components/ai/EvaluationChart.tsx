@@ -60,8 +60,28 @@ function DiscIndicatorBar() {
 
   return (
     <g>
-      <rect x={barX} y={plotArea.y} width={barWidth} height={zeroY - plotArea.y} rx={r} ry={r} fill="var(--stone-black-to)" stroke="rgba(255,255,255,0.3)" strokeWidth={0.5} />
-      <rect x={barX} y={zeroY} width={barWidth} height={plotArea.y + plotArea.height - zeroY} rx={r} ry={r} fill="var(--stone-white-to)" stroke="rgba(255,255,255,0.15)" strokeWidth={0.5} />
+      <rect
+        x={barX}
+        y={plotArea.y}
+        width={barWidth}
+        height={zeroY - plotArea.y}
+        rx={r}
+        ry={r}
+        fill="var(--stone-black-to)"
+        stroke="rgba(255,255,255,0.3)"
+        strokeWidth={0.5}
+      />
+      <rect
+        x={barX}
+        y={zeroY}
+        width={barWidth}
+        height={plotArea.y + plotArea.height - zeroY}
+        rx={r}
+        ry={r}
+        fill="var(--stone-white-to)"
+        stroke="rgba(255,255,255,0.15)"
+        strokeWidth={0.5}
+      />
     </g>
   );
 }
@@ -86,15 +106,19 @@ function CustomTooltip({
           <div className="mt-1 space-y-0.5 text-xs">
             {analysis.bestMove !== analysis.playedMove && (
               <p className="text-foreground-muted">
-                {t('analysis.bestMoveLabel', {
+                {t("analysis.bestMoveLabel", {
                   move: analysis.bestMove,
                   score: formatScore(analysis.bestScore, "raw"),
                 })}
               </p>
             )}
             {analysis.scoreLoss > DUBIOUS_THRESHOLD && (
-              <p className={analysis.scoreLoss > BLUNDER_THRESHOLD ? "text-red-400" : "text-yellow-400"}>
-                {t('analysis.lossLabel', { loss: analysis.scoreLoss.toFixed(1) })}
+              <p
+                className={
+                  analysis.scoreLoss > BLUNDER_THRESHOLD ? "text-red-400" : "text-yellow-400"
+                }
+              >
+                {t("analysis.lossLabel", { loss: analysis.scoreLoss.toFixed(1) })}
               </p>
             )}
           </div>
@@ -241,12 +265,16 @@ export function EvaluationChart() {
             dataKey="score"
             stroke={lineColor}
             strokeWidth={2}
-            dot={hasAnalysis ? renderDot : {
-              fill: lineColor,
-              strokeWidth: 1,
-              stroke: "rgba(255,255,255,0.2)",
-              r: 3,
-            }}
+            dot={
+              hasAnalysis
+                ? renderDot
+                : {
+                    fill: lineColor,
+                    strokeWidth: 1,
+                    stroke: "rgba(255,255,255,0.2)",
+                    r: 3,
+                  }
+            }
             activeDot={{
               r: 5,
               fill: lineColor,

@@ -23,8 +23,7 @@ export function SolverPanel() {
     return arr;
   }, [solverCandidates]);
 
-  const bestScore =
-    sortedCandidates.length > 0 ? Math.round(sortedCandidates[0].score) : null;
+  const bestScore = sortedCandidates.length > 0 ? Math.round(sortedCandidates[0].score) : null;
 
   const handleCandidateClick = useCallback(
     (row: number, col: number) => {
@@ -46,9 +45,7 @@ export function SolverPanel() {
             isSolverSearching ? "text-accent-blue animate-pulse" : "text-foreground-muted",
           )}
         />
-        <span className="text-sm font-medium text-foreground">
-          {t("solver.title")}
-        </span>
+        <span className="text-sm font-medium text-foreground">{t("solver.title")}</span>
         {isSolverSearching && (
           <span className="text-xs bg-accent-blue/20 text-accent-blue px-2 py-0.5 rounded-full">
             {t("solver.searching")}

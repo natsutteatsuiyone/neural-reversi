@@ -1,10 +1,7 @@
 import type { AIService } from "@/services/types";
 import type { EngineSearch } from "@/domain/engine/engine-search";
 import type { AIMoveProgress, Board, Player } from "@/domain/game/types";
-import {
-  applyHintAnalysisProgress,
-  type HintAnalysisResults,
-} from "@/domain/game/game-analysis";
+import { applyHintAnalysisProgress, type HintAnalysisResults } from "@/domain/game/game-analysis";
 
 /**
  * Everything the Hint Analysis feature reads. `analyzeBoard` and
@@ -142,8 +139,14 @@ export class HintAnalysisSession {
   }
 
   async analyze(): Promise<void> {
-    const { isHintMode, gameStatus, isAIThinking, isAITurn, isAnalyzing, hintAnalysisAbortPending } =
-      this.read();
+    const {
+      isHintMode,
+      gameStatus,
+      isAIThinking,
+      isAITurn,
+      isAnalyzing,
+      hintAnalysisAbortPending,
+    } = this.read();
 
     // Analyze only if Hint Mode is ON, game is playing, not AI thinking, not AI's turn, and not already analyzing
     if (

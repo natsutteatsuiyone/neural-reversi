@@ -2,19 +2,12 @@ import { useCallback } from "react";
 import { Header } from "./Header";
 import { Board } from "@/components/board/Board";
 import { Sidebar } from "./Sidebar";
-import {
-  AIAnalysisPanelContent,
-  AIAnalysisPanelHeader,
-} from "@/components/ai/AIAnalysisPanel";
+import { AIAnalysisPanelContent, AIAnalysisPanelHeader } from "@/components/ai/AIAnalysisPanel";
 import { NewGameModal } from "@/components/game/NewGameModal";
 import { AboutModal } from "@/components/game/AboutModal";
 import { SolverModal, SolverPanel } from "@/components/solver";
 import { Toaster } from "@/components/ui/sonner";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useReversiStore } from "@/stores/use-reversi-store";
 

@@ -63,7 +63,7 @@ export function resolveCursorMoveNumber(
 }
 
 export function resolveYAxisDomain(chartData: readonly ChartDataItem[]): [number, number] {
-  const scores = chartData.flatMap((item) => item.score === null ? [] : [item.score]);
+  const scores = chartData.flatMap((item) => (item.score === null ? [] : [item.score]));
   if (scores.length === 0) {
     return DEFAULT_Y_AXIS_DOMAIN;
   }
@@ -77,7 +77,7 @@ export function resolveYAxisDomain(chartData: readonly ChartDataItem[]): [number
 
   const padding = Math.max(
     Y_AXIS_TICK_UNIT,
-    Math.ceil(Math.abs(dataMax - dataMin) * 0.08 / Y_AXIS_TICK_UNIT) * Y_AXIS_TICK_UNIT,
+    Math.ceil((Math.abs(dataMax - dataMin) * 0.08) / Y_AXIS_TICK_UNIT) * Y_AXIS_TICK_UNIT,
   );
   let lo = Math.floor((dataMin - padding) / Y_AXIS_TICK_UNIT) * Y_AXIS_TICK_UNIT;
   let hi = Math.ceil((dataMax + padding) / Y_AXIS_TICK_UNIT) * Y_AXIS_TICK_UNIT;
@@ -86,7 +86,10 @@ export function resolveYAxisDomain(chartData: readonly ChartDataItem[]): [number
   hi = Math.max(hi, 0);
 
   const dominant = Math.max(Math.abs(lo), hi);
-  const minOpposite = Math.max(8, Math.ceil(dominant * 0.3 / Y_AXIS_TICK_UNIT) * Y_AXIS_TICK_UNIT);
+  const minOpposite = Math.max(
+    8,
+    Math.ceil((dominant * 0.3) / Y_AXIS_TICK_UNIT) * Y_AXIS_TICK_UNIT,
+  );
   if (Math.abs(lo) > hi) hi = Math.max(hi, minOpposite);
   else if (hi > Math.abs(lo)) lo = Math.min(lo, -minOpposite);
 

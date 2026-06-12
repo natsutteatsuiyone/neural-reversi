@@ -19,9 +19,7 @@ export function TurnSelector({
 
   return (
     <div className="space-y-2">
-      <Label className="text-sm font-medium text-foreground-secondary">
-        {t("setup.turn")}
-      </Label>
+      <Label className="text-sm font-medium text-foreground-secondary">{t("setup.turn")}</Label>
       <div className="flex gap-2" role="radiogroup" aria-label={t("setup.turn")}>
         {(["black", "white"] as const).map((color) => {
           const isSelected = currentPlayer === color;
@@ -41,7 +39,7 @@ export function TurnSelector({
                     : "border-white/10 text-foreground-secondary/50 cursor-default opacity-50"
                   : isSelected
                     ? "border-primary bg-primary/15 text-foreground cursor-pointer"
-                    : "border-white/15 text-foreground-secondary hover:border-white/25 hover:bg-white/5 cursor-pointer"
+                    : "border-white/15 text-foreground-secondary hover:border-white/25 hover:bg-white/5 cursor-pointer",
               )}
             >
               <Stone color={color} size="sm" />

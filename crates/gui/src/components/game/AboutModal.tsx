@@ -2,12 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { Info } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TAURI_COMMAND } from "@/services/tauri-contract";
 import { useReversiStore } from "@/stores/use-reversi-store";
@@ -22,9 +17,11 @@ function AboutModalContent() {
   const [tab, setTab] = useState<TabValue>("license");
 
   useEffect(() => {
-    void invoke<string>(TAURI_COMMAND.getAppVersion).then(setVersion).catch(() => {
-      setVersion("");
-    });
+    void invoke<string>(TAURI_COMMAND.getAppVersion)
+      .then(setVersion)
+      .catch(() => {
+        setVersion("");
+      });
     void invoke<string>(TAURI_COMMAND.getLicenseText)
       .then(setLicenseText)
       .catch((err) => {
@@ -44,10 +41,7 @@ function AboutModalContent() {
   };
 
   return (
-    <DialogContent
-      aria-describedby={undefined}
-      className="bg-card border-white/10 sm:max-w-2xl"
-    >
+    <DialogContent aria-describedby={undefined} className="bg-card border-white/10 sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle className="flex items-baseline gap-2 text-xl text-foreground">
           <Info className="w-5 h-5 self-center text-accent-blue" />

@@ -24,8 +24,7 @@ export function createReversiStore(services: Services) {
   // async start/abort, long after this assignment.
   let setState: StoreApi<ReversiState>["setState"] | null = null;
   const engineSearch = createEngineSearch({
-    onActivityChange: (activity) =>
-      setState?.(engineActivityPatch(activity)),
+    onActivityChange: (activity) => setState?.(engineActivityPatch(activity)),
   });
   const store = create<ReversiState>()((set, get, api) => {
     // One Hint Analysis Session, shared by the UI slice (toggle/analyze) and

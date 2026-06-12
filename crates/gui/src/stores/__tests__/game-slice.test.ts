@@ -182,7 +182,11 @@ describe("makeMove", () => {
     });
 
     s.getState().setHintMode(true);
-    for (let i = 0; i < 10 && (svc.ai.analyze as ReturnType<typeof vi.fn>).mock.calls.length === 0; i++) {
+    for (
+      let i = 0;
+      i < 10 && (svc.ai.analyze as ReturnType<typeof vi.fn>).mock.calls.length === 0;
+      i++
+    ) {
       await Promise.resolve();
     }
     expect(s.getState().isAnalyzing).toBe(true);
@@ -502,18 +506,14 @@ describe("redoMove", () => {
   it("advances board and currentPlayer after redo", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     // Extract only colors so we ignore transient flags like isNew
-    const colorsAfterMove = store
-      .getState()
-      .board.map((row) => row.map((cell) => cell.color));
+    const colorsAfterMove = store.getState().board.map((row) => row.map((cell) => cell.color));
     const playerAfterMove = store.getState().currentPlayer;
 
     store.getState().undoMove();
     expect(store.getState().currentPlayer).toBe("black");
 
     store.getState().redoMove();
-    const colorsAfterRedo = store
-      .getState()
-      .board.map((row) => row.map((cell) => cell.color));
+    const colorsAfterRedo = store.getState().board.map((row) => row.map((cell) => cell.color));
     expect(store.getState().currentPlayer).toBe(playerAfterMove);
     expect(colorsAfterRedo).toEqual(colorsAfterMove);
   });

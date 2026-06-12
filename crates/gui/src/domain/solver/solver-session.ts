@@ -32,9 +32,7 @@ export interface SolverSessionState {
 export type SolverSessionPatch = Partial<SolverSessionState>;
 
 export type SolverSessionCommit = (
-  partial:
-    | SolverSessionPatch
-    | ((state: SolverSessionState) => SolverSessionPatch),
+  partial: SolverSessionPatch | ((state: SolverSessionState) => SolverSessionPatch),
 ) => void;
 
 interface SolverSessionOptions {
@@ -77,16 +75,17 @@ export class SolverSession {
     await this.runSearch(
       board,
       player,
-      () => this.commit({
-        isSolverActive: true,
-        solverRootBoard: board,
-        solverRootPlayer: player,
-        solverCurrentBoard: board,
-        solverCurrentPlayer: player,
-        solverHistory: [rootEntry],
-        solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverStopped: false,
-      }),
+      () =>
+        this.commit({
+          isSolverActive: true,
+          solverRootBoard: board,
+          solverRootPlayer: player,
+          solverCurrentBoard: board,
+          solverCurrentPlayer: player,
+          solverHistory: [rootEntry],
+          solverCandidates: new Map<string, SolverCandidate>(),
+          isSolverStopped: false,
+        }),
       targetSelectivity,
       solverMode,
     );
@@ -94,16 +93,17 @@ export class SolverSession {
 
   async exit(): Promise<void> {
     await this.engineSearch.abort({
-      onClaim: () => this.commit({
-        isSolverActive: false,
-        solverRootBoard: null,
-        solverRootPlayer: null,
-        solverHistory: [],
-        solverCurrentBoard: null,
-        solverCurrentPlayer: null,
-        solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverStopped: false,
-      }),
+      onClaim: () =>
+        this.commit({
+          isSolverActive: false,
+          solverRootBoard: null,
+          solverRootPlayer: null,
+          solverHistory: [],
+          solverCurrentBoard: null,
+          solverCurrentPlayer: null,
+          solverCandidates: new Map<string, SolverCandidate>(),
+          isSolverStopped: false,
+        }),
       abort: () => this.solver.abort(),
     });
   }
@@ -124,13 +124,14 @@ export class SolverSession {
       // final committed candidates land. Commit the breadcrumb synchronously
       // (onClaim) so a rapidly-following navigation reads this position.
       await this.engineSearch.abort({
-        onClaim: () => this.commit((state) => ({
-          solverHistory: [...state.solverHistory, nextPosition.entry],
-          solverCurrentBoard: nextPosition.board,
-          solverCurrentPlayer: nextPosition.player,
-          solverCandidates: new Map<string, SolverCandidate>(),
-          isSolverStopped: false,
-        })),
+        onClaim: () =>
+          this.commit((state) => ({
+            solverHistory: [...state.solverHistory, nextPosition.entry],
+            solverCurrentBoard: nextPosition.board,
+            solverCurrentPlayer: nextPosition.player,
+            solverCandidates: new Map<string, SolverCandidate>(),
+            isSolverStopped: false,
+          })),
         abort: () => this.solver.abort(),
       });
       return;
@@ -148,13 +149,14 @@ export class SolverSession {
       // Cache-hit: no new search, but still supersede + abort the prior run so
       // its late progress cannot overwrite the committed cached candidates.
       await this.engineSearch.abort({
-        onClaim: () => this.commit((state) => ({
-          solverHistory: [...state.solverHistory, nextPosition.entry],
-          solverCurrentBoard: nextPosition.board,
-          solverCurrentPlayer: nextPosition.player,
-          solverCandidates: cached,
-          isSolverStopped: false,
-        })),
+        onClaim: () =>
+          this.commit((state) => ({
+            solverHistory: [...state.solverHistory, nextPosition.entry],
+            solverCurrentBoard: nextPosition.board,
+            solverCurrentPlayer: nextPosition.player,
+            solverCandidates: cached,
+            isSolverStopped: false,
+          })),
         abort: () => this.solver.abort(),
       });
       return;
@@ -163,13 +165,14 @@ export class SolverSession {
     await this.runSearch(
       nextPosition.board,
       nextPosition.player,
-      () => this.commit((state) => ({
-        solverHistory: [...state.solverHistory, nextPosition.entry],
-        solverCurrentBoard: nextPosition.board,
-        solverCurrentPlayer: nextPosition.player,
-        solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverStopped: false,
-      })),
+      () =>
+        this.commit((state) => ({
+          solverHistory: [...state.solverHistory, nextPosition.entry],
+          solverCurrentBoard: nextPosition.board,
+          solverCurrentPlayer: nextPosition.player,
+          solverCandidates: new Map<string, SolverCandidate>(),
+          isSolverStopped: false,
+        })),
       targetSelectivity,
       solverMode,
     );
@@ -184,11 +187,17 @@ export class SolverSession {
     const newHistory = initial.solverHistory.slice(0, -1);
     const prevEntry = newHistory[newHistory.length - 1];
 
-    await this.repoint(prevEntry.board, prevEntry.player, initial.targetSelectivity, initial.solverMode, {
-      solverHistory: newHistory,
-      solverCurrentBoard: prevEntry.board,
-      solverCurrentPlayer: prevEntry.player,
-    });
+    await this.repoint(
+      prevEntry.board,
+      prevEntry.player,
+      initial.targetSelectivity,
+      initial.solverMode,
+      {
+        solverHistory: newHistory,
+        solverCurrentBoard: prevEntry.board,
+        solverCurrentPlayer: prevEntry.player,
+      },
+    );
   }
 
   async repointCurrent(): Promise<void> {
@@ -209,9 +218,10 @@ export class SolverSession {
     }
 
     await this.engineSearch.abort({
-      onClaim: () => this.commit({
-        isSolverStopped: true,
-      }),
+      onClaim: () =>
+        this.commit({
+          isSolverStopped: true,
+        }),
       abort: () => this.solver.abort(),
     });
   }
@@ -228,21 +238,17 @@ export class SolverSession {
       return;
     }
 
-    const cached = this.cache.get(
-      board,
-      player,
-      state.targetSelectivity,
-      state.solverMode,
-    );
+    const cached = this.cache.get(board, player, state.targetSelectivity, state.solverMode);
 
     if (cached) {
       // Cache-hit: no new search, but still supersede + abort the prior run so
       // its late progress cannot overwrite the committed cached candidates.
       await this.engineSearch.abort({
-        onClaim: () => this.commit({
-          solverCandidates: cached,
-          isSolverStopped: false,
-        }),
+        onClaim: () =>
+          this.commit({
+            solverCandidates: cached,
+            isSolverStopped: false,
+          }),
         abort: () => this.solver.abort(),
       });
       return;
@@ -251,9 +257,10 @@ export class SolverSession {
     await this.runSearch(
       board,
       player,
-      () => this.commit({
-        isSolverStopped: false,
-      }),
+      () =>
+        this.commit({
+          isSolverStopped: false,
+        }),
       state.targetSelectivity,
       state.solverMode,
     );
@@ -294,11 +301,12 @@ export class SolverSession {
       // Cache-hit: no new search, but still supersede + abort the prior run so
       // its late progress cannot overwrite the committed cached candidates.
       await this.engineSearch.abort({
-        onClaim: () => this.commit({
-          ...extra,
-          solverCandidates: cached,
-          isSolverStopped: false,
-        }),
+        onClaim: () =>
+          this.commit({
+            ...extra,
+            solverCandidates: cached,
+            isSolverStopped: false,
+          }),
         abort: () => this.solver.abort(),
       });
       return;
@@ -307,11 +315,12 @@ export class SolverSession {
     await this.runSearch(
       board,
       player,
-      () => this.commit({
-        ...extra,
-        solverCandidates: new Map<string, SolverCandidate>(),
-        isSolverStopped: false,
-      }),
+      () =>
+        this.commit({
+          ...extra,
+          solverCandidates: new Map<string, SolverCandidate>(),
+          isSolverStopped: false,
+        }),
       selectivity,
       mode,
     );

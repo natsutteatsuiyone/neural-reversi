@@ -35,9 +35,7 @@ export function applyHintAnalysisProgress(
 }
 
 export function createGameAnalysisMoveList(moves: readonly MoveRecord[]): string[] {
-  return moves.map((move) =>
-    move.row < 0 ? "--" : getNotation(move.row, move.col)
-  );
+  return moves.map((move) => (move.row < 0 ? "--" : getNotation(move.row, move.col)));
 }
 
 export function appendGameAnalysisProgress(
@@ -45,10 +43,7 @@ export function appendGameAnalysisProgress(
   moves: readonly MoveRecord[],
   progress: GameAnalysisProgress,
 ): MoveAnalysis[] {
-  return [
-    ...results,
-    createMoveAnalysis(moves[progress.moveIndex], progress),
-  ];
+  return [...results, createMoveAnalysis(moves[progress.moveIndex], progress)];
 }
 
 function createMoveAnalysis(move: MoveRecord, progress: GameAnalysisProgress): MoveAnalysis {

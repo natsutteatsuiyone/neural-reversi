@@ -43,7 +43,9 @@ describe("isCompleteSolverResult", () => {
   it("requires at least one candidate and all candidates complete", () => {
     expect(isCompleteSolverResult(new Map())).toBe(false);
     expect(isCompleteSolverResult(new Map([["2,3", candidate()]]))).toBe(true);
-    expect(isCompleteSolverResult(new Map([["2,3", candidate({ isComplete: false })]]))).toBe(false);
+    expect(isCompleteSolverResult(new Map([["2,3", candidate({ isComplete: false })]]))).toBe(
+      false,
+    );
   });
 });
 
@@ -57,24 +59,34 @@ describe("applySolverProgress", () => {
   });
 
   it("marks endgame candidates complete once target selectivity is reached", () => {
-    const next = applySolverProgress(new Map(), progress({
-      isEndgame: true,
-      acc: 95,
-      depth: 20,
-      targetDepth: 20,
-    }), 95, "multiPv");
+    const next = applySolverProgress(
+      new Map(),
+      progress({
+        isEndgame: true,
+        acc: 95,
+        depth: 20,
+        targetDepth: 20,
+      }),
+      95,
+      "multiPv",
+    );
 
     expect(next.get("2,3")?.isComplete).toBe(true);
   });
 
   it("keeps only the latest candidate in bestOnly mode", () => {
     const first = applySolverProgress(new Map(), progress(), 100, "bestOnly");
-    const second = applySolverProgress(first, progress({
-      bestMove: "f5",
-      row: 4,
-      col: 5,
-      pvLine: "f5",
-    }), 100, "bestOnly");
+    const second = applySolverProgress(
+      first,
+      progress({
+        bestMove: "f5",
+        row: 4,
+        col: 5,
+        pvLine: "f5",
+      }),
+      100,
+      "bestOnly",
+    );
 
     expect(second.size).toBe(1);
     expect(second.get("4,5")?.move).toBe("f5");

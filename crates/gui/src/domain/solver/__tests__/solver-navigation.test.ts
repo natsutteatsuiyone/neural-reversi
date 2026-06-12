@@ -4,9 +4,7 @@ import { applyMove } from "@/domain/game/store-helpers";
 import type { Board, Player } from "@/domain/game/types";
 import { advanceSolverPosition } from "../solver-navigation";
 
-let getValidMovesStub:
-  | ((board: Board, player: Player) => [number, number][])
-  | null = null;
+let getValidMovesStub: ((board: Board, player: Player) => [number, number][]) | null = null;
 
 vi.mock("@/domain/game/game-logic", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/domain/game/game-logic")>();
@@ -29,7 +27,9 @@ describe("advanceSolverPosition", () => {
 
     expect(result.entry.moveFrom).toBe("d3");
     expect(result.player).toBe("white");
-    expect(result.board).toEqual(applyMove(board, { row: 2, col: 3, isAI: false, score: 0 }, "black"));
+    expect(result.board).toEqual(
+      applyMove(board, { row: 2, col: 3, isAI: false, score: 0 }, "black"),
+    );
     expect(result.gameOver).toBe(false);
   });
 

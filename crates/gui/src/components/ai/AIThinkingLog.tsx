@@ -45,15 +45,15 @@ export function AIThinkingLog() {
       {hasData && (
         <div className="flex gap-4 px-3 py-2 text-xs border-b border-white/10 bg-white/5 shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground-muted">{t('analysis.best')}</span>
+            <span className="text-foreground-muted">{t("analysis.best")}</span>
             <span className="font-mono font-semibold text-foreground">{latestEntry.bestMove}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground-muted">{t('analysis.nodes')}</span>
+            <span className="text-foreground-muted">{t("analysis.nodes")}</span>
             <span className="font-mono text-foreground">{formatNodes(latestEntry.nodes)}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground-muted">{t('analysis.nps')}</span>
+            <span className="text-foreground-muted">{t("analysis.nps")}</span>
             <span className="font-mono text-foreground">{formatNps(latestEntry.nps)}</span>
           </div>
         </div>
@@ -64,9 +64,15 @@ export function AIThinkingLog() {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background-secondary border-b border-white/10">
             <tr>
-              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">{t('analysis.depth')}</th>
-              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">{t('analysis.score')}</th>
-              <th className="text-left px-3 py-2 font-medium text-foreground-muted">{t('analysis.pvLine')}</th>
+              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">
+                {t("analysis.depth")}
+              </th>
+              <th className="text-left px-3 py-2 font-medium text-foreground-muted w-16">
+                {t("analysis.score")}
+              </th>
+              <th className="text-left px-3 py-2 font-medium text-foreground-muted">
+                {t("analysis.pvLine")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -76,16 +82,18 @@ export function AIThinkingLog() {
                   key={`${entry.depth}-${entry.acc}-${index}`}
                   className={cn(
                     "border-b border-white/5",
-                    index === aiThinkingHistory.length - 1 && "bg-primary/10"
+                    index === aiThinkingHistory.length - 1 && "bg-primary/10",
                   )}
                 >
                   <td className="px-3 py-1.5 font-mono text-foreground">
                     {formatDepth(entry.depth, entry.acc)}
                   </td>
-                  <td className={cn(
-                    "px-3 py-1.5 font-mono font-semibold",
-                    scoreToneClass(entry.score)
-                  )}>
+                  <td
+                    className={cn(
+                      "px-3 py-1.5 font-mono font-semibold",
+                      scoreToneClass(entry.score),
+                    )}
+                  >
                     {formatScore(entry.score, "raw")}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-foreground-muted truncate max-w-[200px]">
@@ -96,7 +104,7 @@ export function AIThinkingLog() {
             ) : (
               <tr>
                 <td colSpan={3} className="text-center py-8 text-foreground-muted">
-                  {isAIThinking ? t('ai.thinking') : t('analysis.waitingForAI')}
+                  {isAIThinking ? t("ai.thinking") : t("analysis.waitingForAI")}
                 </td>
               </tr>
             )}

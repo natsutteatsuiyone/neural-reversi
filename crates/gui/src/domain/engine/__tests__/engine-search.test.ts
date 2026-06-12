@@ -4,7 +4,10 @@ import { createEngineSearch } from "@/domain/engine/engine-search";
 function deferred<T>() {
   let resolve!: (v: T | PromiseLike<T>) => void;
   let reject!: (e?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -13,7 +16,9 @@ describe("EngineSearch", () => {
     const es = createEngineSearch({ initialRunId: 3 });
     let firstId = 0;
     await es.start({
-      onStart: (r) => { firstId = r.id; },
+      onStart: (r) => {
+        firstId = r.id;
+      },
       run: async () => {},
       abort: async () => {},
     });
@@ -40,7 +45,11 @@ describe("EngineSearch", () => {
     const seen: number[] = [];
     const d = deferred<void>();
     const first = es.start<number, void>({
-      run: async (accept) => { accept(1); await d.promise; accept(2); },
+      run: async (accept) => {
+        accept(1);
+        await d.promise;
+        accept(2);
+      },
       abort: async () => {},
       onProgress: (p) => seen.push(p),
     });
@@ -56,8 +65,12 @@ describe("EngineSearch", () => {
     const order: string[] = [];
     const d = deferred<void>();
     const first = es.start({
-      run: async () => { await d.promise; },
-      abort: async () => { order.push("abort-1"); },
+      run: async () => {
+        await d.promise;
+      },
+      abort: async () => {
+        order.push("abort-1");
+      },
       onTeardown: (o) => order.push(`teardown-1:${o.status}`),
     });
     await Promise.resolve();
@@ -69,12 +82,7 @@ describe("EngineSearch", () => {
     });
     d.resolve();
     await first;
-    expect(order).toEqual([
-      "abort-1",
-      "teardown-1:superseded",
-      "start-2",
-      "teardown-2:ok",
-    ]);
+    expect(order).toEqual(["abort-1", "teardown-1:superseded", "start-2", "teardown-2:ok"]);
   });
 
   it("S5: superseded run's late resolution does not re-fire its callbacks", async () => {
@@ -103,7 +111,9 @@ describe("EngineSearch", () => {
     const err = new Error("boom");
     await expect(
       es.start({
-        run: async () => { throw err; },
+        run: async () => {
+          throw err;
+        },
         abort: async () => {},
         onError: (e) => order.push(`error:${(e as Error).message}`),
         onTeardown: (o) => order.push(`teardown:${o.status}`),
@@ -117,7 +127,9 @@ describe("EngineSearch", () => {
     const order: string[] = [];
     const d = deferred<void>();
     const first = es.start({
-      run: async () => { await d.promise; },
+      run: async () => {
+        await d.promise;
+      },
       abort: async () => {},
       onTeardown: (o) => order.push(`teardown-1:${o.status}`),
     });
@@ -129,19 +141,16 @@ describe("EngineSearch", () => {
     });
     d.resolve();
     await first;
-    expect(order).toEqual([
-      "teardown-1:superseded",
-      "onAbort",
-      "backend-abort",
-      "settled",
-    ]);
+    expect(order).toEqual(["teardown-1:superseded", "onAbort", "backend-abort", "settled"]);
   });
 
   it("S8: abort backend rejection routes onError; onSettled still runs", async () => {
     const es = createEngineSearch();
     const order: string[] = [];
     await es.abort({
-      abort: async () => { throw new Error("x"); },
+      abort: async () => {
+        throw new Error("x");
+      },
       onError: () => order.push("error"),
       onSettled: () => order.push("settled"),
     });
@@ -155,8 +164,12 @@ describe("EngineSearch", () => {
       const order: string[] = [];
       const d = deferred<void>();
       const first = es.start({
-        run: async () => { await d.promise; },
-        abort: async () => { throw new Error("prior abort failed"); },
+        run: async () => {
+          await d.promise;
+        },
+        abort: async () => {
+          throw new Error("prior abort failed");
+        },
         onTeardown: (o) => order.push(`teardown-1:${o.status}`),
       });
       await Promise.resolve();
@@ -170,11 +183,7 @@ describe("EngineSearch", () => {
       ).resolves.toBeUndefined();
       d.resolve();
       await first;
-      expect(order).toEqual([
-        "teardown-1:superseded",
-        "start-2",
-        "teardown-2:ok",
-      ]);
+      expect(order).toEqual(["teardown-1:superseded", "start-2", "teardown-2:ok"]);
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
@@ -187,7 +196,11 @@ describe("EngineSearch", () => {
     const runGate = deferred<void>();
     const abortGate = deferred<void>();
     const first = es.start<number, void>({
-      run: async (accept) => { accept(1); await runGate.promise; accept(2); },
+      run: async (accept) => {
+        accept(1);
+        await runGate.promise;
+        accept(2);
+      },
       abort: () => abortGate.promise, // slow abort: keeps supersede() awaiting
       onProgress: (p) => seen.push(p),
     });
@@ -207,7 +220,9 @@ describe("EngineSearch", () => {
     void es.start({
       onClaim: () => order.push("claim"),
       onStart: () => order.push("start"),
-      run: async () => { order.push("run"); },
+      run: async () => {
+        order.push("run");
+      },
       abort: async () => {},
     });
     expect(order).toEqual(["claim"]);
@@ -218,8 +233,12 @@ describe("EngineSearch", () => {
     const abortGate = deferred<void>();
     let priorId = 0;
     const first = es.start<never, void>({
-      onStart: (r) => { priorId = r.id; },
-      run: async () => { await abortGate.promise; },
+      onStart: (r) => {
+        priorId = r.id;
+      },
+      run: async () => {
+        await abortGate.promise;
+      },
       abort: () => abortGate.promise, // slow abort: keeps supersede() awaiting
     });
     await Promise.resolve();
@@ -237,7 +256,9 @@ describe("EngineSearch", () => {
     const priorAbort = deferred<void>();
     // A live run whose abort is slow, so the abort() below stalls in claim().
     const first = es.start({
-      run: async () => { await priorAbort.promise; },
+      run: async () => {
+        await priorAbort.promise;
+      },
       abort: () => priorAbort.promise,
     });
     await Promise.resolve();
@@ -304,7 +325,9 @@ describe("EngineSearch", () => {
     // teardown await is held open.
     const l0 = es.start({
       onStart: (r) => order.push(`L0-start:${r.id}`),
-      run: async () => { await l0Abort.promise; },
+      run: async () => {
+        await l0Abort.promise;
+      },
       abort: () => l0Abort.promise, // slow abort
       onTeardown: (o) => order.push(`L0-teardown:${o.status}`),
     });
@@ -313,7 +336,10 @@ describe("EngineSearch", () => {
     // A: its claim must abort L0; it stalls on L0's slow abort.
     let aId = 0;
     const a = es.start({
-      onStart: (r) => { aId = r.id; order.push(`A-start:${r.id}`); },
+      onStart: (r) => {
+        aId = r.id;
+        order.push(`A-start:${r.id}`);
+      },
       run: async () => {},
       abort: async () => {},
       onResult: () => order.push("A-result"),
@@ -324,7 +350,10 @@ describe("EngineSearch", () => {
     // B: starts while A is still blocked on L0's slow abort.
     let bId = 0;
     const b = es.start({
-      onStart: (r) => { bId = r.id; order.push(`B-start:${r.id}`); },
+      onStart: (r) => {
+        bId = r.id;
+        order.push(`B-start:${r.id}`);
+      },
       run: async () => {},
       abort: async () => {},
       onResult: () => order.push("B-result"),
@@ -340,16 +369,12 @@ describe("EngineSearch", () => {
     expect(es.accepts(bId)).toBe(true);
     expect(es.accepts(aId)).toBe(false);
     // L0 is torn down exactly once, as superseded.
-    expect(order.filter((e) => e.startsWith("L0-teardown"))).toEqual([
-      "L0-teardown:superseded",
-    ]);
+    expect(order.filter((e) => e.startsWith("L0-teardown"))).toEqual(["L0-teardown:superseded"]);
     // The overtaken older A neither delivers a result nor an ok teardown,
     // but it IS torn down exactly once as superseded.
     expect(order).not.toContain("A-result");
     expect(order).not.toContain("A-teardown:ok");
-    expect(order.filter((e) => e.startsWith("A-teardown"))).toEqual([
-      "A-teardown:superseded",
-    ]);
+    expect(order.filter((e) => e.startsWith("A-teardown"))).toEqual(["A-teardown:superseded"]);
   });
 
   it("A0: no activity is emitted when onActivityChange is not wired (contract tests stay inert)", async () => {
@@ -382,7 +407,9 @@ describe("EngineSearch", () => {
     const d = deferred<void>();
     const first = es.start({
       kind: "ai-move",
-      run: async () => { await d.promise; },
+      run: async () => {
+        await d.promise;
+      },
       abort: async () => {},
     });
     await Promise.resolve();
@@ -412,7 +439,9 @@ describe("EngineSearch", () => {
     });
     await es.start({
       kind: "game-analysis",
-      run: async () => { throw new Error("boom"); },
+      run: async () => {
+        throw new Error("boom");
+      },
       abort: async () => {},
       onError: () => {},
     });
@@ -429,7 +458,9 @@ describe("EngineSearch", () => {
       const l0Abort = deferred<void>();
       const l0 = es.start({
         kind: "ai-move",
-        run: async () => { await l0Abort.promise; },
+        run: async () => {
+          await l0Abort.promise;
+        },
         abort: () => l0Abort.promise, // slow abort holds the next claim's await
       });
       await Promise.resolve();
@@ -444,12 +475,7 @@ describe("EngineSearch", () => {
       await Promise.all([l0, a, b]);
       // ai-move@1, game-analysis@2 (A claim, superseded before install),
       // hint@3 (B claim), idle@3 (B ok). A must not emit idle@2.
-      expect(activity).toEqual([
-        "ai-move:1",
-        "game-analysis:2",
-        "hint:3",
-        "idle:3",
-      ]);
+      expect(activity).toEqual(["ai-move:1", "game-analysis:2", "hint:3", "idle:3"]);
     } finally {
       errorSpy.mockRestore();
     }
@@ -464,7 +490,9 @@ describe("EngineSearch", () => {
     // await is held open long enough for a newer op to overtake.
     const l0 = es.start({
       onStart: () => order.push("L0-start"),
-      run: async () => { await l0Abort.promise; },
+      run: async () => {
+        await l0Abort.promise;
+      },
       abort: () => l0Abort.promise, // slow abort
       onTeardown: (o) => order.push(`L0-teardown:${o.status}`),
     });
@@ -475,7 +503,9 @@ describe("EngineSearch", () => {
     const a = es.start({
       onClaim: () => order.push("A-claim"),
       onStart: () => order.push("A-start"),
-      run: async () => { order.push("A-run"); },
+      run: async () => {
+        order.push("A-run");
+      },
       abort: async () => {},
       onResult: () => order.push("A-result"),
       onTeardown: (o) => order.push(`A-teardown:${o.status}`),
@@ -500,8 +530,6 @@ describe("EngineSearch", () => {
     expect(order).not.toContain("A-start");
     expect(order).not.toContain("A-run");
     expect(order).not.toContain("A-result");
-    expect(order.filter((e) => e.startsWith("A-teardown"))).toEqual([
-      "A-teardown:superseded",
-    ]);
+    expect(order.filter((e) => e.startsWith("A-teardown"))).toEqual(["A-teardown:superseded"]);
   });
 });

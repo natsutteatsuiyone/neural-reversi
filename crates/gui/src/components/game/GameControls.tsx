@@ -22,7 +22,7 @@ export function GameControls() {
         className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
       >
         <Play className="w-4 h-4" />
-        {t('game.newGame')}
+        {t("game.newGame")}
       </Button>
 
       {isAIThinking && (
@@ -33,15 +33,17 @@ export function GameControls() {
           className="gap-2 text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10"
         >
           <StopCircle className="w-4 h-4" />
-          {t('game.stop')}
+          {t("game.stop")}
         </Button>
       )}
 
       <div className="flex-1" />
 
       <div className="flex items-center gap-2">
-        <div className={`p-1 rounded ${isHintMode ? 'bg-accent-gold/15' : ''}`}>
-          <Lightbulb className={`w-4 h-4 transition-colors ${isHintMode ? 'text-accent-gold' : 'text-foreground-muted'}`} />
+        <div className={`p-1 rounded ${isHintMode ? "bg-accent-gold/15" : ""}`}>
+          <Lightbulb
+            className={`w-4 h-4 transition-colors ${isHintMode ? "text-accent-gold" : "text-foreground-muted"}`}
+          />
         </div>
         <Switch
           id="hint-mode"
@@ -51,9 +53,9 @@ export function GameControls() {
         />
         <Label
           htmlFor="hint-mode"
-          className={`text-sm font-medium cursor-pointer transition-colors ${isHintMode ? 'text-foreground' : 'text-foreground-secondary'}`}
+          className={`text-sm font-medium cursor-pointer transition-colors ${isHintMode ? "text-foreground" : "text-foreground-secondary"}`}
         >
-          {t('hint.hint')}
+          {t("hint.hint")}
         </Label>
       </div>
     </div>

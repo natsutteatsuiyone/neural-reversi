@@ -3,12 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Board, Player } from "@/domain/game/types";
 import { serializeBoardForAI } from "./board-serialization";
 import { TAURI_COMMAND, TAURI_EVENT } from "./tauri-contract";
-import type {
-  SolverMode,
-  SolverProgressPayload,
-  SolverService,
-  SolverSelectivity,
-} from "./types";
+import type { SolverMode, SolverProgressPayload, SolverService, SolverSelectivity } from "./types";
 import { SOLVER_SELECTIVITY_TO_U8 } from "./types";
 
 export class TauriSolverService implements SolverService {
@@ -43,6 +38,8 @@ export class TauriSolverService implements SolverService {
   }
 
   async onProgress(callback: (payload: SolverProgressPayload) => void): Promise<UnlistenFn> {
-    return listen<SolverProgressPayload>(TAURI_EVENT.solverProgress, (event) => callback(event.payload));
+    return listen<SolverProgressPayload>(TAURI_EVENT.solverProgress, (event) =>
+      callback(event.payload),
+    );
   }
 }

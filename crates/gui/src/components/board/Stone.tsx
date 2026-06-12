@@ -20,7 +20,7 @@ export function Stone({ color, size = "md" }: StoneProps) {
         sizeClasses[size],
         color === "black"
           ? "bg-gradient-to-br from-stone-black-from to-stone-black-to stone-shadow-black ring-1 ring-white/20"
-          : "bg-gradient-to-br from-stone-white-from to-stone-white-to stone-shadow-white border border-gray-200"
+          : "bg-gradient-to-br from-stone-white-from to-stone-white-to stone-shadow-white border border-gray-200",
       )}
     />
   );

@@ -41,11 +41,7 @@ export function formatScore(score: number, rounding: ScoreRounding = "whole"): s
 
 /** Sign → text-colour class for a signed-score readout. */
 export function scoreToneClass(score: number): string {
-  return score > 0
-    ? "text-primary"
-    : score < 0
-      ? "text-destructive"
-      : "text-foreground";
+  return score > 0 ? "text-primary" : score < 0 ? "text-destructive" : "text-foreground";
 }
 
 /** Search depth readout: bare depth at full accuracy, else `depth@acc%`. */

@@ -58,10 +58,7 @@ function NewGameModalContent({
   return (
     <DialogContent
       aria-describedby={undefined}
-      className={cn(
-        "bg-card border-white/10",
-        step === 1 ? "sm:max-w-md" : "sm:max-w-lg"
-      )}
+      className={cn("bg-card border-white/10", step === 1 ? "sm:max-w-md" : "sm:max-w-lg")}
       showCloseButton={false}
     >
       <DialogHeader>
@@ -73,11 +70,7 @@ function NewGameModalContent({
       {step === 1 ? (
         <GameSettingsStep settings={settings} onChange={handleSettingsChange} />
       ) : (
-        <Tabs
-          value={setupTab}
-          onValueChange={(v) => setSetupTab(v as SetupTab)}
-          className="py-4"
-        >
+        <Tabs value={setupTab} onValueChange={(v) => setSetupTab(v as SetupTab)} className="py-4">
           <TabsList className="w-full">
             <TabsTrigger value="manual" className="flex-1">
               {t("setup.tabs.manual")}
@@ -91,13 +84,25 @@ function NewGameModalContent({
           </TabsList>
 
           <div className="grid mt-4">
-            <TabsContent forceMount value="manual" className="col-start-1 row-start-1 data-[state=inactive]:invisible">
+            <TabsContent
+              forceMount
+              value="manual"
+              className="col-start-1 row-start-1 data-[state=inactive]:invisible"
+            >
               <ManualSetupTab />
             </TabsContent>
-            <TabsContent forceMount value="transcript" className="col-start-1 row-start-1 data-[state=inactive]:invisible">
+            <TabsContent
+              forceMount
+              value="transcript"
+              className="col-start-1 row-start-1 data-[state=inactive]:invisible"
+            >
               <TranscriptTab />
             </TabsContent>
-            <TabsContent forceMount value="boardString" className="col-start-1 row-start-1 data-[state=inactive]:invisible">
+            <TabsContent
+              forceMount
+              value="boardString"
+              className="col-start-1 row-start-1 data-[state=inactive]:invisible"
+            >
               <BoardStringTab />
             </TabsContent>
           </div>
@@ -183,11 +188,14 @@ export function NewGameModal() {
     gameTimeLimit,
   };
 
-  const handleOpenChange = useCallback((open: boolean) => {
-    if (!open) {
-      closeNewGameModal();
-    }
-  }, [closeNewGameModal]);
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        closeNewGameModal();
+      }
+    },
+    [closeNewGameModal],
+  );
 
   return (
     <Dialog open={isNewGameModalOpen} onOpenChange={handleOpenChange}>

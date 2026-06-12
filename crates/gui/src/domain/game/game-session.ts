@@ -52,9 +52,7 @@ export interface PassTurnPatch {
 }
 
 export function resolveRemainingTime(history: MoveHistory, defaultMs: number): number {
-  return history.length > 0
-    ? (history.lastMove?.remainingTime ?? defaultMs)
-    : defaultMs;
+  return history.length > 0 ? (history.lastMove?.remainingTime ?? defaultMs) : defaultMs;
 }
 
 export function derivePositionFromMoves(
@@ -118,7 +116,11 @@ export function createGoToMovePatch(
   );
   const isAtEnd = position >= state.moveHistory.totalLength;
   const gameOver = isAtEnd ? checkGameOver(derived.board, derived.currentPlayer).gameOver : false;
-  const gameStatus = gameOver ? "finished" : (state.gameStatus === "finished" ? "playing" : state.gameStatus);
+  const gameStatus = gameOver
+    ? "finished"
+    : state.gameStatus === "finished"
+      ? "playing"
+      : state.gameStatus;
 
   return {
     ...derived,

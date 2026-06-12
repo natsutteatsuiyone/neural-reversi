@@ -20,9 +20,7 @@ describe("nextAIProgressTrail", () => {
 
   it("clears to the shared empty trail when there is no cell and it is no longer the AI's turn", () => {
     const prev = [cell(1, 1)];
-    expect(nextAIProgressTrail(prev, null, false, 100)).toBe(
-      EMPTY_AI_PROGRESS_TRAIL,
-    );
+    expect(nextAIProgressTrail(prev, null, false, 100)).toBe(EMPTY_AI_PROGRESS_TRAIL);
   });
 
   it("ignores a cell that repeats the current head (same ref)", () => {
@@ -43,7 +41,9 @@ describe("nextAIProgressTrail", () => {
     }
     expect(trail).toHaveLength(AI_PROGRESS_TRAIL_SIZE);
     // newest first
-    expect(trail[0]).toEqual(cell(AI_PROGRESS_TRAIL_SIZE + 1, AI_PROGRESS_TRAIL_SIZE + 1, AI_PROGRESS_TRAIL_SIZE + 1));
+    expect(trail[0]).toEqual(
+      cell(AI_PROGRESS_TRAIL_SIZE + 1, AI_PROGRESS_TRAIL_SIZE + 1, AI_PROGRESS_TRAIL_SIZE + 1),
+    );
   });
 
   it("prepends a distinct cell even when only row or only col changed", () => {

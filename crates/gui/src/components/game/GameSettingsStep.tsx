@@ -45,11 +45,11 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
         <TabsList className="w-full">
           <TabsTrigger value="ai" className="flex-1 gap-2">
             <Bot className="w-4 h-4" />
-            {t('game.vsAI')}
+            {t("game.vsAI")}
           </TabsTrigger>
           <TabsTrigger value="pvp" className="flex-1 gap-2">
             <Users className="w-4 h-4" />
-            {t('game.vsHuman')}
+            {t("game.vsHuman")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -57,37 +57,40 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
       {!isPvP && (
         <>
           <div className="space-y-3">
-            <Label className="text-sm font-medium text-foreground-secondary">{t('game.youPlay')}</Label>
-            <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label={t('game.youPlay')}>
+            <Label className="text-sm font-medium text-foreground-secondary">
+              {t("game.youPlay")}
+            </Label>
+            <div
+              className="grid grid-cols-2 gap-3"
+              role="radiogroup"
+              aria-label={t("game.youPlay")}
+            >
               <GameModeOption
                 selected={settings.gameMode === "ai-white"}
                 onClick={() => onChange({ gameMode: "ai-white" })}
                 playerColor="black"
-                label={t('colors.black')}
+                label={t("colors.black")}
               />
               <GameModeOption
                 selected={settings.gameMode === "ai-black"}
                 onClick={() => onChange({ gameMode: "ai-black" })}
                 playerColor="white"
-                label={t('colors.white')}
+                label={t("colors.white")}
               />
             </div>
           </div>
 
           <div className="space-y-3">
-            <Label className="text-sm font-medium text-foreground-secondary">{t('ai.mode')}</Label>
-            <Tabs
-              value={settings.aiMode}
-              onValueChange={(v) => onChange({ aiMode: v as AIMode })}
-            >
+            <Label className="text-sm font-medium text-foreground-secondary">{t("ai.mode")}</Label>
+            <Tabs value={settings.aiMode} onValueChange={(v) => onChange({ aiMode: v as AIMode })}>
               <TabsList className="w-full">
                 <TabsTrigger value="game-time" className="flex-1 gap-2">
                   <Timer className="w-4 h-4" />
-                  {t('ai.timed')}
+                  {t("ai.timed")}
                 </TabsTrigger>
                 <TabsTrigger value="level" className="flex-1 gap-2">
                   <Zap className="w-4 h-4" />
-                  {t('ai.level')}
+                  {t("ai.level")}
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -96,7 +99,9 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
           {settings.aiMode === "level" ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-foreground-secondary">{t('ai.level')}</Label>
+                <Label className="text-sm font-medium text-foreground-secondary">
+                  {t("ai.level")}
+                </Label>
                 <span className="text-sm font-mono font-semibold text-primary">
                   {settings.aiLevel}
                 </span>
@@ -109,14 +114,16 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
                 onValueChange={([value]: number[]) => onChange({ aiLevel: value })}
               />
               <div className="flex justify-between text-xs text-foreground-muted">
-                <span>{t('ai.easy')}</span>
-                <span>{t('ai.hard')}</span>
+                <span>{t("ai.easy")}</span>
+                <span>{t("ai.hard")}</span>
               </div>
             </div>
           ) : (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-foreground-secondary">{t('ai.timePerGame')}</Label>
+                <Label className="text-sm font-medium text-foreground-secondary">
+                  {t("ai.timePerGame")}
+                </Label>
                 <span className="text-sm font-mono font-semibold text-primary">
                   {formatTime(settings.gameTimeLimit)}
                 </span>
@@ -130,7 +137,9 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
               />
               <div className="relative h-4 text-xs text-foreground-muted">
                 <span className="absolute left-0">30s</span>
-                <span className="absolute -translate-x-1/2" style={{ left: "47.4%" }}>5m</span>
+                <span className="absolute -translate-x-1/2" style={{ left: "47.4%" }}>
+                  5m
+                </span>
                 <span className="absolute right-0">10m</span>
               </div>
             </div>
@@ -162,7 +171,7 @@ function GameModeOption({
         "flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all cursor-pointer",
         selected
           ? "border-primary bg-primary/10"
-          : "border-white/20 hover:border-white/30 hover:bg-white/5"
+          : "border-white/20 hover:border-white/30 hover:bg-white/5",
       )}
     >
       <Stone color={playerColor} size="lg" />

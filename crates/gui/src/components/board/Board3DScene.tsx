@@ -36,8 +36,18 @@ export interface Board3DSceneProps {
 const TOTAL_SIZE = CELL_SIZE * 8 + FRAME_WIDTH * 2 + 1.2;
 
 export function Board3DScene({
-  board, lastMove, gameOver, isValidMove, isAITurn, onCellClick,
-  aiMoveProgress, lastAIMove, moveHistory, analyzeResults, maxScore, skipAnimation,
+  board,
+  lastMove,
+  gameOver,
+  isValidMove,
+  isAITurn,
+  onCellClick,
+  aiMoveProgress,
+  lastAIMove,
+  moveHistory,
+  analyzeResults,
+  maxScore,
+  skipAnimation,
   showHintWaitingBar = true,
 }: Board3DSceneProps) {
   const size = useThree((s) => s.size);
@@ -60,9 +70,8 @@ export function Board3DScene({
   }, [size.width, size.height, invalidate]);
 
   const aspect = size.width / size.height;
-  const cellPixelSize = aspect >= 1
-    ? (size.height / TOTAL_SIZE) * CELL_SIZE
-    : (size.width / TOTAL_SIZE) * CELL_SIZE;
+  const cellPixelSize =
+    aspect >= 1 ? (size.height / TOTAL_SIZE) * CELL_SIZE : (size.width / TOTAL_SIZE) * CELL_SIZE;
 
   const aiTurnActive = isAITurn();
 
@@ -159,27 +168,20 @@ export function Board3DScene({
               flipDelay={flipDelays.get(cellKey(rowIndex, colIndex)) ?? 0}
               skipAnimation={skipAnimation}
             />
-          ) : null
-        )
+          ) : null,
+        ),
       )}
 
       <MoveIndicators validMoves={validMoves} lastMove={lastMove} />
 
-      <CellInteraction
-        onCellClick={onCellClick}
-        isValidMove={isValidMove}
-        isDisabled={isAITurn}
-      />
+      <CellInteraction onCellClick={onCellClick} isValidMove={isValidMove} isDisabled={isAITurn} />
 
       {board.map((row, rowIndex) =>
         row.map((_, colIndex) => {
           const isThinkingCell =
             aiMoveProgress?.row === rowIndex && aiMoveProgress?.col === colIndex;
-          const isHistoryCell = moveHistory.some(
-            (m) => m.row === rowIndex && m.col === colIndex
-          );
-          const isRecentAIMove =
-            lastAIMove?.row === rowIndex && lastAIMove?.col === colIndex;
+          const isHistoryCell = moveHistory.some((m) => m.row === rowIndex && m.col === colIndex);
+          const isRecentAIMove = lastAIMove?.row === rowIndex && lastAIMove?.col === colIndex;
           const hasHint =
             analyzeResults?.has(cellKey(rowIndex, colIndex)) ||
             (!gameOver && isValidMove(rowIndex, colIndex) && analyzeResults !== null);
@@ -215,7 +217,7 @@ export function Board3DScene({
               </div>
             </CellHtmlOverlay>
           );
-        })
+        }),
       )}
     </>
   );

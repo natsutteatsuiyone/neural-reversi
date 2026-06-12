@@ -18,7 +18,6 @@ export type MoveRecord = {
   remainingTime?: number;
 };
 
-
 export type AIMoveHighlight = {
   row: number;
   col: number;
@@ -73,4 +72,3 @@ export type GameAnalysisProgress = {
 };
 
 export const ANALYSIS_LEVELS = [1, 4, 8, 12, 16, 20, 24, 28, 30] as const;
-

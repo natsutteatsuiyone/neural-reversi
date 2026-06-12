@@ -65,10 +65,7 @@ export function createNewGamePatch(
  * four individual store setters. The store-state write is already done by
  * {@link createNewGamePatch} on the success path, so this is disk-only.
  */
-export function persistNewGameSettings(
-  services: Services,
-  settings: NewGameSettings,
-): void {
+export function persistNewGameSettings(services: Services, settings: NewGameSettings): void {
   void services.settings.saveSetting("gameMode", settings.gameMode);
   void services.settings.saveSetting("aiLevel", settings.aiLevel);
   void services.settings.saveSetting("aiMode", settings.aiMode);

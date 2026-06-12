@@ -198,10 +198,7 @@ describe("reconstructBoardFromMoves", () => {
   });
 
   it("returns correct currentPlayer after multiple moves", () => {
-    const moves = [
-      makeMoveRecord(1, "black", 4, 5),
-      makeMoveRecord(2, "white", 5, 3),
-    ];
+    const moves = [makeMoveRecord(1, "black", 4, 5), makeMoveRecord(2, "white", 5, 3)];
     const result = reconstructBoardFromMoves(moves);
 
     expect(result.currentPlayer).toBe("black");

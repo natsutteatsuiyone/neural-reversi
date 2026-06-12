@@ -12,8 +12,6 @@ import type { Board, Player } from "@/domain/game/types";
 export function serializeBoardForAI(board: Board, player: Player): string {
   return board
     .flat()
-    .map((cell) =>
-      cell.color === player ? "X" : cell.color === null ? "-" : "O",
-    )
+    .map((cell) => (cell.color === player ? "X" : cell.color === null ? "-" : "O"))
     .join("");
 }

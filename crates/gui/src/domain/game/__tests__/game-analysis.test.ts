@@ -90,15 +90,17 @@ describe("appendGameAnalysisProgress", () => {
       gameProgress({ bestMove: "c4", scoreLoss: 7 }),
     );
 
-    expect(results).toEqual([{
-      moveIndex: 0,
-      player: "black",
-      playedMove: "d3",
-      playedScore: 10,
-      bestMove: "c4",
-      bestScore: 20,
-      scoreLoss: 7,
-      depth: 12,
-    }]);
+    expect(results).toEqual([
+      {
+        moveIndex: 0,
+        player: "black",
+        playedMove: "d3",
+        playedScore: 10,
+        bestMove: "c4",
+        bestScore: 20,
+        scoreLoss: 7,
+        depth: 12,
+      },
+    ]);
   });
 });

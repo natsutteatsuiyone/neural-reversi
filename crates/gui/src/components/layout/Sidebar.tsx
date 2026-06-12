@@ -42,7 +42,7 @@ export function Sidebar() {
           isThinking={isAIThinking && blackIsAI && currentPlayer === "black"}
           aiMode={aiMode}
           aiRemainingTime={aiRemainingTime}
-          playerLabel={isPvP ? t('colors.black') : undefined}
+          playerLabel={isPvP ? t("colors.black") : undefined}
           onStop={blackIsAI ? handleStop : undefined}
           onResume={blackIsAI && showResume ? resumeAI : undefined}
         />
@@ -55,7 +55,7 @@ export function Sidebar() {
           isThinking={isAIThinking && whiteIsAI && currentPlayer === "white"}
           aiMode={aiMode}
           aiRemainingTime={aiRemainingTime}
-          playerLabel={isPvP ? t('colors.white') : undefined}
+          playerLabel={isPvP ? t("colors.white") : undefined}
           onStop={whiteIsAI ? handleStop : undefined}
           onResume={whiteIsAI && showResume ? resumeAI : undefined}
         />

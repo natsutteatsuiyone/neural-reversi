@@ -8,4 +8,3 @@ export const INITIAL_BOARD = [
 
 export const COLUMN_LABELS = ["a", "b", "c", "d", "e", "f", "g", "h"];
 export const ROW_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8"];
-

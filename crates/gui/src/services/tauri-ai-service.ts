@@ -45,12 +45,13 @@ export class TauriAIService implements AIService {
     return await withEventListener<AIMoveProgress, AIMoveResult>(
       TAURI_EVENT.aiMoveProgress,
       callback,
-      () => invoke<AIMoveResult>(TAURI_COMMAND.aiMove, {
-        boardString,
-        level,
-        timeLimit,
-        remainingTime,
-      }),
+      () =>
+        invoke<AIMoveResult>(TAURI_COMMAND.aiMove, {
+          boardString,
+          level,
+          timeLimit,
+          remainingTime,
+        }),
     );
   }
 
@@ -90,10 +91,8 @@ export class TauriAIService implements AIService {
 
     const boardString = serializeBoardForAI(board, player);
 
-    await withEventListener<AIMoveProgress, void>(
-      TAURI_EVENT.aiMoveProgress,
-      callback,
-      () => invoke(TAURI_COMMAND.analyze, { boardString, level }),
+    await withEventListener<AIMoveProgress, void>(TAURI_EVENT.aiMoveProgress, callback, () =>
+      invoke(TAURI_COMMAND.analyze, { boardString, level }),
     );
   }
 

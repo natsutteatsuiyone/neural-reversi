@@ -28,9 +28,7 @@ export type GameAnalysisSessionPatch = Partial<{
   gameAnalysisResult: MoveAnalysis[] | null;
 }>;
 
-export type GameAnalysisSessionCommit = (
-  partial: GameAnalysisSessionPatch,
-) => void;
+export type GameAnalysisSessionCommit = (partial: GameAnalysisSessionPatch) => void;
 
 interface GameAnalysisSessionOptions {
   ai: AIService;
@@ -96,7 +94,9 @@ export class GameAnalysisSession {
         this.commit({ gameAnalysisResult: analysisResults });
       },
       onError: (error) => console.error("Game analysis failed:", error),
-      onTeardown: () => { this.read().resumeQueuedAutomation(); },
+      onTeardown: () => {
+        this.read().resumeQueuedAutomation();
+      },
     });
   }
 

@@ -1,4 +1,16 @@
-export type { AIService, SettingsService, Services, AIMoveResult, AIMoveProgress, GameAnalysisProgress, AppSettings, SolverService, SolverProgressPayload, SolverCandidate, SolverSelectivity } from "./types";
+export type {
+  AIService,
+  SettingsService,
+  Services,
+  AIMoveResult,
+  AIMoveProgress,
+  GameAnalysisProgress,
+  AppSettings,
+  SolverService,
+  SolverProgressPayload,
+  SolverCandidate,
+  SolverSelectivity,
+} from "./types";
 export { DEFAULT_SETTINGS, SOLVER_SELECTIVITIES, SOLVER_SELECTIVITY_TO_U8 } from "./types";
 
 import type { Services } from "./types";

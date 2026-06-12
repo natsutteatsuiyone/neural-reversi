@@ -40,13 +40,16 @@ describe("createHistoryNavigationPatch", () => {
     const startBoard = initializeBoard();
     const history = firstMoveHistory();
 
-    const patch = createHistoryNavigationPatch({
-      gameStatus: "playing",
-      moveHistory: history,
-      historyStartBoard: startBoard,
-      historyStartPlayer: "black",
-      gameTimeLimitMs: GAME_TIME_LIMIT_MS,
-    }, "undo");
+    const patch = createHistoryNavigationPatch(
+      {
+        gameStatus: "playing",
+        moveHistory: history,
+        historyStartBoard: startBoard,
+        historyStartPlayer: "black",
+        gameTimeLimitMs: GAME_TIME_LIMIT_MS,
+      },
+      "undo",
+    );
 
     expect(patch?.moveHistory.length).toBe(0);
     expect(patch?.currentPlayer).toBe("black");
@@ -59,13 +62,16 @@ describe("createHistoryNavigationPatch", () => {
     const startBoard = initializeBoard();
     const history = firstMoveHistory().undo(1);
 
-    const patch = createHistoryNavigationPatch({
-      gameStatus: "playing",
-      moveHistory: history,
-      historyStartBoard: startBoard,
-      historyStartPlayer: "black",
-      gameTimeLimitMs: GAME_TIME_LIMIT_MS,
-    }, "redo");
+    const patch = createHistoryNavigationPatch(
+      {
+        gameStatus: "playing",
+        moveHistory: history,
+        historyStartBoard: startBoard,
+        historyStartPlayer: "black",
+        gameTimeLimitMs: GAME_TIME_LIMIT_MS,
+      },
+      "redo",
+    );
 
     expect(patch?.moveHistory.length).toBe(1);
     expect(patch?.currentPlayer).toBe("white");
@@ -79,13 +85,16 @@ describe("createGoToMovePatch", () => {
     const startBoard = initializeBoard();
     const history = firstMoveHistory();
 
-    const patch = createGoToMovePatch({
-      gameStatus: "finished",
-      moveHistory: history,
-      historyStartBoard: startBoard,
-      historyStartPlayer: "black",
-      gameTimeLimitMs: GAME_TIME_LIMIT_MS,
-    }, 0);
+    const patch = createGoToMovePatch(
+      {
+        gameStatus: "finished",
+        moveHistory: history,
+        historyStartBoard: startBoard,
+        historyStartPlayer: "black",
+        gameTimeLimitMs: GAME_TIME_LIMIT_MS,
+      },
+      0,
+    );
 
     expect(patch?.moveHistory.length).toBe(0);
     expect(patch?.gameStatus).toBe("playing");

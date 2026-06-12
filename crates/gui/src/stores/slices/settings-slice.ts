@@ -4,14 +4,9 @@ import type { ReversiState, SettingsSlice } from "./types";
 import { DEFAULT_SETTINGS, type Services } from "@/services/types";
 
 export function createSettingsSlice(
-    services: Services,
-    hintSession: HintAnalysisSession,
-): StateCreator<
-    ReversiState,
-    [],
-    [],
-    SettingsSlice
-> {
+  services: Services,
+  hintSession: HintAnalysisSession,
+): StateCreator<ReversiState, [], [], SettingsSlice> {
   return (set, get) => ({
     gameMode: DEFAULT_SETTINGS.gameMode,
     timeLimit: DEFAULT_SETTINGS.timeLimit,
@@ -25,90 +20,90 @@ export function createSettingsSlice(
     language: DEFAULT_SETTINGS.language,
 
     hydrateSettings: (settings) => {
-        const shouldResizeTT = get().hashSize !== settings.hashSize;
-        set({
-            gameMode: settings.gameMode,
-            timeLimit: settings.timeLimit,
-            gameTimeLimit: settings.gameTimeLimit,
-            hintLevel: settings.hintLevel,
-            gameAnalysisLevel: settings.gameAnalysisLevel,
-            hashSize: settings.hashSize,
-            aiAnalysisPanelOpen: settings.aiAnalysisPanelOpen,
-            rightPanelSize: settings.rightPanelSize,
-            bottomPanelSize: settings.bottomPanelSize,
-            aiLevel: settings.aiLevel,
-            aiMode: settings.aiMode,
-            language: settings.language,
-            targetSelectivity: settings.solverTargetSelectivity,
-            solverMode: settings.solverMode,
-            analyzeResults: null,
-        });
-        if (shouldResizeTT) {
-            void services.ai.resizeTT(settings.hashSize);
-        }
+      const shouldResizeTT = get().hashSize !== settings.hashSize;
+      set({
+        gameMode: settings.gameMode,
+        timeLimit: settings.timeLimit,
+        gameTimeLimit: settings.gameTimeLimit,
+        hintLevel: settings.hintLevel,
+        gameAnalysisLevel: settings.gameAnalysisLevel,
+        hashSize: settings.hashSize,
+        aiAnalysisPanelOpen: settings.aiAnalysisPanelOpen,
+        rightPanelSize: settings.rightPanelSize,
+        bottomPanelSize: settings.bottomPanelSize,
+        aiLevel: settings.aiLevel,
+        aiMode: settings.aiMode,
+        language: settings.language,
+        targetSelectivity: settings.solverTargetSelectivity,
+        solverMode: settings.solverMode,
+        analyzeResults: null,
+      });
+      if (shouldResizeTT) {
+        void services.ai.resizeTT(settings.hashSize);
+      }
     },
 
     setGameMode: (mode) => {
-        set({
-            gameMode: mode,
-            analyzeResults: null
-        });
-        void services.settings.saveSetting("gameMode", mode);
+      set({
+        gameMode: mode,
+        analyzeResults: null,
+      });
+      void services.settings.saveSetting("gameMode", mode);
     },
 
     setTimeLimit: (limit) => {
-        set({ timeLimit: limit });
-        void services.settings.saveSetting("timeLimit", limit);
+      set({ timeLimit: limit });
+      void services.settings.saveSetting("timeLimit", limit);
     },
 
     setGameTimeLimit: (limit) => {
-        set({ gameTimeLimit: limit });
-        void services.settings.saveSetting("gameTimeLimit", limit);
+      set({ gameTimeLimit: limit });
+      void services.settings.saveSetting("gameTimeLimit", limit);
     },
 
     setHintLevel: (level) => {
-        if (level === get().hintLevel) return;
-        set({ hintLevel: level, analyzeResults: null });
-        void services.settings.saveSetting("hintLevel", level);
+      if (level === get().hintLevel) return;
+      set({ hintLevel: level, analyzeResults: null });
+      void services.settings.saveSetting("hintLevel", level);
 
-        // The hint level-change coordination (dedupe guard + restart-vs-
-        // analyze decision) belongs to the Hint Analysis feature; settings
-        // only persists the level. (CONTEXT.md → Engine Activity.)
-        hintSession.onLevelChanged();
+      // The hint level-change coordination (dedupe guard + restart-vs-
+      // analyze decision) belongs to the Hint Analysis feature; settings
+      // only persists the level. (CONTEXT.md → Engine Activity.)
+      hintSession.onLevelChanged();
     },
 
     setGameAnalysisLevel: (level) => {
-        set({ gameAnalysisLevel: level });
-        void services.settings.saveSetting("gameAnalysisLevel", level);
+      set({ gameAnalysisLevel: level });
+      void services.settings.saveSetting("gameAnalysisLevel", level);
     },
 
     setHashSize: (size) => {
-        if (size === get().hashSize) return;
-        set({ hashSize: size });
-        void services.settings.saveSetting("hashSize", size);
-        void services.ai.resizeTT(size);
+      if (size === get().hashSize) return;
+      set({ hashSize: size });
+      void services.settings.saveSetting("hashSize", size);
+      void services.ai.resizeTT(size);
     },
 
     setAIAnalysisPanelOpen: (open) => {
-        set({ aiAnalysisPanelOpen: open });
-        void services.settings.saveSetting("aiAnalysisPanelOpen", open);
+      set({ aiAnalysisPanelOpen: open });
+      void services.settings.saveSetting("aiAnalysisPanelOpen", open);
     },
 
     setRightPanelSize: (size) => {
-        if (size === get().rightPanelSize) return;
-        set({ rightPanelSize: size });
-        void services.settings.saveSetting("rightPanelSize", size);
+      if (size === get().rightPanelSize) return;
+      set({ rightPanelSize: size });
+      void services.settings.saveSetting("rightPanelSize", size);
     },
 
     setBottomPanelSize: (size) => {
-        if (size === get().bottomPanelSize) return;
-        set({ bottomPanelSize: size });
-        void services.settings.saveSetting("bottomPanelSize", size);
+      if (size === get().bottomPanelSize) return;
+      set({ bottomPanelSize: size });
+      void services.settings.saveSetting("bottomPanelSize", size);
     },
 
     setLanguagePreference: async (language) => {
-        set({ language });
-        return services.settings.saveSetting("language", language);
+      set({ language });
+      return services.settings.saveSetting("language", language);
     },
   });
 }

@@ -1,35 +1,29 @@
 import { StateCreator } from "zustand";
 import {
-    calculateScores,
-    getValidMoves,
-    initializeBoard,
-    opponentPlayer as nextPlayer,
+  calculateScores,
+  getValidMoves,
+  initializeBoard,
+  opponentPlayer as nextPlayer,
 } from "@/domain/game/game-logic";
 import {
-    type Move,
-    applyMove,
-    checkGameOver,
-    createGameStartState,
-    createMoveRecord,
+  type Move,
+  applyMove,
+  checkGameOver,
+  createGameStartState,
+  createMoveRecord,
 } from "@/domain/game/store-helpers";
-import {
-    createPassTurnPatch,
-    hasFlippedDiscs,
-} from "@/domain/game/game-session";
+import { createPassTurnPatch, hasFlippedDiscs } from "@/domain/game/game-session";
 import { MoveHistory } from "@/domain/game/move-history";
 import type { GameSlice, ReversiState } from "./types";
 import type { Services } from "@/services/types";
 import { idleEngineActivityPatch } from "@/stores/engine-activity";
 import { createAutomation } from "@/stores/automation";
 import { navigateHistory, goToHistoryMove } from "@/stores/history-navigation";
+import { abortInFlightGameSearches, prepareGameReplacement } from "@/stores/game-replacement";
 import {
-    abortInFlightGameSearches,
-    prepareGameReplacement,
-} from "@/stores/game-replacement";
-import {
-    createNewGamePatch,
-    persistNewGameSettings,
-    resolveNewGameSettings,
+  createNewGamePatch,
+  persistNewGameSettings,
+  resolveNewGameSettings,
 } from "@/stores/new-game";
 
 /**
@@ -42,64 +36,59 @@ import {
  * through it (see `withClears` in history-navigation.ts).
  */
 function clearedStaleAnalysis(): {
-    analyzeResults: null;
-    gameAnalysisResult: null;
+  analyzeResults: null;
+  gameAnalysisResult: null;
 } {
-    return { analyzeResults: null, gameAnalysisResult: null };
+  return { analyzeResults: null, gameAnalysisResult: null };
 }
 
-export function createGameSlice(services: Services): StateCreator<
-    ReversiState,
-    [],
-    [],
-    GameSlice
-> {
+export function createGameSlice(services: Services): StateCreator<ReversiState, [], [], GameSlice> {
   return (set, get) => {
     // Automation owns the schedule timer / deferred flag in this closure;
     // they are not part of the public store state (CONTEXT.md → Automation).
     const automation = createAutomation(get);
 
     return {
-    board: initializeBoard(),
-    historyStartBoard: initializeBoard(),
-    historyStartPlayer: "black",
-    moveHistory: MoveHistory.empty(),
-    currentPlayer: "black",
-    gameOver: false,
-    gameStatus: "waiting",
-    isPass: false,
-    lastMove: null,
-    validMoves: [],
-    skipAnimation: false,
-    paused: false,
+      board: initializeBoard(),
+      historyStartBoard: initializeBoard(),
+      historyStartPlayer: "black",
+      moveHistory: MoveHistory.empty(),
+      currentPlayer: "black",
+      gameOver: false,
+      gameStatus: "waiting",
+      isPass: false,
+      lastMove: null,
+      validMoves: [],
+      skipAnimation: false,
+      paused: false,
 
-    triggerAutomation: () => automation.trigger(),
-    resumeQueuedAutomation: () => automation.resumeIfQueued(),
-    cancelAutomation: () => automation.cancel(),
-    queueResumeAutomation: () => automation.queueResume(),
+      triggerAutomation: () => automation.trigger(),
+      resumeQueuedAutomation: () => automation.resumeIfQueued(),
+      cancelAutomation: () => automation.cancel(),
+      queueResumeAutomation: () => automation.queueResume(),
 
-    getScores: () => {
+      getScores: () => {
         return calculateScores(get().board);
-    },
+      },
 
-    isAITurn: () => {
+      isAITurn: () => {
         const { gameMode, gameOver, currentPlayer } = get();
         if (gameOver || gameMode === "pvp") return false;
         return (
-            (gameMode === "ai-black" && currentPlayer === "black") ||
-            (gameMode === "ai-white" && currentPlayer === "white")
+          (gameMode === "ai-black" && currentPlayer === "black") ||
+          (gameMode === "ai-white" && currentPlayer === "white")
         );
-    },
+      },
 
-    isValidMove: (row, col) => {
+      isValidMove: (row, col) => {
         const { validMoves, gameStatus } = get();
         if (gameStatus !== "playing") {
-            return false;
+          return false;
         }
         return validMoves.some((move) => move[0] === row && move[1] === col);
-    },
+      },
 
-    makeMove: async (move: Move) => {
+      makeMove: async (move: Move) => {
         if (get().isGameAnalyzing) return;
         automation.cancel();
 
@@ -110,92 +99,100 @@ export function createGameSlice(services: Services): StateCreator<
         // the `isAnalyzing` projection and the backend directly, which left
         // the run un-superseded (CONTEXT.md → Engine Activity).
         if (!move.isAI && get().isAnalyzing) {
-            get().restartHintAnalysisAfterAbort();
+          get().restartHintAnalysisAfterAbort();
         }
 
         const oldBoard = get().board;
 
         set((state) => {
-            const currentPlayer = state.currentPlayer;
-            const newBoard = applyMove(state.board, move, currentPlayer);
-            const newMoveRecord = createMoveRecord(state.moveHistory.length, currentPlayer, move, state.aiRemainingTime);
-            const nextPlayerTurn = nextPlayer(currentPlayer);
+          const currentPlayer = state.currentPlayer;
+          const newBoard = applyMove(state.board, move, currentPlayer);
+          const newMoveRecord = createMoveRecord(
+            state.moveHistory.length,
+            currentPlayer,
+            move,
+            state.aiRemainingTime,
+          );
+          const nextPlayerTurn = nextPlayer(currentPlayer);
 
-            return {
-                board: newBoard,
-                moveHistory: state.moveHistory.append(newMoveRecord),
-                currentPlayer: nextPlayerTurn,
-                isPass: false,
-                lastMove: move,
-                validMoves: getValidMoves(newBoard, nextPlayerTurn),
-                ...clearedStaleAnalysis(),
-                skipAnimation: false,
-            };
+          return {
+            board: newBoard,
+            moveHistory: state.moveHistory.append(newMoveRecord),
+            currentPlayer: nextPlayerTurn,
+            isPass: false,
+            lastMove: move,
+            validMoves: getValidMoves(newBoard, nextPlayerTurn),
+            ...clearedStaleAnalysis(),
+            skipAnimation: false,
+          };
         });
 
         const updatedState = get();
-        const { gameOver, shouldPass } = checkGameOver(updatedState.board, updatedState.currentPlayer);
+        const { gameOver, shouldPass } = checkGameOver(
+          updatedState.board,
+          updatedState.currentPlayer,
+        );
 
         if (gameOver) {
-            set({ gameOver: true, gameStatus: "finished" });
-            return;
+          set({ gameOver: true, gameStatus: "finished" });
+          return;
         }
 
         if (shouldPass) {
-            set((state) => ({
-                ...createPassTurnPatch(state, updatedState.currentPlayer),
-                ...clearedStaleAnalysis(),
-                showPassNotification: updatedState.currentPlayer,
-            }));
+          set((state) => ({
+            ...createPassTurnPatch(state, updatedState.currentPlayer),
+            ...clearedStaleAnalysis(),
+            showPassNotification: updatedState.currentPlayer,
+          }));
 
-            automation.afterMove({ passed: true, flipped: false });
-            return;
+          automation.afterMove({ passed: true, flipped: false });
+          return;
         }
 
         automation.afterMove({
-            passed: false,
-            flipped: !move.isAI && hasFlippedDiscs(oldBoard, updatedState.board),
+          passed: false,
+          flipped: !move.isAI && hasFlippedDiscs(oldBoard, updatedState.board),
         });
-    },
+      },
 
-    makePass: () => {
+      makePass: () => {
         if (get().isGameAnalyzing) return;
         automation.cancel();
         set((state) => ({
-            ...createPassTurnPatch(state),
-            ...clearedStaleAnalysis(),
+          ...createPassTurnPatch(state),
+          ...clearedStaleAnalysis(),
         }));
-    },
+      },
 
-    undoMove: () => navigateHistory(get, set, "undo"),
+      undoMove: () => navigateHistory(get, set, "undo"),
 
-    redoMove: () => navigateHistory(get, set, "redo"),
+      redoMove: () => navigateHistory(get, set, "redo"),
 
-    resumeAI: () => {
+      resumeAI: () => {
         if (get().isGameAnalyzing) {
-            set({ paused: false });
-            automation.queueResume();
-            return;
+          set({ paused: false });
+          automation.queueResume();
+          return;
         }
         set({ paused: false });
         automation.cancel();
         automation.trigger();
-    },
+      },
 
-    goToMove: (position: number) => goToHistoryMove(get, set, position),
+      goToMove: (position: number) => goToHistoryMove(get, set, position),
 
-    resetGame: async () => {
+      resetGame: async () => {
         automation.cancel();
         await abortInFlightGameSearches(get);
 
         const board = initializeBoard();
         set({
-            ...createGameStartState(board, "black", "waiting", get().gameTimeLimit * 1000),
-            ...idleEngineActivityPatch(),
+          ...createGameStartState(board, "black", "waiting", get().gameTimeLimit * 1000),
+          ...idleEngineActivityPatch(),
         });
-    },
+      },
 
-    startGame: async (settings) => {
+      startGame: async (settings) => {
         const nextSettings = resolveNewGameSettings(get(), settings);
 
         // prepareGameReplacement frees the shared engine of every Engine
@@ -208,11 +205,11 @@ export function createGameSlice(services: Services): StateCreator<
         const wasSolverActive = get().isSolverActive;
 
         if (!(await prepareGameReplacement(services, get, set))) {
-            return false;
+          return false;
         }
 
         if (wasSolverActive) {
-            await get().exitSolver();
+          await get().exitSolver();
         }
 
         set(createNewGamePatch(nextSettings, { board: initializeBoard(), currentPlayer: "black" }));
@@ -220,9 +217,9 @@ export function createGameSlice(services: Services): StateCreator<
 
         automation.trigger();
         return true;
-    },
+      },
 
-    setGameStatus: (status) => set({ gameStatus: status }),
-  };
+      setGameStatus: (status) => set({ gameStatus: status }),
+    };
   };
 }

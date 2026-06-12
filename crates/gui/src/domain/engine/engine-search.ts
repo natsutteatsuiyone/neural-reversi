@@ -5,12 +5,7 @@ export type RunId = number;
  * Activity). A projection of the current run id, owned here so no feature
  * keeps its own generation counter.
  */
-export type EngineActivityKind =
-  | "idle"
-  | "ai-move"
-  | "hint"
-  | "game-analysis"
-  | "solver";
+export type EngineActivityKind = "idle" | "ai-move" | "hint" | "game-analysis" | "solver";
 
 export interface EngineActivity {
   readonly kind: EngineActivityKind;

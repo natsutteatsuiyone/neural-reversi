@@ -32,10 +32,7 @@ export function BoardStringTab() {
           <SetupError />
         </div>
 
-        <TurnSelector
-          currentPlayer={setupCurrentPlayer}
-          onPlayerChange={setSetupCurrentPlayer}
-        />
+        <TurnSelector currentPlayer={setupCurrentPlayer} onPlayerChange={setSetupCurrentPlayer} />
       </div>
     </div>
   );

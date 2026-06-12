@@ -22,9 +22,7 @@ export function SolverModeSelector({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-foreground-muted">
-        {t("solver.mode")}
-      </span>
+      <span className="text-xs font-medium text-foreground-muted">{t("solver.mode")}</span>
       <RadioGroup
         value={current}
         onValueChange={(v) => void handleChange(v as SolverMode)}

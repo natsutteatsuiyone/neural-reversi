@@ -9,8 +9,7 @@ export function useLanguage() {
   const language = savedLanguage ?? "auto";
 
   const setLanguage = async (value: string) => {
-    const newSavedLanguage = value === "auto" ? null :
-      (isLanguage(value) ? value : null);
+    const newSavedLanguage = value === "auto" ? null : isLanguage(value) ? value : null;
 
     try {
       const resolved = await changeLanguage(newSavedLanguage);

@@ -47,7 +47,7 @@ export function PlayerCard({
         "rounded-xl p-3 transition-all duration-200 border",
         isCurrent
           ? "bg-white/15 border-primary/50 shadow-lg shadow-primary/10"
-          : "bg-white/5 border-white/10"
+          : "bg-white/5 border-white/10",
       )}
     >
       {/* Main row */}
@@ -66,14 +66,14 @@ export function PlayerCard({
             <>
               <Bot className="w-4 h-4 text-accent-blue" />
               <span className="text-sm font-medium text-foreground-secondary">
-                {t('player.ai')} {aiMode === "level" && `${t('player.level')}${aiLevel}`}
+                {t("player.ai")} {aiMode === "level" && `${t("player.level")}${aiLevel}`}
               </span>
             </>
           ) : (
             <>
               <User className="w-4 h-4 text-foreground-secondary" />
               <span className="text-sm font-medium text-foreground-secondary">
-                {playerLabel ?? t('player.you')}
+                {playerLabel ?? t("player.you")}
               </span>
             </>
           )}
@@ -98,7 +98,7 @@ export function PlayerCard({
             className="gap-1.5 h-7 px-2.5 text-primary border-primary/40 hover:bg-primary/10 hover:text-primary"
           >
             <Play className="w-3.5 h-3.5" />
-            {t('game.resume')}
+            {t("game.resume")}
           </Button>
         )}
 
@@ -113,7 +113,7 @@ export function PlayerCard({
         <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/10">
           <div className="flex items-center gap-1.5 text-accent-blue">
             <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm font-medium">{t('ai.thinking')}</span>
+            <span className="text-sm font-medium">{t("ai.thinking")}</span>
           </div>
           {onStop && (
             <Button
@@ -123,7 +123,7 @@ export function PlayerCard({
               className="gap-1.5 h-7 px-2.5 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
             >
               <StopCircle className="w-3.5 h-3.5" />
-              {t('game.stop')}
+              {t("game.stop")}
             </Button>
           )}
         </div>

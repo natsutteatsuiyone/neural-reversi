@@ -8,7 +8,13 @@ import { AIThinkingLog } from "./AIThinkingLog";
 import { EvaluationChart } from "./EvaluationChart";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 
 export function AIAnalysisPanelHeader() {
@@ -35,19 +41,21 @@ export function AIAnalysisPanelHeader() {
       )}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-        <Activity className={cn(
-          "w-4 h-4",
-          isAIThinking ? "text-accent-blue animate-pulse" : "text-foreground-muted"
-        )} />
-        <span className="text-sm font-medium text-foreground">{t('analysis.title')}</span>
+        <Activity
+          className={cn(
+            "w-4 h-4",
+            isAIThinking ? "text-accent-blue animate-pulse" : "text-foreground-muted",
+          )}
+        />
+        <span className="text-sm font-medium text-foreground">{t("analysis.title")}</span>
         {isAIThinking && (
           <span className="text-xs bg-accent-blue/20 text-accent-blue px-2 py-0.5 rounded-full">
-            {t('ai.thinking')}
+            {t("ai.thinking")}
           </span>
         )}
         {isGameAnalyzing && (
           <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-            {t('analysis.analyzing', {
+            {t("analysis.analyzing", {
               current: gameAnalysisResult?.length ?? 0,
               total: totalMoves,
             })}
@@ -55,13 +63,10 @@ export function AIAnalysisPanelHeader() {
         )}
         {!isAIThinking && !isGameAnalyzing && latestEntry && (
           <div className="flex items-center gap-2 text-xs font-mono">
-            <span className="text-foreground-muted">{t('analysis.best')}</span>
+            <span className="text-foreground-muted">{t("analysis.best")}</span>
             <span className="font-semibold text-primary">{latestEntry.bestMove}</span>
             <span className="text-white/20">|</span>
-            <span className={cn(
-              "font-semibold",
-              scoreToneClass(latestEntry.score)
-            )}>
+            <span className={cn("font-semibold", scoreToneClass(latestEntry.score))}>
               {formatScore(latestEntry.score, "raw")}
             </span>
             <span className="text-white/20">|</span>
@@ -103,32 +108,43 @@ export function AIAnalysisPanelContent() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background-secondary">
       <div className="flex h-full min-h-0 flex-col p-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full min-h-0 flex-col">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="flex h-full min-h-0 flex-col"
+        >
           <div className="flex items-center justify-between">
             <TabsList>
               <TabsTrigger value="log">
                 <Activity className="w-3.5 h-3.5" />
-                {t('analysis.thinkingLog')}
+                {t("analysis.thinkingLog")}
               </TabsTrigger>
               <TabsTrigger value="chart">
                 <BarChart3 className="w-3.5 h-3.5" />
-                {t('analysis.evaluation')}
+                {t("analysis.evaluation")}
               </TabsTrigger>
             </TabsList>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5 text-xs text-foreground-muted">
-                {t('analysis.analysisLevel')}
+                {t("analysis.analysisLevel")}
                 <Select
                   value={gameAnalysisLevel.toString()}
                   onValueChange={(v) => setGameAnalysisLevel(Number(v))}
                   disabled={isGameAnalyzing}
                 >
-                  <SelectTrigger size="sm" className="h-6 min-w-[3rem] px-2 py-0 text-xs text-white/90 border-white/15 bg-white/10">
+                  <SelectTrigger
+                    size="sm"
+                    className="h-6 min-w-[3rem] px-2 py-0 text-xs text-white/90 border-white/15 bg-white/10"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="border-white/20">
                     {ANALYSIS_LEVELS.map((level) => (
-                      <SelectItem key={level} value={level.toString()} className="text-xs text-white/90 focus:bg-white/10 focus:text-white">
+                      <SelectItem
+                        key={level}
+                        value={level.toString()}
+                        className="text-xs text-white/90 focus:bg-white/10 focus:text-white"
+                      >
                         {level}
                       </SelectItem>
                     ))}
@@ -143,7 +159,7 @@ export function AIAnalysisPanelContent() {
                   className="gap-1.5 h-7 px-3 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30"
                 >
                   <Square className="w-3 h-3" />
-                  {t('analysis.abort')}
+                  {t("analysis.abort")}
                 </Button>
               ) : (
                 <Button
@@ -154,7 +170,7 @@ export function AIAnalysisPanelContent() {
                   className="gap-1.5 h-7 px-3 text-xs bg-accent-blue/20 text-accent-blue hover:bg-accent-blue/30"
                 >
                   <Search className="w-3 h-3" />
-                  {t('analysis.analyze')}
+                  {t("analysis.analyze")}
                 </Button>
               )}
             </div>

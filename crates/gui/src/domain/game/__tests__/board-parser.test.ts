@@ -5,10 +5,7 @@ import {
   validateBoard,
   boardToString,
 } from "@/domain/game/board-parser";
-import {
-  createEmptyBoard,
-  initializeBoard,
-} from "@/domain/game/game-logic";
+import { createEmptyBoard, initializeBoard } from "@/domain/game/game-logic";
 import { BOARD_SIZE } from "@/domain/game/constants";
 import type { Board, Player } from "@/domain/game/types";
 

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  abortInFlightGameSearches,
-  prepareGameReplacement,
-} from "@/stores/game-replacement";
+import { abortInFlightGameSearches, prepareGameReplacement } from "@/stores/game-replacement";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createTestStore } from "./test-helpers";
 
@@ -17,11 +14,7 @@ describe("prepareGameReplacement", () => {
       }),
     });
 
-    const ok = await prepareGameReplacement(
-      services,
-      store.getState,
-      store.setState,
-    );
+    const ok = await prepareGameReplacement(services, store.getState, store.setState);
 
     expect(ok).toBe(false);
     expect(services.ai.initialize).not.toHaveBeenCalled();
@@ -30,11 +23,7 @@ describe("prepareGameReplacement", () => {
   it("returns true after re-initialising the backend", async () => {
     const { store, services } = createTestStore();
 
-    const ok = await prepareGameReplacement(
-      services,
-      store.getState,
-      store.setState,
-    );
+    const ok = await prepareGameReplacement(services, store.getState, store.setState);
 
     expect(ok).toBe(true);
     expect(services.ai.initialize).toHaveBeenCalled();
@@ -50,11 +39,7 @@ describe("prepareGameReplacement", () => {
   it("frees the solver search before re-initialising the backend", async () => {
     const { store, services } = createTestStore();
 
-    const ok = await prepareGameReplacement(
-      services,
-      store.getState,
-      store.setState,
-    );
+    const ok = await prepareGameReplacement(services, store.getState, store.setState);
 
     expect(ok).toBe(true);
     expect(services.solver.abort).toHaveBeenCalled();
@@ -72,11 +57,7 @@ describe("prepareGameReplacement", () => {
       }),
     });
 
-    const ok = await prepareGameReplacement(
-      services,
-      store.getState,
-      store.setState,
-    );
+    const ok = await prepareGameReplacement(services, store.getState, store.setState);
 
     expect(ok).toBe(false);
     expect(services.solver.abort).not.toHaveBeenCalled();
@@ -92,11 +73,7 @@ describe("prepareGameReplacement", () => {
     store.setState({ paused: true });
     const triggerSpy = vi.spyOn(store.getState(), "triggerAutomation");
 
-    const ok = await prepareGameReplacement(
-      services,
-      store.getState,
-      store.setState,
-    );
+    const ok = await prepareGameReplacement(services, store.getState, store.setState);
 
     expect(ok).toBe(false);
     expect(store.getState().paused).toBe(true);
@@ -113,11 +90,7 @@ describe("prepareGameReplacement", () => {
     const analyzeGameSpy = vi.spyOn(store.getState(), "analyzeGame");
     const queueResumeSpy = vi.spyOn(store.getState(), "queueResumeAutomation");
 
-    const ok = await prepareGameReplacement(
-      services,
-      store.getState,
-      store.setState,
-    );
+    const ok = await prepareGameReplacement(services, store.getState, store.setState);
 
     expect(ok).toBe(false);
     expect(analyzeGameSpy).toHaveBeenCalled();
@@ -129,9 +102,7 @@ describe("abortInFlightGameSearches", () => {
   it("aborts the AI-move search while one is in flight", async () => {
     const { store } = createTestStore();
     store.setState({ isAIThinking: true });
-    const abortSpy = vi
-      .spyOn(store.getState(), "abortAIMove")
-      .mockResolvedValue(undefined);
+    const abortSpy = vi.spyOn(store.getState(), "abortAIMove").mockResolvedValue(undefined);
 
     await abortInFlightGameSearches(store.getState);
 
@@ -150,9 +121,7 @@ describe("abortInFlightGameSearches", () => {
       isAnalyzing: false,
       hintAnalysisAbortPending: true,
     });
-    const abortSpy = vi
-      .spyOn(store.getState(), "abortAIMove")
-      .mockResolvedValue(undefined);
+    const abortSpy = vi.spyOn(store.getState(), "abortAIMove").mockResolvedValue(undefined);
 
     await abortInFlightGameSearches(store.getState);
 

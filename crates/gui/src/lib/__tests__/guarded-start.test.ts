@@ -81,7 +81,10 @@ describe("runGuardedStart", () => {
     const gate = makeGate();
     let resolveFirst!: (v: boolean) => void;
     const first = vi.fn().mockImplementation(
-      () => new Promise<boolean>((res) => { resolveFirst = res; }),
+      () =>
+        new Promise<boolean>((res) => {
+          resolveFirst = res;
+        }),
     );
     const second = vi.fn().mockResolvedValue(true);
     const onError = vi.fn();

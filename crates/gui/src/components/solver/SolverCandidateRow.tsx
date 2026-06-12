@@ -46,9 +46,7 @@ export const SolverCandidateRow = memo(function SolverCandidateRow({
       <span className="text-xs text-foreground-muted min-w-[2.5rem] text-right">
         {candidate.acc}%
       </span>
-      <span className="flex-1 text-xs text-foreground-muted font-mono truncate">
-        {pvDisplay}
-      </span>
+      <span className="flex-1 text-xs text-foreground-muted font-mono truncate">{pvDisplay}</span>
     </button>
   );
 });

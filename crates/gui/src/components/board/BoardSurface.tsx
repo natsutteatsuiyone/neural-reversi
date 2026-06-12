@@ -1,11 +1,6 @@
 import { useMemo } from "react";
 import * as THREE from "three";
-import {
-  CELL_SIZE,
-  BOARD_WORLD_SIZE,
-  GROOVE_COLOR,
-  GROOVE_WIDTH,
-} from "./board3d-utils";
+import { CELL_SIZE, BOARD_WORLD_SIZE, GROOVE_COLOR, GROOVE_WIDTH } from "./board3d-utils";
 
 const grooveMaterial = new THREE.MeshStandardMaterial({
   color: GROOVE_COLOR,
@@ -126,12 +121,17 @@ function GridGrooves() {
       result.push({ position: [0, 0.001, z], size: [BOARD_WORLD_SIZE, GROOVE_WIDTH] });
     }
     return result;
-  }, []);
+  }, [halfBoard]);
 
   return (
     <group>
       {lines.map((line, i) => (
-        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={line.position} material={grooveMaterial}>
+        <mesh
+          key={i}
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={line.position}
+          material={grooveMaterial}
+        >
           <planeGeometry args={line.size} />
         </mesh>
       ))}

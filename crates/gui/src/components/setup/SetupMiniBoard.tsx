@@ -33,10 +33,7 @@ export const SetupMiniBoard = memo(function SetupMiniBoard({
         {/* Row labels */}
         <div className="flex flex-col justify-around w-5 shrink-0">
           {ROW_LABELS.map((label) => (
-            <div
-              key={label}
-              className="text-center text-xs font-semibold text-foreground-muted"
-            >
+            <div key={label} className="text-center text-xs font-semibold text-foreground-muted">
               {label}
             </div>
           ))}
@@ -54,7 +51,7 @@ export const SetupMiniBoard = memo(function SetupMiniBoard({
                     "w-[27px] h-[27px] relative flex items-center justify-center",
                     "bg-board-cell border-r border-b border-board-surface",
                     editable && "hover:bg-board-cell-hover cursor-pointer",
-                    !editable && "cursor-default"
+                    !editable && "cursor-default",
                   )}
                   onClick={() => editable && onCellClick?.(rowIndex, colIndex)}
                   disabled={!editable}
@@ -62,7 +59,7 @@ export const SetupMiniBoard = memo(function SetupMiniBoard({
                 >
                   {cell.color && <Stone color={cell.color} />}
                 </button>
-              ))
+              )),
             )}
           </div>
         </div>

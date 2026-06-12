@@ -35,7 +35,12 @@ export function getValidMoves(board: Board, player: Player): [number, number][] 
   return moves;
 }
 
-export function getFlippedDiscs(board: Board, row: number, col: number, player: Player): [number, number][] {
+export function getFlippedDiscs(
+  board: Board,
+  row: number,
+  col: number,
+  player: Player,
+): [number, number][] {
   const opponent = player === "black" ? "white" : "black";
   const flipped: [number, number][] = [];
   const directions = [
@@ -60,7 +65,14 @@ export function getFlippedDiscs(board: Board, row: number, col: number, player: 
       y += dy;
     }
 
-    if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE && board[x][y].color === player && temp.length > 0) {
+    if (
+      x >= 0 &&
+      x < BOARD_SIZE &&
+      y >= 0 &&
+      y < BOARD_SIZE &&
+      board[x][y].color === player &&
+      temp.length > 0
+    ) {
       flipped.push(...temp);
     }
   }

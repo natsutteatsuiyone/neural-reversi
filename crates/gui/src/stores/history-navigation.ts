@@ -62,11 +62,7 @@ function finalize(get: Get, set: Set): void {
   }
 }
 
-export function navigateHistory(
-  get: Get,
-  set: Set,
-  direction: HistoryNavigationDirection,
-): void {
+export function navigateHistory(get: Get, set: Set, direction: HistoryNavigationDirection): void {
   if (!beginNavigation(get)) return;
   const patch = createHistoryNavigationPatch(toNavigationState(get()), direction);
   if (patch) set(withClears(patch));

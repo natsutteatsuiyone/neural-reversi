@@ -62,9 +62,7 @@ export function AIThinkingIndicator({
   }
 
   const isCurrentThinkingCell =
-    aiMoveProgress &&
-    aiMoveProgress.row === rowIndex &&
-    aiMoveProgress.col === colIndex;
+    aiMoveProgress && aiMoveProgress.row === rowIndex && aiMoveProgress.col === colIndex;
 
   if (isCurrentThinkingCell) {
     return (
@@ -89,7 +87,7 @@ export function AIThinkingIndicator({
   }
 
   const historyIndex = moveHistory.findIndex(
-    (move) => move.row === rowIndex && move.col === colIndex
+    (move) => move.row === rowIndex && move.col === colIndex,
   );
 
   if (historyIndex !== -1 && historyIndex < 3) {

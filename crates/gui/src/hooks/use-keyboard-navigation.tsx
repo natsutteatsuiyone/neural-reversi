@@ -11,7 +11,7 @@ export function useKeyboardNavigation() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (gameStatus === "waiting") return;
-      
+
       // Don't navigate while a search is tied to the current position/history.
       if (gameSearchActive) return;
 

@@ -12,17 +12,11 @@ import {
 } from "./types";
 
 function isValidSolverSelectivity(value: unknown): value is SolverSelectivity {
-  return (
-    typeof value === "number" &&
-    (SOLVER_SELECTIVITIES as readonly number[]).includes(value)
-  );
+  return typeof value === "number" && (SOLVER_SELECTIVITIES as readonly number[]).includes(value);
 }
 
 function isValidSolverMode(value: unknown): value is SolverMode {
-  return (
-    typeof value === "string" &&
-    (SOLVER_MODES as readonly string[]).includes(value)
-  );
+  return typeof value === "string" && (SOLVER_MODES as readonly string[]).includes(value);
 }
 
 export class TauriSettingsService implements SettingsService {
@@ -30,11 +24,10 @@ export class TauriSettingsService implements SettingsService {
 
   private getStore(): Promise<Store> {
     if (!this.storePromise) {
-      this.storePromise = load("settings.json", { autoSave: true, defaults: {} })
-        .catch((error) => {
-          this.storePromise = null;
-          throw error;
-        });
+      this.storePromise = load("settings.json", { autoSave: true, defaults: {} }).catch((error) => {
+        this.storePromise = null;
+        throw error;
+      });
     }
     return this.storePromise;
   }
@@ -43,9 +36,19 @@ export class TauriSettingsService implements SettingsService {
     try {
       const s = await this.getStore();
       const [
-        gameMode, aiLevel, aiMode, timeLimit, gameTimeLimit,
-        hintLevel, gameAnalysisLevel, hashSize, aiAnalysisPanelOpen,
-        rightPanelSize, bottomPanelSize, language, solverTargetSelectivity,
+        gameMode,
+        aiLevel,
+        aiMode,
+        timeLimit,
+        gameTimeLimit,
+        hintLevel,
+        gameAnalysisLevel,
+        hashSize,
+        aiAnalysisPanelOpen,
+        rightPanelSize,
+        bottomPanelSize,
+        language,
+        solverTargetSelectivity,
         solverMode,
       ] = await Promise.all([
         s.get<GameMode>("gameMode"),

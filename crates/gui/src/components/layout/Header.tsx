@@ -62,7 +62,9 @@ export function Header() {
       <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
         {/* Hint */}
         <div className="flex shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1">
-          <Lightbulb className={`w-4 h-4 ${isHintMode ? "text-accent-gold" : "text-foreground-muted"}`} />
+          <Lightbulb
+            className={`w-4 h-4 ${isHintMode ? "text-accent-gold" : "text-foreground-muted"}`}
+          />
           <Switch
             id="hint-mode"
             checked={isHintMode}
@@ -92,7 +94,7 @@ export function Header() {
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Lightbulb className="w-4 h-4 mr-2" />
-                {t('hint.hintLevel')}
+                {t("hint.hintLevel")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
@@ -100,11 +102,9 @@ export function Header() {
                   onValueChange={(v) => setHintLevel(parseInt(v))}
                 >
                   {ANALYSIS_LEVELS.map((level) => (
-                    <DropdownMenuRadioItem
-                      key={level}
-                      value={level.toString()}
-                    >
-                      {t('player.level')}{level}
+                    <DropdownMenuRadioItem key={level} value={level.toString()}>
+                      {t("player.level")}
+                      {level}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -114,7 +114,7 @@ export function Header() {
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <HardDrive className="w-4 h-4 mr-2" />
-                {t('settings.hashSize')}
+                {t("settings.hashSize")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup
@@ -122,10 +122,7 @@ export function Header() {
                   onValueChange={(v) => setHashSize(parseInt(v))}
                 >
                   {[64, 128, 256, 512, 1024, 2048, 4096].map((size) => (
-                    <DropdownMenuRadioItem
-                      key={size}
-                      value={size.toString()}
-                    >
+                    <DropdownMenuRadioItem key={size} value={size.toString()}>
                       {size} MB
                     </DropdownMenuRadioItem>
                   ))}
@@ -136,22 +133,13 @@ export function Header() {
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Globe className="w-4 h-4 mr-2" />
-                {t('settings.language')}
+                {t("settings.language")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
-                <DropdownMenuRadioGroup
-                  value={language}
-                  onValueChange={(v) => void setLanguage(v)}
-                >
-                  <DropdownMenuRadioItem value="auto">
-                    {t('settings.auto')}
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="en">
-                    {t('settings.english')}
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="ja">
-                    {t('settings.japanese')}
-                  </DropdownMenuRadioItem>
+                <DropdownMenuRadioGroup value={language} onValueChange={(v) => void setLanguage(v)}>
+                  <DropdownMenuRadioItem value="auto">{t("settings.auto")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="en">{t("settings.english")}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="ja">{t("settings.japanese")}</DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
@@ -160,7 +148,7 @@ export function Header() {
 
             <DropdownMenuItem onSelect={openAboutModal}>
               <Info className="w-4 h-4 mr-2" />
-              {t('about.menuLabel')}
+              {t("about.menuLabel")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

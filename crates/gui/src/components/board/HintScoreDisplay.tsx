@@ -67,15 +67,12 @@ export function HintScoreDisplay({
       <div
         className={cn(
           "text-xl font-bold px-1 rounded",
-          isMaxScore
-            ? "text-emerald-400"
-            : "text-white"
+          isMaxScore ? "text-emerald-400" : "text-white",
         )}
-
       >
         {displayScore}
       </div>
-      
+
       {/* Search progress bar - hide when complete */}
       {!isSearchComplete && (
         <div className="w-[70%] h-1 bg-black/40 rounded-full mt-0.5 overflow-hidden">

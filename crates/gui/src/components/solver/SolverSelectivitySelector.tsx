@@ -22,9 +22,7 @@ export function SolverSelectivitySelector({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-foreground-muted">
-        {t("solver.selectivity")}
-      </span>
+      <span className="text-xs font-medium text-foreground-muted">{t("solver.selectivity")}</span>
       <RadioGroup
         value={String(current)}
         onValueChange={(v) => void handleChange(Number(v) as SolverSelectivity)}

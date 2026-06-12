@@ -16,7 +16,11 @@ export function MoveIndicators({ validMoves, lastMove }: MoveIndicatorsProps) {
       {validMoves.map(({ row, col }) => {
         const [x, z] = cellToWorld(row, col);
         return (
-          <mesh key={`valid-${row}-${col}`} position={[x, 0.002, z]} rotation={[-Math.PI / 2, 0, 0]}>
+          <mesh
+            key={`valid-${row}-${col}`}
+            position={[x, 0.002, z]}
+            rotation={[-Math.PI / 2, 0, 0]}
+          >
             <circleGeometry args={[VALID_MOVE_DOT_RADIUS, 16]} />
             <meshBasicMaterial color="white" transparent opacity={0.3} />
           </mesh>
