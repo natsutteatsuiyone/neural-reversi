@@ -81,6 +81,12 @@ jobs:
     - name: Install dependencies
       run: bun install --frozen-lockfile
 
+    - name: Lint
+      run: bun run lint
+
+    - name: Check formatting
+      run: bun run fmt:check
+
     - name: Run tests
       run: bun run test
 
