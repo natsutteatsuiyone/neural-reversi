@@ -160,7 +160,7 @@ Options:
 ### Examples
 
 ```bash
-bun weight-match.js ../../eval_wasm-9c7b9796.zst ../../eval_wasm-test1.zst
+bun weight-match.js ../../eval_wasm-e6bbc4f6.zst ../../eval_wasm-test1.zst
 bun weight-match.js a.zst b.zst --opening-file ../../openings.txt
 bun weight-match.js a.zst b.zst --opening-file ../../openings.txt --details
 ```

@@ -18,9 +18,13 @@
     "build:wasm:node:relaxed": "cross-env RUSTFLAGS=\"-C target-feature=+simd128,+relaxed-simd\" wasm-pack build --target nodejs --out-dir pkg-node-relaxed --release",
     "build:wasm:node": "bun run build:wasm:node:base && bun run build:wasm:node:relaxed",
     "dev": "bun run build:wasm:dev && vite",
+    "dev:wasm": "wasm-pack build --target web --out-dir pkg --dev",
     "dev:e2e": "vite --host 127.0.0.1 --port 8080 --strictPort",
     "bench": "bun run build:wasm && cross-env BENCHMARK=true vite --open /benchmark.html",
     "build": "bun run build:wasm && vite build",
+    "lint": "oxlint .",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install chromium",
@@ -35,6 +39,8 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "cross-env": "^10.1.0",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
     "vite": "^8.0.16",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0"

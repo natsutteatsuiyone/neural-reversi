@@ -155,7 +155,10 @@ function createLabelMesh(char) {
     transparent: true,
     depthWrite: false,
   });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(LABEL_PLANE_SIZE, LABEL_PLANE_SIZE), material);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(LABEL_PLANE_SIZE, LABEL_PLANE_SIZE),
+    material,
+  );
   mesh.rotation.x = -Math.PI / 2;
   return mesh;
 }
@@ -292,7 +295,7 @@ export function createBoard3D(container, { onCellClick }) {
    * }>}
    */
   const discs = new Map();
-  let prevBoard = new Array(64).fill(0);
+  let prevBoard = Array.from({ length: 64 }, () => 0);
   let view = { legalMoves: [], showValidMoves: false, lastMove: null };
 
   function materialsForColor(color) {
@@ -628,10 +631,19 @@ function buildFrame(scene) {
 
   const yPos = FRAME_HEIGHT / 2;
   const sides = [
-    { pos: [0, yPos, -(halfBoard + FRAME_WIDTH / 2)], size: [outerSize, FRAME_HEIGHT, FRAME_WIDTH] },
+    {
+      pos: [0, yPos, -(halfBoard + FRAME_WIDTH / 2)],
+      size: [outerSize, FRAME_HEIGHT, FRAME_WIDTH],
+    },
     { pos: [0, yPos, halfBoard + FRAME_WIDTH / 2], size: [outerSize, FRAME_HEIGHT, FRAME_WIDTH] },
-    { pos: [-(halfBoard + FRAME_WIDTH / 2), yPos, 0], size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE] },
-    { pos: [halfBoard + FRAME_WIDTH / 2, yPos, 0], size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE] },
+    {
+      pos: [-(halfBoard + FRAME_WIDTH / 2), yPos, 0],
+      size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE],
+    },
+    {
+      pos: [halfBoard + FRAME_WIDTH / 2, yPos, 0],
+      size: [FRAME_WIDTH, FRAME_HEIGHT, BOARD_WORLD_SIZE],
+    },
   ];
   for (const side of sides) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...side.size), frameMat);
@@ -642,10 +654,19 @@ function buildFrame(scene) {
 
   const cy = FRAME_HEIGHT + CHAMFER_HEIGHT / 2;
   const chamfers = [
-    { pos: [0, cy, -(halfBoard + FRAME_WIDTH / 2)], size: [outerSize, CHAMFER_HEIGHT, FRAME_WIDTH] },
+    {
+      pos: [0, cy, -(halfBoard + FRAME_WIDTH / 2)],
+      size: [outerSize, CHAMFER_HEIGHT, FRAME_WIDTH],
+    },
     { pos: [0, cy, halfBoard + FRAME_WIDTH / 2], size: [outerSize, CHAMFER_HEIGHT, FRAME_WIDTH] },
-    { pos: [-(halfBoard + FRAME_WIDTH / 2), cy, 0], size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE] },
-    { pos: [halfBoard + FRAME_WIDTH / 2, cy, 0], size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE] },
+    {
+      pos: [-(halfBoard + FRAME_WIDTH / 2), cy, 0],
+      size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE],
+    },
+    {
+      pos: [halfBoard + FRAME_WIDTH / 2, cy, 0],
+      size: [FRAME_WIDTH, CHAMFER_HEIGHT, BOARD_WORLD_SIZE],
+    },
   ];
   for (const strip of chamfers) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...strip.size), chamferMat);

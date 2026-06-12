@@ -10,6 +10,7 @@ const TOAST_FADE_DURATION_MS = 250;
 let toastSequenceId = 0;
 let forcedPassBlockId = 0;
 let siteHeaderResizeObserver = null;
+let gameGeneration = 0;
 
 // --- Web Worker ---
 const worker = new Worker(new URL("./reversi-worker.js", import.meta.url), {
@@ -83,8 +84,7 @@ const locales = {
       passHuman: "パスしました。AIの番です。",
       passAi: "AIはパスしました。あなたの番です。",
       aiThinking: "AIが考え中です…",
-      humanTurn: (colorName) =>
-        `あなたの番です（${colorName}）。`,
+      humanTurn: (colorName) => `あなたの番です（${colorName}）。`,
       aiTurn: (colorName) => `AIの番です（${colorName}）。`,
       confirmNewGame: "現在の対局を終了して新しい対局を始めますか？",
     },
@@ -155,8 +155,7 @@ const locales = {
       passHuman: "You passed. AI's turn.",
       passAi: "AI passed. Your turn.",
       aiThinking: "AI is thinking…",
-      humanTurn: (colorName) =>
-        `Your turn (${colorName}).`,
+      humanTurn: (colorName) => `Your turn (${colorName}).`,
       aiTurn: (colorName) => `AI's turn (${colorName}).`,
       confirmNewGame: "End current game and start a new one?",
     },
@@ -270,10 +269,8 @@ function renderBoard3D() {
   if (!board3d) {
     return;
   }
-  const lastMove =
-    state.lastHumanMove ?? state.lastAiMove ?? null;
-  const showValidMoves =
-    state.isHumanTurn && !state.showSettingsModal && !state.aiThinking;
+  const lastMove = state.lastHumanMove ?? state.lastAiMove ?? null;
+  const showValidMoves = state.isHumanTurn && !state.showSettingsModal && !state.aiThinking;
   board3d.update({
     board: state.board,
     legalMoves: state.legalMoves,
@@ -289,7 +286,10 @@ updateDesktopLinkLocale();
 
 // --- Worker Communication ---
 worker.onmessage = async (event) => {
-  const { type, payload } = event.data;
+  const { type, payload, generation } = event.data;
+  if (generation !== undefined && generation !== gameGeneration) {
+    return;
+  }
 
   switch (type) {
     case "initialized":
@@ -325,9 +325,7 @@ worker.onmessage = async (event) => {
       }
 
       const humanForcedPass =
-        aiMoveOccurred &&
-        !nextState.isGameOver &&
-        nextState.currentPlayer === state.aiColor;
+        aiMoveOccurred && !nextState.isGameOver && nextState.currentPlayer === state.aiColor;
 
       if (humanForcedPass) {
         state.passNotice = "human";
@@ -357,28 +355,40 @@ worker.onmessage = async (event) => {
 
 const workerApi = {
   init(humanIsBlack, level) {
-    worker.postMessage({ type: "init", payload: { humanIsBlack, level } });
+    worker.postMessage({
+      type: "init",
+      payload: { humanIsBlack, level },
+      generation: gameGeneration,
+    });
   },
   humanMove(index) {
-    worker.postMessage({ type: "human_move", payload: { index } });
+    worker.postMessage({ type: "human_move", payload: { index }, generation: gameGeneration });
   },
   aiMove() {
-    worker.postMessage({ type: "ai_move" });
+    worker.postMessage({ type: "ai_move", generation: gameGeneration });
   },
   pass() {
-    worker.postMessage({ type: "pass" });
+    worker.postMessage({ type: "pass", generation: gameGeneration });
   },
   reset(humanIsBlack, level) {
-    worker.postMessage({ type: "reset", payload: { humanIsBlack, level } });
+    worker.postMessage({
+      type: "reset",
+      payload: { humanIsBlack, level },
+      generation: gameGeneration,
+    });
   },
   setLevel(level) {
-    worker.postMessage({ type: "set_level", payload: { level } });
+    worker.postMessage({ type: "set_level", payload: { level }, generation: gameGeneration });
   },
   getState() {
-    worker.postMessage({ type: "get_state" });
+    worker.postMessage({ type: "get_state", generation: gameGeneration });
   },
   replayMoves(humanIsBlack, level, moves) {
-    worker.postMessage({ type: "replay_moves", payload: { humanIsBlack, level, moves } });
+    worker.postMessage({
+      type: "replay_moves",
+      payload: { humanIsBlack, level, moves },
+      generation: gameGeneration,
+    });
   },
 };
 
@@ -400,9 +410,7 @@ function logMove(color, index, options = {}) {
   }
   const isAiMove = color === state.aiColor;
   const evaluation =
-    isAiMove && Number.isFinite(options.evaluation)
-      ? Number(options.evaluation)
-      : null;
+    isAiMove && Number.isFinite(options.evaluation) ? Number(options.evaluation) : null;
   state.moveHistory.push({
     player: color,
     index,
@@ -430,11 +438,7 @@ async function handleCellClick(index) {
   if (state.showSettingsModal) {
     return;
   }
-  if (
-    state.aiThinking ||
-    state.isGameOver ||
-    state.currentPlayer !== state.humanColor
-  ) {
+  if (state.aiThinking || state.isGameOver || state.currentPlayer !== state.humanColor) {
     return;
   }
 
@@ -487,6 +491,8 @@ async function handleNewGame() {
 
 function handleCloseSettingsModal() {
   state.showSettingsModal = false;
+  void runAiTurn();
+  void ensureHumanPassIfNeeded();
 }
 
 function handleCloseGameOverModal() {
@@ -494,6 +500,7 @@ function handleCloseGameOverModal() {
 }
 
 async function resetGame() {
+  gameGeneration += 1;
   skipNextBoardAnimation = true;
   workerApi.reset(state.humanIsBlack, state.level);
   state.lastHumanMove = null;
@@ -513,6 +520,7 @@ async function runAiTurn() {
     state.isGameOver ||
     state.currentPlayer !== state.aiColor ||
     state.aiThinking ||
+    state.showSettingsModal ||
     state.delayAiUntilToast
   ) {
     return;
@@ -530,9 +538,7 @@ async function ensureHumanPassIfNeeded() {
     return;
   }
 
-  const shouldPass =
-    state.currentPlayer === state.humanColor &&
-    state.legalMoves.length === 0;
+  const shouldPass = state.currentPlayer === state.humanColor && state.legalMoves.length === 0;
 
   if (!shouldPass) {
     return;
@@ -646,8 +652,7 @@ function handleSearchProgress(update) {
     score: Number(update?.score ?? 0),
     nodes: Number(update?.nodes ?? 0),
     selectivity: Number(update?.selectivity ?? 0),
-    bestMoveIndex:
-      typeof update?.bestMoveIndex === "number" ? update.bestMoveIndex : null,
+    bestMoveIndex: typeof update?.bestMoveIndex === "number" ? update.bestMoveIndex : null,
   };
   updateSearchStatusText();
 }
@@ -773,10 +778,7 @@ function clearToast() {
 
 async function showPassToast(kind) {
   const locale = currentLocale();
-  const message =
-    kind === "ai"
-      ? locale.messages.passAi
-      : locale.messages.passHuman;
+  const message = kind === "ai" ? locale.messages.passAi : locale.messages.passHuman;
   return showToast(message, { duration: PASS_TOAST_DURATION_MS });
 }
 
@@ -787,9 +789,7 @@ async function showToast(message, options = {}) {
 
   toastSequenceId += 1;
   const currentSeq = toastSequenceId;
-  const duration = Number.isFinite(options.duration)
-    ? options.duration
-    : PASS_TOAST_DURATION_MS;
+  const duration = Number.isFinite(options.duration) ? options.duration : PASS_TOAST_DURATION_MS;
 
   state.toastMessage = message;
   state.toastVisible = true;
@@ -843,7 +843,8 @@ async function handleUndo() {
   // Replay moves to restore game state
   // Convert reactive array to plain array for Worker
   skipNextBoardAnimation = true;
-  const plainMoves = state.moveHistory.map(move => ({ player: move.player, index: move.index }));
+  const plainMoves = state.moveHistory.map((move) => ({ player: move.player, index: move.index }));
+  gameGeneration += 1;
   workerApi.replayMoves(state.humanIsBlack, state.level, plainMoves);
 }
 

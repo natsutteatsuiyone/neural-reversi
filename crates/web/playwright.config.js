@@ -5,14 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 
-const requiredWasmFiles = [
-  "pkg/web.js",
-  "pkg/web_bg.wasm",
-];
+const requiredWasmFiles = ["pkg/web.js", "pkg/web_bg.wasm"];
 
-const missingWasmFiles = requiredWasmFiles.filter(
-  (file) => !existsSync(resolve(configDir, file)),
-);
+const missingWasmFiles = requiredWasmFiles.filter((file) => !existsSync(resolve(configDir, file)));
 
 if (missingWasmFiles.length > 0) {
   throw new Error(
@@ -30,12 +25,7 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
-  reporter: process.env.CI
-    ? [
-        ["github"],
-        ["html", { open: "never" }],
-      ]
-    : "list",
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: "http://127.0.0.1:8080",
     locale: "ja-JP",
