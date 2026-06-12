@@ -15,26 +15,22 @@ use reversi_core::{
     square::Square,
 };
 
+use crate::config::EngineConfig;
+
 const NUM_WIDTH: usize = 5;
 
-#[allow(clippy::too_many_arguments)]
 pub fn solve(
     file_path: &Path,
-    hash_size: usize,
-    level: usize,
-    selectivity: Selectivity,
-    threads: Option<usize>,
-    eval_path: Option<&Path>,
-    eval_sm_path: Option<&Path>,
+    config: &EngineConfig,
     exact: bool,
     all_moves: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
-    let search_options = SearchOptions::new(hash_size)
-        .with_threads(threads)
-        .with_eval_paths(eval_path, eval_sm_path);
+    let search_options = SearchOptions::new(config.hash_size)
+        .with_threads(config.threads)
+        .with_eval_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
 
     print_header(file_path, &search_options);
 
@@ -42,7 +38,7 @@ pub fn solve(
     let level_config = if exact {
         Level::perfect()
     } else {
-        get_level(level)
+        get_level(config.level)
     };
 
     if !all_moves {
@@ -67,7 +63,7 @@ pub fn solve(
             pos.board,
             pos.side_to_move,
             level_config,
-            selectivity,
+            config.selectivity,
             line_num + 1,
             all_moves,
         );

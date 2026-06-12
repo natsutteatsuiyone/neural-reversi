@@ -16,10 +16,10 @@ use reversi_core::{
     square::Square,
 };
 
+use crate::config::EngineConfig;
 use crate::game::GameState;
 use std::env;
 use std::io::{self, BufRead, Write};
-use std::path::Path;
 
 /// Represents a parsed GTP command with its arguments.
 ///
@@ -261,29 +261,19 @@ impl GtpEngine {
     /// Creates a new GTP engine with the specified configuration.
     ///
     /// # Arguments
-    /// * `hash_size` - Size of the transposition table in MB
-    /// * `level` - Initial playing strength level (1-20)
-    /// * `selectivity` - Search selectivity setting
-    /// * `threads` - Number of threads to use for search (None uses default)
+    /// * `config` - Resolved engine configuration
     ///
     /// # Returns
     /// A new `GtpEngine` instance ready to process commands
-    pub fn new(
-        hash_size: usize,
-        level: usize,
-        selectivity: Selectivity,
-        threads: Option<usize>,
-        eval_path: Option<&Path>,
-        eval_sm_path: Option<&Path>,
-    ) -> io::Result<Self> {
-        let search_options = SearchOptions::new(hash_size)
-            .with_threads(threads)
-            .with_eval_paths(eval_path, eval_sm_path);
+    pub fn new(config: &EngineConfig) -> io::Result<Self> {
+        let search_options = SearchOptions::new(config.hash_size)
+            .with_threads(config.threads)
+            .with_eval_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
         Ok(Self {
             game: GameState::new(),
             search: search::Search::new(&search_options),
-            level,
-            selectivity,
+            level: config.level,
+            selectivity: config.selectivity,
             name: "Neural Reversi".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             time_control: TimeControlMode::Infinite,
@@ -904,5 +894,112 @@ impl GtpEngine {
     /// `true` if the command is supported, `false` otherwise
     fn is_known_command(&self, cmd: &str) -> bool {
         COMMAND_NAMES.contains(&cmd)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_zero_arg_commands() {
+        assert!(matches!(
+            Command::from_str_with_args("protocol_version", &[]),
+            Command::ProtocolVersion
+        ));
+        assert!(matches!(
+            Command::from_str_with_args("list_commands", &[]),
+            Command::ListCommands
+        ));
+        assert!(matches!(
+            Command::from_str_with_args("quit", &[]),
+            Command::Quit
+        ));
+    }
+
+    #[test]
+    fn parses_boardsize_and_rejects_bad_args() {
+        match Command::from_str_with_args("boardsize", &["8"]) {
+            Command::Boardsize(8) => {}
+            other => panic!("expected Boardsize(8), got {other:?}"),
+        }
+        assert!(matches!(
+            Command::from_str_with_args("boardsize", &["abc"]),
+            Command::Unknown(_)
+        ));
+        assert!(matches!(
+            Command::from_str_with_args("boardsize", &[]),
+            Command::Unknown(_)
+        ));
+    }
+
+    #[test]
+    fn parses_play_and_lowercases_args() {
+        match Command::from_str_with_args("play", &["B", "D3"]) {
+            Command::Play { color, move_str } => {
+                assert_eq!(color, "b");
+                assert_eq!(move_str, "d3");
+            }
+            other => panic!("expected Play, got {other:?}"),
+        }
+        assert!(matches!(
+            Command::from_str_with_args("play", &["b"]),
+            Command::Unknown(_)
+        ));
+    }
+
+    #[test]
+    fn parses_set_level() {
+        match Command::from_str_with_args("set_level", &["10"]) {
+            Command::SetLevel(10) => {}
+            other => panic!("expected SetLevel(10), got {other:?}"),
+        }
+        assert!(matches!(
+            Command::from_str_with_args("set_level", &["abc"]),
+            Command::Unknown(_)
+        ));
+    }
+
+    #[test]
+    fn parses_time_commands() {
+        match Command::from_str_with_args("time_settings", &["300", "5", "1"]) {
+            Command::TimeSettings {
+                main_time,
+                byoyomi_time,
+                byoyomi_stones,
+            } => {
+                assert_eq!((main_time, byoyomi_time, byoyomi_stones), (300, 5, 1));
+            }
+            other => panic!("expected TimeSettings, got {other:?}"),
+        }
+        assert!(matches!(
+            Command::from_str_with_args("time_settings", &["300", "5", "x"]),
+            Command::Unknown(_)
+        ));
+        match Command::from_str_with_args("time_left", &["b", "60", "0"]) {
+            Command::TimeLeft {
+                color,
+                time,
+                stones,
+            } => {
+                assert_eq!(color, "b");
+                assert_eq!((time, stones), (60, 0));
+            }
+            other => panic!("expected TimeLeft, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_command_is_unknown() {
+        assert!(matches!(
+            Command::from_str_with_args("frobnicate", &[]),
+            Command::Unknown(_)
+        ));
+    }
+
+    #[test]
+    fn response_display_uses_gtp_prefixes() {
+        assert_eq!(GtpResponse::Success("foo".to_string()).to_string(), "= foo");
+        assert_eq!(GtpResponse::Error("bar".to_string()).to_string(), "? bar");
     }
 }

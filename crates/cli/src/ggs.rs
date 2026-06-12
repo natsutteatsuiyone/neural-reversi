@@ -20,6 +20,8 @@ use reversi_core::level::{MAX_LEVEL, get_level};
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::{self, SearchRunOptions, options::SearchOptions};
 
+use crate::config::EngineConfig;
+
 /// Send a `tell /os continue` keepalive whenever we have not sent anything
 /// on the socket for this long. Edax uses 60 s (`ggs.c:1093`) measured
 /// against the last *send* time, not the last receive — a kibitz-only RX
@@ -83,22 +85,16 @@ impl Drop for SearchLease {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn run_ggs(
     script: &Path,
     host: &str,
     port: u16,
     user: &str,
-    hash_size: usize,
-    level: usize,
-    selectivity: Selectivity,
-    threads: Option<usize>,
-    eval_file: Option<&Path>,
-    eval_sm_file: Option<&Path>,
+    config: &EngineConfig,
 ) -> Result<(), String> {
-    let search_options = SearchOptions::new(hash_size)
-        .with_threads(threads)
-        .with_eval_paths(eval_file, eval_sm_file);
+    let search_options = SearchOptions::new(config.hash_size)
+        .with_threads(config.threads)
+        .with_eval_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
     let search_pool = Arc::new(SearchPool::new(&search_options));
 
     // Blank and `#`-prefixed lines are skipped so the `init.ggs.example`
@@ -124,7 +120,7 @@ pub fn run_ggs(
             .map_err(|e| format!("script send failed: {e}"))?;
     }
 
-    let mut session = session::Session::new(user.to_string(), level, selectivity);
+    let mut session = session::Session::new(user.to_string(), config.level, config.selectivity);
     let mut accumulator = connection::LineAccumulator::new();
 
     loop {

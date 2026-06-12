@@ -1,3 +1,4 @@
+mod config;
 mod game;
 mod ggs;
 mod gtp;
@@ -7,6 +8,7 @@ mod tui;
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
+use config::EngineConfig;
 use reversi_core::level::MAX_LEVEL;
 use reversi_core::probcut::Selectivity;
 
@@ -64,6 +66,19 @@ struct EngineParams {
         help = "Path to the small network weight file"
     )]
     eval_sm_file: Option<PathBuf>,
+}
+
+impl From<EngineParams> for EngineConfig {
+    fn from(params: EngineParams) -> Self {
+        EngineConfig {
+            hash_size: params.hash_size,
+            level: params.level,
+            selectivity: Selectivity::from_u8(params.selectivity),
+            threads: params.threads,
+            eval_file: params.eval_file,
+            eval_sm_file: params.eval_sm_file,
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -148,19 +163,9 @@ fn main() {
     let args = Cli::parse();
     match args.command {
         Some(SubCommands::Gtp { engine_params }) => {
-            validate_weight_paths(
-                engine_params.eval_file.as_deref(),
-                engine_params.eval_sm_file.as_deref(),
-            );
-            let mut gtp_engine = gtp::GtpEngine::new(
-                engine_params.hash_size,
-                engine_params.level,
-                Selectivity::from_u8(engine_params.selectivity),
-                engine_params.threads,
-                engine_params.eval_file.as_deref(),
-                engine_params.eval_sm_file.as_deref(),
-            )
-            .unwrap_or_else(|err| {
+            let config = EngineConfig::from(engine_params);
+            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
+            let mut gtp_engine = gtp::GtpEngine::new(&config).unwrap_or_else(|err| {
                 eprintln!("Failed to initialize engine: {err}");
                 std::process::exit(1);
             });
@@ -172,21 +177,9 @@ fn main() {
             all_moves,
             engine_params,
         }) => {
-            validate_weight_paths(
-                engine_params.eval_file.as_deref(),
-                engine_params.eval_sm_file.as_deref(),
-            );
-            if let Err(e) = solve::solve(
-                &file,
-                engine_params.hash_size,
-                engine_params.level,
-                Selectivity::from_u8(engine_params.selectivity),
-                engine_params.threads,
-                engine_params.eval_file.as_deref(),
-                engine_params.eval_sm_file.as_deref(),
-                exact,
-                all_moves,
-            ) {
+            let config = EngineConfig::from(engine_params);
+            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
+            if let Err(e) = solve::solve(&file, &config, exact, all_moves) {
                 eprintln!("Error solving game: {e}");
             }
         }
@@ -197,22 +190,9 @@ fn main() {
             user,
             engine_params,
         }) => {
-            validate_weight_paths(
-                engine_params.eval_file.as_deref(),
-                engine_params.eval_sm_file.as_deref(),
-            );
-            if let Err(e) = ggs::run_ggs(
-                &script,
-                &host,
-                port,
-                &user,
-                engine_params.hash_size,
-                engine_params.level,
-                Selectivity::from_u8(engine_params.selectivity),
-                engine_params.threads,
-                engine_params.eval_file.as_deref(),
-                engine_params.eval_sm_file.as_deref(),
-            ) {
+            let config = EngineConfig::from(engine_params);
+            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
+            if let Err(e) = ggs::run_ggs(&script, &host, port, &user, &config) {
                 eprintln!("GGS session error: {e}");
                 std::process::exit(1);
             }
@@ -233,19 +213,9 @@ fn main() {
             print!("{}", include_str!("../THIRD_PARTY_LICENSES.txt"));
         }
         None => {
-            validate_weight_paths(
-                args.engine_params.eval_file.as_deref(),
-                args.engine_params.eval_sm_file.as_deref(),
-            );
-            tui::run(
-                args.engine_params.hash_size,
-                args.engine_params.level,
-                Selectivity::from_u8(args.engine_params.selectivity),
-                args.engine_params.threads,
-                args.engine_params.eval_file.as_deref(),
-                args.engine_params.eval_sm_file.as_deref(),
-            )
-            .unwrap_or_else(|err| {
+            let config = EngineConfig::from(args.engine_params);
+            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
+            tui::run(&config).unwrap_or_else(|err| {
                 eprintln!("Failed to initialize UI: {err}");
             });
         }

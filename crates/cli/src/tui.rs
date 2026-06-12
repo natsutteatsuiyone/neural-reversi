@@ -3,34 +3,25 @@
 //! This module provides a full-featured terminal interface using ratatui,
 //! supporting keyboard navigation, mouse input, and real-time game updates.
 
-use std::path::Path;
-
-use reversi_core::probcut::Selectivity;
-
 mod app;
 mod event;
 mod parse;
 mod render;
 mod widgets;
 
+use crate::config::EngineConfig;
+
 use app::App;
 
 /// Runs the TUI, handling user input and game state.
-pub fn run(
-    hash_size: usize,
-    initial_level: usize,
-    selectivity: Selectivity,
-    threads: Option<usize>,
-    eval_path: Option<&Path>,
-    eval_sm_path: Option<&Path>,
-) -> Result<(), String> {
+pub fn run(config: &EngineConfig) -> Result<(), String> {
     let app = App::new(
-        hash_size,
-        initial_level,
-        selectivity,
-        threads,
-        eval_path,
-        eval_sm_path,
+        config.hash_size,
+        config.level,
+        config.selectivity,
+        config.threads,
+        config.eval_file.as_deref(),
+        config.eval_sm_file.as_deref(),
     )?;
 
     let terminal = ratatui::init();

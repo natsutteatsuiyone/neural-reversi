@@ -173,6 +173,15 @@ fn spawn_search_worker(
     rx
 }
 
+/// Parses a level string from the level-select dialog, returning the level
+/// only when it is within the valid `1..=MAX_LEVEL` range.
+fn parse_level_input(input: &str) -> Option<usize> {
+    match input.parse::<usize>() {
+        Ok(n) if (1..=level::MAX_LEVEL).contains(&n) => Some(n),
+        _ => None,
+    }
+}
+
 /// Main application state.
 pub struct App {
     /// Current game state
@@ -427,9 +436,15 @@ impl App {
                 self.level_input.clear();
             }
             Event::Select => {
-                if let Ok(new_level) = self.level_input.parse::<usize>() {
-                    self.level = new_level;
-                    self.status_message = Some(format!("Level set to {new_level}"));
+                match parse_level_input(&self.level_input) {
+                    Some(new_level) => {
+                        self.level = new_level;
+                        self.status_message = Some(format!("Level set to {new_level}"));
+                    }
+                    None => {
+                        self.status_message =
+                            Some(format!("Level must be between 1 and {}", level::MAX_LEVEL));
+                    }
                 }
                 self.ui_mode = UiMode::Normal;
                 self.level_input.clear();
@@ -854,5 +869,33 @@ impl App {
                 self.hint_thinking = false;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_level_input_accepts_valid_range() {
+        assert_eq!(parse_level_input("1"), Some(1));
+        assert_eq!(parse_level_input("21"), Some(21));
+        let max = level::MAX_LEVEL;
+        assert_eq!(parse_level_input(&max.to_string()), Some(max));
+    }
+
+    #[test]
+    fn parse_level_input_rejects_out_of_range() {
+        assert_eq!(parse_level_input("0"), None);
+        let over = level::MAX_LEVEL + 1;
+        assert_eq!(parse_level_input(&over.to_string()), None);
+        assert_eq!(parse_level_input("999"), None);
+    }
+
+    #[test]
+    fn parse_level_input_rejects_garbage() {
+        assert_eq!(parse_level_input(""), None);
+        assert_eq!(parse_level_input("abc"), None);
+        assert_eq!(parse_level_input("-1"), None);
     }
 }

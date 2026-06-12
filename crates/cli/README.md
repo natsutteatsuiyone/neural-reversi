@@ -18,6 +18,8 @@ Options:
 - `-l, --level <level>` - Set the AI difficulty level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
+- `--eval-file <FILE>` - Path to the main network weight file (optional; defaults to the engine's standard weights)
+- `--eval-sm-file <FILE>` - Path to the small network weight file (optional; defaults to the engine's standard weights)
 
 In interactive mode, you can use the following commands:
 
@@ -52,6 +54,8 @@ Options:
 - `--level <level>` - Set the AI search level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
+- `--eval-file <FILE>` - Path to the main network weight file (optional; defaults to the engine's standard weights)
+- `--eval-sm-file <FILE>` - Path to the small network weight file (optional; defaults to the engine's standard weights)
 
 In GTP mode, the program accepts standard GTP commands plus some Reversi-specific extensions:
 
@@ -110,6 +114,8 @@ Options:
 - `-l, --level <level>` - Fallback search level when server time is unparseable. Default: `21`.
 - `--selectivity <0-3>` - Search selectivity. Default: `0`.
 - `--threads <n>` - Number of search threads. Default: CPU count.
+- `--eval-file <FILE>` - Path to the main network weight file. Optional; defaults to the engine's standard weights.
+- `--eval-sm-file <FILE>` - Path to the small network weight file. Optional; defaults to the engine's standard weights.
 
 A template lives at `crates/cli/init.ggs.example`. Copy it to `init.ggs`, fill in your credentials, and pass it via `--script`. The first two lines answer the `Enter login` / `Enter your password` prompts:
 
@@ -145,6 +151,8 @@ Options:
 - `-l, --level <level>` - Set the AI search level (default: 21)
 - `--selectivity <value>` - Set the search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
 - `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores)
+- `--eval-file <FILE>` - Path to the main network weight file (optional; defaults to the engine's standard weights)
+- `--eval-sm-file <FILE>` - Path to the small network weight file (optional; defaults to the engine's standard weights)
 
 The position file should contain one position per line in the following format:
 
