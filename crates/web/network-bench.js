@@ -7,17 +7,17 @@
  *   bun network-bench.js --iterations 50000 --warmup 1000
  */
 
-import { parseArgs } from 'util';
-import { importPreferredWasmModule } from './wasm-loader.js';
+import { parseArgs } from "util";
+import { importPreferredWasmModule } from "./wasm-loader.js";
 
 const DEFAULT_ITERATIONS = 10000;
 const DEFAULT_WARMUP_ITERATIONS = 1000;
 
 const { values } = parseArgs({
   options: {
-    iterations: { type: 'string', short: 'n', default: String(DEFAULT_ITERATIONS) },
-    warmup: { type: 'string', short: 'w', default: String(DEFAULT_WARMUP_ITERATIONS) },
-    help: { type: 'boolean', short: 'h' },
+    iterations: { type: "string", short: "n", default: String(DEFAULT_ITERATIONS) },
+    warmup: { type: "string", short: "w", default: String(DEFAULT_WARMUP_ITERATIONS) },
+    help: { type: "boolean", short: "h" },
   },
 });
 
@@ -57,7 +57,7 @@ function parseNonNegativeInteger(value, name) {
 }
 
 function formatNumber(value) {
-  return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 function formatOpsPerSecond(value) {
@@ -67,16 +67,16 @@ function formatOpsPerSecond(value) {
 }
 
 async function main() {
-  const iterations = parsePositiveInteger(values.iterations, 'iterations');
-  const warmup = parseNonNegativeInteger(values.warmup, 'warmup');
+  const iterations = parsePositiveInteger(values.iterations, "iterations");
+  const warmup = parseNonNegativeInteger(values.warmup, "warmup");
   const { module, relaxedSimd } = await importPreferredWasmModule({
-    relaxedPath: './pkg-node-relaxed/web.js',
-    fallbackPath: './pkg-node/web.js',
+    relaxedPath: "./pkg-node-relaxed/web.js",
+    fallbackPath: "./pkg-node/web.js",
   });
   const { BenchmarkRunner } = module;
 
-  console.log('Loading evaluation network...');
-  console.log(`Wasm SIMD: ${relaxedSimd ? 'relaxed-simd' : 'simd128'}`);
+  console.log("Loading evaluation network...");
+  console.log(`Wasm SIMD: ${relaxedSimd ? "relaxed-simd" : "simd128"}`);
   const runner = new BenchmarkRunner();
   const positions = runner.network_forward_positions();
 
@@ -95,7 +95,7 @@ async function main() {
   const avgUs = (elapsedMs * 1000) / totalEvaluations;
   const opsPerSecond = totalEvaluations / (elapsedMs / 1000);
 
-  console.log('\n## Network Forward\n');
+  console.log("\n## Network Forward\n");
   console.log(`- Positions per iteration: ${positions}`);
   console.log(`- Iterations: ${formatNumber(iterations)}`);
   console.log(`- Total evaluations: ${formatNumber(totalEvaluations)}`);
@@ -108,7 +108,7 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(err => {
-  console.error('Error:', err);
+main().catch((err) => {
+  console.error("Error:", err);
   process.exit(1);
 });

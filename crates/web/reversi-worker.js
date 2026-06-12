@@ -8,9 +8,13 @@ let initModule;
 
 let game;
 let searchStartTime;
+let currentGeneration = 0;
 
 self.onmessage = async (event) => {
-  const { type, payload } = event.data;
+  const { type, payload, generation } = event.data;
+  if (generation !== undefined) {
+    currentGeneration = generation;
+  }
 
   if (type === "init") {
     try {
@@ -30,12 +34,24 @@ self.onmessage = async (event) => {
         const elapsed = performance.now() - searchStartTime;
         const nps = elapsed > 0 ? progress.nodes / (elapsed / 1000) : 0;
         console.log("Search progress:", progress, "NPS:", nps.toFixed(0));
-        self.postMessage({ type: "search_progress", payload: progress });
+        self.postMessage({
+          type: "search_progress",
+          payload: progress,
+          generation: currentGeneration,
+        });
       });
-      self.postMessage({ type: "initialized", payload: getGameState() });
+      self.postMessage({
+        type: "initialized",
+        payload: getGameState(),
+        generation: currentGeneration,
+      });
     } catch (error) {
       console.error("Failed to initialize WASM module:", error);
-      self.postMessage({ type: "error", payload: { message: error.message } });
+      self.postMessage({
+        type: "error",
+        payload: { message: error.message },
+        generation: currentGeneration,
+      });
     }
     return;
   }
@@ -49,7 +65,11 @@ self.onmessage = async (event) => {
     case "human_move": {
       const moved = game.human_move(payload.index);
       if (moved) {
-        self.postMessage({ type: "state_updated", payload: getGameState() });
+        self.postMessage({
+          type: "state_updated",
+          payload: getGameState(),
+          generation: currentGeneration,
+        });
       }
       break;
     }
@@ -59,20 +79,29 @@ self.onmessage = async (event) => {
       self.postMessage({
         type: "ai_moved",
         payload: { move, gameState: getGameState() },
+        generation: currentGeneration,
       });
       break;
     }
     case "pass": {
       const passed = game.pass();
       if (passed) {
-        self.postMessage({ type: "state_updated", payload: getGameState() });
+        self.postMessage({
+          type: "state_updated",
+          payload: getGameState(),
+          generation: currentGeneration,
+        });
       }
       break;
     }
     case "reset": {
       game.reset(payload.humanIsBlack);
       game.set_level(payload.level);
-      self.postMessage({ type: "state_updated", payload: getGameState() });
+      self.postMessage({
+        type: "state_updated",
+        payload: getGameState(),
+        generation: currentGeneration,
+      });
       break;
     }
     case "set_level": {
@@ -80,7 +109,11 @@ self.onmessage = async (event) => {
       break;
     }
     case "get_state": {
-      self.postMessage({ type: "state_updated", payload: getGameState() });
+      self.postMessage({
+        type: "state_updated",
+        payload: getGameState(),
+        generation: currentGeneration,
+      });
       break;
     }
     case "replay_moves": {
@@ -93,7 +126,11 @@ self.onmessage = async (event) => {
         game.make_move_unchecked(move.index);
       }
 
-      self.postMessage({ type: "replay_completed", payload: getGameState() });
+      self.postMessage({
+        type: "replay_completed",
+        payload: getGameState(),
+        generation: currentGeneration,
+      });
       break;
     }
   }

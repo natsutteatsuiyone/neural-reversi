@@ -11,17 +11,17 @@
  * Output format: CSV with columns: ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
  */
 
-import { readFileSync, writeFileSync } from 'fs';
-import { parseArgs } from 'util';
-import { importPreferredWasmModule } from './wasm-loader.js';
+import { readFileSync, writeFileSync } from "fs";
+import { parseArgs } from "util";
+import { importPreferredWasmModule } from "./wasm-loader.js";
 
 // Parse command line arguments
 const { values } = parseArgs({
   options: {
-    input: { type: 'string', short: 'i' },
-    output: { type: 'string', short: 'o' },
-    endgame: { type: 'boolean', short: 'e' },
-    help: { type: 'boolean', short: 'h' },
+    input: { type: "string", short: "i" },
+    output: { type: "string", short: "o" },
+    endgame: { type: "boolean", short: "e" },
+    help: { type: "boolean", short: "h" },
   },
 });
 
@@ -52,28 +52,30 @@ Output format:
 async function main() {
   // Dynamic import for WASM module (prefer relaxed-simd, fall back to simd128)
   const { module, relaxedSimd } = await importPreferredWasmModule({
-    relaxedPath: './pkg-node-relaxed/web.js',
-    fallbackPath: './pkg-node/web.js',
+    relaxedPath: "./pkg-node-relaxed/web.js",
+    fallbackPath: "./pkg-node/web.js",
   });
   const { ProbCutDatagen } = module;
 
-  console.log('Loading evaluation network...');
+  console.log("Loading evaluation network...");
   const datagen = new ProbCutDatagen();
-  console.log(`Wasm SIMD: ${relaxedSimd ? 'relaxed-simd' : 'simd128'}`);
+  console.log(`Wasm SIMD: ${relaxedSimd ? "relaxed-simd" : "simd128"}`);
 
   console.log(`Reading input file: ${values.input}`);
-  const gamesText = readFileSync(values.input, 'utf-8');
-  const lines = gamesText.split('\n').filter(line => line.trim().length > 0);
+  const gamesText = readFileSync(values.input, "utf-8");
+  const lines = gamesText.split("\n").filter((line) => line.trim().length > 0);
   console.log(`Found ${lines.length} games`);
 
-  console.log(`Processing games (${values.endgame ? 'endgame' : 'midgame'})...`);
+  console.log(`Processing games (${values.endgame ? "endgame" : "midgame"})...`);
   const onProgress = (progress) => {
-    console.log(`Processed ${progress.game_index}/${progress.total_games} games (${progress.samples_so_far} samples)`);
+    console.log(
+      `Processed ${progress.game_index}/${progress.total_games} games (${progress.samples_so_far} samples)`,
+    );
   };
   const result = values.endgame
     ? datagen.process_games_endgame(gamesText, onProgress)
     : datagen.process_games(gamesText, onProgress);
-  console.log('');
+  console.log("");
 
   console.log(`Writing output file: ${values.output}`);
   writeFileSync(values.output, result.samples_csv);
@@ -85,11 +87,11 @@ Statistics:
   Cache hit rate: ${(result.cache_hit_rate * 100).toFixed(1)}%
 `);
 
-  console.log('Done!');
+  console.log("Done!");
   datagen.free();
 }
 
-main().catch(err => {
-  console.error('Error:', err);
+main().catch((err) => {
+  console.error("Error:", err);
   process.exit(1);
 });

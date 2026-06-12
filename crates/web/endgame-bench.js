@@ -7,21 +7,21 @@
  *   bun endgame-bench.js -p fforum-40-59 -t 64
  */
 
-import { readFileSync } from 'fs';
-import { parseArgs } from 'util';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-import { importPreferredWasmModule } from './wasm-loader.js';
+import { readFileSync } from "fs";
+import { parseArgs } from "util";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
+import { importPreferredWasmModule } from "./wasm-loader.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const problemDir = resolve(__dirname, '../../problem');
+const problemDir = resolve(__dirname, "../../problem");
 
 const { values } = parseArgs({
   options: {
-    problem: { type: 'string', short: 'p', default: 'fforum-40-59' },
-    'tt-size': { type: 'string', short: 't', default: '32' },
-    'max-empties': { type: 'string', short: 'e', default: '24' },
-    help: { type: 'boolean', short: 'h' },
+    problem: { type: "string", short: "p", default: "fforum-40-59" },
+    "tt-size": { type: "string", short: "t", default: "32" },
+    "max-empties": { type: "string", short: "e", default: "24" },
+    help: { type: "boolean", short: "h" },
   },
 });
 
@@ -46,12 +46,12 @@ Examples:
 }
 
 function parseObfFile(filePath) {
-  const content = readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, "utf-8");
   const cases = [];
-  for (const [index, rawLine] of content.split('\n').entries()) {
+  for (const [index, rawLine] of content.split("\n").entries()) {
     const line = rawLine.trim();
     if (!line) continue;
-    const segments = line.split(';');
+    const segments = line.split(";");
     const header = segments[0].trim();
     const boardStr = header.slice(0, 64);
     const side = header.slice(64).trim();
@@ -60,28 +60,28 @@ function parseObfFile(filePath) {
     for (const seg of segments.slice(1)) {
       const trimmed = seg.trim();
       if (!trimmed) continue;
-      const colonIdx = trimmed.indexOf(':');
+      const colonIdx = trimmed.indexOf(":");
       if (colonIdx === -1) continue;
       const moveName = trimmed.slice(0, colonIdx).trim();
       const scoreStr = trimmed.slice(colonIdx + 1).trim();
-      if (moveName === '--') continue;
+      if (moveName === "--") continue;
       moves.push({
         move: moveName,
-        score: parseInt(scoreStr.replace(/^\+/, ''), 10),
+        score: parseInt(scoreStr.replace(/^\+/, ""), 10),
       });
     }
 
     if (moves.length === 0) continue;
 
     const expectedScore = moves[0].score;
-    const bestMoves = moves.filter(m => m.score === expectedScore).map(m => m.move);
+    const bestMoves = moves.filter((m) => m.score === expectedScore).map((m) => m.move);
     const empties = (boardStr.match(/-/g) || []).length;
 
     cases.push({
       number: index + 1,
       boardStr,
       side,
-      sideNum: side === 'X' ? 0 : 1,
+      sideNum: side === "X" ? 0 : 1,
       expectedScore,
       bestMoves,
       empties,
@@ -91,7 +91,7 @@ function parseObfFile(filePath) {
 }
 
 function resolveObfPath(problem) {
-  if (problem.endsWith('.obf')) return resolve(problem);
+  if (problem.endsWith(".obf")) return resolve(problem);
   return resolve(problemDir, `${problem}.obf`);
 }
 
@@ -114,40 +114,42 @@ function formatNps(nps) {
   return `${(nps / 1e6).toFixed(2)}Mnps`;
 }
 
-function pad(str, len, align = 'right') {
+function pad(str, len, align = "right") {
   str = String(str);
-  if (align === 'right') return str.padStart(len);
+  if (align === "right") return str.padStart(len);
   return str.padEnd(len);
 }
 
 async function main() {
   const { module, relaxedSimd } = await importPreferredWasmModule({
-    relaxedPath: './pkg-node-relaxed/web.js',
-    fallbackPath: './pkg-node/web.js',
+    relaxedPath: "./pkg-node-relaxed/web.js",
+    fallbackPath: "./pkg-node/web.js",
   });
   const { EndgameSolver } = module;
 
-  const ttSize = parseInt(values['tt-size'], 10);
-  const maxEmpties = parseInt(values['max-empties'], 10);
+  const ttSize = parseInt(values["tt-size"], 10);
+  const maxEmpties = parseInt(values["max-empties"], 10);
   const obfPath = resolveObfPath(values.problem);
-  const problemName = values.problem.replace(/\.obf$/, '');
+  const problemName = values.problem.replace(/\.obf$/, "");
 
-  console.log('Loading evaluation network...');
+  console.log("Loading evaluation network...");
   const solver = new EndgameSolver(ttSize);
-  console.log(`Wasm SIMD: ${relaxedSimd ? 'relaxed-simd' : 'simd128'}`);
+  console.log(`Wasm SIMD: ${relaxedSimd ? "relaxed-simd" : "simd128"}`);
 
   console.log(`Reading problem file: ${obfPath}`);
   const allCases = parseObfFile(obfPath);
-  const cases = allCases.filter(tc => tc.empties <= maxEmpties);
+  const cases = allCases.filter((tc) => tc.empties <= maxEmpties);
   const skipped = allCases.length - cases.length;
-  console.log(`Found ${allCases.length} positions, running ${cases.length} (empties <= ${maxEmpties}${skipped > 0 ? `, skipped ${skipped}` : ''}, TT: ${ttSize}MB)\n`);
+  console.log(
+    `Found ${allCases.length} positions, running ${cases.length} (empties <= ${maxEmpties}${skipped > 0 ? `, skipped ${skipped}` : ""}, TT: ${ttSize}MB)\n`,
+  );
 
   console.log(`## ${problemName}\n`);
   console.log(
-    `| ${'#'.padStart(3)} | Empties | ${'Time'.padStart(8)} | ${'Nodes'.padStart(9)} | ${'NPS'.padStart(9)} | ${'Score'.padStart(5)} | ${'Exp'.padStart(5)} | Move | Best     | Status |`
+    `| ${"#".padStart(3)} | Empties | ${"Time".padStart(8)} | ${"Nodes".padStart(9)} | ${"NPS".padStart(9)} | ${"Score".padStart(5)} | ${"Exp".padStart(5)} | Move | Best     | Status |`,
   );
   console.log(
-    `|${'-'.repeat(4)}:|--------:|---------:|----------:|----------:|------:|------:|-----:|----------|--------|`
+    `|${"-".repeat(4)}:|--------:|---------:|----------:|----------:|------:|------:|-----:|----------|--------|`,
   );
 
   let totalTime = 0;
@@ -170,7 +172,7 @@ async function main() {
     if (isBest) correct++;
 
     console.log(
-      `| ${pad(tc.number, 3)} | ${pad(tc.empties, 7)} | ${pad(formatTime(elapsed), 8)} | ${pad(formatNodes(nodes), 9)} | ${pad(formatNps(nps), 9)} | ${pad(score, 5)} | ${pad(tc.expectedScore, 5)} | ${pad(move, 4, 'left')} | ${pad(tc.bestMoves.join(','), 8, 'left')} | ${isBest ? '  OK  ' : ' MISS '} |`
+      `| ${pad(tc.number, 3)} | ${pad(tc.empties, 7)} | ${pad(formatTime(elapsed), 8)} | ${pad(formatNodes(nodes), 9)} | ${pad(formatNps(nps), 9)} | ${pad(score, 5)} | ${pad(tc.expectedScore, 5)} | ${pad(move, 4, "left")} | ${pad(tc.bestMoves.join(","), 8, "left")} | ${isBest ? "  OK  " : " MISS "} |`,
     );
 
     result.free();
@@ -182,12 +184,14 @@ async function main() {
   console.log(`- Total time: ${formatTime(totalTime)}`);
   console.log(`- Total nodes: ${formatNodes(totalNodes)}`);
   console.log(`- Overall NPS: ${formatNps(overallNps)}`);
-  console.log(`- Best move: ${(correct / cases.length * 100).toFixed(1)}% (${correct}/${cases.length})`);
+  console.log(
+    `- Best move: ${((correct / cases.length) * 100).toFixed(1)}% (${correct}/${cases.length})`,
+  );
 
   solver.free();
 }
 
-main().catch(err => {
-  console.error('Error:', err);
+main().catch((err) => {
+  console.error("Error:", err);
   process.exit(1);
 });

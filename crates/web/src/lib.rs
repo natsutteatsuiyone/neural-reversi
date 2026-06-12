@@ -297,6 +297,147 @@ fn piece_to_u8(piece: Disc) -> u8 {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_initial_state(game: &Game) {
+        assert_eq!(game.score(), vec![2, 2]);
+        assert_eq!(game.empty_count(), 60);
+        assert_eq!(game.current_player(), 1);
+        assert!(!game.is_game_over());
+
+        let mut moves = game.legal_moves();
+        moves.sort_unstable();
+        assert_eq!(moves, vec![19, 26, 37, 44]);
+    }
+
+    fn assert_conservation(game: &Game) {
+        let score = game.score();
+        let occupied = u16::from(score[0]) + u16::from(score[1]);
+        assert_eq!(
+            occupied + u16::from(game.empty_count()),
+            TOTAL_SQUARES as u16
+        );
+    }
+
+    #[test]
+    fn new_game_has_standard_opening_state() {
+        let game = Game::new(true);
+
+        assert_initial_state(&game);
+    }
+
+    #[test]
+    fn human_move_rejected_when_not_humans_turn() {
+        let mut game = Game::new(false);
+
+        assert!(!game.human_move(19));
+        assert_eq!(game.score(), vec![2, 2]);
+        assert_eq!(game.current_player(), 1);
+    }
+
+    #[test]
+    fn human_move_rejects_illegal_squares() {
+        let mut game = Game::new(true);
+
+        assert!(!game.human_move(0));
+        assert!(!game.human_move(64));
+        assert!(!game.human_move(255));
+        assert_initial_state(&game);
+    }
+
+    #[test]
+    fn pass_rejected_while_legal_moves_exist() {
+        let mut game = Game::new(true);
+
+        assert!(!game.pass());
+        assert_eq!(game.current_player(), 1);
+    }
+
+    #[test]
+    fn human_move_flips_discs_and_switches_turn() {
+        let mut game = Game::new(true);
+
+        assert!(game.human_move(19));
+        assert_eq!(game.score(), vec![4, 1]);
+        assert_eq!(game.current_player(), 2);
+        assert_eq!(game.empty_count(), 59);
+        assert_eq!(game.board()[19], 1);
+    }
+
+    #[test]
+    fn replaying_same_moves_reproduces_identical_state() {
+        let mut game_a = Game::new(true);
+        let mut replayed_moves = Vec::new();
+
+        for _ in 0..12 {
+            if game_a.is_game_over() {
+                break;
+            }
+            let moves = game_a.legal_moves();
+            if moves.is_empty() {
+                break;
+            }
+            let next_move = moves[0];
+            assert!(game_a.make_move_unchecked(next_move));
+            replayed_moves.push(next_move);
+            assert_conservation(&game_a);
+        }
+
+        let mut game_b = Game::new(true);
+        for mv in replayed_moves {
+            assert!(game_b.make_move_unchecked(mv));
+        }
+
+        assert_eq!(game_a.board(), game_b.board());
+        assert_eq!(game_a.score(), game_b.score());
+        assert_eq!(game_a.current_player(), game_b.current_player());
+    }
+
+    #[test]
+    fn greedy_full_game_terminates_and_is_consistent() {
+        let mut game = Game::new(true);
+
+        for _ in 0..70 {
+            if game.is_game_over() {
+                break;
+            }
+            let moves = game.legal_moves();
+            assert!(!moves.is_empty());
+            assert!(game.make_move_unchecked(moves[0]));
+        }
+
+        assert!(game.is_game_over());
+        assert_conservation(&game);
+    }
+
+    #[test]
+    fn reset_restores_initial_state() {
+        let mut game = Game::new(true);
+
+        assert!(game.make_move_unchecked(19));
+        assert!(game.make_move_unchecked(game.legal_moves()[0]));
+        game.reset(true);
+
+        assert_initial_state(&game);
+    }
+
+    #[test]
+    fn ai_move_plays_a_legal_move() {
+        let mut game = Game::new(false);
+        game.set_level(1);
+        let legal = game.legal_moves();
+
+        let mv = game.ai_move();
+
+        let mv = mv.expect("AI should choose a legal opening move");
+        assert!(legal.contains(&mv));
+        assert_eq!(game.current_player(), 2);
+        assert_eq!(game.empty_count(), 59);
+    }
+}
+
 // Benchmark module
 const BENCH_TEST_POSITIONS: usize = 11; // 1 opening + 10 midgame
 const BENCH_MOVES_PER_POSITION_BASE: usize = 10;

@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["unicorn", "oxc"],
+  "categories": { "correctness": "error" },
+  "rules": {},
+  "env": { "builtin": true, "browser": true },
+  "ignorePatterns": [
+    "pkg/**",
+    "pkg-relaxed/**",
+    "pkg-node/**",
+    "pkg-node-relaxed/**",
+    "dist/**",
+    "node_modules/**",
+    "test-results/**",
+    "playwright-report/**"
+  ]
+}

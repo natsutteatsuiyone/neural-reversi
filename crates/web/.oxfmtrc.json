@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "pkg/**",
+    "pkg-relaxed/**",
+    "pkg-node/**",
+    "pkg-node-relaxed/**",
+    "dist/**",
+    "node_modules/**",
+    "test-results/**",
+    "playwright-report/**",
+    ".cargo/**",
+    "Cargo.toml",
+    "package.json",
+    "README.md",
+    "*.html",
+    "*.css"
+  ]
+}
