@@ -36,10 +36,10 @@ fn mm_flip_prepared(pp: __m256i, oo: __m256i, pos: usize) -> __m128i {
         rs = _mm256_or_si256(rs, _mm256_srlv_epi64(rs, _mm256_set_epi64x(28, 36, 32, 4)));
         // Apply flip if leftmost non-opponent is P
         let re: __m256i = _mm256_xor_si256(_mm256_andnot_si256(oo, right_mask), rp); // Masked Empty
-        let right_flip = _mm256_and_si256(
-            _mm256_andnot_si256(rs, right_mask),
-            _mm256_cmpgt_epi64(rp, re),
-        );
+        // `rm & cmp` is off the `rs` dependency chain (the longest in the
+        // kernel), so join it into `rs` with a single trailing ANDNOT.
+        let right_flip =
+            _mm256_andnot_si256(rs, _mm256_and_si256(right_mask, _mm256_cmpgt_epi64(rp, re)));
 
         let flip = _mm256_or_si256(right_flip, left_flip);
 
