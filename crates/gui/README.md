@@ -41,15 +41,18 @@ bun dev
 bun tauri build
 
 # Frontend-only production build
-bun build
+bun run build
 ```
 
 ### Testing
 
 ```bash
 # Single run
-bun test
+bun run test
 
 # Watch mode
 bun run test:watch
 ```
+
+> Note: use `bun run test`, not `bun test` — the latter invokes Bun's
+> built-in test runner, which cannot run this vitest suite.
