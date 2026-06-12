@@ -83,3 +83,6 @@ jobs:
 
     - name: Run tests
       run: bun run test
+
+    - name: Typecheck and build
+      run: bun run build
