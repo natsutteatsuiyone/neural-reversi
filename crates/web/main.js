@@ -89,6 +89,7 @@ const locales = {
       humanTurn: (colorName) => `あなたの番です（${colorName}）。`,
       aiTurn: (colorName) => `AIの番です（${colorName}）。`,
       confirmNewGame: "現在の対局を終了して新しい対局を始めますか？",
+      loadError: "読み込みに失敗しました。ページを再読み込みしてください。",
     },
   },
   en: {
@@ -162,6 +163,7 @@ const locales = {
       humanTurn: (colorName) => `Your turn (${colorName}).`,
       aiTurn: (colorName) => `AI's turn (${colorName}).`,
       confirmNewGame: "End current game and start a new one?",
+      loadError: "Failed to load the app. Please reload the page.",
     },
   },
 };
@@ -207,6 +209,7 @@ const state = reactive({
   toastMessage: null,
   toastVisible: false,
   delayAiUntilToast: false,
+  loadError: null,
 });
 
 const view = {
@@ -392,7 +395,19 @@ worker.onmessage = async (event) => {
       syncStateFromGame(payload);
       maybeAutoHint();
       break;
+    case "error":
+      state.loadError = currentLocale().messages.loadError;
+      break;
   }
+};
+
+worker.onerror = (event) => {
+  console.error("Worker error:", event?.message ?? event);
+  state.loadError = currentLocale().messages.loadError;
+};
+worker.onmessageerror = (event) => {
+  console.error("Worker message error:", event);
+  state.loadError = currentLocale().messages.loadError;
 };
 
 const workerApi = {

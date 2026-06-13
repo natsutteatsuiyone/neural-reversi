@@ -355,3 +355,32 @@ test("auto-hint toggle drives hints on every human turn", async ({ page }) => {
   await page.waitForTimeout(250);
   await expect(hintBadge).toHaveCount(0);
 });
+
+test("surfaces a load failure instead of hanging on the spinner", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.Worker = class FailingWorker {
+      constructor() {
+        this.onmessage = null;
+        this.onerror = null;
+      }
+      postMessage(message) {
+        if (message.type === "init") {
+          setTimeout(() => {
+            this.onmessage?.({
+              data: {
+                type: "error",
+                payload: { message: "boom" },
+                generation: message.generation,
+              },
+            });
+          }, 0);
+        }
+      }
+    };
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#loading-overlay")).toBeVisible();
+  await expect(page.locator("#loading-overlay")).toContainText("読み込みに失敗");
+  await expect(page.getByRole("dialog", { name: "ゲーム設定" })).toBeHidden();
+});

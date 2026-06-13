@@ -47,8 +47,9 @@
         <div id="loading-overlay" role="status" aria-live="polite" class="loading-overlay"
             :class="{ hidden: !state.initialLoading }">
             <div class="loading-content">
-                <span class="loading-dot"></span>
-                <span>{{ localeTexts.loading }}</span>
+                <span class="loading-dot" v-if="!state.loadError"></span>
+                <span v-if="!state.loadError">{{ localeTexts.loading }}</span>
+                <span v-if="state.loadError" class="loading-error">{{ state.loadError }}</span>
             </div>
         </div>
         <div class="toast-region" aria-live="assertive" aria-atomic="true">
