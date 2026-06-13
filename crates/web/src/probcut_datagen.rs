@@ -15,13 +15,13 @@ use reversi_core::{board::Board, disc::Disc, probcut::Selectivity, square::Squar
 use crate::{eval::Eval, level::Level, search::Search, transposition_table::TranspositionTable};
 
 /// Transposition table size in MB for search.
-const TT_SIZE_MB: usize = 64;
+const TT_SIZE_MB: usize = 128;
 
 /// Total number of search depths to test.
-const NUM_SEARCH_DEPTHS: usize = 9;
+const NUM_SEARCH_DEPTHS: usize = 10;
 
 /// Maximum shallow depth for ProbCut analysis.
-const MAX_SHALLOW_DEPTH: usize = 4;
+const MAX_SHALLOW_DEPTH: usize = 5;
 
 /// Minimum depth difference between shallow and deep search.
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
