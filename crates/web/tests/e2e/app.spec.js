@@ -26,10 +26,16 @@ async function installFakeWorker(page) {
 
     window.__fakeWorkers = [];
     window.__initialGameState = initialGameState;
+    window.__aiMovedGameState = {
+      ...initialGameState,
+      currentPlayer: 1,
+      legalMoves: [18, 20, 34],
+    };
     window.Worker = class FakeWorker {
       constructor() {
         this.messages = [];
         this.onmessage = null;
+        this.currentGameState = initialGameState;
         window.__fakeWorkers.push(this);
       }
 
@@ -43,9 +49,28 @@ async function installFakeWorker(page) {
           });
         }
         if (message.type === "reset") {
+          this.currentGameState = initialGameState;
           this.emit({
             type: "state_updated",
             payload: initialGameState,
+            generation: message.generation,
+          });
+        }
+        if (message.type === "ai_move") {
+          this.currentGameState = window.__aiMovedGameState;
+          this.emit({
+            type: "ai_moved",
+            payload: {
+              move: 19,
+              gameState: window.__aiMovedGameState,
+            },
+            generation: message.generation,
+          });
+        }
+        if (message.type === "get_state") {
+          this.emit({
+            type: "state_updated",
+            payload: this.currentGameState,
             generation: message.generation,
           });
         }
@@ -150,6 +175,87 @@ test("drops stale worker responses and does not start AI while settings are open
       ),
     )
     .toBe(1);
+});
+
+test("does not flash AI thinking badge when closing settings resumes a fast AI turn", async ({
+  page,
+}) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expect(settingsDialog).toBeHidden();
+
+  await page.locator("#new-game").click();
+  await expect(settingsDialog).toBeVisible();
+
+  const resetGeneration = await page.evaluate(() => {
+    const worker = window.__fakeWorkers[0];
+    const resets = worker.messages.filter((message) => message.type === "reset");
+    return resets[resets.length - 1].generation;
+  });
+
+  await page.evaluate((generation) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({
+      type: "state_updated",
+      payload: {
+        ...window.__initialGameState,
+        currentPlayer: 2,
+      },
+      generation,
+    });
+  }, resetGeneration);
+  await page.waitForTimeout(50);
+  await expect(page.locator(".thinking-badge", { hasText: "AIが考え中です…" })).toHaveCount(0);
+
+  await page.evaluate(() => {
+    const visibleAiThinkingBadge = () => {
+      for (const badge of document.querySelectorAll(".thinking-badge")) {
+        if (!badge.textContent?.includes("AIが考え中です…")) {
+          continue;
+        }
+
+        const style = getComputedStyle(badge);
+        const rect = badge.getBoundingClientRect();
+        if (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity) > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    window.__paintedAiThinkingBadge = false;
+    window.__aiThinkingFrameCount = 0;
+    const observeFrame = () => {
+      if (visibleAiThinkingBadge()) {
+        window.__paintedAiThinkingBadge = true;
+      }
+      window.__aiThinkingFrameCount += 1;
+      if (window.__aiThinkingFrameCount < 20) {
+        window.__aiThinkingRafId = requestAnimationFrame(observeFrame);
+      }
+    };
+    window.__aiThinkingRafId = requestAnimationFrame(observeFrame);
+  });
+
+  await page.keyboard.press("Escape");
+  await expect(settingsDialog).toBeHidden();
+  await page.waitForTimeout(250);
+
+  const paintedAiThinkingBadge = await page.evaluate(() => {
+    cancelAnimationFrame(window.__aiThinkingRafId);
+    return window.__paintedAiThinkingBadge;
+  });
+  expect(paintedAiThinkingBadge).toBe(false);
+  await expect(page.locator(".thinking-badge", { hasText: "AIが考え中です…" })).toHaveCount(0);
 });
 
 test("auto-hint toggle drives hints on every human turn", async ({ page }) => {

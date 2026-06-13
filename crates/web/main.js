@@ -600,7 +600,7 @@ async function resetGame() {
   scrollMoveLogToBottom();
 }
 
-async function runAiTurn() {
+function runAiTurn() {
   if (
     state.isGameOver ||
     state.currentPlayer !== state.aiColor ||
@@ -614,7 +614,6 @@ async function runAiTurn() {
   state.aiThinking = true;
   state.searchProgress = null;
   updateSearchStatusText();
-  await waitForNextFrame();
   workerApi.aiMove();
 }
 
@@ -722,14 +721,6 @@ function clampLevelValue(value) {
     return LEVEL_MAX;
   }
   return rounded;
-}
-
-function waitForNextFrame() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      setTimeout(resolve, 0);
-    });
-  });
 }
 
 function handleSearchProgress(update) {
