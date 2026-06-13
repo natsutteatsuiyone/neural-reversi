@@ -151,3 +151,101 @@ test("drops stale worker responses and does not start AI while settings are open
     )
     .toBe(1);
 });
+
+test("auto-hint toggle drives hints on every human turn", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expect(settingsDialog).toBeHidden();
+
+  const hintToggle = page.locator("#hint-toggle");
+  await expect(hintToggle).toBeVisible();
+  await expect(hintToggle).not.toBeChecked();
+
+  const hintBadge = page.locator(".thinking-badge", { hasText: "ヒントを計算中…" });
+  const completeHint = async (generation) => {
+    await page.evaluate((gen) => {
+      const worker = window.__fakeWorkers[0];
+      worker.emit({
+        type: "hint_progress",
+        payload: {
+          depth: 4,
+          score: 1.5,
+          probcut: 73,
+          nodes: 1000,
+          bestMove: "d3",
+          bestMoveIndex: 19,
+        },
+        generation: gen,
+      });
+      worker.emit({
+        type: "hint_completed",
+        payload: {
+          hints: [
+            { move: 19, score: 1.5 },
+            { move: 26, score: -0.5 },
+          ],
+        },
+        generation: gen,
+      });
+    }, generation);
+  };
+  const hintRequestCount = () =>
+    page.evaluate(
+      () => window.__fakeWorkers[0].messages.filter((message) => message.type === "hint").length,
+    );
+
+  await page.locator(".hint-toggle").click();
+  await expect(hintToggle).toBeChecked();
+  await expect(hintBadge).toBeVisible();
+  const hintRequests = await page.evaluate(() =>
+    window.__fakeWorkers[0].messages.filter((message) => message.type === "hint"),
+  );
+  expect(hintRequests).toHaveLength(1);
+  const hintGeneration = hintRequests[0].generation;
+
+  await completeHint(hintGeneration);
+  await expect(hintBadge).toHaveCount(0);
+
+  await page.evaluate((generation) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({
+      type: "state_updated",
+      payload: window.__initialGameState,
+      generation,
+    });
+  }, hintGeneration);
+  await expect.poll(hintRequestCount).toBe(2);
+  await expect(hintBadge).toBeVisible();
+
+  await completeHint(hintGeneration);
+  await expect(hintBadge).toHaveCount(0);
+
+  await page.locator(".hint-toggle").click();
+  await expect(hintToggle).not.toBeChecked();
+  await page.evaluate((generation) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({
+      type: "state_updated",
+      payload: window.__initialGameState,
+      generation,
+    });
+  }, hintGeneration);
+  await page.waitForTimeout(250);
+  expect(await hintRequestCount()).toBe(2);
+
+  await page.locator(".hint-toggle").click();
+  await expect(hintToggle).toBeChecked();
+  await expect(hintBadge).toBeVisible();
+  await expect.poll(hintRequestCount).toBe(3);
+
+  await page.locator(".hint-toggle").click();
+  await expect(hintToggle).not.toBeChecked();
+  await expect(hintBadge).toHaveCount(0);
+
+  await completeHint(hintGeneration);
+  await page.waitForTimeout(250);
+  await expect(hintBadge).toHaveCount(0);
+});

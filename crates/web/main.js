@@ -26,6 +26,7 @@ const locales = {
       white: "白 (後手)",
     },
     levelLabel: "レベル",
+    hintLabel: "ヒント",
     buttons: {
       newGame: "新しい対局",
       startGame: "ゲーム開始",
@@ -84,6 +85,7 @@ const locales = {
       passHuman: "パスしました。AIの番です。",
       passAi: "AIはパスしました。あなたの番です。",
       aiThinking: "AIが考え中です…",
+      hintLoading: "ヒントを計算中…",
       humanTurn: (colorName) => `あなたの番です（${colorName}）。`,
       aiTurn: (colorName) => `AIの番です（${colorName}）。`,
       confirmNewGame: "現在の対局を終了して新しい対局を始めますか？",
@@ -97,6 +99,7 @@ const locales = {
       white: "White\u00a0(Second)",
     },
     levelLabel: "Level",
+    hintLabel: "Hints",
     buttons: {
       newGame: "New Game",
       startGame: "Start Game",
@@ -155,6 +158,7 @@ const locales = {
       passHuman: "You passed. AI's turn.",
       passAi: "AI passed. Your turn.",
       aiThinking: "AI is thinking…",
+      hintLoading: "Computing hints…",
       humanTurn: (colorName) => `Your turn (${colorName}).`,
       aiTurn: (colorName) => `AI's turn (${colorName}).`,
       confirmNewGame: "End current game and start a new one?",
@@ -173,6 +177,9 @@ const state = reactive({
   lastHumanMove: null,
   lastAiMove: null,
   aiThinking: false,
+  hintEnabled: false,
+  hintLoading: false,
+  hints: null,
   passNotice: null,
   initialLoading: true,
   level: DEFAULT_LEVEL,
@@ -227,6 +234,7 @@ const view = {
   handleCloseSettingsModal,
   formatEvaluation,
   handleUndo,
+  handleHintToggle,
 };
 
 createApp(view).mount();
@@ -270,12 +278,14 @@ function renderBoard3D() {
     return;
   }
   const lastMove = state.lastHumanMove ?? state.lastAiMove ?? null;
-  const showValidMoves = state.isHumanTurn && !state.showSettingsModal && !state.aiThinking;
+  const showValidMoves =
+    state.isHumanTurn && !state.showSettingsModal && !state.aiThinking && !state.hintLoading;
   board3d.update({
     board: state.board,
     legalMoves: state.legalMoves,
     showValidMoves,
     lastMove,
+    hints: state.hints,
     skipAnimation: skipNextBoardAnimation,
   });
   skipNextBoardAnimation = false;
@@ -296,11 +306,14 @@ worker.onmessage = async (event) => {
       state.initialLoading = false;
       syncStateFromGame(payload);
       ensureHumanPassIfNeeded();
+      maybeAutoHint();
       break;
     case "state_updated":
+      clearHints();
       syncStateFromGame(payload);
       runAiTurn();
       ensureHumanPassIfNeeded();
+      maybeAutoHint();
       break;
     case "ai_moved": {
       // Hold the AI's move until the player's flip/drop animation has settled, so
@@ -347,8 +360,37 @@ worker.onmessage = async (event) => {
     case "search_progress":
       handleSearchProgress(payload);
       break;
+    case "hint_progress": {
+      if (!state.hintLoading) {
+        break;
+      }
+      const idx = payload?.bestMoveIndex;
+      if (typeof idx === "number") {
+        state.hints = {
+          ...state.hints,
+          [idx]: { score: Number(payload.score) },
+        };
+        renderBoard3D();
+      }
+      break;
+    }
+    case "hint_completed": {
+      if (!state.hintLoading) {
+        break;
+      }
+      state.hintLoading = false;
+      const final = {};
+      for (const h of payload?.hints ?? []) {
+        final[h.move] = { score: Number(h.score) };
+      }
+      state.hints = Object.keys(final).length > 0 ? final : null;
+      renderBoard3D();
+      break;
+    }
     case "replay_completed":
+      clearHints();
       syncStateFromGame(payload);
+      maybeAutoHint();
       break;
   }
 };
@@ -366,6 +408,9 @@ const workerApi = {
   },
   aiMove() {
     worker.postMessage({ type: "ai_move", generation: gameGeneration });
+  },
+  hint() {
+    worker.postMessage({ type: "hint", generation: gameGeneration });
   },
   pass() {
     worker.postMessage({ type: "pass", generation: gameGeneration });
@@ -438,7 +483,12 @@ async function handleCellClick(index) {
   if (state.showSettingsModal) {
     return;
   }
-  if (state.aiThinking || state.isGameOver || state.currentPlayer !== state.humanColor) {
+  if (
+    state.aiThinking ||
+    state.hintLoading ||
+    state.isGameOver ||
+    state.currentPlayer !== state.humanColor
+  ) {
     return;
   }
 
@@ -446,11 +496,44 @@ async function handleCellClick(index) {
     return;
   }
 
+  clearHints();
   state.lastHumanMove = index;
   state.lastAiMove = null;
   state.passNotice = null;
   logMove(state.humanColor, index);
   workerApi.humanMove(index);
+}
+
+function handleHintToggle(event) {
+  state.hintEnabled = !!event?.target?.checked;
+  if (state.hintEnabled) {
+    maybeAutoHint();
+  } else {
+    clearHints();
+  }
+}
+
+function maybeAutoHint() {
+  if (
+    !state.hintEnabled ||
+    state.hintLoading ||
+    state.hints ||
+    !state.isHumanTurn ||
+    state.aiThinking ||
+    state.showSettingsModal ||
+    state.isGameOver ||
+    state.legalMoves.length === 0
+  ) {
+    return;
+  }
+  state.hints = {};
+  state.hintLoading = true;
+  workerApi.hint();
+}
+
+function clearHints() {
+  state.hintLoading = false;
+  state.hints = null;
 }
 
 function handleModalColorChange(event) {
@@ -493,6 +576,7 @@ function handleCloseSettingsModal() {
   state.showSettingsModal = false;
   void runAiTurn();
   void ensureHumanPassIfNeeded();
+  maybeAutoHint();
 }
 
 function handleCloseGameOverModal() {
@@ -502,6 +586,7 @@ function handleCloseGameOverModal() {
 async function resetGame() {
   gameGeneration += 1;
   skipNextBoardAnimation = true;
+  clearHints();
   workerApi.reset(state.humanIsBlack, state.level);
   state.lastHumanMove = null;
   state.lastAiMove = null;
@@ -544,6 +629,7 @@ async function ensureHumanPassIfNeeded() {
     return;
   }
 
+  clearHints();
   state.passNotice = "human";
   state.lastHumanMove = null;
   state.lastAiMove = null;
@@ -834,6 +920,7 @@ async function handleUndo() {
   }
 
   // Clear visual state
+  clearHints();
   state.lastHumanMove = null;
   state.lastAiMove = null;
   state.passNotice = null;

@@ -14,6 +14,18 @@ fn test_move_list_no_moves() {
     assert!(move_list.first().is_none());
 }
 
+/// Tests that retain keeps only matching moves and updates the count.
+#[test]
+fn test_retain_keeps_single_square() {
+    let board = Board::new();
+    let mut move_list = MoveList::new(&board);
+
+    move_list.retain(&board, |mv| mv.sq == Square::D3);
+
+    assert_eq!(move_list.count(), 1);
+    assert_eq!(move_list.first().unwrap().sq, Square::D3);
+}
+
 /// Tests the sort method.
 #[test]
 fn test_sort() {

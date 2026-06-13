@@ -52,6 +52,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     let mut move_list = MoveList::new(board);
+    if NT::ROOT_NODE && ctx.pv_idx() > 0 {
+        move_list.retain(board, |mv| ctx.root_move_in_pv_window(mv.sq));
+    }
     if move_list.count() == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {

@@ -1,4 +1,5 @@
 use js_sys::{Function, Object, Reflect};
+use std::cmp::Reverse;
 use std::rc::Rc;
 
 use reversi_core::{
@@ -35,6 +36,9 @@ pub struct SearchContext {
     pub root_moves: Vec<RootMove>,
     /// Pattern features for neural network input.
     pub pattern_features: PatternFeatures,
+    /// Current PV index for Multi-PV search. Moves at indices < pv_idx are
+    /// already finalized as earlier PV lines.
+    pv_idx: usize,
     /// Optional callback for reporting progress to the JavaScript UI.
     progress_callback: Option<Function>,
 }
@@ -60,6 +64,7 @@ impl SearchContext {
             eval,
             root_moves: Self::create_root_moves(board),
             pattern_features: PatternFeatures::new(board, ply),
+            pv_idx: 0,
             progress_callback,
         }
     }
@@ -165,6 +170,45 @@ impl SearchContext {
         self.root_moves.iter().max_by_key(|rm| rm.score).cloned()
     }
 
+    /// Sets the current PV index for Multi-PV search.
+    #[inline]
+    pub fn set_pv_idx(&mut self, idx: usize) {
+        self.pv_idx = idx;
+    }
+
+    /// Returns the current PV index.
+    #[inline]
+    pub fn pv_idx(&self) -> usize {
+        self.pv_idx
+    }
+
+    /// Returns the root move at the current PV index, or [`None`] if out of bounds.
+    ///
+    /// The caller must sort the list beforehand for this to return the best
+    /// move of the current PV line.
+    pub fn current_pv_root_move(&self) -> Option<&RootMove> {
+        self.root_moves.get(self.pv_idx)
+    }
+
+    /// Saves current scores as previous scores before starting a new iteration.
+    pub fn save_previous_scores(&mut self) {
+        for rm in self.root_moves.iter_mut() {
+            rm.previous_score = rm.score;
+        }
+    }
+
+    /// Sorts root moves from pv_idx to end by descending score (stable sort).
+    pub fn sort_root_moves_from_pv_idx(&mut self) {
+        if self.pv_idx < self.root_moves.len() {
+            self.root_moves[self.pv_idx..].sort_by_key(|rm| Reverse(rm.score));
+        }
+    }
+
+    /// Checks whether a move square exists in the remaining moves (from pv_idx onwards).
+    pub fn root_move_in_pv_window(&self, sq: Square) -> bool {
+        self.root_moves[self.pv_idx..].iter().any(|rm| rm.sq == sq)
+    }
+
     /// Creates the initial list of root moves from the board's legal moves.
     fn create_root_moves(board: &Board) -> Vec<RootMove> {
         let move_list = MoveList::new(board);
@@ -204,12 +248,20 @@ impl SearchContext {
             &JsValue::from_str("nodes"),
             &JsValue::from_f64(self.n_nodes as f64),
         );
-        let best_move_value = if best_move == Square::None {
-            JsValue::NULL
+        let (best_move_value, best_move_index) = if best_move == Square::None {
+            (JsValue::NULL, JsValue::NULL)
         } else {
-            JsValue::from(best_move.to_string())
+            (
+                JsValue::from(best_move.to_string()),
+                JsValue::from_f64(best_move.index() as f64),
+            )
         };
         let _ = Reflect::set(&payload, &JsValue::from_str("bestMove"), &best_move_value);
+        let _ = Reflect::set(
+            &payload,
+            &JsValue::from_str("bestMoveIndex"),
+            &best_move_index,
+        );
 
         let _ = callback.call1(&JsValue::NULL, &payload);
     }

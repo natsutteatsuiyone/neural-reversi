@@ -160,6 +160,14 @@
                         </span>
                         <span class="thinking-badge__title">{{ localeTexts.messages.aiThinking }}</span>
                     </div>
+                    <div class="thinking-badge" role="status" aria-live="polite" v-cloak v-if="state.hintLoading">
+                        <span class="thinking-badge__dots" aria-hidden="true">
+                            <span class="thinking-badge__dot"></span>
+                            <span class="thinking-badge__dot"></span>
+                            <span class="thinking-badge__dot"></span>
+                        </span>
+                        <span class="thinking-badge__title">{{ localeTexts.messages.hintLoading }}</span>
+                    </div>
                 </div>
             </div>
             <aside class="info-panel">
@@ -179,6 +187,14 @@
                     <div class="settings-info__item">
                         <span class="settings-info__label">{{ localeTexts.levelLabel }}</span>
                         <strong>{{ state.level }}</strong>
+                    </div>
+                    <div class="settings-info__item">
+                        <span class="settings-info__label">{{ localeTexts.hintLabel }}</span>
+                        <label class="hint-toggle">
+                            <input id="hint-toggle" type="checkbox" :checked="state.hintEnabled"
+                                :aria-label="localeTexts.hintLabel" @change="handleHintToggle" />
+                            <span class="hint-toggle__track" aria-hidden="true"></span>
+                        </label>
                     </div>
                 </div>
                 <section class="scoreboard">

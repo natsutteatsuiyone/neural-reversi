@@ -296,6 +296,19 @@ impl MoveList {
     pub fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
         self.moves.iter_mut()
     }
+
+    /// Retains only moves satisfying the predicate, rebuilding the cached wipeout move.
+    pub fn retain(&mut self, board: &Board, mut f: impl FnMut(&Move) -> bool) {
+        self.moves.retain(|mv| f(mv));
+
+        // Multiple wipeout moves are possible; `with_moves` caches only the
+        // last, so rebuild after retain in case the cached one was excluded.
+        self.wipeout_move = self
+            .moves
+            .iter()
+            .find(|mv| mv.flipped == board.opponent())
+            .map(|mv| mv.sq);
+    }
 }
 
 #[cfg(test)]
