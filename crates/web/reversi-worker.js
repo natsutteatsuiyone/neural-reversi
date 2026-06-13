@@ -7,7 +7,6 @@ let Game;
 let initModule;
 
 let game;
-let searchStartTime;
 let currentGeneration = 0;
 
 self.onmessage = async (event) => {
@@ -31,9 +30,6 @@ self.onmessage = async (event) => {
       game = new Game(payload.humanIsBlack);
       game.set_level(payload.level);
       game.set_progress_callback((progress) => {
-        const elapsed = performance.now() - searchStartTime;
-        const nps = elapsed > 0 ? progress.nodes / (elapsed / 1000) : 0;
-        console.log("Search progress:", progress, "NPS:", nps.toFixed(0));
         self.postMessage({
           type: "search_progress",
           payload: progress,
@@ -74,7 +70,6 @@ self.onmessage = async (event) => {
       break;
     }
     case "ai_move": {
-      searchStartTime = performance.now();
       const move = game.ai_move();
       self.postMessage({
         type: "ai_moved",
