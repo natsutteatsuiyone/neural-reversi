@@ -65,6 +65,28 @@ impl Search {
             tt: Rc::clone(&self.tt),
             eval: Rc::clone(&self.eval),
             progress_callback,
+            multi_pv: false,
+        };
+        search_root(task)
+    }
+
+    /// Runs a Multi-PV search that scores every legal root move.
+    pub fn run_multi_pv(
+        &mut self,
+        board: &Board,
+        level: Level,
+        selectivity: Selectivity,
+        progress_callback: Option<Function>,
+    ) -> SearchResult {
+        self.tt.increment_generation();
+        let task = SearchTask {
+            board: *board,
+            level,
+            selectivity,
+            tt: Rc::clone(&self.tt),
+            eval: Rc::clone(&self.eval),
+            progress_callback,
+            multi_pv: true,
         };
         search_root(task)
     }
@@ -79,6 +101,7 @@ impl Search {
 pub fn search_root(task: SearchTask) -> SearchResult {
     let board = task.board;
     let level = task.level;
+    let multi_pv = task.multi_pv;
     let mut ctx = SearchContext::new(
         &board,
         task.selectivity,
@@ -94,11 +117,12 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             n_nodes: 0,
             depth: 0,
             selectivity: Selectivity::None,
+            multi_pv_scores: Vec::new(),
         };
     }
 
     let n_empties = ctx.empty_list.count();
-    if n_empties == 60 {
+    if n_empties == 60 && !multi_pv {
         // Handle opening position with random move
         let mv = random_move(&board);
         return SearchResult {
@@ -107,10 +131,17 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             n_nodes: 0,
             depth: 0,
             selectivity: Selectivity::None,
+            multi_pv_scores: Vec::new(),
         };
     }
 
-    if n_empties <= level.end_depth {
+    if multi_pv {
+        if n_empties <= level.end_depth {
+            search_root_endgame_multipv(&board, &mut ctx, level)
+        } else {
+            search_root_midgame_multipv(board, &mut ctx, level)
+        }
+    } else if n_empties <= level.end_depth {
         search_root_endgame(&board, &mut ctx, level)
     } else {
         search_root_midgame(board, &mut ctx, level)
@@ -133,6 +164,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
             n_nodes: ctx.n_nodes,
             depth: 0,
             selectivity: Selectivity::None,
+            multi_pv_scores: Vec::new(),
         };
     }
 
@@ -189,6 +221,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
         n_nodes: ctx.n_nodes,
         depth: max_depth,
         selectivity: ctx.selectivity,
+        multi_pv_scores: Vec::new(),
     }
 }
 
@@ -243,7 +276,161 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
         n_nodes: ctx.n_nodes,
         depth: level.end_depth,
         selectivity: ctx.selectivity,
+        multi_pv_scores: Vec::new(),
     }
+}
+
+/// Builds the final Multi-PV result from the sorted root moves.
+fn finish_multipv_result(ctx: &SearchContext, depth: Depth) -> SearchResult {
+    let best = &ctx.root_moves[0];
+    let multi_pv_scores = ctx
+        .root_moves
+        .iter()
+        .map(|rm| (rm.sq, rm.score.to_disc_diff_f32()))
+        .collect();
+    SearchResult {
+        score: best.score.to_disc_diff_f32(),
+        best_move: Some(best.sq),
+        n_nodes: ctx.n_nodes,
+        depth,
+        selectivity: ctx.selectivity,
+        multi_pv_scores,
+    }
+}
+
+/// Performs the Multi-PV root search for midgame positions.
+fn search_root_midgame_multipv(
+    board: Board,
+    ctx: &mut SearchContext,
+    level: Level,
+) -> SearchResult {
+    const INITIAL_DELTA: ScaledScore = ScaledScore::from_raw(3 * ScaledScore::SCALE);
+    let pv_count = ctx.root_moves.len();
+    let max_depth = level.mid_depth.max(1);
+    let org_selectivity = ctx.selectivity;
+
+    let start_depth = if max_depth.is_multiple_of(2) { 2 } else { 1 };
+    let mut depth = start_depth;
+    while depth <= max_depth {
+        let depth_diff = (max_depth - depth) as u8;
+        ctx.selectivity = Selectivity::from_u8(org_selectivity.as_u8().saturating_sub(depth_diff));
+        ctx.save_previous_scores();
+
+        for pv_idx in 0..pv_count {
+            ctx.set_pv_idx(pv_idx);
+
+            let (mut alpha, mut beta) = match ctx.current_pv_root_move() {
+                Some(rm) if depth > start_depth && rm.previous_score > -ScaledScore::INF => (
+                    (rm.previous_score - INITIAL_DELTA).max(-ScaledScore::INF),
+                    (rm.previous_score + INITIAL_DELTA).min(ScaledScore::INF),
+                ),
+                _ => (-ScaledScore::INF, ScaledScore::INF),
+            };
+
+            let mut delta = INITIAL_DELTA;
+            let mut score;
+            loop {
+                score = search::<Root, MidGameStrategy>(ctx, &board, depth, alpha, beta);
+
+                if score <= alpha {
+                    beta = alpha;
+                    alpha = (score - delta).max(-ScaledScore::INF);
+                } else if score >= beta {
+                    alpha = (beta - delta).max(alpha);
+                    beta = (score + delta).min(ScaledScore::INF);
+                } else {
+                    break;
+                }
+
+                delta += delta / 2;
+            }
+
+            ctx.sort_root_moves_from_pv_idx();
+            if let Some(rm) = ctx.current_pv_root_move() {
+                ctx.notify_progress(depth, score.to_disc_diff_f32(), rm.sq, ctx.selectivity);
+            }
+        }
+
+        if depth <= 10 {
+            depth += 2;
+        } else {
+            depth += 1;
+        }
+    }
+    ctx.set_pv_idx(0);
+
+    finish_multipv_result(ctx, max_depth)
+}
+
+/// Performs the Multi-PV root search for endgame positions.
+fn search_root_endgame_multipv(
+    board: &Board,
+    ctx: &mut SearchContext,
+    level: Level,
+) -> SearchResult {
+    let n_empties = ctx.empty_list.count();
+    let base_score = estimate_aspiration_base_score(ctx, board, n_empties);
+    let final_selectivity = if n_empties > level.perfect_depth {
+        Selectivity::Level3
+    } else {
+        Selectivity::None
+    };
+
+    let pv_count = ctx.root_moves.len();
+    for pv_idx in 0..pv_count {
+        ctx.set_pv_idx(pv_idx);
+
+        let mut alpha = if pv_idx == 0 {
+            base_score - ScaledScore::from_disc_diff(5)
+        } else {
+            -ScaledScore::INF
+        };
+        let mut beta = if pv_idx == 0 {
+            base_score + ScaledScore::from_disc_diff(5)
+        } else if let Some(rm) = ctx.get_best_root_move() {
+            rm.score
+        } else {
+            ScaledScore::INF
+        };
+
+        let mut best_score = ScaledScore::ZERO;
+        for selectivity in 0..=final_selectivity.as_u8() {
+            ctx.selectivity = Selectivity::from_u8(selectivity);
+            let mut delta = ScaledScore::from_disc_diff(3);
+
+            loop {
+                best_score = search::<Root, EndGameStrategy>(ctx, board, n_empties, alpha, beta);
+
+                if best_score <= alpha {
+                    beta = alpha;
+                    alpha = (best_score - delta).max(-ScaledScore::INF);
+                } else if best_score >= beta {
+                    alpha = (beta - delta).max(alpha);
+                    beta = (best_score + delta).min(ScaledScore::INF);
+                } else {
+                    break;
+                }
+
+                delta += delta;
+            }
+
+            alpha = (best_score - ScaledScore::from_disc_diff(2)).max(-ScaledScore::INF);
+            beta = (best_score + ScaledScore::from_disc_diff(2)).min(ScaledScore::INF);
+        }
+
+        ctx.sort_root_moves_from_pv_idx();
+        if let Some(rm) = ctx.current_pv_root_move() {
+            ctx.notify_progress(
+                n_empties,
+                best_score.to_disc_diff_f32(),
+                rm.sq,
+                ctx.selectivity,
+            );
+        }
+    }
+    ctx.set_pv_idx(0);
+
+    finish_multipv_result(ctx, level.end_depth)
 }
 
 /// Estimates a base score to center the aspiration window for endgame search.
@@ -319,6 +506,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     let mut move_list = MoveList::new(board);
+    if NT::ROOT_NODE && ctx.pv_idx() > 0 {
+        move_list.retain(board, |mv| ctx.root_move_in_pv_window(mv.sq));
+    }
     if move_list.count() == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {

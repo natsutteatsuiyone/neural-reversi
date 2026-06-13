@@ -21,4 +21,6 @@ pub struct SearchTask {
     pub eval: Rc<Eval>,
     /// Optional JavaScript callback for progress reporting.
     pub progress_callback: Option<Function>,
+    /// Whether to run a Multi-PV search over every legal root move.
+    pub multi_pv: bool,
 }

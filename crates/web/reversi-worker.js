@@ -83,6 +83,22 @@ self.onmessage = async (event) => {
       });
       break;
     }
+    case "hint": {
+      const hintGeneration = currentGeneration;
+      const hints = game.hint((progress) => {
+        self.postMessage({
+          type: "hint_progress",
+          payload: progress,
+          generation: hintGeneration,
+        });
+      });
+      self.postMessage({
+        type: "hint_completed",
+        payload: { hints },
+        generation: hintGeneration,
+      });
+      break;
+    }
     case "pass": {
       const passed = game.pass();
       if (passed) {

@@ -20,4 +20,7 @@ pub struct SearchResult {
     /// Selectivity level used.
     #[allow(dead_code)]
     pub selectivity: Selectivity,
+    /// Per-root-move final scores (disc diff, side-to-move perspective).
+    /// Populated only by multi-PV (hint) searches; empty otherwise.
+    pub multi_pv_scores: Vec<(Square, Scoref)>,
 }

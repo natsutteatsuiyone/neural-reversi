@@ -298,6 +298,19 @@ impl MoveList {
         self.moves.iter_mut()
     }
 
+    /// Retains only moves satisfying the predicate, rebuilding the cached wipeout move.
+    pub fn retain(&mut self, board: &Board, mut f: impl FnMut(&Move) -> bool) {
+        self.moves.retain(|mv| f(&mv));
+
+        // Multiple wipeout moves are possible; `with_moves` caches only the
+        // last, so rebuild after retain in case the cached one was excluded.
+        self.wipeout_move = self
+            .moves
+            .iter()
+            .find(|mv| mv.flipped == board.opponent())
+            .map(|mv| mv.sq);
+    }
+
     /// Excludes moves that were selected as best moves for earlier PV lines in Multi-PV search.
     ///
     /// In Multi-PV mode, each PV line explores a different best move at the root. This method
@@ -308,16 +321,7 @@ impl MoveList {
             return;
         }
 
-        self.moves
-            .retain(|mv| ctx.root_moves.contains_from_pv_idx(mv.sq));
-
-        // Multiple wipeout moves are possible; `with_moves` caches only the
-        // last, so rebuild after retain in case the cached one was excluded.
-        self.wipeout_move = self
-            .moves
-            .iter()
-            .find(|mv| mv.flipped == board.opponent())
-            .map(|mv| mv.sq);
+        self.retain(board, |mv| ctx.root_moves.contains_from_pv_idx(mv.sq));
     }
 }
 

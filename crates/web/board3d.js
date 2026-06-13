@@ -163,6 +163,36 @@ function createLabelMesh(char) {
   return mesh;
 }
 
+function formatHintScore(score) {
+  const rounded = Math.round(score);
+  if (rounded === 0) {
+    return "+0";
+  }
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+/** A score-label material (canvas texture) for the hint overlay. */
+function createHintMaterial(text, color, opacity) {
+  const px = 192;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = px;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, px, px);
+  ctx.fillStyle = color;
+  ctx.font = `600 ${px * 0.42}px "Inter", system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, px / 2, px / 2 + px * 0.02);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  return new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    opacity,
+  });
+}
+
 function discMaterial(color, clearcoat) {
   return new THREE.MeshPhysicalMaterial({
     color,
@@ -259,6 +289,29 @@ export function createBoard3D(container, { onCellClick }) {
   lastMoveRing.visible = false;
   scene.add(lastMoveRing);
 
+  // --- Hint score overlay (per-cell labels; materials cached by text + color) ---
+  const hintsGroup = new THREE.Group();
+  scene.add(hintsGroup);
+  const hintGeometry = new THREE.PlaneGeometry(CELL_SIZE * 0.7, CELL_SIZE * 0.7);
+  const hintMaterialCache = new Map();
+
+  function getHintMaterial(text, color, opacity) {
+    const key = `${text}|${color}`;
+    let material = hintMaterialCache.get(key);
+    if (!material) {
+      if (hintMaterialCache.size > 256) {
+        for (const cached of hintMaterialCache.values()) {
+          cached.map.dispose();
+          cached.dispose();
+        }
+        hintMaterialCache.clear();
+      }
+      material = createHintMaterial(text, color, opacity);
+      hintMaterialCache.set(key, material);
+    }
+    return material;
+  }
+
   // --- Hover highlight for the cell under the pointer (legal moves only) ---
   const hoverMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(CELL_SIZE * 0.94, CELL_SIZE * 0.94),
@@ -296,7 +349,7 @@ export function createBoard3D(container, { onCellClick }) {
    */
   const discs = new Map();
   let prevBoard = Array.from({ length: 64 }, () => 0);
-  let view = { legalMoves: [], showValidMoves: false, lastMove: null };
+  let view = { legalMoves: [], showValidMoves: false, lastMove: null, hints: null };
 
   function materialsForColor(color) {
     return color === 1 ? BLACK_MATERIALS : WHITE_MATERIALS;
@@ -319,8 +372,13 @@ export function createBoard3D(container, { onCellClick }) {
   }
 
   function update(state) {
-    const { board, legalMoves, showValidMoves, lastMove, skipAnimation } = state;
-    view = { legalMoves: legalMoves || [], showValidMoves: !!showValidMoves, lastMove };
+    const { board, legalMoves, showValidMoves, lastMove, hints, skipAnimation } = state;
+    view = {
+      legalMoves: legalMoves || [],
+      showValidMoves: !!showValidMoves,
+      lastMove,
+      hints: hints ?? null,
+    };
 
     for (let index = 0; index < 64; index++) {
       const cur = board[index];
@@ -399,6 +457,7 @@ export function createBoard3D(container, { onCellClick }) {
 
     prevBoard = board.slice();
     refreshIndicators();
+    refreshHints();
     requestRender();
   }
 
@@ -406,6 +465,9 @@ export function createBoard3D(container, { onCellClick }) {
     dotsGroup.clear();
     if (view.showValidMoves) {
       for (const index of view.legalMoves) {
+        if (view.hints && view.hints[index]) {
+          continue;
+        }
         const [x, z] = cellToWorld(Math.floor(index / 8), index % 8);
         const dot = new THREE.Mesh(dotGeometry, dotMaterial);
         dot.rotation.x = -Math.PI / 2;
@@ -419,6 +481,33 @@ export function createBoard3D(container, { onCellClick }) {
       lastMoveRing.visible = true;
     } else {
       lastMoveRing.visible = false;
+    }
+  }
+
+  function refreshHints() {
+    hintsGroup.clear();
+    const hints = view.hints;
+    const entries = hints ? Object.entries(hints) : [];
+    if (entries.length === 0) {
+      return;
+    }
+    let maxScore = -Infinity;
+    for (const [, hint] of entries) {
+      if (hint.score > maxScore) {
+        maxScore = hint.score;
+      }
+    }
+    for (const [key, hint] of entries) {
+      const index = Number(key);
+      const isBest = hint.score === maxScore;
+      const color = isBest ? ACCENT_GOLD : "white";
+      const opacity = isBest ? 1 : 0.85;
+      const material = getHintMaterial(formatHintScore(hint.score), color, opacity);
+      const mesh = new THREE.Mesh(hintGeometry, material);
+      mesh.rotation.x = -Math.PI / 2;
+      const [x, z] = cellToWorld(Math.floor(index / 8), index % 8);
+      mesh.position.set(x, 0.003, z);
+      hintsGroup.add(mesh);
     }
   }
 

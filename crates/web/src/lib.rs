@@ -17,7 +17,7 @@ use crate::{
     search::{Search, search_context::SearchContext},
     transposition_table::TranspositionTable,
 };
-use js_sys::Function;
+use js_sys::{Function, Object, Reflect};
 use reversi_core::board::Board;
 use reversi_core::constants::INITIAL_EMPTY_COUNT;
 use reversi_core::disc::Disc;
@@ -238,6 +238,28 @@ impl Game {
             false
         }
     }
+
+    /// Evaluates all legal moves for the human player and returns
+    /// `[{ move: u8, score: f32 }]`. Streams per-move progress via `callback`.
+    pub fn hint(&mut self, callback: Option<Function>) -> JsValue {
+        let scores = self.hint_scores(callback);
+        let arr = js_sys::Array::new();
+        for (sq, score) in scores {
+            let obj = Object::new();
+            let _ = Reflect::set(
+                &obj,
+                &JsValue::from_str("move"),
+                &JsValue::from_f64(sq.index() as f64),
+            );
+            let _ = Reflect::set(
+                &obj,
+                &JsValue::from_str("score"),
+                &JsValue::from_f64(score as f64),
+            );
+            arr.push(&obj);
+        }
+        arr.into()
+    }
 }
 
 impl Game {
@@ -273,6 +295,22 @@ impl Game {
         let level = level_for_position(self.mid_depth);
         self.engine
             .search(&self.board, level, self.progress_callback.clone())
+    }
+
+    /// Evaluates every legal move for the human player. Does not mutate the board.
+    fn hint_scores(&mut self, callback: Option<Function>) -> Vec<(Square, f32)> {
+        if self.board.is_game_over()
+            || self.current_player != self.human_player
+            || !self.board.has_legal_moves()
+        {
+            return Vec::new();
+        }
+
+        let level = level_for_position(self.mid_depth);
+        self.engine
+            .search
+            .run_multi_pv(&self.board, level, MIDGAME_SELECTIVITY, callback)
+            .multi_pv_scores
     }
 }
 
@@ -435,6 +473,76 @@ mod tests {
         assert!(legal.contains(&mv));
         assert_eq!(game.current_player(), 2);
         assert_eq!(game.empty_count(), 59);
+    }
+
+    #[test]
+    fn hint_scores_returns_an_entry_per_legal_move_and_keeps_board_intact() {
+        let mut game = Game::new(true);
+        game.set_level(1);
+        let board_before = game.board();
+        let legal: Vec<u8> = game.legal_moves();
+
+        let hints = game.hint_scores(None);
+
+        assert_eq!(hints.len(), legal.len());
+        for (sq, score) in &hints {
+            assert!(legal.contains(&(sq.index() as u8)));
+            assert!(score.is_finite());
+        }
+        assert_eq!(game.board(), board_before);
+        assert_eq!(game.legal_moves(), legal);
+    }
+
+    #[test]
+    fn hint_scores_is_empty_when_not_humans_turn() {
+        let mut game = Game::new(false);
+        game.set_level(1);
+
+        assert!(game.hint_scores(None).is_empty());
+    }
+
+    #[test]
+    fn hint_results_are_sorted_best_first() {
+        let mut game = Game::new(true);
+        game.set_level(2);
+
+        let hints = game.hint_scores(None);
+
+        let best = hints
+            .iter()
+            .cloned()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .unwrap();
+        assert_eq!(hints[0].1, best.1);
+    }
+
+    #[test]
+    fn hint_scores_covers_endgame_path() {
+        let mut game = Game::new(true);
+        game.set_level(10);
+
+        // Greedily play moves until the human is to move with few empties,
+        // so the position routes through the endgame Multi-PV driver.
+        loop {
+            if game.is_game_over() {
+                panic!("greedy line no longer reaches an endgame hint position");
+            }
+            if game.empty_count() <= 12 && game.current_player() == game.human_color() {
+                break;
+            }
+            let moves = game.legal_moves();
+            assert!(!moves.is_empty());
+            assert!(game.make_move_unchecked(moves[0]));
+        }
+
+        let legal = game.legal_moves();
+        let hints = game.hint_scores(None);
+
+        assert_eq!(hints.len(), legal.len());
+        for (sq, score) in &hints {
+            assert!(legal.contains(&(sq.index() as u8)));
+            assert!(score.is_finite());
+        }
     }
 }
 
