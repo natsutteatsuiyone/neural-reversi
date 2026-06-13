@@ -775,15 +775,11 @@ function formatEvaluation(value) {
   if (!Number.isFinite(value)) {
     return locale.moveLog?.noEval ?? "--";
   }
-  const normalized = Math.abs(value) < 0.005 ? 0 : value;
-  const fixed = normalized === 0 ? "0.00" : (Math.floor(normalized * 100) / 100).toFixed(2);
-  if (normalized > 0) {
-    return `+${fixed}`;
+  const rounded = Math.round(value);
+  if (rounded > 0) {
+    return `+${rounded}`;
   }
-  if (normalized < 0) {
-    return fixed;
-  }
-  return fixed;
+  return String(rounded);
 }
 
 function detectPreferredLocale() {
