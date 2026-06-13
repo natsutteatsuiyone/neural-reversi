@@ -522,4 +522,31 @@ mod tests {
             assert!(score.is_finite());
         }
     }
+
+    #[test]
+    fn set_level_clamps_into_valid_range() {
+        let mut game = Game::new(true);
+
+        game.set_level(0);
+        assert_eq!(game.mid_depth, MIN_MID_DEPTH as Depth);
+
+        game.set_level(255);
+        assert_eq!(game.mid_depth, MAX_MID_DEPTH as Depth);
+
+        game.set_level(12);
+        assert_eq!(game.mid_depth, 12);
+    }
+
+    #[test]
+    fn level_for_position_derives_expected_depths() {
+        // (mid_depth, expected end_depth, expected perfect_depth)
+        let cases: [(Depth, Depth, Depth); 4] =
+            [(1, 1, 1), (10, 12, 10), (12, 14, 12), (24, 26, 24)];
+        for (mid, end, perfect) in cases {
+            let level = level_for_position(mid);
+            assert_eq!(level.mid_depth, mid, "mid_depth for {mid}");
+            assert_eq!(level.end_depth, end, "end_depth for {mid}");
+            assert_eq!(level.perfect_depth, perfect, "perfect_depth for {mid}");
+        }
+    }
 }
