@@ -74,7 +74,7 @@ bun run build:wasm:node
 ### Usage
 
 ```bash
-bun endgame-bench.js [options]
+bun scripts/endgame-bench.js [options]
 ```
 
 Options:
@@ -89,9 +89,9 @@ Options:
 ### Examples
 
 ```bash
-bun endgame-bench.js
-bun endgame-bench.js -p fforum-60-79 -t 64
-bun endgame-bench.js -p fforum-40-59 -e 20
+bun scripts/endgame-bench.js
+bun scripts/endgame-bench.js -p fforum-60-79 -t 64
+bun scripts/endgame-bench.js -p fforum-40-59 -e 20
 ```
 
 ## Network Forward Benchmark
@@ -108,7 +108,7 @@ bun run bench:network
 
 ```bash
 bun run build:wasm:node
-bun network-bench.js [options]
+bun scripts/network-bench.js [options]
 ```
 
 Options:
@@ -122,8 +122,8 @@ Options:
 ### Examples
 
 ```bash
-bun network-bench.js
-bun network-bench.js --iterations 50000 --warmup 1000
+bun scripts/network-bench.js
+bun scripts/network-bench.js --iterations 50000 --warmup 1000
 ```
 
 ## Weight Match
@@ -143,7 +143,7 @@ bun run build:wasm:node
 ### Usage
 
 ```bash
-bun weight-match.js <engine1-weight.zst> <engine2-weight.zst> [options]
+bun scripts/weight-match.js <engine1-weight.zst> <engine2-weight.zst> [options]
 ```
 
 Options:
@@ -160,17 +160,17 @@ Options:
 ### Examples
 
 ```bash
-bun weight-match.js ../../eval_wasm-e6bbc4f6.zst ../../eval_wasm-test1.zst
-bun weight-match.js a.zst b.zst --opening-file ../../openings.txt
-bun weight-match.js a.zst b.zst --opening-file ../../openings.txt --details
+bun scripts/weight-match.js ../../eval_wasm-e6bbc4f6.zst ../../eval_wasm-test1.zst
+bun scripts/weight-match.js a.zst b.zst --opening-file ../../openings.txt
+bun scripts/weight-match.js a.zst b.zst --opening-file ../../openings.txt --details
 ```
 
 To find the strongest `.zst` file in a folder with the minimum number of
 pairwise comparisons, run a winner-stays tournament:
 
 ```bash
-bun weight-tournament.js <weights-dir> --opening-file <openings.txt>
-bun weight-tournament.js ../../weights --opening-file ../../openings.txt
+bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt>
+bun scripts/weight-tournament.js ../../weights --opening-file ../../openings.txt
 ```
 
 ## ProbCut Training Data Generation

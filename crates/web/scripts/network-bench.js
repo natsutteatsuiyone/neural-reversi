@@ -3,12 +3,12 @@
  * Raw neural-network forward benchmark CLI for WebAssembly.
  *
  * Usage:
- *   bun network-bench.js
- *   bun network-bench.js --iterations 50000 --warmup 1000
+ *   bun scripts/network-bench.js
+ *   bun scripts/network-bench.js --iterations 50000 --warmup 1000
  */
 
 import { parseArgs } from "util";
-import { importPreferredWasmModule } from "./wasm-loader.js";
+import { importPreferredWasmModule } from "../wasm-loader.js";
 
 const DEFAULT_ITERATIONS = 10000;
 const DEFAULT_WARMUP_ITERATIONS = 1000;
@@ -26,7 +26,7 @@ if (values.help) {
 Network forward benchmark CLI (WASM)
 
 Usage:
-  bun network-bench.js [options]
+  bun scripts/network-bench.js [options]
 
 Options:
   -n, --iterations   Timed outer iterations (default: ${DEFAULT_ITERATIONS})
@@ -34,8 +34,8 @@ Options:
   -h, --help         Show help message
 
 Examples:
-  bun network-bench.js
-  bun network-bench.js --iterations 50000 --warmup 1000
+  bun scripts/network-bench.js
+  bun scripts/network-bench.js --iterations 50000 --warmup 1000
 `);
   process.exit(0);
 }

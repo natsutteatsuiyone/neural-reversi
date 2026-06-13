@@ -3,9 +3,9 @@
  * ProbCut training data generation CLI for WebAssembly.
  *
  * Usage:
- *   bun probcut-cli.js --input games.txt --output probcut.csv
- *   bun probcut-cli.js -i games.txt -o probcut.csv
- *   bun probcut-cli.js -i games.txt -o probcut.csv --endgame
+ *   bun scripts/probcut-cli.js --input games.txt --output probcut.csv
+ *   bun scripts/probcut-cli.js -i games.txt -o probcut.csv
+ *   bun scripts/probcut-cli.js -i games.txt -o probcut.csv --endgame
  *
  * Input format: One game per line, moves concatenated (e.g., "D3C5F6F5E6C6D6...")
  * Output format: CSV with columns: ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
@@ -13,7 +13,7 @@
 
 import { readFileSync, writeFileSync } from "fs";
 import { parseArgs } from "util";
-import { importPreferredWasmModule } from "./wasm-loader.js";
+import { importPreferredWasmModule } from "../wasm-loader.js";
 
 // Parse command line arguments
 const { values } = parseArgs({
@@ -30,9 +30,9 @@ if (values.help || !values.input || !values.output) {
 ProbCut training data generation CLI
 
 Usage:
-  bun probcut-cli.js --input <file> --output <file>
-  bun probcut-cli.js -i <file> -o <file>
-  bun probcut-cli.js -i <file> -o <file> --endgame
+  bun scripts/probcut-cli.js --input <file> --output <file>
+  bun scripts/probcut-cli.js -i <file> -o <file>
+  bun scripts/probcut-cli.js -i <file> -o <file> --endgame
 
 Options:
   -i, --input    Input file containing game sequences (one per line)
