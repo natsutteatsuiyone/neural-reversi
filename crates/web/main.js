@@ -575,6 +575,7 @@ async function handleNewGame() {
 
 function handleCloseSettingsModal() {
   state.showSettingsModal = false;
+  renderBoard3D();
   void runAiTurn();
   void ensureHumanPassIfNeeded();
   maybeAutoHint();
