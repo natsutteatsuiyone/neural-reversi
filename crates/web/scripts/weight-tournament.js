@@ -3,13 +3,13 @@
  * Winner-stays tournament CLI for WebAssembly weight files.
  *
  * Usage:
- *   bun weight-tournament.js <weights-dir> --opening-file <openings.txt>
+ *   bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt>
  */
 
 import { readdirSync, readFileSync } from "fs";
 import { basename, join, resolve } from "path";
 import { parseArgs } from "util";
-import { importPreferredWasmModule } from "./wasm-loader.js";
+import { importPreferredWasmModule } from "../wasm-loader.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -24,15 +24,15 @@ function usage(exitCode = 0) {
 WASM weight tournament CLI (1-ply, winner-stays)
 
 Usage:
-  bun weight-tournament.js <weights-dir> [options]
+  bun scripts/weight-tournament.js <weights-dir> [options]
 
 Options:
   -o, --opening-file  Opening file in match-runner format
   -h, --help          Show this help message
 
 Examples:
-  bun weight-tournament.js <weights-dir> --opening-file <openings.txt>
-  bun weight-tournament.js ../../weights --opening-file ../../openings.txt
+  bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt>
+  bun scripts/weight-tournament.js ../../weights --opening-file ../../openings.txt
 `);
   process.exit(exitCode);
 }

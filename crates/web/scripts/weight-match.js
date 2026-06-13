@@ -3,14 +3,14 @@
  * Simple weight-file match CLI for the WebAssembly engine.
  *
  * Usage:
- *   bun weight-match.js ../../eval_wasm-e6bbc4f6.zst ../../eval_wasm-test1.zst
- *   bun weight-match.js weight-a.zst weight-b.zst --opening-file openings.txt
+ *   bun scripts/weight-match.js ../../eval_wasm-e6bbc4f6.zst ../../eval_wasm-test1.zst
+ *   bun scripts/weight-match.js weight-a.zst weight-b.zst --opening-file openings.txt
  */
 
 import { readFileSync } from "fs";
 import { basename, resolve } from "path";
 import { parseArgs } from "util";
-import { importPreferredWasmModule } from "./wasm-loader.js";
+import { importPreferredWasmModule } from "../wasm-loader.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -29,7 +29,7 @@ function usage(exitCode = 0) {
 WASM weight match CLI (1-ply)
 
 Usage:
-  bun weight-match.js <engine1-weight.zst> <engine2-weight.zst> [options]
+  bun scripts/weight-match.js <engine1-weight.zst> <engine2-weight.zst> [options]
 
 Options:
   -o, --opening-file  Opening file in match-runner format
@@ -40,8 +40,8 @@ Options:
   -h, --help          Show this help message
 
 Examples:
-  bun weight-match.js ../../eval_wasm-e6bbc4f6.zst ../../eval_wasm-test1.zst
-  bun weight-match.js a.zst b.zst --opening-file ../../openings.txt
+  bun scripts/weight-match.js ../../eval_wasm-e6bbc4f6.zst ../../eval_wasm-test1.zst
+  bun scripts/weight-match.js a.zst b.zst --opening-file ../../openings.txt
 `);
   process.exit(exitCode);
 }

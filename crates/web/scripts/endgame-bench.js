@@ -3,18 +3,19 @@
  * Endgame solver benchmark CLI for WebAssembly.
  *
  * Usage:
- *   bun endgame-bench.js --problem fforum-40-59
- *   bun endgame-bench.js -p fforum-40-59 -t 64
+ *   bun scripts/endgame-bench.js --problem fforum-40-59
+ *   bun scripts/endgame-bench.js -p fforum-40-59 -t 64
  */
 
 import { readFileSync } from "fs";
 import { parseArgs } from "util";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
-import { importPreferredWasmModule } from "./wasm-loader.js";
+import { importPreferredWasmModule } from "../wasm-loader.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const problemDir = resolve(__dirname, "../../problem");
+const webRoot = resolve(__dirname, "..");
+const problemDir = resolve(webRoot, "../../problem");
 
 const { values } = parseArgs({
   options: {
@@ -30,7 +31,7 @@ if (values.help) {
 Endgame solver benchmark CLI (WASM)
 
 Usage:
-  bun endgame-bench.js [options]
+  bun scripts/endgame-bench.js [options]
 
 Options:
   -p, --problem       OBF file stem or path (default: fforum-40-59)
@@ -39,8 +40,8 @@ Options:
   -h, --help          Show this help message
 
 Examples:
-  bun endgame-bench.js -p fforum-40-59
-  bun endgame-bench.js -p fforum-60-79 -t 64
+  bun scripts/endgame-bench.js -p fforum-40-59
+  bun scripts/endgame-bench.js -p fforum-60-79 -t 64
 `);
   process.exit(0);
 }
@@ -184,9 +185,8 @@ async function main() {
   console.log(`- Total time: ${formatTime(totalTime)}`);
   console.log(`- Total nodes: ${formatNodes(totalNodes)}`);
   console.log(`- Overall NPS: ${formatNps(overallNps)}`);
-  console.log(
-    `- Best move: ${((correct / cases.length) * 100).toFixed(1)}% (${correct}/${cases.length})`,
-  );
+  const bestMoveRate = cases.length > 0 ? `${((correct / cases.length) * 100).toFixed(1)}%` : "n/a";
+  console.log(`- Best move: ${bestMoveRate} (${correct}/${cases.length})`);
 
   solver.free();
 }
