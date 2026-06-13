@@ -58,13 +58,6 @@ const locales = {
       black: "黒",
       white: "白",
     },
-    searchStatus: {
-      idle: "探索状況: 待機中",
-      preparing: "探索状況: 探索準備中…",
-      movePlaceholder: "—",
-      format: ({ depth, scoreText, nodeText, moveText, selectivity }) =>
-        `探索状況: 深さ${depth} / 評価${scoreText} / ノード${nodeText} / 手 ${moveText} / 選択度${selectivity}`,
-    },
     gameOver: {
       winTitle: "あなたの勝ち！",
       loseTitle: "AIの勝ち",
@@ -132,13 +125,6 @@ const locales = {
       black: "Black",
       white: "White",
     },
-    searchStatus: {
-      idle: "Search: Idle",
-      preparing: "Search: Preparing…",
-      movePlaceholder: "—",
-      format: ({ depth, scoreText, nodeText, moveText, selectivity }) =>
-        `Search: Depth ${depth} / Score ${scoreText} / Nodes ${nodeText} / Move ${moveText} / Selectivity ${selectivity}`,
-    },
     gameOver: {
       winTitle: "You Win!",
       loseTitle: "AI Wins",
@@ -196,7 +182,6 @@ const state = reactive({
   message: locales[defaultLocale].loading,
   messageKind: "info",
   searchProgress: null,
-  searchStatusText: locales[defaultLocale].searchStatus.idle,
   isHumanTurn: false,
   showSettingsModal: true,
   // New state properties
@@ -629,7 +614,6 @@ function runAiTurn() {
 
   state.aiThinking = true;
   state.searchProgress = null;
-  updateSearchStatusText();
   workerApi.aiMove();
 }
 
@@ -680,7 +664,6 @@ function syncStateFromGame(gameState) {
   state.message = text;
   state.messageKind = kind;
 
-  updateSearchStatusText();
   renderBoard3D();
 }
 
@@ -740,50 +723,7 @@ function clampLevelValue(value) {
 }
 
 function handleSearchProgress(update) {
-  state.searchProgress = {
-    depth: Number(update?.depth ?? 0),
-    score: Number(update?.score ?? 0),
-    nodes: Number(update?.nodes ?? 0),
-    selectivity: Number(update?.selectivity ?? 0),
-    bestMoveIndex: typeof update?.bestMoveIndex === "number" ? update.bestMoveIndex : null,
-  };
-  updateSearchStatusText();
-}
-
-function updateSearchStatusText() {
-  const locale = currentLocale();
-  if (!state.aiThinking) {
-    state.searchStatusText = locale.searchStatus.idle;
-    return;
-  }
-
-  if (!state.searchProgress) {
-    state.searchStatusText = locale.searchStatus.preparing;
-    return;
-  }
-
-  const { depth, score, nodes, bestMoveIndex, selectivity } = state.searchProgress;
-  const moveText = Number.isFinite(bestMoveIndex)
-    ? toNotation(bestMoveIndex)
-    : locale.searchStatus.movePlaceholder;
-  const scoreText = Number.isFinite(score) ? score.toFixed(2) : "--";
-  const nodeText = formatNumber(nodes);
-
-  state.searchStatusText = locale.searchStatus.format({
-    depth,
-    scoreText,
-    nodeText,
-    moveText,
-    selectivity,
-  });
-}
-
-function formatNumber(value) {
-  if (!Number.isFinite(value)) {
-    return "--";
-  }
-  const locale = state.locale === "en" ? "en-US" : "ja-JP";
-  return value.toLocaleString(locale);
+  state.searchProgress = { score: Number(update?.score ?? 0) };
 }
 
 function formatEvaluation(value) {
