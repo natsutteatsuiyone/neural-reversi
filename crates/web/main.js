@@ -510,6 +510,7 @@ function handleHintToggle(event) {
     maybeAutoHint();
   } else {
     clearHints();
+    renderBoard3D();
   }
 }
 
