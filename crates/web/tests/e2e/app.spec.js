@@ -529,6 +529,24 @@ test("caps the move-log height on narrow screens", async ({ page }) => {
   expect(Number.parseFloat(style.height)).toBeGreaterThan(300);
 });
 
+test("places the hint toggle to the right of the level", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expect(settingsDialog).toBeHidden();
+
+  const levelItem = page.locator(".settings-info__item").filter({ hasText: "レベル" });
+  const hintItem = page.locator(".settings-info__item").filter({ hasText: "ヒント" });
+  const levelBox = await levelItem.boundingBox();
+  const hintBox = await hintItem.boundingBox();
+
+  // Hint sits to the right of the level, on the same (top-aligned) row.
+  expect(hintBox.x).toBeGreaterThan(levelBox.x);
+  expect(Math.abs(hintBox.y - levelBox.y)).toBeLessThan(8);
+});
+
 // Undo is a no-op until moveHistory is non-empty, which is populated only by a
 // real click on the 3D canvas (logMove in handleCellClick). There is no
 // emit-only path, and clicking a legal cell requires projecting it to a screen
