@@ -24,6 +24,7 @@
     "lint": "oxlint .",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
+    "verify": "bun run lint && bun run fmt:check && cargo test -p web",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install chromium",
