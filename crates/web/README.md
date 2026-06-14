@@ -4,7 +4,7 @@ WebAssembly version of Neural Reversi, running the Rust AI engine in the browser
 
 ## Requirements
 
-- [Rust](https://www.rust-lang.org/) (1.88.0+)
+- [Rust](https://www.rust-lang.org/) (toolchain pinned by `rust-toolchain.toml`: nightly-2026-04-20)
 - [Bun](https://bun.sh/)
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/)
 - clang (for zstd compilation)
