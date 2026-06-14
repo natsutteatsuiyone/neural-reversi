@@ -78,8 +78,15 @@ self.onmessage = async (event) => {
       });
       break;
     }
-    case "hint": {
+    case "hint_replay": {
+      // Recreate the position from move history before evaluating, so the hint
+      // worker stays in sync with the main worker without sharing its Game.
       const hintGeneration = currentGeneration;
+      game.reset(payload.humanIsBlack);
+      game.set_level(payload.level);
+      for (const move of payload.moves) {
+        game.make_move_unchecked(move.index);
+      }
       const hints = game.hint((progress) => {
         self.postMessage({
           type: "hint_progress",

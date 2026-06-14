@@ -17,6 +17,13 @@ const worker = new Worker(new URL("./reversi-worker.js", import.meta.url), {
   type: "module",
 });
 
+// Hints run on a dedicated worker so the main worker stays free to apply the
+// player's move instantly. The hint worker blocks on a full-depth search, so we
+// terminate and respawn it to abort an in-flight computation when the player acts.
+let hintWorker = null;
+let hintGeneration = 0;
+let hintWorkerReady = false;
+
 const locales = {
   ja: {
     loading: "読み込み中…",
@@ -78,7 +85,6 @@ const locales = {
       passHuman: "パスしました。AIの番です。",
       passAi: "AIはパスしました。あなたの番です。",
       aiThinking: "AIが考え中です…",
-      hintLoading: "ヒントを計算中…",
       humanTurn: (colorName) => `あなたの番です（${colorName}）。`,
       aiTurn: (colorName) => `AIの番です（${colorName}）。`,
       confirmNewGame: "現在の対局を終了して新しい対局を始めますか？",
@@ -145,7 +151,6 @@ const locales = {
       passHuman: "You passed. AI's turn.",
       passAi: "AI passed. Your turn.",
       aiThinking: "AI is thinking…",
-      hintLoading: "Computing hints…",
       humanTurn: (colorName) => `Your turn (${colorName}).`,
       aiTurn: (colorName) => `AI's turn (${colorName}).`,
       confirmNewGame: "End current game and start a new one?",
@@ -266,8 +271,7 @@ function renderBoard3D() {
     return;
   }
   const lastMove = state.lastHumanMove ?? state.lastAiMove ?? null;
-  const showValidMoves =
-    state.isHumanTurn && !state.showSettingsModal && !state.aiThinking && !state.hintLoading;
+  const showValidMoves = state.isHumanTurn && !state.showSettingsModal && !state.aiThinking;
   board3d.update({
     board: state.board,
     legalMoves: state.legalMoves,
@@ -348,33 +352,6 @@ worker.onmessage = async (event) => {
     case "search_progress":
       handleSearchProgress(payload);
       break;
-    case "hint_progress": {
-      if (!state.hintLoading) {
-        break;
-      }
-      const idx = payload?.bestMoveIndex;
-      if (typeof idx === "number") {
-        state.hints = {
-          ...state.hints,
-          [idx]: { score: Number(payload.score) },
-        };
-        renderBoard3D();
-      }
-      break;
-    }
-    case "hint_completed": {
-      if (!state.hintLoading) {
-        break;
-      }
-      state.hintLoading = false;
-      const final = {};
-      for (const h of payload?.hints ?? []) {
-        final[h.move] = { score: Number(h.score) };
-      }
-      state.hints = Object.keys(final).length > 0 ? final : null;
-      renderBoard3D();
-      break;
-    }
     case "replay_completed":
       clearHints();
       syncStateFromGame(payload);
@@ -395,6 +372,64 @@ worker.onmessageerror = (event) => {
   state.loadError = currentLocale().messages.loadError;
 };
 
+// --- Hint Worker Communication ---
+function handleHintMessage(event) {
+  const { type, payload, generation } = event.data;
+  if (type === "initialized") {
+    hintWorkerReady = true;
+    // A pending auto-hint may have been suppressed while the worker booted.
+    maybeAutoHint();
+    return;
+  }
+  if (type === "error") {
+    // Hints are an optional aid; a failure here must not break play.
+    console.error("Hint worker failed:", payload?.message ?? payload);
+    return;
+  }
+  if (generation !== hintGeneration || !state.hintLoading) {
+    return;
+  }
+  if (type === "hint_progress") {
+    const idx = payload?.bestMoveIndex;
+    if (typeof idx === "number") {
+      state.hints = {
+        ...state.hints,
+        [idx]: { score: Number(payload.score) },
+      };
+      renderBoard3D();
+    }
+    return;
+  }
+  if (type === "hint_completed") {
+    state.hintLoading = false;
+    const final = {};
+    for (const h of payload?.hints ?? []) {
+      final[h.move] = { score: Number(h.score) };
+    }
+    state.hints = Object.keys(final).length > 0 ? final : null;
+    renderBoard3D();
+  }
+}
+
+function spawnHintWorker() {
+  hintWorkerReady = false;
+  hintWorker = new Worker(new URL("./reversi-worker.js", import.meta.url), {
+    type: "module",
+  });
+  hintWorker.onmessage = handleHintMessage;
+  hintWorker.onerror = (event) => {
+    console.error("Hint worker error:", event?.message ?? event);
+  };
+  hintWorker.onmessageerror = (event) => {
+    console.error("Hint worker message error:", event);
+  };
+  hintWorker.postMessage({
+    type: "init",
+    payload: { humanIsBlack: state.humanIsBlack, level: state.level },
+    generation: hintGeneration,
+  });
+}
+
 const workerApi = {
   init(humanIsBlack, level) {
     worker.postMessage({
@@ -408,9 +443,6 @@ const workerApi = {
   },
   aiMove() {
     worker.postMessage({ type: "ai_move", generation: gameGeneration });
-  },
-  hint() {
-    worker.postMessage({ type: "hint", generation: gameGeneration });
   },
   pass() {
     worker.postMessage({ type: "pass", generation: gameGeneration });
@@ -442,6 +474,7 @@ const workerApi = {
 void (function bootstrap() {
   try {
     workerApi.init(state.humanIsBlack, state.level);
+    spawnHintWorker();
   } catch (e) {
     console.error("Error bootstrapping application:", e);
     state.initialLoading = false;
@@ -483,12 +516,7 @@ async function handleCellClick(index) {
   if (state.showSettingsModal) {
     return;
   }
-  if (
-    state.aiThinking ||
-    state.hintLoading ||
-    state.isGameOver ||
-    state.currentPlayer !== state.humanColor
-  ) {
+  if (state.aiThinking || state.isGameOver || state.currentPlayer !== state.humanColor) {
     return;
   }
 
@@ -496,6 +524,7 @@ async function handleCellClick(index) {
     return;
   }
 
+  // Aborts an in-flight hint search so the move applies immediately.
   clearHints();
   state.lastHumanMove = index;
   state.lastAiMove = null;
@@ -523,18 +552,43 @@ function maybeAutoHint() {
     state.aiThinking ||
     state.showSettingsModal ||
     state.isGameOver ||
-    state.legalMoves.length === 0
+    state.legalMoves.length === 0 ||
+    !hintWorkerReady
   ) {
     return;
   }
   state.hints = {};
   state.hintLoading = true;
-  workerApi.hint();
+  hintGeneration += 1;
+  hintWorker.postMessage({
+    type: "hint_replay",
+    payload: {
+      humanIsBlack: state.humanIsBlack,
+      level: state.level,
+      moves: state.moveHistory.map((move) => ({ player: move.player, index: move.index })),
+    },
+    generation: hintGeneration,
+  });
 }
 
 function clearHints() {
-  state.hintLoading = false;
+  abortHintComputation();
   state.hints = null;
+}
+
+// Stops an in-flight hint search. The worker blocks synchronously inside the
+// search, so terminating it is the only way to interrupt; a fresh worker is
+// spawned to be ready for the next request. No-op when no search is running.
+function abortHintComputation() {
+  if (!state.hintLoading) {
+    return;
+  }
+  state.hintLoading = false;
+  hintGeneration += 1;
+  if (hintWorker) {
+    hintWorker.terminate();
+  }
+  spawnHintWorker();
 }
 
 function handleModalColorChange(event) {
