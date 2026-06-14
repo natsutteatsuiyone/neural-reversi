@@ -63,7 +63,6 @@ const locales = {
       depth: "深さ",
       nodes: "ノード",
       nps: "NPS",
-      selectivity: "確度",
     },
     boardAria: "リバーシ盤面",
     cellAria: (notation) => `マス ${notation}`,
@@ -135,7 +134,6 @@ const locales = {
       depth: "Depth",
       nodes: "Nodes",
       nps: "NPS",
-      selectivity: "Selectivity",
     },
     boardAria: "Reversi board",
     cellAria: (notation) => `Square ${notation}`,
@@ -867,11 +865,12 @@ function formatEngineStats(stats) {
   if (!stats) {
     return null;
   }
+  const selectivity = Math.round(stats.selectivity);
   return {
-    depth: String(stats.depth),
+    // Edax-style `depth@selectivity`; the suffix is dropped for exact (100%) search.
+    depth: selectivity >= 100 ? String(stats.depth) : `${stats.depth}@${selectivity}`,
     nodes: formatNodes(stats.nodes),
     nps: formatNps(stats.nps),
-    selectivity: `${Math.round(stats.selectivity)}%`,
   };
 }
 
