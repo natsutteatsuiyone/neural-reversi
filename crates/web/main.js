@@ -59,6 +59,12 @@ const locales = {
       white: "白",
       empty: "残りマス",
     },
+    engine: {
+      depth: "深さ",
+      nodes: "ノード",
+      nps: "NPS",
+      selectivity: "確度",
+    },
     boardAria: "リバーシ盤面",
     cellAria: (notation) => `マス ${notation}`,
     colors: {
@@ -125,6 +131,12 @@ const locales = {
       white: "White",
       empty: "Remaining",
     },
+    engine: {
+      depth: "Depth",
+      nodes: "Nodes",
+      nps: "NPS",
+      selectivity: "Selectivity",
+    },
     boardAria: "Reversi board",
     cellAria: (notation) => `Square ${notation}`,
     colors: {
@@ -187,6 +199,7 @@ const state = reactive({
   message: locales[defaultLocale].loading,
   messageKind: "info",
   searchProgress: null,
+  statsTooltip: { visible: false, stats: null, style: {} },
   isHumanTurn: false,
   showSettingsModal: true,
   // New state properties
@@ -215,9 +228,12 @@ const view = {
       turn: index + 1,
       isAiMove: move.player === state.aiColor,
       evaluation: move.evaluation,
+      stats: formatEngineStats(move.engineStats),
     }));
   },
   toNotation,
+  showStatsTooltip,
+  hideStatsTooltip,
   handleCellClick,
   handleNewGame,
   handleModalColorChange,
@@ -322,7 +338,7 @@ worker.onmessage = async (event) => {
         state.lastAiMove = payload.move;
         state.lastHumanMove = null;
         const evaluation = state.searchProgress?.score;
-        logMove(state.aiColor, payload.move, { evaluation });
+        logMove(state.aiColor, payload.move, { evaluation, engineStats: payload.engineStats });
       } else if (!nextState.isGameOver && nextState.currentPlayer === state.humanColor) {
         state.passNotice = "ai";
         state.lastAiMove = null;
@@ -493,6 +509,7 @@ function logMove(color, index, options = {}) {
     player: color,
     index,
     evaluation,
+    engineStats: isAiMove ? (options.engineStats ?? null) : null,
   });
   scrollMoveLogToBottom();
 }
@@ -779,6 +796,68 @@ function clampLevelValue(value) {
 
 function handleSearchProgress(update) {
   state.searchProgress = { score: Number(update?.score ?? 0) };
+}
+
+function formatNodes(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0";
+  }
+  if (value >= 1e6) {
+    return `${(value / 1e6).toFixed(1)}M`;
+  }
+  if (value >= 1e3) {
+    return `${(value / 1e3).toFixed(1)}k`;
+  }
+  return String(Math.round(value));
+}
+
+function formatNps(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 N/s";
+  }
+  if (value >= 1e6) {
+    return `${(value / 1e6).toFixed(1)} MN/s`;
+  }
+  if (value >= 1e3) {
+    return `${(value / 1e3).toFixed(1)} kN/s`;
+  }
+  return `${Math.round(value)} N/s`;
+}
+
+// Positions a fixed-position tooltip anchored to the hovered eval chip. Fixed
+// positioning escapes the move-log's scroll overflow so it is never clipped.
+// Uses right/bottom (or top) offsets so the popup never needs to be measured.
+function showStatsTooltip(event, stats) {
+  if (!stats) {
+    return;
+  }
+  const rect = event.currentTarget.getBoundingClientRect();
+  const openUp = rect.top > 160;
+  const style = { right: `${Math.max(8, Math.round(window.innerWidth - rect.right))}px` };
+  if (openUp) {
+    style.bottom = `${Math.round(window.innerHeight - rect.top + 6)}px`;
+  } else {
+    style.top = `${Math.round(rect.bottom + 6)}px`;
+  }
+  state.statsTooltip = { visible: true, stats, style };
+}
+
+function hideStatsTooltip() {
+  state.statsTooltip = { visible: false, stats: null, style: {} };
+}
+
+// Maps a raw engineStats payload to display strings for the move-log hover
+// tooltip, or null when the move had no search (opening random move / pass).
+function formatEngineStats(stats) {
+  if (!stats) {
+    return null;
+  }
+  return {
+    depth: String(stats.depth),
+    nodes: formatNodes(stats.nodes),
+    nps: formatNps(stats.nps),
+    selectivity: `${Math.round(stats.selectivity)}%`,
+  };
 }
 
 function formatEvaluation(value) {

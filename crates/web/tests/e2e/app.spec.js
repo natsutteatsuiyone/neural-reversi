@@ -63,6 +63,13 @@ async function installFakeWorker(page) {
             payload: {
               move: 19,
               gameState: window.__aiMovedGameState,
+              engineStats: {
+                depth: 12,
+                nodes: 1234567,
+                nps: 5000000,
+                selectivity: 99,
+                score: 6,
+              },
             },
             generation: message.generation,
           });
@@ -468,6 +475,58 @@ test("auto-passes when the human has no legal move", async ({ page }) => {
       ),
     )
     .toBeGreaterThan(0);
+});
+
+test("reveals engine stats on hovering the move-log robot icon", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const generation = await startGameAndGetGeneration(page);
+
+  // Drive an AI turn; the fake worker replies with a fixed engineStats payload.
+  await page.evaluate((gen) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({
+      type: "state_updated",
+      payload: { ...window.__initialGameState, currentPlayer: 2 },
+      generation: gen,
+    });
+  }, generation);
+
+  const evalChip = page.locator(".move-log__eval--has-stats").first();
+  await expect(evalChip).toBeVisible();
+
+  // The popover only mounts while the chip is hovered.
+  await expect(page.locator(".stats-tooltip")).toHaveCount(0);
+
+  await evalChip.hover();
+  const tooltip = page.locator(".stats-tooltip");
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText("12");
+  await expect(tooltip).toContainText("1.2M");
+  await expect(tooltip).toContainText("5.0 MN/s");
+  await expect(tooltip).toContainText("99%");
+
+  // Moving away unmounts the popover (exercises the hide path).
+  await page.mouse.move(0, 0);
+  await expect(tooltip).toHaveCount(0);
+});
+
+test("caps the move-log height on narrow screens", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+  await startGameAndGetGeneration(page);
+
+  // The narrow layout reserves a fixed height up front and scrolls the log
+  // internally rather than stretching the page into a tall, thin strip.
+  const style = await page.locator("#move-log-scroll").evaluate((el) => {
+    const computed = getComputedStyle(el);
+    return { height: computed.height, overflowY: computed.overflowY };
+  });
+  expect(style.overflowY).toBe("auto");
+  // 50vh of an 800px-tall viewport ≈ 400px.
+  expect(Number.parseFloat(style.height)).toBeGreaterThan(300);
 });
 
 // Undo is a no-op until moveHistory is non-empty, which is populated only by a

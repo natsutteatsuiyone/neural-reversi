@@ -214,7 +214,11 @@
                                     aria-hidden="true"></span>
                                 <span class="move-log__text">{{ entry.notation }}</span>
                                 <span v-if="entry.isAiMove" class="move-log__eval"
-                                    :aria-label="localeTexts.moveLog.aiEvalLabel">
+                                    :class="{ 'move-log__eval--has-stats': entry.stats }"
+                                    :tabindex="entry.stats ? 0 : null" :aria-label="localeTexts.moveLog.aiEvalLabel"
+                                    @mouseenter="showStatsTooltip($event, entry.stats)"
+                                    @mouseleave="hideStatsTooltip()" @focus="showStatsTooltip($event, entry.stats)"
+                                    @blur="hideStatsTooltip()">
                                     <span class="move-log__eval-icon" aria-hidden="true">
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                                             stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -234,6 +238,25 @@
                     </div>
                 </section>
             </aside>
+        </div>
+        <div v-if="state.statsTooltip.visible && state.statsTooltip.stats" class="stats-tooltip" role="tooltip"
+            :style="state.statsTooltip.style">
+            <div class="stats-tooltip__row">
+                <span class="stats-tooltip__label">{{ localeTexts.engine.depth }}</span>
+                <span class="stats-tooltip__value">{{ state.statsTooltip.stats?.depth }}</span>
+            </div>
+            <div class="stats-tooltip__row">
+                <span class="stats-tooltip__label">{{ localeTexts.engine.nodes }}</span>
+                <span class="stats-tooltip__value">{{ state.statsTooltip.stats?.nodes }}</span>
+            </div>
+            <div class="stats-tooltip__row">
+                <span class="stats-tooltip__label">{{ localeTexts.engine.nps }}</span>
+                <span class="stats-tooltip__value">{{ state.statsTooltip.stats?.nps }}</span>
+            </div>
+            <div class="stats-tooltip__row">
+                <span class="stats-tooltip__label">{{ localeTexts.engine.selectivity }}</span>
+                <span class="stats-tooltip__value">{{ state.statsTooltip.stats?.selectivity }}</span>
+            </div>
         </div>
     </div>
 
