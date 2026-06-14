@@ -401,3 +401,77 @@ test("surfaces a load failure instead of hanging on the spinner", async ({ page 
   await expect(page.locator("#loading-overlay")).toContainText("読み込みに失敗");
   await expect(page.getByRole("dialog", { name: "ゲーム設定" })).toBeHidden();
 });
+
+// Starts a game, then returns the generation carried by the latest main-worker
+// message (the current gameGeneration, e.g. after "Start Game" triggers a reset).
+async function startGameAndGetGeneration(page) {
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expect(settingsDialog).toBeHidden();
+  return page.evaluate(() => {
+    const worker = window.__fakeWorkers[0];
+    return worker.messages[worker.messages.length - 1].generation;
+  });
+}
+
+test("shows the game over modal when a terminal state arrives", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const generation = await startGameAndGetGeneration(page);
+
+  // Human is black; score [40, 24] means black wins, so the human wins.
+  await page.evaluate((gen) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({
+      type: "state_updated",
+      payload: {
+        ...window.__initialGameState,
+        isGameOver: true,
+        score: [40, 24],
+        legalMoves: [],
+      },
+      generation: gen,
+    });
+  }, generation);
+
+  await expect(page.locator(".game-over-modal")).toBeVisible();
+  await expect(page.locator(".game-over-modal__panel--win")).toBeVisible();
+  await expect(page.locator(".game-over-modal__score-value")).toHaveText(["40", "24"]);
+});
+
+test("auto-passes when the human has no legal move", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const generation = await startGameAndGetGeneration(page);
+
+  await page.evaluate((gen) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({
+      type: "state_updated",
+      payload: {
+        ...window.__initialGameState,
+        currentPlayer: 1,
+        legalMoves: [],
+      },
+      generation: gen,
+    });
+  }, generation);
+
+  // Locale is ja-JP; assert the toast is visible without asserting its text.
+  await expect(page.locator(".toast")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__fakeWorkers[0].messages.filter((message) => message.type === "pass").length,
+      ),
+    )
+    .toBeGreaterThan(0);
+});
+
+// Undo is a no-op until moveHistory is non-empty, which is populated only by a
+// real click on the 3D canvas (logMove in handleCellClick). There is no
+// emit-only path, and clicking a legal cell requires projecting it to a screen
+// pixel against the orthographic camera — too fragile to assert reliably here.
+test.skip("undo replays the remaining moves after a board click", () => {});
