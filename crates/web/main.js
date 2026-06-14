@@ -173,6 +173,11 @@ const locales = {
 
 const defaultLocale = detectPreferredLocale();
 
+// Matches the narrow-layout breakpoint in styles.css. On narrow screens the move
+// log is a fixed-height scroller, so we render it newest-first to keep the
+// latest move in view without scrolling.
+const NARROW_QUERY = window.matchMedia("(max-width: 900px)");
+
 const state = reactive({
   board: Array(64).fill(0),
   legalMoves: [],
@@ -200,6 +205,7 @@ const state = reactive({
   messageKind: "info",
   searchProgress: null,
   statsTooltip: { visible: false, stats: null, style: {} },
+  isNarrow: NARROW_QUERY.matches,
   isHumanTurn: false,
   showSettingsModal: true,
   // New state properties
@@ -221,7 +227,7 @@ const view = {
     return currentLocale();
   },
   get moveLog() {
-    return state.moveHistory.map((move, index) => ({
+    const entries = state.moveHistory.map((move, index) => ({
       id: `${index + 1}-${move.player}-${toNotation(move.index)}`,
       color: move.player,
       notation: toNotation(move.index),
@@ -230,6 +236,8 @@ const view = {
       evaluation: move.evaluation,
       stats: formatEngineStats(move.engineStats),
     }));
+    // Newest-first on narrow screens so the latest move stays visible.
+    return state.isNarrow ? entries.reverse() : entries;
   },
   toNotation,
   showStatsTooltip,
@@ -248,6 +256,12 @@ const view = {
 
 createApp(view).mount();
 syncSiteHeaderHeight();
+
+// Flip the move-log order live when crossing the narrow-layout breakpoint.
+NARROW_QUERY.addEventListener("change", (event) => {
+  state.isNarrow = event.matches;
+  scrollMoveLogToLatest();
+});
 
 // --- 3D board (three.js) ---
 // Created after petite-vue enhances the existing markup so the mount element is
@@ -511,14 +525,15 @@ function logMove(color, index, options = {}) {
     evaluation,
     engineStats: isAiMove ? (options.engineStats ?? null) : null,
   });
-  scrollMoveLogToBottom();
+  scrollMoveLogToLatest();
 }
 
-function scrollMoveLogToBottom() {
+function scrollMoveLogToLatest() {
   requestAnimationFrame(() => {
     const container = document.getElementById("move-log-scroll");
     if (container) {
-      container.scrollTop = container.scrollHeight;
+      // Narrow layout renders newest-first, so the latest move is at the top.
+      container.scrollTop = state.isNarrow ? 0 : container.scrollHeight;
     }
   });
 }
@@ -670,7 +685,7 @@ async function resetGame() {
   state.gameOverModalDismissed = false;
   state.pendingColor = state.selectedColor;
   state.pendingLevel = state.selectedLevel;
-  scrollMoveLogToBottom();
+  scrollMoveLogToLatest();
 }
 
 function runAiTurn() {

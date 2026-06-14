@@ -547,6 +547,35 @@ test("places the hint toggle to the right of the level", async ({ page }) => {
   expect(Math.abs(hintBox.y - levelBox.y)).toBeLessThan(8);
 });
 
+test("renders the move log newest-first on narrow screens", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const generation = await startGameAndGetGeneration(page);
+
+  // Drive two AI turns so the log holds more than one entry.
+  const driveAiTurn = async () => {
+    await page.evaluate((gen) => {
+      const worker = window.__fakeWorkers[0];
+      worker.emit({
+        type: "state_updated",
+        payload: { ...window.__initialGameState, currentPlayer: 2 },
+        generation: gen,
+      });
+    }, generation);
+  };
+  await driveAiTurn();
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(1);
+  await driveAiTurn();
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(2);
+
+  // Newest-first: the first rendered row is the second (latest) move.
+  await expect(page.locator("#move-log-scroll li").first().locator(".move-log__turn")).toHaveText(
+    "2.",
+  );
+});
+
 // Undo is a no-op until moveHistory is non-empty, which is populated only by a
 // real click on the 3D canvas (logMove in handleCellClick). There is no
 // emit-only path, and clicking a legal cell requires projecting it to a screen
