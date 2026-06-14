@@ -229,7 +229,9 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
     let n_empties = ctx.empty_list.count();
     let score = estimate_aspiration_base_score(ctx, board, n_empties);
-    let final_selectivity = if n_empties > level.perfect_depth {
+    let final_selectivity = if n_empties > level.perfect_depth + 2 {
+        Selectivity::Level2
+    } else if n_empties > level.perfect_depth {
         Selectivity::Level3
     } else {
         Selectivity::None
@@ -370,7 +372,9 @@ fn search_root_endgame_multipv(
 ) -> SearchResult {
     let n_empties = ctx.empty_list.count();
     let base_score = estimate_aspiration_base_score(ctx, board, n_empties);
-    let final_selectivity = if n_empties > level.perfect_depth {
+    let final_selectivity = if n_empties > level.perfect_depth + 2 {
+        Selectivity::Level2
+    } else if n_empties > level.perfect_depth {
         Selectivity::Level3
     } else {
         Selectivity::None

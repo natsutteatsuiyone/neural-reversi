@@ -294,9 +294,10 @@ impl Game {
 
 fn level_for_position(mid_depth: Depth) -> Level {
     let perfect_depth = (mid_depth as f64 * 1.1).floor() as Depth;
-    // The 99% selective endgame search always spans the two plies just before
-    // the complete-reading boundary.
-    let end_depth = perfect_depth + 2;
+    // Above the complete-reading boundary the endgame search spans four plies:
+    // the two immediately above it at 99% selectivity (Level3) and the next two
+    // at 95% selectivity (Level2).
+    let end_depth = perfect_depth + 4;
     Level {
         mid_depth,
         end_depth,
@@ -540,25 +541,25 @@ mod tests {
     fn level_for_position_derives_expected_depths() {
         // (mid_depth, expected end_depth, expected perfect_depth)
         let cases: [(Depth, Depth, Depth); 7] = [
-            (1, 3, 1),
-            (7, 9, 7),
-            (8, 10, 8),
-            (9, 11, 9),
-            (10, 13, 11),
-            (12, 15, 13),
-            (24, 28, 26),
+            (1, 5, 1),
+            (7, 11, 7),
+            (8, 12, 8),
+            (9, 13, 9),
+            (10, 15, 11),
+            (12, 17, 13),
+            (24, 30, 26),
         ];
         for (mid, end, perfect) in cases {
             let level = level_for_position(mid);
             assert_eq!(level.mid_depth, mid, "mid_depth for {mid}");
             assert_eq!(level.end_depth, end, "end_depth for {mid}");
             assert_eq!(level.perfect_depth, perfect, "perfect_depth for {mid}");
-            // The 99% selective endgame zone is always exactly the two plies
+            // The selective endgame zone is always exactly the four plies
             // immediately above the complete-reading boundary.
             assert_eq!(
                 level.end_depth,
-                level.perfect_depth + 2,
-                "2-ply zone for {mid}"
+                level.perfect_depth + 4,
+                "4-ply zone for {mid}"
             );
         }
     }
