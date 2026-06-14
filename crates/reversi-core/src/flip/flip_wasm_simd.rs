@@ -53,11 +53,12 @@ impl BoardCtx {
     #[inline]
     pub fn new(player: u64, opponent: u64) -> Self {
         let not_opponent = !opponent;
+        let rev = bit_reverse_u64x2(u64x2(player, not_opponent));
         Self {
             pp: u64x2_splat(player),
             no: u64x2_splat(not_opponent),
-            pp_rev: u64x2_splat(player.reverse_bits()),
-            no_rev: u64x2_splat(not_opponent.reverse_bits()),
+            pp_rev: i64x2_shuffle::<0, 0>(rev, rev),
+            no_rev: i64x2_shuffle::<1, 1>(rev, rev),
             zero: u64x2_splat(0),
             one: u64x2_splat(1),
         }
@@ -127,8 +128,8 @@ unsafe fn flip_index_prepared(
     let flip_rr_b = flip_left_pair(mask_rr_b, pp_rev, no_rev, zero, one);
 
     let flip_l = v128_or(flip_l_a, flip_l_b);
-    let flip_rr = v128_or(flip_rr_a, flip_rr_b);
-    fold_or_pair(flip_l) | fold_or_pair(flip_rr).reverse_bits()
+    let flip_rr = bit_reverse_u64x2(v128_or(flip_rr_a, flip_rr_b));
+    fold_or_pair(flip_l) | fold_or_pair(flip_rr)
 }
 
 /// LEFT side masks: E, S, SE, SW. The closest square is the least significant
@@ -146,6 +147,30 @@ fn flip_left_pair(mask: v128, pp: v128, no: v128, zero: v128, one: v128) -> v128
 #[target_feature(enable = "simd128")]
 fn fold_or_pair(x: v128) -> u64 {
     u64x2_extract_lane::<0>(x) | u64x2_extract_lane::<1>(x)
+}
+
+/// Reverses the bits within each 64-bit lane (lane `i` becomes
+/// `reverse_bits(lane_i)`). wasm SIMD has no bit-reversal opcode, so this
+/// reverses the byte order within each lane (`i8x16.swizzle`) and then the
+/// bits within each byte via a 4-bit nibble lookup table (two more swizzles).
+/// One short, parallel SIMD sequence in place of the scalar
+/// `u64::reverse_bits` shift/mask chain.
+#[inline]
+#[target_feature(enable = "simd128")]
+fn bit_reverse_u64x2(x: v128) -> v128 {
+    let byte_rev = i8x16_swizzle(
+        x,
+        i8x16(7, 6, 5, 4, 3, 2, 1, 0, 15, 14, 13, 12, 11, 10, 9, 8),
+    );
+    // `lut[n]` is the 4-bit reversal of nibble `n` (e.g. 0b0001 -> 0b1000).
+    let lut = i8x16(0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15);
+    let low_mask = u8x16_splat(0x0f);
+    let lo = v128_and(byte_rev, low_mask);
+    let hi = v128_and(u8x16_shr(byte_rev, 4), low_mask);
+    // The reversed low nibble moves to the high half of the byte and vice versa.
+    let rev_lo = i8x16_swizzle(lut, lo);
+    let rev_hi = i8x16_swizzle(lut, hi);
+    v128_or(i8x16_shl(rev_lo, 4), rev_hi)
 }
 
 #[cfg(test)]
