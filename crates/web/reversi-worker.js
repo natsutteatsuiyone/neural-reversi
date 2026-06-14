@@ -8,6 +8,9 @@ let initModule;
 
 let game;
 let currentGeneration = 0;
+// Latest search-progress payload from the most recent AI search, captured so the
+// final iteration's stats can be bundled into the `ai_moved` message.
+let lastSearchProgress = null;
 
 self.onmessage = async (event) => {
   const { type, payload, generation } = event.data;
@@ -30,6 +33,7 @@ self.onmessage = async (event) => {
       game = new Game(payload.humanIsBlack);
       game.set_level(payload.level);
       game.set_progress_callback((progress) => {
+        lastSearchProgress = progress;
         self.postMessage({
           type: "search_progress",
           payload: progress,
@@ -70,10 +74,17 @@ self.onmessage = async (event) => {
       break;
     }
     case "ai_move": {
+      lastSearchProgress = null;
+      const start = performance.now();
       const move = game.ai_move();
+      const elapsedMs = performance.now() - start;
       self.postMessage({
         type: "ai_moved",
-        payload: { move, gameState: getGameState() },
+        payload: {
+          move,
+          gameState: getGameState(),
+          engineStats: buildEngineStats(lastSearchProgress, elapsedMs),
+        },
         generation: currentGeneration,
       });
       break;
@@ -153,6 +164,24 @@ self.onmessage = async (event) => {
     }
   }
 };
+
+// Bundles the final search iteration's stats with the elapsed wall-clock time so
+// the UI can show depth, nodes, NPS, selectivity, and evaluation for the AI move.
+// Returns null when no search ran (e.g. opening random move or a forced pass).
+function buildEngineStats(progress, elapsedMs) {
+  if (!progress) {
+    return null;
+  }
+  const nodes = Number(progress.nodes ?? 0);
+  const seconds = elapsedMs / 1000;
+  return {
+    depth: Number(progress.depth ?? 0),
+    nodes,
+    nps: seconds > 0 ? nodes / seconds : 0,
+    selectivity: Number(progress.probcut ?? 0),
+    score: Number(progress.score ?? 0),
+  };
+}
 
 function getGameState() {
   if (!game) return null;

@@ -698,6 +698,47 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.move-log__eval--has-stats {
+  cursor: help;
+}
+
+/* Engine-stats popover for the AI eval (robot) chip. Fixed-positioned in JS so
+   it escapes the move-log scroll overflow and is never clipped. */
+.stats-tooltip {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  color: var(--foreground);
+  pointer-events: none;
+}
+
+.stats-tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.stats-tooltip__label {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--foreground-secondary);
+}
+
+.stats-tooltip__value {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-gold);
+}
+
 .move-log__eval-icon {
   width: 18px;
   height: 18px;
@@ -1219,18 +1260,18 @@ button:disabled {
 
 @media (max-width: 900px) {
   /* On narrow screens the panel has no board column to stretch against, so the
-     board-height fill (flex: 1 1 0) would collapse the log. Let it grow with its
-     content and scroll the whole page instead. Placed after the base rules so it
-     wins on source order. */
+     board-height fill (flex: 1 1 0) would collapse the log. Reserve a fixed
+     height up front so the box stays put as moves are added, and scroll
+     internally instead of stretching the page into a tall, thin strip. Placed
+     after the base rules so it wins on source order. */
   .move-log {
     flex: none;
   }
 
   .move-log__body {
     flex: none;
-    height: auto;
+    height: 50vh;
     min-height: 0;
-    max-height: none;
-    overflow-y: visible;
+    overflow-y: auto;
   }
 }
