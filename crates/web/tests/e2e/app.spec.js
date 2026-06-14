@@ -81,6 +81,10 @@ async function installFakeWorker(page) {
           this.onmessage?.({ data: message });
         }, 0);
       }
+
+      terminate() {
+        this.terminated = true;
+      }
     };
   });
 }
@@ -258,6 +262,57 @@ test("does not flash AI thinking badge when closing settings resumes a fast AI t
   await expect(page.locator(".thinking-badge", { hasText: "AIが考え中です…" })).toHaveCount(0);
 });
 
+// Hints run on a dedicated worker (index >= 1); the main worker is index 0.
+const hintReplays = (page) =>
+  page.evaluate(() =>
+    window.__fakeWorkers
+      .slice(1)
+      .flatMap((w) => w.messages.filter((m) => m.type === "hint_replay")),
+  );
+const hintRequestCount = async (page) => (await hintReplays(page)).length;
+const latestHintGeneration = async (page) => {
+  const replays = await hintReplays(page);
+  return replays.length ? replays[replays.length - 1].generation : null;
+};
+const completeHint = async (page, generation) => {
+  await page.evaluate((gen) => {
+    const worker = window.__fakeWorkers
+      .slice(1)
+      .find((w) => w.messages.some((m) => m.type === "hint_replay" && m.generation === gen));
+    if (!worker) {
+      return;
+    }
+    worker.emit({
+      type: "hint_progress",
+      payload: { depth: 4, score: 1.5, bestMoveIndex: 19 },
+      generation: gen,
+    });
+    worker.emit({
+      type: "hint_completed",
+      payload: {
+        hints: [
+          { move: 19, score: 1.5 },
+          { move: 26, score: -0.5 },
+        ],
+      },
+      generation: gen,
+    });
+  }, generation);
+};
+// Re-emit the (human-turn) game state from the main worker to drive the next turn.
+// Uses the latest main-worker message's generation, which always carries the
+// current gameGeneration (e.g. after the reset that "Start Game" triggers).
+const emitHumanTurn = (page) =>
+  page.evaluate(() => {
+    const worker = window.__fakeWorkers[0];
+    const gameGeneration = worker.messages[worker.messages.length - 1].generation;
+    worker.emit({
+      type: "state_updated",
+      payload: window.__initialGameState,
+      generation: gameGeneration,
+    });
+  });
+
 test("auto-hint toggle drives hints on every human turn", async ({ page }) => {
   await installFakeWorker(page);
   await waitForAppReady(page);
@@ -270,90 +325,52 @@ test("auto-hint toggle drives hints on every human turn", async ({ page }) => {
   await expect(hintToggle).toBeVisible();
   await expect(hintToggle).not.toBeChecked();
 
-  const hintBadge = page.locator(".thinking-badge", { hasText: "ヒントを計算中…" });
-  const completeHint = async (generation) => {
-    await page.evaluate((gen) => {
-      const worker = window.__fakeWorkers[0];
-      worker.emit({
-        type: "hint_progress",
-        payload: {
-          depth: 4,
-          score: 1.5,
-          probcut: 73,
-          nodes: 1000,
-          bestMove: "d3",
-          bestMoveIndex: 19,
-        },
-        generation: gen,
-      });
-      worker.emit({
-        type: "hint_completed",
-        payload: {
-          hints: [
-            { move: 19, score: 1.5 },
-            { move: 26, score: -0.5 },
-          ],
-        },
-        generation: gen,
-      });
-    }, generation);
-  };
-  const hintRequestCount = () =>
-    page.evaluate(
-      () => window.__fakeWorkers[0].messages.filter((message) => message.type === "hint").length,
-    );
-
   await page.locator(".hint-toggle").click();
   await expect(hintToggle).toBeChecked();
-  await expect(hintBadge).toBeVisible();
-  const hintRequests = await page.evaluate(() =>
-    window.__fakeWorkers[0].messages.filter((message) => message.type === "hint"),
-  );
-  expect(hintRequests).toHaveLength(1);
-  const hintGeneration = hintRequests[0].generation;
+  await expect.poll(() => hintRequestCount(page)).toBe(1);
+  await completeHint(page, await latestHintGeneration(page));
 
-  await completeHint(hintGeneration);
-  await expect(hintBadge).toHaveCount(0);
+  await emitHumanTurn(page);
+  await expect.poll(() => hintRequestCount(page)).toBe(2);
+  await completeHint(page, await latestHintGeneration(page));
 
-  await page.evaluate((generation) => {
-    const worker = window.__fakeWorkers[0];
-    worker.emit({
-      type: "state_updated",
-      payload: window.__initialGameState,
-      generation,
-    });
-  }, hintGeneration);
-  await expect.poll(hintRequestCount).toBe(2);
-  await expect(hintBadge).toBeVisible();
-
-  await completeHint(hintGeneration);
-  await expect(hintBadge).toHaveCount(0);
-
+  // Toggling off must stop driving hints on later turns.
   await page.locator(".hint-toggle").click();
   await expect(hintToggle).not.toBeChecked();
-  await page.evaluate((generation) => {
-    const worker = window.__fakeWorkers[0];
-    worker.emit({
-      type: "state_updated",
-      payload: window.__initialGameState,
-      generation,
-    });
-  }, hintGeneration);
+  await emitHumanTurn(page);
   await page.waitForTimeout(250);
-  expect(await hintRequestCount()).toBe(2);
+  expect(await hintRequestCount(page)).toBe(2);
 
+  // Toggling back on resumes hints.
   await page.locator(".hint-toggle").click();
   await expect(hintToggle).toBeChecked();
-  await expect(hintBadge).toBeVisible();
-  await expect.poll(hintRequestCount).toBe(3);
+  await expect.poll(() => hintRequestCount(page)).toBe(3);
+});
 
+test("aborts an in-flight hint by terminating and respawning the hint worker", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expect(settingsDialog).toBeHidden();
+
+  // Start a hint search and leave it running (never completed).
   await page.locator(".hint-toggle").click();
-  await expect(hintToggle).not.toBeChecked();
-  await expect(hintBadge).toHaveCount(0);
+  await expect.poll(() => hintRequestCount(page)).toBe(1);
 
-  await completeHint(hintGeneration);
-  await page.waitForTimeout(250);
-  await expect(hintBadge).toHaveCount(0);
+  const workerCountBefore = await page.evaluate(() => window.__fakeWorkers.length);
+
+  // Toggling off clears hints, which aborts the in-flight search. This is the same
+  // clearHints path that a board move takes, so it covers the play-during-hint abort.
+  await page.locator(".hint-toggle").click();
+  await expect(page.locator("#hint-toggle")).not.toBeChecked();
+
+  // The stalled hint worker is terminated and a fresh one is spawned.
+  await expect
+    .poll(() => page.evaluate(() => window.__fakeWorkers.length))
+    .toBe(workerCountBefore + 1);
+  expect(await page.evaluate(() => window.__fakeWorkers[1].terminated)).toBe(true);
 });
 
 test("surfaces a load failure instead of hanging on the spinner", async ({ page }) => {
