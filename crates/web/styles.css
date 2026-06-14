@@ -963,6 +963,7 @@ button:disabled {
     rgba(255, 255, 255, 0.1) 100%
   );
   border-radius: 999px;
+  background-clip: padding-box;
   outline: none;
   cursor: pointer;
   appearance: none;
