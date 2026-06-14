@@ -18,6 +18,9 @@ const FRAME_WIDTH = 0.15;
 const FRAME_HEIGHT = 0.06;
 const CHAMFER_HEIGHT = 0.01;
 const GROOVE_WIDTH = 0.03;
+// Decorative star points (hoshi) at the grid-line intersections 2 and 6.
+const STAR_POINT_RADIUS = 0.06;
+const STAR_POINT_COLOR = "#1a1a1a";
 // Margin around the framed board reserved for the coordinate labels.
 const LABEL_MARGIN = 0.6;
 const LABEL_OFFSET = FRAME_WIDTH + 0.2;
@@ -238,7 +241,7 @@ export function createBoard3D(container, { onCellClick }) {
   renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   container.appendChild(renderer.domElement);
   renderer.domElement.style.display = "block";
   renderer.domElement.style.width = "100%";
@@ -268,6 +271,7 @@ export function createBoard3D(container, { onCellClick }) {
 
   buildFrame(scene);
   buildSurface(scene);
+  buildStarPoints(scene);
   buildLabels(scene);
 
   // --- Move indicators (valid-move dots + gold last-move ring) ---
@@ -798,6 +802,22 @@ function buildSurface(scene) {
     h.rotation.x = -Math.PI / 2;
     h.position.set(0, 0.001, z);
     scene.add(h);
+  }
+}
+
+/** Four black star points (hoshi) at the felt's inner grid-line intersections. */
+function buildStarPoints(scene) {
+  const halfBoard = BOARD_WORLD_SIZE / 2;
+  const geometry = new THREE.CircleGeometry(STAR_POINT_RADIUS, 24);
+  const material = new THREE.MeshBasicMaterial({ color: STAR_POINT_COLOR });
+  for (const i of [2, 6]) {
+    for (const j of [2, 6]) {
+      const dot = new THREE.Mesh(geometry, material);
+      dot.rotation.x = -Math.PI / 2;
+      // Sit just above the grooves (y=0.001), below the move/hint overlays.
+      dot.position.set(i * CELL_SIZE - halfBoard, 0.0012, j * CELL_SIZE - halfBoard);
+      scene.add(dot);
+    }
   }
 }
 
