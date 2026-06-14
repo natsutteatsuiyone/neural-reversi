@@ -8,6 +8,9 @@ export const DISC_HEIGHT = 0.08;
 export const FRAME_WIDTH = 0.15;
 export const FRAME_HEIGHT = 0.06;
 export const GROOVE_WIDTH = 0.03;
+// Decorative star points (hoshi) at the grid-line intersections 2 and 6.
+export const STAR_POINT_RADIUS = 0.06;
+export const STAR_POINT_COLOR = "#1a1a1a";
 export const DISC_COLOR_BLACK = "#2a2a2d";
 export const DISC_COLOR_WHITE = "#e8e4df";
 export const GROOVE_COLOR = "#1a5238";

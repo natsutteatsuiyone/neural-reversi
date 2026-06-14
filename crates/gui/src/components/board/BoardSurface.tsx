@@ -1,12 +1,21 @@
 import { useMemo } from "react";
 import * as THREE from "three";
-import { CELL_SIZE, BOARD_WORLD_SIZE, GROOVE_COLOR, GROOVE_WIDTH } from "./board3d-utils";
+import {
+  CELL_SIZE,
+  BOARD_WORLD_SIZE,
+  GROOVE_COLOR,
+  GROOVE_WIDTH,
+  STAR_POINT_COLOR,
+  STAR_POINT_RADIUS,
+} from "./board3d-utils";
 
 const grooveMaterial = new THREE.MeshStandardMaterial({
   color: GROOVE_COLOR,
   roughness: 0.95,
   metalness: 0,
 });
+
+const starPointMaterial = new THREE.MeshBasicMaterial({ color: STAR_POINT_COLOR });
 
 /** Generate a felt-like procedural texture using Canvas API */
 function createFeltTexture(): THREE.CanvasTexture {
@@ -102,6 +111,38 @@ export function BoardSurface() {
         />
       </mesh>
       <GridGrooves />
+      <StarPoints />
+    </group>
+  );
+}
+
+/** Four black star points (hoshi) at the inner grid-line intersections */
+function StarPoints() {
+  const halfBoard = BOARD_WORLD_SIZE / 2;
+
+  const points = useMemo(() => {
+    const result: [number, number, number][] = [];
+    for (const i of [2, 6]) {
+      for (const j of [2, 6]) {
+        // Sit just above the grooves (y=0.001), below the move/hint overlays.
+        result.push([i * CELL_SIZE - halfBoard, 0.0012, j * CELL_SIZE - halfBoard]);
+      }
+    }
+    return result;
+  }, [halfBoard]);
+
+  return (
+    <group>
+      {points.map((position, i) => (
+        <mesh
+          key={i}
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={position}
+          material={starPointMaterial}
+        >
+          <circleGeometry args={[STAR_POINT_RADIUS, 24]} />
+        </mesh>
+      ))}
     </group>
   );
 }
