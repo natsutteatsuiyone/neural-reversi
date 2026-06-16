@@ -150,6 +150,44 @@ macro_rules! flip_prepared_ymm_body {
 }
 
 #[cfg(target_arch = "x86_64")]
+macro_rules! flip_prepared_ymm_body_min_left {
+    ($x:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
+        let mask_ptr =
+            unsafe { super::lrmask::LRMASK.get_unchecked($x).0.as_ptr() as *const __m256i };
+
+        // Same kernel as `flip_prepared_ymm_body!`, but use the signed-min
+        // left-flank form when the caller already has an all-ones vector.
+        let right_mask = unsafe { _mm256_load_si256(mask_ptr.add(1)) };
+        let mut right_bit = _mm256_lzcnt_epi64(_mm256_and_si256($no, right_mask));
+
+        let left_mask = unsafe { _mm256_load_si256(mask_ptr) };
+        let mut left_bit = _mm256_and_si256($no, left_mask);
+        left_bit =
+            _mm256_ternarylogic_epi64(left_bit, _mm256_sub_epi64($zero, left_bit), $pp, 0x80);
+
+        // left_flank = signed-min(-left_bit, -1) = -1 if left_bit == 0 else -left_bit.
+        // This matches the paired ZMM kernels and avoids the compare/sub chain
+        // in the shared-board trailing-single path.
+        let left_flank = _mm256_min_epi64(_mm256_sub_epi64($zero, left_bit), $all_ones);
+
+        right_bit = _mm256_and_si256(vpsrlvq_raw_ymm!($msb, right_bit), $pp);
+        let right_flips = _mm256_ternarylogic_epi64(
+            _mm256_sub_epi64($zero, right_bit),
+            right_bit,
+            right_mask,
+            0x28,
+        );
+
+        reduce_ymm_or_u64!(_mm256_ternarylogic_epi64(
+            right_flips,
+            left_flank,
+            left_mask,
+            0xf2,
+        ))
+    }};
+}
+
+#[cfg(target_arch = "x86_64")]
 macro_rules! flip_pair_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
         // Each `LrmaskEntry` is one 64-byte-aligned cache line laid out as
@@ -318,7 +356,8 @@ impl BoardCtx {
             let no = _mm512_castsi512_si256(self.no);
             let zero = _mm512_castsi512_si256(self.zero);
             let msb = _mm512_castsi512_si256(self.msb);
-            flip_prepared_ymm_body!(x, pp, no, zero, msb)
+            let all_ones = _mm512_castsi512_si256(self.all_ones);
+            flip_prepared_ymm_body_min_left!(x, pp, no, zero, msb, all_ones)
         }
     }
 
