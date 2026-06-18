@@ -164,7 +164,7 @@ describe("startSolver", () => {
     expect(services.ai.initialize).toHaveBeenCalled();
   });
 
-  it("bails out when prepareGameReplacement fails", async () => {
+  it("bails out when replacement preparation fails", async () => {
     const { store, services } = createTestStore({
       ai: createMockAIService({
         checkReady: vi.fn().mockRejectedValue(new Error("not ready")),

@@ -21,6 +21,14 @@ export type NewGameSettings = Pick<
   "gameMode" | "aiLevel" | "aiMode" | "gameTimeLimit"
 >;
 
+/**
+ * The store's `set` signature (partial patch or updater). Shared by the store
+ * modules that take `set` as a parameter instead of closing over it.
+ */
+export type SetState = (
+  partial: Partial<ReversiState> | ((state: ReversiState) => Partial<ReversiState>),
+) => void;
+
 export interface GameSlice {
   board: Board;
   historyStartBoard: Board;

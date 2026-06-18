@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { abortInFlightGameSearches, prepareGameReplacement } from "@/stores/game-replacement";
+import { abortInFlightGameSearches, runGameReplacement } from "@/stores/game-replacement";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createTestStore } from "./test-helpers";
 
 // The Game Replacement seam, tested through its own interface (CONTEXT.md →
 // Game Replacement). The slice tests cover the same paths via startGame /
 // startFromSetup / startSolver; these pin the module's contract in isolation.
-describe("prepareGameReplacement", () => {
+describe("runGameReplacement", () => {
   it("returns false and re-initialises nothing when AI is not ready", async () => {
     const { store, services } = createTestStore({
       ai: createMockAIService({
@@ -14,7 +14,9 @@ describe("prepareGameReplacement", () => {
       }),
     });
 
-    const ok = await prepareGameReplacement(services, store.getState, store.setState);
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+    });
 
     expect(ok).toBe(false);
     expect(services.ai.initialize).not.toHaveBeenCalled();
@@ -23,7 +25,9 @@ describe("prepareGameReplacement", () => {
   it("returns true after re-initialising the backend", async () => {
     const { store, services } = createTestStore();
 
-    const ok = await prepareGameReplacement(services, store.getState, store.setState);
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+    });
 
     expect(ok).toBe(true);
     expect(services.ai.initialize).toHaveBeenCalled();
@@ -39,7 +43,9 @@ describe("prepareGameReplacement", () => {
   it("frees the solver search before re-initialising the backend", async () => {
     const { store, services } = createTestStore();
 
-    const ok = await prepareGameReplacement(services, store.getState, store.setState);
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+    });
 
     expect(ok).toBe(true);
     expect(services.solver.abort).toHaveBeenCalled();
@@ -57,7 +63,9 @@ describe("prepareGameReplacement", () => {
       }),
     });
 
-    const ok = await prepareGameReplacement(services, store.getState, store.setState);
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+    });
 
     expect(ok).toBe(false);
     expect(services.solver.abort).not.toHaveBeenCalled();
@@ -73,7 +81,9 @@ describe("prepareGameReplacement", () => {
     store.setState({ paused: true });
     const triggerSpy = vi.spyOn(store.getState(), "triggerAutomation");
 
-    const ok = await prepareGameReplacement(services, store.getState, store.setState);
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+    });
 
     expect(ok).toBe(false);
     expect(store.getState().paused).toBe(true);
@@ -90,11 +100,63 @@ describe("prepareGameReplacement", () => {
     const analyzeGameSpy = vi.spyOn(store.getState(), "analyzeGame");
     const queueResumeSpy = vi.spyOn(store.getState(), "queueResumeAutomation");
 
-    const ok = await prepareGameReplacement(services, store.getState, store.setState);
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+    });
 
     expect(ok).toBe(false);
     expect(analyzeGameSpy).toHaveBeenCalled();
     expect(queueResumeSpy).toHaveBeenCalled();
+  });
+
+  it("setup-game exits solver mode only after a successful replacement", async () => {
+    const { store, services } = createTestStore();
+    const solverBoard = store.getState().board;
+    store.setState({
+      isSolverActive: true,
+      solverRootBoard: solverBoard,
+      solverRootPlayer: "black",
+      solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
+      solverCurrentBoard: solverBoard,
+      solverCurrentPlayer: "black",
+    });
+
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "setup-game",
+    });
+
+    expect(ok).toBe(true);
+    expect(services.solver.abort).toHaveBeenCalledTimes(2);
+    expect(store.getState().isSolverActive).toBe(false);
+    expect(store.getState().solverHistory).toEqual([]);
+    expect(store.getState().setupError).toBeNull();
+  });
+
+  it("setup-game preserves solver state when backend init fails", async () => {
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+      }),
+    });
+    const solverBoard = store.getState().board;
+    store.setState({
+      isSolverActive: true,
+      solverRootBoard: solverBoard,
+      solverRootPlayer: "black",
+      solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
+      solverCurrentBoard: solverBoard,
+      solverCurrentPlayer: "black",
+    });
+
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "setup-game",
+    });
+
+    expect(ok).toBe(false);
+    expect(services.solver.abort).toHaveBeenCalledTimes(1);
+    expect(store.getState().isSolverActive).toBe(true);
+    expect(store.getState().solverCurrentBoard).toBe(solverBoard);
+    expect(store.getState().setupError).toBe("aiInitFailed");
   });
 });
 

@@ -19,12 +19,7 @@ import type { Services } from "@/services/types";
 import { idleEngineActivityPatch } from "@/stores/engine-activity";
 import { createAutomation } from "@/stores/automation";
 import { navigateHistory, goToHistoryMove } from "@/stores/history-navigation";
-import { abortInFlightGameSearches, prepareGameReplacement } from "@/stores/game-replacement";
-import {
-  createNewGamePatch,
-  persistNewGameSettings,
-  resolveNewGameSettings,
-} from "@/stores/new-game";
+import { abortInFlightGameSearches, runGameReplacement } from "@/stores/game-replacement";
 
 /**
  * A freshly played move/pass diverges from any analyzed line, so the stale
@@ -192,32 +187,8 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
         });
       },
 
-      startGame: async (settings) => {
-        const nextSettings = resolveNewGameSettings(get(), settings);
-
-        // prepareGameReplacement frees the shared engine of every Engine
-        // Search — including any in-flight solver search — before re-init
-        // (CONTEXT.md → Game Replacement). What stays caller-specific is the
-        // solver *session state* teardown: defer `exitSolver` to AFTER a
-        // successful replacement so a failed init leaves the user's solver
-        // session intact, matching how startGame preserves the current game
-        // state on errors.
-        const wasSolverActive = get().isSolverActive;
-
-        if (!(await prepareGameReplacement(services, get, set))) {
-          return false;
-        }
-
-        if (wasSolverActive) {
-          await get().exitSolver();
-        }
-
-        set(createNewGamePatch(nextSettings, { board: initializeBoard(), currentPlayer: "black" }));
-        persistNewGameSettings(services, nextSettings);
-
-        automation.trigger();
-        return true;
-      },
+      startGame: async (settings) =>
+        runGameReplacement(services, get, set, { kind: "new-game", settings }),
 
       setGameStatus: (status) => set({ gameStatus: status }),
     };

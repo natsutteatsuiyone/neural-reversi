@@ -3,26 +3,13 @@ import { SolverSession, type SolverSessionCommit } from "@/domain/solver/solver-
 import type { EngineSearch } from "@/domain/engine/engine-search";
 import type { Services, SolverMode, SolverSelectivity } from "@/services/types";
 import { DEFAULT_SETTINGS } from "@/services/types";
-import type { ReversiState, SolverConfig, SolverSlice } from "./types";
-import { prepareGameReplacement } from "@/stores/game-replacement";
-
-type SetState = (
-  partial: Partial<ReversiState> | ((state: ReversiState) => Partial<ReversiState>),
-) => void;
+import type { ReversiState, SetState, SolverSlice } from "./types";
+import { runGameReplacement } from "@/stores/game-replacement";
 
 function createSolverSessionCommit(set: SetState): SolverSessionCommit {
   return (partial) => {
     set(partial as Parameters<SetState>[0]);
   };
-}
-
-function commitSolverConfig(services: Services, set: SetState, config: SolverConfig): void {
-  set({
-    targetSelectivity: config.selectivity,
-    solverMode: config.mode,
-  });
-  void services.settings.saveSetting("solverTargetSelectivity", config.selectivity);
-  void services.settings.saveSetting("solverMode", config.mode);
 }
 
 function saveTargetSelectivity(services: Services, selectivity: SolverSelectivity): void {
@@ -68,40 +55,21 @@ export function createSolverSlice(
 
       subscribeSolverProgress: () => solverSession.subscribeProgress(),
 
-      startSolver: async (board, player, config) => {
-        // prepareGameReplacement frees the shared engine of every Engine
-        // Search — including any in-flight solver search — before re-init
-        // (CONTEXT.md → Game Replacement), so no pre-abort is needed here.
-        if (!(await prepareGameReplacement(services, get, set))) {
-          return false;
-        }
+      startSolver: async (board, player, config) =>
+        runGameReplacement(services, get, set, {
+          kind: "solver-position",
+          board,
+          player,
+          config,
+          startSolver: (nextBoard, nextPlayer) => solverSession.start(nextBoard, nextPlayer),
+        }),
 
-        await get().resetGame();
-
-        if (config) {
-          commitSolverConfig(services, set, config);
-        }
-
-        set({ isSolverModalOpen: false });
-        await solverSession.start(board, player);
-        return true;
-      },
-
-      startSolverFromSetup: async (config) => {
-        const resolved = get().resolveValidSetup();
-        if (!resolved.ok) {
-          set({ setupError: resolved.error });
-          return false;
-        }
-
-        set({ setupError: null });
-        const started = await get().startSolver(resolved.board, resolved.currentPlayer, config);
-        if (!started) {
-          set({ setupError: "aiInitFailed" });
-          return false;
-        }
-        return true;
-      },
+      startSolverFromSetup: async (config) =>
+        runGameReplacement(services, get, set, {
+          kind: "setup-solver",
+          config,
+          startSolver: (board, player) => solverSession.start(board, player),
+        }),
 
       exitSolver: async () => {
         await solverSession.exit();

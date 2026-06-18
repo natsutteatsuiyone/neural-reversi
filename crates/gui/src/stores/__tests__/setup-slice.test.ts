@@ -378,6 +378,53 @@ describe("startFromSetup", () => {
     expect(store.getState().gameTimeLimit).toBe(60);
   });
 
+  it("exits solver mode after a successful setup game start", async () => {
+    const test = createTestStore();
+    store = test.store;
+    const { services } = test;
+    const solverBoard = store.getState().board;
+    store.setState({
+      isSolverActive: true,
+      solverRootBoard: solverBoard,
+      solverRootPlayer: "black",
+      solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
+      solverCurrentBoard: solverBoard,
+      solverCurrentPlayer: "black",
+    });
+
+    const started = await store.getState().startFromSetup();
+
+    expect(started).toBe(true);
+    expect(services.solver.abort).toHaveBeenCalledTimes(2);
+    expect(store.getState().isSolverActive).toBe(false);
+    expect(store.getState().solverHistory).toEqual([]);
+    expect(store.getState().gameStatus).toBe("playing");
+  });
+
+  it("preserves solver state when setup game init fails", async () => {
+    ({ store } = createTestStore({
+      ai: createMockAIService({
+        initialize: vi.fn().mockRejectedValue(new Error("init failed")),
+      }),
+    }));
+    const solverBoard = store.getState().board;
+    store.setState({
+      isSolverActive: true,
+      solverRootBoard: solverBoard,
+      solverRootPlayer: "black",
+      solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
+      solverCurrentBoard: solverBoard,
+      solverCurrentPlayer: "black",
+    });
+
+    const started = await store.getState().startFromSetup();
+
+    expect(started).toBe(false);
+    expect(store.getState().isSolverActive).toBe(true);
+    expect(store.getState().solverCurrentBoard).toBe(solverBoard);
+    expect(store.getState().setupError).toBe("aiInitFailed");
+  });
+
   it("computes validMoves after game start", async () => {
     await store.getState().startFromSetup();
     const s = store.getState();

@@ -9,12 +9,7 @@ import {
 } from "@/domain/game/setup-position";
 import type { Services } from "@/services/types";
 import type { ReversiState, SetupSlice, SetupTab } from "./types";
-import { prepareGameReplacement } from "@/stores/game-replacement";
-import {
-  createNewGamePatch,
-  persistNewGameSettings,
-  resolveNewGameSettings,
-} from "@/stores/new-game";
+import { runGameReplacement } from "@/stores/game-replacement";
 
 /**
  * The single place the setup slice's raw fields are projected into a
@@ -143,32 +138,7 @@ export function createSetupSlice(
 
     resolveValidSetup: () => resolveValidSetupPosition(readSetupPositionInput(get())),
 
-    startFromSetup: async (settings) => {
-      const state = get();
-      const nextSettings = resolveNewGameSettings(state, settings);
-      const resolved = get().resolveValidSetup();
-      if (!resolved.ok) {
-        set({ setupError: resolved.error });
-        return false;
-      }
-      const { board: resolvedBoard, currentPlayer: resolvedCurrentPlayer } = resolved;
-
-      if (!(await prepareGameReplacement(services, get, set))) {
-        set({ setupError: "aiInitFailed" });
-        return false;
-      }
-
-      set({
-        ...createNewGamePatch(nextSettings, {
-          board: cloneBoard(resolvedBoard),
-          currentPlayer: resolvedCurrentPlayer,
-        }),
-        setupError: null,
-      });
-      persistNewGameSettings(services, nextSettings);
-
-      get().triggerAutomation();
-      return true;
-    },
+    startFromSetup: async (settings) =>
+      runGameReplacement(services, get, set, { kind: "setup-game", settings }),
   });
 }
