@@ -34,9 +34,13 @@ function reduce(score: number, rounding: ScoreRounding): string {
  */
 export function formatScore(score: number, rounding: ScoreRounding = "whole"): string {
   const reduced = reduce(score, rounding);
-  // Sign the *reduced* value, not the raw score: a score that rounds to zero
-  // (e.g. 0.4 with `whole`) must read "0", never "+0" — no sign at zero.
-  return Number(reduced) > 0 ? `+${reduced}` : reduced;
+  // Sign the *reduced* value, not the raw score: a score that reduces to zero
+  // (e.g. 0.4 with `whole`, or -0.04 with `tenth` → "-0.0") must read "0"/"0.0"
+  // with no sign — positive *or* negative zero.
+  const n = Number(reduced);
+  if (n > 0) return `+${reduced}`;
+  if (n < 0) return reduced;
+  return reduce(0, rounding);
 }
 
 /** Sign → text-colour class for a signed-score readout. */

@@ -27,6 +27,7 @@ describe("formatScore", () => {
     expect(formatScore(-0.4, "whole")).toBe("0"); // rounds toward zero → unsigned
     expect(formatScore(0.4, "whole")).toBe("0"); // positive rounds to zero → still unsigned, not "+0"
     expect(formatScore(0.04, "tenth")).toBe("0.0"); // positive reduces to zero → "0.0", not "+0.0"
+    expect(formatScore(-0.04, "tenth")).toBe("0.0"); // negative reduces to zero → "0.0", not "-0.0"
   });
 
   it("defaults to whole-disc rounding", () => {
