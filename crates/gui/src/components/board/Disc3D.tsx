@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useLayoutEffect } from "react";
+import { memo, useRef, useState, useEffect, useLayoutEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Player } from "@/domain/game/types";
@@ -66,7 +66,14 @@ const WHITE_MATERIALS = [
 // at upright orientation.
 type AnimState = "idle" | "dropping" | "flipping" | "flip-waiting" | "settling";
 
-export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }: Disc3DProps) {
+export const Disc3D = memo(function Disc3D({
+  row,
+  col,
+  color,
+  isNew,
+  flipDelay = 0,
+  skipAnimation,
+}: Disc3DProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const { invalidate } = useThree();
   const [x, z] = cellToWorld(row, col);
@@ -196,4 +203,4 @@ export function Disc3D({ row, col, color, isNew, flipDelay = 0, skipAnimation }:
       receiveShadow
     />
   );
-}
+});

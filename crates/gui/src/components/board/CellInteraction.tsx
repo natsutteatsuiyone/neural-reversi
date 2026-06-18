@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { memo, useCallback, useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import { CELL_SIZE, BOARD_WORLD_SIZE } from "./board3d-utils";
@@ -9,7 +9,11 @@ interface CellInteractionProps {
   isDisabled: () => boolean;
 }
 
-export function CellInteraction({ onCellClick, isValidMove, isDisabled }: CellInteractionProps) {
+export const CellInteraction = memo(function CellInteraction({
+  onCellClick,
+  isValidMove,
+  isDisabled,
+}: CellInteractionProps) {
   const gl = useThree((s) => s.gl);
 
   const cellFromEvent = useCallback((e: ThreeEvent<PointerEvent>) => {
@@ -64,4 +68,4 @@ export function CellInteraction({ onCellClick, isValidMove, isDisabled }: CellIn
       <meshBasicMaterial transparent opacity={0} />
     </mesh>
   );
-}
+});

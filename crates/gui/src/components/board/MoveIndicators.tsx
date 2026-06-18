@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { cellToWorld } from "./board3d-utils";
 
 interface MoveIndicatorsProps {
@@ -10,7 +11,10 @@ const VALID_MOVE_DOT_RADIUS = 0.13;
 const HIGHLIGHT_INNER_RADIUS = 0.42;
 const HIGHLIGHT_OUTER_RADIUS = 0.47;
 
-export function MoveIndicators({ validMoves, lastMove }: MoveIndicatorsProps) {
+export const MoveIndicators = memo(function MoveIndicators({
+  validMoves,
+  lastMove,
+}: MoveIndicatorsProps) {
   return (
     <group>
       {validMoves.map(({ row, col }) => {
@@ -29,7 +33,7 @@ export function MoveIndicators({ validMoves, lastMove }: MoveIndicatorsProps) {
       {lastMove && <LastMoveRing row={lastMove.row} col={lastMove.col} />}
     </group>
   );
-}
+});
 
 function LastMoveRing({ row, col }: { row: number; col: number }) {
   const [x, z] = cellToWorld(row, col);
