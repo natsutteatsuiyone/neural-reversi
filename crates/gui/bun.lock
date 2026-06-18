@@ -17,7 +17,6 @@
         "framer-motion": "^12.38.0",
         "i18next": "^26.0.8",
         "lucide-react": "^1.14.0",
-        "next-themes": "^0.4.6",
         "react": "^19.2.5",
         "react-dom": "^19.2.5",
         "react-i18next": "^17.0.6",
@@ -1120,8 +1119,6 @@
     "negotiator": ["negotiator@1.0.0", "", {}, "sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg=="],
 
     "netmask": ["netmask@2.1.1", "", {}, "sha512-eonl3sLUha+S1GzTPxychyhnUzKyeQkZ7jLjKrBagJgPla13F+uQ71HgpFefyHgqrjEbCPkDArxYsjY8/+gLKA=="],
-
-    "next-themes": ["next-themes@0.4.6", "", { "peerDependencies": { "react": "^16.8 || ^17 || ^18 || ^19 || ^19.0.0-rc", "react-dom": "^16.8 || ^17 || ^18 || ^19 || ^19.0.0-rc" } }, "sha512-pZvgD5L0IEvX5/9GWyHMf3m8BKiVQwsCMHfoFosXtXBMnaS0ZnIJ9ST4b4NqLVKDEm8QBxoNNGNaBv2JNF6XNA=="],
 
     "node-gyp": ["node-gyp@12.3.0", "", { "dependencies": { "env-paths": "^2.2.0", "exponential-backoff": "^3.1.1", "graceful-fs": "^4.2.6", "nopt": "^9.0.0", "proc-log": "^6.0.0", "semver": "^7.3.5", "tar": "^7.5.4", "tinyglobby": "^0.2.12", "undici": "^6.25.0", "which": "^6.0.0" }, "bin": { "node-gyp": "bin/node-gyp.js" } }, "sha512-QNcUWM+HgJplcPzBvFBZ9VXacyGZ4+VTOb80PwWR+TlVzoHbRKULNEzpRsnaoxG3Wzr7Qh7BYxGDU3CbKib2Yg=="],
 
