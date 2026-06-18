@@ -11,7 +11,7 @@ export function GameControls() {
   const setHintMode = useReversiStore((state) => state.setHintMode);
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
-  const abortAIMove = useReversiStore((state) => state.abortAIMove);
+  const stopAIMove = useReversiStore((state) => state.stopAIMove);
   const openNewGameModal = useReversiStore((state) => state.openNewGameModal);
 
   return (
@@ -29,7 +29,7 @@ export function GameControls() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void abortAIMove()}
+          onClick={() => void stopAIMove()}
           className="gap-2 text-accent-gold border-accent-gold/30 hover:bg-accent-gold/10"
         >
           <StopCircle className="w-4 h-4" />

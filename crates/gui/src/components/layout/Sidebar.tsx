@@ -12,7 +12,7 @@ export function Sidebar() {
   const aiMode = useReversiStore((state) => state.aiMode);
   const aiRemainingTime = useReversiStore((state) => state.aiRemainingTime);
   const getScores = useReversiStore((state) => state.getScores);
-  const abortAIMove = useReversiStore((state) => state.abortAIMove);
+  const stopAIMove = useReversiStore((state) => state.stopAIMove);
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const paused = useReversiStore((state) => state.paused);
   const resumeAI = useReversiStore((state) => state.resumeAI);
@@ -23,7 +23,7 @@ export function Sidebar() {
   const whiteIsAI = gameMode === "ai-white";
 
   const handleStop = () => {
-    void abortAIMove();
+    void stopAIMove();
   };
 
   // isAITurn (the AI-turn rule) has a single home in the game slice.

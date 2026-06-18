@@ -52,7 +52,25 @@ bun run test
 
 # Watch mode
 bun run test:watch
+
+# Tauri desktop E2E (Windows/Linux)
+bun run e2e
 ```
 
 > Note: use `bun run test`, not `bun test` — the latter invokes Bun's
 > built-in test runner, which cannot run this vitest suite.
+
+The E2E suite runs the built Tauri desktop binary through WebDriverIO and
+`tauri-driver`. Install the system driver once before running it:
+
+```bash
+cargo install tauri-driver --locked
+```
+
+On Windows, the suite uses `msedgedriver.exe` from `PATH` when available and
+falls back to the local `edgedriver` package. Set `TAURI_E2E_NATIVE_DRIVER` to
+force a specific driver path. By default the suite builds into
+`../../target/e2e/debug` so it does not overwrite a running development binary.
+Use `TAURI_E2E_APP` to run against an existing binary, `TAURI_E2E_SKIP_BUILD=1`
+to skip the automatic debug build, or `TAURI_E2E_TARGET_DIR` to override the
+isolated build directory.

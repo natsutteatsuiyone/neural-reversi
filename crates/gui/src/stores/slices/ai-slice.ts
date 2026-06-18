@@ -105,6 +105,20 @@ export function createAISlice(
         }
       },
 
+      stopAIMove: async () => {
+        cancelSearchTimer();
+        if (!get().isAIThinking) return;
+
+        try {
+          // User-facing Stop keeps the current EngineSearch run alive. The
+          // backend abort makes `getAIMove` return its best-so-far result,
+          // which `makeAIMove` then commits through the normal result path.
+          await services.ai.abortSearch();
+        } catch (error) {
+          console.error("AI stop failed:", error);
+        }
+      },
+
       abortAIMove: async () => {
         // Stop the countdown interval SYNCHRONOUSLY at teardown entry, exactly
         // as Game Replacement's `abortInFlightGameSearches` relies on: external

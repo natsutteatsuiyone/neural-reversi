@@ -70,6 +70,7 @@ export interface AISlice {
   aiRemainingTime: number;
   checkAIReady: () => Promise<boolean>;
   makeAIMove: () => Promise<void>;
+  stopAIMove: () => Promise<void>;
   abortAIMove: () => Promise<void>;
   setAILevelChange: (level: number) => void;
   setAIMode: (mode: AIMode) => void;

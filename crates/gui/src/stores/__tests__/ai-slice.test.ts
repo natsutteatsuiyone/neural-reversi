@@ -180,6 +180,35 @@ describe("makeAIMove", () => {
   });
 });
 
+describe("stopAIMove", () => {
+  it("stops the current AI search and plays the returned best move", async () => {
+    const moveDeferred = createDeferred<AIMoveResult>();
+    const { store, services } = createTestStore({
+      ai: createMockAIService({
+        getAIMove: vi.fn().mockReturnValue(moveDeferred.promise),
+        abortSearch: vi.fn().mockImplementation(async () => {
+          moveDeferred.resolve({ row: 2, col: 3, score: 12, depth: 10, acc: 100, timeTaken: 50 });
+        }),
+      }),
+    });
+    await store.getState().startGame();
+    store.setState({ gameMode: "ai-black", currentPlayer: "black" });
+
+    const pending = store.getState().makeAIMove();
+    await Promise.resolve();
+    expect(store.getState().isAIThinking).toBe(true);
+
+    await store.getState().stopAIMove();
+    await pending;
+
+    expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
+    expect(store.getState().moveHistory.length).toBe(1);
+    expect(store.getState().currentPlayer).toBe("white");
+    expect(store.getState().lastAIMove).toMatchObject({ row: 2, col: 3, score: 12 });
+    expect(store.getState().paused).toBe(false);
+  });
+});
+
 describe("abortAIMove", () => {
   it("clears thinking state even when abortSearch throws", async () => {
     const { store } = createTestStore({

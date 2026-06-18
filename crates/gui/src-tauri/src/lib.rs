@@ -237,6 +237,22 @@ fn solver_level(target: Selectivity) -> reversi_core::level::Level {
     }
 }
 
+/// Bounds-checks an IPC-supplied difficulty `level` before it reaches the
+/// panicking [`get_level`]. Returns an error string for an out-of-range level
+/// instead of letting `get_level` panic. A panic raised while the search mutex
+/// is held (inside `run_engine_search`'s `build_options`) poisons the mutex and
+/// makes every later engine command fail for the rest of the process. Mirrors
+/// the bounds-check `solver_search_command` applies to `target_selectivity`.
+fn validate_level(level: usize) -> Result<(), String> {
+    if level > reversi_core::level::MAX_LEVEL {
+        return Err(format!(
+            "Invalid level: {level} (expected 0..={})",
+            reversi_core::level::MAX_LEVEL
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
     with_search_lock(state.search.clone(), |s| s.init()).await
@@ -281,6 +297,9 @@ async fn ai_move_command(
     time_limit: Option<u64>,
     remaining_time: Option<u64>,
 ) -> Result<AIMoveResult, String> {
+    if remaining_time.is_none() && time_limit.is_none() {
+        validate_level(level)?;
+    }
     run_engine_search(
         state.search.clone(),
         board_string,
@@ -332,6 +351,7 @@ async fn analyze_command(
     board_string: String,
     level: usize,
 ) -> Result<(), String> {
+    validate_level(level)?;
     run_engine_search(
         state.search.clone(),
         board_string,
@@ -395,6 +415,7 @@ async fn analyze_game_command(
     moves: Vec<String>,
     level: usize,
 ) -> Result<(), String> {
+    validate_level(level)?;
     // Claim a unique run id. Any later claim/supersede makes the injected
     // `is_cancelled` predicate observe a mismatch and this run bail.
     let run_id = state.game_analysis_run_id.claim();
@@ -545,5 +566,16 @@ mod tests {
     fn decode_game_analysis_moves_rejects_invalid_notation() {
         let err = decode_game_analysis_moves(vec!["zz".to_string()]).unwrap_err();
         assert!(err.contains("Invalid move notation"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_level_accepts_max_level() {
+        assert!(validate_level(reversi_core::level::MAX_LEVEL).is_ok());
+    }
+
+    #[test]
+    fn validate_level_rejects_out_of_range() {
+        let err = validate_level(reversi_core::level::MAX_LEVEL + 1).unwrap_err();
+        assert!(err.contains("Invalid level"), "got: {err}");
     }
 }

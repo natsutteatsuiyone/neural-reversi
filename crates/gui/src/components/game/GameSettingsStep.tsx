@@ -1,4 +1,5 @@
 import { Slider } from "@/components/ui/slider";
+import { sliderValueToNumber } from "@/components/ui/slider-value";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Timer, Zap, Bot, Users } from "lucide-react";
@@ -111,7 +112,7 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
                 min={1}
                 max={30}
                 step={1}
-                onValueChange={([value]: number[]) => onChange({ aiLevel: value })}
+                onValueChange={(value) => onChange({ aiLevel: sliderValueToNumber(value) })}
               />
               <div className="flex justify-between text-xs text-foreground-muted">
                 <span>{t("ai.easy")}</span>
@@ -133,7 +134,7 @@ export function GameSettingsStep({ settings, onChange }: GameSettingsStepProps) 
                 min={30}
                 max={600}
                 step={30}
-                onValueChange={([value]: number[]) => onChange({ gameTimeLimit: value })}
+                onValueChange={(value) => onChange({ gameTimeLimit: sliderValueToNumber(value) })}
               />
               <div className="relative h-4 text-xs text-foreground-muted">
                 <span className="absolute left-0">30s</span>

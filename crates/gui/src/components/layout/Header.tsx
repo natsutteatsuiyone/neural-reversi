@@ -81,14 +81,16 @@ export function Header() {
 
         {/* Menu */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0 text-foreground-secondary hover:bg-white/10 hover:text-foreground"
-            >
-              <Menu className="w-5 h-5" />
-            </Button>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0 text-foreground-secondary hover:bg-white/10 hover:text-foreground"
+              />
+            }
+          >
+            <Menu className="w-5 h-5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuSub>
@@ -146,7 +148,7 @@ export function Header() {
 
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem onSelect={openAboutModal}>
+            <DropdownMenuItem onClick={openAboutModal}>
               <Info className="w-4 h-4 mr-2" />
               {t("about.menuLabel")}
             </DropdownMenuItem>

@@ -85,23 +85,23 @@ function NewGameModalContent({
 
           <div className="grid mt-4">
             <TabsContent
-              forceMount
+              keepMounted
               value="manual"
-              className="col-start-1 row-start-1 data-[state=inactive]:invisible"
+              className="col-start-1 row-start-1 block data-hidden:invisible"
             >
               <ManualSetupTab />
             </TabsContent>
             <TabsContent
-              forceMount
+              keepMounted
               value="transcript"
-              className="col-start-1 row-start-1 data-[state=inactive]:invisible"
+              className="col-start-1 row-start-1 block data-hidden:invisible"
             >
               <TranscriptTab />
             </TabsContent>
             <TabsContent
-              forceMount
+              keepMounted
               value="boardString"
-              className="col-start-1 row-start-1 data-[state=inactive]:invisible"
+              className="col-start-1 row-start-1 block data-hidden:invisible"
             >
               <BoardStringTab />
             </TabsContent>
