@@ -24,26 +24,26 @@ export const SolverCandidateRow = memo(function SolverCandidateRow({
       className={cn(
         "w-full flex items-center gap-3 px-3 py-2 rounded-md text-left cursor-pointer",
         "hover:bg-white/5 transition-colors",
-        isBest && "bg-emerald-500/10",
+        isBest && "bg-primary/10",
       )}
     >
       <span
         className={cn(
-          "font-mono font-semibold text-sm min-w-[2.5rem]",
-          isBest ? "text-emerald-400" : "text-foreground",
+          "font-mono font-semibold text-sm min-w-[3rem]",
+          isBest ? "text-primary" : "text-foreground",
         )}
       >
         {candidate.move}
       </span>
       <span
         className={cn(
-          "font-mono text-sm min-w-[3rem] text-right",
-          isBest ? "text-emerald-400" : "text-foreground-secondary",
+          "font-mono text-sm min-w-[3.5rem] text-right",
+          isBest ? "text-primary" : "text-foreground-secondary",
         )}
       >
         {displayScore}
       </span>
-      <span className="text-xs text-foreground-muted min-w-[2.5rem] text-right">
+      <span className="text-xs text-foreground-muted min-w-[2.5rem] text-right tabular-nums">
         {candidate.acc}%
       </span>
       <span className="flex-1 text-xs text-foreground-muted font-mono truncate">{pvDisplay}</span>

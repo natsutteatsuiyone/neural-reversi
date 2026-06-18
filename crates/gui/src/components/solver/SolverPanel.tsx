@@ -38,7 +38,7 @@ export function SolverPanel() {
 
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col bg-background-secondary">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-card-border">
         <Activity
           className={cn(
             "w-4 h-4",
@@ -47,7 +47,7 @@ export function SolverPanel() {
         />
         <span className="text-sm font-medium text-foreground">{t("solver.title")}</span>
         {isSolverSearching && (
-          <span className="text-xs bg-accent-blue/20 text-accent-blue px-2 py-0.5 rounded-full">
+          <span className="rounded-full bg-accent-blue/20 px-2 py-0.5 text-xs text-accent-blue">
             {t("solver.searching")}
           </span>
         )}
@@ -56,7 +56,7 @@ export function SolverPanel() {
           variant="ghost"
           size="sm"
           onClick={() => void exitSolver()}
-          className="gap-1 text-foreground-secondary hover:text-foreground"
+          className="gap-1 text-foreground-secondary hover:text-foreground hover:shadow-sm"
         >
           <X className="w-4 h-4" />
           {t("solver.exit")}

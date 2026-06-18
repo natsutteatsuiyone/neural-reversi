@@ -35,7 +35,7 @@ export function SolverControls() {
             variant="soft"
             size="sm"
             onClick={() => void stopSolverSearch()}
-            className="gap-1 bg-red-500/20 text-red-400 hover:bg-red-500/30"
+            className="gap-1 bg-destructive/20 text-destructive hover:bg-destructive/30"
           >
             <Square className="w-4 h-4" />
             {t("solver.stop")}

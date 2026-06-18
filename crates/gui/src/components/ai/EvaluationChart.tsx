@@ -115,7 +115,9 @@ function CustomTooltip({
             {analysis.scoreLoss > DUBIOUS_THRESHOLD && (
               <p
                 className={
-                  analysis.scoreLoss > BLUNDER_THRESHOLD ? "text-red-400" : "text-yellow-400"
+                  analysis.scoreLoss > BLUNDER_THRESHOLD
+                    ? "text-chart-blunder"
+                    : "text-chart-dubious"
                 }
               >
                 {t("analysis.lossLabel", { loss: analysis.scoreLoss.toFixed(1) })}

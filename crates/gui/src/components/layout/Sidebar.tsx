@@ -32,7 +32,7 @@ export function Sidebar() {
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col bg-background-secondary">
       {/* Player Cards */}
-      <div className="p-4 space-y-3 border-b border-white/10">
+      <div className="p-3 space-y-2.5 border-b border-card-border lg:p-4 lg:space-y-3">
         <PlayerCard
           color="black"
           score={scores.black}

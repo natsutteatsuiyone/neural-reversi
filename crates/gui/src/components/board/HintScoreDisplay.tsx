@@ -67,7 +67,7 @@ export function HintScoreDisplay({
       <div
         className={cn(
           "text-xl font-bold px-1 rounded",
-          isMaxScore ? "text-emerald-400" : "text-white",
+          isMaxScore ? "text-accent-foreground" : "text-white",
         )}
       >
         {displayScore}

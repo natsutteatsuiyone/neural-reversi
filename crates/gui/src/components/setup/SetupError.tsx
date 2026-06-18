@@ -18,5 +18,5 @@ export function SetupError() {
     ? t("setup.error.illegalMove", { move: error.split(":")[1] })
     : t(`setup.error.${error}`);
 
-  return <p className="text-sm text-red-400">{message}</p>;
+  return <p className="text-sm text-destructive">{message}</p>;
 }

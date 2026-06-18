@@ -37,7 +37,7 @@ export function AIAnalysisPanelHeader() {
       aria-expanded={isOpen}
       onClick={() => setIsOpen(!isOpen)}
       className={cn(
-        "flex w-full shrink-0 items-center justify-between gap-3 border-t border-white/10 bg-background-secondary px-4 py-3 transition-colors cursor-pointer hover:bg-white/5",
+        "flex w-full shrink-0 items-center justify-between gap-3 border-t border-card-border bg-background-secondary px-4 py-2.5 transition-colors cursor-pointer hover:bg-white/5",
       )}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
@@ -49,12 +49,12 @@ export function AIAnalysisPanelHeader() {
         />
         <span className="text-sm font-medium text-foreground">{t("analysis.title")}</span>
         {isAIThinking && (
-          <span className="text-xs bg-accent-blue/20 text-accent-blue px-2 py-0.5 rounded-full">
+          <span className="rounded-full bg-accent-blue/20 px-2 py-0.5 text-xs text-accent-blue">
             {t("ai.thinking")}
           </span>
         )}
         {isGameAnalyzing && (
-          <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+          <span className="rounded-full bg-accent-amber/20 px-2 py-0.5 text-xs text-accent-amber">
             {t("analysis.analyzing", {
               current: gameAnalysisResult?.length ?? 0,
               total: totalMoves,
@@ -65,11 +65,11 @@ export function AIAnalysisPanelHeader() {
           <div className="flex items-center gap-2 text-xs font-mono">
             <span className="text-foreground-muted">{t("analysis.best")}</span>
             <span className="font-semibold text-primary">{latestEntry.bestMove}</span>
-            <span className="text-white/20">|</span>
+            <span className="mx-1 h-3 border-l border-card-border" />
             <span className={cn("font-semibold", scoreToneClass(latestEntry.score))}>
               {formatScore(latestEntry.score, "raw")}
             </span>
-            <span className="text-white/20">|</span>
+            <span className="mx-1 h-3 border-l border-card-border" />
             <span className="text-foreground-muted">
               {formatDepth(latestEntry.depth, latestEntry.acc)}
             </span>
@@ -134,16 +134,16 @@ export function AIAnalysisPanelContent() {
                 >
                   <SelectTrigger
                     size="sm"
-                    className="h-6 min-w-[3rem] px-2 py-0 text-xs text-white/90 border-white/15 bg-white/10"
+                    className="h-6 min-w-[3rem] border-card-border bg-white/5 px-2 py-0 text-xs text-foreground-secondary"
                   >
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="border-white/20">
+                  <SelectContent className="border-card-border">
                     {ANALYSIS_LEVELS.map((level) => (
                       <SelectItem
                         key={level}
                         value={level.toString()}
-                        className="text-xs text-white/90 focus:bg-white/10 focus:text-white"
+                        className="text-xs text-foreground-secondary focus:bg-white/10 focus:text-foreground"
                       >
                         {level}
                       </SelectItem>
@@ -156,7 +156,7 @@ export function AIAnalysisPanelContent() {
                   variant="soft"
                   size="sm"
                   onClick={abortGameAnalysis}
-                  className="gap-1.5 h-7 px-3 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                  className="gap-1.5 h-7 px-3 text-xs bg-destructive/20 text-destructive hover:bg-destructive/30 hover:shadow-sm"
                 >
                   <Square className="w-3 h-3" />
                   {t("analysis.abort")}
@@ -167,7 +167,7 @@ export function AIAnalysisPanelContent() {
                   size="sm"
                   onClick={handleAnalyzeGame}
                   disabled={!canAnalyze}
-                  className="gap-1.5 h-7 px-3 text-xs bg-accent-blue/20 text-accent-blue hover:bg-accent-blue/30"
+                  className="gap-1.5 h-7 px-3 text-xs bg-accent-blue/20 text-accent-blue hover:bg-accent-blue/30 hover:shadow-sm"
                 >
                   <Search className="w-3 h-3" />
                   {t("analysis.analyze")}

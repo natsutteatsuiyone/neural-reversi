@@ -46,8 +46,8 @@ export function PlayerCard({
       className={cn(
         "rounded-xl p-3 transition-all duration-200 border",
         isCurrent
-          ? "bg-white/15 border-primary/50 shadow-lg shadow-primary/10"
-          : "bg-white/5 border-white/10",
+          ? "bg-primary/15 border-primary/50 shadow-md shadow-primary/20"
+          : "bg-white/5 border-card-border shadow-xs",
       )}
     >
       {/* Main row */}
@@ -58,21 +58,34 @@ export function PlayerCard({
         </div>
 
         {/* Score */}
-        <div className="text-3xl font-bold text-foreground tabular-nums">{score}</div>
+        <div className="shrink-0 text-2xl font-bold text-foreground tabular-nums leading-none">
+          {score}
+        </div>
 
-        {/* Player label */}
-        <div className="flex items-center gap-1.5">
+        {/* Player label / thinking status */}
+        <div className="flex min-w-0 items-center gap-1.5">
           {isAIControlled ? (
             <>
-              <Bot className="w-4 h-4 text-accent-blue" />
-              <span className="text-sm font-medium text-foreground-secondary">
-                {t("player.ai")} {aiMode === "level" && `${t("player.level")}${aiLevel}`}
+              {isThinking ? (
+                <Loader2 className="w-4 h-4 shrink-0 animate-spin text-accent-blue" />
+              ) : (
+                <Bot className="w-4 h-4 shrink-0 text-accent-blue" />
+              )}
+              <span
+                className={cn(
+                  "truncate text-xs font-medium",
+                  isThinking ? "text-accent-blue" : "text-foreground-secondary",
+                )}
+              >
+                {isThinking
+                  ? t("ai.thinking")
+                  : `${t("player.ai")}${aiMode === "level" ? ` ${t("player.level")}${aiLevel}` : ""}`}
               </span>
             </>
           ) : (
             <>
-              <User className="w-4 h-4 text-foreground-secondary" />
-              <span className="text-sm font-medium text-foreground-secondary">
+              <User className="w-4 h-4 shrink-0 text-foreground-secondary" />
+              <span className="truncate text-xs font-medium text-foreground-secondary">
                 {playerLabel ?? t("player.you")}
               </span>
             </>
@@ -81,53 +94,37 @@ export function PlayerCard({
 
         <div className="flex-1" />
 
-        {/* Timer */}
-        {showTimer && (
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded text-sm font-mono font-medium text-foreground-muted bg-white/5 tabular-nums">
-            <Clock className="w-3.5 h-3.5" />
-            {formatTime(aiRemainingTime)}
-          </div>
-        )}
-
-        {/* Resume button (replaces turn indicator when paused) */}
-        {onResume && !isThinking && (
+        {/* Right action: stop while thinking, resume while paused */}
+        {isThinking && onStop ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onStop}
+            className="shrink-0 gap-1.5 h-7 px-2.5 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive hover:shadow-sm"
+          >
+            <StopCircle className="w-3.5 h-3.5" />
+            {t("game.stop")}
+          </Button>
+        ) : onResume ? (
           <Button
             variant="outline"
             size="sm"
             onClick={onResume}
-            className="gap-1.5 h-7 px-2.5 text-primary border-primary/40 hover:bg-primary/10 hover:text-primary"
+            className="shrink-0 gap-1.5 h-7 px-2.5 text-primary border-primary/40 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
           >
             <Play className="w-3.5 h-3.5" />
             {t("game.resume")}
           </Button>
-        )}
+        ) : null}
 
-        {/* Turn indicator (when not thinking or paused) */}
-        {isCurrent && !isThinking && !onResume && (
-          <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
+        {/* Timer */}
+        {showTimer && (
+          <div className="flex shrink-0 items-center gap-1.5 rounded border border-card-border bg-white/5 px-2 py-0.5 text-xs font-mono font-medium tabular-nums text-foreground-muted">
+            <Clock className="w-3.5 h-3.5" />
+            {formatTime(aiRemainingTime)}
+          </div>
         )}
       </div>
-
-      {/* Thinking row */}
-      {isThinking && (
-        <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/10">
-          <div className="flex items-center gap-1.5 text-accent-blue">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm font-medium">{t("ai.thinking")}</span>
-          </div>
-          {onStop && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onStop}
-              className="gap-1.5 h-7 px-2.5 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-            >
-              <StopCircle className="w-3.5 h-3.5" />
-              {t("game.stop")}
-            </Button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

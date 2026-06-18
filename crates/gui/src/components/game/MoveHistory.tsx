@@ -55,8 +55,10 @@ export function MoveHistory() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">{t("history.title")}</h3>
+      <div className="px-4 py-2.5 border-b border-card-border flex items-center justify-between">
+        <h3 className="text-sm font-semibold tracking-wide text-foreground">
+          {t("history.title")}
+        </h3>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -64,9 +66,9 @@ export function MoveHistory() {
             onClick={copyTranscript}
             disabled={currentIndex === 0}
             aria-label={t("history.copy")}
-            className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
+            className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
           >
-            {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+            {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
           </Button>
           <Button
             variant="ghost"
@@ -74,7 +76,7 @@ export function MoveHistory() {
             onClick={undoMove}
             disabled={!canUndo}
             aria-label={t("history.undo")}
-            className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
+            className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
           >
             <RotateCcw className="w-4 h-4" />
           </Button>
@@ -84,7 +86,7 @@ export function MoveHistory() {
             onClick={redoMove}
             disabled={!canRedo}
             aria-label={t("history.redo")}
-            className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
+            className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
           >
             <RotateCw className="w-4 h-4" />
           </Button>
@@ -104,9 +106,9 @@ export function MoveHistory() {
                 key={move.id}
                 onClick={canNavigate ? () => goToMove(index + 1) : undefined}
                 className={cn(
-                  "grid grid-cols-[28px_1fr] gap-1 text-sm rounded-md transition-colors",
+                  "grid grid-cols-[32px_1fr] gap-1 text-sm rounded-md transition-colors",
                   canNavigate ? "cursor-pointer hover:bg-white/8" : "cursor-default",
-                  index === currentIndex - 1 ? "bg-primary/15" : "bg-transparent",
+                  index === currentIndex - 1 ? "bg-primary/10" : "bg-transparent",
                   index >= currentIndex && "opacity-40",
                 )}
               >
@@ -120,7 +122,7 @@ export function MoveHistory() {
                     <>
                       <Bot className="w-3 h-3 text-accent-blue" />
                       {move.score !== undefined && (
-                        <span className="text-xs font-mono text-foreground-muted">
+                        <span className="text-xs font-mono text-foreground-muted tabular-nums">
                           {formatScore(move.score, "raw")}
                         </span>
                       )}

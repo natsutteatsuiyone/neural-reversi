@@ -34,14 +34,14 @@ export function Header() {
   const setHintMode = useReversiStore((state) => state.setHintMode);
 
   return (
-    <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-background-secondary px-3 py-2 sm:h-12 sm:flex-nowrap sm:px-4 sm:py-0">
+    <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-1.5 border-b border-card-border bg-background-secondary px-3 py-2 sm:h-12 sm:flex-nowrap sm:gap-2 sm:px-4 sm:py-0">
       {/* Left: New Game + Solver */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2">
         <Button
           size="sm"
           onClick={openNewGameModal}
           aria-label={t("game.newGame")}
-          className="shrink-0 gap-2 bg-primary text-primary-foreground hover:bg-primary-hover max-[420px]:px-2"
+          className="shrink-0 gap-2 bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover max-[420px]:px-2"
         >
           <Play className="w-4 h-4" />
           <span className="max-[420px]:hidden">{t("game.newGame")}</span>
@@ -51,7 +51,7 @@ export function Header() {
           variant="outline"
           onClick={openSolverModal}
           aria-label={t("solver.openMenu")}
-          className="shrink-0 gap-2 border-white/20 text-foreground-secondary hover:bg-white/10 hover:text-foreground max-[420px]:px-2"
+          className="shrink-0 gap-2 border-card-border text-foreground-secondary hover:bg-white/10 hover:text-foreground max-[420px]:px-2"
         >
           <Calculator className="w-4 h-4" />
           <span className="max-[420px]:hidden">{t("solver.openMenu")}</span>
@@ -59,9 +59,11 @@ export function Header() {
       </div>
 
       {/* Right: Controls */}
-      <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-3">
         {/* Hint */}
-        <div className="flex shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1">
+        <div
+          className={`flex shrink-0 items-center gap-2 rounded-lg border px-2 py-1 transition-colors ${isHintMode ? "border-accent-gold/30 bg-accent-gold/10" : "border-card-border bg-white/5"}`}
+        >
           <Lightbulb
             className={`w-4 h-4 ${isHintMode ? "text-accent-gold" : "text-foreground-muted"}`}
           />
@@ -86,7 +88,7 @@ export function Header() {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="shrink-0 text-foreground-secondary hover:bg-white/10 hover:text-foreground"
+                className="shrink-0 text-foreground-secondary hover:bg-white/10 hover:text-foreground hover:shadow-sm"
               />
             }
           >

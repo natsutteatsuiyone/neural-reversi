@@ -115,11 +115,11 @@ function MobileLayout() {
       <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-3 sm:p-4">
         <Board />
       </main>
-      <div className="flex max-h-[45%] min-h-0 shrink-0 basis-72 flex-col border-t border-white/10 sm:basis-80">
+      <div className="flex max-h-[45%] min-h-0 shrink-0 basis-72 flex-col border-t border-card-border sm:basis-80">
         <RightColumn />
       </div>
       {showBottomPanel && (
-        <div className="flex max-h-[55%] min-h-0 shrink-0 flex-col overflow-hidden border-t border-white/10">
+        <div className="flex max-h-[55%] min-h-0 shrink-0 flex-col overflow-hidden border-t border-card-border">
           <AIAnalysisPanelContent />
         </div>
       )}
