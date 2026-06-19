@@ -6,7 +6,7 @@ below. Each crate's license text is reproduced in full.
 
 Overview
 --------
-Apache License 2.0 (84)
+Apache License 2.0 (80)
 MIT License (30)
 Boost Software License 1.0 (2)
 GNU General Public License v3.0 or later (2)
@@ -2758,19 +2758,19 @@ Apache License 2.0
 
 Applies to:
   * arrayvec 0.7.6
-  * bitflags 2.11.1
+  * bitflags 2.13.0
   * cfg-if 1.0.4
-  * either 1.15.0
+  * critical-section 1.2.0
+  * either 1.16.0
   * equivalent 1.0.2
   * errno 0.3.14
   * hashbrown 0.16.1
+  * hashbrown 0.17.1
   * heck 0.5.0
-  * hermit-abi 0.5.2
   * itertools 0.14.0
   * linux-raw-sys 0.12.1
   * lock_api 0.4.14
-  * log 0.4.29
-  * num_cpus 1.17.0
+  * log 0.4.32
   * parking_lot 0.12.5
   * parking_lot_core 0.9.12
   * rustix 1.1.4
@@ -2778,14 +2778,11 @@ Applies to:
   * signal-hook-mio 0.2.5
   * signal-hook-registry 1.4.8
   * signal-hook 0.3.18
-  * smallvec 1.15.1
-  * unicode-segmentation 1.13.2
+  * smallvec 1.15.2
+  * unicode-segmentation 1.13.3
   * unicode-truncate 2.0.1
   * unicode-width 0.2.2
   * wasi 0.11.1+wasi-snapshot-preview1
-  * wasip2 1.0.3+wasi-0.2.9
-  * wit-bindgen 0.51.0
-  * wit-bindgen 0.57.1
 ----------------------------------------------------------------
 
                               Apache License
@@ -3405,7 +3402,7 @@ Apache License 2.0
 ================================================================
 
 Applies to:
-  * getrandom 0.4.2
+  * getrandom 0.4.3
 ----------------------------------------------------------------
 
                               Apache License
@@ -3834,21 +3831,20 @@ Applies to:
   * itoa 1.0.18
   * libc 0.2.186
   * litrs 1.0.0
-  * num-conv 0.2.1
+  * num-conv 0.2.2
   * proc-macro2 1.0.106
   * quote 1.0.45
   * r-efi 6.0.0
   * rand 0.10.1
   * rustversion 1.0.22
   * ryu 1.0.23
-  * syn 2.0.117
+  * syn 2.0.118
   * thiserror-impl 2.0.18
   * thiserror 2.0.18
-  * time-core 0.1.8
-  * time 0.3.47
+  * time-core 0.1.9
+  * time 0.3.49
   * unicode-ident 1.0.24
   * utf8parse 0.2.2
-  * wasip3 0.4.0+wasi-0.3.0-rc-2026-01-06
   * winapi-i686-pc-windows-gnu 0.4.0
   * winapi-x86_64-pc-windows-gnu 0.4.0
   * zstd-safe 7.2.4
@@ -4024,8 +4020,8 @@ GNU General Public License v3.0 or later
 ================================================================
 
 Applies to:
-  * cli 6.0.0
-  * reversi-core 6.0.0
+  * cli 6.1.0
+  * reversi-core 6.1.0
 ----------------------------------------------------------------
 
 GNU GENERAL PUBLIC LICENSE
@@ -4268,7 +4264,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * mio 1.2.0
+  * mio 1.2.1
 ----------------------------------------------------------------
 
 Copyright (c) 2014 Carl Lerche and other MIO contributors
@@ -4329,7 +4325,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * ratatui-macros 0.7.0
+  * ratatui-macros 0.7.2
 ----------------------------------------------------------------
 
 Copyright (c) 2024 Dheepak Krishnamurthy
@@ -4359,7 +4355,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * lru 0.16.4
+  * lru 0.18.0
 ----------------------------------------------------------------
 
 MIT License
@@ -4422,8 +4418,8 @@ MIT License
 ================================================================
 
 Applies to:
-  * strum 0.27.2
-  * strum_macros 0.27.2
+  * strum 0.28.0
+  * strum_macros 0.28.0
 ----------------------------------------------------------------
 
 MIT License
@@ -4454,7 +4450,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * compact_str 0.9.0
+  * compact_str 0.9.1
 ----------------------------------------------------------------
 
 MIT License
@@ -4546,37 +4542,6 @@ MIT License
 ================================================================
 
 Applies to:
-  * ratatui-core 0.1.0
-  * ratatui-crossterm 0.1.0
-  * ratatui-widgets 0.3.0
-  * ratatui 0.30.0
-----------------------------------------------------------------
-
-MIT License
-
-Copyright (c) <year> <copyright holders>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
-associated documentation files (the "Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
-following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial
-portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
-LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
-EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-================================================================
-MIT License
-================================================================
-
-Applies to:
   * crossterm 0.29.0
   * crossterm_winapi 0.9.1
 ----------------------------------------------------------------
@@ -4642,7 +4607,7 @@ MIT License
 
 Applies to:
   * byteorder 1.5.0
-  * memchr 2.8.0
+  * memchr 2.8.2
 ----------------------------------------------------------------
 
 The MIT License (MIT)
@@ -4673,7 +4638,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * nix 0.31.2
+  * nix 0.31.3
 ----------------------------------------------------------------
 
 The MIT License (MIT)
@@ -4808,6 +4773,41 @@ Applies to:
 The MIT License (MIT)
 
 Copyright (c) 2016 Jelte Fennema
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+================================================================
+MIT License
+================================================================
+
+Applies to:
+  * ratatui-core 0.1.2
+  * ratatui-crossterm 0.1.2
+  * ratatui-widgets 0.3.2
+  * ratatui 0.30.2
+----------------------------------------------------------------
+
+The MIT License (MIT)
+
+Copyright (c) 2016-2022 Florian Dehau
+Copyright (c) 2023-2025 The Ratatui Developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

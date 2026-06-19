@@ -6,8 +6,8 @@ below. Each crate's license text is reproduced in full.
 
 Overview
 --------
-Apache License 2.0 (289)
-MIT License (115)
+Apache License 2.0 (283)
+MIT License (111)
 Unicode License v3 (19)
 BSD 3-Clause "New" or "Revised" License (5)
 Mozilla Public License 2.0 (5)
@@ -631,7 +631,6 @@ Apache License 2.0
 
 Applies to:
   * embed_plist 1.2.2
-  * iri-string 0.7.12
   * utf8_iter 1.0.4
 ----------------------------------------------------------------
 
@@ -1945,7 +1944,7 @@ Applies to:
   * toml_datetime 1.1.1+spec-1.1.0
   * toml_edit 0.19.15
   * toml_edit 0.20.2
-  * toml_edit 0.25.11+spec-1.1.0
+  * toml_edit 0.25.12+spec-1.1.0
   * toml_parser 1.1.2+spec-1.1.0
   * toml_writer 1.1.1+spec-1.1.0
 ----------------------------------------------------------------
@@ -2789,7 +2788,7 @@ Apache License 2.0
 ================================================================
 
 Applies to:
-  * typenum 1.20.0
+  * typenum 1.20.1
 ----------------------------------------------------------------
 
                               Apache License
@@ -2999,7 +2998,7 @@ Apache License 2.0
 ================================================================
 
 Applies to:
-  * reqwest 0.13.3
+  * reqwest 0.13.4
 ----------------------------------------------------------------
 
                               Apache License
@@ -3633,7 +3632,7 @@ Apache License 2.0
 ================================================================
 
 Applies to:
-  * http 1.4.0
+  * http 1.4.2
 ----------------------------------------------------------------
 
                               Apache License
@@ -4488,10 +4487,10 @@ Applies to:
   * base64 0.21.7
   * base64 0.22.1
   * bitflags 1.3.2
-  * bitflags 2.11.1
+  * bitflags 2.13.0
   * blocking 1.6.2
-  * bumpalo 3.20.2
-  * camino 1.2.2
+  * bumpalo 3.20.3
+  * camino 1.2.3
   * cfg-if 1.0.4
   * concurrent-queue 2.5.0
   * core-foundation-sys 0.8.7
@@ -4500,7 +4499,7 @@ Applies to:
   * core-graphics 0.25.0
   * crossbeam-channel 0.5.15
   * crossbeam-utils 0.8.21
-  * displaydoc 0.2.5
+  * displaydoc 0.2.6
   * equivalent 1.0.2
   * errno 0.3.14
   * event-listener-strategy 0.5.4
@@ -4511,7 +4510,7 @@ Applies to:
   * form_urlencoded 1.2.2
   * futures-lite 2.6.1
   * glob 0.3.3
-  * hashbrown 0.17.0
+  * hashbrown 0.17.1
   * heck 0.4.1
   * heck 0.5.0
   * hermit-abi 0.5.2
@@ -4521,14 +4520,13 @@ Applies to:
   * idna_adapter 1.2.2
   * indexmap 2.14.0
   * jni 0.21.1
-  * js-sys 0.3.97
+  * js-sys 0.3.102
   * linux-raw-sys 0.12.1
   * lock_api 0.4.14
-  * log 0.4.29
+  * log 0.4.32
   * markup5ever 0.38.0
   * mime 0.3.17
-  * muda 0.19.1
-  * num_cpus 1.17.0
+  * muda 0.19.3
   * once_cell 1.21.4
   * ordered-stream 0.2.0
   * parking 2.2.1
@@ -4540,38 +4538,37 @@ Applies to:
   * png 0.18.1
   * polling 3.11.0
   * regex-automata 0.4.14
-  * regex-syntax 0.8.10
-  * regex 1.12.3
+  * regex-syntax 0.8.11
+  * regex 1.12.4
   * rustix 1.1.4
   * scopeguard 1.2.0
-  * serde_with 3.18.0
-  * serde_with_macros 3.18.0
+  * serde_with 3.21.0
+  * serde_with_macros 3.21.0
   * servo_arc 0.4.3
   * signal-hook-registry 1.4.8
-  * smallvec 1.15.1
-  * socket2 0.6.3
+  * smallvec 1.15.2
+  * socket2 0.6.4
   * stable_deref_trait 1.2.1
   * string_cache 0.9.0
   * syn 1.0.109
   * tempfile 3.27.0
   * tendril 0.5.0
   * toml_datetime 0.6.3
-  * unicode-segmentation 1.13.2
+  * unicode-segmentation 1.13.3
   * url 2.5.8
-  * uuid 1.23.1
+  * uuid 1.23.3
   * wasi 0.11.1+wasi-snapshot-preview1
-  * wasip2 1.0.3+wasi-0.2.9
-  * wasm-bindgen-futures 0.4.70
-  * wasm-bindgen-macro-support 0.2.120
-  * wasm-bindgen-macro 0.2.120
-  * wasm-bindgen-shared 0.2.120
-  * wasm-bindgen 0.2.120
-  * web-sys 0.3.97
-  * web_atoms 0.2.4
+  * wasip2 1.0.4+wasi-0.2.12
+  * wasm-bindgen-futures 0.4.75
+  * wasm-bindgen-macro-support 0.2.125
+  * wasm-bindgen-macro 0.2.125
+  * wasm-bindgen-shared 0.2.125
+  * wasm-bindgen 0.2.125
+  * web-sys 0.3.102
+  * web_atoms 0.2.5
   * window-vibrancy 0.6.0
-  * wit-bindgen 0.51.0
   * wit-bindgen 0.57.1
-  * wry 0.55.0
+  * wry 0.55.1
 ----------------------------------------------------------------
 
                               Apache License
@@ -5212,7 +5209,6 @@ Apache License 2.0
 
 Applies to:
   * rand_core 0.10.1
-  * rand_core 0.6.4
 ----------------------------------------------------------------
 
                               Apache License
@@ -5411,7 +5407,7 @@ Apache License 2.0
 Applies to:
   * getrandom 0.2.17
   * getrandom 0.3.4
-  * getrandom 0.4.2
+  * getrandom 0.4.3
 ----------------------------------------------------------------
 
                               Apache License
@@ -6629,7 +6625,7 @@ Apache License 2.0
 
 Applies to:
   * dpi 0.1.2
-  * tao 0.35.0
+  * tao 0.35.3
 ----------------------------------------------------------------
 
 Apache License
@@ -7141,7 +7137,7 @@ Applies to:
   * miniz_oxide 0.8.9
   * ndk-sys 0.6.0+11769913
   * ndk 0.9.0
-  * num-conv 0.2.1
+  * num-conv 0.2.2
   * num_enum 0.7.6
   * num_enum_derive 0.7.6
   * objc2-app-kit 0.3.2
@@ -7163,7 +7159,6 @@ Applies to:
   * r-efi 5.3.0
   * r-efi 6.0.0
   * rand 0.10.1
-  * rand 0.8.6
   * raw-window-handle 0.6.2
   * rustc-hash 2.1.2
   * rustversion 1.0.22
@@ -7173,27 +7168,27 @@ Applies to:
   * serde_core 1.0.228
   * serde_derive 1.0.228
   * serde_derive_internals 0.29.1
-  * serde_json 1.0.149
+  * serde_json 1.0.150
   * serde_repr 0.1.20
-  * siphasher 1.0.2
-  * syn 2.0.117
+  * siphasher 1.0.3
+  * syn 2.0.118
   * sync_wrapper 1.0.2
   * tao-macros 0.1.3
-  * tauri-codegen 2.6.0
-  * tauri-macros 2.6.0
-  * tauri-plugin-opener 2.5.3
-  * tauri-plugin-store 2.4.2
-  * tauri-runtime-wry 2.11.0
-  * tauri-runtime 2.11.0
-  * tauri-utils 2.9.0
-  * tauri 2.11.0
+  * tauri-codegen 2.6.3
+  * tauri-macros 2.6.3
+  * tauri-plugin-opener 2.5.4
+  * tauri-plugin-store 2.4.3
+  * tauri-runtime-wry 2.11.3
+  * tauri-runtime 2.11.3
+  * tauri-utils 2.9.3
+  * tauri 2.11.3
   * thiserror-impl 1.0.69
   * thiserror-impl 2.0.18
   * thiserror 1.0.69
   * thiserror 2.0.18
-  * time-core 0.1.8
-  * time-macros 0.2.27
-  * time 0.3.47
+  * time-core 0.1.9
+  * time-macros 0.2.29
+  * time 0.3.49
   * typeid 1.0.3
   * unic-char-property 0.9.0
   * unic-char-range 0.9.0
@@ -7202,7 +7197,6 @@ Applies to:
   * unic-ucd-version 0.9.0
   * unicode-ident 1.0.24
   * utf-8 0.7.6
-  * wasip3 0.4.0+wasi-0.3.0-rc-2026-01-06
   * wasm-streams 0.5.0
   * winapi-i686-pc-windows-gnu 0.4.0
   * winapi-x86_64-pc-windows-gnu 0.4.0
@@ -7330,7 +7324,8 @@ BSD 3-Clause "New" or "Revised" License
 
 Applies to:
   * alloc-no-stdlib 2.0.4
-  * brotli-decompressor 5.0.0
+  * brotli-decompressor 5.0.3
+  * brotli 8.0.4
 ----------------------------------------------------------------
 
 Copyright (c) 2016 Dropbox, Inc.
@@ -7352,8 +7347,7 @@ BSD 3-Clause "New" or "Revised" License
 ================================================================
 
 Applies to:
-  * alloc-stdlib 0.2.2
-  * brotli 8.0.2
+  * alloc-stdlib 0.2.4
 ----------------------------------------------------------------
 
 Copyright (c) <year> <owner>. 
@@ -7374,8 +7368,8 @@ GNU General Public License v3.0 or later
 ================================================================
 
 Applies to:
-  * gui 6.0.0
-  * reversi-core 6.0.0
+  * gui 6.1.0
+  * reversi-core 6.1.0
 ----------------------------------------------------------------
 
 GNU GENERAL PUBLIC LICENSE
@@ -7617,7 +7611,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * brotli 8.0.2
+  * brotli 8.0.4
 ----------------------------------------------------------------
 
 Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors.
@@ -7646,7 +7640,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * mio 1.2.0
+  * mio 1.2.1
 ----------------------------------------------------------------
 
 Copyright (c) 2014 Carl Lerche and other MIO contributors
@@ -7675,7 +7669,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * hyper 1.9.0
+  * hyper 1.10.1
 ----------------------------------------------------------------
 
 Copyright (c) 2014-2026 Sean McArthur
@@ -7885,7 +7879,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * bytes 1.11.1
+  * bytes 1.12.0
 ----------------------------------------------------------------
 
 Copyright (c) 2018 Carl Lerche
@@ -8090,7 +8084,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * tower-http 0.6.8
+  * tower-http 0.6.11
 ----------------------------------------------------------------
 
 Copyright (c) 2019-2021 Tower Contributors
@@ -8224,11 +8218,11 @@ MIT License
 ================================================================
 
 Applies to:
-  * zbus 5.15.0
-  * zbus_macros 5.15.0
+  * zbus 5.16.0
+  * zbus_macros 5.16.0
   * zbus_names 4.3.2
-  * zvariant 5.10.1
-  * zvariant_derive 5.10.1
+  * zvariant 5.12.0
+  * zvariant_derive 5.12.0
 ----------------------------------------------------------------
 
 Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
@@ -8532,7 +8526,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * libredox 0.1.16
+  * libredox 0.1.17
 ----------------------------------------------------------------
 
 MIT License
@@ -8669,7 +8663,7 @@ MIT License
 
 Applies to:
   * tokio-util 0.7.18
-  * tokio 1.52.1
+  * tokio 1.52.3
 ----------------------------------------------------------------
 
 MIT License
@@ -8736,7 +8730,7 @@ Applies to:
   * x11-dl 2.21.0
   * x11 2.21.0
   * zmij 1.0.21
-  * zvariant_utils 3.3.1
+  * zvariant_utils 3.4.0
 ----------------------------------------------------------------
 
 Permission is hereby granted, free of charge, to any
@@ -8770,7 +8764,7 @@ MIT License
 
 Applies to:
   * winnow 0.5.40
-  * winnow 1.0.2
+  * winnow 1.0.3
 ----------------------------------------------------------------
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -8914,13 +8908,9 @@ MIT License
 ================================================================
 
 Applies to:
-  * phf 0.11.3
   * phf 0.13.1
-  * phf_generator 0.11.3
   * phf_generator 0.13.1
-  * phf_macros 0.11.3
   * phf_macros 0.13.1
-  * phf_shared 0.11.3
   * phf_shared 0.13.1
 ----------------------------------------------------------------
 
@@ -8953,7 +8943,7 @@ MIT License
 Applies to:
   * aho-corasick 1.1.4
   * byteorder 1.5.0
-  * memchr 2.8.0
+  * memchr 2.8.2
   * walkdir 2.5.0
 ----------------------------------------------------------------
 
@@ -9146,7 +9136,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * open 5.3.4
+  * open 5.3.5
 ----------------------------------------------------------------
 
 The MIT License (MIT)
@@ -9229,7 +9219,7 @@ MIT License
 ================================================================
 
 Applies to:
-  * quick-xml 0.39.2
+  * quick-xml 0.39.4
 ----------------------------------------------------------------
 
 The MIT License (MIT)
@@ -10474,9 +10464,9 @@ Applies to:
   * tinystr 0.8.3
   * writeable 0.6.3
   * yoke-derive 0.8.2
-  * yoke 0.8.2
+  * yoke 0.8.3
   * zerofrom-derive 0.1.7
-  * zerofrom 0.1.7
+  * zerofrom 0.1.8
   * zerotrie 0.2.4
   * zerovec-derive 0.11.3
   * zerovec 0.11.6
@@ -11444,14 +11434,13 @@ The following npm packages may be included in this product:
  - @types/d3-time@3.0.4
  - @types/d3-timer@3.0.2
  - @types/draco3d@1.4.10
- - @types/node@25.6.0
+ - @types/node@26.0.0
  - @types/offscreencanvas@2019.7.3
- - @types/react-dom@19.2.3
  - @types/react-reconciler@0.28.9
- - @types/react@19.2.14
+ - @types/react@19.2.17
  - @types/stats.js@0.17.4
  - @types/three@0.183.1
- - @types/three@0.184.0
+ - @types/three@0.184.1
  - @types/use-sync-external-store@0.0.6
  - @types/webxr@0.5.24
 
@@ -11899,7 +11888,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - vite@8.0.10
+ - vite@8.0.16
 
 This package contains the following license:
 
@@ -13122,7 +13111,7 @@ Repository: https://github.com/lydell/js-tokens
 ## launch-editor, launch-editor-middleware
 License: MIT
 By: Evan You
-Repositories: https://github.com/yyx990803/launch-editor, https://github.com/yyx990803/launch-editor
+Repositories: https://github.com/vitejs/launch-editor, https://github.com/vitejs/launch-editor
 
 > The MIT License (MIT)
 > 
@@ -14227,11 +14216,12 @@ Apache-2.0
 
 -----------
 
-The following npm package may be included in this product:
+The following npm packages may be included in this product:
 
  - @tauri-apps/api@2.11.0
+ - @tauri-apps/api@2.11.1
 
-This package contains the following license:
+These packages each contain the following license:
 
 Apache-2.0 OR MIT
 
@@ -14771,7 +14761,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - enhanced-resolve@5.20.0
+ - enhanced-resolve@5.21.6
 
 This package contains the following license:
 
@@ -14848,7 +14838,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 The following npm package may be included in this product:
 
- - lucide-react@1.14.0
+ - lucide-react@1.21.0
 
 This package contains the following license:
 
@@ -14900,25 +14890,14 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - @radix-ui/number@1.1.1
- - @radix-ui/react-compose-refs@1.1.2
- - @radix-ui/react-context@1.1.2
- - @radix-ui/react-direction@1.1.1
- - @radix-ui/react-id@1.1.1
- - @radix-ui/react-use-callback-ref@1.1.1
- - @radix-ui/react-use-escape-keydown@1.1.1
- - @radix-ui/react-use-layout-effect@1.1.1
- - @radix-ui/react-use-previous@1.1.1
- - @radix-ui/react-use-rect@1.1.1
- - @radix-ui/react-use-size@1.1.1
- - @radix-ui/rect@1.1.1
+ - @esbuild/linux-x64@0.27.2
+ - @esbuild/win32-x64@0.28.1
  - @react-three/fiber@9.6.1
  - @rolldown/binding-linux-x64-gnu@1.0.0-rc.12
  - @rolldown/binding-linux-x64-musl@1.0.0-rc.12
- - @rolldown/binding-win32-x64-msvc@1.0.0-rc.17
+ - @rolldown/binding-win32-x64-msvc@1.0.3
  - html-parse-stringify@3.0.1
  - maath@0.10.8
- - react-remove-scroll-bar@2.3.8
  - stats-gl@2.4.2
 
 These packages each contain the following license:
@@ -15089,70 +15068,6 @@ SOFTWARE.
 
 -----------
 
-The following npm packages may be included in this product:
-
- - aria-hidden@1.2.4
- - react-remove-scroll@2.6.3
- - react-style-singleton@2.2.3
- - use-callback-ref@1.3.3
- - use-sidecar@1.1.3
-
-These packages each contain the following license:
-
-MIT License
-
-Copyright (c) 2017 Anton Korzunov
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
------------
-
-The following npm package may be included in this product:
-
- - detect-node-es@1.1.0
-
-This package contains the following license:
-
-MIT License
-
-Copyright (c) 2017 Ilya Kantor
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
------------
-
 The following npm package may be included in this product:
 
  - immer@10.1.1
@@ -15245,10 +15160,41 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
+ - @base-ui/react@1.6.0
+ - @base-ui/utils@0.3.1
+
+These packages each contain the following license:
+
+MIT License
+
+Copyright (c) 2019 Material-UI SAS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------
+
+The following npm packages may be included in this product:
+
  - zustand@4.5.7
  - zustand@5.0.11
  - zustand@5.0.12
- - zustand@5.0.13
+ - zustand@5.0.14
 
 These packages each contain the following license:
 
@@ -15341,13 +15287,13 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - get-nonce@1.0.1
+ - fflate@0.6.10
 
 This package contains the following license:
 
 MIT License
 
-Copyright (c) 2020 Anton Korzunov
+Copyright (c) 2020 Arjun Barrett
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -15371,13 +15317,13 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - fflate@0.6.10
+ - esbuild@0.28.1
 
 This package contains the following license:
 
 MIT License
 
-Copyright (c) 2020 Arjun Barrett
+Copyright (c) 2020 Evan Wallace
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -15491,7 +15437,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - tailwind-merge@3.5.0
+ - tailwind-merge@3.6.0
 
 This package contains the following license:
 
@@ -15581,10 +15527,10 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - @floating-ui/core@1.7.3
- - @floating-ui/dom@1.7.4
- - @floating-ui/react-dom@2.1.6
- - @floating-ui/utils@0.2.10
+ - @floating-ui/core@1.7.5
+ - @floating-ui/dom@1.7.6
+ - @floating-ui/react-dom@2.1.8
+ - @floating-ui/utils@0.2.11
 
 These packages each contain the following license:
 
@@ -15613,36 +15559,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - next-themes@0.4.6
-
-This package contains the following license:
-
-MIT License
-
-Copyright (c) 2022 Paco Coursey
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
------------
-
-The following npm package may be included in this product:
-
  - tunnel-rat@0.1.2
 
 This package contains the following license:
@@ -15650,87 +15566,6 @@ This package contains the following license:
 MIT License
 
 Copyright (c) 2022 Poimandres
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
------------
-
-The following npm packages may be included in this product:
-
- - @radix-ui/primitive@1.1.3
- - @radix-ui/react-accessible-icon@1.1.7
- - @radix-ui/react-accordion@1.2.12
- - @radix-ui/react-alert-dialog@1.1.15
- - @radix-ui/react-arrow@1.1.7
- - @radix-ui/react-aspect-ratio@1.1.7
- - @radix-ui/react-avatar@1.1.10
- - @radix-ui/react-checkbox@1.3.3
- - @radix-ui/react-collapsible@1.1.12
- - @radix-ui/react-collection@1.1.7
- - @radix-ui/react-context-menu@2.2.16
- - @radix-ui/react-dialog@1.1.15
- - @radix-ui/react-dismissable-layer@1.1.11
- - @radix-ui/react-dropdown-menu@2.1.16
- - @radix-ui/react-focus-guards@1.1.3
- - @radix-ui/react-focus-scope@1.1.7
- - @radix-ui/react-form@0.1.8
- - @radix-ui/react-hover-card@1.1.15
- - @radix-ui/react-label@2.1.7
- - @radix-ui/react-label@2.1.8
- - @radix-ui/react-menu@2.1.16
- - @radix-ui/react-menubar@1.1.16
- - @radix-ui/react-navigation-menu@1.2.14
- - @radix-ui/react-one-time-password-field@0.1.8
- - @radix-ui/react-password-toggle-field@0.1.3
- - @radix-ui/react-popover@1.1.15
- - @radix-ui/react-popper@1.2.8
- - @radix-ui/react-portal@1.1.9
- - @radix-ui/react-presence@1.1.5
- - @radix-ui/react-primitive@2.1.3
- - @radix-ui/react-primitive@2.1.4
- - @radix-ui/react-progress@1.1.7
- - @radix-ui/react-radio-group@1.3.8
- - @radix-ui/react-roving-focus@1.1.11
- - @radix-ui/react-scroll-area@1.2.10
- - @radix-ui/react-select@2.2.6
- - @radix-ui/react-separator@1.1.7
- - @radix-ui/react-slider@1.3.6
- - @radix-ui/react-slot@1.2.3
- - @radix-ui/react-slot@1.2.4
- - @radix-ui/react-switch@1.2.6
- - @radix-ui/react-tabs@1.1.13
- - @radix-ui/react-toast@1.2.15
- - @radix-ui/react-toggle-group@1.1.11
- - @radix-ui/react-toggle@1.1.10
- - @radix-ui/react-toolbar@1.1.11
- - @radix-ui/react-tooltip@1.2.8
- - @radix-ui/react-use-controllable-state@1.2.2
- - @radix-ui/react-use-effect-event@0.0.2
- - @radix-ui/react-use-is-hydrated@0.1.0
- - @radix-ui/react-visually-hidden@1.2.3
- - radix-ui@1.4.3
-
-These packages each contain the following license:
-
-MIT License
-
-Copyright (c) 2022 WorkOS
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -15904,7 +15739,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - tinyglobby@0.2.16
+ - tinyglobby@0.2.17
 
 This package contains the following license:
 
@@ -15968,12 +15803,11 @@ The copyright for this imported test code from lodash is owned by the JS Foundat
 
 -----------
 
-The following npm packages may be included in this product:
+The following npm package may be included in this product:
 
- - @rolldown/pluginutils@1.0.0-rc.17
- - rolldown@1.0.0-rc.17
+ - rolldown@1.0.3
 
-These packages each contain the following license:
+This package contains the following license:
 
 MIT License
 
@@ -16005,7 +15839,7 @@ The licenses of externally maintained libraries from which parts of the Software
 
 The following npm package may be included in this product:
 
- - @oxc-project/types@0.127.0
+ - @oxc-project/types@0.133.0
 
 This package contains the following license:
 
@@ -16013,6 +15847,66 @@ MIT License
 
 Copyright (c) 2024-present VoidZero Inc. & Contributors
 Copyright (c) 2023 Boshen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------
+
+The following npm package may be included in this product:
+
+ - @rolldown/pluginutils@1.0.1
+
+This package contains the following license:
+
+MIT License
+
+Copyright (c) 2026-present, rolldown/plugins repository contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------
+
+The following npm package may be included in this product:
+
+ - tsx@4.22.4
+
+This package contains the following license:
+
+MIT License
+
+Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -16072,7 +15966,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 The following npm package may be included in this product:
 
- - undici-types@7.19.2
+ - undici-types@8.3.0
 
 This package contains the following license:
 
@@ -16102,8 +15996,8 @@ SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - react-dom@19.2.5
- - react@19.2.5
+ - react-dom@19.2.7
+ - react@19.2.7
  - scheduler@0.27.0
  - use-sync-external-store@1.5.0
  - use-sync-external-store@1.6.0
@@ -16136,7 +16030,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - jiti@2.6.1
+ - jiti@2.7.0
 
 This package contains the following license:
 
@@ -16185,13 +16079,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 The following npm packages may be included in this product:
 
- - @tailwindcss/node@4.2.4
+ - @tailwindcss/node@4.3.1
  - @tailwindcss/oxide-linux-x64-gnu@4.2.2
  - @tailwindcss/oxide-linux-x64-musl@4.2.2
- - @tailwindcss/oxide-win32-x64-msvc@4.2.4
- - @tailwindcss/oxide@4.2.4
- - @tailwindcss/vite@4.2.4
- - tailwindcss@4.2.4
+ - @tailwindcss/oxide-win32-x64-msvc@4.3.1
+ - @tailwindcss/oxide@4.3.1
+ - @tailwindcss/vite@4.3.1
+ - tailwindcss@4.3.1
 
 These packages each contain the following license:
 
@@ -16603,7 +16497,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - tapable@2.3.0
+ - tapable@2.3.3
 
 This package contains the following license:
 
@@ -16633,7 +16527,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - i18next@26.0.8
+ - i18next@26.3.1
 
 This package contains the following license:
 
@@ -16723,6 +16617,36 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
+ - reselect@5.2.0
+
+This package contains the following license:
+
+The MIT License (MIT)
+
+Copyright (c) 2015-2018 Reselect Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------
+
+The following npm package may be included in this product:
+
  - redux@5.0.1
 
 This package contains the following license:
@@ -16753,7 +16677,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - react-i18next@17.0.6
+ - react-i18next@17.0.8
 
 This package contains the following license:
 
@@ -16843,7 +16767,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - react-resizable-panels@4.11.0
+ - react-resizable-panels@4.11.2
 
 This package contains the following license:
 
@@ -16873,7 +16797,7 @@ SOFTWARE.
 
 The following npm package may be included in this product:
 
- - framer-motion@12.38.0
+ - framer-motion@12.40.0
 
 This package contains the following license:
 
@@ -16933,8 +16857,8 @@ THE SOFTWARE.
 
 The following npm packages may be included in this product:
 
- - motion-dom@12.38.0
- - motion-utils@12.36.0
+ - motion-dom@12.40.0
+ - motion-utils@12.39.0
 
 These packages each contain the following license:
 
@@ -17024,7 +16948,7 @@ THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - postcss@8.5.10
+ - postcss@8.5.15
 
 This package contains the following license:
 
@@ -17053,7 +16977,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 The following npm package may be included in this product:
 
- - nanoid@3.3.11
+ - nanoid@3.3.13
 
 This package contains the following license:
 
