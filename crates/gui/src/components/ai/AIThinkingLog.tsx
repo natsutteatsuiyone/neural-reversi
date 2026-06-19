@@ -45,10 +45,6 @@ export function AIThinkingLog() {
       {hasData && (
         <div className="flex gap-4 px-3 py-2 text-xs border-b border-white/10 bg-white/5 shrink-0">
           <div className="flex items-center gap-1.5">
-            <span className="text-foreground-muted">{t("analysis.best")}</span>
-            <span className="font-mono font-semibold text-foreground">{latestEntry.bestMove}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
             <span className="text-foreground-muted">{t("analysis.nodes")}</span>
             <span className="font-mono text-foreground">{formatNodes(latestEntry.nodes)}</span>
           </div>

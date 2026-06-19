@@ -44,9 +44,9 @@ export function PlayerCard({
   return (
     <div
       className={cn(
-        "rounded-xl p-3 transition-all duration-200 border",
+        "rounded-xl p-3 transition-all duration-200 border-2",
         isCurrent
-          ? "bg-primary/15 border-primary/50 shadow-md shadow-primary/20"
+          ? "bg-primary/15 border-primary shadow-md shadow-primary/20"
           : "bg-white/5 border-card-border shadow-xs",
       )}
     >

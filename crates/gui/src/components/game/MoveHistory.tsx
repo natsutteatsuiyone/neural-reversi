@@ -45,55 +45,57 @@ export function MoveHistory() {
   };
 
   useLayoutEffect(() => {
-    if (scrollRef.current && currentIndex > 0) {
-      const activeEl = scrollRef.current.children[0]?.children[currentIndex - 1] as
-        | HTMLElement
-        | undefined;
-      activeEl?.scrollIntoView({ block: "nearest" });
+    const container = scrollRef.current;
+    if (!container || currentIndex === 0) return;
+    // At the latest move, pin the list to the bottom so the newest row is fully visible.
+    if (currentIndex === moves.length) {
+      container.scrollTop = container.scrollHeight;
+      return;
     }
-  }, [currentIndex]);
+    const activeEl = container.children[0]?.children[currentIndex - 1] as HTMLElement | undefined;
+    activeEl?.scrollIntoView({ block: "nearest" });
+  }, [currentIndex, moves.length]);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="px-4 py-2.5 border-b border-card-border flex items-center justify-between">
-        <h3 className="text-sm font-semibold tracking-wide text-foreground">
-          {t("history.title")}
-        </h3>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={copyTranscript}
-            disabled={currentIndex === 0}
-            aria-label={t("history.copy")}
-            className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
-          >
-            {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={undoMove}
-            disabled={!canUndo}
-            aria-label={t("history.undo")}
-            className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={redoMove}
-            disabled={!canRedo}
-            aria-label={t("history.redo")}
-            className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
-          >
-            <RotateCw className="w-4 h-4" />
-          </Button>
-        </div>
+    <div className="relative h-full">
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md bg-background-secondary/90 backdrop-blur-sm">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={copyTranscript}
+          disabled={currentIndex === 0}
+          aria-label={t("history.copy")}
+          className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
+        >
+          {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={undoMove}
+          disabled={!canUndo}
+          aria-label={t("history.undo")}
+          className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
+        >
+          <RotateCcw className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={redoMove}
+          disabled={!canRedo}
+          aria-label={t("history.redo")}
+          className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
+        >
+          <RotateCw className="w-4 h-4" />
+        </Button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 scrollbar-thin">
+      <div
+        ref={scrollRef}
+        aria-label={t("history.title")}
+        className="h-full overflow-y-auto p-2 scrollbar-thin"
+      >
         {moves.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
             <List className="w-5 h-5 text-foreground-muted/50" />
