@@ -176,7 +176,7 @@ const fn pext_u8(value: u64, mut mask: u64) -> u8 {
     let mut out_bit = 1usize;
 
     while mask != 0 {
-        let bit = mask & mask.wrapping_neg();
+        let bit = mask.isolate_lowest_one();
         if (value & bit) != 0 {
             out |= out_bit;
         }

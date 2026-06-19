@@ -26,7 +26,7 @@ pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
 #[inline(always)]
 fn flip_left(mask: u64, p: u64, not_o: u64) -> u64 {
     let non_opponent = not_o & mask;
-    let flank = non_opponent & non_opponent.wrapping_neg();
+    let flank = non_opponent.isolate_lowest_one();
     if (flank & p) != 0 {
         mask & flank.wrapping_sub(1)
     } else {
