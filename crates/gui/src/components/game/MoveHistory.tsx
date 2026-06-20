@@ -122,10 +122,10 @@ export function MoveHistory() {
                   <span className="font-medium text-foreground">{move.notation}</span>
                   {move.isAI && (
                     <>
-                      <Bot className="w-3 h-3 text-accent-blue" />
+                      <Bot className="ml-2 w-3 h-3 text-accent-blue" />
                       {move.score !== undefined && (
                         <span className="text-xs font-mono text-foreground-muted tabular-nums">
-                          {formatScore(move.score, "raw")}
+                          {formatScore(move.score, "tenth")}
                         </span>
                       )}
                     </>

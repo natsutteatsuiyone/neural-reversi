@@ -47,7 +47,7 @@ export function PlayerCard({
   return (
     <div
       className={cn(
-        "rounded-xl p-3 transition-all duration-200 border-2",
+        "rounded-xl p-3 transition-all duration-(--duration-normal) border-2",
         isCurrent
           ? "bg-primary/15 border-primary shadow-md shadow-primary/20"
           : "bg-white/5 border-card-border shadow-xs",
@@ -76,7 +76,7 @@ export function PlayerCard({
               )}
               <span
                 className={cn(
-                  "truncate text-xs font-medium",
+                  "truncate text-sm font-medium",
                   isThinking ? "text-accent-blue" : "text-foreground-secondary",
                 )}
               >
@@ -88,7 +88,7 @@ export function PlayerCard({
           ) : (
             <>
               <User className="w-4 h-4 shrink-0 text-foreground-secondary" />
-              <span className="truncate text-xs font-medium text-foreground-secondary">
+              <span className="truncate text-sm font-medium text-foreground-secondary">
                 {playerLabel ?? t("player.you")}
               </span>
             </>

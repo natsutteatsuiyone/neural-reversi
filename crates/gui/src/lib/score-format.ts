@@ -12,9 +12,9 @@
 export type ScoreRounding =
   /** Nearest whole disc — cell overlays, solver candidates. */
   | "whole"
-  /** One decimal — the evaluation chart's trend line. */
+  /** One decimal — the evaluation chart's trend line and the move history. */
   | "tenth"
-  /** Verbatim — the thinking log / move history / analysis header. */
+  /** Verbatim — the thinking log / analysis header. */
   | "raw";
 
 function reduce(score: number, rounding: ScoreRounding): string {

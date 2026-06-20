@@ -22,7 +22,7 @@ function ThinkingRipple() {
       {[1, 2, 3].map((i) => (
         <motion.div
           key={i}
-          className="absolute inset-0 rounded-sm border-2 border-cyan-400/70"
+          className="absolute inset-0 rounded-sm border-2 border-accent-ai/70"
           initial={{ opacity: 0.7, scale: 0.5 }}
           animate={{
             opacity: 0,
@@ -80,7 +80,7 @@ export function AIThinkingIndicator({
           }}
           className="relative"
         >
-          <Bot className="text-cyan-400 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" size={22} />
+          <Bot className="text-accent-ai drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" size={22} />
         </motion.div>
       </div>
     );
@@ -108,7 +108,7 @@ export function AIThinkingIndicator({
             damping: 10,
           }}
         >
-          <Bot className="text-cyan-400/70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]" size={22} />
+          <Bot className="text-accent-ai/70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]" size={22} />
         </motion.div>
       </div>
     );

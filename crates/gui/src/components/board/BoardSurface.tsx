@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {
   CELL_SIZE,
   BOARD_WORLD_SIZE,
+  FELT_COLOR,
   GROOVE_COLOR,
   GROOVE_WIDTH,
   STAR_POINT_COLOR,
@@ -26,7 +27,7 @@ function createFeltTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d")!;
 
   // Base green color
-  ctx.fillStyle = "#2d8a5e";
+  ctx.fillStyle = FELT_COLOR;
   ctx.fillRect(0, 0, size, size);
 
   // Add fiber noise

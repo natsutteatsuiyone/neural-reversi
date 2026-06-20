@@ -1,12 +1,11 @@
 import { memo } from "react";
-import { cellToWorld } from "./board3d-utils";
+import { cellToWorld, LAST_MOVE_RING_COLOR } from "./board3d-utils";
 
 interface MoveIndicatorsProps {
   validMoves: { row: number; col: number }[];
   lastMove: { row: number; col: number } | null;
 }
 
-const ACCENT_GOLD = "#b8956c";
 const VALID_MOVE_DOT_RADIUS = 0.13;
 const HIGHLIGHT_INNER_RADIUS = 0.42;
 const HIGHLIGHT_OUTER_RADIUS = 0.47;
@@ -40,7 +39,7 @@ function LastMoveRing({ row, col }: { row: number; col: number }) {
   return (
     <mesh position={[x, 0.002, z]} rotation={[-Math.PI / 2, 0, 0]}>
       <ringGeometry args={[HIGHLIGHT_INNER_RADIUS, HIGHLIGHT_OUTER_RADIUS, 32]} />
-      <meshBasicMaterial color={ACCENT_GOLD} />
+      <meshBasicMaterial color={LAST_MOVE_RING_COLOR} />
     </mesh>
   );
 }

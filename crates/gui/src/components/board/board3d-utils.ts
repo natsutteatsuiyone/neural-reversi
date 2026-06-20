@@ -14,6 +14,16 @@ export const STAR_POINT_COLOR = "#1a1a1a";
 export const DISC_COLOR_BLACK = "#2a2a2d";
 export const DISC_COLOR_WHITE = "#e8e4df";
 export const GROOVE_COLOR = "#1a5238";
+// Felt playing-surface base color (procedural texture seed).
+export const FELT_COLOR = "#2d8a5e";
+// Dark gunmetal frame and its lighter top-edge chamfer highlight.
+export const FRAME_COLOR = "#2d2d38";
+export const FRAME_CHAMFER_COLOR = "#4a4a55";
+// Column/row label text in the 3D scene.
+export const LABEL_COLOR = "#a0a0b0";
+// Last-move ring. Mirrors the `--accent-gold` CSS token; kept as a literal
+// because three.js materials cannot read Tailwind/CSS custom properties.
+export const LAST_MOVE_RING_COLOR = "#b8956c";
 
 export function cellToWorld(row: number, col: number): [x: number, z: number] {
   const x = col * CELL_SIZE - BOARD_OFFSET;

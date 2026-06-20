@@ -33,7 +33,7 @@ function getChartColors() {
   if (!_cachedColors) {
     const style = getComputedStyle(document.documentElement);
     _cachedColors = {
-      line: style.getPropertyValue("--primary").trim() || "#3d9970",
+      line: style.getPropertyValue("--primary").trim() || "#43a575",
       blunder: style.getPropertyValue("--chart-blunder").trim() || "#ef4444",
       dubious: style.getPropertyValue("--chart-dubious").trim() || "#eab308",
     };
@@ -199,7 +199,7 @@ export function EvaluationChart() {
   const hasAnalysis = gameAnalysisResult !== null;
 
   return (
-    <div className="bg-white/5 rounded-lg p-2 border border-white/10">
+    <div className="evaluation-chart bg-white/5 rounded-lg p-2 border border-white/10">
       <ResponsiveContainer width="100%" height={180}>
         <LineChart
           data={chartData}

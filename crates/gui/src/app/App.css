@@ -117,6 +117,7 @@
     --accent-gold: #b8956c;
     --accent-amber: #c8924d;
     --accent-blue: #7ba0c8;
+    --accent-ai: #5fb3c4;
 
     /* Destructive */
     --destructive: #c45c5c;
@@ -140,6 +141,13 @@
 
     /* Radius */
     --radius: 0.625rem;
+
+    /* Motion - two-tier transition timing.
+     * fast: overlay enter/exit and color/hover micro-transitions (matches the
+     * Tailwind default 150ms used by bare `transition-*`).
+     * normal: larger state changes (buttons, cards). */
+    --duration-fast: 150ms;
+    --duration-normal: 200ms;
 
     /* Stone colors */
     --stone-black-from: #404045;
@@ -191,6 +199,7 @@
     --color-accent-gold: var(--accent-gold);
     --color-accent-amber: var(--accent-amber);
     --color-accent-blue: var(--accent-blue);
+    --color-accent-ai: var(--accent-ai);
     --color-destructive: var(--destructive);
     --color-destructive-foreground: var(--destructive-foreground);
     --color-border: var(--border);
@@ -221,12 +230,12 @@
     --shadow-lg: var(--shadow-lg);
     --shadow-xl: var(--shadow-xl);
 
-    --font-size-xs: var(--font-size-xs);
-    --font-size-sm: var(--font-size-sm);
-    --font-size-base: var(--font-size-base);
-    --font-size-lg: var(--font-size-lg);
-    --font-size-xl: var(--font-size-xl);
-    --font-size-2xl: var(--font-size-2xl);
+    --text-xs: var(--font-size-xs);
+    --text-sm: var(--font-size-sm);
+    --text-base: var(--font-size-base);
+    --text-lg: var(--font-size-lg);
+    --text-xl: var(--font-size-xl);
+    --text-2xl: var(--font-size-2xl);
     --font-weight-medium: var(--font-weight-medium);
     --font-weight-semibold: var(--font-weight-semibold);
     --font-weight-bold: var(--font-weight-bold);
@@ -326,4 +335,16 @@
 
 .animate-pulse-ring {
     animation: pulse-ring 1.8s ease-out infinite;
+}
+
+/*
+ * The evaluation chart navigates moves on click, so clicking focuses an inner
+ * Recharts element. The global `* { outline-color: var(--ring) }` then paints
+ * an emerald focus ring around the chart. Suppress the focus ring on the chart
+ * and all of its internals; keyboard navigation still works without the box.
+ */
+.evaluation-chart:is(:focus, :focus-visible),
+.evaluation-chart :is(:focus, :focus-visible) {
+    outline: none;
+    box-shadow: none;
 }

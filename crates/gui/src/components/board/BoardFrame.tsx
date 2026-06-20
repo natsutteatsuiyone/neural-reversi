@@ -1,5 +1,11 @@
 import { useMemo } from "react";
-import { BOARD_WORLD_SIZE, FRAME_WIDTH, FRAME_HEIGHT } from "./board3d-utils";
+import {
+  BOARD_WORLD_SIZE,
+  FRAME_WIDTH,
+  FRAME_HEIGHT,
+  FRAME_COLOR,
+  FRAME_CHAMFER_COLOR,
+} from "./board3d-utils";
 
 const CHAMFER_HEIGHT = 0.01;
 
@@ -58,14 +64,14 @@ export function BoardFrame() {
       {/* Base plane beneath the board */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
         <planeGeometry args={[outerSize, outerSize]} />
-        <meshStandardMaterial color="#2d2d38" roughness={0.4} metalness={0.7} />
+        <meshStandardMaterial color={FRAME_COLOR} roughness={0.4} metalness={0.7} />
       </mesh>
 
       {/* Frame sides  Edark gunmetal */}
       {sides.map((side, i) => (
         <mesh key={`side-${i}`} position={side.position} receiveShadow>
           <boxGeometry args={side.size} />
-          <meshStandardMaterial color="#2d2d38" roughness={0.4} metalness={0.7} />
+          <meshStandardMaterial color={FRAME_COLOR} roughness={0.4} metalness={0.7} />
         </mesh>
       ))}
 
@@ -73,7 +79,7 @@ export function BoardFrame() {
       {chamferStrips.map((strip, i) => (
         <mesh key={`chamfer-${i}`} position={strip.position}>
           <boxGeometry args={strip.size} />
-          <meshStandardMaterial color="#4a4a55" roughness={0.12} metalness={0.9} />
+          <meshStandardMaterial color={FRAME_CHAMFER_COLOR} roughness={0.12} metalness={0.9} />
         </mesh>
       ))}
     </group>

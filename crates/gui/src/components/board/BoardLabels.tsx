@@ -1,8 +1,13 @@
 import { Text } from "@react-three/drei";
 import { COLUMN_LABELS, ROW_LABELS } from "@/domain/game/constants";
-import { CELL_SIZE, BOARD_WORLD_SIZE, BOARD_OFFSET, FRAME_WIDTH } from "./board3d-utils";
+import {
+  CELL_SIZE,
+  BOARD_WORLD_SIZE,
+  BOARD_OFFSET,
+  FRAME_WIDTH,
+  LABEL_COLOR,
+} from "./board3d-utils";
 
-const LABEL_COLOR = "#a0a0b0";
 const FONT_SIZE = 0.3;
 const LABEL_OFFSET = FRAME_WIDTH + 0.35;
 
