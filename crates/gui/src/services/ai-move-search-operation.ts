@@ -17,11 +17,10 @@ interface AIMoveSearchOperationOptions {
   timeLimitSeconds: number;
   remainingTimeMs: number;
   getRemainingTime: () => number;
-  onStart: (startTime: number) => void;
+  onStart: () => void;
   onTimerChange: (timer: SearchTimer | null) => void;
   onRemainingTime: (remainingTime: number) => void;
   onProgress: (entry: AIMoveSearchProgress) => void;
-  onFinish: () => void;
 }
 
 function isSameProgress(a: AIMoveProgress | null, b: AIMoveProgress): boolean {
@@ -57,7 +56,6 @@ export async function runAIMoveSearch({
   onTimerChange,
   onRemainingTime,
   onProgress,
-  onFinish,
 }: AIMoveSearchOperationOptions): Promise<AIMoveResult> {
   const startTime = Date.now();
   const isGameTime = mode === "game-time";
@@ -85,7 +83,7 @@ export async function runAIMoveSearch({
     onRemainingTime(remainingTime);
   };
 
-  onStart(startTime);
+  onStart();
 
   if (isGameTime) {
     timer = setInterval(() => {
@@ -121,6 +119,5 @@ export async function runAIMoveSearch({
     return aiMove;
   } finally {
     clearTimer();
-    onFinish();
   }
 }

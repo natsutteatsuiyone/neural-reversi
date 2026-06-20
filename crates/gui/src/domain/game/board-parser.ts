@@ -139,6 +139,7 @@ export function parseBoardString(input: string): ParseResult {
  *
  * Returns null if valid, or an error string:
  * - "needBothColors": Must have at least one black and one white stone
+ * - "tooFewDiscs": Fewer than four discs on the board
  * - "noValidMoves": Neither player has a legal move
  * - "currentPlayerNoMoves": Current player has no legal moves (would pass immediately)
  */

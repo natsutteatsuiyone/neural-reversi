@@ -62,7 +62,6 @@ describe("runAIMoveSearch", () => {
         onTimerChange: vi.fn(),
         onRemainingTime: vi.fn(),
         onProgress,
-        onFinish: vi.fn(),
       });
 
       expect(onProgress).toHaveBeenCalledTimes(2);
@@ -105,7 +104,6 @@ describe("runAIMoveSearch", () => {
       onTimerChange: vi.fn(),
       onRemainingTime: vi.fn(),
       onProgress,
-      onFinish: vi.fn(),
     });
 
     expect(onProgress).toHaveBeenCalledTimes(3);
@@ -147,7 +145,6 @@ describe("runAIMoveSearch", () => {
           remainingTime = nextRemainingTime;
         },
         onProgress: vi.fn(),
-        onFinish: vi.fn(),
       });
 
       expect(timer).not.toBeNull();
@@ -196,7 +193,6 @@ describe("runAIMoveSearch", () => {
           remainingTime = nextRemainingTime;
         },
         onProgress: vi.fn(),
-        onFinish: vi.fn(),
       });
 
       remainingTime = 42_000;
@@ -211,11 +207,10 @@ describe("runAIMoveSearch", () => {
     }
   });
 
-  it("cleans up the timer and finishes when search rejects", async () => {
+  it("cleans up the timer when search rejects", async () => {
     vi.useFakeTimers();
     try {
       const onTimerChange = vi.fn();
-      const onFinish = vi.fn();
       const ai = createMockAIService({
         getAIMove: vi.fn().mockRejectedValue(new Error("boom")),
       });
@@ -234,12 +229,10 @@ describe("runAIMoveSearch", () => {
           onTimerChange,
           onRemainingTime: vi.fn(),
           onProgress: vi.fn(),
-          onFinish,
         }),
       ).rejects.toThrow("boom");
 
       expect(onTimerChange).toHaveBeenLastCalledWith(null);
-      expect(onFinish).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

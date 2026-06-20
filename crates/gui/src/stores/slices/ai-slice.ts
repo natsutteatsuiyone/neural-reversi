@@ -54,7 +54,6 @@ export function createAISlice(
         let aiMove: AIMoveResult = null;
         await engineSearch.start<{ progress: AIMoveProgress; nps: number }, AIMoveResult>({
           kind: "ai-move",
-          onStart: () => {},
           run: (accept, run) =>
             runAIMoveSearch({
               ai: services.ai,
@@ -78,7 +77,6 @@ export function createAISlice(
                 if (run.isCurrent()) set({ aiRemainingTime: remainingTime });
               },
               onProgress: accept,
-              onFinish: () => {},
             }),
           abort: () => services.ai.abortSearch(),
           onProgress: ({ progress, nps }) =>
