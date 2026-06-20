@@ -101,24 +101,12 @@ pub fn load_openings(path: &str) -> io::Result<Vec<Vec<Square>>> {
 
     for line in reader.lines() {
         let line = line?;
-        let mut sequence = Vec::new();
-        let mut i = 0;
-
-        while i + 1 < line.len() {
-            // Parse two characters at a time into a square
-            let square_str = &line[i..i + 2];
-            match square_str.parse::<Square>() {
-                Ok(sq) => sequence.push(sq),
-                Err(_) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Invalid square notation: {square_str}"),
-                    ));
-                }
-            }
-            i += 2;
-        }
-
+        let sequence = Square::parse_sequence(&line).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid square notation: {e}"),
+            )
+        })?;
         openings.push(sequence);
     }
 

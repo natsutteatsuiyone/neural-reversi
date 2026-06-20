@@ -10,27 +10,7 @@ pub fn parse_move_string(input: &str) -> Result<Vec<Square>, String> {
     if input.is_empty() {
         return Err("Empty input".to_string());
     }
-    if !input.is_ascii() {
-        return Err("Input must be ASCII (a-h, 1-8)".to_string());
-    }
-    if !input.len().is_multiple_of(2) {
-        return Err("Input length must be even (each move is 2 characters)".to_string());
-    }
-
-    let mut moves = Vec::new();
-    for i in (0..input.len()).step_by(2) {
-        let move_str = &input[i..i + 2];
-        match move_str.parse::<Square>() {
-            Ok(sq) => moves.push(sq),
-            Err(_) => {
-                return Err(format!(
-                    "Invalid square at position {}: '{move_str}'",
-                    (i / 2) + 1
-                ));
-            }
-        }
-    }
-    Ok(moves)
+    Square::parse_sequence(input).map_err(|e| e.to_string())
 }
 
 /// Parses a hex string (with optional "0x" prefix) into a u64 bitboard value.

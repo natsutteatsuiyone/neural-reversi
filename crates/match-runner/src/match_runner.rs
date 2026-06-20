@@ -35,34 +35,13 @@ pub struct MatchResult {
     pub score: i32,
 }
 
-/// Parse an opening string into a vector of move strings.
+/// Parse an opening string into a sequence of squares.
 ///
 /// The opening string is a sequence of algebraic notation moves concatenated together
 /// (e.g., "f5d6c3d3c4f4"). Each move consists of a file (a-h) and a rank (1-8).
-fn parse_opening_moves(opening: &str) -> Result<Vec<String>> {
-    if !opening.len().is_multiple_of(2) {
-        return Err(MatchRunnerError::Game(format!(
-            "Opening sequence has odd length: '{opening}'"
-        )));
-    }
-
-    let bytes = opening.as_bytes();
-    let mut moves = Vec::new();
-    let mut i = 0;
-    while i + 1 < bytes.len() {
-        let file = bytes[i] as char;
-        let rank = bytes[i + 1] as char;
-
-        if !('a'..='h').contains(&file) || !('1'..='8').contains(&rank) {
-            return Err(MatchRunnerError::Game(format!(
-                "Invalid move in opening sequence: {file}{rank}"
-            )));
-        }
-
-        moves.push(format!("{file}{rank}"));
-        i += 2;
-    }
-    Ok(moves)
+fn parse_opening_moves(opening: &str) -> Result<Vec<Square>> {
+    Square::parse_sequence(opening)
+        .map_err(|e| MatchRunnerError::Game(format!("Invalid opening sequence: {e}")))
 }
 
 /// Orchestrates and executes automated matches between two engines.
@@ -272,9 +251,7 @@ impl MatchRunner {
         opening: &str,
     ) -> Result<()> {
         let moves = parse_opening_moves(opening)?;
-        for mv in &moves {
-            let square = self.parse_move(mv)?;
-
+        for square in moves {
             let color = if game_state.side_to_move() == Disc::Black {
                 "black"
             } else {
@@ -285,8 +262,9 @@ impl MatchRunner {
                 .make_move(Some(square))
                 .map_err(MatchRunnerError::Game)?;
 
-            black_engine.play(color, mv)?;
-            white_engine.play(color, mv)?;
+            let mv = square.to_string();
+            black_engine.play(color, &mv)?;
+            white_engine.play(color, &mv)?;
         }
 
         Ok(())
@@ -565,15 +543,15 @@ mod tests {
     #[test]
     fn test_parse_opening_moves_valid() {
         let moves = parse_opening_moves("f5d6c3").unwrap();
-        assert_eq!(moves, vec!["f5", "d6", "c3"]);
+        assert_eq!(moves, vec![Square::F5, Square::D6, Square::C3]);
     }
 
     #[test]
     fn test_parse_opening_moves_full() {
         let moves = parse_opening_moves("f5d6c3d3c4f4").unwrap();
         assert_eq!(moves.len(), 6);
-        assert_eq!(moves[0], "f5");
-        assert_eq!(moves[5], "f4");
+        assert_eq!(moves[0], Square::F5);
+        assert_eq!(moves[5], Square::F4);
     }
 
     #[test]
@@ -585,13 +563,13 @@ mod tests {
     #[test]
     fn test_parse_opening_moves_single() {
         let moves = parse_opening_moves("a1").unwrap();
-        assert_eq!(moves, vec!["a1"]);
+        assert_eq!(moves, vec![Square::A1]);
     }
 
     #[test]
     fn test_parse_opening_moves_boundary_squares() {
         let moves = parse_opening_moves("a1h8").unwrap();
-        assert_eq!(moves, vec!["a1", "h8"]);
+        assert_eq!(moves, vec![Square::A1, Square::H8]);
     }
 
     #[test]

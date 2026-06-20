@@ -204,6 +204,35 @@ impl Square {
         // SAFETY: 0..64 are all valid square indices.
         (0..TOTAL_SQUARES as u8).map(|i| unsafe { Square::from_u8_unchecked(i) })
     }
+
+    /// Parses a string of concatenated two-character algebraic move tokens
+    /// (for example `"f5d6c3"`) into a sequence of squares.
+    ///
+    /// Leading and trailing whitespace is trimmed, and an empty string yields
+    /// an empty sequence. Each two-character token is parsed with
+    /// [`Square::from_str`], so both letter cases are accepted. A trailing
+    /// token of odd length is rejected.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SquareSeqError`] identifying the 1-based position of the first
+    /// token that is not a valid square.
+    pub fn parse_sequence(s: &str) -> Result<Vec<Square>, SquareSeqError> {
+        let s = s.trim();
+        let bytes = s.as_bytes();
+        let mut moves = Vec::with_capacity(bytes.len() / 2);
+        for (i, token) in bytes.chunks(2).enumerate() {
+            let square = std::str::from_utf8(token)
+                .map_err(|_| SquareError::InvalidFormat)
+                .and_then(Square::from_str)
+                .map_err(|source| SquareSeqError {
+                    index: i + 1,
+                    source,
+                })?;
+            moves.push(square);
+        }
+        Ok(moves)
+    }
 }
 
 // We want Square::None as the default value, not the first variant (A1)
@@ -240,6 +269,31 @@ impl fmt::Display for SquareError {
 }
 
 impl std::error::Error for SquareError {}
+
+/// Error returned by [`Square::parse_sequence`] when a token fails to parse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SquareSeqError {
+    /// 1-based position of the offending move token within the sequence.
+    pub index: usize,
+    /// The underlying error for the offending token.
+    pub source: SquareError,
+}
+
+impl fmt::Display for SquareSeqError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "invalid move at position {}: {}",
+            self.index, self.source
+        )
+    }
+}
+
+impl std::error::Error for SquareSeqError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
 
 impl FromStr for Square {
     type Err = SquareError;
@@ -337,6 +391,43 @@ mod tests {
             SquareError::InvalidRank('0') => (),
             _ => panic!("Expected InvalidRank error"),
         }
+    }
+
+    #[test]
+    fn test_parse_sequence() {
+        assert_eq!(Square::parse_sequence("").unwrap(), Vec::<Square>::new());
+        assert_eq!(
+            Square::parse_sequence("f5d6c3").unwrap(),
+            vec![Square::F5, Square::D6, Square::C3]
+        );
+        // leading/trailing whitespace is trimmed
+        assert_eq!(
+            Square::parse_sequence("  f5d6 ").unwrap(),
+            vec![Square::F5, Square::D6]
+        );
+        // both letter cases are accepted
+        assert_eq!(
+            Square::parse_sequence("F5D6").unwrap(),
+            vec![Square::F5, Square::D6]
+        );
+    }
+
+    #[test]
+    fn test_parse_sequence_reports_position() {
+        // a trailing token of odd length is rejected
+        let err = Square::parse_sequence("f5d").unwrap_err();
+        assert_eq!(err.index, 2);
+        assert_eq!(err.source, SquareError::InvalidFormat);
+
+        // invalid file at the second move
+        let err = Square::parse_sequence("f5z9").unwrap_err();
+        assert_eq!(err.index, 2);
+        assert_eq!(err.source, SquareError::InvalidFile('z'));
+
+        // invalid rank at the first move
+        let err = Square::parse_sequence("a0").unwrap_err();
+        assert_eq!(err.index, 1);
+        assert_eq!(err.source, SquareError::InvalidRank('0'));
     }
 
     #[test]

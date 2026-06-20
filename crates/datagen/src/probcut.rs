@@ -138,20 +138,10 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         let mut side_to_move = Disc::Black;
 
         // Note: We don't reset TT between games to allow TT reuse for common positions
-        for token in line.as_bytes().chunks_exact(2) {
-            let move_str = std::str::from_utf8(token).map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid UTF-8 in move token: {e}"),
-                )
-            })?;
-            let sq = move_str.parse::<Square>().map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid move '{move_str}': {e}"),
-                )
-            })?;
-
+        let moves = Square::parse_sequence(line).map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move: {e}"))
+        })?;
+        for sq in moves {
             if !board.has_legal_moves() {
                 board = board.switch_players();
                 side_to_move = side_to_move.opposite();
@@ -290,20 +280,10 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
         let mut board = Board::new();
         let mut side_to_move = Disc::Black;
 
-        for token in line.as_bytes().chunks_exact(2) {
-            let move_str = std::str::from_utf8(token).map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid UTF-8 in move token: {e}"),
-                )
-            })?;
-            let sq = move_str.parse::<Square>().map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid move '{move_str}': {e}"),
-                )
-            })?;
-
+        let moves = Square::parse_sequence(line).map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move: {e}"))
+        })?;
+        for sq in moves {
             if !board.has_legal_moves() {
                 board = board.switch_players();
                 side_to_move = side_to_move.opposite();
