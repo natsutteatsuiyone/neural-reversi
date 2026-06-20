@@ -12,7 +12,7 @@ use reversi_core::{
     disc::Disc,
     level::{MAX_LEVEL, get_level},
     probcut::Selectivity,
-    search::{self, SearchRunOptions, options::SearchOptions, time_control::TimeControlMode},
+    search::{self, SearchRunOptions, time_control::TimeControlMode},
     square::Square,
 };
 
@@ -266,12 +266,9 @@ impl GtpEngine {
     /// # Returns
     /// A new `GtpEngine` instance ready to process commands
     pub fn new(config: &EngineConfig) -> io::Result<Self> {
-        let search_options = SearchOptions::new(config.hash_size)
-            .with_threads(config.threads)
-            .with_eval_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
         Ok(Self {
             game: GameState::new(),
-            search: search::Search::new(&search_options),
+            search: search::Search::new(&config.search_options()),
             level: config.level,
             selectivity: config.selectivity,
             name: "Neural Reversi".to_string(),

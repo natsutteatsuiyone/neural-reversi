@@ -1,6 +1,5 @@
 //! Application state and main loop for the TUI.
 
-use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Duration;
@@ -10,11 +9,11 @@ use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level;
 use reversi_core::probcut::Selectivity;
-use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_result::{PvMove, SearchResult};
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 
+use crate::config::EngineConfig;
 use crate::game::GameState;
 
 use super::event::{self, Event};
@@ -240,24 +239,14 @@ pub struct App {
 
 impl App {
     /// Creates a new App instance.
-    pub fn new(
-        hash_size: usize,
-        initial_level: usize,
-        selectivity: Selectivity,
-        threads: Option<usize>,
-        eval_path: Option<&Path>,
-        eval_sm_path: Option<&Path>,
-    ) -> Result<Self, String> {
-        let search_options = SearchOptions::new(hash_size)
-            .with_threads(threads)
-            .with_eval_paths(eval_path, eval_sm_path);
-        let search = search::Search::new(&search_options);
+    pub fn new(config: &EngineConfig) -> Result<Self, String> {
+        let search = search::Search::new(&config.search_options());
 
         Ok(Self {
             game: GameState::new(),
             search: Some(search),
-            level: initial_level,
-            selectivity,
+            level: config.level,
+            selectivity: config.selectivity,
             mode: GameMode::HumanVsAi,
             ui_mode: UiMode::Normal,
             cursor: (3, 3), // Start at center

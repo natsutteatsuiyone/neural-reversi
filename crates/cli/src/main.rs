@@ -5,7 +5,7 @@ mod gtp;
 mod solve;
 mod tui;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use config::EngineConfig;
@@ -164,7 +164,6 @@ fn main() {
     match args.command {
         Some(SubCommands::Gtp { engine_params }) => {
             let config = EngineConfig::from(engine_params);
-            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
             let mut gtp_engine = gtp::GtpEngine::new(&config).unwrap_or_else(|err| {
                 eprintln!("Failed to initialize engine: {err}");
                 std::process::exit(1);
@@ -178,7 +177,6 @@ fn main() {
             engine_params,
         }) => {
             let config = EngineConfig::from(engine_params);
-            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
             if let Err(e) = solve::solve(&file, &config, exact, all_moves) {
                 eprintln!("Error solving game: {e}");
             }
@@ -191,7 +189,6 @@ fn main() {
             engine_params,
         }) => {
             let config = EngineConfig::from(engine_params);
-            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
             if let Err(e) = ggs::run_ggs(&script, &host, port, &user, &config) {
                 eprintln!("GGS session error: {e}");
                 std::process::exit(1);
@@ -214,19 +211,9 @@ fn main() {
         }
         None => {
             let config = EngineConfig::from(args.engine_params);
-            validate_weight_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
             tui::run(&config).unwrap_or_else(|err| {
                 eprintln!("Failed to initialize UI: {err}");
             });
-        }
-    }
-}
-
-fn validate_weight_paths(main: Option<&Path>, small: Option<&Path>) {
-    for path in [main, small].into_iter().flatten() {
-        if !path.exists() {
-            eprintln!("Weight file does not exist: {}", path.display());
-            std::process::exit(1);
         }
     }
 }

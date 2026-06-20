@@ -28,9 +28,7 @@ pub fn solve(
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
 
-    let search_options = SearchOptions::new(config.hash_size)
-        .with_threads(config.threads)
-        .with_eval_paths(config.eval_file.as_deref(), config.eval_sm_file.as_deref());
+    let search_options = config.search_options();
 
     print_header(file_path, &search_options);
 

@@ -15,14 +15,7 @@ use app::App;
 
 /// Runs the TUI, handling user input and game state.
 pub fn run(config: &EngineConfig) -> Result<(), String> {
-    let app = App::new(
-        config.hash_size,
-        config.level,
-        config.selectivity,
-        config.threads,
-        config.eval_file.as_deref(),
-        config.eval_sm_file.as_deref(),
-    )?;
+    let app = App::new(config)?;
 
     let terminal = ratatui::init();
     let result = app.run(terminal);
