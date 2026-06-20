@@ -58,19 +58,6 @@ struct NetworkBuffers {
 }
 
 impl NetworkBuffers {
-    /// All-zero buffers used to initialize the per-thread scratch once.
-    ///
-    /// Only the `l1_input` padding tail is read before being written each pass,
-    /// so it must stay zero; every other byte is fully overwritten, making reuse
-    /// across calls bit-identical to a fresh zeroed buffer.
-    const ZEROED: Self = NetworkBuffers {
-        l1_input: Align64([0; L1_PADDED_INPUT_DIMS]),
-        l1_li_out: Align64([0; L1_PADDED_OUTPUT_DIMS]),
-        l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
-        l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
-        l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
-    };
-
     #[inline(always)]
     fn base_input_mut(&mut self) -> &mut [u8] {
         &mut self.l1_input[..BASE_OUTPUT_DIMS]
@@ -90,12 +77,39 @@ impl NetworkBuffers {
     }
 }
 
+/// Length of the raw per-thread scratch storage, with `align_of` bytes of slack
+/// so a 64-aligned `NetworkBuffers` can always be carved out of it.
+const SCRATCH_LEN: usize =
+    std::mem::size_of::<NetworkBuffers>() + std::mem::align_of::<NetworkBuffers>();
+
 thread_local! {
     /// Per-thread scratch reused across evaluations: the ~768-byte buffer is
     /// zeroed once per thread, not per call. `const` init keeps the access on
     /// the guard-free thread-local path.
-    static NETWORK_BUFFERS: UnsafeCell<NetworkBuffers> =
-        const { UnsafeCell::new(NetworkBuffers::ZEROED) };
+    ///
+    /// Stored as raw bytes rather than a `NetworkBuffers` because macOS TLV
+    /// storage only guarantees 16-byte alignment for the per-thread block and
+    /// ignores the 64-byte alignment the `Align64` fields require for their SIMD
+    /// loads. We over-allocate and realign at the access site (see [`scratch_ptr`]).
+    /// The all-zero byte pattern is a valid zeroed `NetworkBuffers`; only the
+    /// `l1_input` padding tail is read before being written, and it stays zero.
+    static NETWORK_BUFFERS: UnsafeCell<[u8; SCRATCH_LEN]> =
+        const { UnsafeCell::new([0; SCRATCH_LEN]) };
+}
+
+/// Returns a 64-aligned pointer into the over-allocated raw thread-local
+/// scratch storage, suitable to reinterpret as a zeroed `NetworkBuffers`.
+///
+/// Computing the pointer is safe; dereferencing it requires that no other
+/// borrow of `NETWORK_BUFFERS` is live (`evaluate` is not reentrant).
+#[inline(always)]
+fn scratch_ptr(cell: &UnsafeCell<[u8; SCRATCH_LEN]>) -> *mut NetworkBuffers {
+    let base = cell.get().cast::<u8>();
+    let offset = base.align_offset(std::mem::align_of::<NetworkBuffers>());
+    // SAFETY: the storage has `align_of::<NetworkBuffers>()` bytes of slack, so
+    // `offset` (in `0..align`) keeps the `size_of::<NetworkBuffers>()`-byte
+    // window in bounds.
+    unsafe { base.add(offset).cast::<NetworkBuffers>() }
 }
 
 /// Layer stack for a specific game ply.
@@ -206,7 +220,7 @@ impl Network {
         NETWORK_BUFFERS.with(|cell| {
             // SAFETY: `evaluate` is not reentrant (no forward pass calls back
             // into it), so this is the only live borrow of the scratch.
-            let buffers = unsafe { &mut *cell.get() };
+            let buffers = unsafe { &mut *scratch_ptr(cell) };
             self.base_input
                 .forward(pattern_feature, buffers.base_input_mut());
             self.pa_input
@@ -215,5 +229,32 @@ impl Network {
             let score = self.layer_stacks[ply].forward(buffers);
             score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// macOS TLV storage only 16-byte-aligns the per-thread block, so freshly
+    /// spawned worker threads land the raw scratch at 16/32/48 mod 64. Assert
+    /// the carved `NetworkBuffers` is realigned to 64 bytes on many threads;
+    /// without that realignment, `evaluate`'s `&mut *cell.get()` aborted under
+    /// the debug `misaligned_pointer_dereference` check.
+    #[test]
+    fn scratch_is_64_aligned_on_worker_threads() {
+        let handles: Vec<_> = (0..256)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    NETWORK_BUFFERS.with(|cell| {
+                        let addr = scratch_ptr(cell).addr();
+                        assert_eq!(addr % 64, 0, "scratch not 64-aligned: {addr:#x}");
+                    });
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
     }
 }
