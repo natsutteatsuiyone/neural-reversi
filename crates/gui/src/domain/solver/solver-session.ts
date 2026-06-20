@@ -63,6 +63,23 @@ export class SolverSession {
     this.engineSearch = engineSearch;
   }
 
+  /**
+   * Supersede the in-flight Engine Search and commit `patch` synchronously,
+   * WITHOUT starting a new backend search. The breadcrumb is committed in
+   * `onClaim` (before the awaited supersede) so a rapidly-following navigation
+   * reads it; aborting the prior run stops its late progress from overwriting
+   * the just-committed candidates. The no-new-search counterpart to
+   * {@link runSearch}, shared by exit / stop / game-over / cache-hit paths.
+   */
+  private supersede(
+    patch: SolverSessionPatch | ((state: SolverSessionState) => SolverSessionPatch),
+  ): Promise<void> {
+    return this.engineSearch.abort({
+      onClaim: () => this.commit(patch),
+      abort: () => this.solver.abort(),
+    });
+  }
+
   async subscribeProgress(): Promise<() => void> {
     return this.solver.onProgress((payload) => {
       this.applyProgress(payload);
@@ -92,19 +109,15 @@ export class SolverSession {
   }
 
   async exit(): Promise<void> {
-    await this.engineSearch.abort({
-      onClaim: () =>
-        this.commit({
-          isSolverActive: false,
-          solverRootBoard: null,
-          solverRootPlayer: null,
-          solverHistory: [],
-          solverCurrentBoard: null,
-          solverCurrentPlayer: null,
-          solverCandidates: new Map<string, SolverCandidate>(),
-          isSolverStopped: false,
-        }),
-      abort: () => this.solver.abort(),
+    await this.supersede({
+      isSolverActive: false,
+      solverRootBoard: null,
+      solverRootPlayer: null,
+      solverHistory: [],
+      solverCurrentBoard: null,
+      solverCurrentPlayer: null,
+      solverCandidates: new Map<string, SolverCandidate>(),
+      isSolverStopped: false,
     });
   }
 
@@ -119,21 +132,15 @@ export class SolverSession {
     const nextPosition = advanceSolverPosition(currentBoard, currentPlayer, row, col);
 
     if (nextPosition.gameOver) {
-      // Game-over: no new search, but still supersede + abort the prior run so
-      // its stale progress is filtered and the backend is stopped before the
-      // final committed candidates land. Commit the breadcrumb synchronously
-      // (onClaim) so a rapidly-following navigation reads this position.
-      await this.engineSearch.abort({
-        onClaim: () =>
-          this.commit((state) => ({
-            solverHistory: [...state.solverHistory, nextPosition.entry],
-            solverCurrentBoard: nextPosition.board,
-            solverCurrentPlayer: nextPosition.player,
-            solverCandidates: new Map<string, SolverCandidate>(),
-            isSolverStopped: false,
-          })),
-        abort: () => this.solver.abort(),
-      });
+      // Game-over: no new search; the breadcrumb still supersedes the prior
+      // run so its stale progress is filtered before the final candidates land.
+      await this.supersede((state) => ({
+        solverHistory: [...state.solverHistory, nextPosition.entry],
+        solverCurrentBoard: nextPosition.board,
+        solverCurrentPlayer: nextPosition.player,
+        solverCandidates: new Map<string, SolverCandidate>(),
+        isSolverStopped: false,
+      }));
       return;
     }
 
@@ -146,19 +153,13 @@ export class SolverSession {
     );
 
     if (cached) {
-      // Cache-hit: no new search, but still supersede + abort the prior run so
-      // its late progress cannot overwrite the committed cached candidates.
-      await this.engineSearch.abort({
-        onClaim: () =>
-          this.commit((state) => ({
-            solverHistory: [...state.solverHistory, nextPosition.entry],
-            solverCurrentBoard: nextPosition.board,
-            solverCurrentPlayer: nextPosition.player,
-            solverCandidates: cached,
-            isSolverStopped: false,
-          })),
-        abort: () => this.solver.abort(),
-      });
+      await this.supersede((state) => ({
+        solverHistory: [...state.solverHistory, nextPosition.entry],
+        solverCurrentBoard: nextPosition.board,
+        solverCurrentPlayer: nextPosition.player,
+        solverCandidates: cached,
+        isSolverStopped: false,
+      }));
       return;
     }
 
@@ -217,13 +218,7 @@ export class SolverSession {
       return;
     }
 
-    await this.engineSearch.abort({
-      onClaim: () =>
-        this.commit({
-          isSolverStopped: true,
-        }),
-      abort: () => this.solver.abort(),
-    });
+    await this.supersede({ isSolverStopped: true });
   }
 
   async resume(): Promise<void> {
@@ -241,15 +236,9 @@ export class SolverSession {
     const cached = this.cache.get(board, player, state.targetSelectivity, state.solverMode);
 
     if (cached) {
-      // Cache-hit: no new search, but still supersede + abort the prior run so
-      // its late progress cannot overwrite the committed cached candidates.
-      await this.engineSearch.abort({
-        onClaim: () =>
-          this.commit({
-            solverCandidates: cached,
-            isSolverStopped: false,
-          }),
-        abort: () => this.solver.abort(),
+      await this.supersede({
+        solverCandidates: cached,
+        isSolverStopped: false,
       });
       return;
     }
@@ -298,16 +287,10 @@ export class SolverSession {
     const cached = this.cache.get(board, player, selectivity, mode);
 
     if (cached) {
-      // Cache-hit: no new search, but still supersede + abort the prior run so
-      // its late progress cannot overwrite the committed cached candidates.
-      await this.engineSearch.abort({
-        onClaim: () =>
-          this.commit({
-            ...extra,
-            solverCandidates: cached,
-            isSolverStopped: false,
-          }),
-        abort: () => this.solver.abort(),
+      await this.supersede({
+        ...extra,
+        solverCandidates: cached,
+        isSolverStopped: false,
       });
       return;
     }

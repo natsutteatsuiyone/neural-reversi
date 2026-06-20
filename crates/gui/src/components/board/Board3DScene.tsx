@@ -5,13 +5,11 @@ import type { OrthographicCamera as ThreeOrthographicCamera } from "three";
 import type { AIMoveProgress } from "@/services/types";
 import type { Board } from "@/domain/game/types";
 import { cellKey, type CellKey } from "@/domain/game/cell-key";
-import { AIThinkingIndicator } from "./AIThinkingIndicator";
 import { BoardFrame } from "./BoardFrame";
 import { BoardLabels } from "./BoardLabels";
+import { BoardOverlays } from "./BoardOverlays";
 import { BoardSurface } from "./BoardSurface";
-import { CellHtmlOverlay } from "./CellHtmlOverlay";
 import { CellInteraction } from "./CellInteraction";
-import { HintScoreDisplay } from "./HintScoreDisplay";
 import { MoveIndicators } from "./MoveIndicators";
 import { Disc3D } from "./Disc3D";
 import { CELL_SIZE, FRAME_WIDTH, createEnvironmentTexture } from "./board3d-utils";
@@ -176,49 +174,17 @@ export function Board3DScene({
 
       <CellInteraction onCellClick={onCellClick} isValidMove={isValidMove} isDisabled={isAITurn} />
 
-      {board.map((row, rowIndex) =>
-        row.map((_, colIndex) => {
-          const isThinkingCell =
-            aiMoveProgress?.row === rowIndex && aiMoveProgress?.col === colIndex;
-          const isHistoryCell = moveHistory.some((m) => m.row === rowIndex && m.col === colIndex);
-          const isRecentAIMove = lastAIMove?.row === rowIndex && lastAIMove?.col === colIndex;
-          const hasHint =
-            analyzeResults?.has(cellKey(rowIndex, colIndex)) ||
-            (!gameOver && isValidMove(rowIndex, colIndex) && analyzeResults !== null);
-
-          if (!isThinkingCell && !isHistoryCell && !isRecentAIMove && !hasHint) {
-            return null;
-          }
-
-          return (
-            <CellHtmlOverlay
-              key={`overlay-${rowIndex}-${colIndex}`}
-              row={rowIndex}
-              col={colIndex}
-              cellPixelSize={cellPixelSize}
-            >
-              <div className="absolute inset-0 flex items-center justify-center">
-                <AIThinkingIndicator
-                  rowIndex={rowIndex}
-                  colIndex={colIndex}
-                  aiMoveProgress={aiMoveProgress}
-                  moveHistory={moveHistory}
-                  lastAIMove={lastAIMove}
-                />
-                <HintScoreDisplay
-                  rowIndex={rowIndex}
-                  colIndex={colIndex}
-                  analyzeResults={analyzeResults}
-                  maxScore={maxScore}
-                  gameOver={gameOver}
-                  isValidMoveCell={isValidMove(rowIndex, colIndex)}
-                  showWaitingBar={showHintWaitingBar}
-                />
-              </div>
-            </CellHtmlOverlay>
-          );
-        }),
-      )}
+      <BoardOverlays
+        cellPixelSize={cellPixelSize}
+        aiMoveProgress={aiMoveProgress}
+        lastAIMove={lastAIMove}
+        moveHistory={moveHistory}
+        analyzeResults={analyzeResults}
+        maxScore={maxScore}
+        gameOver={gameOver}
+        isValidMove={isValidMove}
+        showHintWaitingBar={showHintWaitingBar}
+      />
     </>
   );
 }

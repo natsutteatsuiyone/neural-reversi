@@ -6,24 +6,19 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Play, ChevronRight, ChevronLeft } from "lucide-react";
 import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { useGuardedStart } from "@/hooks/use-guarded-start";
-import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
-import { TranscriptTab } from "@/components/setup/TranscriptTab";
-import { BoardStringTab } from "@/components/setup/BoardStringTab";
+import { SetupTabs } from "@/components/setup/SetupTabs";
 import { GameSettingsStep } from "@/components/game/GameSettingsStep";
 import type { GameSettings } from "@/components/game/GameSettingsStep";
-import type { NewGameSettings, SetupTab } from "@/stores/slices/types";
+import type { NewGameSettings } from "@/stores/slices/types";
 
 interface NewGameModalContentProps {
   initialSettings: GameSettings;
-  setupTab: SetupTab;
-  setSetupTab: (tab: SetupTab) => void;
   setupError: string | null;
   startGame: (settings?: NewGameSettings) => Promise<boolean>;
   startFromSetup: (settings?: NewGameSettings) => Promise<boolean>;
@@ -32,8 +27,6 @@ interface NewGameModalContentProps {
 
 function NewGameModalContent({
   initialSettings,
-  setupTab,
-  setSetupTab,
   setupError,
   startGame,
   startFromSetup,
@@ -70,43 +63,7 @@ function NewGameModalContent({
       {step === 1 ? (
         <GameSettingsStep settings={settings} onChange={handleSettingsChange} />
       ) : (
-        <Tabs value={setupTab} onValueChange={(v) => setSetupTab(v as SetupTab)} className="py-4">
-          <TabsList className="w-full">
-            <TabsTrigger value="manual" className="flex-1">
-              {t("setup.tabs.manual")}
-            </TabsTrigger>
-            <TabsTrigger value="transcript" className="flex-1">
-              {t("setup.tabs.transcript")}
-            </TabsTrigger>
-            <TabsTrigger value="boardString" className="flex-1">
-              {t("setup.tabs.boardString")}
-            </TabsTrigger>
-          </TabsList>
-
-          <div className="grid mt-4">
-            <TabsContent
-              keepMounted
-              value="manual"
-              className="col-start-1 row-start-1 block data-hidden:invisible"
-            >
-              <ManualSetupTab />
-            </TabsContent>
-            <TabsContent
-              keepMounted
-              value="transcript"
-              className="col-start-1 row-start-1 block data-hidden:invisible"
-            >
-              <TranscriptTab />
-            </TabsContent>
-            <TabsContent
-              keepMounted
-              value="boardString"
-              className="col-start-1 row-start-1 block data-hidden:invisible"
-            >
-              <BoardStringTab />
-            </TabsContent>
-          </div>
-        </Tabs>
+        <SetupTabs />
       )}
 
       <DialogFooter className="flex-row items-center gap-2">
@@ -176,8 +133,6 @@ export function NewGameModal() {
   const startGame = useReversiStore((state) => state.startGame);
 
   // Setup slice
-  const setupTab = useReversiStore((state) => state.setupTab);
-  const setSetupTab = useReversiStore((state) => state.setSetupTab);
   const setupError = useReversiStore((state) => state.setupError);
   const startFromSetup = useReversiStore((state) => state.startFromSetup);
 
@@ -205,8 +160,6 @@ export function NewGameModal() {
       {isNewGameModalOpen && (
         <NewGameModalContent
           initialSettings={initialSettings}
-          setupTab={setupTab}
-          setSetupTab={setSetupTab}
           setupError={setupError}
           startGame={startGame}
           startFromSetup={startFromSetup}

@@ -6,26 +6,20 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { Play } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useGuardedStart } from "@/hooks/use-guarded-start";
-import { ManualSetupTab } from "@/components/setup/ManualSetupTab";
-import { TranscriptTab } from "@/components/setup/TranscriptTab";
-import { BoardStringTab } from "@/components/setup/BoardStringTab";
+import { SetupTabs } from "@/components/setup/SetupTabs";
 import { SolverSelectivitySelector } from "./SolverSelectivitySelector";
 import { SolverModeSelector } from "./SolverModeSelector";
-import type { SetupTab } from "@/stores/slices/types";
 
 export function SolverModal() {
   const { t } = useTranslation();
 
   const isOpen = useReversiStore((s) => s.isSolverModalOpen);
   const closeSolverModal = useReversiStore((s) => s.closeSolverModal);
-  const setupTab = useReversiStore((s) => s.setupTab);
-  const setSetupTab = useReversiStore((s) => s.setSetupTab);
   const setupError = useReversiStore((s) => s.setupError);
   const startSolverFromSetup = useReversiStore((s) => s.startSolverFromSetup);
 
@@ -76,43 +70,7 @@ export function SolverModal() {
           <DialogTitle className="text-xl text-foreground">{t("solver.title")}</DialogTitle>
         </DialogHeader>
 
-        <Tabs value={setupTab} onValueChange={(v) => setSetupTab(v as SetupTab)} className="py-4">
-          <TabsList className="w-full">
-            <TabsTrigger value="manual" className="flex-1">
-              {t("setup.tabs.manual")}
-            </TabsTrigger>
-            <TabsTrigger value="transcript" className="flex-1">
-              {t("setup.tabs.transcript")}
-            </TabsTrigger>
-            <TabsTrigger value="boardString" className="flex-1">
-              {t("setup.tabs.boardString")}
-            </TabsTrigger>
-          </TabsList>
-
-          <div className="grid mt-4">
-            <TabsContent
-              keepMounted
-              value="manual"
-              className="col-start-1 row-start-1 block data-hidden:invisible"
-            >
-              <ManualSetupTab />
-            </TabsContent>
-            <TabsContent
-              keepMounted
-              value="transcript"
-              className="col-start-1 row-start-1 block data-hidden:invisible"
-            >
-              <TranscriptTab />
-            </TabsContent>
-            <TabsContent
-              keepMounted
-              value="boardString"
-              className="col-start-1 row-start-1 block data-hidden:invisible"
-            >
-              <BoardStringTab />
-            </TabsContent>
-          </div>
-        </Tabs>
+        <SetupTabs />
 
         <div className="flex flex-row flex-wrap gap-6">
           <SolverSelectivitySelector
