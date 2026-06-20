@@ -16,6 +16,9 @@ export function Sidebar() {
   const isAIThinking = useReversiStore((state) => state.isAIThinking);
   const paused = useReversiStore((state) => state.paused);
   const resumeAI = useReversiStore((state) => state.resumeAI);
+  // No move has been played yet (e.g. the launch auto-start where the AI plays
+  // first): the resume action is the game's first move, so label it "Start".
+  const noMovesYet = useReversiStore((state) => state.moveHistory.totalLength === 0);
 
   const scores = getScores();
   const isPvP = gameMode === "pvp";
@@ -45,6 +48,7 @@ export function Sidebar() {
           playerLabel={isPvP ? t("colors.black") : undefined}
           onStop={blackIsAI ? handleStop : undefined}
           onResume={blackIsAI && showResume ? resumeAI : undefined}
+          resumeIsStart={noMovesYet}
         />
         <PlayerCard
           color="white"
@@ -58,6 +62,7 @@ export function Sidebar() {
           playerLabel={isPvP ? t("colors.white") : undefined}
           onStop={whiteIsAI ? handleStop : undefined}
           onResume={whiteIsAI && showResume ? resumeAI : undefined}
+          resumeIsStart={noMovesYet}
         />
       </div>
 

@@ -61,6 +61,12 @@ export interface GameSlice {
   resumeAI: () => void;
   resetGame: () => Promise<void>;
   startGame: (settings?: NewGameSettings) => Promise<boolean>;
+  /**
+   * Auto-start a fresh game on app launch using the hydrated (previously
+   * selected) settings. Starts paused when the AI moves first so it does not
+   * play unprompted; the user resumes via the AI card's Resume button.
+   */
+  startInitialGame: () => Promise<boolean>;
   setGameStatus: (status: "waiting" | "playing" | "finished") => void;
 }
 

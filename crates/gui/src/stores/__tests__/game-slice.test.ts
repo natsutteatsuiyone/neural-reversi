@@ -919,6 +919,52 @@ describe("startGame", () => {
   });
 });
 
+describe("startInitialGame", () => {
+  it("auto-starts a playing game using the current (hydrated) mode", async () => {
+    const { store } = createTestStore();
+    const started = await store.getState().startInitialGame();
+
+    const s = store.getState();
+    expect(started).toBe(true);
+    expect(s.gameStatus).toBe("playing");
+    expect(s.currentPlayer).toBe("black");
+  });
+
+  it("starts paused without auto-playing when the AI moves first (ai-black)", async () => {
+    const { store } = createTestStore();
+    store.setState({ gameMode: "ai-black" });
+    const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
+
+    const started = await store.getState().startInitialGame();
+
+    expect(started).toBe(true);
+    expect(store.getState().paused).toBe(true);
+    expect(makeAIMoveSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not pause when the human moves first (ai-white)", async () => {
+    const { store } = createTestStore();
+    store.setState({ gameMode: "ai-white" });
+
+    const started = await store.getState().startInitialGame();
+
+    expect(started).toBe(true);
+    expect(store.getState().paused).toBe(false);
+  });
+
+  it("coalesces concurrent launch auto-start calls", async () => {
+    const { store, services } = createTestStore();
+
+    const firstStart = store.getState().startInitialGame();
+    const secondStart = store.getState().startInitialGame();
+
+    expect(secondStart).toBe(firstStart);
+    await expect(Promise.all([firstStart, secondStart])).resolves.toEqual([true, true]);
+    expect(services.ai.initialize).toHaveBeenCalledTimes(1);
+    expect(services.ai.resizeTT).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("setGameStatus", () => {
   it("sets gameStatus to the given value", () => {
     const { store } = createTestStore();

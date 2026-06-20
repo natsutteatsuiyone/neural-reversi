@@ -13,7 +13,7 @@ import type { NewGameSettings, ReversiState, SetState, SolverConfig } from "./sl
 type SolverStarter = (board: Board, player: Player) => Promise<void>;
 
 export type GameReplacementTarget =
-  | { kind: "new-game"; settings?: NewGameSettings }
+  | { kind: "new-game"; settings?: NewGameSettings; pauseForAITurn?: boolean }
   | { kind: "setup-game"; settings?: NewGameSettings }
   | {
       kind: "solver-position";
@@ -47,6 +47,7 @@ export async function runGameReplacement(
       return replaceWithGame(services, get, set, {
         settings: target.settings,
         position: { board: initializeBoard(), currentPlayer: "black" },
+        pauseForAITurn: target.pauseForAITurn,
       });
 
     case "setup-game": {
@@ -199,6 +200,7 @@ async function replaceWithGame(
   target: {
     settings?: NewGameSettings;
     position: { board: Board; currentPlayer: Player };
+    pauseForAITurn?: boolean;
   },
 ): Promise<boolean> {
   const settings = resolveNewGameSettings(get(), target.settings);
@@ -216,6 +218,13 @@ async function replaceWithGame(
 
   set(createNewGamePatch(settings, target.position));
   persistNewGameSettings(services, settings);
+  // Launch auto-start (`pauseForAITurn`): start paused when the AI moves first
+  // so it does not play unprompted. The user starts it via the AI card's Resume
+  // button (Sidebar's `paused && isAITurn`). `triggerAutomation` then no-ops
+  // because it returns early while `paused` (CONTEXT.md → Automation).
+  if (target.pauseForAITurn && get().isAITurn()) {
+    set({ paused: true });
+  }
   get().triggerAutomation();
   return true;
 }

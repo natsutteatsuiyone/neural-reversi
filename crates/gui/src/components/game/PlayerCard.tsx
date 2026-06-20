@@ -16,6 +16,8 @@ interface PlayerCardProps {
   playerLabel?: string;
   onStop?: () => void;
   onResume?: () => void;
+  /** Label the resume action as "Start" instead of "Resume" before any move. */
+  resumeIsStart?: boolean;
 }
 
 function formatTime(ms: number): string {
@@ -37,6 +39,7 @@ export function PlayerCard({
   playerLabel,
   onStop,
   onResume,
+  resumeIsStart,
 }: PlayerCardProps) {
   const { t } = useTranslation();
   const showTimer = isAIControlled && aiMode === "game-time" && !onResume;
@@ -94,9 +97,13 @@ export function PlayerCard({
 
         <div className="flex-1" />
 
-        {/* Right action: stop while thinking, resume while paused */}
+        {/* Right action: stop while thinking, resume while paused. Distinct
+            keys force a fresh mount on swap so the Button's `transition-all`
+            does not animate the color from the previous state (Resume's primary
+            into Stop's destructive, and vice versa). */}
         {isThinking && onStop ? (
           <Button
+            key="stop"
             variant="outline"
             size="sm"
             onClick={onStop}
@@ -107,13 +114,14 @@ export function PlayerCard({
           </Button>
         ) : onResume ? (
           <Button
+            key="resume"
             variant="outline"
             size="sm"
             onClick={onResume}
             className="shrink-0 gap-1.5 h-7 px-2.5 text-primary border-primary/40 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
           >
             <Play className="w-3.5 h-3.5" />
-            {t("game.resume")}
+            {resumeIsStart ? t("game.start") : t("game.resume")}
           </Button>
         ) : null}
 

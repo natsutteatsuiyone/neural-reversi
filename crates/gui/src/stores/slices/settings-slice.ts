@@ -8,7 +8,10 @@ export function createSettingsSlice(
   hintSession: HintAnalysisSession,
 ): StateCreator<ReversiState, [], [], SettingsSlice> {
   return (set, get) => ({
-    gameMode: DEFAULT_SETTINGS.gameMode,
+    // ハイドレート前のプレースホルダ。実デフォルト(ai-black)は DEFAULT_SETTINGS 側にあり、
+    // 起動時に hydrateSettings で適用される。非ハイドレート利用(テスト)では人間先手で
+    // 始めるためここは ai-white。
+    gameMode: "ai-white",
     timeLimit: DEFAULT_SETTINGS.timeLimit,
     gameTimeLimit: DEFAULT_SETTINGS.gameTimeLimit,
     hintLevel: DEFAULT_SETTINGS.hintLevel,

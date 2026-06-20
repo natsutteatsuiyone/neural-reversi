@@ -42,6 +42,7 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
     // Automation owns the schedule timer / deferred flag in this closure;
     // they are not part of the public store state (CONTEXT.md → Automation).
     const automation = createAutomation(get);
+    let initialGameStartPromise: Promise<boolean> | null = null;
 
     return {
       board: initializeBoard(),
@@ -189,6 +190,17 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
 
       startGame: async (settings) =>
         runGameReplacement(services, get, set, { kind: "new-game", settings }),
+
+      startInitialGame: () => {
+        // React StrictMode replays mount effects in development. Keep launch
+        // auto-start idempotent at the store boundary so concurrent callers
+        // share one Game Replacement transaction.
+        initialGameStartPromise ??= runGameReplacement(services, get, set, {
+          kind: "new-game",
+          pauseForAITurn: true,
+        });
+        return initialGameStartPromise;
+      },
 
       setGameStatus: (status) => set({ gameStatus: status }),
     };

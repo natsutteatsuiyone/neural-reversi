@@ -1,3 +1,12 @@
+import {
+  accessibleNamePredicate,
+  displayedButton,
+  displayedText,
+  exactTextPredicate,
+  firstDisplayed,
+  waitForDisplayed,
+} from "../support/dom.js";
+
 const NEW_GAME = ["New Game", "新規ゲーム"];
 const SOLVER = ["Solver", "ソルバー"];
 const START_GAME = ["Start Game", "開始"];
@@ -9,62 +18,6 @@ const MOVE_HISTORY = ["Move History", "棋譜"];
 const START_SOLVER = ["Start Solver", "ソルバー開始"];
 const SELECTIVITY = ["Selectivity", "精度"];
 const MODE = ["Mode", "モード"];
-
-function xpathLiteral(value) {
-  if (!value.includes("'")) return `'${value}'`;
-  if (!value.includes("\"")) return `"${value}"`;
-
-  return `concat(${value
-    .split("'")
-    .map((part) => `'${part}'`)
-    .join(', "\"\'\"", ')})`;
-}
-
-function exactTextPredicate(labels) {
-  return labels.map((label) => `normalize-space(.) = ${xpathLiteral(label)}`).join(" or ");
-}
-
-function accessibleNamePredicate(labels) {
-  return labels
-    .map(
-      (label) =>
-        `@aria-label = ${xpathLiteral(label)} or normalize-space(.) = ${xpathLiteral(label)}`,
-    )
-    .join(" or ");
-}
-
-async function firstDisplayed(xpath) {
-  const elements = await $$(xpath);
-
-  for (const element of elements) {
-    if (await element.isDisplayed()) return element;
-  }
-
-  return null;
-}
-
-async function waitForDisplayed(xpath, timeoutMsg) {
-  await browser.waitUntil(async () => Boolean(await firstDisplayed(xpath)), {
-    timeout: 10000,
-    timeoutMsg,
-  });
-
-  return await firstDisplayed(xpath);
-}
-
-async function displayedButton(labels) {
-  return await waitForDisplayed(
-    `//button[${accessibleNamePredicate(labels)}]`,
-    `Expected a visible button named one of: ${labels.join(", ")}`,
-  );
-}
-
-async function displayedText(labels) {
-  return await waitForDisplayed(
-    `//*[${exactTextPredicate(labels)}]`,
-    `Expected visible text matching one of: ${labels.join(", ")}`,
-  );
-}
 
 async function displayedDialogTitle(labels) {
   return await waitForDisplayed(
@@ -85,7 +38,11 @@ describe("Neural Reversi desktop app", () => {
   it("starts on the main game screen", async () => {
     await displayedButton(NEW_GAME);
     await displayedButton(SOLVER);
-    await displayedText(MOVE_HISTORY);
+    // The move-history panel exposes its name via aria-label, not visible text.
+    await waitForDisplayed(
+      `//*[${accessibleNamePredicate(MOVE_HISTORY)}]`,
+      `Expected the move history panel: ${MOVE_HISTORY.join(", ")}`,
+    );
 
     const boardCanvas = await $("canvas");
     await boardCanvas.waitForDisplayed({

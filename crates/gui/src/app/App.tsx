@@ -25,6 +25,7 @@ function App({ initialSettings }: AppProps) {
   const getScores = useReversiStore((state) => state.getScores);
   const hydrateSettings = useReversiStore((state) => state.hydrateSettings);
   const checkAIReady = useReversiStore((state) => state.checkAIReady);
+  const startInitialGame = useReversiStore((state) => state.startInitialGame);
 
   const scores = getScores();
   const winner = gameOver ? getWinner(scores) : null;
@@ -39,10 +40,16 @@ function App({ initialSettings }: AppProps) {
     const initApp = async () => {
       hydrateSettings(initialSettings);
       const ready = await checkAIReady();
+      if (ready) {
+        // Auto-start a fresh game in the previously selected mode. Best-effort:
+        // if backend init fails it leaves the game waiting and the user can
+        // start one manually via New Game.
+        await startInitialGame();
+      }
       setInitStatus(ready ? "ready" : "error");
     };
     void initApp();
-  }, [checkAIReady, hydrateSettings, initialSettings]);
+  }, [checkAIReady, hydrateSettings, initialSettings, startInitialGame]);
 
   // Game over notification
   useEffect(() => {

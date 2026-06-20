@@ -158,6 +158,52 @@ describe("runGameReplacement", () => {
     expect(store.getState().solverCurrentBoard).toBe(solverBoard);
     expect(store.getState().setupError).toBe("aiInitFailed");
   });
+
+  // Launch auto-start: a new-game target with `pauseForAITurn` starts paused
+  // when the AI moves first, so the AI does not play unprompted on launch. The
+  // user resumes via the AI card's Resume button (Sidebar's `paused &&
+  // isAITurn`); `triggerAutomation` no-ops while paused.
+  it("starts paused without auto-playing when the AI moves first (pauseForAITurn)", async () => {
+    const { store, services } = createTestStore();
+    const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
+
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+      settings: { gameMode: "ai-black", aiLevel: 5, aiMode: "level", gameTimeLimit: 60 },
+      pauseForAITurn: true,
+    });
+
+    expect(ok).toBe(true);
+    expect(store.getState().gameStatus).toBe("playing");
+    expect(store.getState().paused).toBe(true);
+    expect(makeAIMoveSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not pause when the human moves first (pauseForAITurn)", async () => {
+    const { store, services } = createTestStore();
+
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+      settings: { gameMode: "ai-white", aiLevel: 5, aiMode: "level", gameTimeLimit: 60 },
+      pauseForAITurn: true,
+    });
+
+    expect(ok).toBe(true);
+    expect(store.getState().paused).toBe(false);
+  });
+
+  it("does not pause in pvp mode (pauseForAITurn)", async () => {
+    const { store, services } = createTestStore();
+
+    const ok = await runGameReplacement(services, store.getState, store.setState, {
+      kind: "new-game",
+      settings: { gameMode: "pvp", aiLevel: 5, aiMode: "level", gameTimeLimit: 60 },
+      pauseForAITurn: true,
+    });
+
+    expect(ok).toBe(true);
+    expect(store.getState().paused).toBe(false);
+  });
 });
 
 describe("abortInFlightGameSearches", () => {

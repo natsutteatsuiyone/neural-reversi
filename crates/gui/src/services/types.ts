@@ -68,7 +68,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  gameMode: "ai-white",
+  gameMode: "ai-black",
   aiLevel: 21,
   aiMode: "game-time",
   timeLimit: 1,
