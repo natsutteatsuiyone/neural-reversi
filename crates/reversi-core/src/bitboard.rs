@@ -5,7 +5,7 @@
 
 use crate::square::Square;
 
-mod movegen;
+mod moves;
 
 const A1_MASK: u64 = 0x0000000000000001;
 const H1_MASK: u64 = 0x0000000000000080;
@@ -291,7 +291,7 @@ impl Bitboard {
     /// Returns the legal moves for the player given the opponent's bitboard.
     #[inline(always)]
     pub fn get_moves(self, opponent: Bitboard) -> Bitboard {
-        Bitboard(movegen::get_moves(self.0, opponent.0))
+        Bitboard(moves::get_moves(self.0, opponent.0))
     }
 
     /// Returns the potential moves for the player.
@@ -300,7 +300,7 @@ impl Bitboard {
     /// where a bracketing player disc could exist beyond that opponent disc.
     #[inline(always)]
     pub fn get_potential_moves(self, opponent: Bitboard) -> Bitboard {
-        Bitboard(movegen::get_potential_moves(self.0, opponent.0))
+        Bitboard(moves::get_potential_moves(self.0, opponent.0))
     }
 
     /// Returns both the legal moves and potential moves for the current player.
@@ -309,7 +309,7 @@ impl Bitboard {
     /// [`get_potential_moves`](Self::get_potential_moves) separately.
     #[inline(always)]
     pub fn get_moves_and_potential(self, opponent: Bitboard) -> (Bitboard, Bitboard) {
-        let (m, p) = movegen::get_moves_and_potential(self.0, opponent.0);
+        let (m, p) = moves::get_moves_and_potential(self.0, opponent.0);
         (Bitboard(m), Bitboard(p))
     }
 }
@@ -495,7 +495,7 @@ impl Iterator for BitboardIterator {
 }
 
 #[cfg(test)]
-mod movegen_tests;
+mod moves_tests;
 
 #[cfg(test)]
 mod tests;

@@ -1,4 +1,4 @@
-use super::movegen::*;
+use super::moves::*;
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -669,7 +669,7 @@ fn neon_sha3_combined_move_and_potential_matches_scalar_paths() {
 
 #[test]
 #[cfg(target_arch = "x86_64")]
-fn x86_movegen_backends_match_scalar_paths() {
+fn x86_backends_match_scalar_paths() {
     let Some((has_avx2, has_avx512)) = detected_x86_backends() else {
         return;
     };
