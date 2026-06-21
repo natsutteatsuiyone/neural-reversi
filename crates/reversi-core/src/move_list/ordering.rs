@@ -33,6 +33,10 @@ const SQUARE_VALUE_WEIGHT: i32 = 128;
 const CORNER_STABILITY_WEIGHT: i32 = 2048;
 const MOBILITY_WEIGHT: i32 = 16384;
 
+/// Corner-stability bonus weight for shallow-search endgame ordering
+/// (one disc-difference per stable corner-region disc).
+const CORNER_STABILITY_WEIGHT_SEARCH: i32 = ScaledScore::SCALE;
+
 impl MoveList {
     /// Evaluates all moves and assigns ordering values.
     pub fn evaluate_moves<NT: NodeType, SS: SearchStrategy>(
@@ -134,6 +138,10 @@ impl MoveList {
                     ctx.update(mv.sq, mv.flipped);
                     mv.value = shallow_search_score(ctx, &next, sort_depth).value();
                     ctx.undo(mv.sq);
+                    if SS::IS_ENDGAME {
+                        mv.value += next.opponent().corner_stability() as i32
+                            * CORNER_STABILITY_WEIGHT_SEARCH;
+                    }
                 }
 
                 if SS::IS_ENDGAME {
