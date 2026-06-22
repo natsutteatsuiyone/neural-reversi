@@ -318,6 +318,7 @@ export const config = {
     cleanupE2ESettings();
   },
   beforeSession: async () => {
+    seedE2ESettings();
     tauriDriver = spawn(tauriDriverPath, tauriDriverArgs(), {
       stdio: [null, process.stdout, process.stderr],
     });

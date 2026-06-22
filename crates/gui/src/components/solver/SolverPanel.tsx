@@ -5,6 +5,10 @@ import { useReversiStore } from "@/stores/use-reversi-store";
 import { cn } from "@/lib/utils";
 import { Stone } from "@/components/board";
 import { Button } from "@/components/ui/button";
+import {
+  getBestRoundedScore,
+  sortSolverCandidates,
+} from "@/domain/solver/solver-candidate-ordering";
 import { SolverControls } from "./SolverControls";
 import { SolverCandidateRow } from "./SolverCandidateRow";
 
@@ -18,12 +22,10 @@ export function SolverPanel() {
   const exitSolver = useReversiStore((s) => s.exitSolver);
 
   const sortedCandidates = useMemo(() => {
-    const arr = Array.from(solverCandidates.values());
-    arr.sort((a, b) => b.score - a.score);
-    return arr;
+    return sortSolverCandidates(solverCandidates.values());
   }, [solverCandidates]);
 
-  const bestScore = sortedCandidates.length > 0 ? Math.round(sortedCandidates[0].score) : null;
+  const bestScore = getBestRoundedScore(sortedCandidates);
 
   const handleCandidateClick = useCallback(
     (row: number, col: number) => {

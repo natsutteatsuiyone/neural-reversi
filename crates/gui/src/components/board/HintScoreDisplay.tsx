@@ -36,7 +36,12 @@ export function HintScoreDisplay({
     }
     // Show 0% progress bar for unsearched valid moves
     return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none p-1">
+      <div
+        data-board-hint="waiting"
+        data-board-cell={`${rowIndex},${colIndex}`}
+        data-hint-progress="0"
+        className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none p-1"
+      >
         <div className="w-[70%] h-1 bg-black/40 rounded-full mt-0.5 overflow-hidden">
           <div
             className="h-full rounded-full bg-accent-blue transition-all"
@@ -62,7 +67,13 @@ export function HintScoreDisplay({
     : Math.min((depth / targetDepth) * 100, 100); // Midgame: depth-based progress
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none p-1">
+    <div
+      data-board-hint="score"
+      data-board-cell={`${rowIndex},${colIndex}`}
+      data-hint-best={isMaxScore ? "true" : "false"}
+      data-hint-progress={searchProgress.toFixed(0)}
+      className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none p-1"
+    >
       {/* Score */}
       <div
         className={cn(

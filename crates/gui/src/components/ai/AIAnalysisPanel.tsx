@@ -34,27 +34,28 @@ export function AIAnalysisPanelHeader() {
   return (
     <button
       type="button"
+      aria-label={t("analysis.title")}
       aria-expanded={isOpen}
       onClick={() => setIsOpen(!isOpen)}
       className={cn(
-        "flex w-full shrink-0 items-center justify-between gap-3 border-t border-card-border bg-background-secondary px-4 py-2.5 transition-colors cursor-pointer hover:bg-white/5",
+        "flex h-10 w-full shrink-0 items-center justify-between gap-3 overflow-hidden border-t border-card-border bg-background-secondary px-4 transition-colors cursor-pointer hover:bg-white/5",
       )}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <Activity
           className={cn(
-            "w-4 h-4",
+            "w-4 h-4 shrink-0",
             isAIThinking ? "text-accent-blue animate-pulse" : "text-foreground-muted",
           )}
         />
-        <span className="text-sm font-medium text-foreground">{t("analysis.title")}</span>
+        <span className="shrink-0 text-sm font-medium text-foreground">{t("analysis.title")}</span>
         {isAIThinking && (
-          <span className="rounded-full bg-accent-blue/20 px-2 py-0.5 text-xs text-accent-blue">
+          <span className="shrink-0 rounded-full bg-accent-blue/20 px-2 py-0.5 text-xs text-accent-blue">
             {t("ai.thinking")}
           </span>
         )}
         {isGameAnalyzing && (
-          <span className="rounded-full bg-accent-amber/20 px-2 py-0.5 text-xs text-accent-amber">
+          <span className="shrink-0 rounded-full bg-accent-amber/20 px-2 py-0.5 text-xs text-accent-amber">
             {t("analysis.analyzing", {
               current: gameAnalysisResult?.length ?? 0,
               total: totalMoves,
@@ -62,15 +63,15 @@ export function AIAnalysisPanelHeader() {
           </span>
         )}
         {!isAIThinking && !isGameAnalyzing && latestEntry && (
-          <div className="flex items-center gap-2 text-xs font-mono">
+          <div className="flex min-w-0 items-center gap-2 text-xs font-mono">
             <span className="text-foreground-muted">{t("analysis.best")}</span>
-            <span className="font-semibold text-primary">{latestEntry.bestMove}</span>
+            <span className="shrink-0 font-semibold text-primary">{latestEntry.bestMove}</span>
             <span className="mx-1 h-3 border-l border-card-border" />
             <span className={cn("font-semibold", scoreToneClass(latestEntry.score))}>
               {formatScore(latestEntry.score, "raw")}
             </span>
             <span className="mx-1 h-3 border-l border-card-border" />
-            <span className="text-foreground-muted">
+            <span className="truncate text-foreground-muted">
               {formatDepth(latestEntry.depth, latestEntry.acc)}
             </span>
           </div>

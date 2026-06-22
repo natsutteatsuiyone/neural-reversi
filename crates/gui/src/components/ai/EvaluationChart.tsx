@@ -197,9 +197,15 @@ export function EvaluationChart() {
   }
 
   const hasAnalysis = gameAnalysisResult !== null;
+  const analyzedPointCount = chartData.filter((item) => item.analysis).length;
 
   return (
-    <div className="evaluation-chart bg-white/5 rounded-lg p-2 border border-white/10">
+    <div
+      className="evaluation-chart bg-white/5 rounded-lg p-2 border border-white/10"
+      data-evaluation-chart={hasAnalysis ? "analyzed" : "history"}
+      data-chart-points={chartData.length}
+      data-analysis-points={analyzedPointCount}
+    >
       <ResponsiveContainer width="100%" height={180}>
         <LineChart
           data={chartData}

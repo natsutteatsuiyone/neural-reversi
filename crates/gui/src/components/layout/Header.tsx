@@ -84,10 +84,12 @@ export function Header() {
         {/* Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger
+            aria-label={t("settings.menu")}
             render={
               <Button
                 variant="ghost"
                 size="icon-sm"
+                aria-label={t("settings.menu")}
                 className="shrink-0 text-foreground-secondary hover:bg-white/10 hover:text-foreground hover:shadow-sm"
               />
             }

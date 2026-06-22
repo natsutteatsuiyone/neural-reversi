@@ -47,14 +47,14 @@ export function PlayerCard({
   return (
     <div
       className={cn(
-        "rounded-xl p-3 transition-all duration-(--duration-normal) border-2",
+        "min-w-0 overflow-hidden rounded-xl p-3 transition-all duration-(--duration-normal) border-2",
         isCurrent
           ? "bg-primary/15 border-primary shadow-md shadow-primary/20"
           : "bg-white/5 border-card-border shadow-xs",
       )}
     >
       {/* Main row */}
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         {/* Stone icon */}
         <div className="shrink-0">
           <Stone color={color} size="lg" />
@@ -66,7 +66,7 @@ export function PlayerCard({
         </div>
 
         {/* Player label / thinking status */}
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {isAIControlled ? (
             <>
               {isThinking ? (
@@ -95,43 +95,43 @@ export function PlayerCard({
           )}
         </div>
 
-        <div className="flex-1" />
-
         {/* Right action: stop while thinking, resume while paused. Distinct
             keys force a fresh mount on swap so the Button's `transition-all`
             does not animate the color from the previous state (Resume's primary
             into Stop's destructive, and vice versa). */}
-        {isThinking && onStop ? (
-          <Button
-            key="stop"
-            variant="outline"
-            size="sm"
-            onClick={onStop}
-            className="shrink-0 gap-1.5 h-7 px-2.5 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive hover:shadow-sm"
-          >
-            <StopCircle className="w-3.5 h-3.5" />
-            {t("game.stop")}
-          </Button>
-        ) : onResume ? (
-          <Button
-            key="resume"
-            variant="outline"
-            size="sm"
-            onClick={onResume}
-            className="shrink-0 gap-1.5 h-7 px-2.5 text-primary border-primary/40 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
-          >
-            <Play className="w-3.5 h-3.5" />
-            {resumeIsStart ? t("game.start") : t("game.resume")}
-          </Button>
-        ) : null}
+        <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+          {isThinking && onStop ? (
+            <Button
+              key="stop"
+              variant="outline"
+              size="icon-sm"
+              onClick={onStop}
+              aria-label={t("game.stop")}
+              className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive hover:shadow-sm"
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+            </Button>
+          ) : onResume ? (
+            <Button
+              key="resume"
+              variant="outline"
+              size="sm"
+              onClick={onResume}
+              className="shrink-0 gap-1.5 h-7 px-2.5 text-primary border-primary/40 hover:bg-primary/10 hover:text-primary hover:shadow-sm"
+            >
+              <Play className="w-3.5 h-3.5" />
+              {resumeIsStart ? t("game.start") : t("game.resume")}
+            </Button>
+          ) : null}
 
-        {/* Timer */}
-        {showTimer && (
-          <div className="flex shrink-0 items-center gap-1.5 rounded border border-card-border bg-white/5 px-2 py-0.5 text-xs font-mono font-medium tabular-nums text-foreground-muted">
-            <Clock className="w-3.5 h-3.5" />
-            {formatTime(aiRemainingTime)}
-          </div>
-        )}
+          {/* Timer */}
+          {showTimer && (
+            <div className="flex shrink-0 items-center gap-1.5 rounded border border-card-border bg-white/5 px-2 py-0.5 text-xs font-mono font-medium tabular-nums text-foreground-muted">
+              <Clock className="w-3.5 h-3.5" />
+              {formatTime(aiRemainingTime)}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

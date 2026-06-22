@@ -63,6 +63,7 @@
     "lossLabel": "損失: {{loss}}"
   },
   "settings": {
+    "menu": "メニュー",
     "language": "言語",
     "hashSize": "ハッシュサイズ",
     "auto": "自動",

@@ -14,8 +14,13 @@ import {
 const START = ["Start", "開始"];
 const STOP = ["Stop", "停止"];
 const NO_MOVES = ["No moves yet", "まだ着手がありません"];
+const AI_ANALYSIS = ["AI Analysis", "AI分析"];
 
 describe("Launch auto-start", () => {
+  beforeEach(async () => {
+    await browser.setWindowSize(1200, 900);
+  });
+
   it("auto-starts a paused game with a Start button and no auto-move when the AI plays first", async () => {
     // The board renders, i.e. a game is live without the user opening New Game.
     const boardCanvas = await $("canvas");
@@ -50,6 +55,16 @@ describe("Launch auto-start", () => {
       textXpath(NO_MOVES),
       "Expected the AI to play a move after Start was pressed.",
       30000,
+    );
+
+    const analysisButton = await displayedButton(AI_ANALYSIS, 10000);
+    if ((await analysisButton.getAttribute("aria-expanded")) !== "true") {
+      await analysisButton.click();
+    }
+    await waitForDisplayed(
+      "//tbody/tr[count(td) = 3]",
+      "Expected the thinking log to keep at least one AI search row after the move.",
+      10000,
     );
   });
 });

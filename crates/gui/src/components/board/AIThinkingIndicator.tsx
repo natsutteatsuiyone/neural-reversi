@@ -66,7 +66,11 @@ export function AIThinkingIndicator({
 
   if (isCurrentThinkingCell) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center z-10">
+      <div
+        data-ai-thinking="current"
+        data-board-cell={`${rowIndex},${colIndex}`}
+        className="absolute inset-0 flex items-center justify-center z-10"
+      >
         <ThinkingRipple />
         <motion.div
           animate={{
@@ -95,7 +99,12 @@ export function AIThinkingIndicator({
     const size = 18 - historyIndex * 3;
 
     return (
-      <div className="absolute inset-0 flex items-center justify-center z-5">
+      <div
+        data-ai-thinking="trail"
+        data-board-cell={`${rowIndex},${colIndex}`}
+        data-ai-trail-index={historyIndex}
+        className="absolute inset-0 flex items-center justify-center z-5"
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{

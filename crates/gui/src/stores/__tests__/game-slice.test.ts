@@ -965,6 +965,20 @@ describe("startInitialGame", () => {
   });
 });
 
+describe("resumeAI", () => {
+  it("clears pause and immediately triggers an AI move on an AI turn", async () => {
+    const { store } = createTestStore();
+    await store.getState().startGame();
+    const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
+    store.setState({ paused: true, gameMode: "ai-black", currentPlayer: "black" });
+
+    store.getState().resumeAI();
+
+    expect(store.getState().paused).toBe(false);
+    expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("setGameStatus", () => {
   it("sets gameStatus to the given value", () => {
     const { store } = createTestStore();
