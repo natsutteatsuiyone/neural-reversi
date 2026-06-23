@@ -225,13 +225,9 @@ fn initial_aspiration_window(
     (
         -ScaledScore::INF,
         previous_pv_score
-            .map(beta_after_previous_pv_score)
+            .map(|score| ScaledScore::from_raw((score.value() + 1).min(ScaledScore::INF.value())))
             .unwrap_or(ScaledScore::INF),
     )
-}
-
-fn beta_after_previous_pv_score(score: ScaledScore) -> ScaledScore {
-    ScaledScore::from_raw((score.value() + 1).min(ScaledScore::INF.value()))
 }
 
 /// Performs aspiration window search for endgame at the current selectivity level.
