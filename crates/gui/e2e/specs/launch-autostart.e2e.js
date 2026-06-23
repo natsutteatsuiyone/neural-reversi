@@ -2,6 +2,7 @@ import {
   buttonXpath,
   displayedButton,
   firstDisplayed,
+  setDesktopViewport,
   textXpath,
   waitForDisplayed,
   waitForGone,
@@ -18,7 +19,7 @@ const AI_ANALYSIS = ["AI Analysis", "AI分析"];
 
 describe("Launch auto-start", () => {
   beforeEach(async () => {
-    await browser.setWindowSize(1200, 900);
+    await setDesktopViewport();
   });
 
   it("auto-starts a paused game with a Start button and no auto-move when the AI plays first", async () => {

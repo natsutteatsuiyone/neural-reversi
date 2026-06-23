@@ -3,6 +3,7 @@ import {
   displayedButton,
   displayedText,
   exactTextPredicate,
+  setDesktopViewport,
   textXpath,
   waitForDisplayed,
   waitForGone,
@@ -281,7 +282,7 @@ async function clickBoardCell(row, col) {
 
 describe("User behavior coverage", () => {
   beforeEach(async () => {
-    await browser.setWindowSize(1200, 900);
+    await setDesktopViewport();
     await waitForWindowWidth((width) => width >= 1024, "Expected desktop viewport.");
   });
 

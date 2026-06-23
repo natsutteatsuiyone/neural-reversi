@@ -79,3 +79,7 @@ export async function displayedText(labels, timeout) {
     timeout,
   );
 }
+
+export async function setDesktopViewport() {
+  await browser.setWindowSize(1200, 900);
+}
