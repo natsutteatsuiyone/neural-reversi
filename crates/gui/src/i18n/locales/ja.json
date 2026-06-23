@@ -76,6 +76,7 @@
     "score": "黒: {{black}} - 白: {{white}}",
     "noValidMoves": "打てる場所がありません",
     "passingTurn": "{{color}}：パス",
+    "copyTranscriptFailed": "棋譜のコピーに失敗しました",
     "startGameFailed": "ゲームの開始に失敗しました"
   },
   "setup": {

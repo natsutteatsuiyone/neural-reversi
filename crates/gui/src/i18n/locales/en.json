@@ -76,6 +76,7 @@
     "score": "Black: {{black}} - White: {{white}}",
     "noValidMoves": "No valid moves available",
     "passingTurn": "{{color}}: Pass",
+    "copyTranscriptFailed": "Failed to copy transcript",
     "startGameFailed": "Failed to start game"
   },
   "setup": {

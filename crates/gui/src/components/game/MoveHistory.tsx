@@ -1,5 +1,6 @@
 import { useRef, useState, useLayoutEffect, useEffect } from "react";
 import { Bot, Check, Copy, List, RotateCcw, RotateCw } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatScore } from "@/lib/score-format";
 import { useReversiStore } from "@/stores/use-reversi-store";
@@ -35,12 +36,19 @@ export function MoveHistory() {
       .map((m) => m.notation.toLowerCase())
       .join("");
     clearTimeout(copyTimerRef.current);
+    setCopied(false);
+    if (!navigator.clipboard) {
+      toast.error(t("notification.copyTranscriptFailed"));
+      return;
+    }
     navigator.clipboard.writeText(transcript).then(
       () => {
         setCopied(true);
         copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
       },
-      () => {},
+      () => {
+        toast.error(t("notification.copyTranscriptFailed"));
+      },
     );
   };
 
