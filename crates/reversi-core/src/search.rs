@@ -889,12 +889,74 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
 }
 
 #[cfg(test)]
-mod lmr_tests {
-    use super::compute_lmr_reduction;
+mod tests {
+    use super::*;
     use crate::probcut::Selectivity;
     use crate::search::midgame::{LMR_DEEPER_DEPTH, LMR_MIN_DEPTH};
     use crate::search::node_type::{NonPV, PV};
     use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
+
+    fn one_thread_options() -> SearchOptions {
+        SearchOptions::new(0).with_threads(Some(1))
+    }
+
+    #[test]
+    fn shared_resources_reuse_tt_and_eval_but_create_independent_thread_pools() {
+        let shared = SearchSharedResources::new(&one_thread_options());
+
+        let first = Search::from_shared_resources(&shared);
+        let second = Search::from_shared_resources(&shared);
+
+        assert!(Arc::ptr_eq(first.tt(), second.tt()));
+        assert!(Arc::ptr_eq(&first.eval, &second.eval));
+
+        let first_pool = first.thread_pool();
+        let second_pool = second.thread_pool();
+        assert!(!Arc::ptr_eq(&first_pool, &second_pool));
+    }
+
+    #[test]
+    fn resize_tt_reuses_same_size_replaces_changed_size_and_init_resets_generation() {
+        let mut search = Search::new(&one_thread_options());
+        let original_tt = search.tt().clone();
+
+        assert_eq!(search.tt().mb_size(), 0);
+        assert_eq!(search.tt().increment_generation(), 1);
+
+        search.resize_tt(0);
+        assert!(Arc::ptr_eq(search.tt(), &original_tt));
+
+        search.init();
+        assert_eq!(search.tt().generation(), 0);
+        assert_eq!(search.tt().usage_rate(), 0.0);
+
+        search.resize_tt(1);
+        assert!(!Arc::ptr_eq(search.tt(), &original_tt));
+        assert_eq!(search.tt().mb_size(), 1);
+        assert_eq!(search.tt().generation(), 0);
+    }
+
+    #[test]
+    fn quick_move_returns_legal_one_ply_result_or_no_legal_move() {
+        let search = Search::new(&one_thread_options());
+        let board = Board::new();
+
+        let result = search.quick_move(&board);
+        let best_move = result.best_move().expect("initial board has legal moves");
+
+        assert!(board.is_legal_move(best_move));
+        assert_eq!(result.depth(), 1);
+        assert_eq!(result.n_nodes(), board.get_moves().count() as u64);
+        assert_eq!(result.pv_line(), &[best_move]);
+        assert_eq!(result.selectivity(), Selectivity::None);
+        assert!(!result.is_endgame());
+
+        let no_move_board = Board::from_bitboards(Square::A1.bitboard(), 0);
+        assert!(matches!(
+            search.quick_move(&no_move_board),
+            SearchResult::NoLegalMove
+        ));
+    }
 
     #[test]
     fn no_reduction_below_the_gating_thresholds() {
