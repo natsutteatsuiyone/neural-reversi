@@ -9,6 +9,7 @@ use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_context::SearchContext;
 use reversi_core::search::search_result::SearchResult;
 use reversi_core::search::{EndGameCaches, Search, SearchRunOptions, null_window_search};
+use reversi_core::square::Square;
 use reversi_core::transposition_table::TranspositionTable;
 use reversi_core::types::Score;
 
@@ -84,6 +85,46 @@ fn test_solve_2_case1() {
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 46);
+}
+
+#[test]
+fn multi_pv_solve_18_reports_each_legal_root_move() {
+    let mut search = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let board = Board::from_string(
+        "--O-------OOX---OOOXXXO-OOOOXOXXXXXOOXOXXXXXXOOXX-XXXXOX--XXXX--",
+        Disc::Black,
+    )
+    .unwrap();
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None).multi_pv(true);
+    let result = search.run(&board, &options);
+
+    let mut pv_moves: Vec<_> = result
+        .pv_moves()
+        .iter()
+        .map(|pv_move| (pv_move.sq, pv_move.score as i32))
+        .collect();
+
+    assert!(
+        pv_moves.windows(2).all(|window| window[0].1 >= window[1].1),
+        "multi-pv scores should be non-increasing: {pv_moves:?}"
+    );
+
+    pv_moves.sort_by_key(|(sq, _score)| sq.index());
+    let mut expected = vec![
+        (Square::A2, 4),
+        (Square::D1, -20),
+        (Square::H3, -20),
+        (Square::B1, -30),
+        (Square::G2, -30),
+        (Square::E1, -30),
+        (Square::F2, -34),
+        (Square::G8, -34),
+        (Square::B2, -36),
+        (Square::H2, -38),
+    ];
+    expected.sort_by_key(|(sq, _score)| sq.index());
+
+    assert_eq!(pv_moves, expected);
 }
 
 #[test]

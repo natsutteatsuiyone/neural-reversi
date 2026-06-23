@@ -181,6 +181,11 @@ impl SearchContext {
         self.root_moves.get_current_pv()
     }
 
+    /// Returns the root move at `idx`, or [`None`] if out of bounds.
+    pub fn get_root_move(&self, idx: usize) -> Option<RootMove> {
+        self.root_moves.get(idx)
+    }
+
     /// Returns the first root move, or [`None`] if no moves exist.
     ///
     /// The caller must sort the root moves beforehand for this to return the

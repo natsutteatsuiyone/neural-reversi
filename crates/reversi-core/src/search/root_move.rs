@@ -98,6 +98,12 @@ impl RootMoves {
         moves.get(self.pv_idx()).cloned()
     }
 
+    /// Returns the root move at `idx`, or [`None`] if out of bounds.
+    pub fn get(&self, idx: usize) -> Option<RootMove> {
+        let moves = self.moves.lock().unwrap();
+        moves.get(idx).cloned()
+    }
+
     /// Returns the first root move, or [`None`] if no moves exist.
     ///
     /// The caller must sort the list beforehand (via [`sort_from_pv_idx`](Self::sort_from_pv_idx)
@@ -314,6 +320,21 @@ mod tests {
 
         rms.set_pv_idx(rms.count());
         assert!(rms.get_current_pv().is_none());
+    }
+
+    #[test]
+    fn get_returns_the_indexed_root_move() {
+        let rms = RootMoves::new(&Board::new());
+        let sqs = rms.map(|rm| rm.sq);
+
+        assert_eq!(rms.get(1).map(|rm| rm.sq), Some(sqs[1]));
+    }
+
+    #[test]
+    fn get_returns_none_for_out_of_bounds_index() {
+        let rms = RootMoves::new(&Board::new());
+
+        assert!(rms.get(rms.count()).is_none());
     }
 
     #[test]

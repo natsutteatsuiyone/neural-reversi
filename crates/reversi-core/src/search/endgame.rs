@@ -111,19 +111,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     for pv_idx in 0..pv_count {
         ctx.set_pv_idx(pv_idx);
 
-        // Initialize aspiration window for this PV line
-        let mut alpha = if pv_idx == 0 {
-            base_score - INITIAL_ASPIRATION_WINDOW
-        } else {
-            -ScaledScore::INF
-        };
-        let mut beta = if pv_idx == 0 {
-            base_score + INITIAL_ASPIRATION_WINDOW
-        } else if let Some(rm) = ctx.get_best_root_move() {
-            rm.score
-        } else {
-            ScaledScore::INF
-        };
+        let previous_pv_score = pv_idx
+            .checked_sub(1)
+            .and_then(|idx| ctx.get_root_move(idx))
+            .map(|rm| rm.score);
+        let (mut alpha, mut beta) =
+            initial_aspiration_window(pv_idx, base_score, previous_pv_score);
 
         // Iterative selectivity loop
         for selectivity in Level::ENDGAME_SELECTIVITY {
@@ -215,6 +208,30 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> Sca
     }
 
     midgame::evaluate(ctx, board)
+}
+
+fn initial_aspiration_window(
+    pv_idx: usize,
+    base_score: ScaledScore,
+    previous_pv_score: Option<ScaledScore>,
+) -> (ScaledScore, ScaledScore) {
+    if pv_idx == 0 {
+        return (
+            base_score - INITIAL_ASPIRATION_WINDOW,
+            base_score + INITIAL_ASPIRATION_WINDOW,
+        );
+    }
+
+    (
+        -ScaledScore::INF,
+        previous_pv_score
+            .map(beta_after_previous_pv_score)
+            .unwrap_or(ScaledScore::INF),
+    )
+}
+
+fn beta_after_previous_pv_score(score: ScaledScore) -> ScaledScore {
+    ScaledScore::from_raw((score.value() + 1).min(ScaledScore::INF.value()))
 }
 
 /// Performs aspiration window search for endgame at the current selectivity level.
@@ -610,4 +627,41 @@ fn shallow_search_move(
     };
     ctx.undo_endgame(sq);
     score
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_aspiration_window_centers_first_pv_on_base_score() {
+        let base_score = ScaledScore::from_disc_diff(10);
+
+        let (alpha, beta) = initial_aspiration_window(0, base_score, None);
+
+        assert_eq!(
+            (alpha, beta),
+            (
+                ScaledScore::from_disc_diff(9),
+                ScaledScore::from_disc_diff(11)
+            )
+        );
+    }
+
+    #[test]
+    fn initial_aspiration_window_uses_previous_pv_as_later_pv_upper_bound() {
+        let previous_score = ScaledScore::from_disc_diff(6);
+
+        let (alpha, beta) = initial_aspiration_window(2, ScaledScore::ZERO, Some(previous_score));
+
+        assert_eq!(alpha, -ScaledScore::INF);
+        assert_eq!(beta, ScaledScore::from_raw(previous_score.value() + 1));
+    }
+
+    #[test]
+    fn initial_aspiration_window_falls_back_to_unbounded_beta_without_previous_pv() {
+        let (_alpha, beta) = initial_aspiration_window(1, ScaledScore::ZERO, None);
+
+        assert_eq!(beta, ScaledScore::INF);
+    }
 }
