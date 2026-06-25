@@ -188,8 +188,9 @@ const _: () = assert!(core::mem::size_of::<SquareMeta>() == 8);
 /// Combined table for the two diagonal lines through a square.
 ///
 /// `solve1` needs both the current-player diagonal count and, in the pass
-/// continuation, the opponent diagonal count for the same square. One PEXT of
-/// the diagonal union, indexed into this table, yields both.
+/// continuation, the opponent diagonal count for the same square. Extracting
+/// the union of both diagonals with one PEXT replaces two diagonal PEXTs and
+/// two small COUNT_FLIP loads with one PEXT and one per-square table load.
 ///
 /// `mask` excludes the move square bit because that bit is ignored by
 /// [`line_count`]. `offset` locates the square's slice in `DIAG_UNION_COUNT`.
@@ -204,6 +205,28 @@ struct DiagUnionTable {
 }
 
 const _: () = assert!(core::mem::size_of::<DiagUnionTable>() == 16);
+
+/// Per-square metadata used only by `solve1`.
+///
+/// This keeps the straight-line DU13 algorithm, but avoids loading
+/// `SQUARE_TABLE`, `SQUARE_META`, and `DIAG_UNION_TABLE` separately in the
+/// inlined solve1 hot path. The record is exactly 32 bytes, so two squares fit
+/// in one cache line and the extra static data is only 1 KiB over the uploaded
+/// DU13 implementation.
+#[repr(C, align(32))]
+#[derive(Copy, Clone)]
+struct Solve1Table {
+    mask_file: u64,
+    diag_mask: u64,
+    diag_offset: u32,
+    diag_index_flip_mask: u16,
+    count_file_offset: u16,
+    count_rank_offset: u16,
+    rank_shift: u8,
+    _pad: [u8; 5],
+}
+
+const _: () = assert!(core::mem::size_of::<Solve1Table>() == 32);
 
 /// Maps each union cell (low to high bit of `mask`) to the `diag0` / `diag1`
 /// sub-index bit it occupies, leaving zero where the cell is not on that
@@ -221,8 +244,8 @@ const fn diag_union_index_masks(
     let mut diag1_masks = [0usize; DIAG_UNION_MAX_BITS];
     let mut union_bits = diag0 | diag1;
     let mut index_pos = 0usize;
-    let mut diag0_bit_pos = 0usize;
-    let mut diag1_bit_pos = 0usize;
+    let mut diag0_pos = 0usize;
+    let mut diag1_pos = 0usize;
 
     while union_bits != 0 {
         let bit = 1u64 << union_bits.trailing_zeros();
@@ -230,12 +253,12 @@ const fn diag_union_index_masks(
         let mut diag1_index_mask = 0usize;
 
         if (diag0 & bit) != 0 {
-            diag0_index_mask = 1usize << diag0_bit_pos;
-            diag0_bit_pos += 1;
+            diag0_index_mask = 1usize << diag0_pos;
+            diag0_pos += 1;
         }
         if (diag1 & bit) != 0 {
-            diag1_index_mask = 1usize << diag1_bit_pos;
-            diag1_bit_pos += 1;
+            diag1_index_mask = 1usize << diag1_pos;
+            diag1_pos += 1;
         }
         if (index_mask & bit) != 0 {
             diag0_masks[index_pos] = diag0_index_mask;
@@ -302,16 +325,14 @@ const fn build_diag_union_count() -> [u8; DIAG_UNION_COUNT_LEN] {
         let mask = diag_union_index_mask(sq);
         let offset = DIAG_UNION_TABLE_RAW[sq].offset as usize;
         let (diag0_masks, diag1_masks, len) = diag_union_index_masks(mask, diag0, diag1);
-        let diag0_row = diag0_pos(sq) << 8;
-        let diag1_row = diag1_pos(sq) << 8;
         let end = 1usize << len;
         let mut idx = 0usize;
         let mut diag0_idx = 0usize;
         let mut diag1_idx = 0usize;
 
         while idx < end {
-            out[offset + idx] =
-                COUNT_FLIP_RAW[diag0_row | diag0_idx] + COUNT_FLIP_RAW[diag1_row | diag1_idx];
+            out[offset + idx] = COUNT_FLIP_RAW[(diag0_pos(sq) << 8) | diag0_idx]
+                + COUNT_FLIP_RAW[(diag1_pos(sq) << 8) | diag1_idx];
             let next = idx + 1;
             if next < end {
                 let mut changed = idx ^ next;
@@ -382,15 +403,52 @@ const fn build_square_meta() -> [SquareMeta; 64] {
     out
 }
 
+const fn build_solve1_table(
+    square_table: &[SquareTable; 64],
+    square_meta: &[SquareMeta; 64],
+    diag_table: &[DiagUnionTable; 64],
+) -> [Solve1Table; 64] {
+    let zero = Solve1Table {
+        mask_file: 0,
+        diag_mask: 0,
+        diag_offset: 0,
+        diag_index_flip_mask: 0,
+        count_file_offset: 0,
+        count_rank_offset: 0,
+        rank_shift: 0,
+        _pad: [0; 5],
+    };
+    let mut out = [zero; 64];
+    let mut sq = 0usize;
+
+    while sq < 64 {
+        out[sq] = Solve1Table {
+            mask_file: square_table[sq].mask_file,
+            diag_mask: diag_table[sq].mask,
+            diag_offset: diag_table[sq].offset,
+            diag_index_flip_mask: diag_table[sq].index_flip_mask,
+            count_file_offset: square_meta[sq].count_file_offset,
+            count_rank_offset: square_meta[sq].count_rank_offset,
+            rank_shift: square_meta[sq].rank_shift,
+            _pad: [0; 5],
+        };
+        sq += 1;
+    }
+
+    out
+}
+
 const COUNT_FLIP_RAW: [u8; COUNT_FLIP_LEN] = build_count_flip();
 const SQUARE_TABLE_RAW: [SquareTable; 64] = build_square_table();
 const SQUARE_META_RAW: [SquareMeta; 64] = build_square_meta();
 const DIAG_UNION_TABLE_RAW: [DiagUnionTable; 64] = build_diag_union_table();
+const SOLVE1_TABLE_RAW: [Solve1Table; 64] =
+    build_solve1_table(&SQUARE_TABLE_RAW, &SQUARE_META_RAW, &DIAG_UNION_TABLE_RAW);
 
 static COUNT_FLIP: Align64<[u8; COUNT_FLIP_LEN]> = Align64(COUNT_FLIP_RAW);
 static SQUARE_TABLE: Align64<[SquareTable; 64]> = Align64(SQUARE_TABLE_RAW);
 static SQUARE_META: Align64<[SquareMeta; 64]> = Align64(SQUARE_META_RAW);
-static DIAG_UNION_TABLE: Align64<[DiagUnionTable; 64]> = Align64(DIAG_UNION_TABLE_RAW);
+static SOLVE1_TABLE: Align64<[Solve1Table; 64]> = Align64(SOLVE1_TABLE_RAW);
 static DIAG_UNION_COUNT: Align64<[u8; DIAG_UNION_COUNT_LEN]> = Align64(build_diag_union_count());
 
 /// Counts the number of discs that would be flipped by the last move.
@@ -435,25 +493,17 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         let sq_idx = sq.index();
         debug_assert!(sq_idx < 64);
 
-        // Derive file/rank and the file mask from sq_idx instead of loading
-        // SQUARE_TABLE/SQUARE_META (which count_last_flip still uses).
-        let file = sq_idx & 7;
-        let rank_shift = sq_idx & 0x38;
-        let mask_file = FILE_A << file;
-        let diag = &*DIAG_UNION_TABLE.0.as_ptr().add(sq_idx);
+        let entry = &*SOLVE1_TABLE.0.as_ptr().add(sq_idx);
+        let row_idx = ((player >> (entry.rank_shift as usize)) & 0xff) as usize;
+        let file_idx = _pext_u64(player, entry.mask_file) as usize;
+        let diag_idx = _pext_u64(player, entry.diag_mask) as usize;
 
-        let row_idx = ((player >> rank_shift) & 0xff) as usize;
         let count_base = COUNT_FLIP.0.as_ptr();
-        let count_file_row = count_base.add(file << 8);
-        let count_rank_row = count_base.add(rank_shift << 5);
-        let diag_count_row = DIAG_UNION_COUNT.0.as_ptr().add(diag.offset as usize);
+        let count_file_row = count_base.add(entry.count_file_offset as usize);
+        let count_rank_row = count_base.add(entry.count_rank_offset as usize);
+        let diag_count_row = DIAG_UNION_COUNT.0.as_ptr().add(entry.diag_offset as usize);
 
-        // Issue the rank-row load ahead of the PEXTs (deliberate source order).
-        let row_count = *count_file_row.add(row_idx) as u32;
-        let file_idx = _pext_u64(player, mask_file) as usize;
-        let diag_idx = _pext_u64(player, diag.mask) as usize;
-
-        let n_flipped = (row_count
+        let n_flipped = (*count_file_row.add(row_idx) as u32
             + *count_rank_row.add(file_idx) as u32
             + *diag_count_row.add(diag_idx) as u32) as i32;
         let score_base = 2 * player.count_ones() as Score - SCORE_MAX + 2;
@@ -473,7 +523,7 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         } else {
             let opp_row_idx = row_idx ^ 0xff;
             let opp_file_idx = file_idx ^ 0xff;
-            let opp_diag_idx = diag_idx ^ diag.index_flip_mask as usize;
+            let opp_diag_idx = diag_idx ^ entry.diag_index_flip_mask as usize;
             let opp_n_flipped = (*count_file_row.add(opp_row_idx) as u32
                 + *count_rank_row.add(opp_file_idx) as u32
                 + *diag_count_row.add(opp_diag_idx) as u32) as i32;
