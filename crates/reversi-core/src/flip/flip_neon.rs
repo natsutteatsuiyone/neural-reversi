@@ -8,8 +8,7 @@
 //! (right-side masks bit-reversed, the second pair of each side
 //! complemented), [`BoardCtx::flip_pairs`] computes the masked spans for all
 //! eight rays, and one of two reductions folds them: [`fold_addp`] for
-//! latency-bound single flips, [`fold_dual`] for throughput-bound batched
-//! flips.
+//! latency-bound flips, [`fold_dual`] for throughput-bound batched flips.
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_neon_rbit.c>
 //! (same lowest-outflank + bit-reversal algorithm; the complemented-mask
@@ -70,7 +69,6 @@ pub(super) struct BoardCtx {
     no: uint64x2_t,
     pp_rev: uint64x2_t,
     no_rev: uint64x2_t,
-    zero: uint64x2_t,
     one: uint64x2_t,
 }
 
@@ -86,37 +84,15 @@ impl BoardCtx {
             no,
             pp_rev: vdupq_n_u64(player.reverse_bits()),
             no_rev: vdupq_n_u64(not_opponent.reverse_bits()),
-            zero: vdupq_n_u64(0),
             one: vdupq_n_u64(1),
         }
     }
 
-    /// Computes the masked flip spans for one side's two mask pairs, given
-    /// that side's broadcast player / non-opponent boards.
-    ///
-    /// The per-pair kernel returns the *unmasked* span below the outflank;
-    /// the ray masks are applied while merging the two pairs in
-    /// [`merge_spans`] (the `b` pair's mask arrives complemented from the
-    /// table).
-    ///
-    /// # Safety
-    ///
-    /// `mask_ptr` must point at four consecutive in-bounds `u64` mask words.
-    #[target_feature(enable = "neon")]
-    #[inline]
-    unsafe fn flip_side(&self, mask_ptr: *const u64, pp: uint64x2_t, no: uint64x2_t) -> uint64x2_t {
-        let mask_a = unsafe { vld1q_u64(mask_ptr) };
-        let cmask_b = unsafe { vld1q_u64(mask_ptr.add(2)) };
-        let w_a = flip_span_pair(mask_a, pp, no, self.zero, self.one);
-        let w_b = flip_span_pair_inv(cmask_b, pp, no, self.zero, self.one);
-        // SAFETY: the SHA3 variant of `merge_spans` only exists when the build
-        // statically enables `sha3`.
-        unsafe { merge_spans(mask_a, w_a, cmask_b, w_b) }
-    }
-
     /// Computes the per-ray flips for `pos` into a left pair (normal
     /// bit-space) and a right pair (bit-reversed space). Returns
-    /// `(flip_l, flip_rr)` for a reduction to fold.
+    /// `(flip_l, flip_rr)` for a reduction to fold. All four mask pairs are
+    /// loaded before the span kernels so the normal and bit-reversed sides can
+    /// expose independent arithmetic chains to the scheduler.
     ///
     /// # Safety
     ///
@@ -126,8 +102,26 @@ impl BoardCtx {
     #[inline]
     unsafe fn flip_pairs(&self, pos: usize) -> (uint64x2_t, uint64x2_t) {
         let mask_ptr = unsafe { NEON_MASK.get_unchecked(pos).0.as_ptr() };
-        let flip_l = unsafe { self.flip_side(mask_ptr, self.pp, self.no) };
-        let flip_rr = unsafe { self.flip_side(mask_ptr.add(4), self.pp_rev, self.no_rev) };
+        let mask_l_a = unsafe { vld1q_u64(mask_ptr) };
+        let cmask_l_b = unsafe { vld1q_u64(mask_ptr.add(2)) };
+        let mask_rr_a = unsafe { vld1q_u64(mask_ptr.add(4)) };
+        let cmask_rr_b = unsafe { vld1q_u64(mask_ptr.add(6)) };
+
+        let w_l_a = flip_span_pair(mask_l_a, self.pp, self.no, self.one);
+        let w_rr_a = flip_span_pair(mask_rr_a, self.pp_rev, self.no_rev, self.one);
+        let w_l_b = flip_span_pair_inv(cmask_l_b, self.pp, self.no, self.one);
+        let w_rr_b = flip_span_pair_inv(cmask_rr_b, self.pp_rev, self.no_rev, self.one);
+
+        // SAFETY: the SHA3 variant of `merge_spans` only exists when the build
+        // statically enables `sha3`.
+        #[cfg(target_feature = "sha3")]
+        let flip_l = unsafe { merge_spans(mask_l_a, w_l_a, cmask_l_b, w_l_b) };
+        #[cfg(target_feature = "sha3")]
+        let flip_rr = unsafe { merge_spans(mask_rr_a, w_rr_a, cmask_rr_b, w_rr_b) };
+        #[cfg(not(target_feature = "sha3"))]
+        let flip_l = merge_spans(mask_l_a, w_l_a, cmask_l_b, w_l_b);
+        #[cfg(not(target_feature = "sha3"))]
+        let flip_rr = merge_spans(mask_rr_a, w_rr_a, cmask_rr_b, w_rr_b);
         (flip_l, flip_rr)
     }
 
@@ -143,13 +137,11 @@ impl BoardCtx {
         fold_addp(flip_l, flip_rr)
     }
 
-    /// Flip used by the batched `flipN` helpers, which compute several
-    /// independent flips back-to-back (e.g. the endgame leaf solver). With no
-    /// work between flips the NEON pipes saturate and the kernel is
-    /// throughput-bound; there the dual-fold reduction ([`fold_dual`]) wins,
-    /// because its two side-folds stay independent and both extracts come from
-    /// the low lane (no high-lane `umov`). The single ADDP would instead
-    /// serialize the folds and add a high-lane extract (~3% slower there).
+    /// Flip used by the two- and four-square batched helpers. With no work
+    /// between flips the NEON pipes saturate and the kernel is throughput-bound;
+    /// there the dual-fold reduction ([`fold_dual`]) wins because its two
+    /// side-folds stay independent and both extracts come from the low lane
+    /// (no high-lane `umov`).
     #[target_feature(enable = "neon")]
     #[inline]
     fn flip1_batched(&self, pos: usize) -> u64 {
@@ -166,11 +158,9 @@ impl BoardCtx {
     #[target_feature(enable = "neon")]
     #[inline]
     pub fn flip3(&self, x0: usize, x1: usize, x2: usize) -> (u64, u64, u64) {
-        (
-            self.flip1_batched(x0),
-            self.flip1_batched(x1),
-            self.flip1_batched(x2),
-        )
+        // Three flips do not keep enough independent dual-fold work in flight;
+        // the latency fold benchmarks faster for this arity.
+        (self.flip1(x0), self.flip1(x1), self.flip1(x2))
     }
 
     #[target_feature(enable = "neon")]
@@ -236,7 +226,7 @@ fn merge_spans(
     cmask_b: uint64x2_t,
     w_b: uint64x2_t,
 ) -> uint64x2_t {
-    vorrq_u64(vandq_u64(mask_a, w_a), vbicq_u64(w_b, cmask_b))
+    vbslq_u64(cmask_b, vandq_u64(mask_a, w_a), w_b)
 }
 
 /// Computes the *unmasked* flip span for a pair of LSB-first rays: all bits
@@ -251,16 +241,10 @@ fn merge_spans(
 /// instcombine from "canonicalizing" the kernel into a longer sequence.
 #[inline]
 #[target_feature(enable = "neon")]
-fn flip_span_pair(
-    mask: uint64x2_t,
-    pp: uint64x2_t,
-    no: uint64x2_t,
-    zero: uint64x2_t,
-    one: uint64x2_t,
-) -> uint64x2_t {
+fn flip_span_pair(mask: uint64x2_t, pp: uint64x2_t, no: uint64x2_t, one: uint64x2_t) -> uint64x2_t {
     let non_opponent = vandq_u64(mask, no);
     let player_on_ray = vandq_u64(mask, pp);
-    let outflank = vandq_u64(vsubq_u64(zero, non_opponent), player_on_ray);
+    let outflank = vandq_u64(neg_u64(non_opponent), player_on_ray);
     vqsubq_u64(outflank, one)
 }
 
@@ -272,13 +256,18 @@ fn flip_span_pair_inv(
     cmask: uint64x2_t,
     pp: uint64x2_t,
     no: uint64x2_t,
-    zero: uint64x2_t,
     one: uint64x2_t,
 ) -> uint64x2_t {
     let non_opponent = vbicq_u64(no, cmask);
     let player_on_ray = vbicq_u64(pp, cmask);
-    let outflank = vandq_u64(vsubq_u64(zero, non_opponent), player_on_ray);
+    let outflank = vandq_u64(neg_u64(non_opponent), player_on_ray);
     vqsubq_u64(outflank, one)
+}
+
+#[inline]
+#[target_feature(enable = "neon")]
+fn neg_u64(x: uint64x2_t) -> uint64x2_t {
+    vreinterpretq_u64_s64(vnegq_s64(vreinterpretq_s64_u64(x)))
 }
 
 /// The two lanes in each pair represent distinct rays from the origin square,
