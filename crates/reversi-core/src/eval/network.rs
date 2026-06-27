@@ -6,12 +6,10 @@ use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 use crate::board::Board;
-use crate::eval::network::activations::{screlu, sqr_clipped_and_clipped_relu_16};
 use crate::eval::network::input_layer::{
     BASE_OUTPUT_DIMS, BaseInput, PA_OUTPUT_DIMS, PhaseAdaptiveInput,
 };
-use crate::eval::network::linear_layer::LinearLayer;
-use crate::eval::network::output_layer::OutputLayer;
+use crate::eval::network::layer_stack::{LayerStack, load_layer_stacks};
 use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::ceil_to_multiple;
 use crate::types::ScaledScore;
@@ -19,6 +17,7 @@ use crate::util::align::Align64;
 
 mod activations;
 mod input_layer;
+mod layer_stack;
 mod linear_layer;
 mod output_layer;
 
@@ -39,14 +38,6 @@ const PA_INPUT_START: usize = BASE_OUTPUT_DIMS;
 const PA_INPUT_END: usize = PA_INPUT_START + PA_OUTPUT_DIMS;
 const MOBILITY_INPUT_INDEX: usize = L1_INPUT_DIMS - 1;
 const MOBILITY_SCALE: u8 = 7;
-const OUTPUT_WEIGHT_SCALE_BITS: u32 = 6;
-const NUM_LAYER_STACKS: usize = 60;
-
-type L1Layer =
-    LinearLayer<L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS>;
-type L2Layer =
-    LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>;
-type FinalOutputLayer = OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>;
 
 /// Working buffers for one network forward pass.
 struct NetworkBuffers {
@@ -112,52 +103,6 @@ fn scratch_ptr(cell: &UnsafeCell<[u8; SCRATCH_LEN]>) -> *mut NetworkBuffers {
     unsafe { base.add(offset).cast::<NetworkBuffers>() }
 }
 
-/// Layer stack for a specific game ply.
-struct LayerStack {
-    l1: L1Layer,
-    l2: L2Layer,
-    lo: FinalOutputLayer,
-}
-
-impl LayerStack {
-    fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let l1 = LinearLayer::load(reader)?;
-        let l2 = LinearLayer::load(reader)?;
-        let lo = OutputLayer::load(reader)?;
-        Ok(Self { l1, l2, lo })
-    }
-
-    #[inline(always)]
-    fn forward(&self, buffers: &mut NetworkBuffers) -> ScaledScore {
-        self.forward_l1(buffers);
-        self.forward_l2(buffers);
-        self.forward_output(buffers)
-    }
-
-    #[inline(always)]
-    fn forward_l1(&self, buffers: &mut NetworkBuffers) {
-        self.l1.forward(&buffers.l1_input, &mut buffers.l1_li_out);
-        let l1_out = &buffers.l1_li_out[..L1_OUTPUT_DIMS];
-        sqr_clipped_and_clipped_relu_16(l1_out, &mut buffers.l1_out[..L2_INPUT_DIMS]);
-    }
-
-    #[inline(always)]
-    fn forward_l2(&self, buffers: &mut NetworkBuffers) {
-        self.l2.forward(&buffers.l1_out, &mut buffers.l2_li_out);
-        screlu::<L2_PADDED_OUTPUT_DIMS>(
-            buffers.l2_li_out.as_slice(),
-            buffers.l2_out.as_mut_slice(),
-        );
-    }
-
-    #[inline(always)]
-    fn forward_output(&self, buffers: &NetworkBuffers) -> ScaledScore {
-        let score = (self.lo.forward(buffers.output_segments()) >> OUTPUT_WEIGHT_SCALE_BITS)
-            .clamp(-ScaledScore::INF.value(), ScaledScore::INF.value());
-        ScaledScore::from_raw(score)
-    }
-}
-
 /// Main neural network structure for position evaluation.
 pub struct Network {
     base_input: BaseInput,
@@ -187,19 +132,11 @@ impl Network {
         Self::from_reader(cursor)
     }
 
-    fn load_layer_stacks<R: Read>(reader: &mut R) -> io::Result<Box<[LayerStack]>> {
-        let mut layer_stacks = Vec::with_capacity(NUM_LAYER_STACKS);
-        for _ in 0..NUM_LAYER_STACKS {
-            layer_stacks.push(LayerStack::load(reader)?);
-        }
-        Ok(layer_stacks.into_boxed_slice())
-    }
-
     fn from_reader<R: Read>(reader: R) -> io::Result<Self> {
         let mut decoder = zstd::stream::read::Decoder::new(reader)?;
         let base_input = BaseInput::load(&mut decoder)?;
         let pa_input = PhaseAdaptiveInput::load(&mut decoder)?;
-        let layer_stacks = Self::load_layer_stacks(&mut decoder)?;
+        let layer_stacks = load_layer_stacks(&mut decoder)?;
         Ok(Network {
             base_input,
             pa_input,
