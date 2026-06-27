@@ -105,7 +105,7 @@ impl MoveList {
         // static-eval margin check.
         let skip_search_ordering = if SS::IS_ENDGAME && !NT::PV_NODE && !cut_node {
             tt_move != Square::None || {
-                const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(8);
+                const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(10);
                 let static_eval = midgame::evaluate(ctx, board);
                 static_eval + SKIP_MARGIN < alpha
             }
@@ -115,14 +115,19 @@ impl MoveList {
 
         const MOBILITY_SCALE_SEARCH: i32 = ScaledScore::SCALE * 15 / 8;
         const POTENTIAL_MOBILITY_SCALE_SEARCH: i32 = ScaledScore::SCALE;
-        const MOBILITY_SCALE_SKIP: i32 = ScaledScore::SCALE * 8;
-        const POTENTIAL_MOBILITY_SCALE_SKIP: i32 = ScaledScore::SCALE;
 
-        let (mobility_scale, potential_mobility_scale) = if skip_search_ordering {
-            (MOBILITY_SCALE_SKIP, POTENTIAL_MOBILITY_SCALE_SKIP)
-        } else {
-            (MOBILITY_SCALE_SEARCH, POTENTIAL_MOBILITY_SCALE_SEARCH)
-        };
+        if SS::IS_ENDGAME && skip_search_ordering {
+            for mv in self.iter_mut() {
+                if mv.sq == tt_move {
+                    mv.value = TT_MOVE_VALUE;
+                } else {
+                    let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+                    ctx.increment_nodes();
+                    mv.value = -(next.get_moves().corner_weighted_count() as i32);
+                }
+            }
+            return;
+        }
 
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
         // reaching this loop, so `mv.flipped == board.opponent()` cannot occur here.
@@ -131,25 +136,18 @@ impl MoveList {
                 mv.value = TT_MOVE_VALUE;
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-                if skip_search_ordering {
-                    ctx.increment_nodes();
-                    mv.value = 0;
-                } else {
-                    ctx.update(mv.sq, mv.flipped);
-                    mv.value = shallow_search_score(ctx, &next, sort_depth).value();
-                    ctx.undo(mv.sq);
-                    if SS::IS_ENDGAME {
-                        mv.value += next.opponent().corner_stability() as i32
-                            * CORNER_STABILITY_WEIGHT_SEARCH;
-                    }
-                }
+                ctx.update(mv.sq, mv.flipped);
+                mv.value = shallow_search_score(ctx, &next, sort_depth).value();
+                ctx.undo(mv.sq);
 
                 if SS::IS_ENDGAME {
+                    mv.value +=
+                        next.opponent().corner_stability() as i32 * CORNER_STABILITY_WEIGHT_SEARCH;
                     let (moves, potential) = next.get_moves_and_potential();
                     let mobility = moves.corner_weighted_count() as i32;
                     let potential_mobility = potential.corner_weighted_count() as i32;
-                    mv.value -= mobility * mobility_scale;
-                    mv.value -= potential_mobility * potential_mobility_scale;
+                    mv.value -= mobility * MOBILITY_SCALE_SEARCH;
+                    mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE_SEARCH;
                 }
             }
         }
