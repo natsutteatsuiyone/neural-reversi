@@ -259,6 +259,108 @@ impl<
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
 
         unsafe {
+            let input32 = input.as_ptr() as *const i32;
+            let weights = self.weights.as_ptr();
+            let bias = self.biases.as_ptr() as *const __m512i;
+            let out = output.as_mut_ptr() as *mut __m512i;
+
+            if OUTPUT_DIMS == OUTPUT_SIMD_WIDTH {
+                let num_chunks: usize = INPUT_DIMS.div_ceil(4);
+                let mut p0 = _mm512_setzero_si512();
+                let mut p1 = _mm512_setzero_si512();
+                let mut p2 = _mm512_setzero_si512();
+                let mut p3 = _mm512_setzero_si512();
+
+                let main_end = num_chunks & !3;
+                let mut i = 0;
+                while i < main_end {
+                    let in0 = _mm512_set1_epi32(*input32.add(i));
+                    let in1 = _mm512_set1_epi32(*input32.add(i + 1));
+                    let in2 = _mm512_set1_epi32(*input32.add(i + 2));
+                    let in3 = _mm512_set1_epi32(*input32.add(i + 3));
+                    let col0 = weights.add(i * OUTPUT_DIMS * 4) as *const __m512i;
+                    let col1 = weights.add((i + 1) * OUTPUT_DIMS * 4) as *const __m512i;
+                    let col2 = weights.add((i + 2) * OUTPUT_DIMS * 4) as *const __m512i;
+                    let col3 = weights.add((i + 3) * OUTPUT_DIMS * 4) as *const __m512i;
+
+                    p0 = mm512_dpbusd_epi32::<USE_VNNI>(p0, in0, *col0);
+                    p1 = mm512_dpbusd_epi32::<USE_VNNI>(p1, in1, *col1);
+                    p2 = mm512_dpbusd_epi32::<USE_VNNI>(p2, in2, *col2);
+                    p3 = mm512_dpbusd_epi32::<USE_VNNI>(p3, in3, *col3);
+                    i += 4;
+                }
+
+                while i < num_chunks {
+                    let in0 = _mm512_set1_epi32(*input32.add(i));
+                    let col0 = weights.add(i * OUTPUT_DIMS * 4) as *const __m512i;
+                    p0 = mm512_dpbusd_epi32::<USE_VNNI>(p0, in0, *col0);
+                    i += 1;
+                }
+
+                let sum = _mm512_add_epi32(_mm512_add_epi32(p0, p1), _mm512_add_epi32(p2, p3));
+                _mm512_store_si512(out, _mm512_add_epi32(_mm512_load_si512(bias), sum));
+                return;
+            }
+
+            if INPUT_DIMS == 32 && OUTPUT_DIMS == OUTPUT_SIMD_WIDTH * 4 {
+                let mut p00 = _mm512_setzero_si512();
+                let mut p01 = _mm512_setzero_si512();
+                let mut p02 = _mm512_setzero_si512();
+                let mut p03 = _mm512_setzero_si512();
+                let mut p10 = _mm512_setzero_si512();
+                let mut p11 = _mm512_setzero_si512();
+                let mut p12 = _mm512_setzero_si512();
+                let mut p13 = _mm512_setzero_si512();
+                let mut p20 = _mm512_setzero_si512();
+                let mut p21 = _mm512_setzero_si512();
+                let mut p22 = _mm512_setzero_si512();
+                let mut p23 = _mm512_setzero_si512();
+                let mut p30 = _mm512_setzero_si512();
+                let mut p31 = _mm512_setzero_si512();
+                let mut p32 = _mm512_setzero_si512();
+                let mut p33 = _mm512_setzero_si512();
+
+                macro_rules! accumulate_chunk {
+                    ($idx:expr, $p0:ident, $p1:ident, $p2:ident, $p3:ident) => {{
+                        let input = _mm512_set1_epi32(*input32.add($idx));
+                        let col = weights.add($idx * OUTPUT_DIMS * 4) as *const __m512i;
+                        $p0 = mm512_dpbusd_epi32::<USE_VNNI>($p0, input, *col);
+                        $p1 = mm512_dpbusd_epi32::<USE_VNNI>($p1, input, *col.add(1));
+                        $p2 = mm512_dpbusd_epi32::<USE_VNNI>($p2, input, *col.add(2));
+                        $p3 = mm512_dpbusd_epi32::<USE_VNNI>($p3, input, *col.add(3));
+                    }};
+                }
+
+                accumulate_chunk!(0, p00, p01, p02, p03);
+                accumulate_chunk!(1, p10, p11, p12, p13);
+                accumulate_chunk!(2, p20, p21, p22, p23);
+                accumulate_chunk!(3, p30, p31, p32, p33);
+                accumulate_chunk!(4, p00, p01, p02, p03);
+                accumulate_chunk!(5, p10, p11, p12, p13);
+                accumulate_chunk!(6, p20, p21, p22, p23);
+                accumulate_chunk!(7, p30, p31, p32, p33);
+
+                let sum0 = _mm512_add_epi32(_mm512_add_epi32(p00, p10), _mm512_add_epi32(p20, p30));
+                let sum1 = _mm512_add_epi32(_mm512_add_epi32(p01, p11), _mm512_add_epi32(p21, p31));
+                let sum2 = _mm512_add_epi32(_mm512_add_epi32(p02, p12), _mm512_add_epi32(p22, p32));
+                let sum3 = _mm512_add_epi32(_mm512_add_epi32(p03, p13), _mm512_add_epi32(p23, p33));
+
+                _mm512_store_si512(out, _mm512_add_epi32(_mm512_load_si512(bias), sum0));
+                _mm512_store_si512(
+                    out.add(1),
+                    _mm512_add_epi32(_mm512_load_si512(bias.add(1)), sum1),
+                );
+                _mm512_store_si512(
+                    out.add(2),
+                    _mm512_add_epi32(_mm512_load_si512(bias.add(2)), sum2),
+                );
+                _mm512_store_si512(
+                    out.add(3),
+                    _mm512_add_epi32(_mm512_load_si512(bias.add(3)), sum3),
+                );
+                return;
+            }
+
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
             let num_regs = (OUTPUT_DIMS / OUTPUT_SIMD_WIDTH).max(1);
             // A single accumulator serializes the chunk loop on `dpbusd`
@@ -276,9 +378,6 @@ impl<
                 p2.as_mut_ptr() as *mut __m512i,
                 p3.as_mut_ptr() as *mut __m512i,
             ];
-
-            let input32 = input.as_ptr() as *const i32;
-            let weights = self.weights.as_ptr();
 
             let mut i = 0;
             while i + unroll <= num_chunks {

@@ -5,7 +5,6 @@ use std::io::{self, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
-#[allow(unused_imports)]
 use crate::eval::pattern_feature::NUM_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 use crate::eval::util::clone_biases;
@@ -21,6 +20,7 @@ const ACTIVATION_SHIFT: u32 = 10;
 pub(in crate::eval::network) const OUTPUT_DIMS: usize = 128;
 const NUM_PA_INPUTS: usize = 6;
 const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
+const _: () = assert!(NUM_FEATURES == 32);
 
 /// Phase-adaptive input layer.
 #[derive(Debug)]
@@ -86,21 +86,39 @@ impl PhaseAdaptiveInputLayer {
             let mut acc2 = _mm512_load_si512(bias_ptr.add(2));
             let mut acc3 = _mm512_load_si512(bias_ptr.add(3));
 
-            macro_rules! accumulate_feature {
-                ($feature_idx:expr) => {{
-                    let idx = feature_offset(pattern_feature, $feature_idx) * NUM_REGS;
-                    acc0 = _mm512_add_epi16(acc0, _mm512_load_si512(weights_ptr.add(idx)));
-                    acc1 = _mm512_add_epi16(acc1, _mm512_load_si512(weights_ptr.add(idx + 1)));
-                    acc2 = _mm512_add_epi16(acc2, _mm512_load_si512(weights_ptr.add(idx + 2)));
-                    acc3 = _mm512_add_epi16(acc3, _mm512_load_si512(weights_ptr.add(idx + 3)));
+            macro_rules! accumulate_reg {
+                ($idx0:ident, $idx1:ident, $idx2:ident, $idx3:ident, $j:expr, $acc:ident) => {{
+                    let w0 = _mm512_load_si512(weights_ptr.add($idx0 + $j));
+                    let w1 = _mm512_load_si512(weights_ptr.add($idx1 + $j));
+                    let w2 = _mm512_load_si512(weights_ptr.add($idx2 + $j));
+                    let w3 = _mm512_load_si512(weights_ptr.add($idx3 + $j));
+                    let sum01 = _mm512_add_epi16(w0, w1);
+                    let sum23 = _mm512_add_epi16(w2, w3);
+                    $acc = _mm512_add_epi16($acc, _mm512_add_epi16(sum01, sum23));
                 }};
             }
 
-            let mut feature_idx = 0;
-            while feature_idx < NUM_FEATURES {
-                accumulate_feature!(feature_idx);
-                feature_idx += 1;
+            macro_rules! accumulate_feature_group {
+                ($base:expr) => {{
+                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
+                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
+                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
+                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 0, acc0);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 1, acc1);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 2, acc2);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 3, acc3);
+                }};
             }
+
+            accumulate_feature_group!(0);
+            accumulate_feature_group!(4);
+            accumulate_feature_group!(8);
+            accumulate_feature_group!(12);
+            accumulate_feature_group!(16);
+            accumulate_feature_group!(20);
+            accumulate_feature_group!(24);
+            accumulate_feature_group!(28);
 
             let one = _mm512_set1_epi16(ACTIVATION_MAX);
             let zero = _mm512_setzero_si512();
@@ -142,25 +160,43 @@ impl PhaseAdaptiveInputLayer {
             let mut acc6 = _mm256_load_si256(bias_ptr.add(6));
             let mut acc7 = _mm256_load_si256(bias_ptr.add(7));
 
-            macro_rules! accumulate_feature {
-                ($feature_idx:expr) => {{
-                    let idx = feature_offset(pattern_feature, $feature_idx) * NUM_REGS;
-                    acc0 = _mm256_add_epi16(acc0, _mm256_load_si256(weights_ptr.add(idx)));
-                    acc1 = _mm256_add_epi16(acc1, _mm256_load_si256(weights_ptr.add(idx + 1)));
-                    acc2 = _mm256_add_epi16(acc2, _mm256_load_si256(weights_ptr.add(idx + 2)));
-                    acc3 = _mm256_add_epi16(acc3, _mm256_load_si256(weights_ptr.add(idx + 3)));
-                    acc4 = _mm256_add_epi16(acc4, _mm256_load_si256(weights_ptr.add(idx + 4)));
-                    acc5 = _mm256_add_epi16(acc5, _mm256_load_si256(weights_ptr.add(idx + 5)));
-                    acc6 = _mm256_add_epi16(acc6, _mm256_load_si256(weights_ptr.add(idx + 6)));
-                    acc7 = _mm256_add_epi16(acc7, _mm256_load_si256(weights_ptr.add(idx + 7)));
+            macro_rules! accumulate_reg {
+                ($idx0:ident, $idx1:ident, $idx2:ident, $idx3:ident, $j:expr, $acc:ident) => {{
+                    let w0 = _mm256_load_si256(weights_ptr.add($idx0 + $j));
+                    let w1 = _mm256_load_si256(weights_ptr.add($idx1 + $j));
+                    let w2 = _mm256_load_si256(weights_ptr.add($idx2 + $j));
+                    let w3 = _mm256_load_si256(weights_ptr.add($idx3 + $j));
+                    let sum01 = _mm256_add_epi16(w0, w1);
+                    let sum23 = _mm256_add_epi16(w2, w3);
+                    $acc = _mm256_add_epi16($acc, _mm256_add_epi16(sum01, sum23));
                 }};
             }
 
-            let mut feature_idx = 0;
-            while feature_idx < NUM_FEATURES {
-                accumulate_feature!(feature_idx);
-                feature_idx += 1;
+            macro_rules! accumulate_feature_group {
+                ($base:expr) => {{
+                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
+                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
+                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
+                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 0, acc0);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 1, acc1);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 2, acc2);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 3, acc3);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 4, acc4);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 5, acc5);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 6, acc6);
+                    accumulate_reg!(idx0, idx1, idx2, idx3, 7, acc7);
+                }};
             }
+
+            accumulate_feature_group!(0);
+            accumulate_feature_group!(4);
+            accumulate_feature_group!(8);
+            accumulate_feature_group!(12);
+            accumulate_feature_group!(16);
+            accumulate_feature_group!(20);
+            accumulate_feature_group!(24);
+            accumulate_feature_group!(28);
 
             let one = _mm256_set1_epi16(ACTIVATION_MAX);
             let zero = _mm256_setzero_si256();
