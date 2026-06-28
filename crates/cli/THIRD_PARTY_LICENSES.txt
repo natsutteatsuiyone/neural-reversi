@@ -4020,8 +4020,8 @@ GNU General Public License v3.0 or later
 ================================================================
 
 Applies to:
-  * cli 6.1.0
-  * reversi-core 6.1.0
+  * cli 6.2.0
+  * reversi-core 6.2.0
 ----------------------------------------------------------------
 
 GNU GENERAL PUBLIC LICENSE

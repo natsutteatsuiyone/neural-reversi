@@ -7368,8 +7368,8 @@ GNU General Public License v3.0 or later
 ================================================================
 
 Applies to:
-  * gui 6.1.0
-  * reversi-core 6.1.0
+  * gui 6.2.0
+  * reversi-core 6.2.0
 ----------------------------------------------------------------
 
 GNU GENERAL PUBLIC LICENSE
@@ -16233,12 +16233,11 @@ SOFTWARE.
 
 -----------
 
-The following npm packages may be included in this product:
+The following npm package may be included in this product:
 
- - @tauri-apps/plugin-opener@2.5.4
  - @tauri-apps/plugin-store@2.4.3
 
-These packages each contain the following license:
+This package contains the following license:
 
 SPDXVersion: SPDX-2.1
 DataLicense: CC0-1.0
