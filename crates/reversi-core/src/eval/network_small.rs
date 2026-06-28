@@ -183,6 +183,21 @@ impl NetworkSmall {
         score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
     }
 
+    /// Computes the forward pass using the scalar fallback wrapper.
+    ///
+    /// # Safety
+    ///
+    /// This wrapper has no additional safety requirements; it exists only to
+    /// match the `unsafe fn` signature of the SIMD forward implementations.
+    #[allow(dead_code)]
+    unsafe fn forward_scalar_wrapper(
+        pattern_feature: &PatternFeature,
+        input_layer: &InputLayer,
+        output_layer: &OutputLayer,
+    ) -> i32 {
+        Self::forward_scalar(pattern_feature, input_layer, output_layer)
+    }
+
     /// Computes the forward pass on AVX-512 using VNNI instructions (`VPDPWSSD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
@@ -233,19 +248,40 @@ impl NetworkSmall {
         Self::forward_avx2::<false>(pattern_feature, input_layer, output_layer)
     }
 
-    /// Computes the forward pass using the scalar fallback wrapper.
-    ///
-    /// # Safety
-    ///
-    /// This wrapper has no additional safety requirements; it exists only to
-    /// match the `unsafe fn` signature of the SIMD forward implementations.
-    #[allow(dead_code)]
-    unsafe fn forward_scalar_wrapper(
+    /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
+    fn forward_scalar(
         pattern_feature: &PatternFeature,
         input_layer: &InputLayer,
         output_layer: &OutputLayer,
     ) -> i32 {
-        Self::forward_scalar(pattern_feature, input_layer, output_layer)
+        let mut acc = [0i32; PA_OUTPUT_DIMS];
+
+        // Initialize with biases
+        for (dst, &bias) in acc.iter_mut().zip(input_layer.biases.iter()) {
+            *dst = bias as i32;
+        }
+
+        // Accumulate weights based on pattern features
+        let weights = input_layer.weights.as_slice();
+        for feature_idx in 0..NUM_FEATURES {
+            let offset = feature_offset(pattern_feature, feature_idx);
+            let row = &weights[offset * PA_OUTPUT_DIMS..(offset + 1) * PA_OUTPUT_DIMS];
+            for (dst, &w) in acc.iter_mut().zip(row.iter()) {
+                *dst += w as i32;
+            }
+        }
+
+        // Apply squared clipped ReLU and compute dot product with output weights
+        let mut output = 0i32;
+        for (value, &weight) in acc.iter().zip(output_layer.weights.iter()) {
+            if *value > 0 {
+                let clamped = (*value).min(ACTIVATION_CLAMP_MAX as i32);
+                let activation = (clamped * clamped) >> 10;
+                output += activation * (weight as i32);
+            }
+        }
+
+        output
     }
 
     /// Computes the forward pass using the AVX-512 implementation.
@@ -696,42 +732,6 @@ impl NetworkSmall {
 
             total
         }
-    }
-
-    /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
-    fn forward_scalar(
-        pattern_feature: &PatternFeature,
-        input_layer: &InputLayer,
-        output_layer: &OutputLayer,
-    ) -> i32 {
-        let mut acc = [0i32; PA_OUTPUT_DIMS];
-
-        // Initialize with biases
-        for (dst, &bias) in acc.iter_mut().zip(input_layer.biases.iter()) {
-            *dst = bias as i32;
-        }
-
-        // Accumulate weights based on pattern features
-        let weights = input_layer.weights.as_slice();
-        for feature_idx in 0..NUM_FEATURES {
-            let offset = feature_offset(pattern_feature, feature_idx);
-            let row = &weights[offset * PA_OUTPUT_DIMS..(offset + 1) * PA_OUTPUT_DIMS];
-            for (dst, &w) in acc.iter_mut().zip(row.iter()) {
-                *dst += w as i32;
-            }
-        }
-
-        // Apply squared clipped ReLU and compute dot product with output weights
-        let mut output = 0i32;
-        for (value, &weight) in acc.iter().zip(output_layer.weights.iter()) {
-            if *value > 0 {
-                let clamped = (*value).min(ACTIVATION_CLAMP_MAX as i32);
-                let activation = (clamped * clamped) >> 10;
-                output += activation * (weight as i32);
-            }
-        }
-
-        output
     }
 }
 

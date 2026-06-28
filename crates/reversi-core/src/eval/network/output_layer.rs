@@ -153,6 +153,17 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         unsafe { (self.forward_fn)(self, segments) }
     }
 
+    /// Computes the forward pass using the scalar fallback.
+    ///
+    /// # Safety
+    ///
+    /// This wrapper has no additional safety requirements; it exists only to
+    /// match the `unsafe fn` signature of the SIMD forward implementations.
+    #[allow(dead_code)]
+    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 2]) -> i32 {
+        self.forward_scalar(segments)
+    }
+
     /// Computes the forward pass on AVX-512 with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
@@ -346,15 +357,19 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         }
     }
 
-    /// Computes the forward pass using the scalar fallback.
-    ///
-    /// # Safety
-    ///
-    /// This wrapper has no additional safety requirements; it exists only to
-    /// match the `unsafe fn` signature of the SIMD forward implementations.
-    #[allow(dead_code)]
-    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 2]) -> i32 {
-        self.forward_scalar(segments)
+    /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
+    fn forward_scalar(&self, segments: [&[u8]; 2]) -> i32 {
+        let mut acc = self.bias;
+
+        let mut weight_offset = 0usize;
+        for segment in segments {
+            for (i, &value) in segment.iter().enumerate() {
+                acc += (value as i32) * (self.weights[weight_offset + i] as i32);
+            }
+            weight_offset += segment.len();
+        }
+
+        acc
     }
 
     /// Computes the forward pass using the AVX-512 implementation.
@@ -501,21 +516,6 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         acc0 = _mm256_add_epi32(acc0, acc2);
 
         m256_hadd(acc0) + self.bias
-    }
-
-    /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
-    fn forward_scalar(&self, segments: [&[u8]; 2]) -> i32 {
-        let mut acc = self.bias;
-
-        let mut weight_offset = 0usize;
-        for segment in segments {
-            for (i, &value) in segment.iter().enumerate() {
-                acc += (value as i32) * (self.weights[weight_offset + i] as i32);
-            }
-            weight_offset += segment.len();
-        }
-
-        acc
     }
 }
 

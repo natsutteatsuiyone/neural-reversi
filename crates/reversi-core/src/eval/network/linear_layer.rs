@@ -118,7 +118,7 @@ impl<
                 }
             }
             _ => {
-                Self::forward_fallback_wrapper
+                Self::forward_scalar_wrapper
             }
         }
     }
@@ -145,6 +145,22 @@ impl<
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
         unsafe { (self.forward_fn)(self, input, output) }
+    }
+
+    /// Wraps [`forward_scalar`](Self::forward_scalar) to match the unsafe fn signature.
+    ///
+    /// # Safety
+    ///
+    /// This wrapper imposes no additional requirements; it forwards directly to
+    /// the safe [`forward_scalar`](Self::forward_scalar) and is `unsafe`
+    /// only to match the [`ForwardFn`] pointer type.
+    #[allow(dead_code)]
+    unsafe fn forward_scalar_wrapper(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_scalar(input, output)
     }
 
     /// Runs the AVX-512 accelerated forward pass with VNNI.
@@ -224,20 +240,26 @@ impl<
         self.forward_neon_i8mm(input, output)
     }
 
-    /// Wraps [`forward_fallback`](Self::forward_fallback) to match the unsafe fn signature.
-    ///
-    /// # Safety
-    ///
-    /// This wrapper imposes no additional requirements; it forwards directly to
-    /// the safe [`forward_fallback`](Self::forward_fallback) and is `unsafe`
-    /// only to match the [`ForwardFn`] pointer type.
-    #[allow(dead_code)]
-    unsafe fn forward_fallback_wrapper(
+    /// Runs the portable forward pass.
+    fn forward_scalar(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        self.forward_fallback(input, output)
+        output[..OUTPUT_DIMS].copy_from_slice(&self.biases[..OUTPUT_DIMS]);
+
+        for (i, &input_byte) in input.iter().take(INPUT_DIMS).enumerate() {
+            let input_val = input_byte as i32;
+            if input_val == 0 {
+                continue;
+            }
+
+            for (k, out) in output.iter_mut().take(OUTPUT_DIMS).enumerate() {
+                let weight_idx = self.get_packed_weight_index(i, k);
+                let weight_val = self.weights[weight_idx] as i32;
+                *out += input_val * weight_val;
+            }
+        }
     }
 
     /// Runs the AVX-512 accelerated forward pass, optionally using VNNI.
@@ -761,28 +783,6 @@ impl<
             }
         }
     }
-
-    /// Runs the portable forward pass.
-    fn forward_fallback(
-        &self,
-        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
-        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
-    ) {
-        output[..OUTPUT_DIMS].copy_from_slice(&self.biases[..OUTPUT_DIMS]);
-
-        for (i, &input_byte) in input.iter().take(INPUT_DIMS).enumerate() {
-            let input_val = input_byte as i32;
-            if input_val == 0 {
-                continue;
-            }
-
-            for (k, out) in output.iter_mut().take(OUTPUT_DIMS).enumerate() {
-                let weight_idx = self.get_packed_weight_index(i, k);
-                let weight_val = self.weights[weight_idx] as i32;
-                *out += input_val * weight_val;
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -938,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn forward_fallback_matches_reference_and_preserves_padded_outputs() {
+    fn forward_scalar_matches_reference_and_preserves_padded_outputs() {
         const I: usize = 6;
         const O: usize = 5;
         const PI: usize = 8;
@@ -948,7 +948,7 @@ mod tests {
         let expected = reference_forward(&layer, &input);
         let mut actual = Align64([777; PO]);
 
-        layer.forward_fallback(&input, &mut actual);
+        layer.forward_scalar(&input, &mut actual);
 
         assert_eq!(&actual.as_ref()[..O], &expected);
         assert_eq!(&actual.as_ref()[O..], &[777; PO - O]);

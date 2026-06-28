@@ -64,8 +64,23 @@ impl BaseInput {
                 unsafe { self.forward_neon(pattern_feature, output) };
             }
             _ => {
-                self.forward_fallback(pattern_feature, output);
+                self.forward_scalar(pattern_feature, output);
             }
+        }
+    }
+
+    /// Computes the forward pass using the scalar fallback.
+    #[allow(dead_code)]
+    fn forward_scalar(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
+
+        accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
+
+        let (lo, hi) = acc.0.split_at(OUTPUT_DIMS);
+        for ((out, &v0), &v1) in output[..OUTPUT_DIMS].iter_mut().zip(lo).zip(hi) {
+            let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
+            let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
+            *out = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
         }
     }
 
@@ -443,21 +458,6 @@ impl BaseInput {
             activate_pair!(112, acc14, acc15, 7);
         }
     }
-
-    /// Computes the forward pass using the scalar fallback.
-    #[allow(dead_code)]
-    fn forward_fallback(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
-
-        accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
-
-        let (lo, hi) = acc.0.split_at(OUTPUT_DIMS);
-        for ((out, &v0), &v1) in output[..OUTPUT_DIMS].iter_mut().zip(lo).zip(hi) {
-            let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
-            let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
-            *out = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
-        }
-    }
 }
 
 #[cfg(test)]
@@ -548,20 +548,20 @@ mod tests {
     }
 
     #[test]
-    fn forward_fallback_matches_independent_accumulate_and_activation_reference() {
+    fn forward_scalar_matches_independent_accumulate_and_activation_reference() {
         let pattern_feature = valid_pattern_feature(4099);
         let layer = build_layer(&pattern_feature, 23);
         let expected = reference_forward(&layer, &pattern_feature);
         let mut actual = Align64([0xCC; OUTPUT_DIMS + 4]);
 
-        layer.forward_fallback(&pattern_feature, actual.as_mut_slice());
+        layer.forward_scalar(&pattern_feature, actual.as_mut_slice());
 
         assert_eq!(&actual.as_ref()[..OUTPUT_DIMS], &expected);
         assert_eq!(&actual.as_ref()[OUTPUT_DIMS..], &[0xCC; 4]);
     }
 
     #[test]
-    fn forward_dispatch_matches_fallback_for_the_runtime_layout() {
+    fn forward_dispatch_matches_scalar_for_the_runtime_layout() {
         let pattern_feature = valid_pattern_feature(2053);
         let natural = build_layer(&pattern_feature, 71);
         let dispatch = dispatch_ready_layer(&natural);
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn forward_neon_matches_fallback_for_natural_layout() {
+    fn forward_neon_matches_scalar_for_natural_layout() {
         let pattern_feature = valid_pattern_feature(1237);
         let layer = build_layer(&pattern_feature, 101);
         let expected = reference_forward(&layer, &pattern_feature);
@@ -592,7 +592,7 @@ mod tests {
         target_feature = "avx2",
         not(target_feature = "avx512bw"),
     ))]
-    fn forward_avx2_matches_fallback_for_permuted_layout() {
+    fn forward_avx2_matches_scalar_for_permuted_layout() {
         let pattern_feature = valid_pattern_feature(1237);
         let natural = build_layer(&pattern_feature, 101);
         let simd = dispatch_ready_layer(&natural);
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_avx512_matches_fallback_for_permuted_layout() {
+    fn forward_avx512_matches_scalar_for_permuted_layout() {
         let pattern_feature = valid_pattern_feature(1237);
         let natural = build_layer(&pattern_feature, 101);
         let simd = dispatch_ready_layer(&natural);
