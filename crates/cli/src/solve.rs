@@ -18,6 +18,12 @@ use reversi_core::{
 use crate::config::EngineConfig;
 
 const NUM_WIDTH: usize = 5;
+const DEPTH_WIDTH: usize = 6;
+const SCORE_WIDTH: usize = 5;
+const TIME_WIDTH: usize = 11;
+const NODES_WIDTH: usize = 19;
+const NPS_WIDTH: usize = 13;
+const PV_WIDTH: usize = 23;
 
 pub fn solve(
     file_path: &Path,
@@ -104,19 +110,31 @@ pub fn solve(
 
 fn print_table_header() {
     println!(
-        "| {:^NUM_WIDTH$} | {:^6} | {:^5} | {:^11} | {:^19} | {:^13} | {:^23} |",
+        "| {:^NUM_WIDTH$} | {:^DEPTH_WIDTH$} | {:^SCORE_WIDTH$} | {:^TIME_WIDTH$} | {:^NODES_WIDTH$} | {:^NPS_WIDTH$} | {:^PV_WIDTH$} |",
         "#", "Depth", "Score", "Time", "Nodes", "N/s", "Principal Variation"
     );
     println!(
-        "|{:-<width$}|--------|-------|-------------|---------------------|---------------|-------------------------|",
-        "",
-        width = NUM_WIDTH + 2
+        "| {} | {} | {} | {} | {} | {} | {} |",
+        markdown_align_right(NUM_WIDTH),
+        markdown_align_center(DEPTH_WIDTH),
+        markdown_align_center(SCORE_WIDTH),
+        markdown_align_right(TIME_WIDTH),
+        markdown_align_right(NODES_WIDTH),
+        markdown_align_right(NPS_WIDTH),
+        markdown_align_left(PV_WIDTH),
     );
 }
 
 fn print_all_moves_table_header() {
-    println!("| {:^5} | {:^23} |", "Score", "Principal Variation");
-    println!("|-------|-------------------------|");
+    println!(
+        "| {:^SCORE_WIDTH$} | {:^PV_WIDTH$} |",
+        "Score", "Principal Variation"
+    );
+    println!(
+        "| {} | {} |",
+        markdown_align_center(SCORE_WIDTH),
+        markdown_align_left(PV_WIDTH)
+    );
 }
 
 fn print_position_stats(elapsed: Duration, nodes: u64) {
@@ -258,7 +276,7 @@ fn solve_position(
 }
 
 fn print_all_moves_row(score: impl Display, pv: impl Display) {
-    println!("| {score:^5} | {pv:<23} |");
+    println!("| {score:^SCORE_WIDTH$} | {pv:<PV_WIDTH$} |");
 }
 
 fn print_row(
@@ -271,8 +289,20 @@ fn print_row(
     pv: impl Display,
 ) {
     println!(
-        "| {num:>NUM_WIDTH$} | {depth:^6} | {score:^5} | {time:>11} | {nodes:>19} | {nps:>13} | {pv:<23} |"
+        "| {num:>NUM_WIDTH$} | {depth:^DEPTH_WIDTH$} | {score:^SCORE_WIDTH$} | {time:>TIME_WIDTH$} | {nodes:>NODES_WIDTH$} | {nps:>NPS_WIDTH$} | {pv:<PV_WIDTH$} |"
     );
+}
+
+fn markdown_align_right(width: usize) -> String {
+    format!("{:->width$}:", "", width = width - 1)
+}
+
+fn markdown_align_center(width: usize) -> String {
+    format!(":{:-<width$}:", "", width = width - 2)
+}
+
+fn markdown_align_left(width: usize) -> String {
+    format!(":{:-<width$}", "", width = width - 1)
 }
 
 fn format_pv_with_passes(
