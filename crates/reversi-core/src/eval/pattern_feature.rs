@@ -545,7 +545,60 @@ impl PatternFeatures {
                 self.update_wasm_simd(sq, flipped, ply, side_to_move)
             }
             _ => {
-                self.update_fallback(sq, flipped, ply, side_to_move);
+                self.update_scalar(sq, flipped, ply, side_to_move);
+            }
+        }
+    }
+
+    /// Updates pattern features using the scalar fallback.
+    #[allow(dead_code)]
+    fn update_scalar(
+        &mut self,
+        sq: Square,
+        flipped: Bitboard,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
+        self.p_features[ply + 1] = self.p_features[ply];
+        self.o_features[ply + 1] = self.o_features[ply];
+        let p_out = unsafe { self.p_features.get_unchecked_mut(ply + 1).assume_init_mut() };
+        let o_out = unsafe { self.o_features.get_unchecked_mut(ply + 1).assume_init_mut() };
+
+        let placed = &EVAL_X2F[sq.index()];
+
+        if side_to_move == SideToMove::Player {
+            for &[feature_idx, power] in placed.features() {
+                let idx = feature_idx as usize;
+                let delta = power as u16;
+                p_out[idx] -= delta << 1;
+                o_out[idx] -= delta;
+            }
+
+            for x in flipped.iter() {
+                let flipped_sq = &EVAL_X2F[x as usize];
+                for &[feature_idx, power] in flipped_sq.features() {
+                    let idx = feature_idx as usize;
+                    let delta = power as u16;
+                    p_out[idx] -= delta;
+                    o_out[idx] += delta;
+                }
+            }
+        } else {
+            for &[feature_idx, power] in placed.features() {
+                let idx = feature_idx as usize;
+                let delta = power as u16;
+                p_out[idx] -= delta;
+                o_out[idx] -= delta << 1;
+            }
+
+            for x in flipped.iter() {
+                let flipped_sq = &EVAL_X2F[x as usize];
+                for &[feature_idx, power] in flipped_sq.features() {
+                    let idx = feature_idx as usize;
+                    let delta = power as u16;
+                    p_out[idx] += delta;
+                    o_out[idx] -= delta;
+                }
             }
         }
     }
@@ -676,6 +729,107 @@ impl PatternFeatures {
             _mm256_store_si256(p_out_ptr.add(1), p_out1);
             _mm256_store_si256(o_out_ptr, o_out0);
             _mm256_store_si256(o_out_ptr.add(1), o_out1);
+        }
+    }
+
+    /// Updates pattern features using the ARM NEON implementation.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    #[target_feature(enable = "neon")]
+    fn update_neon(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
+        use std::arch::aarch64::*;
+
+        unsafe {
+            let ef = &EVAL_FEATURE;
+            let f_ptr = ef.get_unchecked(sq.index()).as_neon_ptr();
+            let f0 = vld1q_s16(f_ptr);
+            let f1 = vld1q_s16(f_ptr.add(8));
+            let f2 = vld1q_s16(f_ptr.add(16));
+            let f3 = vld1q_s16(f_ptr.add(24));
+
+            let flipped_bits = flipped.bits();
+            let load_u16_sum = |i: usize| {
+                EVAL_FEATURE_U16_SUM
+                    .get_unchecked(i)
+                    .get_unchecked(((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize)
+                    .as_neon_ptr()
+            };
+
+            let s0 = load_u16_sum(0);
+            let s1 = load_u16_sum(1);
+            let s2 = load_u16_sum(2);
+            let s3 = load_u16_sum(3);
+
+            let sum0 = vaddq_s16(
+                vaddq_s16(vld1q_s16(s0), vld1q_s16(s1)),
+                vaddq_s16(vld1q_s16(s2), vld1q_s16(s3)),
+            );
+            let sum1 = vaddq_s16(
+                vaddq_s16(vld1q_s16(s0.add(8)), vld1q_s16(s1.add(8))),
+                vaddq_s16(vld1q_s16(s2.add(8)), vld1q_s16(s3.add(8))),
+            );
+            let sum2 = vaddq_s16(
+                vaddq_s16(vld1q_s16(s0.add(16)), vld1q_s16(s1.add(16))),
+                vaddq_s16(vld1q_s16(s2.add(16)), vld1q_s16(s3.add(16))),
+            );
+            let sum3 = vaddq_s16(
+                vaddq_s16(vld1q_s16(s0.add(24)), vld1q_s16(s1.add(24))),
+                vaddq_s16(vld1q_s16(s2.add(24)), vld1q_s16(s3.add(24))),
+            );
+
+            let f2_0 = vshlq_n_s16::<1>(f0);
+            let f2_1 = vshlq_n_s16::<1>(f1);
+            let f2_2 = vshlq_n_s16::<1>(f2);
+            let f2_3 = vshlq_n_s16::<1>(f3);
+
+            let f_minus_sum_0 = vsubq_s16(f0, sum0);
+            let f_minus_sum_1 = vsubq_s16(f1, sum1);
+            let f_minus_sum_2 = vsubq_s16(f2, sum2);
+            let f_minus_sum_3 = vsubq_s16(f3, sum3);
+
+            let twof_plus_sum_0 = vaddq_s16(f2_0, sum0);
+            let twof_plus_sum_1 = vaddq_s16(f2_1, sum1);
+            let twof_plus_sum_2 = vaddq_s16(f2_2, sum2);
+            let twof_plus_sum_3 = vaddq_s16(f2_3, sum3);
+
+            let p_feats = &mut self.p_features;
+            let o_feats = &mut self.o_features;
+            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
+
+            let p_in0 = vld1q_s16(p_in_ptr);
+            let p_in1 = vld1q_s16(p_in_ptr.add(8));
+            let p_in2 = vld1q_s16(p_in_ptr.add(16));
+            let p_in3 = vld1q_s16(p_in_ptr.add(24));
+
+            let o_in0 = vld1q_s16(o_in_ptr);
+            let o_in1 = vld1q_s16(o_in_ptr.add(8));
+            let o_in2 = vld1q_s16(o_in_ptr.add(16));
+            let o_in3 = vld1q_s16(o_in_ptr.add(24));
+
+            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
+            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
+
+            if side_to_move == SideToMove::Player {
+                vst1q_s16(p_out_ptr, vsubq_s16(p_in0, twof_plus_sum_0));
+                vst1q_s16(p_out_ptr.add(8), vsubq_s16(p_in1, twof_plus_sum_1));
+                vst1q_s16(p_out_ptr.add(16), vsubq_s16(p_in2, twof_plus_sum_2));
+                vst1q_s16(p_out_ptr.add(24), vsubq_s16(p_in3, twof_plus_sum_3));
+
+                vst1q_s16(o_out_ptr, vsubq_s16(o_in0, f_minus_sum_0));
+                vst1q_s16(o_out_ptr.add(8), vsubq_s16(o_in1, f_minus_sum_1));
+                vst1q_s16(o_out_ptr.add(16), vsubq_s16(o_in2, f_minus_sum_2));
+                vst1q_s16(o_out_ptr.add(24), vsubq_s16(o_in3, f_minus_sum_3));
+            } else {
+                vst1q_s16(p_out_ptr, vsubq_s16(p_in0, f_minus_sum_0));
+                vst1q_s16(p_out_ptr.add(8), vsubq_s16(p_in1, f_minus_sum_1));
+                vst1q_s16(p_out_ptr.add(16), vsubq_s16(p_in2, f_minus_sum_2));
+                vst1q_s16(p_out_ptr.add(24), vsubq_s16(p_in3, f_minus_sum_3));
+
+                vst1q_s16(o_out_ptr, vsubq_s16(o_in0, twof_plus_sum_0));
+                vst1q_s16(o_out_ptr.add(8), vsubq_s16(o_in1, twof_plus_sum_1));
+                vst1q_s16(o_out_ptr.add(16), vsubq_s16(o_in2, twof_plus_sum_2));
+                vst1q_s16(o_out_ptr.add(24), vsubq_s16(o_in3, twof_plus_sum_3));
+            }
         }
     }
 
@@ -820,160 +974,6 @@ impl PatternFeatures {
             v128_store(o_out_ptr.add(1), o_out1);
             v128_store(o_out_ptr.add(2), o_out2);
             v128_store(o_out_ptr.add(3), o_out3);
-        }
-    }
-
-    /// Updates pattern features using the ARM NEON implementation.
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[target_feature(enable = "neon")]
-    fn update_neon(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
-        use std::arch::aarch64::*;
-
-        unsafe {
-            let ef = &EVAL_FEATURE;
-            let f_ptr = ef.get_unchecked(sq.index()).as_neon_ptr();
-            let f0 = vld1q_s16(f_ptr);
-            let f1 = vld1q_s16(f_ptr.add(8));
-            let f2 = vld1q_s16(f_ptr.add(16));
-            let f3 = vld1q_s16(f_ptr.add(24));
-
-            let flipped_bits = flipped.bits();
-            let load_u16_sum = |i: usize| {
-                EVAL_FEATURE_U16_SUM
-                    .get_unchecked(i)
-                    .get_unchecked(((flipped_bits >> (i * FLIP_U16_BITS)) & FLIP_U16_MASK) as usize)
-                    .as_neon_ptr()
-            };
-
-            let s0 = load_u16_sum(0);
-            let s1 = load_u16_sum(1);
-            let s2 = load_u16_sum(2);
-            let s3 = load_u16_sum(3);
-
-            let sum0 = vaddq_s16(
-                vaddq_s16(vld1q_s16(s0), vld1q_s16(s1)),
-                vaddq_s16(vld1q_s16(s2), vld1q_s16(s3)),
-            );
-            let sum1 = vaddq_s16(
-                vaddq_s16(vld1q_s16(s0.add(8)), vld1q_s16(s1.add(8))),
-                vaddq_s16(vld1q_s16(s2.add(8)), vld1q_s16(s3.add(8))),
-            );
-            let sum2 = vaddq_s16(
-                vaddq_s16(vld1q_s16(s0.add(16)), vld1q_s16(s1.add(16))),
-                vaddq_s16(vld1q_s16(s2.add(16)), vld1q_s16(s3.add(16))),
-            );
-            let sum3 = vaddq_s16(
-                vaddq_s16(vld1q_s16(s0.add(24)), vld1q_s16(s1.add(24))),
-                vaddq_s16(vld1q_s16(s2.add(24)), vld1q_s16(s3.add(24))),
-            );
-
-            let f2_0 = vshlq_n_s16::<1>(f0);
-            let f2_1 = vshlq_n_s16::<1>(f1);
-            let f2_2 = vshlq_n_s16::<1>(f2);
-            let f2_3 = vshlq_n_s16::<1>(f3);
-
-            let f_minus_sum_0 = vsubq_s16(f0, sum0);
-            let f_minus_sum_1 = vsubq_s16(f1, sum1);
-            let f_minus_sum_2 = vsubq_s16(f2, sum2);
-            let f_minus_sum_3 = vsubq_s16(f3, sum3);
-
-            let twof_plus_sum_0 = vaddq_s16(f2_0, sum0);
-            let twof_plus_sum_1 = vaddq_s16(f2_1, sum1);
-            let twof_plus_sum_2 = vaddq_s16(f2_2, sum2);
-            let twof_plus_sum_3 = vaddq_s16(f2_3, sum3);
-
-            let p_feats = &mut self.p_features;
-            let o_feats = &mut self.o_features;
-            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
-            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
-
-            let p_in0 = vld1q_s16(p_in_ptr);
-            let p_in1 = vld1q_s16(p_in_ptr.add(8));
-            let p_in2 = vld1q_s16(p_in_ptr.add(16));
-            let p_in3 = vld1q_s16(p_in_ptr.add(24));
-
-            let o_in0 = vld1q_s16(o_in_ptr);
-            let o_in1 = vld1q_s16(o_in_ptr.add(8));
-            let o_in2 = vld1q_s16(o_in_ptr.add(16));
-            let o_in3 = vld1q_s16(o_in_ptr.add(24));
-
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
-
-            if side_to_move == SideToMove::Player {
-                vst1q_s16(p_out_ptr, vsubq_s16(p_in0, twof_plus_sum_0));
-                vst1q_s16(p_out_ptr.add(8), vsubq_s16(p_in1, twof_plus_sum_1));
-                vst1q_s16(p_out_ptr.add(16), vsubq_s16(p_in2, twof_plus_sum_2));
-                vst1q_s16(p_out_ptr.add(24), vsubq_s16(p_in3, twof_plus_sum_3));
-
-                vst1q_s16(o_out_ptr, vsubq_s16(o_in0, f_minus_sum_0));
-                vst1q_s16(o_out_ptr.add(8), vsubq_s16(o_in1, f_minus_sum_1));
-                vst1q_s16(o_out_ptr.add(16), vsubq_s16(o_in2, f_minus_sum_2));
-                vst1q_s16(o_out_ptr.add(24), vsubq_s16(o_in3, f_minus_sum_3));
-            } else {
-                vst1q_s16(p_out_ptr, vsubq_s16(p_in0, f_minus_sum_0));
-                vst1q_s16(p_out_ptr.add(8), vsubq_s16(p_in1, f_minus_sum_1));
-                vst1q_s16(p_out_ptr.add(16), vsubq_s16(p_in2, f_minus_sum_2));
-                vst1q_s16(p_out_ptr.add(24), vsubq_s16(p_in3, f_minus_sum_3));
-
-                vst1q_s16(o_out_ptr, vsubq_s16(o_in0, twof_plus_sum_0));
-                vst1q_s16(o_out_ptr.add(8), vsubq_s16(o_in1, twof_plus_sum_1));
-                vst1q_s16(o_out_ptr.add(16), vsubq_s16(o_in2, twof_plus_sum_2));
-                vst1q_s16(o_out_ptr.add(24), vsubq_s16(o_in3, twof_plus_sum_3));
-            }
-        }
-    }
-
-    /// Updates pattern features using the scalar fallback.
-    #[allow(dead_code)]
-    fn update_fallback(
-        &mut self,
-        sq: Square,
-        flipped: Bitboard,
-        ply: usize,
-        side_to_move: SideToMove,
-    ) {
-        self.p_features[ply + 1] = self.p_features[ply];
-        self.o_features[ply + 1] = self.o_features[ply];
-        let p_out = unsafe { self.p_features.get_unchecked_mut(ply + 1).assume_init_mut() };
-        let o_out = unsafe { self.o_features.get_unchecked_mut(ply + 1).assume_init_mut() };
-
-        let placed = &EVAL_X2F[sq.index()];
-
-        if side_to_move == SideToMove::Player {
-            for &[feature_idx, power] in placed.features() {
-                let idx = feature_idx as usize;
-                let delta = power as u16;
-                p_out[idx] -= delta << 1;
-                o_out[idx] -= delta;
-            }
-
-            for x in flipped.iter() {
-                let flipped_sq = &EVAL_X2F[x as usize];
-                for &[feature_idx, power] in flipped_sq.features() {
-                    let idx = feature_idx as usize;
-                    let delta = power as u16;
-                    p_out[idx] -= delta;
-                    o_out[idx] += delta;
-                }
-            }
-        } else {
-            for &[feature_idx, power] in placed.features() {
-                let idx = feature_idx as usize;
-                let delta = power as u16;
-                p_out[idx] -= delta;
-                o_out[idx] -= delta << 1;
-            }
-
-            for x in flipped.iter() {
-                let flipped_sq = &EVAL_X2F[x as usize];
-                for &[feature_idx, power] in flipped_sq.features() {
-                    let idx = feature_idx as usize;
-                    let delta = power as u16;
-                    p_out[idx] += delta;
-                    o_out[idx] -= delta;
-                }
-            }
         }
     }
 }
@@ -1499,12 +1499,12 @@ mod tests {
     }
 
     #[test]
-    fn scalar_fallback_update_matches_full_rebuild_for_movegen_verified_cases() {
+    fn scalar_update_matches_full_rebuild_for_movegen_verified_cases() {
         for case in update_cases() {
             assert_case_flips_match_move_generator(case);
 
             let mut updated = PatternFeatures::new(&case.board, case.ply);
-            updated.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+            updated.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
 
             assert_case_matches_full_rebuild(&updated, case);
         }
@@ -1541,10 +1541,10 @@ mod tests {
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[test]
-    fn avx512_update_matches_fallback_for_move_cases() {
+    fn avx512_update_matches_scalar_for_move_cases() {
         for case in update_cases() {
             let mut expected = PatternFeatures::new(&case.board, case.ply);
-            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+            expected.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
 
             let mut actual = PatternFeatures::new(&case.board, case.ply);
             unsafe {
@@ -1557,10 +1557,10 @@ mod tests {
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[test]
-    fn avx2_update_matches_fallback_for_move_cases() {
+    fn avx2_update_matches_scalar_for_move_cases() {
         for case in update_cases() {
             let mut expected = PatternFeatures::new(&case.board, case.ply);
-            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+            expected.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
 
             let mut actual = PatternFeatures::new(&case.board, case.ply);
             unsafe {
@@ -1573,10 +1573,10 @@ mod tests {
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[test]
-    fn neon_update_matches_fallback_for_move_cases() {
+    fn neon_update_matches_scalar_for_move_cases() {
         for case in update_cases() {
             let mut expected = PatternFeatures::new(&case.board, case.ply);
-            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+            expected.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
 
             let mut actual = PatternFeatures::new(&case.board, case.ply);
             unsafe {
@@ -1589,10 +1589,10 @@ mod tests {
 
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
     #[test]
-    fn wasm_simd_update_matches_fallback_for_move_cases() {
+    fn wasm_simd_update_matches_scalar_for_move_cases() {
         for case in update_cases() {
             let mut expected = PatternFeatures::new(&case.board, case.ply);
-            expected.update_fallback(case.sq, case.flipped, case.ply, case.side_to_move);
+            expected.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
 
             let mut actual = PatternFeatures::new(&case.board, case.ply);
             actual.update_wasm_simd(case.sq, case.flipped, case.ply, case.side_to_move);
