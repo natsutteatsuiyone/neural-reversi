@@ -677,8 +677,13 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         let mut score = -ScaledScore::INF;
 
         if !NT::PV_NODE || move_count > 1 {
-            let reduction =
-                compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
+            let reduction = compute_lmr_reduction::<NT, SS>(
+                ctx.selectivity,
+                depth,
+                move_count,
+                n_moves,
+                cut_node,
+            );
 
             score = -search::<NonPV, SS>(
                 ctx,
@@ -785,7 +790,7 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
         debug_assert!(!NT::PV_NODE || move_count > 1);
         let reduction =
-            compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves);
+            compute_lmr_reduction::<NT, SS>(ctx.selectivity, depth, move_count, n_moves, cut_node);
 
         let mut score = -search::<NonPV, SS>(
             ctx,
@@ -863,29 +868,51 @@ pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 /// Computes the LMR depth reduction for late moves.
 ///
 /// Disabled for endgame search, PV nodes, and ProbCut verification search
-/// (selectivity disabled).
+/// (selectivity disabled). The schedule preserves the proven shallow 1/2-ply
+/// reductions and adds a third ply only for moves that are late in both
+/// absolute and relative order.
 #[inline(always)]
 fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     selectivity: Selectivity,
     depth: Depth,
     move_count: usize,
     n_moves: usize,
+    cut_node: bool,
 ) -> Depth {
-    if !SS::IS_ENDGAME
-        && !NT::PV_NODE
-        && selectivity.is_enabled()
-        && depth >= midgame::LMR_MIN_DEPTH
-        && move_count > 2
-        && n_moves >= 4
+    if SS::IS_ENDGAME
+        || NT::PV_NODE
+        || !selectivity.is_enabled()
+        || depth < midgame::LMR_MIN_DEPTH
+        || move_count <= 2
+        || n_moves < 4
     {
-        if depth >= midgame::LMR_DEEPER_DEPTH && move_count > 5 {
-            2
-        } else {
-            1
-        }
-    } else {
-        0
+        return 0;
     }
+
+    let mut reduction = lmr_base_reduction(depth, move_count, n_moves) as i32;
+    if !cut_node && reduction > 2 {
+        reduction -= 1;
+    }
+
+    let max_reduction = lmr_max_reduction(depth);
+    reduction.max(0).min(max_reduction as i32) as Depth
+}
+
+#[inline(always)]
+fn lmr_base_reduction(depth: Depth, move_count: usize, n_moves: usize) -> Depth {
+    let mut reduction = 1;
+    if depth >= midgame::LMR_DEEPER_DEPTH && move_count > 5 {
+        reduction += 1;
+    }
+    if depth >= 16 && move_count > 10 && move_count * 5 >= n_moves * 3 {
+        reduction += 1;
+    }
+    reduction
+}
+
+#[inline(always)]
+fn lmr_max_reduction(depth: Depth) -> Depth {
+    (depth / 3).max(1).min(depth - 2)
 }
 
 #[cfg(test)]
@@ -960,113 +987,144 @@ mod tests {
 
     #[test]
     fn no_reduction_below_the_gating_thresholds() {
-        // Depth below LMR_MIN_DEPTH.
         assert_eq!(
             compute_lmr_reduction::<NonPV, MidGameStrategy>(
                 Selectivity::Level1,
                 LMR_MIN_DEPTH - 1,
                 10,
-                10
+                10,
+                true
             ),
             0
         );
-        // move_count must exceed 2.
         assert_eq!(
             compute_lmr_reduction::<NonPV, MidGameStrategy>(
                 Selectivity::Level1,
                 LMR_DEEPER_DEPTH,
                 2,
-                10
+                10,
+                true
             ),
             0
         );
-        // n_moves must be at least 4.
         assert_eq!(
             compute_lmr_reduction::<NonPV, MidGameStrategy>(
                 Selectivity::Level1,
                 LMR_DEEPER_DEPTH,
                 6,
-                3
+                3,
+                true
             ),
             0
         );
-        // ProbCut verification search runs with selectivity disabled.
         assert_eq!(
             compute_lmr_reduction::<NonPV, MidGameStrategy>(
                 Selectivity::None,
                 LMR_DEEPER_DEPTH,
                 6,
-                10
+                10,
+                true
             ),
             0
         );
     }
 
     #[test]
-    fn shallow_late_moves_reduce_by_one() {
+    fn staged_lmr_base_scales_with_depth_and_relative_move_index() {
+        assert_eq!(lmr_base_reduction(LMR_MIN_DEPTH, 3, 4), 1);
+        assert_eq!(lmr_base_reduction(LMR_DEEPER_DEPTH, 6, 10), 2);
+        assert_eq!(lmr_base_reduction(15, 16, 20), 2);
+        assert_eq!(lmr_base_reduction(16, 11, 20), 2);
+        assert_eq!(lmr_base_reduction(16, 12, 20), 3);
+        assert_eq!(lmr_base_reduction(24, 21, 34), 3);
+    }
+
+    #[test]
+    fn cut_nodes_use_the_full_lmr_schedule() {
         assert_eq!(
             compute_lmr_reduction::<NonPV, MidGameStrategy>(
                 Selectivity::Level1,
                 LMR_MIN_DEPTH,
                 3,
-                4
+                4,
+                true
             ),
             1
         );
-        // Deep enough, but not enough late moves for a two-ply reduction.
-        assert_eq!(
-            compute_lmr_reduction::<NonPV, MidGameStrategy>(
-                Selectivity::Level1,
-                LMR_DEEPER_DEPTH,
-                5,
-                10
-            ),
-            1
-        );
-        // Many late moves, but not deep enough for a two-ply reduction.
-        assert_eq!(
-            compute_lmr_reduction::<NonPV, MidGameStrategy>(
-                Selectivity::Level1,
-                LMR_DEEPER_DEPTH - 1,
-                6,
-                10
-            ),
-            1
-        );
-    }
-
-    #[test]
-    fn deep_and_late_moves_reduce_by_two() {
         assert_eq!(
             compute_lmr_reduction::<NonPV, MidGameStrategy>(
                 Selectivity::Level1,
                 LMR_DEEPER_DEPTH,
                 6,
-                10
+                10,
+                true
             ),
             2
         );
     }
 
     #[test]
-    fn pv_and_endgame_nodes_are_never_reduced() {
+    fn all_nodes_reduce_less_aggressively_while_enabled_selectivity_levels_share_schedule() {
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(Selectivity::Level1, 16, 11, 20, true),
+            2
+        );
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(Selectivity::Level1, 16, 12, 20, true),
+            3
+        );
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(Selectivity::Level1, 16, 12, 20, false),
+            2
+        );
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(Selectivity::Level2, 16, 12, 20, true),
+            3
+        );
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(Selectivity::Level3, 16, 12, 20, true),
+            3
+        );
+    }
+
+    #[test]
+    fn pv_nodes_are_never_reduced() {
         assert_eq!(
             compute_lmr_reduction::<PV, MidGameStrategy>(
                 Selectivity::Level1,
                 LMR_DEEPER_DEPTH,
                 6,
-                10
+                10,
+                false
             ),
             0
         );
         assert_eq!(
-            compute_lmr_reduction::<NonPV, EndGameStrategy>(
-                Selectivity::Level1,
-                LMR_DEEPER_DEPTH,
-                6,
-                10
-            ),
+            compute_lmr_reduction::<PV, MidGameStrategy>(Selectivity::Level1, 15, 16, 20, false),
             0
         );
+    }
+
+    #[test]
+    fn endgame_nodes_are_never_reduced() {
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, EndGameStrategy>(Selectivity::Level1, 30, 16, 20, true),
+            0
+        );
+    }
+
+    #[test]
+    fn reduction_is_capped_by_depth_and_node_type() {
+        assert_eq!(
+            compute_lmr_reduction::<NonPV, MidGameStrategy>(
+                Selectivity::Level1,
+                LMR_MIN_DEPTH,
+                16,
+                20,
+                true
+            ),
+            1
+        );
+        assert_eq!(lmr_max_reduction(30), 10);
     }
 }
