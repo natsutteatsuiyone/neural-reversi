@@ -13,7 +13,7 @@ This is an experimental project to develop a highly accurate neural network eval
 - High-performance multi-threaded search
 - Supports CLI, desktop GUI (Tauri), and WebAssembly
 
-## Benchmarks (v6.1.0)
+## Benchmarks (v6.2.0)
 
 ### Environment
 
@@ -25,20 +25,20 @@ This is an experimental project to develop a highly accurate neural network eval
 
 | Test | Problems | Depth | Time | Nodes | NPS | Move Acc. | Score ±3 | MAE |
 |:--|:-:|:-:|--:|--:|--:|--:|--:|--:|
-| [Hard-30](docs/6.1.0/benchmarks/hard-30-depth15.md) | 289 | 15 | 3.117s | 170,234,809 | 54,611,449 | 82.7% | 87.9% | 1.63 |
+| [Hard-30](docs/6.2.0/benchmarks/hard-30-depth15.md) | 289 | 15 | 2.911s | 170,323,530 | 58,520,368 | 82.7% | 87.9% | 1.63 |
 
 ### Endgame Solving
 
 | Test | Problems | Depth | Time | Nodes | NPS |
 |:--|:-:|:-:|--:|--:|--:|
-| [FFO #40–59](docs/6.1.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 6.764s | 12,898,842,946 | 1,906,994,139 |
-| [FFO #40–59 (CPB Enabled)](docs/6.1.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 5.974s | 12,898,615,601 | 2,159,171,234 |
-| [FFO #60–79](docs/6.1.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 217.349s | 357,695,668,948 | 1,645,721,568 |
-| [FFO #60–79 (CPB Enabled)](docs/6.1.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 193.064s | 357,800,331,652 | 1,853,277,097 |
-| [Hard-20](docs/6.1.0/benchmarks/hard-20.md) | 276 | 20 | 2.353s | 1,887,280,214 | 802,103,526 |
-| [Hard-25](docs/6.1.0/benchmarks/hard-25.md) | 311 | 25 | 28.225s | 47,378,924,636 | 1,678,609,980 |
-| [Hard-30](docs/6.1.0/benchmarks/hard-30.md) | 289 | 30 | 815.125s | 1,508,107,259,823 | 1,850,153,908 |
-| [Small-35](docs/6.1.0/benchmarks/small-35.md) | 30 | 35 | 9,570.437s | 15,189,558,541,184 | 1,587,133,157 |
+| [FFO #40–59](docs/6.2.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 6.619s | 12,886,860,222 | 1,946,857,425 |
+| [FFO #40–59 (CPB Enabled)](docs/6.2.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 5.909s | 12,975,594,240 | 2,195,733,797 |
+| [FFO #60–79](docs/6.2.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 206.503s | 339,862,636,700 | 1,645,802,805 |
+| [FFO #60–79 (CPB Enabled)](docs/6.2.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 184.503s | 339,709,280,448 | 1,841,212,826 |
+| [Hard-20](docs/6.2.0/benchmarks/hard-20.md) | 276 | 20 | 2.129s | 1,885,285,412 | 885,441,087 |
+| [Hard-25](docs/6.2.0/benchmarks/hard-25.md) | 311 | 25 | 27.325s | 47,433,112,523 | 1,735,903,761 |
+| [Hard-30](docs/6.2.0/benchmarks/hard-30.md) | 289 | 30 | 784.301s | 1,465,113,429,251 | 1,868,049,295 |
+| [Small-35](docs/6.2.0/benchmarks/small-35.md) | 30 | 35 | 8,972.499s | 14,025,790,373,984 | 1,563,197,843 |
 
 ## Getting Started
 
