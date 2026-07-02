@@ -389,14 +389,24 @@ distributes time across the move.
   midgame, narrower toward the endgame) yields a per-move weight; the
   budget for the current move is its share of the sum over remaining
   moves.
+- Once the endgame solver runs (bank modes), the per-move budget switches
+  from the Gaussian share to `ENDGAME_BANK_PERCENT` of the current hard
+  limit, committing most of the remaining bank to the solve; the
+  rationale is documented on the constant.
+- Pure byoyomi allocations are scoped to a single move; unused time
+  cannot be banked, so iteration continues until the deadline aborts the
+  search.
 - After each iteration, `report_iteration(best_move, score, depth)` is
   consumed and the manager grants an extension when either
   - the score has dropped by at least `SCORE_DROP_THRESHOLD`, or
   - the best move is unstable.
 
   Up to `MAX_EXTENSION_STEPS` extensions are granted in total. The
-  cumulative cap pushes `max_time` no further than `base_max_time +
-  EXTENSION_RESERVE_RATIO · (hard_time_limit − base_max_time)`.
+  cumulative cap pushes `max_time` no further than `EXTENSION_MAX_FACTOR
+  · base_max_time`, clamped to `hard_time_limit`; a score drop may
+  additionally draw on a fraction of the bank reserve beyond that cap.
+  Japanese byoyomi main time instead draws on a fraction of the reserve
+  before the hard limit, since falling into byoyomi is acceptable.
 - A `TIME_BUFFER_MS` safety buffer is always subtracted to avoid time
   forfeit.
 - `STABILITY_THRESHOLD` consecutive iterations with the same best move

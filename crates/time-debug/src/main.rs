@@ -67,6 +67,12 @@ struct GameStats {
     total_white_moves: u32,
     max_black_time_ms: u64,
     max_white_time_ms: u64,
+    /// Time spent on endgame-phase moves; midgame time is `total - end`.
+    end_black_time_ms: u64,
+    end_white_time_ms: u64,
+    /// Main time left on the clock at game end, summed over games.
+    leftover_black_ms: u64,
+    leftover_white_ms: u64,
 }
 
 /// Player time tracker.
@@ -456,10 +462,16 @@ fn play_game(
             stats.total_black_time_ms += elapsed_ms;
             stats.total_black_moves += 1;
             stats.max_black_time_ms = stats.max_black_time_ms.max(elapsed_ms);
+            if result.is_endgame() {
+                stats.end_black_time_ms += elapsed_ms;
+            }
         } else {
             stats.total_white_time_ms += elapsed_ms;
             stats.total_white_moves += 1;
             stats.max_white_time_ms = stats.max_white_time_ms.max(elapsed_ms);
+            if result.is_endgame() {
+                stats.end_white_time_ms += elapsed_ms;
+            }
         }
 
         // Get remaining time display
@@ -526,6 +538,12 @@ fn play_game(
         }
     }
 
+    // Record main time left on the clock (stranded time) at game end
+    if args.time_mode != TimeMode::None {
+        stats.leftover_black_ms += black_time.main_time_ms;
+        stats.leftover_white_ms += white_time.main_time_ms;
+    }
+
     // Game over - count discs
     let (black_count, white_count) = game.get_score();
 
@@ -578,10 +596,20 @@ fn print_final_stats(stats: &GameStats, args: &Args) {
         println!("    Total moves:  {}", stats.total_black_moves);
         println!("    Avg time:     {:.1} ms/move", avg_black);
         println!("    Max time:     {} ms", stats.max_black_time_ms);
+        println!(
+            "    Mid/End time: {} ms / {} ms",
+            stats.total_black_time_ms - stats.end_black_time_ms,
+            stats.end_black_time_ms
+        );
+        println!(
+            "    Leftover:     {} ms at game end",
+            stats.leftover_black_ms
+        );
         if args.time_mode != TimeMode::None {
             let budget = match args.time_mode {
                 TimeMode::Byoyomi | TimeMode::Fischer => {
-                    args.main_time as f64 + args.byoyomi as f64 * stats.total_black_moves as f64
+                    args.main_time as f64 * total_games as f64
+                        + args.byoyomi as f64 * stats.total_black_moves as f64
                 }
                 TimeMode::None => 0.0,
             };
@@ -603,10 +631,20 @@ fn print_final_stats(stats: &GameStats, args: &Args) {
         println!("    Total moves:  {}", stats.total_white_moves);
         println!("    Avg time:     {:.1} ms/move", avg_white);
         println!("    Max time:     {} ms", stats.max_white_time_ms);
+        println!(
+            "    Mid/End time: {} ms / {} ms",
+            stats.total_white_time_ms - stats.end_white_time_ms,
+            stats.end_white_time_ms
+        );
+        println!(
+            "    Leftover:     {} ms at game end",
+            stats.leftover_white_ms
+        );
         if args.time_mode != TimeMode::None {
             let budget = match args.time_mode {
                 TimeMode::Byoyomi | TimeMode::Fischer => {
-                    args.main_time as f64 + args.byoyomi as f64 * stats.total_white_moves as f64
+                    args.main_time as f64 * total_games as f64
+                        + args.byoyomi as f64 * stats.total_white_moves as f64
                 }
                 TimeMode::None => 0.0,
             };

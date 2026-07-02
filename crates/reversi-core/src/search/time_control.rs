@@ -18,8 +18,13 @@ const MIN_STABILITY_CHECK_DEPTH: Depth = 10;
 /// Score drop (in discs) that triggers an emergency extension.
 const SCORE_DROP_THRESHOLD: f32 = 3.0;
 
-/// Fraction of the reserve (hard_limit - base_maxi) used as the extension budget.
-const EXTENSION_RESERVE_RATIO: f64 = 0.5;
+/// Maximum multiple of the base allocation that extensions may reach (bank modes).
+const EXTENSION_MAX_FACTOR: u64 = 3;
+
+/// Divisor for the share of the bank reserve (hard_limit - base_maxi) that
+/// extensions may draw: Japanese byoyomi main time always, other bank modes
+/// only on a score drop.
+const EXTENSION_RESERVE_DIVISOR: u64 = 4;
 
 /// Maximum number of incremental time extensions allowed per move.
 const MAX_EXTENSION_STEPS: u8 = 5;
@@ -31,13 +36,21 @@ const STABILITY_THRESHOLD: u32 = 3;
 const NO_PREV_MOVE: u8 = Square::None as u8;
 
 // Time allocation percentages (0-100)
-const MIN_PERCENT_NORMAL: u64 = 45;
+const MIN_PERCENT_NORMAL: u64 = 75;
 const MIN_PERCENT_ENDGAME: u64 = 80;
-const BYOYOMI_MAX_PERCENT: u64 = 90;
+const BYOYOMI_MAX_PERCENT: u64 = 98;
 const FISCHER_MAX_PERCENT: u64 = 90;
 const MOVESTOGO_MAX_PERCENT: u64 = 95;
-const JP_BYO_MAIN_MIN_PERCENT_NORMAL: u64 = 60;
-const JP_BYO_MAIN_MIN_PERCENT_ENDGAME: u64 = 85;
+const JP_BYO_MAIN_MIN_PERCENT: u64 = 85;
+
+/// Fraction of the hard limit allocated to a single endgame solve attempt (bank modes).
+///
+/// Once the endgame solver runs, all later moves are answered from the
+/// transposition table at negligible cost, so most of the remaining bank can
+/// be committed to finishing the solve now. Applying the fraction to the
+/// current hard limit keeps the allocation geometric: an unsolved attempt
+/// still leaves the majority of the bank for the next attempt.
+const ENDGAME_BANK_PERCENT: u64 = 45;
 
 /// Calculates a time allocation factor based on game phase using a smooth bell curve.
 ///
@@ -79,6 +92,11 @@ fn default_min_percent(is_endgame: bool) -> u64 {
     } else {
         MIN_PERCENT_NORMAL
     }
+}
+
+/// Returns the budget for a single endgame solve attempt in bank modes.
+fn endgame_bank_budget(hard_limit: u64) -> u64 {
+    (hard_limit * ENDGAME_BANK_PERCENT) / 100
 }
 
 /// Time control mode for a game.
@@ -226,7 +244,11 @@ impl TimeManager {
                 increment_ms,
             } => {
                 let hard_limit = Self::calculate_safe_time(main_time_ms, n_empties);
-                let budget = Self::allocate_budget(main_time_ms, increment_ms, n_empties);
+                let budget = if is_endgame {
+                    endgame_bank_budget(hard_limit) + increment_ms
+                } else {
+                    Self::allocate_budget(main_time_ms, increment_ms, n_empties)
+                };
                 Self::compute_limits(
                     budget,
                     budget,
@@ -239,10 +261,14 @@ impl TimeManager {
             TimeControlMode::MovesToGo { time_ms, moves } => {
                 let hard_limit = time_ms.saturating_sub(TIME_BUFFER_MS);
                 let moves = moves.max(1) as u64;
-                let time_per_move = time_ms / moves;
+                let budget = if is_endgame {
+                    endgame_bank_budget(hard_limit)
+                } else {
+                    time_ms / moves
+                };
                 Self::compute_limits(
-                    time_per_move,
-                    time_per_move,
+                    budget,
+                    budget,
                     default_min_percent(is_endgame),
                     MOVESTOGO_MAX_PERCENT,
                     hard_limit,
@@ -257,13 +283,18 @@ impl TimeManager {
                     Self::byoyomi_limits(time_per_move_ms, is_endgame)
                 } else {
                     let hard_limit = Self::calculate_safe_time(main_time_ms, n_empties);
-                    let allocated_time = Self::allocate_budget(main_time_ms, 0, n_empties);
-                    let mini_pct = if is_endgame {
-                        JP_BYO_MAIN_MIN_PERCENT_ENDGAME
+                    let allocated_time = if is_endgame {
+                        endgame_bank_budget(hard_limit)
                     } else {
-                        JP_BYO_MAIN_MIN_PERCENT_NORMAL
+                        Self::allocate_budget(main_time_ms, 0, n_empties)
                     };
-                    Self::compute_limits(allocated_time, allocated_time, mini_pct, 100, hard_limit)
+                    Self::compute_limits(
+                        allocated_time,
+                        allocated_time,
+                        JP_BYO_MAIN_MIN_PERCENT,
+                        100,
+                        hard_limit,
+                    )
                 }
             }
         }
@@ -379,6 +410,17 @@ impl TimeManager {
         )
     }
 
+    /// Returns true when the allocation is scoped to this move only (pure byoyomi).
+    ///
+    /// Unused time cannot be banked in these modes, so stopping early has no value.
+    fn is_single_move_time(&self) -> bool {
+        match self.mode {
+            TimeControlMode::Byoyomi { .. } => true,
+            TimeControlMode::JapaneseByo { main_time_ms, .. } => main_time_ms == 0,
+            _ => false,
+        }
+    }
+
     /// Returns a scaling factor for min_time based on best move stability.
     ///
     /// Higher stability → lower scale → min_time is reduced, enabling earlier stop.
@@ -388,7 +430,7 @@ impl TimeManager {
             return 1.0;
         }
 
-        const SCALE: [f64; 5] = [1.0, 1.0, 0.70, 0.50, 0.35];
+        const SCALE: [f64; 5] = [1.0, 1.0, 0.80, 0.65, 0.55];
         let idx = (self.best_move_stability.load(Ordering::Relaxed) as usize).min(SCALE.len() - 1);
         SCALE[idx]
     }
@@ -396,6 +438,10 @@ impl TimeManager {
     /// Checks whether the search should continue to the next iteration.
     pub fn should_continue_iteration(&self) -> bool {
         if self.mode == TimeControlMode::Infinite {
+            return true;
+        }
+
+        if self.is_single_move_time() {
             return true;
         }
 
@@ -493,18 +539,24 @@ impl TimeManager {
         let hard_limit = self.hard_time_limit_ms.load(Ordering::Relaxed);
         let old_maxi = self.max_time_ms.load(Ordering::Relaxed);
 
+        let reserve_target = base_maxi
+            .saturating_add(hard_limit.saturating_sub(base_maxi) / EXTENSION_RESERVE_DIVISOR);
+
         // In Japanese Byoyomi main time, we treat the hard limit as a soft limit for extensions
         // because falling into byoyomi is acceptable.
         let target_maxi = if matches!(self.mode, TimeControlMode::JapaneseByo { main_time_ms, .. } if main_time_ms > 0)
         {
-            // Allow using up to 25% of the remaining reserve (allowance before hard limit)
-            let reserve = hard_limit.saturating_sub(base_maxi);
-            base_maxi.saturating_add(reserve / 4).min(hard_limit)
+            reserve_target
         } else {
-            let reserve = hard_limit.saturating_sub(base_maxi);
-            let extension_amount = ((reserve as f64) * EXTENSION_RESERVE_RATIO) as u64;
-            base_maxi.saturating_add(extension_amount).min(hard_limit)
-        };
+            let capped = base_maxi.saturating_mul(EXTENSION_MAX_FACTOR);
+            if reason == ExtensionReason::ScoreDrop {
+                // Emergencies may draw on the bank reserve beyond the per-move cap.
+                capped.max(reserve_target)
+            } else {
+                capped
+            }
+        }
+        .min(hard_limit);
 
         if old_maxi >= target_maxi {
             return false;
@@ -809,7 +861,7 @@ mod tests {
         tm.report_iteration(sq, 5.0, 12);
         tm.best_move_stability
             .store(STABILITY_THRESHOLD, Ordering::Relaxed);
-        tm.start_time = Instant::now() - Duration::from_millis(tm.maxi_time_ms() / 2);
+        tm.start_time = Instant::now() - Duration::from_millis(tm.maxi_time_ms());
 
         let base_maxi = tm.maxi_time_ms();
         tm.report_iteration(sq, 1.0, 13);
@@ -865,5 +917,55 @@ mod tests {
         };
         let tm = TimeManager::new(mode, abort, 40);
         assert!(!tm.has_time_bank());
+    }
+
+    #[test]
+    fn endgame_mode_allocates_bank_fraction() {
+        let tm = make_fischer_tm(60_000, 0, 36);
+        let mid_maxi = tm.maxi_time_ms();
+        tm.set_endgame_mode(true);
+        let end_maxi = tm.maxi_time_ms();
+        let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
+
+        assert!(
+            end_maxi > mid_maxi,
+            "endgame allocation ({end_maxi}) should exceed midgame share ({mid_maxi})"
+        );
+        assert!(end_maxi <= hard);
+    }
+
+    #[test]
+    fn pure_byoyomi_continues_until_deadline() {
+        let abort = Arc::new(AtomicBool::new(false));
+        let mode = TimeControlMode::Byoyomi {
+            time_per_move_ms: 1_000,
+        };
+        let mut tm = TimeManager::new(mode, abort, 40);
+        // Way past any predictive-stop threshold, but before the deadline.
+        tm.start_time = Instant::now() - Duration::from_millis(tm.maxi_time_ms() - 100);
+
+        assert!(tm.should_continue_iteration());
+        assert!(!tm.is_time_up());
+    }
+
+    #[test]
+    fn extension_target_capped_at_factor_times_base() {
+        let mut tm = make_fischer_tm(600_000, 0, 50);
+        tm.start();
+        let base = tm.maxi_time_ms();
+        let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
+
+        // Alternating best moves keep granting PV-change extensions until steps run out.
+        let squares = [Square::D3, Square::C4];
+        let depths = MIN_STABILITY_CHECK_DEPTH..MIN_STABILITY_CHECK_DEPTH + 10;
+        for (i, depth) in depths.enumerate() {
+            tm.report_iteration(squares[i % 2], 0.0, depth);
+        }
+
+        assert!(tm.maxi_time_ms() <= (base * EXTENSION_MAX_FACTOR).min(hard));
+        assert!(
+            tm.maxi_time_ms() > base,
+            "extensions should have been granted"
+        );
     }
 }
