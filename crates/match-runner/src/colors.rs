@@ -26,7 +26,7 @@ pub trait ThemeColor: Colorize + Sized {
     }
 
     fn bg_dark(self) -> ColoredString {
-        self.truecolor(50, 55, 80)
+        self.on_truecolor(50, 55, 80)
     }
 
     fn text(self) -> ColoredString {

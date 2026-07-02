@@ -131,6 +131,12 @@ impl MatchRunner {
                 &mut time_tracker,
             ) {
                 progress_bar.finish_and_clear();
+                // Show the results of already-completed games before propagating
+                // the error; display failures must not mask the original error.
+                if statistics.total_games() > 0 {
+                    let _ = self.display.clear_screen();
+                    let _ = statistics.print_final_results(&engine_names.0, &engine_names.1);
+                }
                 return Err(e);
             }
         }

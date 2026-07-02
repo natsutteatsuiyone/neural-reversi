@@ -71,14 +71,7 @@ impl GtpEngine {
     /// Returns an error if the engine process cannot be started or if initial
     /// communication with the engine fails.
     pub fn new(executable: &str, args: &[String], working_dir: Option<PathBuf>) -> Result<Self> {
-        let exec_path = Path::new(executable);
-        let default_working_dir = if let Some(parent) = exec_path.parent() {
-            parent.to_path_buf()
-        } else {
-            PathBuf::from(".")
-        };
-
-        let working_dir = working_dir.unwrap_or(default_working_dir);
+        let working_dir = working_dir.unwrap_or_else(|| Self::default_working_dir(executable));
 
         let mut process = Command::new(executable)
             .args(args)
@@ -308,6 +301,18 @@ impl GtpEngine {
         }
     }
 
+    /// Returns the default working directory for an engine executable.
+    ///
+    /// Uses the executable's parent directory. Falls back to "." for bare
+    /// program names (PATH lookup), where `parent()` returns an empty path
+    /// that would make spawn fail.
+    fn default_working_dir(executable: &str) -> PathBuf {
+        match Path::new(executable).parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        }
+    }
+
     /// Format version string with 'v' prefix if needed.
     fn format_version(version: &str) -> String {
         if version.is_empty() {
@@ -414,6 +419,30 @@ mod tests {
         let result = GtpEngine::communicate(&mut writer, &mut reader, "cmd").unwrap();
 
         assert_eq!(result, "= line1\nline2\n");
+    }
+
+    #[test]
+    fn test_default_working_dir_bare_name() {
+        assert_eq!(
+            GtpEngine::default_working_dir("engine.exe"),
+            PathBuf::from(".")
+        );
+    }
+
+    #[test]
+    fn test_default_working_dir_current_dir_relative() {
+        assert_eq!(
+            GtpEngine::default_working_dir("./engine"),
+            PathBuf::from(".")
+        );
+    }
+
+    #[test]
+    fn test_default_working_dir_nested_path() {
+        assert_eq!(
+            GtpEngine::default_working_dir("build/engine"),
+            PathBuf::from("build")
+        );
     }
 
     #[test]

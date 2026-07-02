@@ -371,7 +371,7 @@ impl PentanomialCalculator {
         let mu = score / 2.0; // Per game
 
         // Calculate pentanomial variance per pair using true 5-nomial model
-        // Note: DD and WL both give 1 point but have different variance contributions
+        // (DD and WL both score 1 point per pair and contribute identically here)
         let e_t_squared =
             0.0 * p0 + 0.25 * p_half + 1.0 * p1_dd + 1.0 * p1_wl + 2.25 * p_three_half + 4.0 * p2;
         let var_pair = e_t_squared - score * score;
