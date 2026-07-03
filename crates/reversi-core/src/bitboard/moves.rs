@@ -94,13 +94,36 @@ macro_rules! horizontal_or_u64 {
             _mm256_castsi256_si128($mm),
             _mm256_extracti128_si256($mm, 1),
         );
-        _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_srli_si128(m128, 8))) as u64
+        _mm_cvtsi128_si64(_mm_or_si128(m128, _mm_shuffle_epi32(m128, 0x4e))) as u64
+    }};
+}
+
+/// Reduces two 256-bit vectors in parallel.
+///
+/// Returns `(or(a lanes), or(b lanes))`. `get_moves_and_potential_*` already
+/// has both vectors live; interleaving their lanes avoids doing two independent
+/// horizontal reductions on the hot combined path.
+#[cfg(target_arch = "x86_64")]
+macro_rules! horizontal_or2_u64 {
+    ($a:expr, $b:expr) => {{
+        let lo = _mm256_unpacklo_epi64($a, $b);
+        let hi = _mm256_unpackhi_epi64($a, $b);
+        let pairs = _mm256_or_si256(lo, hi);
+        let m128 = _mm_or_si128(
+            _mm256_castsi256_si128(pairs),
+            _mm256_extracti128_si256(pairs, 1),
+        );
+        (
+            _mm_cvtsi128_si64(m128) as u64,
+            _mm_cvtsi128_si64(_mm_shuffle_epi32(m128, 0x4e)) as u64,
+        )
     }};
 }
 
 /// AVX-512-optimized implementation of `get_moves`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
+#[inline]
 #[allow(dead_code)]
 pub(super) fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
@@ -146,6 +169,7 @@ pub(super) fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
 /// AVX2-optimized implementation of `get_moves`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+#[inline]
 #[allow(dead_code)]
 pub(super) fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
@@ -348,6 +372,7 @@ fn get_potential_moves_portable(p: u64, o: u64) -> u64 {
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+#[inline]
 #[allow(dead_code)]
 fn get_potential_moves_avx2(p: u64, o: u64) -> u64 {
     use std::arch::x86_64::*;
@@ -465,6 +490,7 @@ pub(super) fn get_moves_and_potential_portable(player: u64, opponent: u64) -> (u
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
+#[inline]
 #[allow(dead_code)]
 pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::x86_64::*;
@@ -482,10 +508,10 @@ pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64
     let oo = _mm256_set1_epi64x(opponent as i64);
 
     let masked_oo = _mm256_and_si256(oo, masks);
-    let potential = horizontal_or_u64!(_mm256_or_si256(
+    let potential_mm = _mm256_or_si256(
         _mm256_sllv_epi64(masked_oo, sh),
         _mm256_srlv_epi64(masked_oo, sh),
-    )) & empty;
+    );
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
@@ -506,13 +532,14 @@ pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64
     fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
 
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-    let moves = horizontal_or_u64!(mm);
+    let (moves, potential) = horizontal_or2_u64!(mm, potential_mm);
 
-    (moves & empty, potential)
+    (moves & empty, potential & empty)
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+#[inline]
 #[allow(dead_code)]
 pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::x86_64::*;
@@ -529,10 +556,10 @@ pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, 
     let pp = _mm256_set1_epi64x(player as i64);
     let oo = _mm256_set1_epi64x(opponent as i64);
     let masked_oo = _mm256_and_si256(oo, masks);
-    let potential = horizontal_or_u64!(_mm256_or_si256(
+    let potential_mm = _mm256_or_si256(
         _mm256_sllv_epi64(masked_oo, sh),
         _mm256_srlv_epi64(masked_oo, sh),
-    )) & empty;
+    );
 
     // Moves calculation
     let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
@@ -553,9 +580,9 @@ pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, 
     fr = _mm256_or_si256(fr, _mm256_and_si256(pre_r, _mm256_srlv_epi64(fr, shift2)));
 
     let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-    let moves = horizontal_or_u64!(mm);
+    let (moves, potential) = horizontal_or2_u64!(mm, potential_mm);
 
-    (moves & empty, potential)
+    (moves & empty, potential & empty)
 }
 
 /// Finishes the AArch64 NEON `get_moves_and_potential` paths.
