@@ -130,7 +130,7 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
         );
 
         if (gameOver) {
-          set({ gameOver: true, gameStatus: "finished" });
+          set({ gameOver: true, gameStatus: "finished", showGameOverNotification: true });
           return;
         }
 
@@ -194,10 +194,16 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
       startInitialGame: () => {
         // React StrictMode replays mount effects in development. Keep launch
         // auto-start idempotent at the store boundary so concurrent callers
-        // share one Game Replacement transaction.
+        // share one Game Replacement transaction. Best-effort: unlike the
+        // modal starters (guarded by runGuardedStart), the launch caller has
+        // no failure UI — resolve false so App still leaves the loading
+        // screen and the user can start a game manually.
         initialGameStartPromise ??= runGameReplacement(services, get, set, {
           kind: "new-game",
           pauseForAITurn: true,
+        }).catch((error) => {
+          console.error("Failed to auto-start the initial game:", error);
+          return false;
         });
         return initialGameStartPromise;
       },

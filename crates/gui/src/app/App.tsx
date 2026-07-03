@@ -21,6 +21,8 @@ function App({ initialSettings }: AppProps) {
 
   const showPassNotification = useReversiStore((state) => state.showPassNotification);
   const hidePassNotification = useReversiStore((state) => state.hidePassNotification);
+  const showGameOverNotification = useReversiStore((state) => state.showGameOverNotification);
+  const hideGameOverNotification = useReversiStore((state) => state.hideGameOverNotification);
   const gameOver = useReversiStore((state) => state.gameOver);
   const getScores = useReversiStore((state) => state.getScores);
   const hydrateSettings = useReversiStore((state) => state.hydrateSettings);
@@ -29,7 +31,6 @@ function App({ initialSettings }: AppProps) {
 
   const scores = getScores();
   const winner = gameOver ? getWinner(scores) : null;
-  const prevGameOverRef = useRef(gameOver);
   const prevPassNotificationRef = useRef(showPassNotification);
 
   // Enable keyboard navigation
@@ -51,26 +52,27 @@ function App({ initialSettings }: AppProps) {
     void initApp();
   }, [checkAIReady, hydrateSettings, initialSettings, startInitialGame]);
 
-  // Game over notification
+  // Game over notification: consume the store's one-shot play-path signal, so
+  // history navigation onto the terminal position never re-fires the toast.
   useEffect(() => {
-    const justFinished = gameOver && !prevGameOverRef.current;
-    prevGameOverRef.current = gameOver;
+    if (!showGameOverNotification) return;
+    hideGameOverNotification();
 
-    if (justFinished && winner) {
-      const message =
-        winner === "draw"
-          ? t("notification.draw")
-          : t("notification.wins", { color: t(`colors.${winner}`) });
+    if (!winner) return;
 
-      const description = t("notification.score", { black: scores.black, white: scores.white });
+    const message =
+      winner === "draw"
+        ? t("notification.draw")
+        : t("notification.wins", { color: t(`colors.${winner}`) });
 
-      toast(message, {
-        description: description,
-        icon: <Trophy className="w-4 h-4 text-accent-gold" />,
-        duration: 5000,
-      });
-    }
-  }, [gameOver, winner, scores.black, scores.white, t]);
+    const description = t("notification.score", { black: scores.black, white: scores.white });
+
+    toast(message, {
+      description: description,
+      icon: <Trophy className="w-4 h-4 text-accent-gold" />,
+      duration: 5000,
+    });
+  }, [showGameOverNotification, hideGameOverNotification, winner, scores.black, scores.white, t]);
 
   // Pass notification
   useEffect(() => {

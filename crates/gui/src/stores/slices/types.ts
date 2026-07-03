@@ -95,6 +95,12 @@ export type { MoveAnalysis };
 
 export interface UISlice {
   showPassNotification: "black" | "white" | null;
+  /**
+   * One-shot signal that a played move just ended the game. Set only by the
+   * play path (never by history navigation, which re-derives `gameOver`), so
+   * the game-over toast fires once per actual finish.
+   */
+  showGameOverNotification: boolean;
   isAnalyzing: boolean;
   hintAnalysisAbortPending: boolean;
   analyzeResults: Map<string, AIMoveProgress> | null;
@@ -104,6 +110,7 @@ export interface UISlice {
   isGameAnalyzing: boolean;
   gameAnalysisResult: MoveAnalysis[] | null;
   hidePassNotification: () => void;
+  hideGameOverNotification: () => void;
   analyzeBoard: () => Promise<void>;
   openNewGameModal: () => void;
   closeNewGameModal: () => void;

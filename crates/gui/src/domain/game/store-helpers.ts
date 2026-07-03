@@ -112,6 +112,7 @@ export function createGameStartState(
     lastMove: null,
     lastAIMove: null,
     showPassNotification: null,
+    showGameOverNotification: false,
     analyzeResults: null,
     // The Engine Activity projection (isAIThinking / isAnalyzing /
     // isGameAnalyzing / isSolverSearching + engineActivity) is NOT set here:

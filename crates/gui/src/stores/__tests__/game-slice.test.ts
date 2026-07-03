@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
+import { createMockSolverService } from "@/services/mock-solver-service";
 import { createDeferred, createTestStore, type TestStore } from "./test-helpers";
 import type { Services } from "@/services/types";
 
@@ -339,6 +340,53 @@ describe("makeMove", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("game over notification", () => {
+  let store: TestStore;
+
+  beforeEach(async () => {
+    ({ store } = createTestStore());
+    await store.getState().startGame();
+    const { createEmptyBoard } = await import("@/domain/game/game-logic");
+    const { cloneBoard } = await import("@/domain/game/store-helpers");
+    // Black plays (0,2), flipping (0,1): only black stones remain, game over.
+    const board = createEmptyBoard();
+    board[0][0].color = "black";
+    board[0][1].color = "white";
+    store.setState({
+      board,
+      historyStartBoard: cloneBoard(board),
+      currentPlayer: "black",
+      validMoves: [[0, 2]],
+    });
+  });
+
+  it("signals the notification when a played move ends the game", async () => {
+    await store.getState().makeMove({ row: 0, col: 2, isAI: false });
+
+    expect(store.getState().showGameOverNotification).toBe(true);
+  });
+
+  it("does not re-signal when history navigation lands on the terminal position", async () => {
+    await store.getState().makeMove({ row: 0, col: 2, isAI: false });
+    store.getState().hideGameOverNotification();
+
+    store.setState({ gameStatus: "playing" });
+    store.getState().undoMove();
+    store.getState().redoMove();
+
+    expect(store.getState().gameOver).toBe(true);
+    expect(store.getState().showGameOverNotification).toBe(false);
+  });
+
+  it("clears a pending notification when a new game starts", async () => {
+    await store.getState().makeMove({ row: 0, col: 2, isAI: false });
+
+    await store.getState().startGame();
+
+    expect(store.getState().showGameOverNotification).toBe(false);
   });
 });
 
@@ -950,6 +998,16 @@ describe("startInitialGame", () => {
 
     expect(started).toBe(true);
     expect(store.getState().paused).toBe(false);
+  });
+
+  it("resolves false instead of rejecting when the replacement fails unexpectedly", async () => {
+    const { store } = createTestStore({
+      solver: createMockSolverService({
+        abort: vi.fn().mockRejectedValue(new Error("abort IPC failed")),
+      }),
+    });
+
+    await expect(store.getState().startInitialGame()).resolves.toBe(false);
   });
 
   it("coalesces concurrent launch auto-start calls", async () => {

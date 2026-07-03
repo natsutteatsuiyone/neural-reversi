@@ -10,6 +10,7 @@ export function createUISlice(
   return (set, get) => {
     return {
       showPassNotification: null,
+      showGameOverNotification: false,
       isAnalyzing: false,
       hintAnalysisAbortPending: false,
       analyzeResults: null,
@@ -38,6 +39,8 @@ export function createUISlice(
       restartHintAnalysisAfterAbort: () => hintSession.restartAfterAbort(),
 
       hidePassNotification: () => set({ showPassNotification: null }),
+
+      hideGameOverNotification: () => set({ showGameOverNotification: false }),
 
       analyzeBoard: () => hintSession.analyze(),
 
