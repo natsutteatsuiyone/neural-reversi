@@ -1,5 +1,6 @@
 #![cfg_attr(target_arch = "aarch64", feature(stdarch_neon_i8mm))]
 #![feature(hint_prefetch)]
+#![feature(sync_unsafe_cell)]
 
 pub mod bitboard;
 pub mod board;

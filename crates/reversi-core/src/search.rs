@@ -39,7 +39,7 @@ use crate::search::search_context::SearchContext;
 use crate::search::search_counters::SearchCounters;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::SearchStrategy;
-use crate::search::threading::{SplitPoint, Thread, ThreadPool};
+use crate::search::threading::{SplitPoint, SplitRequest, Thread, ThreadPool};
 use crate::search::time_control::TimeManager;
 use crate::square::Square;
 use crate::stability::stability_cutoff;
@@ -260,7 +260,7 @@ impl Search {
             SearchConstraint::Time(mode) => {
                 let tm = Arc::new(TimeManager::new(
                     *mode,
-                    self.threads.get_abort_flag(),
+                    self.threads.abort_flag(),
                     n_empties,
                 ));
                 (Some(tm), Level::unlimited())
@@ -409,7 +409,7 @@ fn progress_from_result(result: &SearchResult) -> SearchProgress {
 /// Compares the minimum endgame depth from the level configuration against the
 /// number of empty squares. If the endgame depth covers all empties, delegates
 /// to the endgame solver; otherwise delegates to the midgame search.
-pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
+fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let min_end_depth = task.level.min_end_depth();
     let n_empties = task.board.get_empty_count();
 
@@ -643,23 +643,25 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             && (n_moves - move_count) >= 2
             && thread.can_split()
         {
-            let (s, m, split_counters) = thread.split(
+            let (s, m, c) = thread.split(
                 ctx,
-                board,
-                alpha,
-                beta,
-                best_score,
-                best_move,
-                depth,
-                move_list,
-                move_count,
-                NT::ID,
-                SS::IS_ENDGAME,
-                cut_node,
+                SplitRequest {
+                    board,
+                    alpha,
+                    beta,
+                    best_score,
+                    best_move,
+                    depth,
+                    move_list,
+                    move_count,
+                    node_type: NT::ID,
+                    is_endgame: SS::IS_ENDGAME,
+                    cut_node,
+                },
             );
             best_score = s;
             best_move = m;
-            ctx.counters.merge(&split_counters);
+            ctx.counters.merge(&c);
 
             if thread.should_stop() {
                 return ScaledScore::ZERO;
@@ -768,7 +770,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 /// Called by helper threads that join an existing split point. Picks moves from
 /// the shared move iterator, searches them, and updates the split
 /// point's best score/move under its lock.
-pub fn search_split_point<NT: NodeType, SS: SearchStrategy>(
+fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,

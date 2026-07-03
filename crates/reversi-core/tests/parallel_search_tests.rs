@@ -1,3 +1,4 @@
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
@@ -7,7 +8,7 @@ use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::search_result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchRunOptions};
+use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources};
 
 const BOARD_20_EMPTIES: &str = "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--";
 const BOARD_15_EMPTIES: &str = "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-";
@@ -77,4 +78,97 @@ fn timed_search_terminates_within_deadline_margin() {
         "timed search took {elapsed:?}"
     );
     assert!(result.score().is_some(), "expected a best move");
+}
+
+/// Full-width midgame search must return the same score for any thread count:
+/// with selectivity off, LMR and ProbCut are disabled, and aspiration windows
+/// re-search until the score is strictly inside the window, so the root score
+/// at the final depth is the exact minimax value.
+#[test]
+fn parallel_midgame_score_matches_single_threaded() {
+    let level = Level {
+        mid_depth: 8,
+        end_depth: [0; 4],
+    };
+    let options = SearchRunOptions::with_level(level, Selectivity::None);
+    let board = Board::new();
+
+    let mut single = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let expected = single
+        .run(&board, &options)
+        .score()
+        .expect("expected best move");
+
+    let mut parallel = Search::new(&SearchOptions::default().with_threads(Some(4)));
+    let actual = parallel
+        .run(&board, &options)
+        .score()
+        .expect("expected best move");
+
+    assert_eq!(actual, expected);
+}
+
+/// Covers the GUI's manual abort path (`ThreadPool::abort_search`), which the
+/// timer-based test does not exercise. The aborter re-fires every 100 ms so a
+/// pathologically delayed first abort cannot hang the test.
+#[test]
+fn manual_abort_stops_deep_solve_promptly() {
+    let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
+    let pool = search.thread_pool();
+    let board = Board::new();
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let aborter = std::thread::spawn(move || {
+        while let Err(RecvTimeoutError::Timeout) = done_rx.recv_timeout(Duration::from_millis(100))
+        {
+            pool.abort_search();
+        }
+    });
+
+    let start = Instant::now();
+    let result = search.run(&board, &options);
+    let elapsed = start.elapsed();
+    let _ = done_tx.send(());
+    aborter.join().unwrap();
+
+    // Generous margin: this guards against a hung abort, not abort latency.
+    assert!(elapsed < Duration::from_secs(5), "abort took {elapsed:?}");
+    let best = result.best_move().expect("expected fallback best move");
+    assert!(board.is_legal_move(best));
+}
+
+/// Guards against shutdown deadlocks or state leaking across pool lifetimes.
+#[test]
+fn repeated_pool_create_solve_drop_is_clean() {
+    for run in 0..3 {
+        let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
+        let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
+        let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+        let result = search.run(&board, &options);
+        assert_eq!(score(&result), 8, "run={run}");
+    }
+}
+
+/// Two engines from one `SearchSharedResources` share a transposition table
+/// but own independent thread pools; concurrent solves must both stay exact.
+#[test]
+fn concurrent_engines_from_shared_resources_solve_correctly() {
+    let shared = SearchSharedResources::new(&SearchOptions::default().with_threads(Some(2)));
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+
+    std::thread::scope(|s| {
+        let first = s.spawn(|| {
+            let mut search = Search::from_shared_resources(&shared);
+            let board = Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap();
+            score(&search.run(&board, &options))
+        });
+        let second = s.spawn(|| {
+            let mut search = Search::from_shared_resources(&shared);
+            let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
+            score(&search.run(&board, &options))
+        });
+        assert_eq!(first.join().unwrap(), 6);
+        assert_eq!(second.join().unwrap(), 8);
+    });
 }
