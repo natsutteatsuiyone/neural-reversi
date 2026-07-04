@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::probcut::Selectivity;
 use crate::square::Square;
 use crate::types::Depth;
 
@@ -34,6 +35,14 @@ const STABILITY_THRESHOLD: u32 = 3;
 
 /// Sentinel value indicating no previous best move has been recorded.
 const NO_PREV_MOVE: u8 = Square::None as u8;
+
+/// Default next-iteration prediction factor for midgame iterative deepening.
+const DEFAULT_CONTINUE_FACTOR: f64 = 1.5;
+
+/// Endgame selectivity transition factors.
+const ENDGAME_LEVEL1_CONTINUE_FACTOR: f64 = 2.582241;
+const ENDGAME_LEVEL2_CONTINUE_FACTOR: f64 = 2.048957;
+const ENDGAME_LEVEL3_CONTINUE_FACTOR: f64 = 4.592228;
 
 // Time allocation percentages (0-100)
 const MIN_PERCENT_NORMAL: u64 = 75;
@@ -97,6 +106,15 @@ fn default_min_percent(is_endgame: bool) -> u64 {
 /// Returns the budget for a single endgame solve attempt in bank modes.
 fn endgame_bank_budget(hard_limit: u64) -> u64 {
     (hard_limit * ENDGAME_BANK_PERCENT) / 100
+}
+
+fn endgame_continue_factor(current_selectivity: Selectivity) -> f64 {
+    match current_selectivity {
+        Selectivity::Level1 => ENDGAME_LEVEL1_CONTINUE_FACTOR,
+        Selectivity::Level2 => ENDGAME_LEVEL2_CONTINUE_FACTOR,
+        Selectivity::Level3 => ENDGAME_LEVEL3_CONTINUE_FACTOR,
+        Selectivity::None => f64::INFINITY,
+    }
 }
 
 /// Time control mode for a game.
@@ -437,6 +455,34 @@ impl TimeManager {
 
     /// Checks whether the search should continue to the next iteration.
     pub fn should_continue_iteration(&self) -> bool {
+        self.should_continue_iteration_with_factor(DEFAULT_CONTINUE_FACTOR)
+    }
+
+    /// Checks whether endgame search should continue to the next selectivity level.
+    pub fn should_continue_endgame_iteration(&self, current_selectivity: Selectivity) -> bool {
+        if self.mode == TimeControlMode::Infinite {
+            return true;
+        }
+
+        if self.is_single_move_time() {
+            return true;
+        }
+
+        let elapsed = self.elapsed_ms();
+        let factor = endgame_continue_factor(current_selectivity);
+        let should_continue = (elapsed as f64 * factor) < self.maxi_time_ms() as f64;
+        if !should_continue && is_debug_enabled() {
+            eprintln!(
+                "[TimeManager] Stopping endgame selectivity: selectivity={current_selectivity:?}, elapsed={}ms, factor={factor:.3}, maxi={}ms",
+                elapsed,
+                self.max_time_ms.load(Ordering::Relaxed)
+            );
+        }
+
+        should_continue
+    }
+
+    fn should_continue_iteration_with_factor(&self, continue_factor: f64) -> bool {
         if self.mode == TimeControlMode::Infinite {
             return true;
         }
@@ -475,10 +521,10 @@ impl TimeManager {
             return false;
         }
 
-        let should_continue = (elapsed as f64 * 1.5) < self.maxi_time_ms() as f64;
+        let should_continue = (elapsed as f64 * continue_factor) < self.maxi_time_ms() as f64;
         if !should_continue && is_debug_enabled() {
             eprintln!(
-                "[TimeManager] Stopping iteration: elapsed={}ms, maxi={}ms",
+                "[TimeManager] Stopping iteration: elapsed={}ms, factor={continue_factor:.3}, maxi={}ms",
                 elapsed,
                 self.max_time_ms.load(Ordering::Relaxed)
             );
@@ -739,6 +785,17 @@ pub fn should_stop_iteration(time_manager: &Option<Arc<TimeManager>>) -> bool {
     }
 }
 
+#[inline]
+pub fn should_stop_endgame_iteration(
+    time_manager: &Option<Arc<TimeManager>>,
+    current_selectivity: Selectivity,
+) -> bool {
+    match time_manager {
+        Some(tm) => tm.check_time() || !tm.should_continue_endgame_iteration(current_selectivity),
+        None => false,
+    }
+}
+
 fn is_debug_enabled() -> bool {
     static DEBUG: OnceLock<bool> = OnceLock::new();
     *DEBUG.get_or_init(|| {
@@ -758,6 +815,37 @@ mod tests {
             increment_ms,
         };
         TimeManager::new(mode, abort, n_empties)
+    }
+
+    #[test]
+    fn endgame_continue_factor_uses_measured_p95_values() {
+        assert_eq!(
+            endgame_continue_factor(Selectivity::Level1),
+            ENDGAME_LEVEL1_CONTINUE_FACTOR
+        );
+        assert_eq!(
+            endgame_continue_factor(Selectivity::Level2),
+            ENDGAME_LEVEL2_CONTINUE_FACTOR
+        );
+        assert_eq!(
+            endgame_continue_factor(Selectivity::Level3),
+            ENDGAME_LEVEL3_CONTINUE_FACTOR
+        );
+        assert!(endgame_continue_factor(Selectivity::None).is_infinite());
+    }
+
+    #[test]
+    fn endgame_iteration_can_stop_before_min_time_when_factor_predicts_overrun() {
+        let mut tm = make_fischer_tm(60_000, 0, 36);
+        tm.set_endgame_mode(true);
+
+        let elapsed = (tm.maxi_time_ms() as f64 / ENDGAME_LEVEL1_CONTINUE_FACTOR).ceil() as u64 + 1;
+        assert!(elapsed < tm.mini_time_ms());
+
+        tm.start_time = Instant::now() - Duration::from_millis(elapsed);
+
+        assert!(tm.should_continue_iteration());
+        assert!(!tm.should_continue_endgame_iteration(Selectivity::Level1));
     }
 
     #[test]

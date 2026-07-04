@@ -21,7 +21,7 @@ use crate::search::search_context::SearchContext;
 use crate::search::search_result::SearchResult;
 use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
-use crate::search::time_control::should_stop_iteration;
+use crate::search::time_control::should_stop_endgame_iteration;
 use crate::search::{SearchProgress, SearchTask, midgame, search};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
@@ -158,7 +158,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             // Check time control
-            if should_stop_iteration(&time_manager) {
+            if should_stop_endgame_iteration(&time_manager, selectivity) {
                 break;
             }
         }
