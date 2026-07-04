@@ -434,6 +434,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     tt_entry_index: usize,
 ) -> Option<ScaledScore> {
     let etc_depth = depth - 1;
+
     for mv in move_list.iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.increment_nodes();
@@ -530,6 +531,16 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         return ScaledScore::MAX;
     }
 
+    // Issue the ETC child prefetches before the TT probe: the children's cluster
+    // fetches then overlap the probe's own memory stall instead of following it.
+    let etc_eligible = !NT::PV_NODE && depth >= SS::MIN_ETC_DEPTH;
+    if etc_eligible {
+        for mv in move_list.iter() {
+            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+            ctx.tt.prefetch(next.hash());
+        }
+    }
+
     // Transposition table probe
     let tt_probe_result = ctx.tt.probe(board, tt_key);
     ctx.counters.increment_tt_probe();
@@ -545,7 +556,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
 
         // Enhanced Transposition Cutoff
-        if depth >= SS::MIN_ETC_DEPTH {
+        if etc_eligible {
             ctx.counters.increment_etc_attempt();
             if let Some(score) = enhanced_transposition_cutoff::<SS>(
                 ctx,

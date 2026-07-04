@@ -109,7 +109,7 @@ impl SearchStrategy for MidGameStrategy {
 
 impl SearchStrategy for EndGameStrategy {
     const IS_ENDGAME: bool = true;
-    const MIN_ETC_DEPTH: Depth = endgame::DEPTH_TO_NWS + 4;
+    const MIN_ETC_DEPTH: Depth = endgame::DEPTH_TO_NWS + 2;
     const MIN_PROBCUT_DEPTH: Depth = endgame::DEPTH_TO_NWS + 1;
     const DEPTH_TO_SHALLOW: Depth = endgame::DEPTH_TO_NWS;
     const MIN_SPLIT_DEPTH: Depth = endgame::DEPTH_TO_NWS;
