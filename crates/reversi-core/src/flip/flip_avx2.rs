@@ -1,4 +1,5 @@
-//! AVX2 variant of flip function.
+//! AVX2 flip backend for single-square and shared-board batch paths.
+//!
 //! Based on flip_avx_acepck.c from edax-reversi (shadow-fill + PCMPGTQ for
 //! MSB-to-LSB directions, BLSMSK for LSB-to-MSB directions).
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_avx_acepck.c>
@@ -9,41 +10,44 @@ use std::arch::x86_64::*;
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 fn mm_flip_prepared(pp: __m256i, oo: __m256i, pos: usize) -> __m128i {
-    // SAFETY: this module is compiled only for AVX2 targets. `pos` comes from
-    // `Square` or the sentinel pseudo-squares, indexing the 66-entry,
-    // 64-byte-aligned `LRMASK` table; each entry contains two aligned YMM masks.
+    // SAFETY: this module is compiled only for AVX2 targets. `pos` must be a
+    // valid index into the 66-entry, 64-byte-aligned `LRMASK` table. Safe
+    // callers pass square indices; the table also contains two zero sentinel
+    // entries for pass/out-of-range pseudo-squares. Each entry contains two
+    // aligned YMM masks.
     unsafe {
         let mask_ptr = super::lrmask::LRMASK.get_unchecked(pos).0.as_ptr() as *const __m256i;
         let right_mask = _mm256_load_si256(mask_ptr.add(1));
         let left_mask = _mm256_load_si256(mask_ptr);
 
-        // Left: non-opponent BLSMSK
+        // Left side (LSB-to-MSB): BLSMSK through the first non-opponent square.
         let mut lo = _mm256_andnot_si256(oo, left_mask);
         lo = _mm256_and_si256(
             _mm256_xor_si256(_mm256_add_epi64(lo, _mm256_set1_epi64x(-1)), lo),
             left_mask,
         );
 
-        // Right side computations
-        // Right: shadow mask lower than leftmost P
+        // Right side (MSB-to-LSB): shadow-fill from player discs toward
+        // lower-significance bits.
         let rp: __m256i = _mm256_and_si256(pp, right_mask);
         let mut rs = _mm256_or_si256(rp, _mm256_srlv_epi64(rp, _mm256_set_epi64x(7, 9, 8, 1)));
-        // Clear MSB of BLSMSK if it is P
+        // Remove the outflank bit from the left BLSMSK when it is a player disc.
         let lf: __m256i = _mm256_andnot_si256(pp, lo);
-        // Erase lf if lo = lf (i.e., MSB is not P)
+        // Erase `lf` if no player outflank was found on the left side.
         let left_flip = _mm256_andnot_si256(_mm256_cmpeq_epi64(lf, lo), lf);
         rs = _mm256_or_si256(rs, _mm256_srlv_epi64(rs, _mm256_set_epi64x(14, 18, 16, 2)));
         rs = _mm256_or_si256(rs, _mm256_srlv_epi64(rs, _mm256_set_epi64x(28, 36, 32, 4)));
-        // Apply flip if leftmost non-opponent is P
-        let re: __m256i = _mm256_xor_si256(_mm256_andnot_si256(oo, right_mask), rp); // Masked Empty
-        // `rm & cmp` is off the `rs` dependency chain (the longest in the
+        // Apply right-side flips only if the highest non-opponent square is a
+        // player disc. `re` is the right-side empty-square mask.
+        let re: __m256i = _mm256_xor_si256(_mm256_andnot_si256(oo, right_mask), rp);
+        // `right_mask & cmp` is off the `rs` dependency chain (the longest in the
         // kernel), so join it into `rs` with a single trailing ANDNOT.
         let right_flip =
             _mm256_andnot_si256(rs, _mm256_and_si256(right_mask, _mm256_cmpgt_epi64(rp, re)));
 
         let flip = _mm256_or_si256(right_flip, left_flip);
 
-        // Combine the lower and higher 128-bit lanes of the flip pattern
+        // Combine the lower and higher 128-bit lanes of the flip pattern.
         _mm_or_si128(
             _mm256_castsi256_si128(flip),
             _mm256_extracti128_si256(flip, 1),

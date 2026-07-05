@@ -1,8 +1,9 @@
-//! WebAssembly SIMD variant of flip function.
+//! WebAssembly SIMD flip backend for single-square and shared-board batch paths.
 //!
-//! This mirrors the NEON backend: the eight direction masks are processed as
-//! four `v128` pairs. Right-side masks are pre-bit-reversed so the same
-//! LSB-to-MSB outflank primitive handles both directions.
+//! This follows the NEON backend's bit-reversal scheme: the eight direction
+//! masks are processed as four `v128` pairs. Right-side masks are
+//! pre-bit-reversed so the same LSB-to-MSB outflank primitive handles both
+//! directions.
 
 use super::lrmask::LRMASK;
 use crate::square::Square;
@@ -131,8 +132,9 @@ unsafe fn flip_index_prepared(
     fold_or_pair(flip_l) | fold_or_pair(flip_rr).reverse_bits()
 }
 
-/// LEFT side masks: E, S, SE, SW. The closest square is the least significant
-/// bit in each mask.
+/// Computes a pair of LSB-first rays. Native left-side masks use this form
+/// directly; right-side masks are bit-reversed before reaching this helper.
+/// The closest square is the least significant bit in each mask.
 #[inline]
 #[target_feature(enable = "simd128")]
 fn flip_left_pair(mask: v128, pp: v128, no: v128, zero: v128, one: v128) -> v128 {
@@ -151,13 +153,13 @@ fn fold_or_pair(x: v128) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flip::flip_portable;
+    use crate::flip::flip_scalar;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-    /// Cross-check WASM SIMD flip against the portable oracle for every square
+    /// Cross-check WASM SIMD flip against the scalar oracle for every square
     /// across many randomly generated player/opponent pairs.
     #[test]
-    fn wasm_simd_matches_portable_on_random_positions() {
+    fn wasm_simd_matches_scalar_on_random_positions() {
         let mut rng = StdRng::seed_from_u64(0x51d1_2800_f11d_f11du64);
         let mut checked = 0usize;
         for _ in 0..2048 {
@@ -170,7 +172,7 @@ mod tests {
                     continue;
                 }
                 let sq = Square::from_u8(sq_idx).unwrap();
-                let expected = flip_portable::flip(sq, p, o);
+                let expected = flip_scalar::flip(sq, p, o);
                 let got = flip(sq, p, o);
                 assert_eq!(
                     got, expected,
@@ -183,8 +185,9 @@ mod tests {
         assert!(checked > 10_000, "too few checks: {checked}");
     }
 
-    /// Edge cases the random sweep is unlikely to hit: an empty board, a
-    /// classic D3-on-starting-position flip, and a corner-anchored long diagonal.
+    /// Edge cases the random sweep is unlikely to hit: an empty board,
+    /// classic C4/D3-on-starting-position flips, and a corner-anchored long
+    /// diagonal.
     #[test]
     fn wasm_simd_specific_cases() {
         let cases: &[(Square, u64, u64)] = &[
@@ -214,7 +217,7 @@ mod tests {
             if (p | o) & (1u64 << sq.index()) != 0 {
                 continue;
             }
-            let expected = flip_portable::flip(sq, p, o);
+            let expected = flip_scalar::flip(sq, p, o);
             let got = flip(sq, p, o);
             assert_eq!(got, expected, "sq={:?} p={:#x} o={:#x}", sq, p, o);
         }

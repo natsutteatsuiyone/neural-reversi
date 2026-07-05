@@ -3,11 +3,11 @@
 use crate::bitboard::Bitboard;
 use crate::square::Square;
 
-// SIMD variants are gated by their own target features, but the dispatcher
-// prefers wider backends first (AVX-512 over AVX2). `allow(dead_code)`
-// keeps the build quiet without having to mirror that dispatch order here.
-// Portable is always compiled: on non-SIMD targets it's the active dispatch;
-// on SIMD targets it remains reachable from `#[cfg(test)]` cross-checks.
+// SIMD modules are gated by their target-feature cfgs. The dispatcher tries
+// the widest matching x86 backend first (AVX-512CD/VL before AVX2).
+// `allow(dead_code)` is used only for modules that can be compiled without
+// being selected by the current dispatch branch, and for the scalar fallback
+// that also serves as the test oracle on SIMD targets.
 #[allow(dead_code)]
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod flip_avx2;
@@ -21,104 +21,114 @@ mod flip_avx512;
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod flip_neon;
 #[allow(dead_code)]
-mod flip_portable;
+mod flip_scalar;
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 mod flip_wasm_simd;
 mod lrmask;
 
 /// Calculates which opponent discs would be flipped by placing a disc at `sq`.
 ///
-/// Dispatches to a platform-specific implementation (AVX-512, AVX2, NEON,
-/// WebAssembly SIMD, or portable scalar bitboard).
+/// Dispatches to a target-specific backend (AVX-512CD/VL, AVX2, NEON,
+/// WebAssembly SIMD, or scalar).
 #[inline(always)]
-pub fn flip(sq: Square, p: Bitboard, o: Bitboard) -> Bitboard {
+pub fn flip(sq: Square, player: Bitboard, opponent: Bitboard) -> Bitboard {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            Bitboard::new(flip_avx512::flip(sq, p.bits(), o.bits()))
+            Bitboard::new(flip_avx512::flip(sq, player.bits(), opponent.bits()))
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
-            Bitboard::new(unsafe { flip_avx2::flip(sq, p.bits(), o.bits()) })
+            Bitboard::new(unsafe { flip_avx2::flip(sq, player.bits(), opponent.bits()) })
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
-            Bitboard::new(unsafe { flip_neon::flip(sq, p.bits(), o.bits()) })
+            Bitboard::new(unsafe { flip_neon::flip(sq, player.bits(), opponent.bits()) })
         }
         all(target_arch = "wasm32", target_feature = "simd128") => {
-            Bitboard::new(flip_wasm_simd::flip(sq, p.bits(), o.bits()))
+            Bitboard::new(flip_wasm_simd::flip(sq, player.bits(), opponent.bits()))
         }
         _ => {
-            Bitboard::new(flip_portable::flip(sq, p.bits(), o.bits()))
+            Bitboard::new(flip_scalar::flip(sq, player.bits(), opponent.bits()))
         }
     }
 }
 
 /// Computes flips for two squares sharing the same `(player, opponent)` board.
 ///
-/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o))`; SIMD backends reuse
-/// shared board broadcasts when that is profitable.
+/// Equivalent to `(flip(sq1, player, opponent), flip(sq2, player, opponent))`;
+/// SIMD backends reuse shared board broadcasts when that is profitable.
 #[inline(always)]
-pub fn flip2(sq1: Square, sq2: Square, p: Bitboard, o: Bitboard) -> (Bitboard, Bitboard) {
+pub fn flip2(
+    sq1: Square,
+    sq2: Square,
+    player: Bitboard,
+    opponent: Bitboard,
+) -> (Bitboard, Bitboard) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_avx512::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
-            let ctx = flip_avx2::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_avx2::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
-            let ctx = unsafe { flip_neon::BoardCtx::new(p.bits(), o.bits()) };
+            let ctx = unsafe { flip_neon::BoardCtx::new(player.bits(), opponent.bits()) };
             let (f0, f1) = unsafe { ctx.flip2(sq1.index(), sq2.index()) };
             (Bitboard::new(f0), Bitboard::new(f1))
         }
         all(target_arch = "wasm32", target_feature = "simd128") => {
-            let ctx = flip_wasm_simd::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_wasm_simd::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
         }
         _ => {
-            (flip(sq1, p, o), flip(sq2, p, o))
+            (flip(sq1, player, opponent), flip(sq2, player, opponent))
         }
     }
 }
 
 /// Computes flips for three squares sharing the same `(player, opponent)` board.
 ///
-/// Equivalent to `(flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o))`;
+/// Equivalent to
+/// `(flip(sq1, player, opponent), flip(sq2, player, opponent), flip(sq3, player, opponent))`;
 /// SIMD backends reuse shared board broadcasts when that is profitable.
 #[inline(always)]
 pub fn flip3(
     sq1: Square,
     sq2: Square,
     sq3: Square,
-    p: Bitboard,
-    o: Bitboard,
+    player: Bitboard,
+    opponent: Bitboard,
 ) -> (Bitboard, Bitboard, Bitboard) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_avx512::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
-            let ctx = flip_avx2::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_avx2::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
-            let ctx = unsafe { flip_neon::BoardCtx::new(p.bits(), o.bits()) };
+            let ctx = unsafe { flip_neon::BoardCtx::new(player.bits(), opponent.bits()) };
             let (f0, f1, f2) = unsafe { ctx.flip3(sq1.index(), sq2.index(), sq3.index()) };
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
         all(target_arch = "wasm32", target_feature = "simd128") => {
-            let ctx = flip_wasm_simd::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_wasm_simd::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
         _ => {
-            (flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o))
+            (
+                flip(sq1, player, opponent),
+                flip(sq2, player, opponent),
+                flip(sq3, player, opponent),
+            )
         }
     }
 }
@@ -133,41 +143,47 @@ pub fn flip4(
     sq2: Square,
     sq3: Square,
     sq4: Square,
-    p: Bitboard,
-    o: Bitboard,
+    player: Bitboard,
+    opponent: Bitboard,
 ) -> (Bitboard, Bitboard, Bitboard, Bitboard) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            let ctx = flip_avx512::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_avx512::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
-            let ctx = flip_avx2::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_avx2::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
-            let ctx = unsafe { flip_neon::BoardCtx::new(p.bits(), o.bits()) };
+            let ctx = unsafe { flip_neon::BoardCtx::new(player.bits(), opponent.bits()) };
             let (f0, f1, f2, f3) =
                 unsafe { ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index()) };
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
         }
         all(target_arch = "wasm32", target_feature = "simd128") => {
-            let ctx = flip_wasm_simd::BoardCtx::new(p.bits(), o.bits());
+            let ctx = flip_wasm_simd::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
         }
         _ => {
-            (flip(sq1, p, o), flip(sq2, p, o), flip(sq3, p, o), flip(sq4, p, o))
+            (
+                flip(sq1, player, opponent),
+                flip(sq2, player, opponent),
+                flip(sq3, player, opponent),
+                flip(sq4, player, opponent),
+            )
         }
     }
 }
 
-/// Crate-private AVX-512 shared-board context for move-list construction.
+/// Crate-private AVX-512 shared-board context for AVX-512-gated callers.
 ///
-/// Only available on builds that compile the AVX-512 backend; callers must
-/// mirror the same `cfg` gate.
+/// Exposes the backend context, including the move-list-oriented two-square
+/// load schedule. Only available on builds that compile the AVX-512 backend;
+/// callers must mirror the same `cfg` gate.
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512cd",
@@ -212,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_portable_flip_matches_reference() {
+    fn test_scalar_flip_matches_reference() {
         let mut seed = 0x6eed_0e11_d15c_a11du64;
 
         for _ in 0..2048 {
@@ -228,7 +244,7 @@ mod tests {
                 }
 
                 assert_eq!(
-                    flip_portable::flip(sq, p, o),
+                    flip_scalar::flip(sq, p, o),
                     reference_flip(sq, p, o),
                     "sq={sq:?} p={p:#018x} o={o:#018x}",
                 );
@@ -237,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn flip2_matches_portable() {
+    fn flip2_matches_scalar() {
         let mut seed = 0x1234_5678_9abc_def0u64;
 
         for _ in 0..4096 {
@@ -253,19 +269,19 @@ mod tests {
             let (a, b) = flip2(sq1, sq2, Bitboard::new(p), Bitboard::new(o));
             assert_eq!(
                 a,
-                Bitboard::new(flip_portable::flip(sq1, p, o)),
+                Bitboard::new(flip_scalar::flip(sq1, p, o)),
                 "sq1={sq1:?} p={p:#018x} o={o:#018x}",
             );
             assert_eq!(
                 b,
-                Bitboard::new(flip_portable::flip(sq2, p, o)),
+                Bitboard::new(flip_scalar::flip(sq2, p, o)),
                 "sq2={sq2:?} p={p:#018x} o={o:#018x}",
             );
         }
     }
 
     #[test]
-    fn flip3_matches_portable() {
+    fn flip3_matches_scalar() {
         let mut seed = 0x0f1e_2d3c_4b5a_6978u64;
 
         for _ in 0..4096 {
@@ -283,24 +299,24 @@ mod tests {
             let (a, b, c) = flip3(sq1, sq2, sq3, Bitboard::new(p), Bitboard::new(o));
             assert_eq!(
                 a,
-                Bitboard::new(flip_portable::flip(sq1, p, o)),
+                Bitboard::new(flip_scalar::flip(sq1, p, o)),
                 "sq1={sq1:?} p={p:#018x} o={o:#018x}",
             );
             assert_eq!(
                 b,
-                Bitboard::new(flip_portable::flip(sq2, p, o)),
+                Bitboard::new(flip_scalar::flip(sq2, p, o)),
                 "sq2={sq2:?} p={p:#018x} o={o:#018x}",
             );
             assert_eq!(
                 c,
-                Bitboard::new(flip_portable::flip(sq3, p, o)),
+                Bitboard::new(flip_scalar::flip(sq3, p, o)),
                 "sq3={sq3:?} p={p:#018x} o={o:#018x}",
             );
         }
     }
 
     #[test]
-    fn flip4_matches_portable() {
+    fn flip4_matches_scalar() {
         let mut seed = 0xc0ff_ee15_d15e_a5edu64;
 
         for _ in 0..4096 {
@@ -320,22 +336,22 @@ mod tests {
             let (a, b, c, d) = flip4(sq1, sq2, sq3, sq4, Bitboard::new(p), Bitboard::new(o));
             assert_eq!(
                 a,
-                Bitboard::new(flip_portable::flip(sq1, p, o)),
+                Bitboard::new(flip_scalar::flip(sq1, p, o)),
                 "sq1={sq1:?} p={p:#018x} o={o:#018x}",
             );
             assert_eq!(
                 b,
-                Bitboard::new(flip_portable::flip(sq2, p, o)),
+                Bitboard::new(flip_scalar::flip(sq2, p, o)),
                 "sq2={sq2:?} p={p:#018x} o={o:#018x}",
             );
             assert_eq!(
                 c,
-                Bitboard::new(flip_portable::flip(sq3, p, o)),
+                Bitboard::new(flip_scalar::flip(sq3, p, o)),
                 "sq3={sq3:?} p={p:#018x} o={o:#018x}",
             );
             assert_eq!(
                 d,
-                Bitboard::new(flip_portable::flip(sq4, p, o)),
+                Bitboard::new(flip_scalar::flip(sq4, p, o)),
                 "sq4={sq4:?} p={p:#018x} o={o:#018x}",
             );
         }

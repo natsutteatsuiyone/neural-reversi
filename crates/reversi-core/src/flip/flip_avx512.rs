@@ -3,8 +3,9 @@
 //! Based on flip_avx512cd.c from edax-reversi.
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/flip_avx512cd.c>
 //!
-//! The single-square `flip(sq, p, o)` API is still the public dispatch target.
-//! [`BoardCtx`] is the shared-board fast path: it broadcasts `(p, !o)` once and
+//! The parent flip module still dispatches the single-square
+//! `flip(sq, player, opponent)` API through this backend. [`BoardCtx`] is the
+//! shared-board fast path: it broadcasts `(player, !opponent)` once and
 //! evaluates one to four runtime squares for move-list and shallow endgame
 //! callers. No const-square specialization is used.
 
@@ -110,9 +111,9 @@ macro_rules! reduce_zmm_two_pairs_or_u64 {
 
 // Flip kernels.
 // The multi-square kernels intentionally keep the right-side LZCNT chains and
-// left-side LS1B chains in one body. Splitting those chains into helper macros
-// makes the code shorter but tends to hide the scheduling that protects this
-// path from latency regressions.
+// left-side LS1B chains in one body. Splitting those chains into smaller
+// helper macros makes the code shorter but tends to hide the scheduling that
+// protects this path from latency regressions.
 #[cfg(target_arch = "x86_64")]
 macro_rules! flip_prepared_ymm_body {
     ($x:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr) => {{
@@ -232,9 +233,10 @@ macro_rules! flip_pair_body {
 #[cfg(target_arch = "x86_64")]
 macro_rules! flip_pair_wide_load_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
-        // Move-list generation calls `flip2` in a dense loop. Two 64B loads
-        // plus lane shuffles have lower instruction count and benchmark better
-        // there than the latency-first split-load schedule above.
+        // Move-list generation calls the wide-load two-square helper in a dense
+        // loop. Two 64B loads plus lane shuffles have lower instruction count
+        // and benchmark better there than the latency-first split-load
+        // schedule above.
         let z0 = unsafe {
             _mm512_load_si512(super::lrmask::LRMASK.get_unchecked($x0).0.as_ptr() as *const __m512i)
         };
@@ -272,9 +274,9 @@ macro_rules! flip_pair_wide_load_body {
 
 #[cfg(target_arch = "x86_64")]
 macro_rules! flip_runtime_body {
-    ($x:expr, $p:expr, $o:expr) => {{
-        let pp = _mm256_set1_epi64x($p as i64);
-        let no = _mm256_set1_epi64x((!$o) as i64);
+    ($x:expr, $player:expr, $opponent:expr) => {{
+        let pp = _mm256_set1_epi64x($player as i64);
+        let no = _mm256_set1_epi64x((!$opponent) as i64);
         let zero = _mm256_setzero_si256();
         let msb = _mm256_set1_epi64x(0x8000_0000_0000_0000u64 as i64);
         flip_prepared_ymm_body!($x, pp, no, zero, msb)
@@ -288,8 +290,8 @@ macro_rules! flip_runtime_body {
     target_feature = "avx512vl"
 ))]
 #[inline(always)]
-pub fn flip_index(x: usize, p: u64, o: u64) -> u64 {
-    unsafe { flip_runtime_body!(x, p, o) }
+pub fn flip_index(x: usize, player: u64, opponent: u64) -> u64 {
+    unsafe { flip_runtime_body!(x, player, opponent) }
 }
 
 #[cfg(all(
@@ -302,27 +304,30 @@ pub fn flip_index(x: usize, p: u64, o: u64) -> u64 {
 ))]
 #[target_feature(enable = "avx512f,avx512cd,avx512vl")]
 #[inline]
-pub fn flip_index(x: usize, p: u64, o: u64) -> u64 {
-    unsafe { flip_runtime_body!(x, p, o) }
+pub fn flip_index(x: usize, player: u64, opponent: u64) -> u64 {
+    unsafe { flip_runtime_body!(x, player, opponent) }
 }
 
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
 #[cfg(target_arch = "x86_64")]
 #[inline]
-pub fn flip(sq: Square, p: u64, o: u64) -> u64 {
-    flip_index(sq.index(), p, o)
+pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
+    flip_index(sq.index(), player, opponent)
 }
 
-/// SIMD board context for runtime squares that share the same `(p, o)` board.
+/// SIMD board context for runtime squares that share the same `(player,
+/// opponent)` board.
 ///
-/// [`BoardCtx::new`] broadcasts `(p, !o)` and helper constants once. `flip2`,
-/// `flip3`, and `flip4` reuse those broadcasts for paired ZMM work; `flip1`
-/// derives the YMM constants with `_mm512_castsi512_si256` for the trailing
-/// single square in move-list generation. All methods are `#[inline(always)]`
-/// and are intended to fold into AVX-512-gated callers.
+/// [`BoardCtx::new`] broadcasts `(player, !opponent)` and helper constants
+/// once. `flip2` and `flip4` use paired ZMM kernels; `flip3` combines a YMM
+/// single-square chain for `x0` with a paired ZMM chain for `(x1, x2)`.
+/// `flip1` derives YMM constants with `_mm512_castsi512_si256` for a generic
+/// single runtime square, including trailing singles in move-list generation.
+/// All methods are `#[inline(always)]` and are intended to fold into
+/// AVX-512-gated callers.
 #[cfg(target_arch = "x86_64")]
 #[derive(Copy, Clone)]
-pub struct BoardCtx {
+pub(crate) struct BoardCtx {
     pp: __m512i,
     no: __m512i,
     zero: __m512i,
@@ -332,13 +337,14 @@ pub struct BoardCtx {
 
 #[cfg(target_arch = "x86_64")]
 impl BoardCtx {
-    /// Broadcasts `(p, !o)` and the working constants into wide vector lanes.
+    /// Broadcasts `(player, !opponent)` and the working constants into wide
+    /// vector lanes.
     #[inline(always)]
-    pub fn new(p: u64, o: u64) -> Self {
+    pub fn new(player: u64, opponent: u64) -> Self {
         unsafe {
             Self {
-                pp: _mm512_set1_epi64(p as i64),
-                no: _mm512_set1_epi64((!o) as i64),
+                pp: _mm512_set1_epi64(player as i64),
+                no: _mm512_set1_epi64((!opponent) as i64),
                 zero: _mm512_setzero_si512(),
                 msb: _mm512_set1_epi64(0x8000_0000_0000_0000u64 as i64),
                 all_ones: _mm512_set1_epi64(-1),
@@ -370,8 +376,8 @@ impl BoardCtx {
         unsafe { flip_pair_body!(x0, x1, self.pp, self.no, self.zero, self.msb, self.all_ones) }
     }
 
-    /// Computes two flip masks with the load schedule that is fastest in the
-    /// dense move-list loop.
+    /// Computes two flip masks with the load schedule tuned for dense
+    /// move-list loops.
     #[inline(always)]
     pub fn flip2_wide_load(&self, x0: usize, x1: usize) -> (u64, u64) {
         unsafe {

@@ -1,4 +1,4 @@
-//! NEON variant of flip function.
+//! NEON flip backend for single-square and shared-board batch paths.
 //!
 //! The kernel uses carry propagation for the LSB-to-MSB directions;
 //! MSB-to-LSB directions are bit-reversed and run through the same
@@ -6,13 +6,11 @@
 //!
 //! Per square, [`NEON_MASK`] holds the eight ray masks as four pairs
 //! (right-side masks bit-reversed, the second pair of each side
-//! complemented), [`BoardCtx::flip_pairs`] computes the masked spans for all
-//! eight rays, and one of two reductions folds them: [`fold_addp`] for
+//! complemented), [`BoardCtx::flip_pairs`] computes the spans and merges them
+//! with the ray masks, and one of two reductions folds them: [`fold_addp`] for
 //! latency-bound flips, [`fold_dual`] for throughput-bound batched flips.
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_neon_rbit.c>
-//! (same lowest-outflank + bit-reversal algorithm; the complemented-mask
-//! merge and the two reductions are local changes).
 
 use super::lrmask::LRMASK;
 use crate::square::Square;
@@ -38,8 +36,9 @@ const fn build_neon_masks() -> [NeonMaskEntry; 66] {
         }
         // The second pair of each side (slots 2-3 and 6-7) is stored
         // COMPLEMENTED: the kernel re-derives `x & mask` as `BIC(x, !mask)`
-        // at the same cost, and having `!mask_b` in a register lets the pair
-        // merge in `merge_spans` use one `BCAX` instead of an AND plus an OR.
+        // at the same cost. The complemented mask also lets SHA3 builds merge
+        // with one `BCAX` instead of an AND plus an OR; non-SHA3 builds use it
+        // directly as the `BSL` selector.
         out[i].0[2] = !out[i].0[2];
         out[i].0[3] = !out[i].0[3];
         out[i].0[6] = !out[i].0[6];
@@ -51,10 +50,10 @@ const fn build_neon_masks() -> [NeonMaskEntry; 66] {
 
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
 ///
-/// # Safety
+/// # Target features
 ///
-/// Requires NEON, which is mandatory on aarch64 and guaranteed by this
-/// module's `cfg` gate. (`Square::index()` is always a valid mask index.)
+/// Requires NEON. The parent module only selects this backend under the
+/// matching `cfg` gate. (`Square::index()` is always a valid mask index.)
 #[target_feature(enable = "neon")]
 #[inline]
 pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
@@ -88,11 +87,11 @@ impl BoardCtx {
         }
     }
 
-    /// Computes the per-ray flips for `pos` into a left pair (normal
-    /// bit-space) and a right pair (bit-reversed space). Returns
-    /// `(flip_l, flip_rr)` for a reduction to fold. All four mask pairs are
-    /// loaded before the span kernels so the normal and bit-reversed sides can
-    /// expose independent arithmetic chains to the scheduler.
+    /// Computes the merged flips for `pos` into a left pair (normal bit-space)
+    /// and a right pair (bit-reversed space). Each returned lane is the OR of
+    /// disjoint rays from the same side. All four mask pairs are loaded before
+    /// the span kernels so the normal and bit-reversed sides can expose
+    /// independent arithmetic chains to the scheduler.
     ///
     /// # Safety
     ///
@@ -176,8 +175,9 @@ impl BoardCtx {
 }
 
 /// Latency-optimized reduction: fold both 2-lane results with a single pairwise
-/// add (ADDP). Lane 0 holds the OR of `flip_l`'s two rays, lane 1 the OR of
-/// `flip_rr`'s two rays (the rays are disjoint, so add matches or).
+/// add (ADDP). Lane 0 holds the OR of `flip_l`'s two lanes, lane 1 the OR of
+/// `flip_rr`'s two lanes. The lanes contain disjoint ray groups, so add
+/// matches OR.
 #[target_feature(enable = "neon")]
 #[inline]
 fn fold_addp(flip_l: uint64x2_t, flip_rr: uint64x2_t) -> u64 {
@@ -270,9 +270,9 @@ fn neg_u64(x: uint64x2_t) -> uint64x2_t {
     vreinterpretq_u64_s64(vnegq_s64(vreinterpretq_s64_u64(x)))
 }
 
-/// The two lanes in each pair represent distinct rays from the origin square,
-/// so their bitboards never overlap. A horizontal add therefore matches OR
-/// and compiles to a cheaper reduction on AArch64.
+/// The two lanes in each pair contain disjoint ray groups from the origin
+/// square, so their bitboards never overlap. A horizontal add therefore
+/// matches OR and compiles to a cheaper reduction on AArch64.
 #[inline]
 #[target_feature(enable = "neon")]
 fn fold_or_pair(x: uint64x2_t) -> u64 {
@@ -283,13 +283,13 @@ fn fold_or_pair(x: uint64x2_t) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flip::flip_portable;
+    use crate::flip::flip_scalar;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-    /// Cross-check NEON flip against the kindergarten oracle for every square
+    /// Cross-check NEON flip against the scalar oracle for every square
     /// across many randomly generated player/opponent pairs.
     #[test]
-    fn neon_matches_kindergarten_on_random_positions() {
+    fn neon_matches_scalar_on_random_positions() {
         let mut rng = StdRng::seed_from_u64(0xdead_beef);
         let mut checked = 0usize;
         for _ in 0..2048 {
@@ -302,7 +302,7 @@ mod tests {
                     continue;
                 }
                 let sq = Square::from_u8(sq_idx).unwrap();
-                let expected = flip_portable::flip(sq, p, o);
+                let expected = flip_scalar::flip(sq, p, o);
                 let got = unsafe { flip(sq, p, o) };
                 assert_eq!(
                     got, expected,
@@ -315,8 +315,9 @@ mod tests {
         assert!(checked > 10_000, "too few checks: {checked}");
     }
 
-    /// Edge cases the random sweep is unlikely to hit: an empty board, a
-    /// classic D3-on-starting-position flip, and a corner-anchored long diagonal.
+    /// Edge cases the random sweep is unlikely to hit: an empty board,
+    /// classic C4/D3-on-starting-position flips, and a corner-anchored long
+    /// diagonal.
     #[test]
     fn neon_specific_cases() {
         let cases: &[(Square, u64, u64)] = &[
@@ -347,7 +348,7 @@ mod tests {
             if (p | o) & (1u64 << sq.index()) != 0 {
                 continue;
             }
-            let expected = flip_portable::flip(sq, p, o);
+            let expected = flip_scalar::flip(sq, p, o);
             let got = unsafe { flip(sq, p, o) };
             assert_eq!(got, expected, "sq={:?} p={:#x} o={:#x}", sq, p, o);
         }

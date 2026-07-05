@@ -72,7 +72,7 @@ LR-mask table approach; the active variant is selected at compile time:
 | `avx512cd` + `avx512vl`        | `flip/flip_avx512.rs`      |
 | `avx2`                         | `flip/flip_avx2.rs`        |
 | `neon` (aarch64)               | `flip/flip_neon.rs`        |
-| none                           | `flip/flip_portable.rs`    |
+| none                           | `flip/flip_scalar.rs`      |
 
 The disc-count update for the very last empty square is handled by the
 `search/endgame/solve/solve1_*` leaf solvers, where the specialised

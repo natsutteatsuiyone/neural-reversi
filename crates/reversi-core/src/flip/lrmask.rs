@@ -1,12 +1,12 @@
-//! Shared per-square direction-mask table used by the SIMD flip backends.
+//! Shared per-square direction-mask table used by the flip backends.
 //!
 //! Layout per entry (8 × `u64`):
 //!   `[0..4]` = LEFT side  (E, S, SE, SW shifts toward higher bits).
 //!   `[4..8]` = RIGHT side (W, N, NW, NE shifts toward lower bits).
 //!
-//! Trailing entries 64 and 65 are zero placeholders for "pass" / out-of-range
-//! indices. The values match the Edax `MASK_LR` table (`flip.c`, duplicated
-//! as `LR_MASK` in `flip_avx_acepck.c`).
+//! Entry 64 is the zero placeholder for "pass"; entry 65 is the zero
+//! placeholder for out-of-range/sentinel indices. The values match the Edax
+//! `MASK_LR` table (`flip.c`, duplicated as `LR_MASK` in `flip_avx_acepck.c`).
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip.c>
 
@@ -80,5 +80,5 @@ pub(super) static LRMASK: [LrmaskEntry; 66] = [
     LrmaskEntry([ 0x8000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x3f00000000000000, 0x0040404040404040, 0x0020100804020100, 0x0080000000000000 ]),
     LrmaskEntry([ 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x7f00000000000000, 0x0080808080808080, 0x0040201008040201, 0x0000000000000000 ]),
     LrmaskEntry([ 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000 ]), // pass
-    LrmaskEntry([ 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000 ]),
+    LrmaskEntry([ 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000 ]), // out-of-range/sentinel
 ];
