@@ -531,10 +531,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         return ScaledScore::MAX;
     }
 
-    // Issue the ETC child prefetches before the TT probe: the children's cluster
-    // fetches then overlap the probe's own memory stall instead of following it.
-    let etc_eligible = !NT::PV_NODE && depth >= SS::MIN_ETC_DEPTH;
-    if etc_eligible {
+    let use_etc = !NT::PV_NODE && depth >= SS::MIN_ETC_DEPTH;
+    if use_etc {
+        // Hide child TT latency behind the parent TT probe.
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             ctx.tt.prefetch(next.hash());
@@ -556,7 +555,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
 
         // Enhanced Transposition Cutoff
-        if etc_eligible {
+        if use_etc {
             ctx.counters.increment_etc_attempt();
             if let Some(score) = enhanced_transposition_cutoff::<SS>(
                 ctx,
