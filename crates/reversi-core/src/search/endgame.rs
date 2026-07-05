@@ -625,6 +625,13 @@ fn shallow_search_move(
     score
 }
 
+/// Scores a position with exactly one empty square.
+#[doc(hidden)]
+#[inline(always)]
+pub fn solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
+    solve::solve_last1(player, alpha, sq)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

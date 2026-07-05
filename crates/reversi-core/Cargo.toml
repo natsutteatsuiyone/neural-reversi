@@ -39,7 +39,7 @@ name = "flip"
 harness = false
 
 [[bench]]
-name = "count_last_flip"
+name = "solve1"
 harness = false
 
 [[bench]]

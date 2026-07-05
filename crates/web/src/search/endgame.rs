@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use reversi_core::board::Board;
 use reversi_core::constants::{SCORE_INF, SCORE_MAX};
-use reversi_core::count_last_flip::solve1 as solve_last1;
+use reversi_core::search::solve_last1;
 use reversi_core::square::Square;
 use reversi_core::types::{Depth, Score};
 use reversi_core::{bitboard, flip, stability};

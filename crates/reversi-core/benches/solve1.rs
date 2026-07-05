@@ -1,11 +1,12 @@
 use std::hint::black_box;
 use std::time::Duration;
 
-use criterion::{BatchSize, BenchmarkId, Criterion};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use reversi_core::bitboard::Bitboard;
 use reversi_core::constants::SCORE_MAX;
-use reversi_core::count_last_flip::{count_last_flip, solve1};
+use reversi_core::flip::flip;
+use reversi_core::search::solve_last1;
 use reversi_core::square::Square;
 use reversi_core::types::Score;
 
@@ -196,7 +197,7 @@ fn trace_stats(trace: &[Solve1TraceCase]) -> TraceStats {
     for case in trace {
         stats.total += 1;
         let player = Bitboard::new(case.player);
-        let n_flipped = count_last_flip(player, case.sq);
+        let n_flipped = last_flip_count(player, case.sq);
         if n_flipped != 0 {
             stats.hot_flip += 1;
             continue;
@@ -210,7 +211,7 @@ fn trace_stats(trace: &[Solve1TraceCase]) -> TraceStats {
         };
         if score_if_opp_passes <= case.alpha {
             stats.player_pass_pruned += 1;
-        } else if count_last_flip(!player, case.sq) != 0 {
+        } else if last_flip_count(!player, case.sq) != 0 {
             stats.opponent_checked += 1;
         } else {
             stats.both_pass += 1;
@@ -219,12 +220,19 @@ fn trace_stats(trace: &[Solve1TraceCase]) -> TraceStats {
     stats
 }
 
+fn last_flip_count(player: Bitboard, sq: Square) -> Score {
+    let sq_bit = 1u64 << sq.index();
+    let player = Bitboard::new(player.bits() & !sq_bit);
+    let opponent = Bitboard::new(!player.bits() & !sq_bit);
+    2 * flip(sq, player, opponent).bits().count_ones() as Score
+}
+
 #[inline(always)]
 fn checksum_trace(cases: &[Solve1TraceCase]) -> Score {
     let mut acc = 0;
     for &case in cases {
         let player = Bitboard::new(black_box(case.player));
-        let score = solve1(player, black_box(case.alpha), black_box(case.sq));
+        let score = solve_last1(player, black_box(case.alpha), black_box(case.sq));
         acc ^= score ^ case.root_empty_count as Score;
     }
     black_box(acc)
@@ -256,16 +264,16 @@ fn checksum_trace_with_cache_pressure(
         let salt = case.player ^ ((case.alpha as u64) << 48) ^ case.sq.index() as u64;
         acc ^= touch_scratch(scratch, salt) as Score;
         let player = Bitboard::new(black_box(case.player));
-        let score = solve1(player, black_box(case.alpha), black_box(case.sq));
+        let score = solve_last1(player, black_box(case.alpha), black_box(case.sq));
         acc ^= score ^ case.root_empty_count as Score;
     }
     black_box(acc)
 }
 
-pub(crate) fn bench_solve1(c: &mut Criterion) {
+fn bench_solve1(c: &mut Criterion) {
     let fixture = load_fixture(FIXTURE_BYTES);
 
-    let mut group = c.benchmark_group("count_last_flip::solve1/leaf_trace");
+    let mut group = c.benchmark_group("search::solve_last1/leaf_trace");
     group.sample_size(100);
     group.measurement_time(Duration::from_secs(2));
 
@@ -324,3 +332,13 @@ pub(crate) fn bench_solve1(c: &mut Criterion) {
     );
     group.finish();
 }
+
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .warm_up_time(Duration::from_millis(750))
+        .measurement_time(Duration::from_secs(4))
+        .sample_size(100);
+    targets = bench_solve1
+}
+criterion_main!(benches);

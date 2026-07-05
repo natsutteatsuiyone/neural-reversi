@@ -74,8 +74,8 @@ LR-mask table approach; the active variant is selected at compile time:
 | `neon` (aarch64)               | `flip/flip_neon.rs`        |
 | none                           | `flip/flip_portable.rs`    |
 
-The disc-count update for the very last empty square has a separate path
-(`count_last_flip/`) used at endgame leaves, where the specialised
+The disc-count update for the very last empty square is handled by the
+`search/endgame/solve/solve1_*` leaf solvers, where the specialised
 implementation skips work that the generic `flip` cannot avoid.
 
 Legal-move generation goes straight from the player/opponent bitboards via
@@ -437,12 +437,12 @@ The integration tests in `tests/` require real weights to load.
 | ------------------------------------ | ------------------------------------------------------------------------- |
 | Bitboard                             | `src/bitboard.rs`                                                         |
 | Board / squares / discs              | `src/board.rs`, `src/square.rs`, `src/disc.rs`                            |
-| Flip dispatch                        | `src/flip.rs` + `src/flip/*`, `src/count_last_flip{.rs,/}`                |
+| Flip dispatch                        | `src/flip.rs` + `src/flip/*`                                             |
 | Move list / empty list               | `src/move_list.rs`, `src/empty_list.rs`                                   |
 | Game state                           | `src/game_state.rs`                                                       |
 | Search core                          | `src/search.rs`                                                           |
 | Midgame search                       | `src/search/midgame.rs`                                                   |
-| Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/solve.rs`, `src/search/endgame/cache.rs` |
+| Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/solve.rs`, `src/search/endgame/solve/*`, `src/search/endgame/cache.rs` |
 | Parallelisation                      | `src/search/threading.rs`                                                 |
 | Search context / stack               | `src/search/search_context.rs`, `src/search/search_stack.rs`              |
 | Strategy / node type                 | `src/search/search_strategy.rs`, `src/search/node_type.rs`                |
@@ -469,7 +469,7 @@ cargo bench -p reversi-core --bench pattern_feature
 cargo bench -p reversi-core --bench perft
 cargo bench -p reversi-core --bench bitboard
 cargo bench -p reversi-core --bench flip
-cargo bench -p reversi-core --bench count_last_flip
+cargo bench -p reversi-core --bench solve1
 cargo bench -p reversi-core --bench stability
 cargo bench -p reversi-core --bench move_list
 cargo bench -p reversi-core --bench endgame

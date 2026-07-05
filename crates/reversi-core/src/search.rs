@@ -20,7 +20,7 @@ pub mod threading;
 pub mod time_control;
 
 #[doc(hidden)]
-pub use endgame::{EndGameCaches, null_window_search};
+pub use endgame::{EndGameCaches, null_window_search, solve_last1};
 
 use std::sync::Arc;
 

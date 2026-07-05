@@ -3,6 +3,29 @@
 //! Contains solvers for positions with one to four empty squares and the
 //! parity ordering used before the four-empty solver.
 
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+mod solve1_bmi2;
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+use solve1_bmi2 as solve1_imp;
+
+#[cfg(target_arch = "aarch64")]
+mod solve1_neon;
+#[cfg(target_arch = "aarch64")]
+use solve1_neon as solve1_imp;
+
+#[cfg(all(
+    not(target_arch = "aarch64"),
+    not(all(target_arch = "x86_64", target_feature = "bmi2"))
+))]
+mod solve1_scalar;
+#[cfg(all(
+    not(target_arch = "aarch64"),
+    not(all(target_arch = "x86_64", target_feature = "bmi2"))
+))]
+use solve1_scalar as solve1_imp;
+
+mod solve1_tables;
+
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::SCORE_INF;
@@ -746,5 +769,61 @@ fn solve2_fallback(
 #[inline(always)]
 pub(super) fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -> Score {
     ctx.increment_nodes();
-    crate::count_last_flip::solve1(player, alpha, sq)
+    solve_last1(player, alpha, sq)
+}
+
+/// Scores a position with exactly one empty square.
+#[inline(always)]
+pub(super) fn solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
+    solve1_imp::solve1(player.bits(), alpha, sq)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::{SCORE_MAX, SCORE_MIN};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    fn last_flip_count(player: Bitboard, sq: Square) -> Score {
+        let sq_bit = 1u64 << sq.index();
+        let player = Bitboard::new(player.bits() & !sq_bit);
+        let opponent = Bitboard::new(!player.bits() & !sq_bit);
+        2 * flip::flip(sq, player, opponent).bits().count_ones() as Score
+    }
+
+    #[test]
+    fn solve_last1_matches_direct_counts() {
+        let mut rng = StdRng::seed_from_u64(0x51d3_f00d);
+        for _ in 0..2048 {
+            let p: u64 = rng.random();
+            for sq_idx in 0..64u8 {
+                let sq_bit = 1u64 << sq_idx;
+                if p & sq_bit != 0 {
+                    continue;
+                }
+
+                let sq = Square::from_u8(sq_idx).unwrap();
+                let player = Bitboard::new(p);
+                let alpha = rng.random_range(SCORE_MIN..=SCORE_MAX);
+                let mut n_flipped = last_flip_count(player, sq);
+                let mut expected = 2 * player.count() as Score - SCORE_MAX + 2 + n_flipped;
+
+                if n_flipped == 0 {
+                    let score_if_opp_passes = if expected > 0 { expected } else { expected - 2 };
+                    if score_if_opp_passes > alpha {
+                        n_flipped = last_flip_count(!player, sq);
+                        expected = if n_flipped > 0 {
+                            expected - 2 - n_flipped
+                        } else {
+                            score_if_opp_passes
+                        };
+                    } else {
+                        expected = score_if_opp_passes;
+                    }
+                }
+
+                assert_eq!(solve_last1(player, alpha, sq), expected);
+            }
+        }
+    }
 }
