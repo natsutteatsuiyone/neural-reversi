@@ -12,7 +12,7 @@ use reversi_core::board::Board;
 use reversi_core::eval::Eval;
 use reversi_core::move_list::MoveList;
 use reversi_core::probcut::Selectivity;
-use reversi_core::search::search_context::SearchContext;
+use reversi_core::search::context::SearchContext;
 use reversi_core::square::Square;
 use reversi_core::transposition_table::TranspositionTable;
 

@@ -22,9 +22,9 @@ use reversi_core::{
     probcut::Selectivity,
     search::{
         self, SearchProgress, SearchRunOptions,
+        counters::SearchCounters,
         options::SearchOptions,
-        search_counters::SearchCounters,
-        search_result::{PvMove, SearchResult},
+        result::{PvMove, SearchResult},
     },
     square::Square,
     types::{Depth, Scoref},

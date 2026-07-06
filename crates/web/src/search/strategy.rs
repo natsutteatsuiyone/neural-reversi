@@ -5,7 +5,7 @@ use reversi_core::{
 
 use crate::probcut as web_probcut;
 
-use super::{endgame, search_context::SearchContext};
+use super::{context::SearchContext, endgame};
 
 /// Marker trait for search strategy specialization.
 pub(crate) trait SearchStrategy: Copy + Clone + 'static {

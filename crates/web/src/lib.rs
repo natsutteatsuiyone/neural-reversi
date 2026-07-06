@@ -12,7 +12,7 @@ pub use probcut_datagen::{ProbCutDatagen, ProbCutDatagenResult};
 use crate::{
     eval::Eval,
     level::Level,
-    search::{Search, search_context::SearchContext},
+    search::{Search, context::SearchContext},
     transposition_table::TranspositionTable,
 };
 use js_sys::Function;
@@ -540,7 +540,7 @@ impl BenchmarkRunner {
 
     /// Benchmarks endgame search performance using FFO #40 and #41.
     pub fn bench_endgame(&self, iterations: u32) -> BenchmarkResult {
-        use crate::search::search_result::SearchResult;
+        use crate::search::result::SearchResult;
 
         let tt = Rc::new(TranspositionTable::new(DEFAULT_TT_MB));
         let mut search = Search::new(Rc::clone(&tt), Rc::clone(&self.eval));

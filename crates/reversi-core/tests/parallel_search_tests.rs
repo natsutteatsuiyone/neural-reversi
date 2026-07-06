@@ -6,7 +6,7 @@ use reversi_core::disc::Disc;
 use reversi_core::level::Level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
-use reversi_core::search::search_result::SearchResult;
+use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources};
 

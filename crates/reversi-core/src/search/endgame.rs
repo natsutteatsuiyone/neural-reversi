@@ -2,6 +2,7 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c>
 
+mod cache;
 mod solve;
 
 use std::sync::Arc;
@@ -15,11 +16,10 @@ use crate::level::Level;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
-use crate::search::endgame_cache::EndGameCache;
+use crate::search::context::SearchContext;
 use crate::search::node_type::{NonPV, Root};
-use crate::search::search_context::SearchContext;
-use crate::search::search_result::SearchResult;
-use crate::search::search_strategy::{EndGameStrategy, MidGameStrategy};
+use crate::search::result::SearchResult;
+use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_endgame_iteration;
 use crate::search::{SearchProgress, SearchTask, midgame, search};
@@ -28,6 +28,7 @@ use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore, Score};
 
+use self::cache::EndGameCache;
 use self::solve::{solve1, solve2, solve3, solve4, sort_last4};
 
 /// Depth threshold for switching to null window search in endgame.

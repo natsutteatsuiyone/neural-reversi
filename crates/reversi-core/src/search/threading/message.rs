@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use crate::search::SearchTask;
-use crate::search::search_result::SearchResult;
+use crate::search::result::SearchResult;
 
 use super::thread::Thread;
 

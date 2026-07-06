@@ -5,7 +5,7 @@ use std::thread::{JoinHandle, sleep};
 use std::time::{Duration, Instant};
 
 use crate::search::SearchTask;
-use crate::search::search_result::SearchResult;
+use crate::search::result::SearchResult;
 use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
 

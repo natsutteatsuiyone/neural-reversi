@@ -14,7 +14,7 @@ pub use network_small::NetworkSmall;
 
 use crate::board::Board;
 use crate::constants::INITIAL_EMPTY_COUNT;
-use crate::search::search_context::SearchContext;
+use crate::search::context::SearchContext;
 use crate::types::ScaledScore;
 
 use self::network_small::ENDGAME_START_PLY;

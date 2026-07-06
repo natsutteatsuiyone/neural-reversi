@@ -10,16 +10,14 @@ use crate::eval::Eval;
 use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
+use crate::search::counters::SearchCounters;
 use crate::search::root_move::{RootMove, RootMoves};
-use crate::search::search_counters::SearchCounters;
-use crate::search::search_stack::SearchStack;
 use crate::search::side_to_move::SideToMove;
+use crate::search::stack::SearchStack;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::ScaledScore;
-
-pub use crate::search::search_stack::StackRecord;
 
 /// The search context that maintains all state during search operations.
 pub struct SearchContext {

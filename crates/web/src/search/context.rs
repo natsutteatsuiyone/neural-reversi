@@ -8,7 +8,7 @@ use reversi_core::{
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
     probcut::Selectivity,
-    search::{root_move::RootMove, search_context::StackRecord, side_to_move::SideToMove},
+    search::{root_move::RootMove, side_to_move::SideToMove, stack::StackRecord},
     square::Square,
     types::{Depth, ScaledScore, Scoref},
 };

@@ -12,7 +12,7 @@ use std::slice;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
-use crate::search::search_context::SearchContext;
+use crate::search::context::SearchContext;
 use crate::square::Square;
 
 pub use iterator::{BestFirstMoveIterator, ConcurrentMoveIterator};

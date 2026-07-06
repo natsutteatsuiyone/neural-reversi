@@ -7,7 +7,7 @@ use reversi_core::{
     types::{Depth, ScaledScore},
 };
 
-use crate::search::{self, search_context::SearchContext, search_strategy::MidGameStrategy};
+use crate::search::{self, context::SearchContext, strategy::MidGameStrategy};
 
 /// Holds statistical parameters for ProbCut prediction models.
 ///

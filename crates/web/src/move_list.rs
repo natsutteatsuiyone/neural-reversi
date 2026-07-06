@@ -8,7 +8,7 @@ use reversi_core::{
     types::{Depth, ScaledScore},
 };
 
-use crate::search::{self, search_context::SearchContext, search_strategy::SearchStrategy};
+use crate::search::{self, context::SearchContext, strategy::SearchStrategy};
 
 /// Ordering value assigned to wipeout moves.
 const WIPEOUT_VALUE: i32 = 1 << 30;

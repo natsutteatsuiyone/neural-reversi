@@ -8,7 +8,7 @@ use reversi_core::{
     types::ScaledScore,
 };
 
-use crate::{eval::network::Network, search::search_context::SearchContext};
+use crate::{eval::network::Network, search::context::SearchContext};
 
 macro_rules! eval_weights_literal {
     () => {

@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use crate::board::Board;
+use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::midgame;
 use crate::search::node_type::NonPV;
-use crate::search::search_context::SearchContext;
 use crate::search::threading::Thread;
 use crate::types::{Depth, ScaledScore};
 

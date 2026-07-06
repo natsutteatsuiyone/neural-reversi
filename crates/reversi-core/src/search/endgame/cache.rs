@@ -114,6 +114,7 @@ impl EndGameCache {
     }
 
     /// Clears all entries.
+    #[cfg(test)]
     pub fn clear(&mut self) {
         self.table.fill(RawEntry::EMPTY);
     }

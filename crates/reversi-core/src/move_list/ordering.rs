@@ -1,10 +1,10 @@
 //! Move evaluation and ordering.
 
 use crate::board::Board;
+use crate::search::context::SearchContext;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
-use crate::search::search_context::SearchContext;
-use crate::search::search_strategy::SearchStrategy;
+use crate::search::strategy::SearchStrategy;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 

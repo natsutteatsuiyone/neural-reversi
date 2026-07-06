@@ -30,7 +30,7 @@ use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::SCORE_INF;
 use crate::flip;
-use crate::search::search_context::SearchContext;
+use crate::search::context::SearchContext;
 use crate::square::Square;
 use crate::types::Score;
 

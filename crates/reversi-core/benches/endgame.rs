@@ -11,7 +11,7 @@ use reversi_core::board::Board;
 use reversi_core::eval::Eval;
 use reversi_core::obf::ObfPosition;
 use reversi_core::probcut::Selectivity;
-use reversi_core::search::search_context::SearchContext;
+use reversi_core::search::context::SearchContext;
 use reversi_core::search::{EndGameCaches, null_window_search};
 use reversi_core::transposition_table::TranspositionTable;
 use reversi_core::types::Score;

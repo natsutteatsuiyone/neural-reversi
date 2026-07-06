@@ -440,13 +440,13 @@ The integration tests in `tests/` require real weights to load.
 | Flip dispatch                        | `src/flip.rs` + `src/flip/*`                                             |
 | Move list / empty list               | `src/move_list.rs`, `src/empty_list.rs`                                   |
 | Game state                           | `src/game_state.rs`                                                       |
-| Search core                          | `src/search.rs`                                                           |
+| Search core                          | `src/search.rs`, `src/search/pvs.rs`                                      |
 | Midgame search                       | `src/search/midgame.rs`                                                   |
 | Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/solve.rs`, `src/search/endgame/solve/*`, `src/search/endgame/cache.rs` |
 | Parallelisation                      | `src/search/threading.rs`                                                 |
-| Search context / stack               | `src/search/search_context.rs`, `src/search/search_stack.rs`              |
-| Strategy / node type                 | `src/search/search_strategy.rs`, `src/search/node_type.rs`                |
-| Result / root moves / Multi-PV       | `src/search/search_result.rs`, `src/search/root_move.rs`                  |
+| Search context / stack               | `src/search/context.rs`, `src/search/stack.rs`                            |
+| Strategy / node type                 | `src/search/strategy.rs`, `src/search/node_type.rs`                       |
+| Result / root moves / Multi-PV       | `src/search/result.rs`, `src/search/root_move.rs`                         |
 | Time control                         | `src/search/time_control.rs`                                              |
 | TT / ProbCut / Stability             | `src/transposition_table.rs`, `src/probcut.rs`, `src/stability.rs`        |
 | Evaluator / cache                    | `src/eval.rs`, `src/eval/eval_cache.rs`                                   |

@@ -2,8 +2,8 @@
 
 use crate::{
     probcut::Selectivity,
+    search::counters::SearchCounters,
     search::root_move::{RootMove, RootMoves},
-    search::search_counters::SearchCounters,
     square::Square,
     types::{Depth, ScaledScore, Scoref},
 };

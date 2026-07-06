@@ -9,7 +9,7 @@ use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level;
 use reversi_core::probcut::Selectivity;
-use reversi_core::search::search_result::{PvMove, SearchResult};
+use reversi_core::search::result::{PvMove, SearchResult};
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 
