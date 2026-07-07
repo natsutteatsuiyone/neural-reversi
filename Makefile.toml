@@ -27,6 +27,30 @@ args = ["check", "--workspace"]
 command = "cargo"
 args = ["test", "--workspace"]
 
+[tasks.test-x86-v3]
+description = "Run reversi-core tests with x86-64-v3 (AVX2 tier) codegen"
+command = "cargo"
+args = ["test", "-p", "reversi-core", "--target", "${CARGO_MAKE_RUST_TARGET_TRIPLE}"]
+
+[tasks.test-x86-v3.env]
+RUSTFLAGS = "-C target-cpu=x86-64-v3"
+
+[tasks.test-x86-v4]
+description = "Run reversi-core tests with x86-64-v4 (AVX-512 tier) codegen. Requires an AVX-512 CPU; tests SIGILL otherwise."
+command = "cargo"
+args = ["test", "-p", "reversi-core", "--target", "${CARGO_MAKE_RUST_TARGET_TRIPLE}"]
+
+[tasks.test-x86-v4.env]
+RUSTFLAGS = "-C target-cpu=x86-64-v4"
+
+[tasks.check-x86-v4]
+description = "Compile-check all targets with x86-64-v4 codegen (safe on any host)"
+command = "cargo"
+args = ["check", "-p", "reversi-core", "--all-targets", "--target", "${CARGO_MAKE_RUST_TARGET_TRIPLE}"]
+
+[tasks.check-x86-v4.env]
+RUSTFLAGS = "-C target-cpu=x86-64-v4"
+
 [tasks.clippy]
 clear = true
 command = "cargo"
