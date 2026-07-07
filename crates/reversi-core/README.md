@@ -443,7 +443,7 @@ The integration tests in `tests/` require real weights to load.
 | Search core                          | `src/search.rs`, `src/search/pvs.rs`                                      |
 | Midgame search                       | `src/search/midgame.rs`                                                   |
 | Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/solve.rs`, `src/search/endgame/solve/*`, `src/search/endgame/cache.rs` |
-| Parallelisation                      | `src/search/threading.rs`                                                 |
+| Parallelisation                      | `src/search/threading.rs`, `src/search/threading/*`                       |
 | Search context / stack               | `src/search/context.rs`, `src/search/stack.rs`                            |
 | Strategy / node type                 | `src/search/strategy.rs`, `src/search/node_type.rs`                       |
 | Result / root moves / Multi-PV       | `src/search/result.rs`, `src/search/root_move.rs`                         |
@@ -455,7 +455,7 @@ The integration tests in `tests/` require real weights to load.
 | Endgame NN                           | `src/eval/network_small.rs`                                               |
 | Numeric types / constants            | `src/types.rs`, `src/constants.rs`                                        |
 | Utilities                            | `src/util/{align,aligned_buffer,bitset,spinlock}.rs`                      |
-| Correctness checks                   | `src/perft.rs`, `tests/perft_tests.rs`, `tests/endgame_tests.rs`          |
+| Correctness checks                   | `src/perft.rs`, `tests/perft_tests.rs`, `tests/endgame_tests.rs`, `tests/parallel_search_tests.rs` |
 
 ## Build and test
 
@@ -479,6 +479,9 @@ cargo bench -p reversi-core --bench endgame
 `tests/endgame_tests.rs` checks both the score and the best move on a set
 of endgame positions. Both require the `.zst` weight files in the
 workspace root.
+`tests/parallel_search_tests.rs` checks that parallel solves return the
+single-thread result, that a manual abort terminates the search, and that
+pool shutdown and shared-TT reuse are clean across searches.
 
 Enabling the `search-stats` Cargo feature populates extra fields in
 `SearchCounters`, exposing breakdown counters such as TT hit rate, ETC
