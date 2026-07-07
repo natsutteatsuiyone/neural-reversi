@@ -19,6 +19,7 @@ use crate::types::{Depth, ScaledScore};
 use crate::util::align::Align64;
 use crate::util::spinlock;
 
+use super::AbortState;
 use super::message::Message;
 use super::pool::ThreadPool;
 use super::split_point::{SplitPoint, SplitPointState, SplitPointTask};
@@ -43,8 +44,8 @@ pub struct Thread {
     /// Weak reference to the thread pool this thread belongs to.
     pool: Weak<ThreadPool>,
 
-    /// Shared abort flag, cached to avoid `Weak::upgrade()` on every node.
-    abort_flag: Arc<AtomicBool>,
+    /// Shared abort state, cached to avoid `Weak::upgrade()` on every node.
+    abort_state: Arc<AbortState>,
 
     /// Global cutoff generation shared by all threads in this pool.
     cutoff_epoch: Arc<Align64<AtomicU64>>,
@@ -113,7 +114,7 @@ impl Thread {
     pub(super) fn new(
         idx: usize,
         thinking: Arc<AtomicBool>,
-        abort_flag: Arc<AtomicBool>,
+        abort_state: Arc<AbortState>,
         cutoff_epoch: Arc<Align64<AtomicU64>>,
         pool_size: usize,
         pool: Weak<ThreadPool>,
@@ -126,7 +127,7 @@ impl Thread {
             sleep_condition: std::sync::Condvar::new(),
             idx,
             pool,
-            abort_flag,
+            abort_state,
             cutoff_epoch,
             local_seen_cutoff_epoch: AtomicU64::new(0),
             local_chain_cutoff: AtomicBool::new(false),
@@ -684,7 +685,7 @@ impl Thread {
     /// Returns `true` if the search has been aborted (e.g., by deadline or external request).
     #[inline]
     pub fn is_search_aborted(&self) -> bool {
-        self.abort_flag.load(Ordering::Acquire)
+        self.abort_state.is_aborted()
     }
 
     /// Returns `true` when the current branch should abandon its result:

@@ -253,7 +253,7 @@ impl Search {
             SearchConstraint::Time(mode) => {
                 let tm = Arc::new(TimeManager::new(
                     *mode,
-                    self.threads.abort_flag(),
+                    self.threads.abort_state(),
                     n_empties,
                 ));
                 (Some(tm), Level::unlimited())

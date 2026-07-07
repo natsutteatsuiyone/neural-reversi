@@ -1,4 +1,3 @@
-use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
@@ -109,8 +108,9 @@ fn parallel_midgame_score_matches_single_threaded() {
 }
 
 /// Covers the GUI's manual abort path (`ThreadPool::abort_search`), which the
-/// timer-based test does not exercise. The aborter re-fires every 100 ms so a
-/// pathologically delayed first abort cannot hang the test.
+/// timer-based test does not exercise. A single abort must not be lost; this
+/// pins the regression that previously required re-firing every 100 ms to
+/// paper over the start/reset race.
 #[test]
 fn manual_abort_stops_deep_solve_promptly() {
     let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
@@ -118,18 +118,14 @@ fn manual_abort_stops_deep_solve_promptly() {
     let board = Board::new();
     let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
 
-    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
     let aborter = std::thread::spawn(move || {
-        while let Err(RecvTimeoutError::Timeout) = done_rx.recv_timeout(Duration::from_millis(100))
-        {
-            pool.abort_search();
-        }
+        std::thread::sleep(Duration::from_millis(150));
+        pool.abort_search();
     });
 
     let start = Instant::now();
     let result = search.run(&board, &options);
     let elapsed = start.elapsed();
-    let _ = done_tx.send(());
     aborter.join().unwrap();
 
     // Generous margin: this guards against a hung abort, not abort latency.

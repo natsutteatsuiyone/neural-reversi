@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::probcut::Selectivity;
+use crate::search::threading::AbortState;
 use crate::square::Square;
 use crate::types::Depth;
 
@@ -176,8 +177,8 @@ pub struct TimeManager {
     /// Number of extension steps already applied this move.
     extension_steps: AtomicU8,
 
-    /// Reference to the abort flag for signaling search termination.
-    abort_flag: Arc<AtomicBool>,
+    /// Reference to the abort state for signaling search termination.
+    abort_state: Arc<AbortState>,
 
     /// Previous iteration's score (for detecting score drops).
     prev_score: Mutex<Option<f32>>,
@@ -206,8 +207,8 @@ enum ExtensionReason {
 }
 
 impl TimeManager {
-    /// Creates a new time manager with the specified mode and abort flag.
-    pub fn new(mode: TimeControlMode, abort_flag: Arc<AtomicBool>, n_empties: u32) -> Self {
+    /// Creates a new time manager with the specified mode and abort state.
+    pub(crate) fn new(mode: TimeControlMode, abort_state: Arc<AbortState>, n_empties: u32) -> Self {
         let (mini_time_ms, maxi_time_ms, hard_limit_ms) =
             Self::calculate_time_limits(mode, n_empties, false);
 
@@ -226,7 +227,7 @@ impl TimeManager {
             base_max_time_ms: AtomicU64::new(maxi_time_ms),
             hard_time_limit_ms: AtomicU64::new(hard_limit_ms),
             extension_steps: AtomicU8::new(0),
-            abort_flag,
+            abort_state,
             prev_score: Mutex::new(None),
             n_empties,
             is_endgame_mode: AtomicBool::new(false),
@@ -651,13 +652,13 @@ impl TimeManager {
 
     /// Signals the search to abort due to time-out.
     pub fn signal_abort(&self) {
-        self.abort_flag.store(true, Ordering::Release);
+        self.abort_state.request_abort();
     }
 
     /// Checks whether abort has been signaled.
     #[inline]
     pub fn is_aborted(&self) -> bool {
-        self.abort_flag.load(Ordering::Acquire)
+        self.abort_state.is_aborted()
     }
 
     /// Checks whether time is up and signals abort if so.
@@ -809,7 +810,7 @@ mod tests {
     use super::*;
 
     fn make_fischer_tm(main_time_ms: u64, increment_ms: u64, n_empties: u32) -> TimeManager {
-        let abort = Arc::new(AtomicBool::new(false));
+        let abort = Arc::new(AbortState::new());
         let mode = TimeControlMode::Fischer {
             main_time_ms,
             increment_ms,
@@ -999,7 +1000,7 @@ mod tests {
 
     #[test]
     fn byoyomi_ignores_stability_early_stop() {
-        let abort = Arc::new(AtomicBool::new(false));
+        let abort = Arc::new(AbortState::new());
         let mode = TimeControlMode::Byoyomi {
             time_per_move_ms: 10_000,
         };
@@ -1024,7 +1025,7 @@ mod tests {
 
     #[test]
     fn pure_byoyomi_continues_until_deadline() {
-        let abort = Arc::new(AtomicBool::new(false));
+        let abort = Arc::new(AbortState::new());
         let mode = TimeControlMode::Byoyomi {
             time_per_move_ms: 1_000,
         };

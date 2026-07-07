@@ -9,6 +9,7 @@ use crate::search::result::SearchResult;
 use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
 
+use super::AbortState;
 use super::message::Message;
 use super::split_point::SplitPoint;
 use super::thread::Thread;
@@ -36,8 +37,8 @@ pub struct ThreadPool {
     /// Channel sender for sending messages to the main thread.
     sender: Sender<Message>,
 
-    /// Flag for aborting the current search.
-    abort_flag: Arc<AtomicBool>,
+    /// Generation-tagged state for aborting the current search.
+    abort_state: Arc<AbortState>,
 
     /// Incremented whenever a split point first records a cutoff.
     cutoff_epoch: Arc<Align64<AtomicU64>>,
@@ -62,7 +63,7 @@ impl ThreadPool {
                 size: n_threads,
                 thinking: Arc::new(AtomicBool::new(false)),
                 sender,
-                abort_flag: Arc::new(AtomicBool::new(false)),
+                abort_state: Arc::new(AbortState::new()),
                 cutoff_epoch: Arc::new(Align64(AtomicU64::new(0))),
                 timer_handle: Mutex::new(None),
                 timer_stop: Arc::new(AtomicBool::new(false)),
@@ -85,7 +86,7 @@ impl ThreadPool {
         let thread = Arc::new(Thread::new(
             idx,
             self.thinking.clone(),
-            self.abort_flag.clone(),
+            self.abort_state.clone(),
             self.cutoff_epoch.clone(),
             self.size,
             pool.clone(),
@@ -193,8 +194,8 @@ impl ThreadPool {
 
         let (result_sender, result_receiver) = mpsc::channel();
 
-        // Ensure clean state before starting new search
-        self.abort_flag.store(false, Ordering::Release);
+        // Start a fresh generation before publishing the active search.
+        self.abort_state.begin_search();
 
         // Mark pool as actively thinking before sending message
         self.thinking.store(true, Ordering::Release);
@@ -234,39 +235,39 @@ impl ThreadPool {
 
     /// Signals all threads to abort the current search.
     pub fn abort_search(&self) {
-        self.abort_flag.store(true, Ordering::Release);
+        self.abort_state.request_abort();
     }
 
     /// Checks whether the current search has been aborted.
     #[inline]
     pub fn is_aborted(&self) -> bool {
-        self.abort_flag.load(Ordering::Acquire)
+        self.abort_state.is_aborted()
     }
 
-    /// Returns a clone of the abort flag for external use (e.g., time management).
-    pub fn abort_flag(&self) -> Arc<AtomicBool> {
-        self.abort_flag.clone()
+    /// Returns a clone of the abort state for external use (e.g., time management).
+    pub(crate) fn abort_state(&self) -> Arc<AbortState> {
+        self.abort_state.clone()
     }
 
-    /// Starts a timer thread that will set `abort_flag` when deadline is reached.
+    /// Starts a timer thread that will request abort when deadline is reached.
     ///
     /// - Checks every `CHECK_INTERVAL_MS` milliseconds against the current deadline
     /// - Responds to dynamic time extensions from the [`TimeManager`]
     /// - Exits cleanly when:
-    ///   - Deadline is reached (sets `abort_flag`)
+    ///   - Deadline is reached (requests abort)
     ///   - [`stop_timer`](Self::stop_timer) is called (search completed early)
     ///   - No deadline is set (infinite time mode)
     pub fn start_timer(&self, time_manager: Arc<TimeManager>) {
         // Reset stop flag before spawning new timer
         self.timer_stop.store(false, Ordering::Release);
 
-        let abort_flag = self.abort_flag.clone();
+        let abort_state = self.abort_state.clone();
         let stop_flag = self.timer_stop.clone();
 
         let handle = std::thread::Builder::new()
             .name("search-timer".to_string())
             .spawn(move || {
-                Self::timer_loop(&time_manager, &abort_flag, &stop_flag);
+                Self::timer_loop(&time_manager, &abort_state, &stop_flag);
             })
             .expect("failed to spawn timer thread");
 
@@ -274,7 +275,7 @@ impl ThreadPool {
     }
 
     /// Runs the timer thread loop.
-    fn timer_loop(time_manager: &TimeManager, abort_flag: &AtomicBool, stop_flag: &AtomicBool) {
+    fn timer_loop(time_manager: &TimeManager, abort_state: &AbortState, stop_flag: &AtomicBool) {
         const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
 
         loop {
@@ -287,7 +288,7 @@ impl ThreadPool {
             match time_manager.deadline() {
                 Some(deadline) if Instant::now() >= deadline => {
                     // Time's up - signal abort and exit
-                    abort_flag.store(true, Ordering::Release);
+                    abort_state.request_abort();
                     return;
                 }
                 Some(_) => {
