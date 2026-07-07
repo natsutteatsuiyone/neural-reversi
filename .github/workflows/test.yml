@@ -65,6 +65,11 @@ jobs:
     - name: Clippy
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+    - name: Doc check
+      env:
+        RUSTDOCFLAGS: -D warnings
+      run: cargo doc --workspace --no-deps --all-features --document-private-items
+
   gui-test:
     runs-on: ubuntu-latest
 
