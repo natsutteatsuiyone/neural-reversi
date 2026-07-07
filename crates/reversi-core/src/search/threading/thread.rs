@@ -300,7 +300,7 @@ impl Thread {
             return false;
         };
         let sp_state = active_sp.state();
-        sp_state.helpers_mask.test(sp.state().owner_thread_idx)
+        sp_state.helpers_mask.test(sp.state().owner_thread_idx())
     }
 
     /// Books this thread as a helper on `sp`.
@@ -370,12 +370,14 @@ impl Thread {
         sp.set_move_iter(move_iter);
         // No contention here until split_points_size is incremented
         let sp_state = sp.state_mut();
-        sp_state.owner_thread_idx = self.idx;
+        sp_state.set_owner_thread_idx(self.idx);
         sp_state.parent_split_point = self.active_split_point().clone();
-        sp_state.level = sp_state
-            .parent_split_point
-            .as_ref()
-            .map_or(0, |parent| parent.state().level + 1);
+        sp_state.set_level(
+            sp_state
+                .parent_split_point
+                .as_ref()
+                .map_or(0, |parent| parent.state().level() + 1),
+        );
         sp_state.helpers_mask.clear();
         sp_state.helpers_mask.set(self.idx);
         sp_state.depth = req.depth;
@@ -390,7 +392,7 @@ impl Thread {
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
         sp.copy_pv(ctx.get_pv());
         sp_state.is_endgame = req.is_endgame;
-        sp_state.cut_node = req.cut_node;
+        sp_state.set_cut_node(req.cut_node);
 
         self.split_points_size.fetch_add(1, Ordering::Release);
         *self.active_split_point_mut() = Some(sp.clone());
@@ -649,7 +651,7 @@ impl Thread {
                 continue;
             }
 
-            let level = sp_state.level;
+            let level = sp_state.level();
             if level < min_level {
                 min_level = level;
                 best_sp = Some(sp);
@@ -665,7 +667,7 @@ impl Thread {
 
         sp.lock();
 
-        let sp_state = sp.state_mut();
+        let sp_state = sp.state();
         if !sp_state.cutoff()
             && sp_state.all_helpers_searching()
             && sp_state.helpers_mask.count() < sp_state.max_threads()

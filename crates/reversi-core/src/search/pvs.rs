@@ -341,7 +341,7 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     split_point: &Arc<SplitPoint>,
 ) -> ScaledScore {
     let beta = split_point.state().beta;
-    let cut_node = split_point.state().cut_node;
+    let cut_node = split_point.state().cut_node();
     let move_iter = split_point.move_iter();
     let n_moves = move_iter.count();
 

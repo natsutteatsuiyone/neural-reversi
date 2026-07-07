@@ -164,7 +164,7 @@ impl ThreadPool {
 
     /// Assigns idle threads to work on a split point.
     pub(super) fn assign_helpers_to_split_point(&self, sp: &Arc<SplitPoint>) {
-        let sp_state = sp.state_mut();
+        let sp_state = sp.state();
         let max_threads = sp_state.max_threads();
 
         for thread in &self.threads {

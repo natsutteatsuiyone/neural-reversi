@@ -1,6 +1,6 @@
 use std::cell::SyncUnsafeCell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 
 use lock_api::RawMutex;
 
@@ -54,7 +54,10 @@ pub struct SplitPointState {
     cutoff: Align64<AtomicBool>,
 
     /// Index of the owner thread that created this split point.
-    pub(super) owner_thread_idx: usize,
+    ///
+    /// Relaxed atomic because late-join pre-checks read it lock-free as a
+    /// heuristic hint; booking is re-validated under the split-point lock.
+    pub(super) owner_thread_idx: AtomicUsize,
 
     /// Bitmask tracking which threads are working on this split point.
     pub(super) helpers_mask: Align64<AtomicBitSet>,
@@ -72,24 +75,66 @@ pub struct SplitPointState {
     ///
     /// Immutable after initialization, like `parent_split_point`; cached so
     /// idle helpers do not walk ancestors when choosing which split point to join.
-    pub(super) level: usize,
+    ///
+    /// Relaxed atomic because late-join pre-checks read it lock-free as a
+    /// heuristic hint; booking is re-validated under the split-point lock.
+    pub(super) level: AtomicUsize,
 
     /// Whether this split point uses endgame search strategy.
     pub(super) is_endgame: bool,
 
     /// Whether the parent expected this node to produce a beta cutoff.
-    pub cut_node: bool,
+    ///
+    /// Relaxed atomic because late-join pre-checks read it lock-free as a
+    /// heuristic hint; booking is re-validated under the split-point lock.
+    pub cut_node: AtomicBool,
 }
 
 impl SplitPointState {
     /// Returns the maximum number of threads allowed at this split point.
     #[inline]
     pub(super) fn max_threads(&self) -> u32 {
-        if self.cut_node {
+        if self.cut_node() {
             MAX_THREADS_PER_CUT_SPLITPOINT
         } else {
             MAX_THREADS_PER_NON_CUT_SPLITPOINT
         }
+    }
+
+    /// Returns the owner thread index.
+    #[inline]
+    pub(super) fn owner_thread_idx(&self) -> usize {
+        self.owner_thread_idx.load(Ordering::Relaxed)
+    }
+
+    /// Sets the owner thread index.
+    #[inline]
+    pub(super) fn set_owner_thread_idx(&self, idx: usize) {
+        self.owner_thread_idx.store(idx, Ordering::Relaxed);
+    }
+
+    /// Returns the split-point tree depth.
+    #[inline]
+    pub(super) fn level(&self) -> usize {
+        self.level.load(Ordering::Relaxed)
+    }
+
+    /// Sets the split-point tree depth.
+    #[inline]
+    pub(super) fn set_level(&self, level: usize) {
+        self.level.store(level, Ordering::Relaxed);
+    }
+
+    /// Returns whether the parent expected this node to produce a beta cutoff.
+    #[inline]
+    pub(in crate::search) fn cut_node(&self) -> bool {
+        self.cut_node.load(Ordering::Relaxed)
+    }
+
+    /// Sets whether the parent expected this node to produce a beta cutoff.
+    #[inline]
+    pub(super) fn set_cut_node(&self, value: bool) {
+        self.cut_node.store(value, Ordering::Relaxed);
     }
 
     /// Returns the current alpha value atomically.
@@ -224,9 +269,11 @@ pub struct SplitPoint {
     mutex: spinlock::RawSpinLock,
 
     /// Mutable state, protected by the mutex. Atomic fields, and fields that stay
-    /// immutable while the split point is active (`level`, `owner_thread_idx`,
-    /// `cut_node`, `parent_split_point`), are also read lock-free in join
-    /// pre-checks and the cutoff-chain walk.
+    /// immutable while the split point is active (`parent_split_point`), are also
+    /// read lock-free in join pre-checks and the cutoff-chain walk. `level`,
+    /// `owner_thread_idx`, and `cut_node` are Relaxed atomics used as lock-free
+    /// heuristic hints; split-point initialization is published by the owner's
+    /// Release update to `split_points_size` and consumed by Acquire observers.
     state: SyncUnsafeCell<SplitPointState>,
 
     /// Shared move iterator for the active split point.
@@ -267,14 +314,14 @@ impl Default for SplitPoint {
                 best_move: AtomicU8::new(Square::None as u8),
                 node_type: NodeTypeId::NonPv,
                 cutoff: Align64(AtomicBool::new(false)),
-                owner_thread_idx: 0,
+                owner_thread_idx: AtomicUsize::new(0),
                 helpers_mask: Align64(AtomicBitSet::new()),
                 depth: 0,
                 task: None,
                 parent_split_point: None,
-                level: 0,
+                level: AtomicUsize::new(0),
                 is_endgame: false,
-                cut_node: false,
+                cut_node: AtomicBool::new(false),
             }),
             move_iter: SyncUnsafeCell::new(None),
             pv: SyncUnsafeCell::new([Square::None; MAX_PLY]),
