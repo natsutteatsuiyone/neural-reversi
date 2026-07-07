@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 
+use reversi_core::analysis as game_analysis;
 use reversi_core::disc::Disc;
 use reversi_core::level::get_level;
 use reversi_core::probcut::Selectivity;
@@ -12,8 +13,6 @@ use reversi_core::types::Scoref;
 use reversi_core::{board, search};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
-
-mod game_analysis;
 
 const SELECTIVITY: Selectivity = Selectivity::Level1;
 

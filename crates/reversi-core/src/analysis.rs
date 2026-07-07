@@ -5,11 +5,12 @@
 //! backward Score-Loss propagation — the bug-prone part — are exercised with a
 //! fake scorer instead of the neural-network engine. Cancellation and progress
 //! delivery are likewise injected, keeping this module free of `Arc<Mutex>`,
-//! `Level`, and Tauri. `analyze_game_command` in `lib.rs` owns that wiring.
+//! `Level`, and Tauri. Callers own the wiring — the Tauri GUI's
+//! `analyze_game_command` is the reference consumer.
 
-use reversi_core::board::Board;
-use reversi_core::square::Square;
-use reversi_core::types::Scoref;
+use crate::board::Board;
+use crate::square::Square;
+use crate::types::Scoref;
 
 /// What the injected engine Search returns for one Position that has Legal
 /// Moves.
@@ -210,7 +211,7 @@ fn propagate_step(best: Scoref, prev: Scoref) -> (Scoref, Scoref, Scoref) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reversi_core::disc::Disc;
+    use crate::disc::Disc;
     use std::cell::Cell;
 
     fn play(square: Square) -> GameAnalysisMove {

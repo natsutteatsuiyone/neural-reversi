@@ -2,6 +2,7 @@
 #![feature(hint_prefetch)]
 #![feature(sync_unsafe_cell)]
 
+pub mod analysis;
 pub mod bitboard;
 pub mod board;
 pub mod constants;

@@ -439,6 +439,7 @@ The integration tests in `tests/` require real weights to load.
 | Board / squares / discs              | `src/board.rs`, `src/square.rs`, `src/disc.rs`                            |
 | Flip dispatch                        | `src/flip.rs` + `src/flip/*`                                             |
 | Move list / empty list               | `src/move_list.rs`, `src/empty_list.rs`                                   |
+| Game analysis                        | `src/analysis.rs`                                                         |
 | Game state                           | `src/game_state.rs`                                                       |
 | Search core                          | `src/search.rs`, `src/search/pvs.rs`                                      |
 | Midgame search                       | `src/search/midgame.rs`                                                   |
