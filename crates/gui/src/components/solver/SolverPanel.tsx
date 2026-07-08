@@ -54,12 +54,7 @@ export function SolverPanel() {
           </span>
         )}
         <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void exitSolver()}
-          className="gap-1 text-foreground-secondary hover:text-foreground hover:shadow-sm"
-        >
+        <Button variant="ghost-muted" size="sm" onClick={() => void exitSolver()} className="gap-1">
           <X className="w-4 h-4" />
           {t("solver.exit")}
         </Button>

@@ -67,12 +67,7 @@ function NewGameModalContent({
       )}
 
       <DialogFooter className="flex-row items-center gap-2">
-        <Button
-          variant="ghost"
-          onClick={closeNewGameModal}
-          disabled={isStarting}
-          className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
-        >
+        <Button variant="ghost-muted" onClick={closeNewGameModal} disabled={isStarting}>
           {t("game.cancel")}
         </Button>
         <div className="flex-1" />
@@ -99,10 +94,10 @@ function NewGameModalContent({
         ) : (
           <>
             <Button
-              variant="ghost"
+              variant="ghost-muted"
               onClick={() => setStep(1)}
               disabled={isStarting}
-              className="gap-1 text-foreground-secondary hover:text-foreground hover:bg-white/10"
+              className="gap-1"
             >
               <ChevronLeft className="w-4 h-4" />
               {t("game.previousStep")}

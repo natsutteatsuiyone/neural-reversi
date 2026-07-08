@@ -66,32 +66,29 @@ export function MoveHistory() {
     <div className="relative h-full">
       <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md bg-background-secondary/90 backdrop-blur-sm">
         <Button
-          variant="ghost"
+          variant="ghost-muted"
           size="icon-sm"
           onClick={copyTranscript}
           disabled={currentIndex === 0}
           aria-label={t("history.copy")}
-          className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
         >
           {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
         </Button>
         <Button
-          variant="ghost"
+          variant="ghost-muted"
           size="icon-sm"
           onClick={undoMove}
           disabled={!canUndo}
           aria-label={t("history.undo")}
-          className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
         >
           <RotateCcw className="w-4 h-4" />
         </Button>
         <Button
-          variant="ghost"
+          variant="ghost-muted"
           size="icon-sm"
           onClick={redoMove}
           disabled={!canRedo}
           aria-label={t("history.redo")}
-          className="text-foreground-secondary hover:text-foreground hover:bg-white/10 hover:shadow-sm"
         >
           <RotateCw className="w-4 h-4" />
         </Button>

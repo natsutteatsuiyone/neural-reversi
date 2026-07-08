@@ -86,12 +86,7 @@ export function SolverModal() {
         </div>
 
         <DialogFooter className="flex-row items-center gap-2">
-          <Button
-            variant="ghost"
-            onClick={closeSolverModal}
-            disabled={isStarting}
-            className="text-foreground-secondary hover:text-foreground hover:bg-white/10"
-          >
+          <Button variant="ghost-muted" onClick={closeSolverModal} disabled={isStarting}>
             {t("solver.cancel")}
           </Button>
           <div className="flex-1" />
