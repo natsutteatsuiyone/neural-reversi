@@ -41,6 +41,7 @@ function gameProgress(overrides: Partial<GameAnalysisProgress> = {}): GameAnalys
     playedScore: 10,
     scoreLoss: 10,
     depth: 12,
+    pvLine: "d3 c3",
     ...overrides,
   };
 }
@@ -100,6 +101,7 @@ describe("appendGameAnalysisProgress", () => {
         bestScore: 20,
         scoreLoss: 7,
         depth: 12,
+        pvLine: "d3 c3",
       },
     ]);
   });

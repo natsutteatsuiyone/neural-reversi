@@ -112,6 +112,11 @@ function CustomTooltip({
                 })}
               </p>
             )}
+            {analysis.pvLine && (
+              <p className="text-foreground-muted">
+                {t("analysis.pvLine")}: {analysis.pvLine}
+              </p>
+            )}
             {analysis.scoreLoss > DUBIOUS_THRESHOLD && (
               <p
                 className={

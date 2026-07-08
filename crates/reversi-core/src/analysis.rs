@@ -15,6 +15,8 @@ use crate::types::Scoref;
 /// What the injected engine Search returns for one Position that has Legal
 /// Moves.
 pub struct Analysis {
+    /// Engine principal variation for the scored position, best move first.
+    pub pv: Vec<Square>,
     pub best_move: Square,
     pub score: Scoref,
     pub depth: u32,
@@ -24,6 +26,8 @@ pub struct Analysis {
 /// Score, Score Loss).
 pub struct GameAnalysisProgress {
     pub move_index: usize,
+    /// Engine principal variation for the scored position, best move first.
+    pub pv: Vec<Square>,
     pub best_move: Square,
     pub best_score: Scoref,
     pub played_score: Scoref,
@@ -108,6 +112,7 @@ pub fn analyze_game(
         let (played_score, score_loss, next_score) = propagate_step(analysis.score, score);
         on_progress(GameAnalysisProgress {
             move_index,
+            pv: analysis.pv,
             best_move: analysis.best_move,
             best_score: analysis.score,
             played_score,
@@ -344,6 +349,7 @@ mod tests {
                 best_move: Square::C1,
                 score: 1.0,
                 depth: 1,
+                pv: vec![],
             })
         };
         analyze_game(forced_pass_board(), &[], search, || false, |_p| {}).unwrap();
@@ -368,16 +374,19 @@ mod tests {
                     best_move: Square::A1,
                     score: 2.0,
                     depth: 5,
+                    pv: vec![],
                 },
                 1 => Analysis {
                     best_move: Square::D3,
                     score: 3.0,
                     depth: 7,
+                    pv: vec![Square::G8, Square::H8],
                 },
                 _ => Analysis {
                     best_move: Square::C4,
                     score: 1.0,
                     depth: 9,
+                    pv: vec![],
                 },
             })
         };
@@ -394,6 +403,7 @@ mod tests {
         assert_eq!(emitted[0].played_score, -2.0);
         assert_eq!(emitted[0].score_loss, 5.0);
         assert_eq!(emitted[0].depth, 7);
+        assert_eq!(emitted[0].pv, vec![Square::G8, Square::H8]);
 
         // score now 3.0; i=0: played=-3.0, loss=max(1-(-3),0)=4.0
         assert_eq!(emitted[1].move_index, 0);
@@ -417,11 +427,13 @@ mod tests {
                     best_move: Square::A1,
                     score: 4.0,
                     depth: 1,
+                    pv: vec![],
                 },
                 _ => Analysis {
                     best_move: Square::C1,
                     score: 0.0,
                     depth: 1,
+                    pv: vec![],
                 },
             })
         };
@@ -467,11 +479,13 @@ mod tests {
                     best_move: Square::A1,
                     score: 2.0,
                     depth: 1,
+                    pv: vec![],
                 },
                 _ => Analysis {
                     best_move: Square::D3,
                     score: 5.0,
                     depth: 7,
+                    pv: vec![],
                 },
             })
         };
@@ -517,6 +531,7 @@ mod tests {
                 best_move: Square::A1,
                 score: 1.0,
                 depth: 1,
+                pv: vec![],
             })
         };
         let mut emitted = 0;
@@ -532,6 +547,7 @@ mod tests {
                 best_move: Square::A1,
                 score: 1.0,
                 depth: 1,
+                pv: vec![],
             })
         };
         // First two cancellation polls pass (after-replay + after-seed), then supersede.
@@ -562,6 +578,7 @@ mod tests {
                 best_move: Square::A1,
                 score: 1.0,
                 depth: 1,
+                pv: vec![],
             })
         };
         // Polls 0..=2 pass (after-replay, after-seed, loop-top); poll 3 (the

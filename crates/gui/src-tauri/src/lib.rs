@@ -92,6 +92,7 @@ struct SolverProgressPayload {
 #[serde(rename_all = "camelCase")]
 pub struct GameAnalysisProgressPayload {
     pub move_index: usize,
+    pub pv_line: String,
     pub best_move: String,
     pub best_score: Scoref,
     pub played_score: Scoref,
@@ -126,6 +127,7 @@ fn build_progress_payload(progress: &search::SearchProgress) -> SearchProgressPa
 fn build_game_analysis(result: SearchResult) -> Result<game_analysis::Analysis, String> {
     match (result.best_move(), result.score()) {
         (Some(best_move), Some(score)) => Ok(game_analysis::Analysis {
+            pv: result.pv_line().to_vec(),
             best_move,
             score: round_score(score),
             depth: result.depth(),
@@ -444,6 +446,12 @@ async fn analyze_game_command(
                     "game-analysis-progress",
                     GameAnalysisProgressPayload {
                         move_index: progress.move_index,
+                        pv_line: progress
+                            .pv
+                            .iter()
+                            .map(|sq| format!("{}", sq))
+                            .collect::<Vec<_>>()
+                            .join(" "),
                         best_move: progress.best_move.to_string(),
                         best_score: progress.best_score,
                         played_score: progress.played_score,

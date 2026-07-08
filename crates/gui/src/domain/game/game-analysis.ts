@@ -13,6 +13,7 @@ export interface MoveAnalysis {
   bestScore: number;
   scoreLoss: number;
   depth: number;
+  pvLine: string;
 }
 
 export function applyHintAnalysisProgress(
@@ -56,6 +57,7 @@ function createMoveAnalysis(move: MoveRecord, progress: GameAnalysisProgress): M
     bestScore: progress.bestScore,
     scoreLoss: progress.scoreLoss,
     depth: progress.depth,
+    pvLine: progress.pvLine,
   };
 }
 

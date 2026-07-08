@@ -29,6 +29,7 @@ function analysis(overrides: Partial<MoveAnalysis>): MoveAnalysis {
     bestScore: 4,
     scoreLoss: 0,
     depth: 12,
+    pvLine: "d3",
     ...overrides,
   };
 }

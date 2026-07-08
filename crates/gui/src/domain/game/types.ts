@@ -64,6 +64,7 @@ export type AIMoveProgress = {
 /** What the engine reports about one already-played move during game analysis. */
 export type GameAnalysisProgress = {
   moveIndex: number;
+  pvLine: string;
   bestMove: string;
   bestScore: number;
   playedScore: number;

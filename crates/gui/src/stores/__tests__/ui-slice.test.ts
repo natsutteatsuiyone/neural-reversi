@@ -692,6 +692,7 @@ describe("analyzeGame", () => {
       playedScore: 1,
       scoreLoss: 11,
       depth: 10,
+      pvLine: "c4",
     });
     expect(store.getState().gameAnalysisResult).toBeNull();
 
@@ -702,6 +703,7 @@ describe("analyzeGame", () => {
       playedScore: 3,
       scoreLoss: 0,
       depth: 12,
+      pvLine: "d3",
     });
     expect(store.getState().gameAnalysisResult?.[0]).toMatchObject({
       bestMove: "d3",
