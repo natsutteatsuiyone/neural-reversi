@@ -1,5 +1,5 @@
 import { StateCreator } from "zustand";
-import type { AISlice, ReversiState } from "./types";
+import type { AIThinkingEntry, AISlice, ReversiState } from "./types";
 import {
   DEFAULT_SETTINGS,
   type AIMoveProgress,
@@ -9,6 +9,27 @@ import {
 import { runAIMoveSearch } from "@/services/ai-move-search-operation";
 import type { EngineSearch } from "@/domain/engine/engine-search";
 import { isGameSearchActive } from "@/stores/engine-activity";
+
+function isSameThinkingLogRow(a: AIThinkingEntry | undefined, b: AIThinkingEntry): boolean {
+  return (
+    a !== undefined &&
+    a.depth === b.depth &&
+    a.acc === b.acc &&
+    a.score === b.score &&
+    a.pvLine === b.pvLine
+  );
+}
+
+function upsertThinkingHistoryEntry(
+  history: readonly AIThinkingEntry[],
+  entry: AIThinkingEntry,
+): AIThinkingEntry[] {
+  if (!isSameThinkingLogRow(history[history.length - 1], entry)) {
+    return [...history, entry];
+  }
+
+  return [...history.slice(0, -1), entry];
+}
 
 export function createAISlice(
   services: Services,
@@ -82,7 +103,10 @@ export function createAISlice(
           onProgress: ({ progress, nps }) =>
             set((s) => ({
               aiMoveProgress: progress,
-              aiThinkingHistory: [...s.aiThinkingHistory, { ...progress, nps }],
+              aiThinkingHistory: upsertThinkingHistoryEntry(s.aiThinkingHistory, {
+                ...progress,
+                nps,
+              }),
             })),
           onResult: (move) => {
             aiMove = move;

@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
-import type { AIMoveResult } from "@/services/types";
+import type { AIMoveProgress, AIMoveResult } from "@/services/types";
 import { createTestStore, createDeferred } from "./test-helpers";
 
 const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -12,6 +12,22 @@ beforeEach(() => {
 afterAll(() => {
   consoleErrorSpy.mockRestore();
 });
+
+function progress(overrides?: Partial<AIMoveProgress>): AIMoveProgress {
+  return {
+    bestMove: "d3",
+    row: 2,
+    col: 3,
+    score: 4,
+    depth: 10,
+    targetDepth: 10,
+    acc: 100,
+    nodes: 1_000,
+    pvLine: "d3",
+    isEndgame: false,
+    ...overrides,
+  };
+}
 
 describe("makeAIMove", () => {
   it("does not start a second search while another search is active", async () => {
@@ -177,6 +193,67 @@ describe("makeAIMove", () => {
     expect(store.getState().lastAIMove).toBeNull();
     expect(store.getState().isAIThinking).toBe(false);
     expect(services.ai.getAIMove).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces the last thinking history row when only counters change", async () => {
+    const { store } = createTestStore({
+      ai: createMockAIService({
+        getAIMove: vi
+          .fn()
+          .mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
+            callback(progress());
+            callback(progress({ nodes: 2_000 }));
+            return null;
+          }),
+      }),
+    });
+    await store.getState().startGame();
+
+    await store.getState().makeAIMove();
+
+    expect(store.getState().aiThinkingHistory).toHaveLength(1);
+    expect(store.getState().aiThinkingHistory[0]).toMatchObject({
+      bestMove: "d3",
+      depth: 10,
+      score: 4,
+      pvLine: "d3",
+      nodes: 2_000,
+    });
+  });
+
+  it("replaces the last thinking history row when only hidden fields change", async () => {
+    const { store } = createTestStore({
+      ai: createMockAIService({
+        getAIMove: vi
+          .fn()
+          .mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
+            callback(progress());
+            callback(
+              progress({
+                bestMove: "f5",
+                row: 4,
+                col: 5,
+                targetDepth: 12,
+                isEndgame: true,
+                nodes: 2_000,
+              }),
+            );
+            return null;
+          }),
+      }),
+    });
+    await store.getState().startGame();
+
+    await store.getState().makeAIMove();
+
+    expect(store.getState().aiThinkingHistory).toHaveLength(1);
+    expect(store.getState().aiThinkingHistory[0]).toMatchObject({
+      depth: 10,
+      acc: 100,
+      score: 4,
+      pvLine: "d3",
+      nodes: 2_000,
+    });
   });
 });
 
