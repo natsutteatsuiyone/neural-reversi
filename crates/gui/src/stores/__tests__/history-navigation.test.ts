@@ -66,3 +66,24 @@ describe("history-navigation guard (beginNavigation)", () => {
     expect(cancelAutomation).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("goToMove onto the current position (no-op patch)", () => {
+  it("still finalizes: re-pauses for the AI turn after cancelling auto-play", async () => {
+    vi.useFakeTimers();
+    try {
+      const { store } = createTestStore();
+      await store.getState().startGame();
+      store.setState({ gameMode: "ai-white" });
+      await store.getState().makeMove({ row: 2, col: 3, isAI: false });
+      const cancelAutomation = vi.fn();
+      store.setState({ cancelAutomation, paused: false });
+
+      store.getState().goToMove(1);
+
+      expect(cancelAutomation).toHaveBeenCalledTimes(1);
+      expect(store.getState().paused).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

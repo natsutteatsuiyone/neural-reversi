@@ -74,7 +74,13 @@ export function navigateHistory(get: Get, set: Set, direction: HistoryNavigation
 export function goToHistoryMove(get: Get, set: Set, position: number): void {
   if (!beginNavigation(get)) return;
   const patch = createGoToMovePatch(toNavigationState(get()), position);
-  if (!patch) return;
+  if (!patch) {
+    // finalize runs even when navigation was a no-op, matching navigateHistory:
+    // beginNavigation has already cancelled the pending auto-step, so paused
+    // must be re-derived or the AI's turn is left stranded with no Resume.
+    finalize(get, set);
+    return;
+  }
 
   set(withClears(patch));
   if (!patch.gameOver && patch.gameStatus === "playing") {
