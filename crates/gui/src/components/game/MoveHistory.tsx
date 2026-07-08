@@ -3,6 +3,7 @@ import { Bot, Check, Copy, List, RotateCcw, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatScore } from "@/lib/score-format";
+import { buildTranscript } from "@/lib/transcript";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { isGameSearchActive } from "@/stores/engine-activity";
 import { Stone } from "@/components/board/Stone";
@@ -31,10 +32,7 @@ export function MoveHistory() {
   const canRedo = moveHistory.canRedo && canNavigate;
 
   const copyTranscript = () => {
-    const transcript = moveHistory.currentMoves
-      .filter((m) => m.row >= 0)
-      .map((m) => m.notation.toLowerCase())
-      .join("");
+    const transcript = buildTranscript(moveHistory.currentMoves);
     clearTimeout(copyTimerRef.current);
     setCopied(false);
     if (!navigator.clipboard) {
