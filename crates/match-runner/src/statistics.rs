@@ -423,3 +423,81 @@ fn erf(x: f64) -> f64 {
 
     sign * y
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_pairs_are_even_with_no_uncertainty() {
+        let stats = PentanomialCalculator::calculate(&PentanomialFrequencies::default());
+
+        assert_eq!(stats.elo_diff, 0.0);
+        assert_eq!(stats.confidence_interval, 0.0);
+        assert_eq!(stats.calculate_los(), 0.5);
+    }
+
+    #[test]
+    fn all_draw_draw_pairs_are_even_with_no_uncertainty() {
+        let frequencies = PentanomialFrequencies {
+            dd: 50,
+            ..PentanomialFrequencies::default()
+        };
+        let stats = PentanomialCalculator::calculate(&frequencies);
+
+        assert_eq!(stats.elo_diff, 0.0);
+        assert_eq!(stats.confidence_interval, 0.0);
+        assert_eq!(stats.calculate_los(), 0.5);
+    }
+
+    #[test]
+    fn decisive_pairs_have_infinite_elo_and_certain_los() {
+        let all_wins = PentanomialCalculator::calculate(&PentanomialFrequencies {
+            ww: 50,
+            ..PentanomialFrequencies::default()
+        });
+        let all_losses = PentanomialCalculator::calculate(&PentanomialFrequencies {
+            ll: 50,
+            ..PentanomialFrequencies::default()
+        });
+
+        assert!(all_wins.elo_diff.is_infinite() && all_wins.elo_diff > 0.0);
+        assert_eq!(all_wins.calculate_los(), 1.0);
+        assert!(all_losses.elo_diff.is_infinite() && all_losses.elo_diff < 0.0);
+        assert_eq!(all_losses.calculate_los(), 0.0);
+    }
+
+    #[test]
+    fn symmetric_decisive_and_draw_pairs_are_even() {
+        let frequencies = PentanomialFrequencies {
+            ww: 30,
+            dd: 40,
+            ll: 30,
+            ..PentanomialFrequencies::default()
+        };
+        let stats = PentanomialCalculator::calculate(&frequencies);
+
+        assert_eq!(stats.elo_diff, 0.0);
+        assert!((stats.calculate_los() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn asymmetric_pairs_match_hand_computed_elo() {
+        let frequencies = PentanomialFrequencies {
+            ww: 40,
+            dd: 40,
+            ll: 20,
+            ..PentanomialFrequencies::default()
+        };
+        let stats = PentanomialCalculator::calculate(&frequencies);
+
+        assert!((stats.elo_diff - 70.4365).abs() < 0.01);
+        assert!(stats.calculate_los() > 0.99);
+    }
+
+    #[test]
+    fn erf_matches_known_values() {
+        assert!(erf(0.0).abs() < 1e-6);
+        assert!((erf(1.0) - 0.8427).abs() < 1e-3);
+    }
+}

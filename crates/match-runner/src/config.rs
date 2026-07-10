@@ -65,6 +65,10 @@ pub struct Config {
     /// Byoyomi stones (0: time is increment/per-move, 1+: stones per byoyomi period)
     #[arg(long, default_value_t = 0)]
     pub byoyomi_stones: u32,
+
+    /// Hard per-command engine timeout in seconds (default: none)
+    #[arg(long)]
+    pub move_timeout: Option<u64>,
 }
 
 impl Config {
@@ -254,6 +258,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_optional_move_timeout() {
+        let config = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+            "--move-timeout",
+            "2",
+        ])
+        .unwrap();
+
+        assert_eq!(config.move_timeout, Some(2));
+    }
+
+    #[test]
     fn test_parse_simple_command() {
         let config = Config {
             engine1: "./engine --level 10".to_string(),
@@ -264,6 +286,7 @@ mod tests {
             main_time: 0,
             byoyomi_time: 0,
             byoyomi_stones: 0,
+            move_timeout: None,
         };
 
         let (program, args) = config.parse_engine_command("./reversi_cli --level 10");
@@ -283,6 +306,7 @@ mod tests {
             main_time: 0,
             byoyomi_time: 0,
             byoyomi_stones: 0,
+            move_timeout: None,
         };
 
         // Test with quotes (behavior varies by platform)
@@ -307,6 +331,7 @@ mod tests {
             main_time: 0,
             byoyomi_time: 0,
             byoyomi_stones: 0,
+            move_timeout: None,
         };
 
         let (program, args) = config.parse_engine_command("");
@@ -326,6 +351,7 @@ mod tests {
             main_time: 0,
             byoyomi_time: 0,
             byoyomi_stones: 0,
+            move_timeout: None,
         };
 
         // Test Windows path with spaces
@@ -354,6 +380,7 @@ mod tests {
             main_time: 0,
             byoyomi_time: 0,
             byoyomi_stones: 0,
+            move_timeout: None,
         };
 
         // Test simple backslash path
@@ -379,6 +406,7 @@ mod tests {
             main_time: 0,
             byoyomi_time: 0,
             byoyomi_stones: 0,
+            move_timeout: None,
         };
 
         // Test escaped spaces (shell-style) - shlex interprets the escape

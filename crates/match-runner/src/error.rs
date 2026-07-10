@@ -17,6 +17,10 @@ pub enum MatchRunnerError {
     Io(io::Error),
     /// Engine communication or protocol error  
     Engine(String),
+    /// Engine command exceeded its configured deadline
+    Timeout(String),
+    /// Match execution was interrupted by the operator
+    Interrupted,
     /// Game logic or move validation error
     Game(String),
     /// Configuration validation error
@@ -28,6 +32,8 @@ impl fmt::Display for MatchRunnerError {
         match self {
             MatchRunnerError::Io(err) => write!(f, "IO error: {err}"),
             MatchRunnerError::Engine(msg) => write!(f, "Engine error: {msg}"),
+            MatchRunnerError::Timeout(msg) => write!(f, "Timeout: {msg}"),
+            MatchRunnerError::Interrupted => write!(f, "Match interrupted"),
             MatchRunnerError::Game(msg) => write!(f, "Game error: {msg}"),
             MatchRunnerError::Config(msg) => write!(f, "Configuration error: {msg}"),
         }

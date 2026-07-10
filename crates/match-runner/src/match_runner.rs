@@ -4,6 +4,14 @@
 //! two GTP engines, including game execution, progress tracking, and result
 //! aggregation.
 
+use std::{
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
+
 use indicatif::ProgressBar;
 
 use crate::config::Config;
@@ -15,6 +23,38 @@ use crate::statistics::{MatchStatistics, MatchWinner};
 use crate::time_tracker::TimeTracker;
 use reversi_core::disc::Disc;
 use reversi_core::square::Square;
+
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+static INTERRUPT_HANDLER: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+
+fn install_interrupt_handler() -> Result<()> {
+    INTERRUPTED.store(false, Ordering::SeqCst);
+    match INTERRUPT_HANDLER.get_or_init(|| {
+        ctrlc::set_handler(|| INTERRUPTED.store(true, Ordering::SeqCst))
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(()) => Ok(()),
+        Err(message) => Err(MatchRunnerError::Config(format!(
+            "Failed to install Ctrl-C handler: {message}"
+        ))),
+    }
+}
+
+fn check_interrupted() -> Result<()> {
+    if INTERRUPTED.load(Ordering::SeqCst) {
+        Err(MatchRunnerError::Interrupted)
+    } else {
+        Ok(())
+    }
+}
+
+fn contextualize_game_error(error: MatchRunnerError, game_number: usize) -> MatchRunnerError {
+    match error {
+        MatchRunnerError::Interrupted => MatchRunnerError::Interrupted,
+        MatchRunnerError::Timeout(message) => MatchRunnerError::Timeout(message),
+        other => MatchRunnerError::Game(format!("Fatal error in game {game_number}: {other}")),
+    }
+}
 
 /// Possible outcomes of a single game.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -94,6 +134,7 @@ impl MatchRunner {
     /// - Either engine fails to start
     /// - Any game encounters a fatal error
     pub fn run_match(&mut self, config: &Config) -> Result<()> {
+        install_interrupt_handler()?;
         let openings = config.load_openings()?;
 
         if openings.is_empty() {
@@ -121,15 +162,18 @@ impl MatchRunner {
         let progress_bar = self.display.create_progress_bar(total_games as u64);
 
         for (opening_idx, opening_str) in openings.iter().enumerate() {
-            if let Err(e) = self.play_opening_pair(
-                &mut engines,
-                &mut statistics,
-                &engine_names,
-                opening_str,
-                opening_idx,
-                &progress_bar,
-                &mut time_tracker,
-            ) {
+            let result = check_interrupted().and_then(|()| {
+                self.play_opening_pair(
+                    &mut engines,
+                    &mut statistics,
+                    &engine_names,
+                    opening_str,
+                    opening_idx,
+                    &progress_bar,
+                    &mut time_tracker,
+                )
+            });
+            if let Err(e) = result {
                 progress_bar.finish_and_clear();
                 // Show the results of already-completed games before propagating
                 // the error; display failures must not mask the original error.
@@ -204,6 +248,7 @@ impl MatchRunner {
         }
 
         while !game_state.is_game_over() {
+            check_interrupted()?;
             let is_black = game_state.side_to_move() == Disc::Black;
             let current_color = if is_black { "black" } else { "white" };
 
@@ -353,16 +398,19 @@ impl MatchRunner {
     fn initialize_engines(&self, config: &Config) -> Result<(GtpEngine, GtpEngine)> {
         let (engine1_program, engine1_args) = config.get_engine1_command();
         let (engine2_program, engine2_args) = config.get_engine2_command();
+        let move_timeout = config.move_timeout.map(Duration::from_secs);
 
         let engine1 = GtpEngine::new(
             &engine1_program,
             &engine1_args,
             config.engine1_working_dir.clone(),
+            move_timeout,
         )?;
         let engine2 = GtpEngine::new(
             &engine2_program,
             &engine2_args,
             config.engine2_working_dir.clone(),
+            move_timeout,
         )?;
 
         Ok((engine1, engine2))
@@ -416,11 +464,7 @@ impl MatchRunner {
                     )?;
                     progress_bar.inc(1);
                 }
-                Err(e) => {
-                    return Err(MatchRunnerError::Game(format!(
-                        "Fatal error in game {game_number}: {e}"
-                    )));
-                }
+                Err(error) => return Err(contextualize_game_error(error, game_number)),
             }
         }
 
@@ -456,6 +500,49 @@ impl MatchRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_context_preserves_interrupted_error() {
+        let error = contextualize_game_error(MatchRunnerError::Interrupted, 3);
+
+        assert!(matches!(error, MatchRunnerError::Interrupted));
+    }
+
+    #[test]
+    fn game_context_preserves_timeout_error_and_message() {
+        let error =
+            contextualize_game_error(MatchRunnerError::Timeout("engine stalled".to_string()), 3);
+
+        match error {
+            MatchRunnerError::Timeout(message) => assert_eq!(message, "engine stalled"),
+            other => panic!("expected timeout error, got {other}"),
+        }
+    }
+
+    #[test]
+    fn game_context_wraps_engine_error_with_game_number() {
+        let error =
+            contextualize_game_error(MatchRunnerError::Engine("bad response".to_string()), 3);
+
+        match error {
+            MatchRunnerError::Game(message) => {
+                assert_eq!(message, "Fatal error in game 3: Engine error: bad response");
+            }
+            other => panic!("expected game error, got {other}"),
+        }
+    }
+
+    #[test]
+    fn game_context_wraps_game_error_with_game_number() {
+        let error = contextualize_game_error(MatchRunnerError::Game("illegal move".to_string()), 3);
+
+        match error {
+            MatchRunnerError::Game(message) => {
+                assert_eq!(message, "Fatal error in game 3: Game error: illegal move");
+            }
+            other => panic!("expected game error, got {other}"),
+        }
+    }
 
     #[test]
     fn test_determine_game_result_black_wins() {

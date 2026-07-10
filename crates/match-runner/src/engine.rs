@@ -5,9 +5,12 @@
 //! and response parsing.
 
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 use crate::error::{MatchRunnerError, Result};
@@ -27,18 +30,23 @@ const ERR_STDIN_FAILED: &str = "Failed to open stdin";
 const ERR_STDOUT_FAILED: &str = "Failed to open stdout";
 const ERR_PROCESS_CLOSED: &str = "Process closed stdout";
 
+type OutputMessage = io::Result<Option<String>>;
+
 /// A GTP-compatible Reversi engine process.
 ///
 /// This struct manages communication with an external Reversi engine process
 /// that implements the GTP (Go Text Protocol). It handles starting the process,
 /// sending commands, and receiving responses.
 ///
-/// The engine's stdin and stdout are stored as fields to maintain a persistent
-/// `BufReader`, preventing potential data loss from repeated buffer recreation.
+/// The engine's stdin is retained for commands. A dedicated owned thread reads
+/// stdout continuously and forwards complete lines in protocol order.
 pub struct GtpEngine {
     process: Child,
     stdin: ChildStdin,
-    reader: BufReader<ChildStdout>,
+    responses: Receiver<OutputMessage>,
+    reader_thread: Option<JoinHandle<()>>,
+    move_timeout: Option<Duration>,
+    executable: String,
     /// Engine name
     name: String,
     /// Engine version
@@ -61,6 +69,7 @@ impl GtpEngine {
     /// * `executable` - Path to the engine executable
     /// * `args` - Command-line arguments for the engine
     /// * `working_dir` - Optional working directory for the engine process
+    /// * `move_timeout` - Optional hard deadline for each GTP command
     ///
     /// # Returns
     ///
@@ -70,7 +79,12 @@ impl GtpEngine {
     ///
     /// Returns an error if the engine process cannot be started or if initial
     /// communication with the engine fails.
-    pub fn new(executable: &str, args: &[String], working_dir: Option<PathBuf>) -> Result<Self> {
+    pub fn new(
+        executable: &str,
+        args: &[String],
+        working_dir: Option<PathBuf>,
+        move_timeout: Option<Duration>,
+    ) -> Result<Self> {
         let working_dir = working_dir.unwrap_or_else(|| Self::default_working_dir(executable));
 
         let mut process = Command::new(executable)
@@ -89,12 +103,15 @@ impl GtpEngine {
             .stdout
             .take()
             .ok_or_else(|| MatchRunnerError::Engine(ERR_STDOUT_FAILED.to_string()))?;
-        let reader = BufReader::new(stdout);
+        let (responses, reader_thread) = Self::spawn_stdout_reader(stdout);
 
         let mut engine = GtpEngine {
             process,
             stdin,
-            reader,
+            responses,
+            reader_thread: Some(reader_thread),
+            move_timeout,
+            executable: executable.to_string(),
             name: String::new(),
             version: String::new(),
         };
@@ -117,21 +134,40 @@ impl GtpEngine {
     /// Core GTP communication logic.
     fn communicate(
         stdin: &mut dyn Write,
-        reader: &mut dyn BufRead,
+        responses: &Receiver<OutputMessage>,
+        move_timeout: Option<Duration>,
+        engine_name: &str,
         command: &str,
     ) -> Result<String> {
+        let started_at = Instant::now();
         writeln!(stdin, "{command}")?;
         stdin.flush()?;
 
         let mut response = String::new();
-        let mut line = String::new();
 
         loop {
-            line.clear();
-            let bytes_read = reader.read_line(&mut line)?;
-            if bytes_read == 0 {
+            let message = if let Some(timeout) = move_timeout {
+                let remaining = timeout.saturating_sub(started_at.elapsed());
+                match responses.recv_timeout(remaining) {
+                    Ok(message) => message,
+                    Err(RecvTimeoutError::Timeout) => {
+                        return Err(MatchRunnerError::Timeout(format!(
+                            "engine '{engine_name}' timed out waiting for response to command '{command}'"
+                        )));
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        return Err(MatchRunnerError::Engine(ERR_PROCESS_CLOSED.to_string()));
+                    }
+                }
+            } else {
+                responses
+                    .recv()
+                    .map_err(|_| MatchRunnerError::Engine(ERR_PROCESS_CLOSED.to_string()))?
+            };
+
+            let Some(line) = message? else {
                 return Err(MatchRunnerError::Engine(ERR_PROCESS_CLOSED.to_string()));
-            }
+            };
 
             if line.trim().is_empty() {
                 break;
@@ -141,6 +177,34 @@ impl GtpEngine {
         }
 
         Ok(response)
+    }
+
+    fn spawn_stdout_reader(stdout: ChildStdout) -> (Receiver<OutputMessage>, JoinHandle<()>) {
+        let (sender, receiver) = mpsc::channel();
+        let reader_thread = thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => {
+                        let _ = sender.send(Ok(None));
+                        break;
+                    }
+                    Ok(_) => {
+                        if sender.send(Ok(Some(line))).is_err() {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender.send(Err(error));
+                        break;
+                    }
+                }
+            }
+        });
+
+        (receiver, reader_thread)
     }
 
     /// Send a GTP command to the engine and wait for response.
@@ -161,7 +225,24 @@ impl GtpEngine {
     /// Returns an error if communication with the engine fails or if the
     /// engine process terminates unexpectedly.
     pub fn send_command(&mut self, command: &str) -> Result<String> {
-        Self::communicate(&mut self.stdin, &mut self.reader, command)
+        let engine_name = if self.name.is_empty() {
+            self.executable.clone()
+        } else {
+            self.name.clone()
+        };
+        let result = Self::communicate(
+            &mut self.stdin,
+            &self.responses,
+            self.move_timeout,
+            &engine_name,
+            command,
+        );
+
+        if matches!(&result, Err(MatchRunnerError::Timeout(_))) {
+            let _ = self.process.kill();
+        }
+
+        result
     }
 
     // =============================================================================
@@ -329,12 +410,25 @@ impl Drop for GtpEngine {
     fn drop(&mut self) {
         let _ = self.process.kill();
         let _ = self.process.wait();
+        if let Some(reader_thread) = self.reader_thread.take() {
+            let _ = reader_thread.join();
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn response_channel(
+        messages: impl IntoIterator<Item = OutputMessage>,
+    ) -> Receiver<OutputMessage> {
+        let (sender, receiver) = mpsc::channel();
+        for message in messages {
+            sender.send(message).unwrap();
+        }
+        receiver
+    }
 
     #[test]
     fn test_parse_success_response_with_content() {
@@ -400,11 +494,15 @@ mod tests {
 
     #[test]
     fn test_communicate_success() {
-        let response_data = b"= hello\n\n";
-        let mut reader = std::io::Cursor::new(response_data.to_vec());
+        let responses = response_channel([
+            Ok(Some("= hello\n".to_string())),
+            Ok(Some("\n".to_string())),
+        ]);
         let mut writer = Vec::new();
 
-        let result = GtpEngine::communicate(&mut writer, &mut reader, "test_cmd").unwrap();
+        let result =
+            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "test_cmd")
+                .unwrap();
 
         assert_eq!(result, "= hello\n");
         assert_eq!(String::from_utf8(writer).unwrap(), "test_cmd\n");
@@ -412,11 +510,15 @@ mod tests {
 
     #[test]
     fn test_communicate_multiline_response() {
-        let response_data = b"= line1\nline2\n\n";
-        let mut reader = std::io::Cursor::new(response_data.to_vec());
+        let responses = response_channel([
+            Ok(Some("= line1\n".to_string())),
+            Ok(Some("line2\n".to_string())),
+            Ok(Some("\n".to_string())),
+        ]);
         let mut writer = Vec::new();
 
-        let result = GtpEngine::communicate(&mut writer, &mut reader, "cmd").unwrap();
+        let result =
+            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd").unwrap();
 
         assert_eq!(result, "= line1\nline2\n");
     }
@@ -447,12 +549,31 @@ mod tests {
 
     #[test]
     fn test_communicate_process_closed() {
-        let response_data = b"";
-        let mut reader = std::io::Cursor::new(response_data.to_vec());
+        let responses = response_channel([Ok(None)]);
         let mut writer = Vec::new();
 
-        let result = GtpEngine::communicate(&mut writer, &mut reader, "cmd");
+        let result = GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_communicate_timeout_names_engine_and_command() {
+        let (_sender, responses) = mpsc::channel();
+        let mut writer = Vec::new();
+
+        let result = GtpEngine::communicate(
+            &mut writer,
+            &responses,
+            Some(Duration::ZERO),
+            "slow-engine",
+            "genmove black",
+        );
+
+        let error = result.unwrap_err();
+        assert!(matches!(&error, MatchRunnerError::Timeout(_)));
+        let message = error.to_string();
+        assert!(message.contains("slow-engine"));
+        assert!(message.contains("genmove black"));
     }
 }

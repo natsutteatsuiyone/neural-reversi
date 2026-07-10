@@ -22,8 +22,12 @@ fn main() -> io::Result<()> {
     if let Err(e) = match_runner.run_match(&config) {
         match e {
             MatchRunnerError::Io(io_err) => return Err(io_err),
-            _ => {
-                eprintln!("Error: {e}");
+            error @ MatchRunnerError::Interrupted => {
+                eprintln!("Error: {error}");
+                std::process::exit(130);
+            }
+            error => {
+                eprintln!("Error: {error}");
                 std::process::exit(1);
             }
         }
