@@ -11,6 +11,31 @@ import {
   type SolverSelectivity,
 } from "./types";
 
+// Mirrors `validate_level` in `src-tauri/src/lib.rs` and
+// `reversi_core::level::MAX_LEVEL` (31 entries indexed 0..=30).
+const MAX_ENGINE_LEVEL = 30;
+const MAX_HASH_SIZE = 16384;
+const GAME_MODES = ["ai-black", "ai-white", "pvp"] as const satisfies readonly GameMode[];
+const AI_MODES = ["level", "time", "game-time"] as const satisfies readonly AIMode[];
+
+function isIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
+}
+
+function isPositiveFiniteInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value > 0
+  );
+}
+
+function isValidGameMode(value: unknown): value is GameMode {
+  return typeof value === "string" && (GAME_MODES as readonly string[]).includes(value);
+}
+
+function isValidAiMode(value: unknown): value is AIMode {
+  return typeof value === "string" && (AI_MODES as readonly string[]).includes(value);
+}
+
 function isValidSolverSelectivity(value: unknown): value is SolverSelectivity {
   return typeof value === "number" && (SOLVER_SELECTIVITIES as readonly number[]).includes(value);
 }
@@ -68,14 +93,24 @@ export class TauriSettingsService implements SettingsService {
       ]);
 
       return {
-        gameMode: gameMode ?? DEFAULT_SETTINGS.gameMode,
-        aiLevel: aiLevel ?? DEFAULT_SETTINGS.aiLevel,
-        aiMode: aiMode ?? DEFAULT_SETTINGS.aiMode,
-        timeLimit: timeLimit ?? DEFAULT_SETTINGS.timeLimit,
-        gameTimeLimit: gameTimeLimit ?? DEFAULT_SETTINGS.gameTimeLimit,
-        hintLevel: hintLevel ?? DEFAULT_SETTINGS.hintLevel,
-        gameAnalysisLevel: gameAnalysisLevel ?? DEFAULT_SETTINGS.gameAnalysisLevel,
-        hashSize: hashSize ?? DEFAULT_SETTINGS.hashSize,
+        gameMode: isValidGameMode(gameMode) ? gameMode : DEFAULT_SETTINGS.gameMode,
+        aiLevel: isIntegerInRange(aiLevel, 0, MAX_ENGINE_LEVEL)
+          ? aiLevel
+          : DEFAULT_SETTINGS.aiLevel,
+        aiMode: isValidAiMode(aiMode) ? aiMode : DEFAULT_SETTINGS.aiMode,
+        timeLimit: isPositiveFiniteInteger(timeLimit) ? timeLimit : DEFAULT_SETTINGS.timeLimit,
+        gameTimeLimit: isPositiveFiniteInteger(gameTimeLimit)
+          ? gameTimeLimit
+          : DEFAULT_SETTINGS.gameTimeLimit,
+        hintLevel: isIntegerInRange(hintLevel, 0, MAX_ENGINE_LEVEL)
+          ? hintLevel
+          : DEFAULT_SETTINGS.hintLevel,
+        gameAnalysisLevel: isIntegerInRange(gameAnalysisLevel, 0, MAX_ENGINE_LEVEL)
+          ? gameAnalysisLevel
+          : DEFAULT_SETTINGS.gameAnalysisLevel,
+        hashSize: isIntegerInRange(hashSize, 1, MAX_HASH_SIZE)
+          ? hashSize
+          : DEFAULT_SETTINGS.hashSize,
         aiAnalysisPanelOpen: aiAnalysisPanelOpen ?? DEFAULT_SETTINGS.aiAnalysisPanelOpen,
         rightPanelSize: rightPanelSize ?? DEFAULT_SETTINGS.rightPanelSize,
         bottomPanelSize: bottomPanelSize ?? DEFAULT_SETTINGS.bottomPanelSize,

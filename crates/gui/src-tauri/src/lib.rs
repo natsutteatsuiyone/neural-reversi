@@ -254,6 +254,19 @@ fn validate_level(level: usize) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_selectivity(target_selectivity: u8) -> Result<(), String> {
+    if target_selectivity > 3 {
+        return Err(format!(
+            "Invalid target_selectivity: {target_selectivity} (expected 0..=3)"
+        ));
+    }
+    Ok(())
+}
+
+fn clamp_hash_size(hash_size: usize) -> usize {
+    hash_size.clamp(1, 16384)
+}
+
 #[tauri::command]
 async fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
     with_search_lock(state.search.clone(), |s| s.init()).await
@@ -270,7 +283,7 @@ async fn check_ai_ready_command(state: State<'_, AppState>) -> Result<(), String
 
 #[tauri::command]
 async fn resize_tt_command(state: State<'_, AppState>, hash_size: usize) -> Result<(), String> {
-    let hash_size = hash_size.clamp(1, 16384);
+    let hash_size = clamp_hash_size(hash_size);
     with_search_lock(state.search.clone(), move |s| s.resize_tt(hash_size)).await
 }
 
@@ -378,11 +391,7 @@ async fn solver_search_command(
     multi_pv: bool,
     run_id: u64,
 ) -> Result<(), String> {
-    if target_selectivity > 3 {
-        return Err(format!(
-            "Invalid target_selectivity: {target_selectivity} (expected 0..=3)"
-        ));
-    }
+    validate_selectivity(target_selectivity)?;
 
     run_engine_search(
         state.search.clone(),
@@ -509,7 +518,6 @@ pub fn run() {
             });
             Ok(())
         })
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             ai_move_command,
             check_ai_ready_command,
@@ -584,5 +592,27 @@ mod tests {
     fn validate_level_rejects_out_of_range() {
         let err = validate_level(reversi_core::level::MAX_LEVEL + 1).unwrap_err();
         assert!(err.contains("Invalid level"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_selectivity_accepts_boundary_values() {
+        assert!(validate_selectivity(0).is_ok());
+        assert!(validate_selectivity(3).is_ok());
+    }
+
+    #[test]
+    fn validate_selectivity_rejects_out_of_range_values() {
+        for value in [4, 255] {
+            let err = validate_selectivity(value).unwrap_err();
+            assert!(err.contains("Invalid target_selectivity"), "got: {err}");
+        }
+    }
+
+    #[test]
+    fn clamp_hash_size_preserves_bounds_and_clamps_outliers() {
+        assert_eq!(clamp_hash_size(0), 1);
+        assert_eq!(clamp_hash_size(1), 1);
+        assert_eq!(clamp_hash_size(16384), 16384);
+        assert_eq!(clamp_hash_size(16385), 16384);
     }
 }

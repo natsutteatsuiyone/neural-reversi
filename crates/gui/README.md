@@ -74,3 +74,11 @@ force a specific driver path. By default the suite builds into
 Use `TAURI_E2E_APP` to run against an existing binary, `TAURI_E2E_SKIP_BUILD=1`
 to skip the automatic debug build, or `TAURI_E2E_TARGET_DIR` to override the
 isolated build directory.
+
+### Linting & formatting
+
+```bash
+bun run lint       # oxlint
+bun run fmt        # oxfmt (writes)
+bun run fmt:check  # oxfmt check only — CI enforces this
+```
