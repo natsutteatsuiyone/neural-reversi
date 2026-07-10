@@ -52,7 +52,7 @@ cargo run -p evaltest --release -- --depth 20 --hash-size 2048
 ### Run with complete search (no selectivity)
 
 ```bash
-cargo run -p evaltest --release -- --selectivity 5
+cargo run -p evaltest --release -- --selectivity 3
 ```
 
 ### Run a specific preset

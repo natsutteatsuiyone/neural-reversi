@@ -25,26 +25,32 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12
 #### Options
 
 - `--games`: Number of games to generate (ignored if `--openings` is used). Default: 100,000,000.
-- `--records_per_file`: Number of records to store in each output file (default: 1,000,000)
-- `--hash-size`: Transposition table size in MB for the search algorithm (default: 128)
-- `--mid-depth`: Midgame search depth (1-60, default: 12)
-- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,None) (default: 21)
-- `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0)
-- `--prefix`: Output file prefix for generated data files (default: "game")
-- `--output-dir`: Output directory where game data will be stored
+- `--games-per-file`: Number of games to store in each output file (1-65,535; default: 10,000).
+- `--hash-size`: Transposition table size in MB for the search algorithm (default: 512).
+- `--mid-depth`: Midgame search depth (1-60; default: 12).
+- `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,None) (default: 21).
+- `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 95%, 2: 99%, 3: 100%; default: 0).
+- `--prefix`: Output file prefix for generated data files (default: machine hostname).
+- `--output-dir`: Required output directory where game data will be stored.
 - `--openings`: Optional path to a file containing opening sequences. If provided, selfplay will iterate through these openings instead of generating a set number of games.
-- `--resume`: Resume selfplay from the last processed opening in the `--openings` file. Requires `--openings` to be set. (default: false)
+- `--resume`: Resume selfplay from the last processed opening in the `--openings` file. Requires `--openings` to be set (default: false).
 
 #### Data format
 
-Binary format with the following information for each board position:
+Each board position is a 27-byte record. Multi-byte values use little-endian byte order, and
+the field order matters — see `src/record.rs::write_records`.
 
-- Player and opponent bitboards (u64 x 2) - representing the current board state
-- Evaluation score (f32) - the position evaluation from the search algorithm
-- Game score (i8) - the final game outcome (e.g., disc difference) from the current player's perspective, stored as an 8-bit integer.
-- Ply (u8) - the move number in the game (0-60)
-- Random move flag (u8) - indicates whether this position resulted from a random move (1) or AI search (0)
-- Best move (u8) - the square index (0-63) of the move made from this position.
+| Offset | Field | Type |
+|--------|-------|------|
+| 0-7 | Player bitboard | u64 LE |
+| 8-15 | Opponent bitboard | u64 LE |
+| 16-19 | Evaluation score | f32 LE |
+| 20 | Game score | i8 |
+| 21 | Ply | u8 |
+| 22 | Random-move flag | u8 |
+| 23 | Best move (square index) | u8 |
+| 24 | Side to move (0 = Black, 1 = White) | u8 |
+| 25-26 | Game id | u16 LE |
 
 ### opening
 
@@ -69,7 +75,7 @@ datagen probcut --input ./games.txt --output ./probcut_training_data.csv
 #### Options
 
 - `--input`: Input file containing game sequences (one move sequence per line, moves in algebraic notation like "f5d6c3")
-- `--output`: Output CSV file containing training data with columns: ply, shallow_depth, deep_depth, diff
+- `--output`: Output CSV file containing training data with columns: ply, shallow_depth, shallow_score, deep_depth, deep_score, diff
 
 #### Data format
 
@@ -77,7 +83,9 @@ CSV format with the following columns:
 
 - `ply`: Move number in the game (0-59)
 - `shallow_depth`: Search depth for shallow search
-- `deep_depth`: Search depth for deep search  
+- `shallow_score`: Score of the shallow search, in the engine's score scale
+- `deep_depth`: Search depth for deep search
+- `deep_score`: Score of the deep search, in the engine's score scale
 - `diff`: Score difference between deep and shallow search results
 
 ### shuffle
