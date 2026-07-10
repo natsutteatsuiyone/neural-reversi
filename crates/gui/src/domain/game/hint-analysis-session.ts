@@ -123,7 +123,10 @@ export class HintAnalysisSession {
       onError: (error) => console.error("Hint abort failed:", error),
       onSettled: () => {
         const currentState = this.read();
-        this.commit({ isAnalyzing: false, hintAnalysisAbortPending: false });
+        // `isAnalyzing` is owned by the Engine Activity projection and is
+        // already false — the abort stamped `idle` at claim. Only the
+        // feature-owned breadcrumb is cleared here.
+        this.commit({ hintAnalysisAbortPending: false });
         if (currentState.isHintMode) void currentState.analyzeBoard();
       },
       // Guaranteed-once: a superseding start skips onSettled, so clear
