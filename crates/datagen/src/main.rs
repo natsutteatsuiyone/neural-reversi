@@ -25,7 +25,7 @@ enum SubCommands {
         #[arg(long, default_value = "100000000")]
         games: u32,
 
-        #[arg(long, default_value = "10000")]
+        #[arg(long, default_value = "10000", value_parser = clap::value_parser!(u32).range(1..=65535))]
         games_per_file: u32,
 
         #[arg(long, default_value = "512")]
@@ -83,6 +83,13 @@ enum SubCommands {
 
         #[arg(short = 'n', long)]
         num_output_files: Option<usize>,
+
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Validate existing shuffled_*.bin shards and append new records instead of refusing to reuse the output directory."
+        )]
+        append: bool,
 
         #[arg(short = 'm', long, default_value_t = 0)]
         min_ply: u8,
@@ -244,6 +251,7 @@ fn main() {
             pattern,
             files_per_chunk,
             num_output_files,
+            append,
             min_ply,
             max_score_diff,
             drop_random,
@@ -261,6 +269,7 @@ fn main() {
                 &pattern,
                 files_per_chunk,
                 num_output_files,
+                append,
                 filter,
             )
             .unwrap();

@@ -94,19 +94,38 @@ To filter out lower-quality records while shuffling:
 datagen shuffle --input-dir ./data --output-dir ./filtered_data --min-ply 8 --max-score-diff 12 --drop-random --keep-above-ply 50
 ```
 
+By default, the command refuses to run when the output directory already contains any
+`shuffled_*.bin` files. To add newly shuffled inputs to an existing dataset, opt in with
+`--append`:
+
+```bash
+datagen shuffle --input-dir ./more_data --output-dir ./shuffled_data --append
+```
+
+Append mode validates every existing shard before writing. Names must use the canonical
+`shuffled_00000.bin` form, shard sizes must be multiples of the 27-byte record size, and shard
+indices must fit the resolved output layout. Existing data is never truncated, rebalanced, or
+rewritten.
+
+When `--append` is used without `--num-output-files`, the layout is inferred as one more than the
+highest existing shard index. This preserves the previous layout on repeated invocations. An
+explicit `--num-output-files` overrides inference, so provide the existing layout's matching file
+count when overriding it; append is rejected if any existing shard index falls outside that count.
+
 #### Options
 
 - `--input-dir`: Input directory containing the game data files to be shuffled.
 - `--output-dir`: Output directory where the shuffled game data files will be stored. This directory will be created if it doesn't exist.
 - `--pattern`: Glob pattern to match input files within the `input-dir` (default: "*.bin").
 - `--files-per-chunk`: Number of input files to read and shuffle in memory at a time (default: 10). Adjust based on available memory and the size of your input files.
-- `--num-output-files`: Optional number of output files to create. If not specified, it defaults to the number of input files. The shuffled records will be distributed among these output files.
+- `--num-output-files`: Optional number of output files to create. Fresh runs default to the number of input files. Append runs with existing shards infer the count from the highest existing index unless this option is provided.
+- `--append`: Validate existing `shuffled_*.bin` files and append new records to them. Without this flag, existing shuffle output causes the command to fail.
 - `--min-ply`: Drop records from earlier plies than this threshold. Useful for excluding highly unstable opening positions (default: 0).
 - `--max-score-diff`: Drop records where the absolute difference between the stored evaluation score and the final game score exceeds this threshold. Records with unavailable game scores are kept.
 - `--drop-random`: Drop records whose move was selected randomly during self-play instead of by search.
 - `--keep-above-ply`: Keep all records with ply >= this value, bypassing `--drop-random` and `--max-score-diff` filters. Useful for preserving high-quality endgame solver results unconditionally. Note that `--min-ply` still applies independently.
 
-Filtering is applied while reading the serialized records, so large datasets can be filtered without fully deserializing every record into an intermediate structure. The shuffle summary reports how many records were dropped by each filter.
+Filtering is applied while reading the serialized records, so large datasets can be filtered without fully deserializing every record into an intermediate structure. The shuffle summary reports how many records were dropped by each filter, how many records and bytes were added by the current invocation, and the post-append totals for the dataset and each shard.
 
 ### score-openings
 

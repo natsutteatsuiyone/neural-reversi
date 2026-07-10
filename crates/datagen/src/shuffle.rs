@@ -49,6 +49,12 @@ const OUTPUT_FILE_DIGITS: usize = 5;
 /// Represents a single game record as a fixed-size byte array
 type Record = [u8; RECORD_SIZE];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ExistingShuffleOutput {
+    index: usize,
+    record_count: u64,
+}
+
 /// Shuffles and redistributes game records from input files.
 ///
 /// # Arguments
@@ -58,6 +64,7 @@ type Record = [u8; RECORD_SIZE];
 /// * `pattern` - Glob pattern to match input files (e.g., "*.bin")
 /// * `files_per_chunk` - Number of input files to process in each chunk
 /// * `num_output_files` - Number of output files to create (defaults to input file count)
+/// * `append` - Whether to validate and append to existing shuffle output files
 ///
 /// # Returns
 ///
@@ -68,6 +75,7 @@ pub fn execute(
     pattern: &str,
     files_per_chunk: usize,
     num_output_files: Option<usize>,
+    append: bool,
     filter: FilterConfig,
 ) -> anyhow::Result<()> {
     let mut stats = FilterStats::default();
@@ -77,6 +85,8 @@ pub fn execute(
 
     // Create output directory if it doesn't exist
     std::fs::create_dir_all(output_dir_path)?;
+    let existing_outputs =
+        inspect_existing_shuffle_outputs(output_dir_path, append, num_output_files)?;
 
     let mut rng = SmallRng::seed_from_u64(SHUFFLE_SEED);
     let input_files = find_input_files(input_dir_path, pattern, &mut rng)?;
@@ -85,12 +95,15 @@ pub fn execute(
         return Ok(());
     }
 
-    let num_output_files = num_output_files.unwrap_or(input_files.len()).max(1);
+    let mut records_per_output_file =
+        resolve_output_layout(&existing_outputs, num_output_files, input_files.len())?;
+    let num_output_files = records_per_output_file.len();
 
     println!("Input  folder : {input_dir:?}");
     println!("Output folder : {output_dir:?}");
     println!("Input files   : {}", input_files.len());
     println!("Output files  : {num_output_files}");
+    println!("Append mode   : {}", if append { "yes" } else { "no" });
     println!("Files/chunk   : {files_per_chunk}");
     println!("Min ply       : {}", filter.min_ply);
     println!(
@@ -119,9 +132,8 @@ pub fn execute(
     );
     chunk_pb.enable_steady_tick(Duration::from_millis(100));
 
-    let mut records_per_output_file = vec![0u64; num_output_files];
-    let mut total_records: u64 = 0;
-    let mut total_bytes: u64 = 0;
+    let mut added_records: u64 = 0;
+    let mut added_bytes: u64 = 0;
 
     for (chunk_id, chunk) in input_files.chunks(files_per_chunk).enumerate() {
         let mut chunk_records: Vec<Record> = Vec::new();
@@ -139,11 +151,11 @@ pub fn execute(
             chunk_id,
         )?;
 
-        total_records += chunk_records.len() as u64;
-        total_bytes += (chunk_records.len() * RECORD_SIZE) as u64;
+        added_records += chunk_records.len() as u64;
+        added_bytes += (chunk_records.len() * RECORD_SIZE) as u64;
         chunk_pb.set_message(format!(
-            "total {total_records} recs / {}",
-            HumanBytes(total_bytes)
+            "added {added_records} recs / {}",
+            HumanBytes(added_bytes)
         ));
         chunk_pb.inc(1);
     }
@@ -152,6 +164,13 @@ pub fn execute(
     mp.clear()?;
 
     println!("------------- Summary -------------");
+    println!(
+        "Added records : {}  ({})",
+        added_records,
+        HumanBytes(added_bytes)
+    );
+    let total_records = records_per_output_file.iter().sum::<u64>();
+    let total_bytes = total_records * RECORD_SIZE as u64;
     println!(
         "Total records : {}  ({})",
         total_records,
@@ -167,6 +186,109 @@ pub fn execute(
     }
     println!("-----------------------------------");
     Ok(())
+}
+
+fn inspect_existing_shuffle_outputs(
+    output_dir: &Path,
+    append: bool,
+    explicit_num_output_files: Option<usize>,
+) -> anyhow::Result<Vec<ExistingShuffleOutput>> {
+    let mut candidates = Vec::new();
+    for entry in std::fs::read_dir(output_dir)? {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if entry.file_type()?.is_file()
+            && file_name.starts_with("shuffled_")
+            && file_name.ends_with(".bin")
+        {
+            candidates.push((entry.path(), file_name.into_owned()));
+        }
+    }
+
+    if !append {
+        anyhow::ensure!(
+            candidates.is_empty(),
+            "output dir '{}' already contains {} shuffled_*.bin file(s); a re-run would append to them and corrupt the dataset. Remove them, use a fresh --output-dir, or pass --append to validate and append safely.",
+            output_dir.display(),
+            candidates.len()
+        );
+        return Ok(Vec::new());
+    }
+
+    let mut existing_outputs = Vec::with_capacity(candidates.len());
+    for (path, file_name) in candidates {
+        let index = parse_shuffle_output_index(&file_name)?;
+        if let Some(num_output_files) = explicit_num_output_files {
+            anyhow::ensure!(
+                index < num_output_files,
+                "existing shuffle output '{}' has index {index}, which is outside the {num_output_files}-file output layout",
+                path.display()
+            );
+        }
+
+        let file_size = path.metadata()?.len();
+        anyhow::ensure!(
+            file_size % RECORD_SIZE as u64 == 0,
+            "existing shuffle output '{}' has size {file_size}, which is not a multiple of record size {RECORD_SIZE}; refusing to append",
+            path.display()
+        );
+        existing_outputs.push(ExistingShuffleOutput {
+            index,
+            record_count: file_size / RECORD_SIZE as u64,
+        });
+    }
+    existing_outputs.sort_unstable_by_key(|output| output.index);
+    Ok(existing_outputs)
+}
+
+fn parse_shuffle_output_index(file_name: &str) -> anyhow::Result<usize> {
+    let index_text = file_name
+        .strip_prefix("shuffled_")
+        .and_then(|name| name.strip_suffix(".bin"))
+        .unwrap_or_default();
+    let index = index_text.parse::<usize>().map_err(|_| {
+        anyhow::anyhow!(
+            "'{file_name}' is not a canonical shuffle output name; expected shuffled_{{index:05}}.bin"
+        )
+    })?;
+    let canonical_name = format!("shuffled_{index:0OUTPUT_FILE_DIGITS$}.bin");
+    anyhow::ensure!(
+        file_name == canonical_name,
+        "'{file_name}' is not a canonical shuffle output name; expected '{canonical_name}'"
+    );
+    Ok(index)
+}
+
+fn resolve_output_layout(
+    existing_outputs: &[ExistingShuffleOutput],
+    explicit_num_output_files: Option<usize>,
+    default_num_output_files: usize,
+) -> anyhow::Result<Vec<u64>> {
+    let num_output_files = if let Some(num_output_files) = explicit_num_output_files {
+        anyhow::ensure!(
+            num_output_files > 0,
+            "--num-output-files must be at least 1"
+        );
+        num_output_files
+    } else if let Some(max_index) = existing_outputs.iter().map(|output| output.index).max() {
+        max_index
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("existing shuffle output index is too large"))?
+    } else {
+        default_num_output_files.max(1)
+    };
+
+    let mut records_per_output_file = vec![0u64; num_output_files];
+    for output in existing_outputs {
+        anyhow::ensure!(
+            output.index < num_output_files,
+            "existing shuffle output index {} is outside the {num_output_files}-file output layout",
+            output.index
+        );
+        records_per_output_file[output.index] = output.record_count;
+    }
+    Ok(records_per_output_file)
 }
 
 /// Finds and shuffles input files matching the given pattern.
@@ -314,4 +436,186 @@ fn distribute_records(
         record_index += records_to_write;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(name: &str) -> io::Result<Self> {
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "neural-reversi-datagen-shuffle-{name}-{}-{id}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&path)?;
+            Ok(Self { path })
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn distribute_records_accounts_every_record() -> io::Result<()> {
+        let output_dir = TempDir::new("accounting")?;
+        let records: Vec<Record> = (0..10).map(|value| [value; RECORD_SIZE]).collect();
+        let mut records_per_file = [0u64; 3];
+
+        distribute_records(output_dir.path(), &records, &mut records_per_file, 0)?;
+
+        assert_eq!(records_per_file.iter().sum::<u64>(), 10);
+        let min_records = records_per_file
+            .iter()
+            .min()
+            .copied()
+            .expect("three output files");
+        let max_records = records_per_file
+            .iter()
+            .max()
+            .copied()
+            .expect("three output files");
+        assert!(max_records - min_records <= 1);
+
+        let total_output_size =
+            (0..records_per_file.len()).try_fold(0u64, |total, file_index| {
+                let path = output_dir
+                    .path()
+                    .join(format!("shuffled_{file_index:0OUTPUT_FILE_DIGITS$}.bin"));
+                Ok::<_, io::Error>(total + std::fs::metadata(path)?.len())
+            })?;
+        assert_eq!(total_output_size, 10 * RECORD_SIZE as u64);
+        Ok(())
+    }
+
+    #[test]
+    fn default_mode_rejects_prior_shuffle_output() -> anyhow::Result<()> {
+        let canonical_dir = TempDir::new("guard-canonical")?;
+        std::fs::write(canonical_dir.path().join("other.bin"), [])?;
+        inspect_existing_shuffle_outputs(canonical_dir.path(), false, None)?;
+
+        std::fs::write(canonical_dir.path().join("shuffled_00000.bin"), [])?;
+        let error = inspect_existing_shuffle_outputs(canonical_dir.path(), false, None)
+            .expect_err("canonical shuffle output must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("already contains 1 shuffled_*.bin file(s)")
+        );
+
+        let malformed_dir = TempDir::new("guard-malformed")?;
+        std::fs::write(malformed_dir.path().join("shuffled_bad.bin"), [])?;
+        inspect_existing_shuffle_outputs(malformed_dir.path(), false, None)
+            .expect_err("shuffle-looking output must be rejected");
+        Ok(())
+    }
+
+    #[test]
+    fn append_preserves_existing_bytes_and_seeds_counts() -> anyhow::Result<()> {
+        let output_dir = TempDir::new("append")?;
+        let output_path = output_dir.path().join("shuffled_00000.bin");
+        let existing_record = [0x11; RECORD_SIZE];
+        std::fs::write(&output_path, existing_record)?;
+        let existing = inspect_existing_shuffle_outputs(output_dir.path(), true, None)?;
+        let mut records_per_file = resolve_output_layout(&existing, None, 10)?;
+        let new_records = [[0x22; RECORD_SIZE], [0x33; RECORD_SIZE]];
+
+        distribute_records(output_dir.path(), &new_records, &mut records_per_file, 0)?;
+
+        assert_eq!(records_per_file, [3]);
+        let bytes = std::fs::read(output_path)?;
+        assert_eq!(&bytes[..RECORD_SIZE], &existing_record);
+        assert_eq!(&bytes[RECORD_SIZE..], new_records.as_flattened());
+        Ok(())
+    }
+
+    #[test]
+    fn append_infers_layout_from_highest_existing_index() -> anyhow::Result<()> {
+        let output_dir = TempDir::new("infer-layout")?;
+        std::fs::write(
+            output_dir.path().join("shuffled_00000.bin"),
+            [0u8; RECORD_SIZE],
+        )?;
+        std::fs::write(
+            output_dir.path().join("shuffled_00002.bin"),
+            [0u8; RECORD_SIZE * 2],
+        )?;
+        let existing = inspect_existing_shuffle_outputs(output_dir.path(), true, None)?;
+
+        let records_per_file = resolve_output_layout(&existing, None, 99)?;
+
+        assert_eq!(records_per_file, [1, 0, 2]);
+        Ok(())
+    }
+
+    #[test]
+    fn append_rejects_partial_record_shard() -> anyhow::Result<()> {
+        let output_dir = TempDir::new("partial")?;
+        std::fs::write(
+            output_dir.path().join("shuffled_00000.bin"),
+            [0u8; RECORD_SIZE + 1],
+        )?;
+
+        let error = inspect_existing_shuffle_outputs(output_dir.path(), true, None)
+            .expect_err("partial shard must be rejected");
+
+        assert!(error.to_string().contains("not a multiple of record size"));
+        Ok(())
+    }
+
+    #[test]
+    fn append_rejects_noncanonical_shard_names() -> anyhow::Result<()> {
+        assert_eq!(parse_shuffle_output_index("shuffled_100000.bin")?, 100_000);
+
+        for file_name in [
+            "shuffled_1.bin",
+            "shuffled_000000.bin",
+            "shuffled_nonnumeric.bin",
+        ] {
+            let output_dir = TempDir::new("noncanonical")?;
+            std::fs::write(output_dir.path().join(file_name), [])?;
+
+            let error = inspect_existing_shuffle_outputs(output_dir.path(), true, None)
+                .expect_err("noncanonical shard name must be rejected");
+
+            assert!(
+                error
+                    .to_string()
+                    .contains("not a canonical shuffle output name")
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn append_rejects_index_outside_explicit_layout() -> anyhow::Result<()> {
+        let output_dir = TempDir::new("outside-layout")?;
+        std::fs::write(output_dir.path().join("shuffled_00002.bin"), [])?;
+
+        let error = inspect_existing_shuffle_outputs(output_dir.path(), true, Some(2))
+            .expect_err("index equal to output count must be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("outside the 2-file output layout")
+        );
+        Ok(())
+    }
 }

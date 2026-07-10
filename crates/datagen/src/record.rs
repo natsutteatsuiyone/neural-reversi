@@ -165,3 +165,150 @@ pub fn read_records_from_file(path: &Path) -> io::Result<Vec<GameRecord>> {
 
     Ok(records)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TempFile {
+        path: PathBuf,
+    }
+
+    impl TempFile {
+        fn new(name: &str) -> Self {
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "neural-reversi-datagen-{name}-{}-{id}.bin",
+                std::process::id()
+            ));
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+
+    fn make_record(index: u8, game_id: u16) -> GameRecord {
+        GameRecord {
+            game_id,
+            ply: index + 10,
+            board: Board::from_bitboards(
+                Bitboard::new(1 << index),
+                Bitboard::new(1 << (index + 8)),
+            ),
+            score: f32::from(index) + 0.5,
+            game_score: index as i8 - 2,
+            side_to_move: if index.is_multiple_of(2) {
+                Disc::Black
+            } else {
+                Disc::White
+            },
+            is_random: index.is_multiple_of(2),
+            sq: Square::from_u8(index).expect("test square is valid"),
+        }
+    }
+
+    fn assert_record_eq(actual: &GameRecord, expected: &GameRecord) {
+        assert_eq!(actual.game_id, expected.game_id);
+        assert_eq!(actual.ply, expected.ply);
+        assert_eq!(actual.board, expected.board);
+        assert_eq!(actual.score, expected.score);
+        assert_eq!(actual.game_score, expected.game_score);
+        assert_eq!(actual.side_to_move, expected.side_to_move);
+        assert_eq!(actual.is_random, expected.is_random);
+        assert_eq!(actual.sq, expected.sq);
+    }
+
+    #[test]
+    fn record_layout_matches_offsets() -> io::Result<()> {
+        let record = GameRecord {
+            game_id: 0xBEEF,
+            ply: 42,
+            board: Board::from_bitboards(
+                Bitboard::new(0x0123_4567_89AB_CDEF),
+                Bitboard::new(0xFEDC_BA98_7654_3210),
+            ),
+            score: 1.5,
+            game_score: -3,
+            side_to_move: Disc::White,
+            is_random: true,
+            sq: Square::D3,
+        };
+        let mut bytes = Vec::new();
+
+        write_records(&mut bytes, &[record])?;
+
+        assert_eq!(bytes.len(), RECORD_SIZE as usize);
+        assert_eq!(
+            &bytes[SCORE_OFFSET..SCORE_OFFSET + 4],
+            &1.5f32.to_le_bytes()
+        );
+        assert_eq!(bytes[GAME_SCORE_OFFSET] as i8, -3);
+        assert_eq!(bytes[PLY_OFFSET], 42);
+        assert_eq!(bytes[IS_RANDOM_OFFSET], 1);
+        assert_eq!(&bytes[25..27], &0xBEEFu16.to_le_bytes());
+        Ok(())
+    }
+
+    #[test]
+    fn record_round_trips_through_file() -> io::Result<()> {
+        let file = TempFile::new("round-trip");
+        let records = [make_record(1, 1), make_record(2, 7), make_record(3, 0xBEEF)];
+
+        write_records_to_file(file.path(), &records)?;
+        let actual = read_records_from_file(file.path())?;
+
+        assert_eq!(actual.len(), records.len());
+        for (actual, expected) in actual.iter().zip(&records) {
+            assert_record_eq(actual, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn truncate_incomplete_record_removes_partial_tail() -> io::Result<()> {
+        let file = TempFile::new("partial-tail");
+        let missing = TempFile::new("missing");
+        let record = make_record(4, 11);
+        write_records_to_file(file.path(), std::slice::from_ref(&record))?;
+        OpenOptions::new()
+            .append(true)
+            .open(file.path())?
+            .write_all(&[1, 2, 3, 4, 5])?;
+
+        truncate_incomplete_record(file.path())?;
+
+        assert_eq!(fs::metadata(file.path())?.len(), RECORD_SIZE);
+        let actual = read_records_from_file(file.path())?;
+        assert_eq!(actual.len(), 1);
+        assert_record_eq(&actual[0], &record);
+        assert!(!missing.path().exists());
+        truncate_incomplete_record(missing.path())?;
+        assert!(!missing.path().exists());
+        Ok(())
+    }
+
+    #[test]
+    fn read_last_game_id_reads_trailing_u16() -> io::Result<()> {
+        let populated = TempFile::new("last-game-id");
+        let empty = TempFile::new("empty");
+        let records = [make_record(5, 1), make_record(6, 7)];
+        write_records_to_file(populated.path(), &records)?;
+        fs::File::create(empty.path())?;
+
+        assert_eq!(read_last_game_id(populated.path())?, Some(7));
+        assert_eq!(read_last_game_id(empty.path())?, None);
+        Ok(())
+    }
+}

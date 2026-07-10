@@ -20,7 +20,7 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::record::{GameRecord, read_records_from_file, write_records_to_file};
+use crate::record::{self, GameRecord, read_records_from_file, write_records_to_file};
 
 /// Enumerates all unique positions reachable within `depth` plies and scores each one.
 ///
@@ -52,6 +52,7 @@ pub fn execute(
 
     // Load previously scored positions for resume
     let output_path = Path::new(output);
+    record::truncate_incomplete_record(output_path)?;
     let mut scored: HashSet<Board> = if output_path.exists() {
         let records = read_records_from_file(output_path)?;
         println!("Loaded {} existing records, resuming...", records.len());
