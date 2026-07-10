@@ -129,9 +129,20 @@ impl SearchStrategy for EndGameStrategy {
         _beta: ScaledScore,
         thread: &Arc<Thread>,
     ) -> ScaledScore {
-        let score =
-            endgame::null_window_search(ctx, board, alpha.to_disc_diff(), thread.endgame_caches());
-        ScaledScore::from_disc_diff(score)
+        let alpha_d = alpha.to_disc_diff();
+        let score_d = if thread.has_active_split_point() {
+            endgame::null_window_search_with_split_point_cutoff(
+                ctx,
+                board,
+                alpha_d,
+                thread.endgame_caches(),
+                thread,
+            )
+        } else {
+            endgame::null_window_search(ctx, board, alpha_d, thread.endgame_caches())
+        };
+
+        ScaledScore::from_disc_diff(score_d)
     }
 
     #[inline(always)]

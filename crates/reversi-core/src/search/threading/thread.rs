@@ -218,6 +218,12 @@ impl Thread {
         unsafe { &mut *self.active_split_point.get() }
     }
 
+    /// Returns whether this thread is currently searching under a split point.
+    #[inline]
+    pub(in crate::search) fn has_active_split_point(&self) -> bool {
+        self.active_split_point().is_some()
+    }
+
     /// Wakes up this thread when there is work to do.
     pub(super) fn notify_one(&self) {
         let _lock = self.mutex_for_sleep_condition.lock().unwrap();
@@ -690,11 +696,10 @@ impl Thread {
         self.abort_state.is_aborted()
     }
 
-    /// Returns `true` when the current branch should abandon its result:
-    /// either a beta cutoff has occurred on an ancestor split point, or the
-    /// whole search has been aborted.
+    /// Returns `true` when a beta cutoff has occurred in the current or
+    /// ancestor split points.
     #[inline]
-    pub fn should_stop(&self) -> bool {
+    pub(in crate::search) fn split_point_cutoff_occurred(&self) -> bool {
         if self.local_chain_cutoff.load(Ordering::Relaxed) {
             return true;
         }
@@ -709,6 +714,18 @@ impl Thread {
             if cutoff_occurred {
                 return true;
             }
+        }
+
+        false
+    }
+
+    /// Returns `true` when the current branch should abandon its result:
+    /// either a beta cutoff has occurred on an ancestor split point, or the
+    /// whole search has been aborted.
+    #[inline]
+    pub fn should_stop(&self) -> bool {
+        if self.split_point_cutoff_occurred() {
+            return true;
         }
 
         self.is_search_aborted()
