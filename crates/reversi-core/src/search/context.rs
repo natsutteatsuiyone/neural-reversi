@@ -70,11 +70,7 @@ impl SearchContext {
     /// Creates a new search context from a parallel search split point.
     #[inline]
     pub fn from_split_point(sp: &Arc<SplitPoint>) -> SearchContext {
-        let state = sp.state();
-        let task = state
-            .task
-            .as_ref()
-            .expect("active split point must have a task");
+        let task = sp.task();
         let empty_list = task.empty_list.clone();
         let ply = empty_list.ply();
         let pattern_features =

@@ -353,8 +353,8 @@ impl Thread {
 
         // All searchers have finished this split point, but other threads may
         // still hold brief lock-free `&SplitPointState` borrows via
-        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`): `pv` and
-        // `counters` live outside `SplitPointState`, so neither requires
+        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`): `task`, `pv`,
+        // and `counters` live outside `SplitPointState`, so none requires
         // `&mut SplitPointState`; this follows the same aliasing discipline as
         // the atomic fields.
         let sp_state = sp.state();
@@ -392,7 +392,7 @@ impl Thread {
         sp_state.set_alpha(req.alpha);
         sp_state.beta = req.beta;
         sp_state.node_type = req.node_type;
-        sp_state.task = Some(SplitPointTask::new(req.board, ctx));
+        sp.set_task(SplitPointTask::new(req.board, ctx));
         sp.reset_counters_locked();
         sp_state.clear_cutoff();
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
@@ -437,7 +437,7 @@ impl Thread {
         self.unlock();
 
         // Clear task data after releasing thread lock to minimize lock duration
-        sp.state_mut().task = None;
+        sp.clear_task();
         sp.clear_move_iter();
     }
 
@@ -475,11 +475,7 @@ impl Thread {
 
                 let (board, depth, node_type) = {
                     sp.lock();
-                    let task = sp
-                        .state()
-                        .task
-                        .as_ref()
-                        .expect("active split point must have a task");
+                    let task = sp.task();
                     let sp_state = sp.state();
                     (task.board, sp_state.depth, sp_state.node_type)
                 };

@@ -65,9 +65,6 @@ pub struct SplitPointState {
     /// Search depth remaining from this position.
     pub(super) depth: Depth,
 
-    /// Task data containing the position and search context.
-    pub task: Option<SplitPointTask>,
-
     /// Parent split point in the tree hierarchy.
     pub(super) parent_split_point: Option<Arc<SplitPoint>>,
 
@@ -260,10 +257,10 @@ impl SplitPointTask {
 
 /// A split point in the parallel search tree.
 ///
-/// Teardown ordering: fields stored outside `state` (`move_iter`, `pv`,
-/// `counters`) are mutated only while the split-point lock is held, or after
-/// all searchers finish (each searcher resets `helpers_mask` with Release
-/// before the owner proceeds).
+/// Teardown ordering: fields stored outside `state` (`move_iter`, `task`, `pv`,
+/// `counters`) are mutated only while the split-point lock is held, or after all
+/// searchers finish (each searcher resets `helpers_mask` with Release before the
+/// owner proceeds).
 pub struct SplitPoint {
     /// Spinlock for fast synchronization between threads.
     mutex: spinlock::RawSpinLock,
@@ -283,6 +280,14 @@ pub struct SplitPoint {
     /// Mutated only while the split-point lock is held, or after all searchers
     /// finish (see struct-level teardown ordering).
     move_iter: SyncUnsafeCell<Option<ConcurrentMoveIterator>>,
+
+    /// Task data containing the position and search context.
+    ///
+    /// Stored outside `state` so teardown can clear it without creating a
+    /// `&mut SplitPointState` that aliases lock-free `state()` borrows in
+    /// late-join pre-checks. Mutated only while the split-point lock is held,
+    /// or after all searchers finish.
+    task: SyncUnsafeCell<Option<SplitPointTask>>,
 
     /// Principal variation line from the best move found at this split point.
     ///
@@ -317,13 +322,13 @@ impl Default for SplitPoint {
                 owner_thread_idx: AtomicUsize::new(0),
                 helpers_mask: Align64(AtomicBitSet::new()),
                 depth: 0,
-                task: None,
                 parent_split_point: None,
                 level: AtomicUsize::new(0),
                 is_endgame: false,
                 cut_node: AtomicBool::new(false),
             }),
             move_iter: SyncUnsafeCell::new(None),
+            task: SyncUnsafeCell::new(None),
             pv: SyncUnsafeCell::new([Square::None; MAX_PLY]),
             counters: SyncUnsafeCell::new(SearchCounters::default()),
         }
@@ -377,6 +382,34 @@ impl SplitPoint {
         // SAFETY: All `move_iter()` references are scoped to `search_split_point`,
         // which completes before the searcher resets its `helpers_mask` bit.
         unsafe { *self.move_iter.get() = None };
+    }
+
+    /// Sets the task for this split point. Caller must hold the split-point lock.
+    #[inline]
+    pub(super) fn set_task(&self, task: SplitPointTask) {
+        // SAFETY: Caller holds the split-point lock; no helper reads the task
+        // before the split point is published.
+        unsafe { *self.task.get() = Some(task) };
+    }
+
+    /// Returns the task for the active split point.
+    #[inline]
+    pub(in crate::search) fn task(&self) -> &SplitPointTask {
+        // SAFETY: Initialized before helpers start; valid until all finish.
+        unsafe {
+            (*self.task.get())
+                .as_ref()
+                .expect("active split point must have a task")
+        }
+    }
+
+    /// Clears the task after all searchers have finished.
+    #[inline]
+    pub(super) fn clear_task(&self) {
+        // SAFETY: All searchers have finished (`helpers_mask` is empty), so no
+        // reference to the task is live; the raw write does not form a
+        // `&mut SplitPointState`.
+        unsafe { *self.task.get() = None };
     }
 
     /// Copies PV from source to the split point's internal PV storage.
