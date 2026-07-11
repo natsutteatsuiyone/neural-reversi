@@ -29,19 +29,32 @@ mod solve1_tables;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::SCORE_INF;
+use crate::empty_list::{EmptyList, get_quadrant_id};
 use crate::flip;
 use crate::search::context::SearchContext;
 use crate::square::Square;
 use crate::types::Score;
 
 /// Sorts the last four empty squares so that odd-parity quadrants are searched first.
+///
+/// Nearly half of all four-empty positions (~48% measured on hard-20) have
+/// all-even quadrant counts and keep the presorted order, so that case is
+/// checked from `parity` alone before any quadrant lookup.
 #[inline(always)]
-pub(super) fn sort_last4(ctx: &mut SearchContext) -> (Square, Square, Square, Square) {
-    let (sq1, quad_id1) = ctx.empty_list.first_and_quad_id();
-    let (sq2, quad_id2) = ctx.empty_list.next_and_quad_id(sq1);
-    let (sq3, quad_id3) = ctx.empty_list.next_and_quad_id(sq2);
-    let sq4 = ctx.empty_list.next(sq3);
-    let parity = ctx.empty_list.parity();
+pub(super) fn sort_last4(empty_list: &EmptyList) -> (Square, Square, Square, Square) {
+    let sq1 = empty_list.first();
+    let sq2 = empty_list.next(sq1);
+    let sq3 = empty_list.next(sq2);
+    let sq4 = empty_list.next(sq3);
+    let parity = empty_list.parity();
+
+    if parity == 0 {
+        return (sq1, sq2, sq3, sq4);
+    }
+
+    let quad_id1 = get_quadrant_id(sq1);
+    let quad_id2 = get_quadrant_id(sq2);
+    let quad_id3 = get_quadrant_id(sq3);
 
     if parity & quad_id1 == 0 {
         if parity & quad_id2 != 0 {
@@ -824,6 +837,73 @@ mod tests {
 
                 assert_eq!(solve_last1(player, alpha, sq), expected);
             }
+        }
+    }
+
+    /// The original branchy `sort_last4` logic, kept as the behavioral reference.
+    fn sort_last4_reference(empty_list: &EmptyList) -> (Square, Square, Square, Square) {
+        let (sq1, quad_id1) = empty_list.first_and_quad_id();
+        let (sq2, quad_id2) = empty_list.next_and_quad_id(sq1);
+        let (sq3, quad_id3) = empty_list.next_and_quad_id(sq2);
+        let sq4 = empty_list.next(sq3);
+        let parity = empty_list.parity();
+
+        if parity & quad_id1 == 0 {
+            if parity & quad_id2 != 0 {
+                if parity & quad_id3 != 0 {
+                    (sq2, sq3, sq1, sq4)
+                } else {
+                    (sq2, sq4, sq1, sq3)
+                }
+            } else if parity & quad_id3 != 0 {
+                (sq3, sq4, sq1, sq2)
+            } else {
+                (sq1, sq2, sq3, sq4)
+            }
+        } else if parity & quad_id2 == 0 {
+            if parity & quad_id3 != 0 {
+                (sq1, sq3, sq2, sq4)
+            } else {
+                (sq1, sq4, sq2, sq3)
+            }
+        } else {
+            (sq1, sq2, sq3, sq4)
+        }
+    }
+
+    #[test]
+    fn sort_last4_matches_branchy_reference() {
+        // One pool of four distinct squares per quadrant (masks 1, 2, 4, 8).
+        const POOLS: [[Square; 4]; 4] = [
+            [Square::B2, Square::C2, Square::B3, Square::D3],
+            [Square::G2, Square::F2, Square::G3, Square::E3],
+            [Square::B7, Square::C7, Square::B6, Square::D6],
+            [Square::G7, Square::F7, Square::G6, Square::E6],
+        ];
+
+        // Every assignment of the four empties to quadrants (4^4 patterns)
+        // covers all reachable parity/membership combinations.
+        for pattern in 0..256usize {
+            let mut used = [0usize; 4];
+            let mut empty_bits = 0u64;
+            for i in 0..4 {
+                let quad = (pattern >> (2 * i)) & 3;
+                let sq = POOLS[quad][used[quad]];
+                used[quad] += 1;
+                empty_bits |= 1 << sq.index();
+            }
+
+            let occupied = !empty_bits;
+            let player = occupied & 0xAAAA_AAAA_AAAA_AAAA;
+            let opponent = occupied & !0xAAAA_AAAA_AAAA_AAAAu64;
+            let board = Board::from_bitboards(player, opponent);
+            let empty_list = EmptyList::new(&board);
+
+            assert_eq!(
+                sort_last4(&empty_list),
+                sort_last4_reference(&empty_list),
+                "pattern {pattern:#010b}"
+            );
         }
     }
 }

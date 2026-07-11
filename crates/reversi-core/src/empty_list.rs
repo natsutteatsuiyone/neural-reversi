@@ -15,7 +15,7 @@ use crate::square::Square;
 /// Used for endgame parity optimization where different quadrant
 /// combinations affect move ordering efficiency.
 #[inline(always)]
-fn get_quadrant_id(sq: Square) -> u8 {
+pub(crate) fn get_quadrant_id(sq: Square) -> u8 {
     #[rustfmt::skip]
     const QUADRANT_ID: [u8; 65] = [
         1, 1, 1, 1, 2, 2, 2, 2,

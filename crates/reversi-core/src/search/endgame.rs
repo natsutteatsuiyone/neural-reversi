@@ -350,7 +350,7 @@ pub fn null_window_search(
             solve3(ctx, board, alpha, sq1, sq2, sq3)
         }
         4 => {
-            let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
+            let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
             solve4(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
         _ => shallow_search(ctx, board, alpha, &mut caches.shallow),
@@ -614,7 +614,7 @@ fn shallow_search_move(
             ctx.counters.increment_stability_cut();
             -score
         } else {
-            let (sq1, sq2, sq3, sq4) = sort_last4(ctx);
+            let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
             let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
             sc.store(next_cache_idx, &next, next_alpha, score);
             -score
