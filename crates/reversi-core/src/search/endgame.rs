@@ -110,6 +110,8 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     } else {
         1
     };
+    let mut completed_selectivity = ctx.selectivity;
+    let mut completed_root_moves = ctx.root_moves.snapshot();
 
     // Multi-PV loop: search each PV line with its own aspiration window
     for pv_idx in 0..pv_count {
@@ -143,6 +145,8 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             // Stable sort moves from pv_idx to end, bringing best to pv_idx position
             ctx.sort_root_moves_from_pv_idx();
+            completed_selectivity = selectivity;
+            completed_root_moves = ctx.root_moves.snapshot();
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(ref callback) = task.callback
@@ -169,15 +173,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
         // Check abort or time limit
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
-            ctx.sort_all_root_moves();
-            let best_move = ctx
-                .get_best_root_move()
-                .expect("internal error: no root moves after search");
-            return SearchResult::from_root_move(
-                &ctx.root_moves,
-                &best_move,
+            let best_move = completed_root_moves
+                .first()
+                .expect("internal error: no completed root moves after search");
+            return SearchResult::from_root_move_snapshot(
+                &completed_root_moves,
+                best_move,
                 n_empties,
-                ctx.selectivity,
+                completed_selectivity,
                 true,
                 ctx.counters.clone(),
             );

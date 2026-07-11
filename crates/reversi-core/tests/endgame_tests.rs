@@ -1,4 +1,5 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
@@ -85,6 +86,46 @@ fn test_solve_2_case1() {
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 46);
+}
+
+#[test]
+fn aborted_endgame_reports_last_completed_selectivity() {
+    let mut search = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let board = Board::from_string(
+        "XXXXXXXXXXXXXXXXXXOOXOXXXXXXOXXXXXXOXOXXXXOXOXOXXOOOOOOX--OOOOOX",
+        Disc::Black,
+    )
+    .unwrap();
+    let completed = Arc::new(Mutex::new(None));
+    let abort_requested = Arc::new(AtomicBool::new(false));
+    let callback_completed = completed.clone();
+    let callback_abort_requested = abort_requested.clone();
+    let pool = search.thread_pool();
+    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None).callback(
+        move |progress| {
+            if !callback_abort_requested.swap(true, Ordering::SeqCst) {
+                *callback_completed.lock().unwrap() = Some((
+                    progress.best_move,
+                    progress.score,
+                    progress.probability,
+                    progress.pv_line,
+                ));
+                pool.abort_search();
+            }
+        },
+    );
+
+    let result = search.run(&board, &options);
+    let (best_move, score, probability, pv_line) = completed
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("the first endgame selectivity must complete before abort");
+
+    assert_eq!(result.best_move(), Some(best_move));
+    assert_eq!(result.score(), Some(score));
+    assert_eq!(result.get_probability(), probability);
+    assert_eq!(result.pv_line(), pv_line);
 }
 
 #[test]
