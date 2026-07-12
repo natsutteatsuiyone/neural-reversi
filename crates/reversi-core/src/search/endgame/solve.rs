@@ -29,7 +29,7 @@ mod solve1_tables;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::SCORE_INF;
-use crate::empty_list::{EmptyList, get_quadrant_id};
+use crate::empty_list::EmptyList;
 use crate::flip;
 use crate::search::context::SearchContext;
 use crate::square::Square;
@@ -42,19 +42,20 @@ use crate::types::Score;
 /// checked from `parity` alone before any quadrant lookup.
 #[inline(always)]
 pub(super) fn sort_last4(empty_list: &EmptyList) -> (Square, Square, Square, Square) {
-    let sq1 = empty_list.first();
-    let sq2 = empty_list.next(sq1);
-    let sq3 = empty_list.next(sq2);
-    let sq4 = empty_list.next(sq3);
     let parity = empty_list.parity();
 
     if parity == 0 {
+        let sq1 = empty_list.first();
+        let sq2 = empty_list.next(sq1);
+        let sq3 = empty_list.next(sq2);
+        let sq4 = empty_list.next(sq3);
         return (sq1, sq2, sq3, sq4);
     }
 
-    let quad_id1 = get_quadrant_id(sq1);
-    let quad_id2 = get_quadrant_id(sq2);
-    let quad_id3 = get_quadrant_id(sq3);
+    let (sq1, quad_id1) = empty_list.first_and_quad_id();
+    let (sq2, quad_id2) = empty_list.next_and_quad_id(sq1);
+    let (sq3, quad_id3) = empty_list.next_and_quad_id(sq2);
+    let sq4 = empty_list.next(sq3);
 
     if parity & quad_id1 == 0 {
         if parity & quad_id2 != 0 {
