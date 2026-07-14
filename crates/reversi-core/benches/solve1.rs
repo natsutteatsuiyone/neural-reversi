@@ -1,7 +1,10 @@
 use std::hint::black_box;
 use std::time::Duration;
 
-use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
+    measurement::WallTime,
+};
 
 use reversi_core::bitboard::Bitboard;
 use reversi_core::constants::SCORE_MAX;
@@ -29,6 +32,15 @@ struct Solve1TraceCase {
     alpha: Score,
     sq: Square,
     root_empty_count: u8,
+}
+
+/// A trace case encoded so decoding `player` has a true data dependency on the
+/// preceding leaf score while still reconstructing the original fixture input.
+#[derive(Clone, Copy)]
+struct ChainedSolve1TraceCase {
+    encoded_player: u64,
+    alpha: Score,
+    sq: Square,
 }
 
 #[derive(Default)]
@@ -227,6 +239,77 @@ fn last_flip_count(player: Bitboard, sq: Square) -> Score {
     2 * flip(sq, player, opponent).bits().count_ones() as Score
 }
 
+fn reference_solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
+    let mut n_flipped = last_flip_count(player, sq);
+    let score_base = 2 * player.count() as Score - SCORE_MAX + 2;
+
+    if n_flipped != 0 {
+        return score_base + n_flipped;
+    }
+
+    let score_if_opp_passes = if score_base > 0 {
+        score_base
+    } else {
+        score_base - 2
+    };
+    if score_if_opp_passes <= alpha {
+        return score_if_opp_passes;
+    }
+
+    n_flipped = last_flip_count(!player, sq);
+    if n_flipped > 0 {
+        score_base - 2 - n_flipped
+    } else {
+        score_if_opp_passes
+    }
+}
+
+#[inline(always)]
+fn score_dependency_key(score: Score) -> u64 {
+    u64::from(score as u32)
+}
+
+fn build_chained_trace(cases: &[Solve1TraceCase]) -> Vec<ChainedSolve1TraceCase> {
+    let mut preceding_score = 0;
+    let mut chained = Vec::with_capacity(cases.len());
+
+    for &case in cases {
+        let player = Bitboard::new(case.player);
+        let expected_score = reference_solve_last1(player, case.alpha, case.sq);
+        assert_eq!(
+            solve_last1(player, case.alpha, case.sq),
+            expected_score,
+            "solve1 trace case does not match the reference scorer"
+        );
+
+        chained.push(ChainedSolve1TraceCase {
+            encoded_player: case.player ^ score_dependency_key(preceding_score),
+            alpha: case.alpha,
+            sq: case.sq,
+        });
+        preceding_score = expected_score;
+    }
+
+    chained
+}
+
+/// Latency-oriented proxy for the leaf's position on the search critical path.
+///
+/// `encoded_player ^ preceding_score` reconstructs the original player board.
+/// This preserves the exact trace order, inputs, and branch distribution while
+/// preventing the next solve from starting before the preceding score is ready.
+#[inline(never)]
+fn run_critical_path(cases: &[ChainedSolve1TraceCase]) -> Score {
+    let mut preceding_score = 0;
+
+    for &case in cases {
+        let player_bits = case.encoded_player ^ score_dependency_key(preceding_score);
+        preceding_score = solve_last1(Bitboard::new(player_bits), case.alpha, case.sq);
+    }
+
+    black_box(preceding_score)
+}
+
 #[inline(always)]
 fn checksum_trace(cases: &[Solve1TraceCase]) -> Score {
     let mut acc = 0;
@@ -268,6 +351,21 @@ fn checksum_trace_with_cache_pressure(
         acc ^= score ^ case.root_empty_count as Score;
     }
     black_box(acc)
+}
+
+fn bench_chained_case_set(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    case_set_name: &str,
+    cases: &[ChainedSolve1TraceCase],
+) {
+    group.throughput(Throughput::Elements(cases.len() as u64));
+    group.bench_with_input(
+        BenchmarkId::new("score_chained", case_set_name),
+        cases,
+        |b, cases| {
+            b.iter(|| run_critical_path(black_box(cases)));
+        },
+    );
 }
 
 fn bench_solve1(c: &mut Criterion) {
@@ -330,6 +428,26 @@ fn bench_solve1(c: &mut Criterion) {
             )
         },
     );
+    group.finish();
+
+    let chained_trace2 = build_chained_trace(&fixture.trace2);
+    let chained_trace3 = build_chained_trace(&fixture.trace3);
+    let chained_trace4 = build_chained_trace(&fixture.trace4);
+    let chained_mixed_ordered = build_chained_trace(&fixture.mixed_ordered);
+    let chained_mixed_shuffled = build_chained_trace(&fixture.mixed_shuffled);
+
+    // Primary solve1 microbenchmark for implementation selection. The existing
+    // independent-call group remains unchanged as a throughput diagnostic.
+    let mut group = c.benchmark_group("search::solve_last1/critical_path");
+    group.sample_size(100);
+    group.measurement_time(Duration::from_secs(3));
+
+    bench_chained_case_set(&mut group, "2_empty", &chained_trace2);
+    bench_chained_case_set(&mut group, "3_empty", &chained_trace3);
+    bench_chained_case_set(&mut group, "4_empty", &chained_trace4);
+    bench_chained_case_set(&mut group, "mixed_ordered", &chained_mixed_ordered);
+    bench_chained_case_set(&mut group, "mixed_shuffled", &chained_mixed_shuffled);
+
     group.finish();
 }
 
