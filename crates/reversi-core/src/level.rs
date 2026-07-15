@@ -29,6 +29,24 @@ impl Level {
         Selectivity::None,
     ];
 
+    /// Creates a level with `mid_depth` for the midgame and the same endgame
+    /// depth for every [`Self::ENDGAME_SELECTIVITY`] step.
+    pub const fn uniform(mid_depth: Depth, end_depth: Depth) -> Self {
+        Level {
+            mid_depth,
+            end_depth: [end_depth; 4],
+        }
+    }
+
+    /// Creates a level with `mid_depth` for the midgame and one endgame depth
+    /// per [`Self::ENDGAME_SELECTIVITY`] step.
+    pub const fn with_depths(mid_depth: Depth, end_depth: [Depth; 4]) -> Self {
+        Level {
+            mid_depth,
+            end_depth,
+        }
+    }
+
     /// Creates a [`Level`] for time-controlled search.
     ///
     /// Sets `mid_depth` to 60 (effectively unlimited) and `end_depth` to 14.
@@ -37,18 +55,12 @@ impl Level {
     ///
     /// [`Search::run`]: crate::search::Search::run
     pub const fn unlimited() -> Self {
-        Level {
-            mid_depth: 60,
-            end_depth: [14; 4],
-        }
+        Self::uniform(60, 14)
     }
 
     /// Creates a [`Level`] for perfect endgame solving.
     pub const fn perfect() -> Self {
-        Level {
-            mid_depth: 60,
-            end_depth: [60; 4],
-        }
+        Self::uniform(60, 60)
     }
 
     /// Returns the endgame search depth for a given [`Selectivity`] level.
