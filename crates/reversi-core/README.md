@@ -23,7 +23,7 @@ The engine is split into three layers.
 │   │     (incrementally updated on every move/flip)     │
 │   ├─ Network      : per-ply layer stacks (main NN)     │
 │   ├─ NetworkSmall : endgame NN                         │
-│   └─ EvalCache    : direct-mapped cache                │
+│   └─ EvalCache    : two-way set-associative cache      │
 ├────────────────────────────────────────────────────────┤
 │  Board / Bitboard                                      │
 │   └─ two u64 bitboards (player, opponent)              │

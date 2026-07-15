@@ -16,7 +16,7 @@ macro_rules! eval_weights_literal {
     };
 }
 
-/// Neural network evaluator with an LRU-style cache.
+/// Neural network evaluator with a two-way set-associative cache.
 pub struct Eval {
     network: Network,
     cache: EvalCache,
@@ -46,14 +46,9 @@ impl Eval {
     /// Returns the cached evaluation score, computing it via the network on a cache miss.
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
         let key = board.hash();
-        if let Some(score_cache) = self.cache.probe(key) {
-            return score_cache;
-        }
-
-        let score = self.network.evaluate(ctx.get_pattern_feature(), ctx.ply());
-
-        self.cache.store(key, score);
-        score
+        self.cache.get_or_insert_with(key, || {
+            self.network.evaluate(ctx.get_pattern_feature(), ctx.ply())
+        })
     }
 
     /// Evaluates a precomputed pattern feature without cache or search context overhead.

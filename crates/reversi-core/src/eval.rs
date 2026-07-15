@@ -173,15 +173,10 @@ impl Eval {
         board: &Board,
         key: u64,
     ) -> ScaledScore {
-        if let Some(score_cache) = self.cache.probe(key) {
-            return score_cache;
-        }
-
-        let score = self
-            .network
-            .evaluate(board, ctx.get_pattern_feature(), ctx.ply());
-        self.cache.store(key, score);
-        score
+        self.cache.get_or_insert_with(key, || {
+            self.network
+                .evaluate(board, ctx.get_pattern_feature(), ctx.ply())
+        })
     }
 
     /// Evaluates the position with the small network (no cache).
