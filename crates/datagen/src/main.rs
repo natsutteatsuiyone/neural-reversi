@@ -201,10 +201,7 @@ fn main() {
         } => {
             let prefix =
                 prefix.unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned());
-            let level = Level {
-                mid_depth,
-                end_depth,
-            };
+            let level = Level::with_depths(mid_depth, end_depth);
             if let Some(openings_path) = openings {
                 selfplay::execute_with_openings(
                     &openings_path,
@@ -282,10 +279,7 @@ fn main() {
             selectivity,
             output,
         } => {
-            let level = Level {
-                mid_depth,
-                end_depth,
-            };
+            let level = Level::with_depths(mid_depth, end_depth);
             score_openings::execute(
                 depth,
                 hash_size,

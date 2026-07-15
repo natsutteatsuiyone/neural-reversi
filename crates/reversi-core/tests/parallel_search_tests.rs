@@ -85,10 +85,7 @@ fn timed_search_terminates_within_deadline_margin() {
 /// at the final depth is the exact minimax value.
 #[test]
 fn parallel_midgame_score_matches_single_threaded() {
-    let level = Level {
-        mid_depth: 8,
-        end_depth: [0; 4],
-    };
+    let level = Level::uniform(8, 0);
     let options = SearchRunOptions::with_level(level, Selectivity::None);
     let board = Board::new();
 

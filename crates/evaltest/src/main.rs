@@ -1079,10 +1079,7 @@ fn main() {
 
     let search_options = SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
     let mut search = search::Search::new(&search_options);
-    let level = Level {
-        mid_depth: args.depth,
-        end_depth: [args.depth; 4],
-    };
+    let level = Level::uniform(args.depth, args.depth);
     let selectivity = Selectivity::from_u8(args.selectivity);
 
     let mut overall_stats = SearchStats::default();

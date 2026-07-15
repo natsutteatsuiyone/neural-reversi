@@ -274,7 +274,7 @@ impl Search {
         if n_empties > start {
             self.endgame_start_n_empties = None;
         } else {
-            level.end_depth = Level::perfect().end_depth;
+            *level = Level::with_depths(level.mid_depth, Level::perfect().end_depth);
         }
     }
 

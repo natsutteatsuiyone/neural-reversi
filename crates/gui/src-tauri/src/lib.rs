@@ -232,10 +232,7 @@ fn solver_level(target: Selectivity) -> reversi_core::level::Level {
             end_depth[i] = 60;
         }
     }
-    reversi_core::level::Level {
-        mid_depth: 60,
-        end_depth,
-    }
+    reversi_core::level::Level::with_depths(60, end_depth)
 }
 
 /// Bounds-checks an IPC-supplied difficulty `level` before it reaches the

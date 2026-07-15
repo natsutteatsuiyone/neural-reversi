@@ -584,10 +584,7 @@ mod schedule_tests {
             tt: Arc::new(TranspositionTable::new(0)),
             pool: pool.clone(),
             eval: shared_eval(),
-            level: Level {
-                mid_depth: 1,
-                end_depth: [1; 4],
-            },
+            level: Level::uniform(1, 1),
             multi_pv: false,
             callback: Some(Arc::new(move |progress| {
                 if progress.depth == 1 {

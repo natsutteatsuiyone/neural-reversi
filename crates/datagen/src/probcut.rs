@@ -20,7 +20,7 @@ use reversi_core::{
     board::Board,
     disc::Disc,
     eval::EvalMode,
-    level::get_level,
+    level::{Level, get_level},
     probcut::Selectivity,
     search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
@@ -163,8 +163,8 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                         (depth as Depth, cached_score)
                     } else {
                         cache_misses += 1;
-                        let mut level = get_level(depth);
-                        level.end_depth = [depth as Depth; 4];
+                        let level =
+                            Level::with_depths(get_level(depth).mid_depth, [depth as Depth; 4]);
                         let run_options = SearchRunOptions::with_level(level, SELECTIVITY);
                         let result = search.run(&board, &run_options);
                         let score = result.score().expect("search returned no legal move");
@@ -300,8 +300,8 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
                 let depth_scores: Vec<(Depth, Scoref)> = (0..=num_depth)
                     .filter(|depth| *depth < n_empties as usize)
                     .map(|depth| {
-                        let mut level = get_level(depth);
-                        level.end_depth = [depth as Depth; 4];
+                        let level =
+                            Level::with_depths(get_level(depth).mid_depth, [depth as Depth; 4]);
                         let run_options = SearchRunOptions::with_level(level, Selectivity::None)
                             .with_eval_mode(EvalMode::Small);
                         let result = search.run(&board, &run_options);
