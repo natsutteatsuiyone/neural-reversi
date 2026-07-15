@@ -818,6 +818,119 @@ mod tests {
         TimeManager::new(mode, abort, n_empties)
     }
 
+    fn make_moves_to_go_tm(time_ms: u64, moves: u32, n_empties: u32) -> TimeManager {
+        let abort = Arc::new(AbortState::new());
+        TimeManager::new(
+            TimeControlMode::MovesToGo { time_ms, moves },
+            abort,
+            n_empties,
+        )
+    }
+
+    fn make_japanese_byo_tm(
+        main_time_ms: u64,
+        time_per_move_ms: u64,
+        n_empties: u32,
+    ) -> TimeManager {
+        let abort = Arc::new(AbortState::new());
+        TimeManager::new(
+            TimeControlMode::JapaneseByo {
+                main_time_ms,
+                time_per_move_ms,
+            },
+            abort,
+            n_empties,
+        )
+    }
+
+    #[test]
+    fn moves_to_go_budget_and_hard_limit() {
+        let tm = make_moves_to_go_tm(60_000, 30, 40);
+        let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
+
+        assert_eq!(hard, 60_000 - TIME_BUFFER_MS);
+        assert!(tm.mini_time_ms() <= tm.maxi_time_ms());
+        assert!(tm.maxi_time_ms() <= hard);
+        assert!(tm.has_time_bank());
+    }
+
+    #[test]
+    fn moves_to_go_zero_moves_is_treated_as_one() {
+        let zero_moves = make_moves_to_go_tm(10_000, 0, 40);
+        let one_move = make_moves_to_go_tm(10_000, 1, 40);
+
+        assert_eq!(
+            (
+                zero_moves.mini_time_ms(),
+                zero_moves.maxi_time_ms(),
+                zero_moves.hard_time_limit_ms.load(Ordering::Relaxed),
+            ),
+            (
+                one_move.mini_time_ms(),
+                one_move.maxi_time_ms(),
+                one_move.hard_time_limit_ms.load(Ordering::Relaxed),
+            )
+        );
+    }
+
+    #[test]
+    fn moves_to_go_update_decrements_move_counter() {
+        let mut tm = make_moves_to_go_tm(60_000, 30, 40);
+
+        tm.update_remaining_time(58_000, 39);
+
+        assert!(matches!(
+            tm.mode,
+            TimeControlMode::MovesToGo {
+                time_ms: 58_000,
+                moves: 29
+            }
+        ));
+        assert!(tm.maxi_time_ms() <= tm.hard_time_limit_ms.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn japanese_byo_without_main_time_matches_pure_byoyomi() {
+        let tm = make_japanese_byo_tm(0, 10_000, 40);
+        let abort = Arc::new(AbortState::new());
+        let byoyomi = TimeManager::new(
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: 10_000,
+            },
+            abort,
+            40,
+        );
+
+        assert_eq!(
+            (
+                tm.mini_time_ms(),
+                tm.maxi_time_ms(),
+                tm.hard_time_limit_ms.load(Ordering::Relaxed),
+            ),
+            (
+                byoyomi.mini_time_ms(),
+                byoyomi.maxi_time_ms(),
+                byoyomi.hard_time_limit_ms.load(Ordering::Relaxed),
+            )
+        );
+        assert!(!tm.has_time_bank());
+    }
+
+    #[test]
+    fn japanese_byo_main_time_caps_at_safe_time() {
+        let tm = make_japanese_byo_tm(60_000, 5_000, 40);
+        let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
+        let expected_hard = {
+            let my_future_moves = 40u32.saturating_sub(1).div_ceil(2) as u64;
+            60_000 - (TIME_BUFFER_MS + my_future_moves * TIME_BUFFER_MS / 2)
+        };
+
+        assert_eq!(hard, expected_hard);
+        assert!(tm.mini_time_ms() <= tm.maxi_time_ms());
+        assert!(tm.maxi_time_ms() <= hard);
+        assert!(!tm.has_time_bank());
+    }
+
     #[test]
     fn endgame_continue_factor_uses_measured_p95_values() {
         assert_eq!(
