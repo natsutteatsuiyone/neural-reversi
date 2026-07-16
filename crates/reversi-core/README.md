@@ -327,7 +327,7 @@ at or past `ENDGAME_START_PLY`).
 
 ### Eval cache
 
-`eval/eval_cache.rs`. Direct-mapped, `2^EVAL_CACHE_SIZE_LOG2` entries,
+`eval/eval_cache.rs`. Two-way set-associative, `2^EVAL_CACHE_SIZE_LOG2` entries,
 keyed by `Board::hash`. It records main-network evaluations only.
 `Eval::prefetch(key)` is meant to be issued between `make_move` and the
 next `evaluate` so the cache line load overlaps with the SIMD work in
