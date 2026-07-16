@@ -138,9 +138,12 @@ Iterative deepening with aspiration windows.
   widens and re-searches.
 - Multi-PV walks `set_pv_idx(i)` over root moves and pins one window at a
   time.
-- After every iteration, `time_manager.report_iteration` is fed the current
-  best move / score / depth so it can drive extensions and early-exit
-  decisions.
+- After every completed iteration, `time_manager.report_iteration` is fed
+  the best move, score, depth, and whether the aspiration window stayed
+  clean (no re-search); the manager rescales its time budget from these
+  (see Time control).
+- Under time control, a position with a single legal root move is answered
+  after the first completed iteration.
 
 LMR runs in non-PV midgame nodes once selectivity is enabled and the move
 is past the first few siblings. From `LMR_MIN_DEPTH` the reduction is one
@@ -396,21 +399,33 @@ distributes time across the move.
 - Pure byoyomi allocations are scoped to a single move; unused time
   cannot be banked, so iteration continues until the deadline aborts the
   search.
-- After each iteration, `report_iteration(best_move, score, depth)` is
-  consumed and the manager grants an extension when either
-  - the score has dropped by at least `SCORE_DROP_THRESHOLD`, or
-  - the best move is unstable.
-
-  Up to `MAX_EXTENSION_STEPS` extensions are granted in total. The
-  cumulative cap pushes `max_time` no further than `EXTENSION_MAX_FACTOR
-  · base_max_time`, clamped to `hard_time_limit`; a score drop may
-  additionally draw on a fraction of the bank reserve beyond that cap.
-  Japanese byoyomi main time instead draws on a fraction of the reserve
-  before the hard limit, since falling into byoyomi is acceptable.
+- After each completed iteration,
+  `report_iteration(best_move, score, depth, window_clean)` recomputes the
+  optimum time as `base · stability_scale · instability_factor ·
+  falling_factor`, clamped to a per-mode cap and the hard limit. The
+  optimum doubles as the abort deadline; the timer thread re-reads it
+  after every update.
+- `instability_factor` grows with an exponential moving average of
+  best-move changes (`EMA_DECAY`, `INSTABILITY_WEIGHT`).
+- `falling_factor` scales with the score drop against the previous
+  iteration (`FALLING_DIVISOR`), clamped to `[FALLING_MIN, FALLING_MAX]`;
+  a rising score slightly shortens the search.
+- `stability_scale` shrinks along `STABILITY_SCALE` as the best move stays
+  unchanged across iterations, and drops to `EASY_SCALE` when the
+  easy-move conditions hold: a best-move streak of at least
+  `EASY_STREAK_THRESHOLD` and a last iteration that completed inside its
+  initial aspiration window (`window_clean`). An easy move may stop as
+  early as `EASY_MIN_FRACTION` of the optimum, below the per-mode
+  minimum-time gate.
+- Bank modes cap the scaled optimum at `MAX_FACTOR · base`; once
+  `falling_factor` reaches `FALLING_EMERGENCY`, the cap may additionally
+  draw on a fraction of the bank reserve (`EXTENSION_RESERVE_DIVISOR`).
+  Japanese byoyomi main time always caps at the reserve target, since
+  falling into byoyomi is acceptable.
+- A forced move (single legal root move) is answered after the first
+  completed iteration.
 - A `TIME_BUFFER_MS` safety buffer is always subtracted to avoid time
   forfeit.
-- `STABILITY_THRESHOLD` consecutive iterations with the same best move
-  qualify the search for early termination.
 
 ## Weight files
 
