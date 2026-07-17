@@ -1,4 +1,5 @@
 use crate::colors::ThemeColor;
+use crate::sprt::{SprtConfig, SprtResult, SprtStatus};
 use colored::*;
 use reversi_core::disc::Disc;
 use std::io;
@@ -101,7 +102,12 @@ impl MatchStatistics {
         }
     }
 
-    pub fn print_final_results(&self, engine1_name: &str, engine2_name: &str) -> io::Result<()> {
+    pub fn print_final_results(
+        &self,
+        engine1_name: &str,
+        engine2_name: &str,
+        sprt: Option<(&SprtConfig, SprtResult)>,
+    ) -> io::Result<()> {
         let total_games = self.total_games();
 
         if total_games == 0 {
@@ -118,11 +124,48 @@ impl MatchStatistics {
         println!();
 
         self.print_summary();
+
+        if let Some((config, result)) = sprt {
+            println!();
+            self.print_sprt_summary(engine1_name, engine2_name, config, &result);
+        }
         println!();
 
         println!("{}", "═".repeat(80).info().bold());
 
         Ok(())
+    }
+
+    fn print_sprt_summary(
+        &self,
+        engine1_name: &str,
+        engine2_name: &str,
+        config: &SprtConfig,
+        result: &SprtResult,
+    ) {
+        let llr_str = match result.status {
+            SprtStatus::AcceptH1 => format!("{:.2}", result.llr).success().bold(),
+            SprtStatus::AcceptH0 => format!("{:.2}", result.llr).failure().bold(),
+            SprtStatus::Continue => format!("{:.2}", result.llr).info(),
+        };
+
+        println!(
+            "{} LLR {} ({:.2}, {:.2}) {} {}",
+            "SPRT:".text().bold(),
+            llr_str,
+            result.lower,
+            result.upper,
+            format!("[{:.2}, {:.2}]", config.elo0, config.elo1).subtext(),
+            format!("α={} β={}", config.alpha, config.beta).subtext()
+        );
+
+        let verdict = sprt_verdict(engine1_name, engine2_name, config, result.status);
+        let verdict = match result.status {
+            SprtStatus::AcceptH1 => verdict.success().bold(),
+            SprtStatus::AcceptH0 => verdict.failure().bold(),
+            SprtStatus::Continue => verdict.warning(),
+        };
+        println!("{} {}", "Verdict:".text().bold(), verdict);
     }
 
     fn print_summary(&self) {
@@ -286,27 +329,15 @@ impl MatchStatistics {
     }
 
     pub fn calculate_pentanomial_frequencies(&self) -> PentanomialFrequencies {
-        let mut freq = PentanomialFrequencies::default();
-
-        for paired in &self.paired_results {
-            match (paired.game1.0, paired.game2.0) {
-                (MatchWinner::Engine2, MatchWinner::Engine2) => freq.ll += 1,
-                (MatchWinner::Engine2, MatchWinner::Draw)
-                | (MatchWinner::Draw, MatchWinner::Engine2) => freq.ld += 1,
-                (MatchWinner::Draw, MatchWinner::Draw) => freq.dd += 1,
-                (MatchWinner::Engine1, MatchWinner::Engine2)
-                | (MatchWinner::Engine2, MatchWinner::Engine1) => freq.wl += 1,
-                (MatchWinner::Engine1, MatchWinner::Draw)
-                | (MatchWinner::Draw, MatchWinner::Engine1) => freq.wd += 1,
-                (MatchWinner::Engine1, MatchWinner::Engine1) => freq.ww += 1,
-            }
+        let mut frequencies = PentanomialFrequencies::default();
+        for paired_result in &self.paired_results {
+            frequencies.add_pair(paired_result.game1.0, paired_result.game2.0);
         }
-
-        freq
+        frequencies
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PentanomialFrequencies {
     pub ll: u32, // 0-2
     pub ld: u32, // 0.5-1.5
@@ -314,6 +345,52 @@ pub struct PentanomialFrequencies {
     pub wl: u32, // 1-1 (win-loss)
     pub wd: u32, // 1.5-0.5
     pub ww: u32, // 2-0
+}
+
+impl PentanomialFrequencies {
+    pub(crate) fn add_pair(&mut self, game1: MatchWinner, game2: MatchWinner) {
+        match (game1, game2) {
+            (MatchWinner::Engine2, MatchWinner::Engine2) => self.ll += 1,
+            (MatchWinner::Engine2, MatchWinner::Draw)
+            | (MatchWinner::Draw, MatchWinner::Engine2) => {
+                self.ld += 1;
+            }
+            (MatchWinner::Draw, MatchWinner::Draw) => self.dd += 1,
+            (MatchWinner::Engine1, MatchWinner::Engine2)
+            | (MatchWinner::Engine2, MatchWinner::Engine1) => {
+                self.wl += 1;
+            }
+            (MatchWinner::Engine1, MatchWinner::Draw)
+            | (MatchWinner::Draw, MatchWinner::Engine1) => {
+                self.wd += 1;
+            }
+            (MatchWinner::Engine1, MatchWinner::Engine1) => self.ww += 1,
+        }
+    }
+
+    /// Total number of completed opening pairs.
+    pub fn total_pairs(&self) -> u32 {
+        self.ll + self.ld + self.dd + self.wl + self.wd + self.ww
+    }
+}
+
+fn sprt_verdict(
+    engine1_name: &str,
+    engine2_name: &str,
+    config: &SprtConfig,
+    status: SprtStatus,
+) -> String {
+    match status {
+        SprtStatus::AcceptH1 => format!(
+            "H1 accepted — hypothesis: {engine1_name} - {engine2_name} Elo = {:+.2}",
+            config.elo1
+        ),
+        SprtStatus::AcceptH0 => format!(
+            "H0 accepted — hypothesis: {engine1_name} - {engine2_name} Elo = {:+.2}",
+            config.elo0
+        ),
+        SprtStatus::Continue => "Inconclusive — LLR did not reach either bound".to_string(),
+    }
 }
 
 pub struct PentanomialStats {
@@ -427,6 +504,64 @@ fn erf(x: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_pair_updates_pentanomial_frequencies() {
+        let mut frequencies = PentanomialFrequencies::default();
+        frequencies.add_pair(MatchWinner::Engine2, MatchWinner::Engine2);
+        frequencies.add_pair(MatchWinner::Engine2, MatchWinner::Draw);
+        frequencies.add_pair(MatchWinner::Draw, MatchWinner::Draw);
+        frequencies.add_pair(MatchWinner::Engine1, MatchWinner::Engine2);
+        frequencies.add_pair(MatchWinner::Engine1, MatchWinner::Draw);
+        frequencies.add_pair(MatchWinner::Engine1, MatchWinner::Engine1);
+
+        assert_eq!(
+            frequencies,
+            PentanomialFrequencies {
+                ll: 1,
+                ld: 1,
+                dd: 1,
+                wl: 1,
+                wd: 1,
+                ww: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn sprt_verdict_names_the_configured_hypothesis() {
+        let positive = SprtConfig {
+            elo0: 10.0,
+            elo1: 20.0,
+            alpha: 0.05,
+            beta: 0.05,
+        };
+        let negative = SprtConfig {
+            elo0: -20.0,
+            elo1: -10.0,
+            alpha: 0.05,
+            beta: 0.05,
+        };
+        let one_sided = SprtConfig {
+            elo0: 0.0,
+            elo1: 10.0,
+            alpha: 0.05,
+            beta: 0.05,
+        };
+
+        assert_eq!(
+            sprt_verdict("Engine A", "Engine B", &positive, SprtStatus::AcceptH0),
+            "H0 accepted — hypothesis: Engine A - Engine B Elo = +10.00"
+        );
+        assert_eq!(
+            sprt_verdict("Engine A", "Engine B", &negative, SprtStatus::AcceptH1),
+            "H1 accepted — hypothesis: Engine A - Engine B Elo = -10.00"
+        );
+        assert_eq!(
+            sprt_verdict("Engine A", "Engine B", &one_sided, SprtStatus::AcceptH0),
+            "H0 accepted — hypothesis: Engine A - Engine B Elo = +0.00"
+        );
+    }
 
     #[test]
     fn zero_pairs_are_even_with_no_uncertainty() {

@@ -19,7 +19,8 @@ use crate::display::DisplayManager;
 use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
 use crate::game::GameState;
-use crate::statistics::{MatchStatistics, MatchWinner};
+use crate::sprt::{SprtConfig, SprtResult, SprtStatus};
+use crate::statistics::{MatchStatistics, MatchWinner, PentanomialFrequencies};
 use crate::time_tracker::TimeTracker;
 use reversi_core::disc::Disc;
 use reversi_core::square::Square;
@@ -46,6 +47,14 @@ fn check_interrupted() -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Evaluate the SPRT (when enabled) against the pairs completed so far.
+fn sprt_snapshot(
+    sprt: Option<&SprtConfig>,
+    frequencies: &PentanomialFrequencies,
+) -> Option<SprtResult> {
+    sprt.map(|config| config.evaluate(frequencies))
 }
 
 fn contextualize_game_error(error: MatchRunnerError, game_number: usize) -> MatchRunnerError {
@@ -150,14 +159,20 @@ impl MatchRunner {
         let mut time_tracker =
             TimeTracker::new(config.main_time, config.byoyomi_time, config.byoyomi_stones);
 
+        let sprt = config.sprt_config()?;
         let total_games = openings.len() * 2;
         let mut statistics = MatchStatistics::new();
+        let mut sprt_frequencies = PentanomialFrequencies::default();
 
         self.display.show_match_header()?;
 
         // Show initial empty statistics
-        self.display
-            .update_live_visualization(&statistics, &engine_names.0, &engine_names.1)?;
+        self.display.update_live_visualization(
+            &statistics,
+            &engine_names.0,
+            &engine_names.1,
+            sprt_snapshot(sprt.as_ref(), &sprt_frequencies).as_ref(),
+        )?;
 
         let progress_bar = self.display.create_progress_bar(total_games as u64);
 
@@ -171,6 +186,8 @@ impl MatchRunner {
                     opening_idx,
                     &progress_bar,
                     &mut time_tracker,
+                    &mut sprt_frequencies,
+                    sprt.as_ref(),
                 )
             });
             if let Err(e) = result {
@@ -179,15 +196,32 @@ impl MatchRunner {
                 // the error; display failures must not mask the original error.
                 if statistics.total_games() > 0 {
                     let _ = self.display.clear_screen();
-                    let _ = statistics.print_final_results(&engine_names.0, &engine_names.1);
+                    let final_sprt = sprt
+                        .as_ref()
+                        .map(|config| (config, config.evaluate(&sprt_frequencies)));
+                    let _ = statistics.print_final_results(
+                        &engine_names.0,
+                        &engine_names.1,
+                        final_sprt,
+                    );
                 }
                 return Err(e);
+            }
+
+            // Stop early once the SPRT crosses a decision bound.
+            if let Some(snapshot) = sprt_snapshot(sprt.as_ref(), &sprt_frequencies)
+                && snapshot.status != SprtStatus::Continue
+            {
+                break;
             }
         }
 
         progress_bar.finish_and_clear();
         self.display.clear_screen()?;
-        statistics.print_final_results(&engine_names.0, &engine_names.1)?;
+        let final_sprt = sprt
+            .as_ref()
+            .map(|config| (config, config.evaluate(&sprt_frequencies)));
+        statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt)?;
 
         Ok(())
     }
@@ -432,8 +466,10 @@ impl MatchRunner {
         opening_idx: usize,
         progress_bar: &ProgressBar,
         time_tracker: &mut TimeTracker,
+        sprt_frequencies: &mut PentanomialFrequencies,
+        sprt: Option<&SprtConfig>,
     ) -> Result<()> {
-        let mut paired_results = Vec::new();
+        let mut first_result = None;
 
         for game_round in 0..2 {
             let is_swapped = game_round == 1;
@@ -455,22 +491,24 @@ impl MatchRunner {
                     };
 
                     statistics.add_result(winner, score, opening_str.to_string(), !is_swapped);
-                    paired_results.push((winner, score));
+                    let game_result = (winner, score);
+                    if let Some(first_result) = first_result {
+                        statistics.add_paired_result(first_result, game_result);
+                        sprt_frequencies.add_pair(first_result.0, game_result.0);
+                    } else {
+                        first_result = Some(game_result);
+                    }
 
                     self.display.update_live_visualization(
                         statistics,
                         &engine_names.0,
                         &engine_names.1,
+                        sprt_snapshot(sprt, sprt_frequencies).as_ref(),
                     )?;
                     progress_bar.inc(1);
                 }
                 Err(error) => return Err(contextualize_game_error(error, game_number)),
             }
-        }
-
-        // Add paired result after both games are complete
-        if paired_results.len() == 2 {
-            statistics.add_paired_result(paired_results[0], paired_results[1]);
         }
 
         Ok(())

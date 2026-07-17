@@ -7,6 +7,7 @@ mod engine;
 mod error;
 mod game;
 mod match_runner;
+mod sprt;
 mod statistics;
 mod time_tracker;
 

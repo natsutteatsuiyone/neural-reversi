@@ -8,7 +8,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use crate::error::Result;
+use crate::error::{MatchRunnerError, Result};
+use crate::sprt::SprtConfig;
 
 /// Configuration for running automated matches between two GTP engines.
 ///
@@ -69,6 +70,31 @@ pub struct Config {
     /// Hard per-command engine timeout in seconds (default: none)
     #[arg(long)]
     pub move_timeout: Option<u64>,
+
+    /// Stop the match early once SPRT accepts either configured hypothesis
+    #[arg(long)]
+    pub sprt: bool,
+
+    /// SPRT: Elo difference under the null hypothesis H0
+    #[arg(long, default_value_t = -10.0, allow_negative_numbers = true, requires = "sprt")]
+    pub sprt_elo0: f64,
+
+    /// SPRT: Elo difference under the alternative hypothesis H1
+    #[arg(
+        long,
+        default_value_t = 10.0,
+        allow_negative_numbers = true,
+        requires = "sprt"
+    )]
+    pub sprt_elo1: f64,
+
+    /// SPRT: type I error rate α
+    #[arg(long, default_value_t = 0.05, requires = "sprt")]
+    pub sprt_alpha: f64,
+
+    /// SPRT: type II error rate β
+    #[arg(long, default_value_t = 0.05, requires = "sprt")]
+    pub sprt_beta: f64,
 }
 
 impl Config {
@@ -139,6 +165,64 @@ impl Config {
     /// A tuple containing the program path and arguments for engine 2.
     pub fn get_engine2_command(&self) -> (String, Vec<String>) {
         self.parse_engine_command(&self.engine2)
+    }
+
+    /// Build the SPRT configuration, if early termination is enabled.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(None)` when `--sprt` was not given, otherwise the validated
+    /// [`SprtConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a configuration error if either Elo hypothesis is non-finite,
+    /// if `sprt_elo0 >= sprt_elo1`, if either error rate is outside `(0, 1)`,
+    /// or if `alpha + beta >= 1` (which would invert the decision bounds).
+    pub fn sprt_config(&self) -> Result<Option<SprtConfig>> {
+        if !self.sprt {
+            return Ok(None);
+        }
+
+        for (name, value) in [
+            ("--sprt-elo0", self.sprt_elo0),
+            ("--sprt-elo1", self.sprt_elo1),
+        ] {
+            if !value.is_finite() {
+                return Err(MatchRunnerError::Config(format!(
+                    "{name} ({value}) must be finite"
+                )));
+            }
+        }
+        if self.sprt_elo0 >= self.sprt_elo1 {
+            return Err(MatchRunnerError::Config(format!(
+                "--sprt-elo0 ({}) must be less than --sprt-elo1 ({})",
+                self.sprt_elo0, self.sprt_elo1
+            )));
+        }
+        for (name, value) in [
+            ("--sprt-alpha", self.sprt_alpha),
+            ("--sprt-beta", self.sprt_beta),
+        ] {
+            if !(value > 0.0 && value < 1.0) {
+                return Err(MatchRunnerError::Config(format!(
+                    "{name} ({value}) must be strictly between 0 and 1"
+                )));
+            }
+        }
+        if self.sprt_alpha + self.sprt_beta >= 1.0 {
+            return Err(MatchRunnerError::Config(format!(
+                "--sprt-alpha + --sprt-beta ({}) must be less than 1",
+                self.sprt_alpha + self.sprt_beta
+            )));
+        }
+
+        Ok(Some(SprtConfig {
+            elo0: self.sprt_elo0,
+            elo1: self.sprt_elo1,
+            alpha: self.sprt_alpha,
+            beta: self.sprt_beta,
+        }))
     }
 }
 
@@ -276,6 +360,141 @@ mod tests {
     }
 
     #[test]
+    fn sprt_is_disabled_by_default() {
+        let config = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+        ])
+        .unwrap();
+
+        assert!(config.sprt_config().unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_sprt_options() {
+        let config = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+            "--sprt",
+            "--sprt-elo0",
+            "-5",
+            "--sprt-elo1",
+            "5",
+            "--sprt-alpha",
+            "0.01",
+            "--sprt-beta",
+            "0.1",
+        ])
+        .unwrap();
+
+        let sprt = config.sprt_config().unwrap().unwrap();
+        assert_eq!(sprt.elo0, -5.0);
+        assert_eq!(sprt.elo1, 5.0);
+        assert_eq!(sprt.alpha, 0.01);
+        assert_eq!(sprt.beta, 0.1);
+    }
+
+    #[test]
+    fn sprt_options_require_the_sprt_flag() {
+        let result = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+            "--sprt-elo1",
+            "20",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_inverted_sprt_elo_bounds() {
+        let config = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+            "--sprt",
+            "--sprt-elo0",
+            "10",
+            "--sprt-elo1",
+            "-10",
+        ])
+        .unwrap();
+
+        assert!(config.sprt_config().is_err());
+    }
+
+    #[test]
+    fn rejects_non_finite_sprt_elo_hypotheses() {
+        let mut config = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+            "--sprt",
+            "--sprt-elo0",
+            "NaN",
+        ])
+        .unwrap();
+
+        assert!(config.sprt_config().is_err());
+
+        for (elo0, elo1) in [
+            (f64::NEG_INFINITY, 10.0),
+            (-10.0, f64::INFINITY),
+            (-10.0, f64::NAN),
+        ] {
+            config.sprt_elo0 = elo0;
+            config.sprt_elo1 = elo1;
+
+            assert!(
+                config.sprt_config().is_err(),
+                "accepted non-finite hypotheses [{elo0}, {elo1}]"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_out_of_range_sprt_error_rates() {
+        let config = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+            "--sprt",
+            "--sprt-alpha",
+            "1.5",
+        ])
+        .unwrap();
+
+        assert!(config.sprt_config().is_err());
+    }
+
+    #[test]
     fn test_parse_simple_command() {
         let config = Config {
             engine1: "./engine --level 10".to_string(),
@@ -287,6 +506,11 @@ mod tests {
             byoyomi_time: 0,
             byoyomi_stones: 0,
             move_timeout: None,
+            sprt: false,
+            sprt_elo0: -10.0,
+            sprt_elo1: 10.0,
+            sprt_alpha: 0.05,
+            sprt_beta: 0.05,
         };
 
         let (program, args) = config.parse_engine_command("./reversi_cli --level 10");
@@ -307,6 +531,11 @@ mod tests {
             byoyomi_time: 0,
             byoyomi_stones: 0,
             move_timeout: None,
+            sprt: false,
+            sprt_elo0: -10.0,
+            sprt_elo1: 10.0,
+            sprt_alpha: 0.05,
+            sprt_beta: 0.05,
         };
 
         // Test with quotes (behavior varies by platform)
@@ -332,6 +561,11 @@ mod tests {
             byoyomi_time: 0,
             byoyomi_stones: 0,
             move_timeout: None,
+            sprt: false,
+            sprt_elo0: -10.0,
+            sprt_elo1: 10.0,
+            sprt_alpha: 0.05,
+            sprt_beta: 0.05,
         };
 
         let (program, args) = config.parse_engine_command("");
@@ -352,6 +586,11 @@ mod tests {
             byoyomi_time: 0,
             byoyomi_stones: 0,
             move_timeout: None,
+            sprt: false,
+            sprt_elo0: -10.0,
+            sprt_elo1: 10.0,
+            sprt_alpha: 0.05,
+            sprt_beta: 0.05,
         };
 
         // Test Windows path with spaces
@@ -381,6 +620,11 @@ mod tests {
             byoyomi_time: 0,
             byoyomi_stones: 0,
             move_timeout: None,
+            sprt: false,
+            sprt_elo0: -10.0,
+            sprt_elo1: 10.0,
+            sprt_alpha: 0.05,
+            sprt_beta: 0.05,
         };
 
         // Test simple backslash path
@@ -407,6 +651,11 @@ mod tests {
             byoyomi_time: 0,
             byoyomi_stones: 0,
             move_timeout: None,
+            sprt: false,
+            sprt_elo0: -10.0,
+            sprt_elo1: 10.0,
+            sprt_alpha: 0.05,
+            sprt_beta: 0.05,
         };
 
         // Test escaped spaces (shell-style) - shlex interprets the escape

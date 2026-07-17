@@ -18,6 +18,11 @@ match-runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <O
 - `--main-time <SECONDS>`: Main time in seconds (default: 0)
 - `--byoyomi-time <SECONDS>`: Byoyomi time in seconds (default: 0)
 - `--byoyomi-stones <STONES>`: Byoyomi stones (default: 0)
+- `--sprt`: Stop the match early once SPRT accepts either configured Elo hypothesis
+- `--sprt-elo0 <ELO>`: Elo difference under the null hypothesis H0 (default: -10, requires `--sprt`)
+- `--sprt-elo1 <ELO>`: Elo difference under the alternative hypothesis H1 (default: 10, requires `--sprt`)
+- `--sprt-alpha <RATE>`: Type I error rate α (default: 0.05, requires `--sprt`)
+- `--sprt-beta <RATE>`: Type II error rate β (default: 0.05, requires `--sprt`)
 
 ### Time Control
 
@@ -46,6 +51,22 @@ f5f6e6f4
 ```
 
 For each opening sequence in the file, two games will be played (with colors swapped in the second game).
+
+### SPRT Early Termination
+
+With `--sprt`, the match runs a Sequential Probability Ratio Test (a constrained
+multinomial GSPRT over the pentanomial model, following Fishtest) after every
+completed opening pair. The accumulated log-likelihood ratio (LLR) of H1
+(`--sprt-elo1`) versus H0 (`--sprt-elo0`) is compared against the bounds
+`ln(β / (1 - α))` and `ln((1 - β) / α)`; the match stops as soon as either bound
+is crossed. A decision is never taken before 5 opening pairs (10 games) have
+completed.
+
+The defaults (`elo0 = -10`, `elo1 = +10`, `α = β = 0.05`) form a symmetric test:
+H1 accepted means engine 1 is stronger, H0 accepted means the evidence favors
+engine 2, and an evenly matched pair plays through the whole opening file. For a
+Fishtest-style regression test use one-sided bounds, e.g.
+`--sprt --sprt-elo0 0 --sprt-elo1 10`.
 
 ## Examples
 
@@ -83,6 +104,14 @@ Play with 5 minutes main time, then 30 seconds per move:
 
 ```bash
 match-runner --engine1 "./cli gtp" --engine2 "./cli gtp" --opening-file openings.txt --main-time 300 --byoyomi-time 30 --byoyomi-stones 1
+```
+
+### Match with SPRT Early Termination
+
+Stop as soon as either engine is proven at least 10 Elo stronger (α = β = 0.05):
+
+```bash
+match-runner --engine1 "./cli gtp" --engine2 "./cli gtp" --opening-file openings.txt --byoyomi-time 2 --sprt
 ```
 
 ## GTP Protocol

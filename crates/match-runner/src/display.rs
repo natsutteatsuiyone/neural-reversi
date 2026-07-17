@@ -4,6 +4,7 @@
 //! progress visualization, real-time match statistics, and formatted output.
 
 use crate::colors::ThemeColor;
+use crate::sprt::SprtResult;
 use crate::statistics::{MatchStatistics, MatchWinner};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -101,6 +102,7 @@ impl DisplayManager {
         statistics: &MatchStatistics,
         engine1_name: &str,
         engine2_name: &str,
+        sprt: Option<&SprtResult>,
     ) -> io::Result<()> {
         self.save_cursor_and_move_to_display()?;
 
@@ -108,7 +110,7 @@ impl DisplayManager {
 
         self.display_header(engine1_name, engine2_name, &layout)?;
         self.display_statistics_bars(statistics, &layout)?;
-        self.display_footer(statistics, &layout)?;
+        self.display_footer(statistics, &layout, sprt)?;
 
         self.restore_cursor_and_flush()?;
 
@@ -136,7 +138,7 @@ impl DisplayManager {
     }
 
     fn calculate_name_width(&self) -> usize {
-        let required_width = ["Engine1", "Engine2", "Draws", "Disc Diff"]
+        let required_width = ["Engine1", "Engine2", "Draws", "Disc Diff", "SPRT LLR"]
             .iter()
             .map(|s| s.len())
             .max()
@@ -240,11 +242,15 @@ impl DisplayManager {
         &self,
         statistics: &MatchStatistics,
         layout: &DisplayLayout,
+        sprt: Option<&SprtResult>,
     ) -> io::Result<()> {
         let separator = "─".repeat(layout.bar_width + layout.name_width + 15);
         println!("{}{}{}", CLEAR_LINE, layout.padding, separator.subtext());
 
         self.display_score_summary(statistics, layout);
+        if let Some(result) = sprt {
+            self.display_sprt_progress(result, layout);
+        }
 
         println!("{}{}", CLEAR_LINE, layout.padding);
         println!(
@@ -266,6 +272,18 @@ impl DisplayManager {
             layout.padding,
             "Disc Diff".text(),
             format!("{:+}", statistics.total_score).primary(),
+            width = layout.name_width
+        );
+    }
+
+    fn display_sprt_progress(&self, result: &SprtResult, layout: &DisplayLayout) {
+        println!(
+            "{}{}{:>width$}: {} {}",
+            CLEAR_LINE,
+            layout.padding,
+            "SPRT LLR".text(),
+            format!("{:+.2}", result.llr).primary(),
+            format!("({:.2}, {:.2})", result.lower, result.upper).subtext(),
             width = layout.name_width
         );
     }
