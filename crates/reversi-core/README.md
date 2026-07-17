@@ -144,6 +144,10 @@ Iterative deepening with aspiration windows.
   (see Time control).
 - Under time control, a position with a single legal root move is answered
   after the first completed iteration.
+- A time-controlled search never searches the final midgame depth: once
+  the next iteration would cover all empties, the root hands its context
+  to the endgame solve loop, which searches the remaining selectivity
+  levels at full depth (see Endgame root).
 
 LMR runs in non-PV midgame nodes once selectivity is enabled and the move
 is past the first few siblings. From `LMR_MIN_DEPTH` the reduction is one
@@ -157,8 +161,13 @@ solved); what changes between iterations is the confidence level. The loop
 walks `Level::ENDGAME_SELECTIVITY = [Level1, Level2, Level3, None]`,
 ending with `None` for an exact solve.
 
-- Before the loop, a shallow PVS estimates a centre score for the
+- On direct entry, a shallow PVS estimates a centre score for the
   aspiration window of half-width `INITIAL_ASPIRATION_WINDOW`.
+- The solve loop is shared with the midgame handoff: a time-controlled
+  midgame root enters it with its own context, keeping the midgame
+  root-move ordering and centring the window on the last completed
+  midgame score. Until a selectivity level completes, the last completed
+  midgame iteration remains the fallback result on abort.
 - Between selectivity steps the window narrows by
   `INTER_SELECTIVITY_DELTA`. On a fail-high or fail-low it widens by
   `ASPIRATION_DELTA` and re-searches.
@@ -370,10 +379,13 @@ up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level2 / Level3 / None`).
   the bottom of `level.rs`).
 - `Level::unlimited()` is the baseline used in time-control mode: an
   effectively unlimited `mid_depth` paired with a moderate `end_depth`
-  cap. Once a previous time-controlled `Search::run` has reached the
-  endgame phase (recorded by `update_endgame_tracking`), subsequent calls
-  lift the `end_depth` to `Level::perfect()`'s value so the endgame is
-  solved exactly.
+  cap that only controls the root dispatch. Positions with more empties
+  than the cap start in the midgame driver, which hands off to the
+  endgame solve loop in-run once deepening approaches the full depth.
+  Once a previous time-controlled `Search::run` has reached the endgame
+  phase (recorded by `update_endgame_tracking`), subsequent calls lift
+  the `end_depth` to `Level::perfect()`'s value so the endgame root is
+  entered directly.
 
 ### Time control
 
@@ -392,10 +404,11 @@ distributes time across the move.
   midgame, narrower toward the endgame) yields a per-move weight; the
   budget for the current move is its share of the sum over remaining
   moves.
-- Once the endgame solver runs (bank modes), the per-move budget switches
-  from the Gaussian share to `ENDGAME_BANK_PERCENT` of the current hard
-  limit, committing most of the remaining bank to the solve; the
-  rationale is documented on the constant.
+- Once the endgame solve loop runs (bank modes) — entered directly at the
+  root or mid-search via the midgame handoff — the per-move budget
+  switches from the Gaussian share to `ENDGAME_BANK_PERCENT` of the
+  current hard limit, committing most of the remaining bank to the solve;
+  the rationale is documented on the constant.
 - Pure byoyomi allocations are scoped to a single move; unused time
   cannot be banked, so iteration continues until the deadline aborts the
   search.

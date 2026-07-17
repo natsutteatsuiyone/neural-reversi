@@ -50,8 +50,12 @@ impl Level {
     /// Creates a [`Level`] for time-controlled search.
     ///
     /// Sets `mid_depth` to 60 (effectively unlimited) and `end_depth` to 14.
-    /// The endgame depth is later extended to 60 by [`Search::run`] once
-    /// the search reaches near-endgame positions.
+    /// The endgame depth only affects the root dispatch: positions with at
+    /// most `end_depth` empties enter the endgame solver directly, while
+    /// deeper positions start in the midgame driver, which hands off to the
+    /// endgame solver itself once iterative deepening approaches the full
+    /// depth. [`Search::run`] extends the endgame depth to 60 once a previous
+    /// search has reached the endgame phase.
     ///
     /// [`Search::run`]: crate::search::Search::run
     pub const fn unlimited() -> Self {

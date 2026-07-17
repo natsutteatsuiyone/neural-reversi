@@ -16,6 +16,7 @@ use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
+use crate::search::endgame::{self, CompletedState};
 use crate::search::node_type::{NodeType, NonPV, Root};
 use crate::search::result::SearchResult;
 use crate::search::root_move::RootMove;
@@ -159,31 +160,57 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         // first completed iteration and bank the time. Score and PV are already
         // available for reporting.
         if use_time_control && ctx.root_moves_count() == 1 {
-            return SearchResult::from_root_move_snapshot(
+            return search_result_from_completed_root_moves(
                 &completed_root_moves,
-                best_move,
                 completed_depth.min(n_empties),
                 completed_selectivity,
-                false,
                 ctx.counters.clone(),
             );
         }
 
-        if thread.is_search_aborted() || should_stop_iteration(&time_manager) {
-            return SearchResult::from_root_move_snapshot(
+        if thread.is_search_aborted() {
+            return search_result_from_completed_root_moves(
                 &completed_root_moves,
-                best_move,
                 completed_depth.min(n_empties),
                 completed_selectivity,
-                false,
                 ctx.counters.clone(),
             );
         }
 
-        depth = next_iteration_depth(depth, max_depth, &mut ctx.selectivity, use_time_control);
-        if depth == 0 {
-            break;
+        // Under time control the final midgame depth is never searched: once
+        // the next iteration would cover all empties, the remaining
+        // selectivity levels are solved exactly by the endgame driver.
+        if use_time_control && depth + 1 >= max_depth {
+            debug_assert_eq!(
+                max_depth, n_empties,
+                "time-controlled midgame searches always target all empties"
+            );
+            let base_score = best_move.score;
+            return endgame::solve_root(
+                &mut ctx,
+                &board,
+                &task,
+                thread,
+                base_score,
+                CompletedState {
+                    root_moves: completed_root_moves,
+                    depth: completed_depth.min(n_empties),
+                    selectivity: completed_selectivity,
+                    is_endgame: false,
+                },
+            );
         }
+
+        if should_stop_iteration(&time_manager) {
+            return search_result_from_completed_root_moves(
+                &completed_root_moves,
+                completed_depth.min(n_empties),
+                completed_selectivity,
+                ctx.counters.clone(),
+            );
+        }
+
+        depth = next_iteration_depth(depth);
     }
 
     search_result_from_completed_root_moves(
@@ -258,24 +285,8 @@ fn aspiration_search(
     }
 }
 
-/// Computes the next iteration depth, handling selectivity progression.
-///
-/// Returns 0 if the search should terminate (selectivity maxed out).
-fn next_iteration_depth(
-    current_depth: Depth,
-    max_depth: Depth,
-    selectivity: &mut Selectivity,
-    use_time_control: bool,
-) -> Depth {
-    if use_time_control && current_depth == max_depth - 1 {
-        if selectivity.is_enabled() {
-            *selectivity = Selectivity::from_u8(selectivity.as_u8() + 1);
-            return current_depth;
-        } else {
-            return 0;
-        }
-    }
-
+/// Computes the next iteration depth.
+fn next_iteration_depth(current_depth: Depth) -> Depth {
     if current_depth <= DEPTH_STEP_THRESHOLD {
         current_depth + 2
     } else {
@@ -590,8 +601,10 @@ mod schedule_tests {
     use super::*;
     use std::sync::{Arc, OnceLock};
 
+    use crate::disc::Disc;
     use crate::level::Level;
     use crate::search::threading::ThreadPool;
+    use crate::search::time_control::{TimeControlMode, TimeManager};
     use crate::transposition_table::TranspositionTable;
 
     fn shared_eval() -> Arc<Eval> {
@@ -640,49 +653,61 @@ mod schedule_tests {
     }
 
     #[test]
-    fn fixed_depth_iteration_steps_by_two_then_by_one() {
-        let mut sel = Selectivity::Level1;
+    fn iteration_depth_steps_by_two_then_by_one() {
         // At/below the threshold: +2.
-        assert_eq!(next_iteration_depth(4, 60, &mut sel, false), 6);
+        assert_eq!(next_iteration_depth(4), 6);
         assert_eq!(
-            next_iteration_depth(DEPTH_STEP_THRESHOLD, 60, &mut sel, false),
+            next_iteration_depth(DEPTH_STEP_THRESHOLD),
             DEPTH_STEP_THRESHOLD + 2
         );
         // Above the threshold: +1.
         assert_eq!(
-            next_iteration_depth(DEPTH_STEP_THRESHOLD + 1, 60, &mut sel, false),
+            next_iteration_depth(DEPTH_STEP_THRESHOLD + 1),
             DEPTH_STEP_THRESHOLD + 2
         );
         assert_eq!(
-            next_iteration_depth(DEPTH_STEP_THRESHOLD + 2, 60, &mut sel, false),
+            next_iteration_depth(DEPTH_STEP_THRESHOLD + 2),
             DEPTH_STEP_THRESHOLD + 3
         );
-        // Selectivity is left untouched without time control.
-        assert_eq!(sel, Selectivity::Level1);
     }
 
     #[test]
-    fn time_control_deepens_selectivity_at_the_penultimate_depth() {
-        let mut sel = Selectivity::Level1;
-        // current == max - 1 under time control: hold the depth, advance selectivity.
-        assert_eq!(next_iteration_depth(14, 15, &mut sel, true), 14);
-        assert_eq!(sel, Selectivity::Level2);
-        assert_eq!(next_iteration_depth(14, 15, &mut sel, true), 14);
-        assert_eq!(sel, Selectivity::Level3);
-    }
+    fn time_control_hands_off_to_endgame_solve_at_penultimate_depth() {
+        probcut::init();
+        let pool = ThreadPool::new(1);
+        // FFO position #1: 14 empties, Black to move, exact score +18 (G8).
+        let board = Board::from_string(
+            "--XXXXX--OOOXX-O-OOOXXOX-OXOXOXXOXXXOXXX--XOXOXX-XXXOOO--OOOOO--",
+            Disc::Black,
+        )
+        .unwrap();
+        let n_empties = board.get_empty_count();
+        let time_manager = Arc::new(TimeManager::new(
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: 600_000,
+            },
+            pool.abort_state(),
+            n_empties,
+        ));
+        let task = SearchTask {
+            board,
+            selectivity: Selectivity::Level1,
+            tt: Arc::new(TranspositionTable::new(1)),
+            pool: pool.clone(),
+            eval: shared_eval(),
+            level: Level::unlimited(),
+            multi_pv: false,
+            callback: None,
+            time_manager: Some(time_manager),
+            eval_mode: None,
+        };
 
-    #[test]
-    fn time_control_terminates_once_selectivity_is_exhausted() {
-        let mut sel = Selectivity::None;
-        assert_eq!(next_iteration_depth(14, 15, &mut sel, true), 0);
-        assert_eq!(sel, Selectivity::None);
-    }
+        let result = search_root(task, pool.main());
 
-    #[test]
-    fn time_control_steps_normally_away_from_the_penultimate_depth() {
-        let mut sel = Selectivity::Level1;
-        // current != max - 1: normal stepping, selectivity untouched.
-        assert_eq!(next_iteration_depth(5, 15, &mut sel, true), 7);
-        assert_eq!(sel, Selectivity::Level1);
+        assert!(result.is_endgame());
+        assert_eq!(result.depth(), n_empties);
+        assert_eq!(result.get_probability(), 100);
+        assert_eq!(result.best_move(), Some(Square::G8));
+        assert_eq!(result.score(), Some(18.0));
     }
 }

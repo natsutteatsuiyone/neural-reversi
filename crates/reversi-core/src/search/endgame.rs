@@ -19,6 +19,7 @@ use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
 use crate::search::node_type::{NonPV, Root};
 use crate::search::result::SearchResult;
+use crate::search::root_move::RootMove;
 use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_endgame_iteration;
@@ -79,11 +80,21 @@ impl EndGameCaches {
     }
 }
 
+/// Snapshot of the most recently completed root iteration.
+///
+/// Fallback result when the solve is aborted before another selectivity level
+/// completes: the midgame handoff seeds it with the last completed midgame
+/// iteration, while [`search_root`] seeds it with the pre-search root moves.
+pub(super) struct CompletedState {
+    pub(super) root_moves: Vec<RootMove>,
+    pub(super) depth: Depth,
+    pub(super) selectivity: Selectivity,
+    pub(super) is_endgame: bool,
+}
+
 /// Performs root search for endgame positions using iterative selectivity.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
-    let time_manager = task.time_manager.clone();
-    let use_time_control = time_manager.is_some();
 
     let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
     if ctx.root_moves_count() == 0 {
@@ -91,15 +102,51 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         return SearchResult::new_no_moves();
     }
 
-    if let Some(ref tm) = time_manager {
-        // Enable endgame mode for time management
+    // Extend to the endgame allocation before any timed work: the aspiration
+    // estimate must not run under the smaller midgame deadline.
+    if let Some(tm) = &task.time_manager {
+        tm.set_endgame_mode(true);
+    }
+
+    // Estimate initial aspiration window center
+    let base_score = estimate_aspiration_base_score(&mut ctx, &board);
+
+    let completed = CompletedState {
+        root_moves: ctx.root_moves.snapshot(),
+        depth: ctx.empty_list.count(),
+        selectivity: Selectivity::None,
+        is_endgame: true,
+    };
+    solve_root(&mut ctx, &board, &task, thread, base_score, completed)
+}
+
+/// Runs the multi-PV, iterative-selectivity solve loop on an existing context.
+///
+/// Every selectivity level is searched at full depth (all empties), so the
+/// context's root moves, transposition table, and counters carry over from any
+/// preceding midgame iterations. `base_score` centers the first PV's
+/// aspiration window. `completed` is returned when the solve aborts early;
+/// single-PV searches replace it after each completed selectivity level,
+/// while multi-PV searches keep it until every PV line has been searched.
+/// Enables endgame time management on entry.
+pub(super) fn solve_root(
+    ctx: &mut SearchContext,
+    board: &Board,
+    task: &SearchTask,
+    thread: &Arc<Thread>,
+    base_score: ScaledScore,
+    mut completed: CompletedState,
+) -> SearchResult {
+    let time_manager = &task.time_manager;
+    let use_time_control = time_manager.is_some();
+
+    if let Some(tm) = time_manager {
+        // Enable endgame time management; the midgame handoff arrives with
+        // the midgame allocation still active.
         tm.set_endgame_mode(true);
     }
 
     let n_empties = ctx.empty_list.count();
-
-    // Estimate initial aspiration window center
-    let base_score = estimate_aspiration_base_score(&mut ctx, &board);
 
     // Configure for endgame search
     ctx.selectivity = Selectivity::None;
@@ -110,8 +157,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     } else {
         1
     };
-    let mut completed_selectivity = ctx.selectivity;
-    let mut completed_root_moves = ctx.root_moves.snapshot();
 
     // Multi-PV loop: search each PV line with its own aspiration window
     for pv_idx in 0..pv_count {
@@ -132,7 +177,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             ctx.selectivity = selectivity;
-            let score = aspiration_search(&mut ctx, &board, &mut alpha, &mut beta, thread);
+            let score = aspiration_search(ctx, board, &mut alpha, &mut beta, thread);
 
             // Update aspiration window for next selectivity
             let delta = INTER_SELECTIVITY_DELTA;
@@ -145,8 +190,17 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             // Stable sort moves from pv_idx to end, bringing best to pv_idx position
             ctx.sort_root_moves_from_pv_idx();
-            completed_selectivity = selectivity;
-            completed_root_moves = ctx.root_moves.snapshot();
+            // Multi-PV keeps the entry fallback: mid-loop root moves hold
+            // -INF scores for lines not yet searched, so a partial pass must
+            // not become the abort result.
+            if pv_count == 1 {
+                completed = CompletedState {
+                    root_moves: ctx.root_moves.snapshot(),
+                    depth: n_empties,
+                    selectivity,
+                    is_endgame: true,
+                };
+            }
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(ref callback) = task.callback
@@ -166,22 +220,23 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             // Check time control
-            if should_stop_endgame_iteration(&time_manager, selectivity) {
+            if should_stop_endgame_iteration(time_manager, selectivity) {
                 break;
             }
         }
 
         // Check abort or time limit
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
-            let best_move = completed_root_moves
+            let best_move = completed
+                .root_moves
                 .first()
                 .expect("internal error: no completed root moves after search");
             return SearchResult::from_root_move_snapshot(
-                &completed_root_moves,
+                &completed.root_moves,
                 best_move,
-                n_empties,
-                completed_selectivity,
-                true,
+                completed.depth,
+                completed.selectivity,
+                completed.is_endgame,
                 ctx.counters.clone(),
             );
         }
@@ -707,6 +762,7 @@ mod tests {
     use super::*;
     use crate::disc::Disc;
     use crate::eval::Eval;
+    use crate::search::threading::ThreadPool;
     use crate::transposition_table::TranspositionTable;
 
     struct CutoffOccurred;
@@ -738,6 +794,96 @@ mod tests {
         assert_eq!(ctx.empty_list.count(), original_empty_count);
         let cache_idx = caches.ec.index(board.hash());
         assert!(caches.ec.probe(cache_idx, &board, 49).is_none());
+    }
+
+    /// Builds a 9-empty solve task whose `CompletedState` fallback carries a
+    /// recognizable midgame result (depth 7, Level2, first move +4).
+    fn solve_fallback_fixture(
+        pool: &Arc<ThreadPool>,
+        multi_pv: bool,
+        callback: Option<Arc<crate::search::SearchProgressCallback>>,
+    ) -> (SearchContext, SearchTask, CompletedState) {
+        let board = Board::from_string(
+            "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
+            Disc::Black,
+        )
+        .unwrap();
+        let tt = Arc::new(TranspositionTable::new(0));
+        let eval = Arc::new(
+            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
+        );
+        let ctx = SearchContext::new(&board, Selectivity::None, tt.clone(), eval.clone());
+        let mut fallback_moves = ctx.root_moves.snapshot();
+        fallback_moves[0].score = ScaledScore::from_disc_diff(4);
+        let task = SearchTask {
+            board,
+            selectivity: Selectivity::None,
+            tt,
+            pool: pool.clone(),
+            eval,
+            level: Level::perfect(),
+            multi_pv,
+            callback,
+            time_manager: None,
+            eval_mode: None,
+        };
+        let completed = CompletedState {
+            root_moves: fallback_moves,
+            depth: 7,
+            selectivity: Selectivity::Level2,
+            is_endgame: false,
+        };
+        (ctx, task, completed)
+    }
+
+    fn assert_is_fallback_result(result: &SearchResult) {
+        assert!(!result.is_endgame());
+        assert_eq!(result.depth(), 7);
+        assert_eq!(result.selectivity(), Selectivity::Level2);
+        assert_eq!(result.score(), Some(4.0));
+    }
+
+    #[test]
+    fn solve_root_returns_fallback_when_aborted_before_completing_a_level() {
+        let pool = ThreadPool::new(1);
+        pool.abort_search();
+        let (mut ctx, task, completed) = solve_fallback_fixture(&pool, false, None);
+
+        let result = solve_root(
+            &mut ctx,
+            &task.board,
+            &task,
+            pool.main(),
+            ScaledScore::ZERO,
+            completed,
+        );
+
+        assert_is_fallback_result(&result);
+    }
+
+    #[test]
+    fn multi_pv_solve_keeps_entry_fallback_until_all_pv_lines_complete() {
+        let pool = ThreadPool::new(1);
+        // Abort once the first PV line reports a completed selectivity level.
+        let abort_pool = pool.clone();
+        let (mut ctx, task, completed) = solve_fallback_fixture(
+            &pool,
+            true,
+            Some(Arc::new(move |_progress: SearchProgress| {
+                abort_pool.abort_search();
+            })),
+        );
+
+        let result = solve_root(
+            &mut ctx,
+            &task.board,
+            &task,
+            pool.main(),
+            ScaledScore::ZERO,
+            completed,
+        );
+
+        assert_is_fallback_result(&result);
     }
 
     #[test]
