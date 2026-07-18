@@ -10,7 +10,6 @@ use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
-use crate::search::midgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::SearchStrategy;
 use crate::search::threading::{SplitPoint, SplitRequest, Thread};
@@ -58,8 +57,8 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let child_cut_node = !NT::PV_NODE && !cut_node;
-            let score = -search::<NT, SS>(ctx, &next, depth, -beta, -alpha, thread, child_cut_node);
+            // The child of an all node is a cut node.
+            let score = -search::<NT, SS>(ctx, &next, depth, -beta, -alpha, thread, all_node);
             ctx.undo_pass();
             return score;
         } else {
@@ -476,6 +475,12 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     None
 }
 
+/// Minimum depth to enable Late Move Reductions.
+pub const LMR_MIN_DEPTH: Depth = 4;
+
+/// Depth threshold for deeper LMR (reduction = 2).
+pub const LMR_DEEPER_DEPTH: Depth = 8;
+
 /// Computes the LMR depth reduction for late moves.
 ///
 /// Disabled for endgame search, PV nodes, and ProbCut verification search
@@ -493,7 +498,7 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     if SS::IS_ENDGAME
         || NT::PV_NODE
         || !selectivity.is_enabled()
-        || depth < midgame::LMR_MIN_DEPTH
+        || depth < LMR_MIN_DEPTH
         || move_count <= 2
         || n_moves < 4
     {
@@ -512,7 +517,7 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
 #[inline(always)]
 fn lmr_base_reduction(depth: Depth, move_count: usize, n_moves: usize) -> Depth {
     let mut reduction = 1;
-    if depth >= midgame::LMR_DEEPER_DEPTH && move_count > 5 {
+    if depth >= LMR_DEEPER_DEPTH && move_count > 5 {
         reduction += 1;
     }
     if depth >= 16 && move_count > 10 && move_count * 5 >= n_moves * 3 {
@@ -530,7 +535,6 @@ fn lmr_max_reduction(depth: Depth) -> Depth {
 mod tests {
     use super::*;
     use crate::probcut::Selectivity;
-    use crate::search::midgame::{LMR_DEEPER_DEPTH, LMR_MIN_DEPTH};
     use crate::search::node_type::{NonPV, PV};
     use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
 

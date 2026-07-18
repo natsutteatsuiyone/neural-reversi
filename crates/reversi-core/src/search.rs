@@ -10,6 +10,7 @@ mod endgame;
 pub mod midgame;
 pub mod node_type;
 pub mod options;
+pub mod progress;
 mod pvs;
 pub mod result;
 pub mod root_move;
@@ -22,14 +23,14 @@ pub mod time_control;
 #[doc(hidden)]
 pub use endgame::{EndGameCaches, null_window_search, solve_last1};
 pub use options::{SearchConstraint, SearchRunOptions};
-pub use pvs::search;
+pub use progress::{SearchProgress, SearchProgressCallback};
+pub use pvs::{LMR_DEEPER_DEPTH, LMR_MIN_DEPTH, search};
 
 use std::sync::Arc;
 
 use crate::board::Board;
 use crate::constants::MAX_THREADS;
 use crate::eval::{Eval, EvalMode};
-use crate::flip;
 use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
@@ -40,7 +41,7 @@ use crate::search::threading::{Thread, ThreadPool};
 use crate::search::time_control::TimeManager;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, ScaledScore, Scoref};
+use crate::types::{Depth, ScaledScore};
 
 /// Main search engine that coordinates game tree exploration.
 ///
@@ -96,30 +97,13 @@ pub struct SearchTask {
     pub eval_mode: Option<EvalMode>,
 }
 
-/// Progress information reported during an ongoing search.
-pub struct SearchProgress {
-    /// Current search depth completed.
-    pub depth: Depth,
-    /// Target search depth for this iteration.
-    pub target_depth: Depth,
-    /// Best score found so far (in disc difference).
-    pub score: Scoref,
-    /// Best move found so far.
-    pub best_move: Square,
-    /// Probability percentage from the current [`Selectivity`] level.
-    pub probability: i32,
-    /// Total nodes searched.
-    pub nodes: u64,
-    /// Principal variation (sequence of best moves).
-    pub pv_line: Vec<Square>,
-    /// Whether the search is in endgame phase.
-    pub is_endgame: bool,
-    /// Snapshot of search counters at this point.
-    pub counters: SearchCounters,
+impl SearchTask {
+    /// Returns how many PV lines to search: every root move in Multi-PV mode,
+    /// otherwise one.
+    pub(crate) fn pv_count(&self, root_moves_count: usize) -> usize {
+        if self.multi_pv { root_moves_count } else { 1 }
+    }
 }
-
-/// Callback invoked to report [`SearchProgress`] during a search.
-pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
 impl SearchSharedResources {
     /// Creates a reusable search-resource bundle from search options.
@@ -233,7 +217,7 @@ impl Search {
         self.apply_fallback_if_invalid(board, &mut result);
 
         if let Some(callback) = callback {
-            callback(progress_from_result(&result));
+            callback(SearchProgress::from_result(&result));
         }
 
         if is_time_mode {
@@ -359,8 +343,7 @@ impl Search {
         let mut best_score = -ScaledScore::INF;
 
         for sq in moves.iter() {
-            let flipped = flip::flip(sq, board.player(), board.opponent());
-            let next = board.make_move_with_flipped(flipped, sq);
+            let next = board.make_move(sq);
             let score = -self.eval.evaluate_simple(&next);
 
             if score > best_score {
@@ -383,18 +366,26 @@ impl Search {
     }
 }
 
-fn progress_from_result(result: &SearchResult) -> SearchProgress {
-    SearchProgress {
-        depth: result.depth(),
-        target_depth: result.depth(),
-        score: result.score().unwrap_or(0.0),
-        probability: result.get_probability(),
-        best_move: result.best_move().unwrap_or(Square::None),
-        nodes: result.n_nodes(),
-        pv_line: result.pv_line().to_vec(),
-        is_endgame: result.is_endgame(),
-        counters: result.counters(),
+/// Widens the aspiration window around `score` after a fail-low or fail-high.
+///
+/// Returns `true` if the window was widened and the search must be repeated,
+/// or `false` when `score` lies inside the window and the result stands.
+pub(crate) fn widen_aspiration_window(
+    score: ScaledScore,
+    alpha: &mut ScaledScore,
+    beta: &mut ScaledScore,
+    delta: ScaledScore,
+) -> bool {
+    if score <= *alpha {
+        *beta = *alpha;
+        *alpha = (score - delta).max(-ScaledScore::INF);
+    } else if score >= *beta {
+        *alpha = (*beta - delta).max(*alpha);
+        *beta = (score + delta).min(ScaledScore::INF);
+    } else {
+        return false;
     }
+    true
 }
 
 /// Dispatches to midgame or endgame search based on remaining empties.

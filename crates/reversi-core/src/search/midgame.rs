@@ -23,7 +23,7 @@ use crate::search::root_move::RootMove;
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{SearchProgress, SearchTask, search};
+use crate::search::{SearchProgress, SearchTask, search, widen_aspiration_window};
 use crate::square::Square;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
@@ -36,12 +36,6 @@ const ASPIRATION_MIN_DEPTH: Depth = 5;
 
 /// Depth threshold for switching iteration step from +2 to +1.
 const DEPTH_STEP_THRESHOLD: Depth = 10;
-
-/// Minimum depth to enable Late Move Reductions.
-pub const LMR_MIN_DEPTH: Depth = 4;
-
-/// Depth threshold for deeper LMR (reduction = 2).
-pub const LMR_DEEPER_DEPTH: Depth = 8;
 
 /// Performs the root search using iterative deepening with aspiration windows.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
@@ -64,11 +58,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         return SearchResult::new_random_move(random_move(&board));
     }
 
-    let pv_count = if task.multi_pv {
-        ctx.root_moves_count()
-    } else {
-        1
-    };
+    let pv_count = task.pv_count(ctx.root_moves_count());
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
 
     let mut depth = compute_start_depth(max_depth);
@@ -108,17 +98,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             if let Some(ref callback) = task.callback
                 && let Some(rm) = ctx.get_current_pv_root_move()
             {
-                callback(SearchProgress {
-                    depth,
-                    target_depth: max_depth,
-                    score: score.to_disc_diff_f32(),
-                    best_move: rm.sq,
-                    probability: ctx.selectivity.probability(),
-                    nodes: ctx.counters.n_nodes,
-                    pv_line: rm.pv.clone(),
-                    is_endgame: false,
-                    counters: ctx.counters.clone(),
-                });
+                callback(SearchProgress::from_iteration(
+                    &ctx, &rm, depth, max_depth, score, false,
+                ));
             }
 
             iteration_window_clean = window_clean;
@@ -137,7 +119,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             );
         }
 
-        ctx.sort_all_root_moves();
+        // Single-PV already sorted the full list at pv_idx 0; only Multi-PV
+        // leaves the searched PV head lines out of score order.
+        if task.multi_pv {
+            ctx.sort_all_root_moves();
+        }
         completed_depth = depth;
         completed_selectivity = ctx.selectivity;
         completed_root_moves = ctx.root_moves.snapshot();
@@ -270,13 +256,7 @@ fn aspiration_search(
             return (score, window_clean);
         }
 
-        if score <= *alpha {
-            *beta = *alpha;
-            *alpha = (score - delta).max(-ScaledScore::INF);
-        } else if score >= *beta {
-            *alpha = (*beta - delta).max(*alpha);
-            *beta = (score + delta).min(ScaledScore::INF);
-        } else {
+        if !widen_aspiration_window(score, alpha, beta, delta) {
             return (score, window_clean);
         }
 

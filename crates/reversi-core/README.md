@@ -476,6 +476,7 @@ The integration tests in `tests/` require real weights to load.
 | Search context / stack               | `src/search/context.rs`, `src/search/stack.rs`                            |
 | Strategy / node type                 | `src/search/strategy.rs`, `src/search/node_type.rs`                       |
 | Result / root moves / Multi-PV       | `src/search/result.rs`, `src/search/root_move.rs`                         |
+| Progress reporting                   | `src/search/progress.rs`                                                  |
 | Time control                         | `src/search/time_control.rs`                                              |
 | TT / ProbCut / Stability             | `src/transposition_table.rs`, `src/probcut.rs`, `src/stability.rs`        |
 | Evaluator / cache                    | `src/eval.rs`, `src/eval/eval_cache.rs`                                   |

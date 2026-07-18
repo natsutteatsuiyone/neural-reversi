@@ -23,7 +23,7 @@ use crate::search::root_move::RootMove;
 use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_endgame_iteration;
-use crate::search::{SearchProgress, SearchTask, midgame, search};
+use crate::search::{SearchProgress, SearchTask, midgame, search, widen_aspiration_window};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
@@ -152,11 +152,7 @@ pub(super) fn solve_root(
     ctx.selectivity = Selectivity::None;
     ctx.eval_mode = EvalMode::Small;
 
-    let pv_count = if task.multi_pv {
-        ctx.root_moves_count()
-    } else {
-        1
-    };
+    let pv_count = task.pv_count(ctx.root_moves_count());
 
     // Multi-PV loop: search each PV line with its own aspiration window
     for pv_idx in 0..pv_count {
@@ -206,17 +202,9 @@ pub(super) fn solve_root(
             if let Some(ref callback) = task.callback
                 && let Some(rm) = ctx.get_current_pv_root_move()
             {
-                callback(SearchProgress {
-                    depth: n_empties,
-                    target_depth: n_empties,
-                    score: score.to_disc_diff_f32(),
-                    best_move: rm.sq,
-                    probability: ctx.selectivity.probability(),
-                    nodes: ctx.counters.n_nodes,
-                    pv_line: rm.pv.clone(),
-                    is_endgame: true,
-                    counters: ctx.counters.clone(),
-                });
+                callback(SearchProgress::from_iteration(
+                    ctx, &rm, n_empties, n_empties, score, true,
+                ));
             }
 
             // Check time control
@@ -242,7 +230,11 @@ pub(super) fn solve_root(
         }
     }
 
-    ctx.sort_all_root_moves();
+    // Single-PV already sorted the full list after each completed level; only
+    // Multi-PV leaves the searched PV head lines out of score order.
+    if task.multi_pv {
+        ctx.sort_all_root_moves();
+    }
     let rm = ctx
         .get_best_root_move()
         .expect("internal error: no root moves after search");
@@ -311,14 +303,7 @@ fn aspiration_search(
             return score;
         }
 
-        // Widen window based on fail direction
-        if score <= *alpha {
-            *beta = *alpha;
-            *alpha = (score - delta).max(-ScaledScore::INF);
-        } else if score >= *beta {
-            *alpha = (*beta - delta).max(*alpha);
-            *beta = (score + delta).min(ScaledScore::INF);
-        } else {
+        if !widen_aspiration_window(score, alpha, beta, delta) {
             return score;
         }
 
@@ -522,8 +507,8 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
     }
 
     let mut best_score = -SCORE_INF;
+    move_list.evaluate_moves_fast(ctx, board, Square::None);
     if move_list.count() >= 4 {
-        move_list.evaluate_moves_fast(ctx, board, Square::None);
         for mv in move_list.best_first_iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc, cutoff);
@@ -536,7 +521,6 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
             }
         }
     } else {
-        move_list.evaluate_moves_fast(ctx, board, Square::None);
         move_list.sort();
         for mv in move_list.iter() {
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);

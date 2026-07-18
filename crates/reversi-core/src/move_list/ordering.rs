@@ -64,7 +64,7 @@ impl MoveList {
         let use_fast = if SS::IS_ENDGAME {
             depth < ENDGAME_MIN_SORT_DEPTH[ctx.empty_list.count() as usize]
         } else {
-            depth < midgame::LMR_MIN_DEPTH
+            depth < crate::search::LMR_MIN_DEPTH
         };
 
         if use_fast {

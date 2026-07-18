@@ -66,23 +66,14 @@ impl SearchResult {
         is_endgame: bool,
         counters: SearchCounters,
     ) -> Self {
-        let pv_moves: Vec<PvMove> = root_moves.map(|rm| PvMove {
-            sq: rm.sq,
-            score: rm.score.to_disc_diff_f32(),
-            pv_line: rm.pv.clone(),
-        });
-
-        Self::BestMove {
-            sq: best_move.sq,
-            score: best_move.score.to_disc_diff_f32(),
-            n_nodes: counters.n_nodes,
-            pv_line: best_move.pv.clone(),
+        Self::from_root_move_snapshot(
+            &root_moves.snapshot(),
+            best_move,
             depth,
             selectivity,
             is_endgame,
-            pv_moves,
             counters,
-        }
+        )
     }
 
     pub(crate) fn from_root_move_snapshot(

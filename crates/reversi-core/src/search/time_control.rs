@@ -602,13 +602,9 @@ impl TimeManager {
         }
     }
 
-    /// Returns the current time control mode.
-    pub fn mode(&self) -> TimeControlMode {
-        self.mode
-    }
-
     /// Returns the minimum time in milliseconds.
-    pub fn mini_time_ms(&self) -> u64 {
+    #[cfg(test)]
+    fn mini_time_ms(&self) -> u64 {
         if self.mode == TimeControlMode::Infinite {
             return u64::MAX;
         }
@@ -632,23 +628,18 @@ impl TimeManager {
         }
     }
 
-    /// Returns the remaining time in milliseconds.
-    #[inline]
-    pub fn remaining_time_ms(&self) -> u64 {
-        self.optimum_time_ms
-            .load(Ordering::Relaxed)
-            .saturating_sub(self.elapsed_ms())
-    }
-
     /// Sets whether the search is in endgame mode.
     ///
     /// Recalculates the allocation and resets iteration statistics: midgame
-    /// stability is not evidence about the endgame solve.
+    /// stability is not evidence about the endgame solve. A call that does not
+    /// change the mode is a no-op.
     ///
     /// Must be called only from the search's main thread; other threads may
     /// only read.
     pub fn set_endgame_mode(&self, enabled: bool) {
-        self.is_endgame_mode.store(enabled, Ordering::Relaxed);
+        if self.is_endgame_mode.swap(enabled, Ordering::Relaxed) == enabled {
+            return;
+        }
         let (base_ms, hard_ms) = Self::calculate_allocation(self.mode, self.n_empties, enabled);
         let optimum_ms = Self::initial_optimum(self.mode, base_ms, hard_ms);
         self.base_time_ms.store(base_ms, Ordering::Relaxed);
