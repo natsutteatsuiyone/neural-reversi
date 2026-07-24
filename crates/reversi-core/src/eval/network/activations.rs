@@ -16,6 +16,9 @@ cfg_select! {
     _ => {}
 }
 
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+const AVX512_SIMD_WIDTH: usize = std::mem::size_of::<__m512i>() / std::mem::size_of::<u8>();
+
 const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 
 /// Applies a clipped ReLU activation function to `input`.
@@ -278,8 +281,9 @@ fn sqr_clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 /// The first 16 bytes receive the square-clipped output, and the next 16 bytes
 /// receive the clipped-ReLU output.
 ///
-/// On x86-64 with AVX2, both `input` and `output` must be 16-byte aligned for
-/// the SSE2 loads/stores. Misaligned buffers cause undefined behavior.
+/// On x86-64 with AVX-512, `input` must be 64-byte aligned and `output`
+/// 16-byte aligned. With AVX2, both must be 32-byte aligned. Misaligned
+/// buffers cause undefined behavior in the SIMD loads/stores.
 ///
 /// [`sqr_clipped_relu::<16>`]: sqr_clipped_relu
 /// [`clipped_relu::<16>`]: clipped_relu
@@ -289,6 +293,9 @@ pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
     debug_assert!(output.len() >= 32);
 
     cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512bw") => {
+            unsafe { sqr_clipped_and_clipped_relu_16_avx512(input, output) };
+        }
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { sqr_clipped_and_clipped_relu_16_avx2(input, output) };
         }
@@ -305,35 +312,57 @@ pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
 
 /// # Safety
 ///
-/// `input` must contain at least 16 `i32` values and be 16-byte aligned.
-/// `output` must contain at least 32 bytes and be 16-byte aligned.
+/// `input` must contain at least 16 `i32` values and be 32-byte aligned.
+/// `output` must contain at least 32 bytes and be 32-byte aligned.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8]) {
     unsafe {
-        let input_ptr = input.as_ptr() as *const __m128i;
-        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+        let input_ptr = input.as_ptr() as *const __m256i;
 
-        let in0 = _mm_load_si128(input_ptr);
-        let in1 = _mm_load_si128(input_ptr.add(1));
-        let in2 = _mm_load_si128(input_ptr.add(2));
-        let in3 = _mm_load_si128(input_ptr.add(3));
-
-        let sqr_words0 = _mm_packs_epi32(in0, in1);
-        let sqr_words1 = _mm_packs_epi32(in2, in3);
+        let in0 = _mm256_load_si256(input_ptr);
+        let in1 = _mm256_load_si256(input_ptr.add(1));
 
         const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
-        let sqr_words0 = _mm_srli_epi16(_mm_mulhi_epi16(sqr_words0, sqr_words0), SHIFT);
-        let sqr_words1 = _mm_srli_epi16(_mm_mulhi_epi16(sqr_words1, sqr_words1), SHIFT);
-        _mm_store_si128(output_ptr, _mm_packus_epi16(sqr_words0, sqr_words1));
+        let sqr_words = _mm256_packs_epi32(in0, in1);
+        let sqr_words = _mm256_srli_epi16(_mm256_mulhi_epi16(sqr_words, sqr_words), SHIFT);
 
-        let relu_words0 = _mm_srli_epi16(_mm_packus_epi32(in0, in1), HIDDEN_WEIGHT_SCALE_BITS);
-        let relu_words1 = _mm_srli_epi16(_mm_packus_epi32(in2, in3), HIDDEN_WEIGHT_SCALE_BITS);
-        _mm_store_si128(
-            output_ptr.add(1),
-            _mm_packus_epi16(relu_words0, relu_words1),
+        let relu_words = _mm256_srli_epi16(_mm256_packus_epi32(in0, in1), HIDDEN_WEIGHT_SCALE_BITS);
+
+        let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
+        _mm256_store_si256(
+            output.as_mut_ptr() as *mut __m256i,
+            _mm256_permutevar8x32_epi32(_mm256_packus_epi16(sqr_words, relu_words), shuffle),
         );
+    }
+}
+
+/// # Safety
+///
+/// `input` must contain at least 16 `i32` values and be 64-byte aligned.
+/// `output` must contain at least 32 bytes and be 16-byte aligned.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[target_feature(enable = "avx512bw")]
+#[inline]
+unsafe fn sqr_clipped_and_clipped_relu_16_avx512(input: &[i32], output: &mut [u8]) {
+    unsafe {
+        let in0 = _mm512_load_si512(input.as_ptr() as *const __m512i);
+        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+
+        const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
+        let sqr_words = _mm512_cvtsepi32_epi16(in0);
+        let sqr_words = _mm256_srli_epi16(_mm256_mulhi_epi16(sqr_words, sqr_words), SHIFT);
+        let sqr_bytes = _mm_packus_epi16(
+            _mm256_castsi256_si128(sqr_words),
+            _mm256_extracti128_si256::<1>(sqr_words),
+        );
+        _mm_store_si128(output_ptr, sqr_bytes);
+
+        const RELU_SHIFT: u32 = HIDDEN_WEIGHT_SCALE_BITS as u32;
+        let relu = _mm512_srli_epi32::<RELU_SHIFT>(_mm512_max_epi32(in0, _mm512_setzero_si512()));
+        _mm_store_si128(output_ptr.add(1), _mm512_cvtusepi32_epi8(relu));
     }
 }
 
@@ -395,12 +424,16 @@ fn sqr_clipped_and_clipped_relu_16_neon(input: &[i32], output: &mut [u8]) {
 /// Clamps input to `[0, 255 << HIDDEN_WEIGHT_SCALE_BITS]`, squares, then scales down.
 /// Output = (clamp(input, 0, max)² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)).
 ///
-/// On x86-64 with AVX2, both `input` and `output` must be 32-byte aligned (or
-/// 16-byte aligned when `SIZE` is not a multiple of 32). Misaligned buffers
-/// cause undefined behavior in the SIMD loads.
+/// On x86-64 with AVX-512, both `input` and `output` must be 64-byte aligned
+/// when `SIZE` is a multiple of 64. With AVX2 (or smaller `SIZE`), both must be
+/// 32-byte aligned (or 16-byte aligned when `SIZE` is not a multiple of 32).
+/// Misaligned buffers cause undefined behavior in the SIMD loads.
 #[inline(always)]
 pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512bw") => {
+            unsafe { screlu_avx512::<SIZE>(input, output) };
+        }
         all(target_arch = "x86_64", target_feature = "avx2") => {
             unsafe { screlu_avx2::<SIZE>(input, output) };
         }
@@ -495,6 +528,57 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 
     let start_idx = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
     screlu_scalar(input, output, start_idx);
+}
+
+/// Computes Squared Clipped ReLU using AVX-512 SIMD.
+///
+/// Processes 64 `i32` elements per iteration when `SIZE` is a multiple of 64;
+/// other sizes are delegated to [`screlu_avx2`].
+///
+/// # Safety
+///
+/// Both `input` and `output` must be 64-byte aligned when `SIZE` is a multiple
+/// of 64; otherwise the [`screlu_avx2`] alignment rules apply.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[target_feature(enable = "avx512bw")]
+#[inline]
+unsafe fn screlu_avx512<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+    if !SIZE.is_multiple_of(AVX512_SIMD_WIDTH) {
+        unsafe { screlu_avx2::<SIZE>(input, output) };
+        return;
+    }
+
+    unsafe {
+        let num_chunks = SIZE / AVX512_SIMD_WIDTH;
+        let shuffle: __m512i =
+            _mm512_set_epi32(15, 11, 7, 3, 14, 10, 6, 2, 13, 9, 5, 1, 12, 8, 4, 0);
+        let input_ptr = input.as_ptr() as *const __m512i;
+        let output_ptr = output.as_mut_ptr() as *mut __m512i;
+        let max_val = _mm512_set1_epi16(255 << HIDDEN_WEIGHT_SCALE_BITS);
+
+        for i in 0..num_chunks {
+            let mut words0 = _mm512_packus_epi32(
+                _mm512_load_si512(input_ptr.add(i * 4)),
+                _mm512_load_si512(input_ptr.add(i * 4 + 1)),
+            );
+            let mut words1 = _mm512_packus_epi32(
+                _mm512_load_si512(input_ptr.add(i * 4 + 2)),
+                _mm512_load_si512(input_ptr.add(i * 4 + 3)),
+            );
+
+            words0 = _mm512_min_epu16(words0, max_val);
+            words1 = _mm512_min_epu16(words1, max_val);
+
+            const SHIFT: u32 = (HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16) as u32;
+            words0 = _mm512_srli_epi16::<SHIFT>(_mm512_mulhi_epu16(words0, words0));
+            words1 = _mm512_srli_epi16::<SHIFT>(_mm512_mulhi_epu16(words1, words1));
+
+            _mm512_store_si512(
+                output_ptr.add(i),
+                _mm512_permutexvar_epi32(shuffle, _mm512_packus_epi16(words0, words1)),
+            );
+        }
+    }
 }
 
 /// Computes Squared Clipped ReLU using ARM NEON SIMD.
@@ -676,25 +760,75 @@ mod tests {
     }
 
     #[test]
-    fn fused_l1_activation_writes_square_then_clipped_outputs_only() {
-        let input_values = [
-            -16_321, -16_320, -4096, -1024, -1, 0, 1, 1024, 4096, 8192, 16_319, 16_320, 16_321,
-            1234, -5678, 9999,
-        ];
-        let input = Align64(input_values);
-        let mut output = Align64([0xCC; 40]);
-        let mut expected_prefix = [0; 32];
+    fn screlu_matches_reference_for_64_element_chunks() {
+        let mut input = patterned_input::<64>(29, 5347, 20_000);
+        input[..8].copy_from_slice(&[
+            i32::MIN,
+            -1,
+            0,
+            ACTIVATION_CEILING - 1,
+            ACTIVATION_CEILING,
+            ACTIVATION_CEILING + 1,
+            i32::MAX,
+            63,
+        ]);
+        assert_screlu_matches_reference(input);
+        assert_screlu_matches_reference(patterned_input::<128>(31, 6151, 22_000));
+    }
 
-        sqr_clipped_and_clipped_relu_16(input.as_slice(), output.as_mut_slice());
-        for (out, &value) in expected_prefix[..16].iter_mut().zip(input.iter()) {
+    const FUSED_L1_INPUT: [i32; 16] = [
+        -16_321,
+        -16_320,
+        -4096,
+        -1024,
+        -1,
+        0,
+        1,
+        1024,
+        4096,
+        8192,
+        16_319,
+        16_320,
+        16_321,
+        i32::MAX,
+        i32::MIN,
+        9999,
+    ];
+
+    fn expected_fused_l1_output(input: &[i32; 16]) -> [u8; 32] {
+        let mut expected = [0; 32];
+        for (out, &value) in expected[..16].iter_mut().zip(input.iter()) {
             *out = reference_sqr_clipped_relu(value);
         }
-        for (out, &value) in expected_prefix[16..].iter_mut().zip(input.iter()) {
+        for (out, &value) in expected[16..].iter_mut().zip(input.iter()) {
             *out = reference_clipped_relu(value);
         }
+        expected
+    }
 
-        assert_eq!(&output.as_ref()[..32], &expected_prefix);
+    #[test]
+    fn fused_l1_activation_writes_square_then_clipped_outputs_only() {
+        let input = Align64(FUSED_L1_INPUT);
+        let mut output = Align64([0xCC; 40]);
+
+        sqr_clipped_and_clipped_relu_16(input.as_slice(), output.as_mut_slice());
+
+        assert_eq!(
+            &output.as_ref()[..32],
+            &expected_fused_l1_output(&FUSED_L1_INPUT)
+        );
         assert_eq!(&output.as_ref()[32..], &[0xCC; 8]);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn avx2_fused_l1_activation_kernel_matches_reference() {
+        let input = Align64(FUSED_L1_INPUT);
+        let mut output = Align64([0; 32]);
+
+        unsafe { sqr_clipped_and_clipped_relu_16_avx2(input.as_slice(), output.as_mut_slice()) };
+
+        assert_eq!(output.as_ref(), &expected_fused_l1_output(&FUSED_L1_INPUT));
     }
 
     #[test]
