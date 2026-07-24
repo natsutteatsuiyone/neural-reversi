@@ -38,10 +38,9 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
 
     /// Allocates `len` uninitialized, `ALIGN`-aligned slots.
     ///
-    /// Returns the base pointer and the [`Layout`] used (needed for
-    /// deallocation). For an empty buffer no allocation is performed and a
-    /// dangling-but-aligned pointer is returned with a zero-sized layout.
-    fn alloc_uninit(len: usize) -> (NonNull<T>, Layout) {
+    /// For an empty buffer no allocation is performed and a
+    /// dangling-but-aligned pointer is returned.
+    fn alloc_uninit(len: usize) -> NonNull<T> {
         let () = Self::VALID_ALIGN;
 
         let size = len
@@ -53,13 +52,12 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
             // Strict-provenance form (not an `int as *mut T` cast) so Miri
             // can still flag real pointer bugs elsewhere.
             let dangling = std::ptr::without_provenance_mut::<T>(ALIGN);
-            return (NonNull::new(dangling).unwrap(), layout);
+            return NonNull::new(dangling).unwrap();
         }
 
         // SAFETY: `layout` has non-zero size.
         let raw = unsafe { alloc(layout) } as *mut T;
-        let ptr = NonNull::new(raw).unwrap_or_else(|| handle_alloc_error(layout));
-        (ptr, layout)
+        NonNull::new(raw).unwrap_or_else(|| handle_alloc_error(layout))
     }
 
     /// Returns the layout of the current allocation, for [`dealloc`].
@@ -77,7 +75,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
     where
         T: Clone,
     {
-        let (ptr, _) = Self::alloc_uninit(len);
+        let ptr = Self::alloc_uninit(len);
         let mut fill = Filling::<T, ALIGN> {
             ptr,
             cap: len,
@@ -102,7 +100,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
     {
         let mut it = iter.into_iter();
         let len = it.len();
-        let (ptr, _) = Self::alloc_uninit(len);
+        let ptr = Self::alloc_uninit(len);
         let mut fill = Filling::<T, ALIGN> {
             ptr,
             cap: len,
