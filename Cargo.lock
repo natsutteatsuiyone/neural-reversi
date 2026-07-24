@@ -5382,6 +5382,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "weight-tournament"
+version = "6.2.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "indicatif",
+ "rayon",
+ "reversi-core",
+]
+
+[[package]]
 name = "wezterm-bidi"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

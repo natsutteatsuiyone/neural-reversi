@@ -8,6 +8,7 @@ members = [
     "crates/reversi-core",
     "crates/time-debug",
     "crates/web",
+    "crates/weight-tournament",
 ]
 resolver = "2"
 
