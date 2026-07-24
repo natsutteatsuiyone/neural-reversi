@@ -79,6 +79,15 @@ fn missing_weights_error(path: &Path) -> io::Error {
     )
 }
 
+/// Loads weights from `path`, remapping a missing file to the
+/// weights-specific error message.
+fn load_weights<T>(path: &Path, load: fn(&Path) -> io::Result<T>) -> io::Result<T> {
+    match load(path) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Err(missing_weights_error(path)),
+        other => other,
+    }
+}
+
 impl Eval {
     /// Creates a new [`Eval`] using weight files from the executable's directory,
     /// falling back to embedded weights.
@@ -106,12 +115,7 @@ impl Eval {
         eval_sm_path: Option<&Path>,
     ) -> io::Result<Self> {
         let network = match eval_path {
-            Some(path) => match Network::new(path) {
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                    Err(missing_weights_error(path))
-                }
-                other => other,
-            },
+            Some(path) => load_weights(path, Network::new),
             None => Network::from_bytes(include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../",
@@ -120,12 +124,7 @@ impl Eval {
         }?;
 
         let network_sm = match eval_sm_path {
-            Some(path) => match NetworkSmall::new(path) {
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                    Err(missing_weights_error(path))
-                }
-                other => other,
-            },
+            Some(path) => load_weights(path, NetworkSmall::new),
             None => NetworkSmall::from_bytes(include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../",
