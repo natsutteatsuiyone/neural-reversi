@@ -510,11 +510,7 @@ impl TimeManager {
 
     /// Checks whether endgame search should continue to the next selectivity level.
     pub fn should_continue_endgame_iteration(&self, current_selectivity: Selectivity) -> bool {
-        if self.mode == TimeControlMode::Infinite {
-            return true;
-        }
-
-        if self.is_single_move_time() {
+        if !self.uses_continuous_scaling() {
             return true;
         }
 
@@ -525,7 +521,7 @@ impl TimeManager {
             eprintln!(
                 "[TimeManager] Stopping endgame selectivity: selectivity={current_selectivity:?}, elapsed={}ms, factor={factor:.3}, maxi={}ms",
                 elapsed,
-                self.optimum_time_ms.load(Ordering::Relaxed)
+                self.maxi_time_ms()
             );
         }
 
@@ -533,11 +529,7 @@ impl TimeManager {
     }
 
     fn should_continue_iteration_with_factor(&self, continue_factor: f64) -> bool {
-        if self.mode == TimeControlMode::Infinite {
-            return true;
-        }
-
-        if self.is_single_move_time() {
+        if !self.uses_continuous_scaling() {
             return true;
         }
 
