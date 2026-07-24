@@ -15,11 +15,9 @@ use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
-use crate::search::counters::SearchCounters;
-use crate::search::endgame::{self, CompletedState};
+use crate::search::endgame;
 use crate::search::node_type::{NodeType, NonPV, Root};
-use crate::search::result::SearchResult;
-use crate::search::root_move::RootMove;
+use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
@@ -62,11 +60,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
 
     let mut depth = compute_start_depth(max_depth);
-    // Depth of the last fully completed iteration; aborted iterations leave
+    // Snapshot of the last fully completed iteration; aborted iterations leave
     // root-move scores mixed across depths and must not be reported as reached.
-    let mut completed_depth: Depth = 0;
-    let mut completed_selectivity = ctx.selectivity;
-    let mut completed_root_moves = ctx.root_moves.snapshot();
+    let mut completed = CompletedState {
+        root_moves: ctx.root_moves.snapshot(),
+        depth: 0,
+        selectivity: ctx.selectivity,
+        is_endgame: false,
+    };
     while depth <= max_depth {
         ctx.save_previous_scores();
 
@@ -111,12 +112,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
 
         if completed_pv_count < pv_count && thread.is_search_aborted() {
-            return search_result_from_completed_root_moves(
-                &completed_root_moves,
-                completed_depth.min(n_empties),
-                completed_selectivity,
-                ctx.counters.clone(),
-            );
+            return completed.to_result(ctx.counters.clone());
         }
 
         // Single-PV already sorted the full list at pv_idx 0; only Multi-PV
@@ -124,10 +120,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         if task.multi_pv {
             ctx.sort_all_root_moves();
         }
-        completed_depth = depth;
-        completed_selectivity = ctx.selectivity;
-        completed_root_moves = ctx.root_moves.snapshot();
-        let best_move = completed_root_moves
+        completed = CompletedState {
+            root_moves: ctx.root_moves.snapshot(),
+            depth,
+            selectivity: ctx.selectivity,
+            is_endgame: false,
+        };
+        let best_move = completed
+            .root_moves
             .first()
             .expect("internal error: no completed root moves after search");
 
@@ -146,21 +146,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         // first completed iteration and bank the time. Score and PV are already
         // available for reporting.
         if use_time_control && ctx.root_moves_count() == 1 {
-            return search_result_from_completed_root_moves(
-                &completed_root_moves,
-                completed_depth.min(n_empties),
-                completed_selectivity,
-                ctx.counters.clone(),
-            );
+            return completed.to_result(ctx.counters.clone());
         }
 
         if thread.is_search_aborted() {
-            return search_result_from_completed_root_moves(
-                &completed_root_moves,
-                completed_depth.min(n_empties),
-                completed_selectivity,
-                ctx.counters.clone(),
-            );
+            return completed.to_result(ctx.counters.clone());
         }
 
         // Under time control the final midgame depth is never searched: once
@@ -172,58 +162,17 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 "time-controlled midgame searches always target all empties"
             );
             let base_score = best_move.score;
-            return endgame::solve_root(
-                &mut ctx,
-                &board,
-                &task,
-                thread,
-                base_score,
-                CompletedState {
-                    root_moves: completed_root_moves,
-                    depth: completed_depth.min(n_empties),
-                    selectivity: completed_selectivity,
-                    is_endgame: false,
-                },
-            );
+            return endgame::solve_root(&mut ctx, &board, &task, thread, base_score, completed);
         }
 
         if should_stop_iteration(&time_manager) {
-            return search_result_from_completed_root_moves(
-                &completed_root_moves,
-                completed_depth.min(n_empties),
-                completed_selectivity,
-                ctx.counters.clone(),
-            );
+            return completed.to_result(ctx.counters.clone());
         }
 
         depth = next_iteration_depth(depth);
     }
 
-    search_result_from_completed_root_moves(
-        &completed_root_moves,
-        completed_depth.min(n_empties),
-        completed_selectivity,
-        ctx.counters.clone(),
-    )
-}
-
-fn search_result_from_completed_root_moves(
-    root_moves: &[RootMove],
-    depth: Depth,
-    selectivity: Selectivity,
-    counters: SearchCounters,
-) -> SearchResult {
-    let best_move = root_moves
-        .first()
-        .expect("internal error: no completed root moves after search");
-    SearchResult::from_root_move_snapshot(
-        root_moves,
-        best_move,
-        depth,
-        selectivity,
-        false,
-        counters,
-    )
+    completed.to_result(ctx.counters.clone())
 }
 
 /// Computes the starting depth for iterative deepening.
@@ -598,7 +547,7 @@ mod schedule_tests {
     }
 
     #[test]
-    fn boundary_abort_after_completed_iteration_reports_completed_depth() {
+    fn boundary_abort_after_completed_iteration_reports_reached_depth() {
         let pool = ThreadPool::new(1);
         let abort_pool = pool.clone();
         let board = Board::new().make_move(Square::D3);

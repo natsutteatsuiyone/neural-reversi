@@ -36,6 +36,37 @@ pub enum SearchResult {
     NoLegalMove,
 }
 
+/// Snapshot of the most recently completed root iteration.
+///
+/// Fallback result when a search is aborted before another iteration
+/// completes. The midgame handoff seeds it with the last completed midgame
+/// iteration, while endgame search seeds it with the pre-search root moves.
+pub(super) struct CompletedState {
+    pub(super) root_moves: Vec<RootMove>,
+    pub(super) depth: Depth,
+    pub(super) selectivity: Selectivity,
+    pub(super) is_endgame: bool,
+}
+
+impl CompletedState {
+    /// Builds the fallback [`SearchResult`] reported when the search stops
+    /// before another iteration completes.
+    pub(super) fn to_result(&self, counters: SearchCounters) -> SearchResult {
+        let best_move = self
+            .root_moves
+            .first()
+            .expect("internal error: no completed root moves after search");
+        SearchResult::from_root_move_snapshot(
+            &self.root_moves,
+            best_move,
+            self.depth,
+            self.selectivity,
+            self.is_endgame,
+            counters,
+        )
+    }
+}
+
 impl SearchResult {
     /// Creates a result for a random move in the opening position.
     pub fn new_random_move(mv: Square) -> Self {

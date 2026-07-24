@@ -18,8 +18,7 @@ use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
 use crate::search::node_type::{NonPV, Root};
-use crate::search::result::SearchResult;
-use crate::search::root_move::RootMove;
+use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_endgame_iteration;
@@ -78,18 +77,6 @@ impl EndGameCaches {
             ),
         }
     }
-}
-
-/// Snapshot of the most recently completed root iteration.
-///
-/// Fallback result when the solve is aborted before another selectivity level
-/// completes: the midgame handoff seeds it with the last completed midgame
-/// iteration, while [`search_root`] seeds it with the pre-search root moves.
-pub(super) struct CompletedState {
-    pub(super) root_moves: Vec<RootMove>,
-    pub(super) depth: Depth,
-    pub(super) selectivity: Selectivity,
-    pub(super) is_endgame: bool,
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
@@ -215,18 +202,7 @@ pub(super) fn solve_root(
 
         // Check abort or time limit
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
-            let best_move = completed
-                .root_moves
-                .first()
-                .expect("internal error: no completed root moves after search");
-            return SearchResult::from_root_move_snapshot(
-                &completed.root_moves,
-                best_move,
-                completed.depth,
-                completed.selectivity,
-                completed.is_endgame,
-                ctx.counters.clone(),
-            );
+            return completed.to_result(ctx.counters.clone());
         }
     }
 
