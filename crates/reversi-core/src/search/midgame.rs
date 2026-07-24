@@ -52,7 +52,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 
     let n_empties = ctx.empty_list.count();
-    if n_empties == 60 && !task.multi_pv {
+    if n_empties == INITIAL_EMPTY_COUNT as u32 && !task.multi_pv {
         return SearchResult::new_random_move(random_move(&board));
     }
 

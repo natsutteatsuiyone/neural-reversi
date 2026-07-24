@@ -18,6 +18,7 @@ use std::{
 
 /// Size of each cluster in the transposition table.
 const CLUSTER_SIZE: usize = 2;
+const CLUSTER_BYTE_SIZE: usize = mem::size_of::<TTEntry>() * CLUSTER_SIZE;
 
 /// The bound type of a transposition-table entry.
 ///
@@ -553,8 +554,7 @@ impl TranspositionTable {
         let cluster_count = if mb_size == 0 {
             16
         } else {
-            let cluster_byte_size = mem::size_of::<TTEntry>() * CLUSTER_SIZE;
-            (mb_size as u64 * 1024 * 1024) / cluster_byte_size as u64
+            (mb_size as u64 * 1024 * 1024) / CLUSTER_BYTE_SIZE as u64
         };
         let entries_size = cluster_count as usize * CLUSTER_SIZE;
 
@@ -567,8 +567,7 @@ impl TranspositionTable {
 
     /// Returns the table size in MiB.
     pub fn mb_size(&self) -> usize {
-        let cluster_byte_size = mem::size_of::<TTEntry>() * CLUSTER_SIZE;
-        ((self.cluster_count * cluster_byte_size as u64) / (1024 * 1024)) as usize
+        ((self.cluster_count * CLUSTER_BYTE_SIZE as u64) / (1024 * 1024)) as usize
     }
 
     /// Clears all entries.

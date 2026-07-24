@@ -167,7 +167,7 @@ mod tt_entry_data {
         assert_eq!(mem::size_of::<TTEntryData>(), mem::size_of::<u64>());
         assert_eq!(mem::size_of::<TTEntry>(), 32);
         assert_eq!(mem::align_of::<TTEntry>(), 32);
-        assert_eq!(mem::size_of::<TTEntry>() * CLUSTER_SIZE, CACHE_LINE_SIZE);
+        assert_eq!(CLUSTER_BYTE_SIZE, CACHE_LINE_SIZE);
     }
 
     #[test]
@@ -678,7 +678,7 @@ mod transposition_table {
     #[test]
     fn new_nonzero_table_allocates_the_requested_whole_mebibytes() {
         let tt = TranspositionTable::new(1);
-        let expected_clusters = (1024 * 1024) / (mem::size_of::<TTEntry>() * CLUSTER_SIZE);
+        let expected_clusters = (1024 * 1024) / CLUSTER_BYTE_SIZE;
 
         assert_eq!(tt.cluster_count, expected_clusters as u64);
         assert_eq!(tt.entries.len(), expected_clusters * CLUSTER_SIZE);

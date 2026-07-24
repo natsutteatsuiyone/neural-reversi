@@ -5,6 +5,7 @@ use std::io::{self, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::constants::CACHE_LINE_SIZE;
+use crate::eval::network::layer_stack::NUM_LAYER_STACKS;
 use crate::eval::pattern_feature::NUM_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 use crate::eval::util::clone_biases;
@@ -19,7 +20,7 @@ const ACTIVATION_MAX: i16 = 255 * 2;
 const ACTIVATION_SHIFT: u32 = 10;
 pub(in crate::eval::network) const OUTPUT_DIMS: usize = 128;
 const NUM_PA_INPUTS: usize = 6;
-const PA_INPUT_BUCKET_SIZE: usize = 60 / NUM_PA_INPUTS;
+const PA_INPUT_BUCKET_SIZE: usize = NUM_LAYER_STACKS / NUM_PA_INPUTS;
 const _: () = assert!(NUM_FEATURES == 32);
 
 /// Phase-adaptive input layer.
@@ -339,7 +340,11 @@ impl PhaseAdaptiveInput {
     /// Performs a forward pass, selecting the input layer based on the current ply.
     #[inline(always)]
     pub fn forward(&self, pattern_feature: &PatternFeature, ply: usize, output: &mut [u8]) {
-        debug_assert!(ply < 60, "ply {} out of valid range 0-59", ply);
+        debug_assert!(
+            ply < NUM_LAYER_STACKS,
+            "ply {} out of valid range 0-59",
+            ply
+        );
         let pa_index = ply / PA_INPUT_BUCKET_SIZE;
         let pa_input = &self.inputs[pa_index];
         pa_input.forward(pattern_feature, output);

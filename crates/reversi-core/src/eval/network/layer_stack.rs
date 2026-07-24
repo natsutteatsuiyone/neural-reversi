@@ -12,7 +12,7 @@ use super::{
 };
 
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 6;
-const NUM_LAYER_STACKS: usize = 60;
+pub(in crate::eval::network) const NUM_LAYER_STACKS: usize = 60;
 
 type L1Layer =
     LinearLayer<L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS>;
