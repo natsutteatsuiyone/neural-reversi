@@ -121,12 +121,7 @@ impl Square {
     /// Returns `None` for indices > 64.
     #[inline]
     pub fn from_u32(index: u32) -> Option<Square> {
-        if index <= 64 {
-            // SAFETY: index is checked to be <= 64 above.
-            Some(unsafe { Self::from_u8_unchecked(index as u8) })
-        } else {
-            None
-        }
+        u8::try_from(index).ok().and_then(Square::from_u8)
     }
 
     /// Converts a `usize` index to a [`Square`] without bounds checking.
@@ -151,12 +146,7 @@ impl Square {
     /// Returns `None` for indices > 64.
     #[inline]
     pub fn from_usize(index: usize) -> Option<Square> {
-        if index <= 64 {
-            // SAFETY: index is checked to be <= 64 above.
-            Some(unsafe { Self::from_u8_unchecked(index as u8) })
-        } else {
-            None
-        }
+        u8::try_from(index).ok().and_then(Square::from_u8)
     }
 
     /// Returns the file (column) index of this square, where 0 is file A and
