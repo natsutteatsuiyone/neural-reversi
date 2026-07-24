@@ -237,6 +237,16 @@ impl Board {
         }
     }
 
+    /// Returns the board after `flipped` discs change sides and a disc is
+    /// placed at `sq`, from the opponent's perspective.
+    #[inline(always)]
+    fn place(&self, flipped: Bitboard, sq: Square) -> Board {
+        Board {
+            player: self.opponent.apply_flip(flipped),
+            opponent: self.player.apply_move(flipped, sq),
+        }
+    }
+
     /// Attempts to make a move at `sq`, returning [`None`] if the move is invalid.
     #[inline(always)]
     pub fn try_make_move(&self, sq: Square) -> Option<Board> {
@@ -249,10 +259,7 @@ impl Board {
             return None;
         }
 
-        Some(Board {
-            player: self.opponent.apply_flip(flipped),
-            opponent: self.player.apply_move(flipped, sq),
-        })
+        Some(self.place(flipped, sq))
     }
 
     /// Makes a move at `sq` for the current player.
@@ -267,10 +274,7 @@ impl Board {
     pub fn make_move(&self, sq: Square) -> Board {
         let flipped = flip::flip(sq, self.player, self.opponent);
         debug_assert!(!flipped.is_empty());
-        Board {
-            player: self.opponent.apply_flip(flipped),
-            opponent: self.player.apply_move(flipped, sq),
-        }
+        self.place(flipped, sq)
     }
 
     /// Makes a move at `sq` using pre-computed `flipped` discs.
@@ -291,10 +295,7 @@ impl Board {
             (flipped & !self.opponent).is_empty(),
             "flipped must be a subset of opponent's discs"
         );
-        Board {
-            player: self.opponent.apply_flip(flipped),
-            opponent: self.player.apply_move(flipped, sq),
-        }
+        self.place(flipped, sq)
     }
 
     /// Returns a [`Bitboard`] of legal moves for the current player.
