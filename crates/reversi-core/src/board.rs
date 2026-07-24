@@ -431,13 +431,7 @@ impl Board {
             if i > 0 && i % 8 == 0 {
                 s.push('\n');
             }
-            if self.player.contains(sq) {
-                s.push(current_player.to_char());
-            } else if self.opponent.contains(sq) {
-                s.push(current_player.opposite().to_char());
-            } else {
-                s.push(Disc::Empty.to_char());
-            }
+            s.push(self.get_disc_at(sq, current_player).to_char());
         }
         s
     }
