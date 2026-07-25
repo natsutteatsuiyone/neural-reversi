@@ -454,20 +454,22 @@ impl<
         use std::ptr::copy_nonoverlapping;
 
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<i32>();
+        const MAX_LANES: usize = 4;
 
         unsafe {
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
             let num_regs = (OUTPUT_DIMS / OUTPUT_SIMD_WIDTH).max(1);
-            // A single accumulator serializes the chunk loop on `dpbusd`
-            // latency; split into `unroll` partial sums and reduce. Integer
-            // add is associative, so the result is bit-identical.
-            let unroll = (4 / num_regs).max(1);
+            // Too few accumulators serialize the chunk loop on `dpbusd`
+            // latency: four cycles, two retired per cycle, so eight partial
+            // sums keep the unit busy. Integer add is associative, so the
+            // reduction below is bit-identical to a single accumulator.
+            let unroll = (8 / num_regs).clamp(1, MAX_LANES);
 
             let mut p0: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
             let mut p1: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
             let mut p2: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
             let mut p3: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);
-            let lanes: [*mut __m256i; 4] = [
+            let lanes: [*mut __m256i; MAX_LANES] = [
                 p0.as_mut_ptr() as *mut __m256i,
                 p1.as_mut_ptr() as *mut __m256i,
                 p2.as_mut_ptr() as *mut __m256i,
