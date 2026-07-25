@@ -293,7 +293,7 @@ pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
     debug_assert!(output.len() >= 32);
 
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512bw") => {
+        all(target_arch = "x86_64", target_feature = "avx512bw", target_feature = "avx512vl") => {
             unsafe { sqr_clipped_and_clipped_relu_16_avx512(input, output) };
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
@@ -322,14 +322,16 @@ unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8])
     unsafe {
         let input_ptr = input.as_ptr() as *const __m256i;
 
-        let in0 = _mm256_load_si256(input_ptr);
-        let in1 = _mm256_load_si256(input_ptr.add(1));
+        // Both halves share the i16-saturated words: saturating before the shift cannot
+        // move a value across [0, 255], and `packus_epi16` re-clamps into that range.
+        let words = _mm256_packs_epi32(
+            _mm256_load_si256(input_ptr),
+            _mm256_load_si256(input_ptr.add(1)),
+        );
 
         const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
-        let sqr_words = _mm256_packs_epi32(in0, in1);
-        let sqr_words = _mm256_srli_epi16(_mm256_mulhi_epi16(sqr_words, sqr_words), SHIFT);
-
-        let relu_words = _mm256_srli_epi16(_mm256_packus_epi32(in0, in1), HIDDEN_WEIGHT_SCALE_BITS);
+        let sqr_words = _mm256_srli_epi16(_mm256_mulhi_epi16(words, words), SHIFT);
+        let relu_words = _mm256_srai_epi16(words, HIDDEN_WEIGHT_SCALE_BITS);
 
         let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
         _mm256_store_si256(
@@ -343,26 +345,29 @@ unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8])
 ///
 /// `input` must contain at least 16 `i32` values and be 64-byte aligned.
 /// `output` must contain at least 32 bytes and be 16-byte aligned.
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-#[target_feature(enable = "avx512bw")]
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "avx512bw",
+    target_feature = "avx512vl"
+))]
+#[target_feature(enable = "avx512bw,avx512vl")]
 #[inline]
 unsafe fn sqr_clipped_and_clipped_relu_16_avx512(input: &[i32], output: &mut [u8]) {
     unsafe {
-        let in0 = _mm512_load_si512(input.as_ptr() as *const __m512i);
-        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+        // Both halves share the i16-saturated words, as in the AVX2 kernel. `vpmovuswb`
+        // reads its source as unsigned, so the shifted words need an explicit 0 floor.
+        let words = _mm512_cvtsepi32_epi16(_mm512_load_si512(input.as_ptr() as *const __m512i));
 
         const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
-        let sqr_words = _mm512_cvtsepi32_epi16(in0);
-        let sqr_words = _mm256_srli_epi16(_mm256_mulhi_epi16(sqr_words, sqr_words), SHIFT);
-        let sqr_bytes = _mm_packus_epi16(
-            _mm256_castsi256_si128(sqr_words),
-            _mm256_extracti128_si256::<1>(sqr_words),
+        let sqr_words = _mm256_srli_epi16(_mm256_mulhi_epi16(words, words), SHIFT);
+        let relu_words = _mm256_max_epi16(
+            _mm256_srai_epi16(words, HIDDEN_WEIGHT_SCALE_BITS),
+            _mm256_setzero_si256(),
         );
-        _mm_store_si128(output_ptr, sqr_bytes);
 
-        const RELU_SHIFT: u32 = HIDDEN_WEIGHT_SCALE_BITS as u32;
-        let relu = _mm512_srli_epi32::<RELU_SHIFT>(_mm512_max_epi32(in0, _mm512_setzero_si512()));
-        _mm_store_si128(output_ptr.add(1), _mm512_cvtusepi32_epi8(relu));
+        let output_ptr = output.as_mut_ptr() as *mut __m128i;
+        _mm_store_si128(output_ptr, _mm256_cvtusepi16_epi8(sqr_words));
+        _mm_store_si128(output_ptr.add(1), _mm256_cvtusepi16_epi8(relu_words));
     }
 }
 
@@ -473,20 +478,18 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
             let input_ptr = input.as_ptr() as *const __m256i;
             let output_ptr = output.as_mut_ptr() as *mut __m256i;
-            let max_val = _mm256_set1_epi16(255 << HIDDEN_WEIGHT_SCALE_BITS);
+            let max_val = _mm256_set1_epi32(255 << HIDDEN_WEIGHT_SCALE_BITS);
 
             for i in 0..num_chunks {
+                // `packus_epi32` saturates negatives to 0, so only the ceiling is clamped.
                 let mut words0 = _mm256_packus_epi32(
-                    _mm256_load_si256(input_ptr.add(i * 4)),
-                    _mm256_load_si256(input_ptr.add(i * 4 + 1)),
+                    _mm256_min_epi32(_mm256_load_si256(input_ptr.add(i * 4)), max_val),
+                    _mm256_min_epi32(_mm256_load_si256(input_ptr.add(i * 4 + 1)), max_val),
                 );
                 let mut words1 = _mm256_packus_epi32(
-                    _mm256_load_si256(input_ptr.add(i * 4 + 2)),
-                    _mm256_load_si256(input_ptr.add(i * 4 + 3)),
+                    _mm256_min_epi32(_mm256_load_si256(input_ptr.add(i * 4 + 2)), max_val),
+                    _mm256_min_epi32(_mm256_load_si256(input_ptr.add(i * 4 + 3)), max_val),
                 );
-
-                words0 = _mm256_min_epu16(words0, max_val);
-                words1 = _mm256_min_epu16(words1, max_val);
 
                 const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
                 words0 = _mm256_srli_epi16(_mm256_mulhi_epu16(words0, words0), SHIFT);
@@ -554,20 +557,18 @@ unsafe fn screlu_avx512<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             _mm512_set_epi32(15, 11, 7, 3, 14, 10, 6, 2, 13, 9, 5, 1, 12, 8, 4, 0);
         let input_ptr = input.as_ptr() as *const __m512i;
         let output_ptr = output.as_mut_ptr() as *mut __m512i;
-        let max_val = _mm512_set1_epi16(255 << HIDDEN_WEIGHT_SCALE_BITS);
+        let max_val = _mm512_set1_epi32(255 << HIDDEN_WEIGHT_SCALE_BITS);
 
         for i in 0..num_chunks {
+            // `packus_epi32` saturates negatives to 0, so only the ceiling is clamped.
             let mut words0 = _mm512_packus_epi32(
-                _mm512_load_si512(input_ptr.add(i * 4)),
-                _mm512_load_si512(input_ptr.add(i * 4 + 1)),
+                _mm512_min_epi32(_mm512_load_si512(input_ptr.add(i * 4)), max_val),
+                _mm512_min_epi32(_mm512_load_si512(input_ptr.add(i * 4 + 1)), max_val),
             );
             let mut words1 = _mm512_packus_epi32(
-                _mm512_load_si512(input_ptr.add(i * 4 + 2)),
-                _mm512_load_si512(input_ptr.add(i * 4 + 3)),
+                _mm512_min_epi32(_mm512_load_si512(input_ptr.add(i * 4 + 2)), max_val),
+                _mm512_min_epi32(_mm512_load_si512(input_ptr.add(i * 4 + 3)), max_val),
             );
-
-            words0 = _mm512_min_epu16(words0, max_val);
-            words1 = _mm512_min_epu16(words1, max_val);
 
             const SHIFT: u32 = (HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16) as u32;
             words0 = _mm512_srli_epi16::<SHIFT>(_mm512_mulhi_epu16(words0, words0));
