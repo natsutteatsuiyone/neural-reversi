@@ -23,7 +23,7 @@ The engine is split into three layers.
 │   │     (incrementally updated on every move/flip)     │
 │   ├─ Network      : per-ply layer stacks (main NN)     │
 │   ├─ NetworkSmall : endgame NN                         │
-│   └─ EvalCache    : two-way set-associative cache      │
+│   └─ EvalCache    : four-way set-associative cache     │
 ├────────────────────────────────────────────────────────┤
 │  Board / Bitboard                                      │
 │   └─ two u64 bitboards (player, opponent)              │
@@ -339,8 +339,10 @@ at or past `ENDGAME_START_PLY`).
 
 ### Eval cache
 
-`eval/eval_cache.rs`. Two-way set-associative, `2^EVAL_CACHE_SIZE_LOG2` entries,
-keyed by `Board::hash`. It records main-network evaluations only.
+`eval/eval_cache.rs`. Four-way set-associative, `2^EVAL_CACHE_SIZE_LOG2` entries,
+keyed by `Board::hash`. A bucket holds its four 8-byte entries inside one cache
+line, so a probe reads all ways from a single line. It records main-network
+evaluations only.
 `Eval::prefetch(key)` is meant to be issued between `make_move` and the
 next `evaluate` so the cache line load overlaps with the SIMD work in
 between.

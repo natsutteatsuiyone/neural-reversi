@@ -16,7 +16,7 @@ macro_rules! eval_weights_literal {
     };
 }
 
-/// Neural network evaluator with a two-way set-associative cache.
+/// Neural network evaluator with a set-associative evaluation cache.
 pub struct Eval {
     network: Network,
     cache: EvalCache,

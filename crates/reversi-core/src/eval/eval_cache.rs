@@ -9,36 +9,43 @@ const KEY_MASK: u64 = 0xFFFFFFFFFFFF;
 const SCORE_BITS: u32 = 16;
 const EMPTY_SCORE_BITS: u16 = i16::MIN as u16;
 const EMPTY_ENTRY: u64 = EMPTY_SCORE_BITS as u64;
-const WAYS: usize = 2;
+const WAYS: usize = 4;
+const WAY_BITS: u32 = WAYS.trailing_zeros();
 
-#[repr(C, align(16))]
+/// One cache set. `align(32)` keeps every bucket inside a single 64-byte line,
+/// so a probe of all `WAYS` entries touches exactly one line.
+#[repr(C, align(32))]
 struct Bucket {
     entries: [AtomicU64; WAYS],
 }
 
-/// A two-way set-associative cache for neural network evaluation results.
+/// A four-way set-associative cache for neural network evaluation results.
 ///
 /// Bit layout of each entry (`AtomicU64`):
 /// - Bits 16-63 (48 bits): Truncated position hash key
 /// - Bits 0-15 (16 bits): Evaluation score as a signed 16-bit integer
 ///
 /// The otherwise invalid score `i16::MIN` marks an empty entry.
+///
+/// The bucket index takes the low bits of the key rotated by 16, so a lookup
+/// depends on all 64 key bits as long as the index keeps at least the 16 bits
+/// that the stored 48-bit tag drops.
 pub struct EvalCache {
     table: Box<[Bucket]>,
     mask: u64,
 }
 
 impl EvalCache {
-    /// Creates a new cache with `2^size_log2` entries, or two entries when
-    /// `size_log2` is zero.
+    /// Creates a new cache with `2^size_log2` entries, rounded up to one bucket
+    /// when `size_log2` is smaller than a bucket.
     pub fn new(size_log2: u32) -> Self {
         assert!(size_log2 < usize::BITS, "EvalCache size does not fit usize");
-        let bucket_count = 1usize << size_log2.saturating_sub(1);
+        let bucket_count = 1usize << size_log2.saturating_sub(WAY_BITS);
         let mask = bucket_count as u64 - 1;
 
         let table = (0..bucket_count)
             .map(|_| Bucket {
-                entries: [AtomicU64::new(EMPTY_ENTRY), AtomicU64::new(EMPTY_ENTRY)],
+                entries: [const { AtomicU64::new(EMPTY_ENTRY) }; WAYS],
             })
             .collect::<Vec<_>>();
 
@@ -79,42 +86,54 @@ impl EvalCache {
         score
     }
 
-    /// Probes both ways and returns the preferred replacement slot on a miss.
+    /// Probes every way and returns the replacement slot on a miss.
     #[inline(always)]
     fn probe_for_store(&self, key: u64) -> (Option<ScaledScore>, &AtomicU64) {
-        let (index, preferred_way) = self.location(key);
+        let (index, victim_way) = self.location(key);
         // SAFETY: `location()` masks `index` to `0..self.table.len()`.
         let bucket = unsafe { self.table.get_unchecked(index) };
         let key_masked = key & KEY_MASK;
 
-        // SAFETY: `preferred_way` is one bit and therefore in `0..WAYS`.
-        let preferred = unsafe { bucket.entries.get_unchecked(preferred_way) };
-        let preferred_entry = preferred.load(Ordering::Relaxed);
-        if preferred_entry >> SCORE_BITS == key_masked && preferred_entry as u16 != EMPTY_SCORE_BITS
-        {
-            return (Some(Self::unpack_score(preferred_entry)), preferred);
+        // All ways share one cache line, so loading them unconditionally is
+        // cheaper than branching per way on a compare that rarely predicts.
+        let entries: [u64; WAYS] = std::array::from_fn(|way| {
+            // SAFETY: `way` is bounded by the array length.
+            unsafe { bucket.entries.get_unchecked(way) }.load(Ordering::Relaxed)
+        });
+
+        let mut hit_ways = 0u32;
+        let mut empty_ways = 0u32;
+        for (way, &entry) in entries.iter().enumerate() {
+            let matches = (entry >> SCORE_BITS == key_masked) & (entry as u16 != EMPTY_SCORE_BITS);
+            hit_ways |= (matches as u32) << way;
+            empty_ways |= ((entry == EMPTY_ENTRY) as u32) << way;
         }
 
-        let alternate_way = preferred_way ^ 1;
-        // SAFETY: XOR with one maps either valid way to the other valid way.
-        let alternate = unsafe { bucket.entries.get_unchecked(alternate_way) };
-        let alternate_entry = alternate.load(Ordering::Relaxed);
-        if alternate_entry >> SCORE_BITS == key_masked && alternate_entry as u16 != EMPTY_SCORE_BITS
-        {
-            return (Some(Self::unpack_score(alternate_entry)), alternate);
+        if hit_ways != 0 {
+            // A key occupies at most one way, so the lowest match is the match.
+            let way = hit_ways.trailing_zeros() as usize;
+            // SAFETY: `hit_ways` only carries bits below `WAYS`, so `way` is a
+            // valid index into both arrays.
+            let (entry, slot) = unsafe {
+                (
+                    *entries.get_unchecked(way),
+                    bucket.entries.get_unchecked(way),
+                )
+            };
+            return (Some(Self::unpack_score(entry)), slot);
         }
 
-        let replacement = if preferred_entry == EMPTY_ENTRY {
-            preferred
-        } else if alternate_entry == EMPTY_ENTRY {
-            alternate
+        let way = if empty_ways != 0 {
+            empty_ways.trailing_zeros() as usize
         } else {
-            preferred
+            victim_way
         };
-        (None, replacement)
+        // SAFETY: `empty_ways` only carries bits below `WAYS`, and `location()`
+        // bounds `victim_way` to `0..WAYS`.
+        (None, unsafe { bucket.entries.get_unchecked(way) })
     }
 
-    /// Prefetches the entry that `probe(key)` will read into L1.
+    /// Prefetches the bucket that `probe(key)` will read into L1.
     #[inline(always)]
     pub fn prefetch(&self, key: u64) {
         let (index, _) = self.location(key);
@@ -124,13 +143,15 @@ impl EvalCache {
         prefetch_read(addr, Locality::L1);
     }
 
-    /// Calculates the bucket and preferred way from the position key.
+    /// Calculates the bucket and the way to evict from the position key.
     #[inline(always)]
     fn location(&self, key: u64) -> (usize, usize) {
         let rotated = key.rotate_left(SCORE_BITS);
         let index = (rotated & self.mask) as usize;
-        let preferred_way = usize::from(rotated & (self.mask + 1) != 0);
-        (index, preferred_way)
+        // The index consumes the low end of `rotated`, so the top end supplies
+        // an eviction way that does not correlate with it.
+        let victim_way = (rotated >> (u64::BITS - WAY_BITS)) as usize;
+        (index, victim_way)
     }
 
     /// Packs key and score into a single `u64`.
@@ -173,14 +194,18 @@ mod tests {
     #[test]
     fn new_allocates_power_of_two_entries_and_masks_indices() {
         let minimum = EvalCache::new(0);
-        assert_eq!(minimum.table.len() * WAYS, 2);
+        assert_eq!(minimum.table.len() * WAYS, WAYS);
         assert_eq!(minimum.mask, 0);
 
         let cache = EvalCache::new(4);
-        assert_eq!(cache.table.len(), 8);
+        assert_eq!(cache.table.len(), 4);
         assert_eq!(cache.table.len() * WAYS, 16);
-        assert_eq!(cache.mask, 7);
-        assert_eq!(cache.table.as_ptr().addr() % 16, 0);
+        assert_eq!(cache.mask, 3);
+        assert_eq!(
+            cache.table.as_ptr().addr() % size_of::<Bucket>(),
+            0,
+            "a bucket must not straddle a cache line"
+        );
     }
 
     #[test]
@@ -193,11 +218,19 @@ mod tests {
     fn location_uses_rotated_high_key_bits() {
         let cache = EvalCache::new(4);
 
-        for original_index in 0..16 {
-            let key = (original_index as u64) << 48;
-            let (bucket, way) = cache.location(key);
-            assert_eq!(bucket, original_index & 7, "index {original_index}");
-            assert_eq!(way, original_index >> 3, "index {original_index}");
+        for original_index in 0..16u64 {
+            let key = original_index << 48;
+            let (bucket, _) = cache.location(key);
+            assert_eq!(bucket as u64, original_index & 3, "index {original_index}");
+        }
+
+        // The eviction way comes from the far end of the rotated key, so it
+        // stays independent of the bucket index.
+        for way in 0..WAYS as u64 {
+            let key = way << (u64::BITS - WAY_BITS - SCORE_BITS);
+            let (bucket, victim_way) = cache.location(key);
+            assert_eq!(bucket, 0, "way {way}");
+            assert_eq!(victim_way as u64, way, "way {way}");
         }
     }
 
@@ -241,9 +274,14 @@ mod tests {
 
     #[test]
     fn production_sizes_distinguish_every_key_bit() {
+        // A lookup depends on the whole key only while the bucket index carries
+        // the key bits that the stored tag drops.
+        const MIN_SIZE_LOG2: u32 = WAY_BITS + (u64::BITS - KEY_MASK.count_ones());
+        const { assert!(crate::eval::EVAL_CACHE_SIZE_LOG2 >= MIN_SIZE_LOG2) };
+
         let key = 0x1234_5678_9ABC_DEF0;
 
-        for size_log2 in [17, 18] {
+        for size_log2 in [MIN_SIZE_LOG2, MIN_SIZE_LOG2 + 1] {
             let cache = EvalCache::new(size_log2);
             let (index, _) = cache.location(key);
             let fingerprint = key & KEY_MASK;
