@@ -342,8 +342,8 @@ impl PhaseAdaptiveInput {
     pub fn forward(&self, pattern_feature: &PatternFeature, ply: usize, output: &mut [u8]) {
         debug_assert!(
             ply < NUM_LAYER_STACKS,
-            "ply {} out of valid range 0-59",
-            ply
+            "ply {ply} out of valid range 0-{}",
+            NUM_LAYER_STACKS - 1
         );
         let pa_index = ply / PA_INPUT_BUCKET_SIZE;
         let pa_input = &self.inputs[pa_index];

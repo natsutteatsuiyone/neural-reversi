@@ -46,14 +46,14 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
         let size = len
             .checked_mul(mem::size_of::<T>())
             .expect("AlignedBuffer: capacity overflow");
-        let layout = Layout::from_size_align(size, ALIGN).expect("AlignedBuffer: invalid layout");
-
         if size == 0 {
             // Strict-provenance form (not an `int as *mut T` cast) so Miri
             // can still flag real pointer bugs elsewhere.
             let dangling = std::ptr::without_provenance_mut::<T>(ALIGN);
             return NonNull::new(dangling).unwrap();
         }
+
+        let layout = Layout::from_size_align(size, ALIGN).expect("AlignedBuffer: invalid layout");
 
         // SAFETY: `layout` has non-zero size.
         let raw = unsafe { alloc(layout) } as *mut T;

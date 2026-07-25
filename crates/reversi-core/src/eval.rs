@@ -189,10 +189,11 @@ impl Eval {
 
     /// Evaluates a position without [`SearchContext`].
     ///
-    /// Uses the main network with pattern features created on the fly, so it is
-    /// slower than [`evaluate`](Self::evaluate). Returns the exact final score
-    /// when the board has no empties.
-    pub fn evaluate_simple(&self, board: &Board) -> ScaledScore {
+    /// Selects the network for `eval_mode` exactly as [`evaluate`](Self::evaluate)
+    /// does — see [`should_use_main_network`](Self::should_use_main_network) — but
+    /// builds the pattern features on the fly, so it is slower. Returns the exact
+    /// final score when the board has no empties.
+    pub fn evaluate_simple(&self, board: &Board, eval_mode: EvalMode) -> ScaledScore {
         let n_empties = board.get_empty_count() as usize;
         if n_empties == 0 {
             return board.final_score_scaled();
@@ -200,9 +201,13 @@ impl Eval {
 
         let ply = INITIAL_EMPTY_COUNT - n_empties;
         let pattern_features = pattern_feature::PatternFeatures::new(board, ply);
+        let feature = pattern_features.p_feature(ply);
 
-        self.network
-            .evaluate(board, pattern_features.p_feature(ply), ply)
+        if Self::should_use_main_network(eval_mode, ply) {
+            self.network.evaluate(board, feature, ply)
+        } else {
+            self.network_sm.evaluate(feature, ply)
+        }
     }
 
     /// Software-prefetches the eval-cache line for `key`.
@@ -288,7 +293,10 @@ mod tests {
         // exact final score.
         let board = Board::from_bitboards(u64::MAX, 0);
         assert_eq!(board.get_empty_count(), 0);
-        assert_eq!(eval.evaluate_simple(&board), board.final_score_scaled());
+        assert_eq!(
+            eval.evaluate_simple(&board, EvalMode::Main),
+            board.final_score_scaled()
+        );
     }
 
     #[test]
@@ -302,8 +310,8 @@ mod tests {
 
         // evaluate_simple bypasses the eval cache, so repeated calls recompute
         // the same value deterministically.
-        let score = eval.evaluate_simple(&board);
-        assert_eq!(eval.evaluate_simple(&board), score);
+        let score = eval.evaluate_simple(&board, EvalMode::Main);
+        assert_eq!(eval.evaluate_simple(&board, EvalMode::Main), score);
     }
 
     #[test]
@@ -318,11 +326,11 @@ mod tests {
         let board_a = Board::new();
         let board_b = board_a.make_move(Square::D3);
 
-        let a1 = eval.evaluate_simple(&board_a);
-        let b1 = eval.evaluate_simple(&board_b);
+        let a1 = eval.evaluate_simple(&board_a, EvalMode::Main);
+        let b1 = eval.evaluate_simple(&board_b, EvalMode::Main);
         // board_b dirtied the scratch buffer; re-evaluating board_a must be unaffected.
-        let a2 = eval.evaluate_simple(&board_a);
-        let b2 = eval.evaluate_simple(&board_b);
+        let a2 = eval.evaluate_simple(&board_a, EvalMode::Main);
+        let b2 = eval.evaluate_simple(&board_b, EvalMode::Main);
 
         assert_eq!(
             a1, a2,

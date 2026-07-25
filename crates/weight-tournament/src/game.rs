@@ -168,15 +168,11 @@ fn apply_opening(opening: &str) -> Result<(Board, Disc)> {
     let mut board = Board::new();
     let mut side_to_move = Disc::Black;
 
-    for chunk in opening.as_bytes().chunks_exact(2) {
-        let move_str = std::str::from_utf8(chunk)
-            .with_context(|| format!("opening sequence is not valid UTF-8: '{opening}'"))?;
-        let sq = move_str
-            .parse::<Square>()
-            .map_err(|_| anyhow::anyhow!("invalid move in opening sequence: {move_str}"))?;
-
+    let moves = Square::parse_sequence(opening)
+        .map_err(|e| anyhow::anyhow!("invalid move in opening sequence: {e}"))?;
+    for sq in moves {
         if !board.is_legal_move(sq) {
-            bail!("illegal opening move {move_str} for {side_to_move:?}");
+            bail!("illegal opening move {sq} for {side_to_move:?}");
         }
 
         board = board.make_move(sq);

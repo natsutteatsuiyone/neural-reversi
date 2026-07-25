@@ -459,10 +459,9 @@ impl<
         unsafe {
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
             let num_regs = (OUTPUT_DIMS / OUTPUT_SIMD_WIDTH).max(1);
-            // Too few accumulators serialize the chunk loop on `dpbusd`
-            // latency: four cycles, two retired per cycle, so eight partial
-            // sums keep the unit busy. Integer add is associative, so the
-            // reduction below is bit-identical to a single accumulator.
+            // Split partial sums break the `dpbusd` dependency chain across the
+            // chunk loop. Integer add is associative, so the reduction below is
+            // bit-identical to a single accumulator.
             let unroll = (8 / num_regs).clamp(1, MAX_LANES);
 
             let mut p0: Align64<[i32; OUTPUT_DIMS]> = Align64([0; OUTPUT_DIMS]);

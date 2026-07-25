@@ -162,6 +162,11 @@ impl Search {
         &self.tt
     }
 
+    /// Returns a reference to the shared evaluation function.
+    pub fn eval(&self) -> &Arc<Eval> {
+        &self.eval
+    }
+
     /// Resets the search state for a new game.
     ///
     /// Clears the transposition table, resets the TT generation counter,
@@ -344,7 +349,7 @@ impl Search {
 
         for sq in moves.iter() {
             let next = board.make_move(sq);
-            let score = -self.eval.evaluate_simple(&next);
+            let score = -self.eval.evaluate_simple(&next, EvalMode::Main);
 
             if score > best_score {
                 best_score = score;

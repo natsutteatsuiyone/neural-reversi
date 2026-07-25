@@ -30,16 +30,6 @@ struct Standing {
     opponents: Vec<usize>,
 }
 
-fn collect_pairing_results<T: Send, E: Send>(
-    pairings: &[(usize, usize)],
-    run_pairing: impl Fn(usize, usize) -> Result<T, E> + Sync + Send,
-) -> Result<Vec<T>, E> {
-    pairings
-        .par_iter()
-        .map(|&(engine1, engine2)| run_pairing(engine1, engine2))
-        .collect()
-}
-
 pub(crate) fn run(args: &Args) -> Result<()> {
     let weights = read_weight_files(&args.weights_dir)?;
     if weights.len() < 2 {
@@ -60,21 +50,25 @@ pub(crate) fn run(args: &Args) -> Result<()> {
         .build()
         .context("failed to create comparison thread pool")?;
     let pairings = build_round_robin_pairings(weights.len());
+    let comparison_count = pairings.len();
     let games_per_comparison = openings.len() * 2;
 
     println!("Weights: {}", weights.len());
     println!("Openings: {}", openings.len());
     println!("Jobs: {jobs}");
-    println!("Comparisons: {}", pairings.len());
-    println!("Games: {}\n", pairings.len() * games_per_comparison);
+    println!("Comparisons: {comparison_count}");
+    println!("Games: {}\n", comparison_count * games_per_comparison);
 
-    let progress = create_progress_bar(pairings.len() * games_per_comparison)?;
-    let match_results = pool.install(|| {
-        collect_pairing_results(&pairings, |engine1, engine2| {
-            play_match(&weights[engine1], &weights[engine2], &openings, || {
-                progress.inc(1);
+    let progress = create_progress_bar(comparison_count * games_per_comparison)?;
+    let match_results: Result<Vec<_>> = pool.install(|| {
+        pairings
+            .par_iter()
+            .map(|&(engine1, engine2)| {
+                play_match(&weights[engine1], &weights[engine2], &openings, || {
+                    progress.inc(1);
+                })
             })
-        })
+            .collect()
     });
     progress.finish_and_clear();
     let match_results = match_results?;
@@ -91,24 +85,21 @@ pub(crate) fn run(args: &Args) -> Result<()> {
             MatchWinner::Draw => "Draw",
         };
         println!(
-            "[{}/{}] {} vs {}: {}-{}-{}, score {}; winner {winner}",
+            "[{}/{comparison_count}] {} vs {}: {}-{}-{}, score {:+}; winner {winner}",
             comparison + 1,
-            weights.len() * (weights.len() - 1) / 2,
             weights[engine1].name,
             weights[engine2].name,
             result.engine1_wins,
             result.engine2_wins,
             result.draws,
-            format_signed(result.engine1_score),
+            result.engine1_score,
         );
     }
 
-    print_standings(&weights, &standings);
+    let ranking = ranked_weights(&weights, &standings);
+    print_standings(&weights, &standings, &ranking);
     println!("\n## Result\n");
-    println!(
-        "Strongest: {}",
-        weights[ranked_weights(&weights, &standings)[0]].name
-    );
+    println!("Strongest: {}", weights[ranking[0]].name);
     Ok(())
 }
 
@@ -254,15 +245,15 @@ fn compare_standings(a: usize, b: usize, weights: &[Weight], standings: &[Standi
         .then_with(|| natural_cmp(&weights[a].name, &weights[b].name))
 }
 
-fn print_standings(weights: &[Weight], standings: &[Standing]) {
+fn print_standings(weights: &[Weight], standings: &[Standing], ranking: &[usize]) {
     println!("\n## Standings\n");
     println!("| # | Weight | Score | Games | W-L-D | Disc/game | Opp score |");
     println!("|--:|--------|------:|------:|------:|----------:|----------:|");
 
-    for (rank, weight) in ranked_weights(weights, standings).into_iter().enumerate() {
+    for (rank, &weight) in ranking.iter().enumerate() {
         let standing = &standings[weight];
         println!(
-            "| {} | {} | {:.1}% | {} | {}-{}-{} | {} | {:.1}% |",
+            "| {} | {} | {:.1}% | {} | {}-{}-{} | {:+.2} | {:.1}% |",
             rank + 1,
             weights[weight].name,
             score_rate(standing) * 100.0,
@@ -270,7 +261,7 @@ fn print_standings(weights: &[Weight], standings: &[Standing]) {
             standing.wins,
             standing.losses,
             standing.draws,
-            format_signed_float(average_disc_score(standing)),
+            average_disc_score(standing),
             opponent_score_rate(standing, standings) * 100.0,
         );
     }
@@ -323,26 +314,9 @@ fn trim_leading_zeroes(digits: &[u8]) -> &[u8] {
     &digits[first_nonzero..]
 }
 
-fn format_signed(value: i64) -> String {
-    if value > 0 {
-        format!("+{value}")
-    } else {
-        value.to_string()
-    }
-}
-
-fn format_signed_float(value: f64) -> String {
-    if value > 0.0 {
-        format!("+{value:.2}")
-    } else {
-        format!("{value:.2}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     use super::*;
 
@@ -359,29 +333,5 @@ mod tests {
     #[test]
     fn natural_order_compares_numeric_filename_parts() {
         assert_eq!(natural_cmp("weight-2.zst", "weight-10.zst"), Ordering::Less);
-    }
-
-    #[test]
-    fn pairing_collection_stops_after_first_error() {
-        let pairings = build_round_robin_pairings(5);
-        let attempts = AtomicUsize::new(0);
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .expect("test thread pool should be created");
-
-        let result = pool.install(|| {
-            collect_pairing_results(&pairings, |_, _| {
-                let attempt = attempts.fetch_add(1, AtomicOrdering::Relaxed) + 1;
-                if attempt == 3 {
-                    Err("invalid weight")
-                } else {
-                    Ok(())
-                }
-            })
-        });
-
-        assert_eq!(result, Err("invalid weight"));
-        assert_eq!(attempts.load(AtomicOrdering::Relaxed), 3);
     }
 }
