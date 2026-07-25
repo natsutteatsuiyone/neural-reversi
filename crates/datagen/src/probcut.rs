@@ -132,6 +132,14 @@ fn replay(moves: &[Square], mut visit: impl FnMut(&Board, Disc)) -> (Board, Disc
     (board, side_to_move)
 }
 
+/// Records an exact midgame position and returns whether it has not been sampled yet.
+///
+/// Symmetric positions remain distinct because the neural evaluation is not
+/// guaranteed to produce identical depth-limited scores for every orientation.
+fn insert_midgame_position(visited: &mut HashSet<Board>, board: &Board) -> bool {
+    visited.insert(*board)
+}
+
 /// Scores `board` at every depth in `0..=max_depth` that stays below the empty
 /// count, so no sample comes from a position the endgame solver read out exactly.
 ///
@@ -186,11 +194,12 @@ fn write_sample(
 /// Generates ProbCut training data.
 ///
 /// Reads game sequences from the input file, analyzes each position with multiple
-/// search depths, and outputs training data as CSV. Each unique position (up to
-/// symmetry) is sampled once, and only depths below the position's empty count are
-/// searched so every sample reflects a genuine midgame search. The generated data
-/// includes shallow/deep search correlations that can be used to train regression
-/// models for ProbCut parameter calculation.
+/// search depths, and outputs training data as CSV. Each exact position is sampled
+/// once, while symmetric positions remain distinct because their depth-limited neural
+/// evaluations can differ. Only depths below the position's empty count are searched,
+/// so every sample reflects a genuine midgame search. The generated data includes
+/// shallow/deep search correlations that can be used to train regression models for
+/// ProbCut parameter calculation.
 ///
 /// # Arguments
 ///
@@ -226,7 +235,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
 
         let mut samples: Vec<(ProbCutSample, Scoref)> = Vec::new();
         replay(&moves, |board, side_to_move| {
-            if !visited.insert(board.unique()) {
+            if !insert_midgame_position(&mut visited, board) {
                 return;
             }
 
@@ -370,4 +379,28 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
 
     println!("Endgame ProbCut training data generation completed successfully");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn midgame_dedup_keeps_symmetric_positions_distinct() {
+        let moves = Square::parse_sequence("f5d6c4d3").unwrap();
+        let rotated_moves: Vec<_> = moves
+            .iter()
+            .map(|sq| Square::from_usize(63 - sq.index()).unwrap())
+            .collect();
+        let board = replay(&moves, |_, _| {}).0;
+        let rotated_board = replay(&rotated_moves, |_, _| {}).0;
+
+        assert_eq!(rotated_board, board.rotate_180_clockwise());
+        assert_eq!(board.unique(), rotated_board.unique());
+
+        let mut visited = HashSet::new();
+        assert!(insert_midgame_position(&mut visited, &board));
+        assert!(insert_midgame_position(&mut visited, &rotated_board));
+        assert!(!insert_midgame_position(&mut visited, &board));
+    }
 }
