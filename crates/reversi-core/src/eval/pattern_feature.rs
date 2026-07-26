@@ -776,59 +776,53 @@ impl PatternFeatures {
                 vaddq_s16(vld1q_s16(s2.add(24)), vld1q_s16(s3.add(24))),
             );
 
-            let f2_0 = vshlq_n_s16::<1>(f0);
-            let f2_1 = vshlq_n_s16::<1>(f1);
-            let f2_2 = vshlq_n_s16::<1>(f2);
-            let f2_3 = vshlq_n_s16::<1>(f3);
-
-            let f_minus_sum_0 = vsubq_s16(f0, sum0);
-            let f_minus_sum_1 = vsubq_s16(f1, sum1);
-            let f_minus_sum_2 = vsubq_s16(f2, sum2);
-            let f_minus_sum_3 = vsubq_s16(f3, sum3);
-
-            let twof_plus_sum_0 = vaddq_s16(f2_0, sum0);
-            let twof_plus_sum_1 = vaddq_s16(f2_1, sum1);
-            let twof_plus_sum_2 = vaddq_s16(f2_2, sum2);
-            let twof_plus_sum_3 = vaddq_s16(f2_3, sum3);
-
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
             let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
             let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
 
-            let p_in0 = vld1q_s16(p_in_ptr);
-            let p_in1 = vld1q_s16(p_in_ptr.add(8));
-            let p_in2 = vld1q_s16(p_in_ptr.add(16));
-            let p_in3 = vld1q_s16(p_in_ptr.add(24));
+            // Both outputs subtract one `f`, and that part does not depend on the
+            // sum rows, so it is folded into the inputs while those loads are
+            // still in flight. What remains after the sum arrives is `2f + sum`
+            // reduced to `f + sum` for the mover and a bare add for the other.
+            let p_less_f0 = vsubq_s16(vld1q_s16(p_in_ptr), f0);
+            let p_less_f1 = vsubq_s16(vld1q_s16(p_in_ptr.add(8)), f1);
+            let p_less_f2 = vsubq_s16(vld1q_s16(p_in_ptr.add(16)), f2);
+            let p_less_f3 = vsubq_s16(vld1q_s16(p_in_ptr.add(24)), f3);
 
-            let o_in0 = vld1q_s16(o_in_ptr);
-            let o_in1 = vld1q_s16(o_in_ptr.add(8));
-            let o_in2 = vld1q_s16(o_in_ptr.add(16));
-            let o_in3 = vld1q_s16(o_in_ptr.add(24));
+            let o_less_f0 = vsubq_s16(vld1q_s16(o_in_ptr), f0);
+            let o_less_f1 = vsubq_s16(vld1q_s16(o_in_ptr.add(8)), f1);
+            let o_less_f2 = vsubq_s16(vld1q_s16(o_in_ptr.add(16)), f2);
+            let o_less_f3 = vsubq_s16(vld1q_s16(o_in_ptr.add(24)), f3);
+
+            let f_plus_sum_0 = vaddq_s16(f0, sum0);
+            let f_plus_sum_1 = vaddq_s16(f1, sum1);
+            let f_plus_sum_2 = vaddq_s16(f2, sum2);
+            let f_plus_sum_3 = vaddq_s16(f3, sum3);
 
             let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
             let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
 
             if side_to_move == SideToMove::Player {
-                vst1q_s16(p_out_ptr, vsubq_s16(p_in0, twof_plus_sum_0));
-                vst1q_s16(p_out_ptr.add(8), vsubq_s16(p_in1, twof_plus_sum_1));
-                vst1q_s16(p_out_ptr.add(16), vsubq_s16(p_in2, twof_plus_sum_2));
-                vst1q_s16(p_out_ptr.add(24), vsubq_s16(p_in3, twof_plus_sum_3));
+                vst1q_s16(p_out_ptr, vsubq_s16(p_less_f0, f_plus_sum_0));
+                vst1q_s16(p_out_ptr.add(8), vsubq_s16(p_less_f1, f_plus_sum_1));
+                vst1q_s16(p_out_ptr.add(16), vsubq_s16(p_less_f2, f_plus_sum_2));
+                vst1q_s16(p_out_ptr.add(24), vsubq_s16(p_less_f3, f_plus_sum_3));
 
-                vst1q_s16(o_out_ptr, vsubq_s16(o_in0, f_minus_sum_0));
-                vst1q_s16(o_out_ptr.add(8), vsubq_s16(o_in1, f_minus_sum_1));
-                vst1q_s16(o_out_ptr.add(16), vsubq_s16(o_in2, f_minus_sum_2));
-                vst1q_s16(o_out_ptr.add(24), vsubq_s16(o_in3, f_minus_sum_3));
+                vst1q_s16(o_out_ptr, vaddq_s16(o_less_f0, sum0));
+                vst1q_s16(o_out_ptr.add(8), vaddq_s16(o_less_f1, sum1));
+                vst1q_s16(o_out_ptr.add(16), vaddq_s16(o_less_f2, sum2));
+                vst1q_s16(o_out_ptr.add(24), vaddq_s16(o_less_f3, sum3));
             } else {
-                vst1q_s16(p_out_ptr, vsubq_s16(p_in0, f_minus_sum_0));
-                vst1q_s16(p_out_ptr.add(8), vsubq_s16(p_in1, f_minus_sum_1));
-                vst1q_s16(p_out_ptr.add(16), vsubq_s16(p_in2, f_minus_sum_2));
-                vst1q_s16(p_out_ptr.add(24), vsubq_s16(p_in3, f_minus_sum_3));
+                vst1q_s16(p_out_ptr, vaddq_s16(p_less_f0, sum0));
+                vst1q_s16(p_out_ptr.add(8), vaddq_s16(p_less_f1, sum1));
+                vst1q_s16(p_out_ptr.add(16), vaddq_s16(p_less_f2, sum2));
+                vst1q_s16(p_out_ptr.add(24), vaddq_s16(p_less_f3, sum3));
 
-                vst1q_s16(o_out_ptr, vsubq_s16(o_in0, twof_plus_sum_0));
-                vst1q_s16(o_out_ptr.add(8), vsubq_s16(o_in1, twof_plus_sum_1));
-                vst1q_s16(o_out_ptr.add(16), vsubq_s16(o_in2, twof_plus_sum_2));
-                vst1q_s16(o_out_ptr.add(24), vsubq_s16(o_in3, twof_plus_sum_3));
+                vst1q_s16(o_out_ptr, vsubq_s16(o_less_f0, f_plus_sum_0));
+                vst1q_s16(o_out_ptr.add(8), vsubq_s16(o_less_f1, f_plus_sum_1));
+                vst1q_s16(o_out_ptr.add(16), vsubq_s16(o_less_f2, f_plus_sum_2));
+                vst1q_s16(o_out_ptr.add(24), vsubq_s16(o_less_f3, f_plus_sum_3));
             }
         }
     }
