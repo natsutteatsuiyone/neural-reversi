@@ -7,8 +7,7 @@
 //! Per square, [`NEON_MASK`] holds the eight ray masks as four pairs
 //! (right-side masks bit-reversed, the second pair of each side
 //! complemented), [`BoardCtx::flip_pairs`] computes the spans and merges them
-//! with the ray masks, and one of two reductions folds them: [`fold_addp`] for
-//! latency-bound flips, [`fold_dual`] for throughput-bound batched flips.
+//! with the ray masks, and [`fold_addp`] reduces the two sides to one bitboard.
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/ce77e7a7da45282799e61871882ecac07b3884aa/src/flip_neon_rbit.c>
 
@@ -65,9 +64,9 @@ pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
 #[derive(Copy, Clone)]
 pub(super) struct BoardCtx {
     pp: uint64x2_t,
-    no: uint64x2_t,
+    oo: uint64x2_t,
     pp_rev: uint64x2_t,
-    no_rev: uint64x2_t,
+    oo_rev: uint64x2_t,
     one: uint64x2_t,
 }
 
@@ -75,14 +74,13 @@ impl BoardCtx {
     #[target_feature(enable = "neon")]
     #[inline]
     pub fn new(player: u64, opponent: u64) -> Self {
-        let not_opponent = !opponent;
         let pp = vdupq_n_u64(player);
-        let no = vdupq_n_u64(not_opponent);
+        let oo = vdupq_n_u64(opponent);
         Self {
             pp,
-            no,
+            oo,
             pp_rev: vdupq_n_u64(player.reverse_bits()),
-            no_rev: vdupq_n_u64(not_opponent.reverse_bits()),
+            oo_rev: vdupq_n_u64(opponent.reverse_bits()),
             one: vdupq_n_u64(1),
         }
     }
@@ -106,10 +104,10 @@ impl BoardCtx {
         let mask_rr_a = unsafe { vld1q_u64(mask_ptr.add(4)) };
         let cmask_rr_b = unsafe { vld1q_u64(mask_ptr.add(6)) };
 
-        let w_l_a = flip_span_pair(mask_l_a, self.pp, self.no, self.one);
-        let w_rr_a = flip_span_pair(mask_rr_a, self.pp_rev, self.no_rev, self.one);
-        let w_l_b = flip_span_pair_inv(cmask_l_b, self.pp, self.no, self.one);
-        let w_rr_b = flip_span_pair_inv(cmask_rr_b, self.pp_rev, self.no_rev, self.one);
+        let w_l_a = flip_span_pair(mask_l_a, self.pp, self.oo, self.one);
+        let w_rr_a = flip_span_pair(mask_rr_a, self.pp_rev, self.oo_rev, self.one);
+        let w_l_b = flip_span_pair_inv(cmask_l_b, self.pp, self.oo, self.one);
+        let w_rr_b = flip_span_pair_inv(cmask_rr_b, self.pp_rev, self.oo_rev, self.one);
 
         // SAFETY: the SHA3 variant of `merge_spans` only exists when the build
         // statically enables `sha3`.
@@ -124,11 +122,12 @@ impl BoardCtx {
         (flip_l, flip_rr)
     }
 
-    /// One flip in isolation, or separated from the next flip by other work
-    /// (the move-list generation loop interleaves a bitscan, store and compare
-    /// between flips). That regime is latency-bound, so it uses the ADDP
-    /// reduction ([`fold_addp`]): folding both sides with one pairwise add
-    /// shortens the critical path (~9% faster than the dual fold here).
+    /// One flip, for every arity. Folding both sides with a single pairwise add
+    /// ([`fold_addp`]) costs one vector op less than folding each side on its
+    /// own, and that holds even for the batched helpers below: the endgame
+    /// leaves consume each flip immediately (`is_empty`, `apply_flip`), so the
+    /// batched call sites are latency-bound too rather than saturating the
+    /// NEON pipes.
     #[target_feature(enable = "neon")]
     #[inline]
     pub fn flip1(&self, pos: usize) -> u64 {
@@ -136,29 +135,15 @@ impl BoardCtx {
         fold_addp(flip_l, flip_rr)
     }
 
-    /// Flip used by the two- and four-square batched helpers. With no work
-    /// between flips the NEON pipes saturate and the kernel is throughput-bound;
-    /// there the dual-fold reduction ([`fold_dual`]) wins because its two
-    /// side-folds stay independent and both extracts come from the low lane
-    /// (no high-lane `umov`).
-    #[target_feature(enable = "neon")]
-    #[inline]
-    fn flip1_batched(&self, pos: usize) -> u64 {
-        let (flip_l, flip_rr) = unsafe { self.flip_pairs(pos) };
-        fold_dual(flip_l, flip_rr)
-    }
-
     #[target_feature(enable = "neon")]
     #[inline]
     pub fn flip2(&self, x0: usize, x1: usize) -> (u64, u64) {
-        (self.flip1_batched(x0), self.flip1_batched(x1))
+        (self.flip1(x0), self.flip1(x1))
     }
 
     #[target_feature(enable = "neon")]
     #[inline]
     pub fn flip3(&self, x0: usize, x1: usize, x2: usize) -> (u64, u64, u64) {
-        // Three flips do not keep enough independent dual-fold work in flight;
-        // the latency fold benchmarks faster for this arity.
         (self.flip1(x0), self.flip1(x1), self.flip1(x2))
     }
 
@@ -166,18 +151,20 @@ impl BoardCtx {
     #[inline]
     pub fn flip4(&self, x0: usize, x1: usize, x2: usize, x3: usize) -> (u64, u64, u64, u64) {
         (
-            self.flip1_batched(x0),
-            self.flip1_batched(x1),
-            self.flip1_batched(x2),
-            self.flip1_batched(x3),
+            self.flip1(x0),
+            self.flip1(x1),
+            self.flip1(x2),
+            self.flip1(x3),
         )
     }
 }
 
-/// Latency-optimized reduction: fold both 2-lane results with a single pairwise
-/// add (ADDP). Lane 0 holds the OR of `flip_l`'s two lanes, lane 1 the OR of
-/// `flip_rr`'s two lanes. The lanes contain disjoint ray groups, so add
-/// matches OR.
+/// Folds both 2-lane results with a single pairwise add (ADDP). Lane 0 holds
+/// the OR of `flip_l`'s two lanes, lane 1 the OR of `flip_rr`'s two lanes. The
+/// lanes contain disjoint ray groups, so add matches OR.
+///
+/// Swapping the operands so the `RBIT` tail hangs off the low-lane `fmov`
+/// instead of the high-lane `umov` measured 0.35% slower, so keep this order.
 #[target_feature(enable = "neon")]
 #[inline]
 fn fold_addp(flip_l: uint64x2_t, flip_rr: uint64x2_t) -> u64 {
@@ -185,16 +172,6 @@ fn fold_addp(flip_l: uint64x2_t, flip_rr: uint64x2_t) -> u64 {
     let left = vgetq_lane_u64::<0>(folded);
     let right = vgetq_lane_u64::<1>(folded);
     left | right.reverse_bits()
-}
-
-/// Throughput-optimized reduction: fold each side independently. The two folds
-/// have no mutual dependency and both extract from the low lane (`fmov`, no
-/// high-lane `umov`), which the NEON/GPR ports sustain better when several
-/// flips are computed back-to-back.
-#[target_feature(enable = "neon")]
-#[inline]
-fn fold_dual(flip_l: uint64x2_t, flip_rr: uint64x2_t) -> u64 {
-    fold_or_pair(flip_l) | fold_or_pair(flip_rr).reverse_bits()
 }
 
 /// Merges the two pairs of one side: `(mask_a & w_a) | (mask_b & w_b)`,
@@ -233,34 +210,30 @@ fn merge_spans(
 /// strictly below the outflank disc (the caller still ANDs with the ray
 /// mask, fused into the pair merge in [`merge_spans`]).
 ///
-/// The textbook outflank is `t & -t & pp` with `t = mask & no` (lowest
-/// non-opponent square on the ray, kept if it is a player disc). Because the
-/// player and opponent boards are disjoint, `pp` is a subset of `no`, so
-/// `t & pp == mask & pp` and the outflank reassociates to
-/// `-t & (mask & pp)`. Rewriting the canonical `t & -t` form away also keeps
-/// instcombine from "canonicalizing" the kernel into a longer sequence.
+/// The opponent board stays uncomplemented in [`BoardCtx`]. BIC forms
+/// `mask & !oo` without the scalar `MVN` that lengthens context setup.
 #[inline]
 #[target_feature(enable = "neon")]
-fn flip_span_pair(mask: uint64x2_t, pp: uint64x2_t, no: uint64x2_t, one: uint64x2_t) -> uint64x2_t {
-    let non_opponent = vandq_u64(mask, no);
+fn flip_span_pair(mask: uint64x2_t, pp: uint64x2_t, oo: uint64x2_t, one: uint64x2_t) -> uint64x2_t {
+    let non_opponent = vbicq_u64(mask, oo);
     let player_on_ray = vandq_u64(mask, pp);
     let outflank = vandq_u64(neg_u64(non_opponent), player_on_ray);
     vqsubq_u64(outflank, one)
 }
 
 /// [`flip_span_pair`] for a pair whose ray mask arrives complemented from the
-/// table: `x & mask` becomes `BIC(x, cmask)` at identical cost.
+/// table. The carry seed becomes `oo | cmask`, while `pp & mask` is a BIC.
 #[inline]
 #[target_feature(enable = "neon")]
 fn flip_span_pair_inv(
     cmask: uint64x2_t,
     pp: uint64x2_t,
-    no: uint64x2_t,
+    oo: uint64x2_t,
     one: uint64x2_t,
 ) -> uint64x2_t {
-    let non_opponent = vbicq_u64(no, cmask);
+    let carry = vaddq_u64(vorrq_u64(oo, cmask), one);
     let player_on_ray = vbicq_u64(pp, cmask);
-    let outflank = vandq_u64(neg_u64(non_opponent), player_on_ray);
+    let outflank = vandq_u64(carry, player_on_ray);
     vqsubq_u64(outflank, one)
 }
 
@@ -268,16 +241,6 @@ fn flip_span_pair_inv(
 #[target_feature(enable = "neon")]
 fn neg_u64(x: uint64x2_t) -> uint64x2_t {
     vreinterpretq_u64_s64(vnegq_s64(vreinterpretq_s64_u64(x)))
-}
-
-/// The two lanes in each pair contain disjoint ray groups from the origin
-/// square, so their bitboards never overlap. A horizontal add therefore
-/// matches OR and compiles to a cheaper reduction on AArch64.
-#[inline]
-#[target_feature(enable = "neon")]
-fn fold_or_pair(x: uint64x2_t) -> u64 {
-    let summed = vadd_u64(vget_low_u64(x), vget_high_u64(x));
-    vget_lane_u64::<0>(summed)
 }
 
 #[cfg(test)]
@@ -354,13 +317,17 @@ mod tests {
         }
     }
 
+    /// `fold_addp` may only substitute add for OR because the lanes it folds
+    /// hold disjoint ray groups; it also has to bit-reverse the right side.
     #[test]
-    fn fold_pair_matches_or_for_disjoint_lanes() {
-        let pair = unsafe {
+    fn fold_addp_ors_disjoint_lanes_and_reverses_the_right_side() {
+        let left = unsafe {
             vsetq_lane_u64::<0>(0x0000_0000_0000_0015, vdupq_n_u64(0x0240_0000_0000_0000))
         };
-        let expected = 0x0240_0000_0000_0015u64;
-        let got = unsafe { fold_or_pair(pair) };
+        let right = unsafe { vsetq_lane_u64::<0>(0x0000_0000_0000_0900, vdupq_n_u64(0x0004_0000)) };
+        let expected =
+            0x0240_0000_0000_0015u64 | (0x0000_0000_0000_0900u64 | 0x0004_0000).reverse_bits();
+        let got = unsafe { fold_addp(left, right) };
         assert_eq!(got, expected);
     }
 }
