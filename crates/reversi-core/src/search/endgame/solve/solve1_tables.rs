@@ -1,9 +1,9 @@
 //! Lookup tables shared by last-empty-square scoring.
 //!
-//! `COUNT_FLIP_RAW` is the canonical 8x256 line-count table. Scalar and NEON
-//! use its aligned `COUNT_FLIP` view for indexed lookups, while the BMI2 path
-//! also reads the raw table at compile time when building its PEXT-specific
-//! per-square table.
+//! `COUNT_FLIP_RAW` is the canonical 8x256 line-count table. The scalar path
+//! uses its aligned `COUNT_FLIP` view for indexed lookups, the BMI2 path reads
+//! the raw table at compile time when building its PEXT-specific per-square
+//! table, and NEON reads it at compile time to build `COUNT_PAIR`.
 //!
 //! The remaining entries are kindergarten multiply/shift extractor parameters
 //! for scalar and NEON builds. They are cfg-excluded from BMI2 builds, where
@@ -101,6 +101,7 @@ pub(super) const COUNT_FLIP_RAW: [[u8; 256]; 8] = [
     ],
 ];
 
+#[cfg(not(target_arch = "aarch64"))]
 pub(super) static COUNT_FLIP: Align64<[[u8; 256]; 8]> = Align64(COUNT_FLIP_RAW);
 
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
@@ -192,3 +193,175 @@ pub(super) const PARAMS: [SqParams; 64] = [
     SqParams { mask_v: 0x4040404040404040, mult_v: 0x0004081020408102, mask_d7: 0x4020100804020100, addend7: 0x0000000000000000, post_mask7: 0xffffffffffffffff, mult_d7: 0x0101010101010101, mask_d9: 0x0000000000000000, row_shift: 56, t0: 7, t1: 6, t2: 6, t3: 0 }, // g8
     SqParams { mask_v: 0x8080808080808080, mult_v: 0x0002040810204081, mask_d7: 0x8040201008040201, addend7: 0x0000000000000000, post_mask7: 0xffffffffffffffff, mult_d7: 0x0101010101010101, mask_d9: 0x0000000000000000, row_shift: 56, t0: 7, t1: 7, t2: 7, t3: 0 }, // h8
 ];
+
+/// Number of distinct `(line position, valid-cell mask)` pairs used by the
+/// four extraction slots of all 64 squares.
+#[cfg(target_arch = "aarch64")]
+const PAIR_ROWS: usize = 24;
+
+/// `meta` bit marking the squares whose two diagonals need separate lookups.
+#[cfg(target_arch = "aarch64")]
+pub(super) const META_HAS_D9: u64 = 1 << 63;
+
+/// XOR that turns a player's D7 line index into the opponent's: the set of
+/// line positions backed by a real board cell.
+#[cfg(target_arch = "aarch64")]
+const fn d7_index_xor(pp: &SqParams) -> u8 {
+    let empty = (pp.addend7 & pp.post_mask7).wrapping_mul(pp.mult_d7);
+    let full = (pp.mask_d7.wrapping_add(pp.addend7) & pp.post_mask7).wrapping_mul(pp.mult_d7);
+    ((empty ^ full) >> 56) as u8
+}
+
+#[cfg(target_arch = "aarch64")]
+const fn d9_index_xor(pp: &SqParams) -> u8 {
+    (pp.mask_d9.wrapping_mul(MULT_D9) >> 56) as u8
+}
+
+/// Collects the `(line position, valid-cell mask)` key of every extraction slot,
+/// deduplicated. Slot order is vertical, row, D7, D9.
+#[cfg(target_arch = "aarch64")]
+const fn pair_class_keys() -> [(u8, u8); PAIR_ROWS] {
+    let mut keys = [(0u8, 0u8); PAIR_ROWS];
+    let mut len = 0;
+    let mut sq = 0;
+    while sq < PARAMS.len() {
+        let pp = &PARAMS[sq];
+        let slots = [
+            (pp.t0, 0xff),
+            (pp.t1, 0xff),
+            (pp.t2, d7_index_xor(pp)),
+            (pp.t3, d9_index_xor(pp)),
+        ];
+        let used = if pp.mask_d9 != 0 { 4 } else { 3 };
+        let mut slot = 0;
+        while slot < used {
+            let (t, xor) = slots[slot];
+            let mut seen = false;
+            let mut c = 0;
+            while c < len {
+                if keys[c].0 == t && keys[c].1 == xor {
+                    seen = true;
+                    break;
+                }
+                c += 1;
+            }
+            if !seen {
+                assert!(len < PAIR_ROWS, "PAIR_ROWS is too small");
+                keys[len] = (t, xor);
+                len += 1;
+            }
+            slot += 1;
+        }
+        sq += 1;
+    }
+    assert!(
+        len == PAIR_ROWS,
+        "PAIR_ROWS does not match the used classes"
+    );
+    keys
+}
+
+#[cfg(target_arch = "aarch64")]
+const PAIR_KEYS: [(u8, u8); PAIR_ROWS] = pair_class_keys();
+
+#[cfg(target_arch = "aarch64")]
+const fn pair_class(t: u8, xor: u8) -> u64 {
+    let mut c = 0;
+    while c < PAIR_ROWS {
+        if PAIR_KEYS[c].0 == t && PAIR_KEYS[c].1 == xor {
+            return c as u64;
+        }
+        c += 1;
+    }
+    panic!("extraction slot without a COUNT_PAIR class")
+}
+
+#[cfg(target_arch = "aarch64")]
+const fn build_count_pair() -> [[u16; 256]; PAIR_ROWS] {
+    let mut out = [[0u16; 256]; PAIR_ROWS];
+    let mut c = 0;
+    while c < PAIR_ROWS {
+        let (t, xor) = PAIR_KEYS[c];
+        let row = &COUNT_FLIP_RAW[t as usize];
+        let mut idx = 0;
+        while idx < 256 {
+            out[c][idx] = row[idx] as u16 | ((row[idx ^ xor as usize] as u16) << 8);
+            idx += 1;
+        }
+        c += 1;
+    }
+    out
+}
+
+/// Line counts for both sides in one entry: the low byte is the mover's flip
+/// count for line index `idx`, the high byte is the opponent's count for the
+/// same line. With one empty square the opponent holds exactly the line cells
+/// the mover does not, so the opponent's index is `idx ^ mask` for the class's
+/// valid-cell mask. Summing four entries never carries between the bytes
+/// because a single line flips at most 12.
+#[cfg(target_arch = "aarch64")]
+pub(super) static COUNT_PAIR: Align64<[[u16; 256]; PAIR_ROWS]> = Align64(build_count_pair());
+
+/// One cache line of AArch64 extraction data.
+///
+/// `meta` stores, from low to high byte: row shift and the four `COUNT_PAIR`
+/// class indices. Bit 63 is [`META_HAS_D9`].
+#[cfg(target_arch = "aarch64")]
+#[derive(Clone, Copy)]
+#[repr(align(64))]
+pub(super) struct NeonSqParams {
+    pub(super) mask_v: u64,
+    pub(super) mult_v: u64,
+    pub(super) mask_d7: u64,
+    pub(super) addend7: u64,
+    pub(super) post_mask7: u64,
+    pub(super) mult_d7: u64,
+    pub(super) mask_d9: u64,
+    pub(super) meta: u64,
+}
+
+#[cfg(target_arch = "aarch64")]
+const _: () = assert!(core::mem::size_of::<NeonSqParams>() == 64);
+
+#[cfg(target_arch = "aarch64")]
+const fn build_neon_params() -> [NeonSqParams; 64] {
+    let zero = NeonSqParams {
+        mask_v: 0,
+        mult_v: 0,
+        mask_d7: 0,
+        addend7: 0,
+        post_mask7: 0,
+        mult_d7: 0,
+        mask_d9: 0,
+        meta: 0,
+    };
+    let mut params = [zero; 64];
+    let mut sq = 0;
+    while sq < PARAMS.len() {
+        let pp = PARAMS[sq];
+        let d9 = if pp.mask_d9 != 0 {
+            (pair_class(pp.t3, d9_index_xor(&pp)) << 32) | META_HAS_D9
+        } else {
+            0
+        };
+        params[sq] = NeonSqParams {
+            mask_v: pp.mask_v,
+            mult_v: pp.mult_v,
+            mask_d7: pp.mask_d7,
+            addend7: pp.addend7,
+            post_mask7: pp.post_mask7,
+            mult_d7: pp.mult_d7,
+            mask_d9: pp.mask_d9,
+            meta: pp.row_shift as u64
+                | (pair_class(pp.t0, 0xff) << 8)
+                | (pair_class(pp.t1, 0xff) << 16)
+                | (pair_class(pp.t2, d7_index_xor(&pp)) << 24)
+                | d9,
+        };
+        sq += 1;
+    }
+    params
+}
+
+#[cfg(target_arch = "aarch64")]
+pub(super) static NEON_PARAMS: [NeonSqParams; 64] = build_neon_params();
