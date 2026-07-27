@@ -221,11 +221,15 @@ a cutoff.
 - The verification threshold is `compute_probcut_beta(beta, t, mean, sigma)
   = ceil(beta + t·sigma − mean)`. If a shallow PVS clears it, the deep
   search is skipped.
-- `Selectivity` enumerates discrete confidence levels (`Level1`, `Level2`,
-  `Level3`, ordered from most aggressive to most conservative) plus `None`
-  for an exact solve. Per-level `t` multipliers and confidence percentages
-  are defined by `Selectivity::t_value` and `Selectivity::probability`. PV
-  nodes and the final endgame confirmation push selectivity to `None`.
+- `Selectivity` enumerates discrete confidence levels (`Mid`, `Level1`,
+  `Level2`, `Level3`, ordered from most aggressive to most conservative)
+  plus `None` for an exact solve. Per-level `t` multipliers and confidence
+  percentages are defined by `Selectivity::t_value` and
+  `Selectivity::probability`. Midgame search always runs at the fixed
+  `Mid` level (`SearchRunOptions::disable_probcut` drops it to `None` for
+  data generation); the endgame ladder walks the remaining levels and
+  never uses `Mid`. PV nodes and the final endgame confirmation push
+  selectivity to `None`.
 
 ### Stability cutoff
 

@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use config::EngineConfig;
 use reversi_core::level::MAX_LEVEL;
-use reversi_core::probcut::Selectivity;
 
 fn parse_usize_range<const LO: usize, const HI: usize>(s: &str) -> Result<usize, String> {
     let v: usize = s.parse().map_err(|e| format!("{e}"))?;
@@ -40,14 +39,6 @@ struct EngineParams {
     )]
     level: usize,
 
-    #[arg(
-        long,
-        default_value = "0",
-        value_parser = clap::value_parser!(u8).range(0..=3),
-        help = "Search selectivity for ProbCut pruning (0: 73%, 1: 95%, 2: 99%, 3: 100%)"
-    )]
-    selectivity: u8,
-
     #[arg(long, help = "Number of search threads [default: CPU count]")]
     threads: Option<usize>,
 
@@ -73,7 +64,6 @@ impl From<EngineParams> for EngineConfig {
         EngineConfig {
             hash_size: params.hash_size,
             level: params.level,
-            selectivity: Selectivity::from_u8(params.selectivity),
             threads: params.threads,
             eval_file: params.eval_file,
             eval_sm_file: params.eval_sm_file,

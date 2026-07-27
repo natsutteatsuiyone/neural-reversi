@@ -83,7 +83,12 @@ impl EndGameCaches {
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
 
-    let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
+    let mut ctx = SearchContext::new(
+        &board,
+        task.mid_selectivity,
+        task.tt.clone(),
+        task.eval.clone(),
+    );
     if ctx.root_moves_count() == 0 {
         // Handle no legal moves
         return SearchResult::new_no_moves();
@@ -777,7 +782,7 @@ mod tests {
         fallback_moves[0].score = ScaledScore::from_disc_diff(4);
         let task = SearchTask {
             board,
-            selectivity: Selectivity::None,
+            mid_selectivity: Selectivity::None,
             tt,
             pool: pool.clone(),
             eval,

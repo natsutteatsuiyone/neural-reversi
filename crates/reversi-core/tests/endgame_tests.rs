@@ -82,7 +82,7 @@ fn test_solve_2_case1() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 46);
@@ -101,19 +101,17 @@ fn aborted_endgame_reports_last_completed_selectivity() {
     let callback_completed = completed.clone();
     let callback_abort_requested = abort_requested.clone();
     let pool = search.thread_pool();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None).callback(
-        move |progress| {
-            if !callback_abort_requested.swap(true, Ordering::SeqCst) {
-                *callback_completed.lock().unwrap() = Some((
-                    progress.best_move,
-                    progress.score,
-                    progress.probability,
-                    progress.pv_line,
-                ));
-                pool.abort_search();
-            }
-        },
-    );
+    let options = SearchRunOptions::with_level(Level::perfect()).callback(move |progress| {
+        if !callback_abort_requested.swap(true, Ordering::SeqCst) {
+            *callback_completed.lock().unwrap() = Some((
+                progress.best_move,
+                progress.score,
+                progress.probability,
+                progress.pv_line,
+            ));
+            pool.abort_search();
+        }
+    });
 
     let result = search.run(&board, &options);
     let (best_move, score, probability, pv_line) = completed
@@ -136,7 +134,7 @@ fn multi_pv_solve_18_reports_each_legal_root_move() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None).multi_pv(true);
+    let options = SearchRunOptions::with_level(Level::perfect()).multi_pv(true);
     let result = search.run(&board, &options);
 
     let mut pv_moves: Vec<_> = result
@@ -176,7 +174,7 @@ fn test_solve_2_case2() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), -32);
@@ -190,7 +188,7 @@ fn test_solve_2_case3() {
         Disc::White,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), -20);
@@ -204,7 +202,7 @@ fn test_solve_3_case1() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 44);
@@ -218,7 +216,7 @@ fn test_solve_3_case2() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), -38);
@@ -232,7 +230,7 @@ fn test_solve_3_case3() {
         Disc::White,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), -28);
@@ -260,7 +258,7 @@ fn test_solve_4_case1() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 32);
@@ -274,7 +272,7 @@ fn test_solve_4_case2() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 20);
@@ -288,7 +286,7 @@ fn test_solve_4_case3() {
         Disc::White,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), -52);
@@ -316,7 +314,7 @@ fn test_solve_5_case1() {
         Disc::White,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 32);
@@ -330,7 +328,7 @@ fn test_solve_5_case2() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 28);
@@ -344,7 +342,7 @@ fn test_solve_9() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 50);
@@ -358,7 +356,7 @@ fn test_solve_15() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 8);
@@ -372,7 +370,7 @@ fn test_solve_20() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 6);
@@ -386,7 +384,7 @@ fn test_solve_20_case2() {
         Disc::Black,
     )
     .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
     assert_eq!(score(&result), 0);

@@ -8,7 +8,6 @@ use ratatui::DefaultTerminal;
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level;
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::result::{PvMove, SearchResult};
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
@@ -190,8 +189,6 @@ pub struct App {
     search: Option<search::Search>,
     /// Current AI level
     pub level: usize,
-    /// Search selectivity
-    selectivity: Selectivity,
     /// Current game mode
     pub mode: GameMode,
     /// Current UI mode
@@ -246,7 +243,6 @@ impl App {
             game: GameState::new(),
             search: Some(search),
             level: config.level,
-            selectivity: config.selectivity,
             mode: GameMode::HumanVsAi,
             ui_mode: UiMode::Normal,
             cursor: (3, 3), // Start at center
@@ -620,8 +616,7 @@ impl App {
             return;
         };
 
-        let options = SearchRunOptions::with_level(level::get_level(self.level), self.selectivity)
-            .multi_pv(true);
+        let options = SearchRunOptions::with_level(level::get_level(self.level)).multi_pv(true);
         self.hint_receiver = Some(spawn_search_worker(search, *self.game.board(), options));
         self.hint_thinking = true;
         self.ui_mode = UiMode::HintsLoading;
@@ -647,7 +642,7 @@ impl App {
             return;
         };
 
-        let options = SearchRunOptions::with_level(level::get_level(self.level), self.selectivity);
+        let options = SearchRunOptions::with_level(level::get_level(self.level));
         self.ai_receiver = Some(spawn_search_worker(search, *self.game.board(), options));
         self.ai_thinking = true;
     }

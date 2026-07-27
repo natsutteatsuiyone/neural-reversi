@@ -439,7 +439,6 @@ fn execute_test_case(
     test_case: &TestCase,
     search: &mut search::Search,
     level: Level,
-    selectivity: Selectivity,
     verbose: bool,
     multipv: bool,
 ) -> (TestResult, Vec<IterationData>) {
@@ -457,7 +456,7 @@ fn execute_test_case(
     } else {
         None
     };
-    let mut options = SearchRunOptions::with_level(level, selectivity).multi_pv(multipv);
+    let mut options = SearchRunOptions::with_level(level).multi_pv(multipv);
     if let Some(ref iters) = iterations {
         let iter_clone = iters.clone();
         let tt = search.tt().clone();
@@ -969,7 +968,6 @@ fn execute_section(
     test_cases: &[TestCase],
     search: &mut search::Search,
     level: Level,
-    selectivity: Selectivity,
     verbose: bool,
     multipv: bool,
 ) -> SearchStats {
@@ -991,8 +989,7 @@ fn execute_section(
     };
 
     for test_case in test_cases {
-        let (result, verbose_data) =
-            execute_test_case(test_case, search, level, selectivity, verbose, multipv);
+        let (result, verbose_data) = execute_test_case(test_case, search, level, verbose, multipv);
         stats.update(&result);
         if multipv {
             stats.update_multipv(&result, test_case);
@@ -1015,10 +1012,6 @@ struct Args {
     /// Maximum search depth in plies
     #[arg(short, long, default_value = "60")]
     depth: Depth,
-
-    /// Search selectivity (0: 73%, 1: 95%, 2: 99%, 3: 100%)
-    #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=3))]
-    selectivity: u8,
 
     /// Transposition table size in MB
     #[arg(long, default_value = "1024", value_parser = clap::value_parser!(u16).range(1..))]
@@ -1080,7 +1073,6 @@ fn main() {
     let search_options = SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
     let mut search = search::Search::new(&search_options);
     let level = Level::uniform(args.depth, args.depth);
-    let selectivity = Selectivity::from_u8(args.selectivity);
 
     let mut overall_stats = SearchStats::default();
 
@@ -1090,7 +1082,6 @@ fn main() {
             &problem_set.cases,
             &mut search,
             level,
-            selectivity,
             args.verbose,
             args.multipv,
         );

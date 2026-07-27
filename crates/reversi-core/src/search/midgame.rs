@@ -41,7 +41,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let time_manager = task.time_manager.clone();
     let use_time_control = time_manager.is_some();
 
-    let mut ctx = SearchContext::new(&board, task.selectivity, task.tt.clone(), task.eval.clone());
+    let mut ctx = SearchContext::new(
+        &board,
+        task.mid_selectivity,
+        task.tt.clone(),
+        task.eval.clone(),
+    );
 
     if let Some(mode) = task.eval_mode {
         ctx.eval_mode = mode;
@@ -553,7 +558,7 @@ mod schedule_tests {
         let board = Board::new().make_move(Square::D3);
         let task = SearchTask {
             board,
-            selectivity: Selectivity::None,
+            mid_selectivity: Selectivity::None,
             tt: Arc::new(TranspositionTable::new(0)),
             pool: pool.clone(),
             eval: shared_eval(),
@@ -620,7 +625,7 @@ mod schedule_tests {
         ));
         let task = SearchTask {
             board,
-            selectivity: Selectivity::Level1,
+            mid_selectivity: Selectivity::Mid,
             tt: Arc::new(TranspositionTable::new(1)),
             pool: pool.clone(),
             eval: shared_eval(),

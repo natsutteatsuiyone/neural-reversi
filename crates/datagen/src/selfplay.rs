@@ -10,7 +10,6 @@ use regex::Regex;
 use reversi_core::board::Board;
 use reversi_core::game_state::GameState;
 use reversi_core::level::Level;
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
@@ -145,7 +144,6 @@ impl FileState {
 /// * `games_per_file` - Maximum games per output file
 /// * `hash_size` - Transposition table size in MB
 /// * `level` - Search level configuration
-/// * `selectivity` - Search selectivity parameter
 /// * `prefix` - Output file prefix
 /// * `output_dir` - Directory for output files
 ///
@@ -157,7 +155,6 @@ pub fn execute(
     games_per_file: u32,
     hash_size: usize,
     level: Level,
-    selectivity: Selectivity,
     prefix: &str,
     output_dir: &str,
 ) -> io::Result<()> {
@@ -188,7 +185,6 @@ pub fn execute(
             &opening_sequence,
             &mut search,
             level,
-            selectivity,
             game_id,
             &mut record_cache,
         );
@@ -208,7 +204,6 @@ pub fn execute(
 /// * `games_per_file` - Maximum games per output file
 /// * `hash_size` - Transposition table size in MB
 /// * `level` - Search level configuration
-/// * `selectivity` - Search selectivity parameter
 /// * `prefix` - Output file prefix
 /// * `output_dir` - Directory for output files
 ///
@@ -222,7 +217,6 @@ pub fn execute_with_openings(
     games_per_file: u32,
     hash_size: usize,
     level: Level,
-    selectivity: Selectivity,
     prefix: &str,
     output_dir: &str,
 ) -> io::Result<()> {
@@ -264,7 +258,6 @@ pub fn execute_with_openings(
             opening_sequence,
             &mut search,
             level,
-            selectivity,
             game_id,
             &mut record_cache,
         );
@@ -332,7 +325,6 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
 /// * `opening_sequence` - Sequence of moves to play at the start
 /// * `search` - Search engine instance
 /// * `lv` - Search level
-/// * `selectivity` - Search selectivity
 /// * `game_id` - Game identifier for logging
 /// * `record_cache` - Cache for game records to avoid redundant searches
 ///
@@ -343,7 +335,6 @@ fn play_game(
     opening_sequence: &[Square],
     search: &mut search::Search,
     lv: Level,
-    selectivity: Selectivity,
     game_id: u16,
     record_cache: &mut HashMap<Board, GameRecord>,
 ) -> Vec<GameRecord> {
@@ -373,7 +364,7 @@ fn play_game(
         let mut record = if let Some(cached_record) = record_cache.get(&board) {
             cached_record.clone()
         } else {
-            let options = SearchRunOptions::with_level(lv, selectivity);
+            let options = SearchRunOptions::with_level(lv);
             let result = search.run(&board, &options);
             let ply = 60 - board.get_empty_count() as u8;
             let score = result.score().expect("search returned no legal move");
@@ -411,7 +402,7 @@ fn play_game(
 
         let board = *game.board();
         let side_to_move = game.side_to_move();
-        let options = SearchRunOptions::with_level(lv, selectivity);
+        let options = SearchRunOptions::with_level(lv);
         let result = search.run(&board, &options);
 
         let ply = 60 - board.get_empty_count() as u8;

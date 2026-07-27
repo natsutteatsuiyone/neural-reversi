@@ -14,8 +14,6 @@ use reversi_core::{board, search};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-const SELECTIVITY: Selectivity = Selectivity::Level1;
-
 /// The current game-analysis generation (CONTEXT.md → Engine Search).
 ///
 /// A monotonically increasing counter behind one interface: a run
@@ -319,24 +317,18 @@ async fn ai_move_command(
                 let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
             };
             if let Some(remaining_ms) = remaining_time {
-                SearchRunOptions::with_time(
-                    TimeControlMode::Fischer {
-                        main_time_ms: remaining_ms,
-                        increment_ms: 0,
-                    },
-                    SELECTIVITY,
-                )
+                SearchRunOptions::with_time(TimeControlMode::Fischer {
+                    main_time_ms: remaining_ms,
+                    increment_ms: 0,
+                })
                 .callback(callback)
             } else if let Some(limit_ms) = time_limit {
-                SearchRunOptions::with_time(
-                    TimeControlMode::Byoyomi {
-                        time_per_move_ms: limit_ms,
-                    },
-                    SELECTIVITY,
-                )
+                SearchRunOptions::with_time(TimeControlMode::Byoyomi {
+                    time_per_move_ms: limit_ms,
+                })
                 .callback(callback)
             } else {
-                SearchRunOptions::with_level(get_level(level), SELECTIVITY).callback(callback)
+                SearchRunOptions::with_level(get_level(level)).callback(callback)
             }
         },
         |result, elapsed_ms| {
@@ -370,7 +362,7 @@ async fn analyze_command(
             let callback = move |progress: search::SearchProgress| {
                 let _ = app.emit("ai-move-progress", build_progress_payload(&progress));
             };
-            SearchRunOptions::with_level(get_level(level), SELECTIVITY)
+            SearchRunOptions::with_level(get_level(level))
                 .multi_pv(true)
                 .callback(callback)
         },
@@ -394,8 +386,9 @@ async fn solver_search_command(
         state.search.clone(),
         board_string,
         move || {
-            let selectivity = Selectivity::from_u8(target_selectivity);
-            let level = solver_level(selectivity);
+            let target =
+                reversi_core::level::Level::ENDGAME_SELECTIVITY[target_selectivity as usize];
+            let level = solver_level(target);
             let callback = move |progress: search::SearchProgress| {
                 let _ = app.emit(
                     "solver-progress",
@@ -405,7 +398,7 @@ async fn solver_search_command(
                     },
                 );
             };
-            SearchRunOptions::with_level(level, selectivity)
+            SearchRunOptions::with_level(level)
                 .multi_pv(multi_pv)
                 .callback(callback)
         },
@@ -433,7 +426,7 @@ async fn analyze_game_command(
         let initial = board::Board::from_string(&board_string, Disc::Black)
             .map_err(|e| format!("Invalid board string: {e}"))?;
         let moves = decode_game_analysis_moves(moves)?;
-        let options = SearchRunOptions::with_level(get_level(level), SELECTIVITY);
+        let options = SearchRunOptions::with_level(get_level(level));
 
         game_analysis::analyze_game(
             initial,

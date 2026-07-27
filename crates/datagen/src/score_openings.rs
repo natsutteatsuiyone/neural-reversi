@@ -10,7 +10,6 @@ use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level::Level;
 use reversi_core::move_list::MoveList;
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
@@ -26,13 +25,7 @@ use crate::record::{self, GameRecord, read_records_from_file, write_records_to_f
 ///
 /// Duplicate positions (reached via different move orders) are eliminated in memory.
 /// If the output file already exists, previously scored positions are loaded and skipped.
-pub fn execute(
-    depth: u8,
-    hash_size: usize,
-    level: Level,
-    selectivity: Selectivity,
-    output: &str,
-) -> io::Result<()> {
+pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::Result<()> {
     if let Some(parent) = Path::new(output).parent() {
         fs::create_dir_all(parent)?;
     }
@@ -63,7 +56,7 @@ pub fn execute(
 
     let options = SearchOptions::new(hash_size);
     let mut search = search::Search::new(&options);
-    let run_options = SearchRunOptions::with_level(level, selectivity);
+    let run_options = SearchRunOptions::with_level(level);
 
     let total = positions.len();
     let already_scored = scored.len();

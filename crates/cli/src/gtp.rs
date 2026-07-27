@@ -11,7 +11,6 @@
 use reversi_core::{
     disc::Disc,
     level::{MAX_LEVEL, get_level},
-    probcut::Selectivity,
     search::{self, SearchRunOptions, time_control::TimeControlMode},
     square::Square,
 };
@@ -235,8 +234,6 @@ pub struct GtpEngine {
     search: search::Search,
     /// Current playing strength level (1-20)
     level: usize,
-    /// Search selectivity setting
-    selectivity: Selectivity,
     /// Engine name reported to GTP clients
     name: String,
     /// Engine version reported to GTP clients
@@ -270,7 +267,6 @@ impl GtpEngine {
             game: GameState::new(),
             search: search::Search::new(&config.search_options()),
             level: config.level,
-            selectivity: config.selectivity,
             name: "Neural Reversi".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             time_control: TimeControlMode::Infinite,
@@ -601,9 +597,9 @@ impl GtpEngine {
         let options = match time_control {
             TimeControlMode::Infinite => {
                 let level_idx = self.level.min(MAX_LEVEL);
-                SearchRunOptions::with_level(get_level(level_idx), self.selectivity)
+                SearchRunOptions::with_level(get_level(level_idx))
             }
-            mode => SearchRunOptions::with_time(mode, self.selectivity),
+            mode => SearchRunOptions::with_time(mode),
         };
         let result = self.search.run(self.game.board(), &options);
 

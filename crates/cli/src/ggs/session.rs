@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::square::Square;
 
@@ -36,7 +35,6 @@ pub enum SessionAction {
         match_id: String,
         board: Board,
         search_limit: SearchLimit,
-        selectivity: Selectivity,
     },
     /// Informational; the caller typically prints this to stderr prefixed with `[ggs]`.
     Log(String),
@@ -73,7 +71,6 @@ struct PendingAccept {
 pub struct Session {
     my_username: String,
     level: usize,
-    selectivity: Selectivity,
     current_match: Option<ActiveMatch>,
     /// Match id for which we have either sent `tell /os accept` or seen our
     /// own outgoing ask echoed back, but not yet seen the corresponding
@@ -90,11 +87,10 @@ pub struct Session {
 
 impl Session {
     /// Creates a new session. Infallible.
-    pub fn new(my_username: String, level: usize, selectivity: Selectivity) -> Self {
+    pub fn new(my_username: String, level: usize) -> Self {
         Self {
             my_username,
             level,
-            selectivity,
             current_match: None,
             pending_accept: None,
         }
@@ -371,7 +367,6 @@ impl Session {
             match_id: id,
             board,
             search_limit,
-            selectivity: self.selectivity,
         }]
     }
 
@@ -516,7 +511,7 @@ mod tests {
     use super::*;
 
     fn new_session() -> Session {
-        Session::new("alice".to_string(), 21, Selectivity::from_u8(0))
+        Session::new("alice".to_string(), 21)
     }
 
     fn match_created(id: &str, opponent: Option<&str>) -> OsEvent {

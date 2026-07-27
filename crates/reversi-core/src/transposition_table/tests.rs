@@ -213,7 +213,7 @@ mod tt_entry_data {
         assert_eq!(data.score(), ScaledScore::ZERO);
         assert_eq!(data.best_move(), Square::A1);
         assert_eq!(data.depth(), 0);
-        assert_eq!(data.selectivity(), Selectivity::Level1);
+        assert_eq!(data.selectivity(), Selectivity::Mid);
         assert_eq!(data.generation(), 0);
         assert!(!data.is_endgame());
     }

@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level::Level;
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
@@ -21,7 +20,7 @@ fn score(result: &SearchResult) -> i32 {
 fn assert_parallel_solve(board_str: &str, side: Disc, n_threads: usize, expected: i32) {
     let mut search = Search::new(&SearchOptions::default().with_threads(Some(n_threads)));
     let board = Board::from_string(board_str, side).unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
     assert_eq!(score(&result), expected, "threads={n_threads}");
 }
@@ -46,7 +45,7 @@ fn parallel_solve_matches_single_threaded() {
 fn parallel_solve_reused_search_instance_is_consistent() {
     let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
     let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
 
     // The second run hits a warm transposition table.
     for run in 0..2 {
@@ -59,12 +58,9 @@ fn parallel_solve_reused_search_instance_is_consistent() {
 fn timed_search_terminates_within_deadline_margin() {
     let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
     let board = Board::new();
-    let options = SearchRunOptions::with_time(
-        TimeControlMode::Byoyomi {
-            time_per_move_ms: 500,
-        },
-        Selectivity::None,
-    );
+    let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
+        time_per_move_ms: 500,
+    });
 
     let start = Instant::now();
     let result = search.run(&board, &options);
@@ -80,13 +76,13 @@ fn timed_search_terminates_within_deadline_margin() {
 }
 
 /// Full-width midgame search must return the same score for any thread count:
-/// with selectivity off, LMR and ProbCut are disabled, and aspiration windows
+/// with ProbCut disabled, LMR is disabled too, and aspiration windows
 /// re-search until the score is strictly inside the window, so the root score
 /// at the final depth is the exact minimax value.
 #[test]
 fn parallel_midgame_score_matches_single_threaded() {
     let level = Level::uniform(8, 0);
-    let options = SearchRunOptions::with_level(level, Selectivity::None);
+    let options = SearchRunOptions::with_level(level).disable_probcut();
     let board = Board::new();
 
     let mut single = Search::new(&SearchOptions::default().with_threads(Some(1)));
@@ -113,7 +109,7 @@ fn manual_abort_stops_deep_solve_promptly() {
     let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
     let pool = search.thread_pool();
     let board = Board::new();
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
 
     let aborter = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(150));
@@ -137,7 +133,7 @@ fn repeated_pool_create_solve_drop_is_clean() {
     for run in 0..3 {
         let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
         let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
-        let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+        let options = SearchRunOptions::with_level(Level::perfect());
         let result = search.run(&board, &options);
         assert_eq!(score(&result), 8, "run={run}");
     }
@@ -148,7 +144,7 @@ fn repeated_pool_create_solve_drop_is_clean() {
 #[test]
 fn concurrent_engines_from_shared_resources_solve_correctly() {
     let shared = SearchSharedResources::new(&SearchOptions::default().with_threads(Some(2)));
-    let options = SearchRunOptions::with_level(Level::perfect(), Selectivity::None);
+    let options = SearchRunOptions::with_level(Level::perfect());
 
     std::thread::scope(|s| {
         let first = s.spawn(|| {

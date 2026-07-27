@@ -22,7 +22,6 @@ use reversi_core::{
     disc::Disc,
     eval::{Eval, EvalMode},
     level::Level,
-    probcut::Selectivity,
     search::{
         Search, SearchRunOptions,
         options::SearchOptions,
@@ -46,9 +45,6 @@ const MAX_ENDGAME_SEARCH_DEPTH: Depth = 12;
 
 /// Minimum depth difference between shallow and deep search
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
-
-/// Search selectivity level
-const SELECTIVITY: Selectivity = Selectivity::None;
 
 /// Starting ply for endgame ProbCut analysis
 const ENDGAME_START_PLY: u32 = 30;
@@ -161,8 +157,9 @@ fn depth_scores(
                 eval.evaluate_simple(board, eval_mode).to_disc_diff_f32()
             } else {
                 let level = Level::with_depths(depth, [depth; 4]);
-                let run_options =
-                    SearchRunOptions::with_level(level, SELECTIVITY).with_eval_mode(eval_mode);
+                let run_options = SearchRunOptions::with_level(level)
+                    .disable_probcut()
+                    .with_eval_mode(eval_mode);
                 search
                     .run(board, &run_options)
                     .score()

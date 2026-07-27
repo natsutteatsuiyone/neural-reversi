@@ -18,15 +18,18 @@ use crate::types::ScaledScore;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {
-    /// Most aggressive: 73% confidence (t=1.1)
+    /// Midgame-only level: 58% confidence (t=0.8). Never part of the
+    /// endgame selectivity ladder.
+    Mid = 0,
+    /// Most aggressive endgame-ladder level: 73% confidence (t=1.1)
     #[default]
-    Level1 = 0,
+    Level1 = 1,
     /// 95% confidence (t=2.0)
-    Level2 = 1,
+    Level2 = 2,
     /// Most conservative: 99% confidence (t=3.3)
-    Level3 = 2,
+    Level3 = 3,
     /// ProbCut disabled.
-    None = 3,
+    None = 4,
 }
 
 impl Selectivity {
@@ -34,6 +37,7 @@ impl Selectivity {
     #[inline]
     pub fn t_value(self) -> f64 {
         match self {
+            Selectivity::Mid => 0.8,
             Selectivity::Level1 => 1.1,
             Selectivity::Level2 => 2.0,
             Selectivity::Level3 => 3.3,
@@ -45,6 +49,7 @@ impl Selectivity {
     #[inline]
     pub fn probability(self) -> i32 {
         match self {
+            Selectivity::Mid => 58,
             Selectivity::Level1 => 73,
             Selectivity::Level2 => 95,
             Selectivity::Level3 => 99,
@@ -60,13 +65,14 @@ impl Selectivity {
 
     /// Creates a [`Selectivity`] from a [`u8`] value, clamping to valid range.
     ///
-    /// Values > 3 are clamped to [`Selectivity::None`].
+    /// Values > 4 are clamped to [`Selectivity::None`].
     #[inline]
     pub fn from_u8(value: u8) -> Self {
         match value {
-            0 => Selectivity::Level1,
-            1 => Selectivity::Level2,
-            2 => Selectivity::Level3,
+            0 => Selectivity::Mid,
+            1 => Selectivity::Level1,
+            2 => Selectivity::Level2,
+            3 => Selectivity::Level3,
             _ => Selectivity::None,
         }
     }
@@ -754,17 +760,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_u8_maps_to_the_four_supported_selectivities() {
-        assert_eq!(Selectivity::from_u8(0), Selectivity::Level1);
-        assert_eq!(Selectivity::from_u8(1), Selectivity::Level2);
-        assert_eq!(Selectivity::from_u8(2), Selectivity::Level3);
-        assert_eq!(Selectivity::from_u8(3), Selectivity::None);
+    fn from_u8_maps_to_the_five_supported_selectivities() {
+        assert_eq!(Selectivity::from_u8(0), Selectivity::Mid);
+        assert_eq!(Selectivity::from_u8(1), Selectivity::Level1);
+        assert_eq!(Selectivity::from_u8(2), Selectivity::Level2);
+        assert_eq!(Selectivity::from_u8(3), Selectivity::Level3);
         assert_eq!(Selectivity::from_u8(4), Selectivity::None);
+        assert_eq!(Selectivity::from_u8(5), Selectivity::None);
     }
 
     #[test]
     fn selectivity_orders_from_aggressive_to_disabled() {
         // The derived ordering is load-bearing for TT cutoff/replacement decisions.
+        assert!(Selectivity::Mid < Selectivity::Level1);
         assert!(Selectivity::Level1 < Selectivity::Level2);
         assert!(Selectivity::Level2 < Selectivity::Level3);
         assert!(Selectivity::Level3 < Selectivity::None);

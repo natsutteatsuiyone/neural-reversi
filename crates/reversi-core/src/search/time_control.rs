@@ -136,6 +136,7 @@ fn endgame_continue_factor(current_selectivity: Selectivity) -> f64 {
         Selectivity::Level2 => ENDGAME_LEVEL2_CONTINUE_FACTOR,
         Selectivity::Level3 => ENDGAME_LEVEL3_CONTINUE_FACTOR,
         Selectivity::None => f64::INFINITY,
+        Selectivity::Mid => unreachable!("Mid is midgame-only and never enters the endgame ladder"),
     }
 }
 

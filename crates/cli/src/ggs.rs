@@ -17,7 +17,6 @@ use std::thread;
 use std::time::Duration;
 
 use reversi_core::level::{MAX_LEVEL, get_level};
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::{self, SearchRunOptions, options::SearchOptions};
 
 use crate::config::EngineConfig;
@@ -118,7 +117,7 @@ pub fn run_ggs(
             .map_err(|e| format!("script send failed: {e}"))?;
     }
 
-    let mut session = session::Session::new(user.to_string(), config.level, config.selectivity);
+    let mut session = session::Session::new(user.to_string(), config.level);
     let mut accumulator = connection::LineAccumulator::new();
 
     loop {
@@ -190,7 +189,6 @@ fn apply_action(
             match_id,
             board,
             search_limit,
-            selectivity,
         } => {
             let search_pool = Arc::clone(search_pool);
             let tx = event_tx.clone();
@@ -202,7 +200,7 @@ fn apply_action(
                 // the main loop.
                 let mut search = search_pool.acquire();
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let options = build_search_run_options(search_limit, selectivity);
+                    let options = build_search_run_options(search_limit);
                     search.search_mut().run(&board, &options)
                 }));
                 match result {
@@ -226,16 +224,11 @@ fn apply_action(
     Ok(())
 }
 
-fn build_search_run_options(
-    search_limit: session::SearchLimit,
-    selectivity: Selectivity,
-) -> SearchRunOptions {
+fn build_search_run_options(search_limit: session::SearchLimit) -> SearchRunOptions {
     match search_limit {
-        session::SearchLimit::Time(time_mode) => {
-            SearchRunOptions::with_time(time_mode, selectivity)
-        }
+        session::SearchLimit::Time(time_mode) => SearchRunOptions::with_time(time_mode),
         session::SearchLimit::Level { level } => {
-            SearchRunOptions::with_level(get_level(level.min(MAX_LEVEL)), selectivity)
+            SearchRunOptions::with_level(get_level(level.min(MAX_LEVEL)))
         }
     }
 }

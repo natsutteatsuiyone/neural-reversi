@@ -6,7 +6,6 @@ use std::sync::Arc;
 use crate::constants::MAX_THREADS;
 use crate::eval::EvalMode;
 use crate::level::Level;
-use crate::probcut::Selectivity;
 
 use super::SearchProgressCallback;
 use super::time_control::TimeControlMode;
@@ -79,35 +78,43 @@ pub enum SearchConstraint {
 /// Options for a single search run.
 pub struct SearchRunOptions {
     pub constraint: SearchConstraint,
-    pub selectivity: Selectivity,
     pub multi_pv: bool,
     pub callback: Option<Arc<SearchProgressCallback>>,
     pub eval_mode: Option<EvalMode>,
+    pub probcut_disabled: bool,
 }
 
 impl SearchRunOptions {
     /// Creates search run options with a level constraint.
     #[must_use]
-    pub fn with_level(level: Level, selectivity: Selectivity) -> Self {
+    pub fn with_level(level: Level) -> Self {
         SearchRunOptions {
             constraint: SearchConstraint::Level(level),
-            selectivity,
             multi_pv: false,
             callback: None,
             eval_mode: None,
+            probcut_disabled: false,
         }
     }
 
     /// Creates search run options with a time constraint.
     #[must_use]
-    pub fn with_time(mode: TimeControlMode, selectivity: Selectivity) -> Self {
+    pub fn with_time(mode: TimeControlMode) -> Self {
         SearchRunOptions {
             constraint: SearchConstraint::Time(mode),
-            selectivity,
             multi_pv: false,
             callback: None,
             eval_mode: None,
+            probcut_disabled: false,
         }
+    }
+
+    /// Disables midgame ProbCut pruning and the reductions gated on it,
+    /// yielding unpruned midgame scores for data generation.
+    #[must_use]
+    pub fn disable_probcut(mut self) -> Self {
+        self.probcut_disabled = true;
+        self
     }
 
     /// Enables multi-PV mode.
@@ -169,15 +176,21 @@ mod tests {
 
     #[test]
     fn run_options_with_level_sets_a_level_constraint() {
-        let opts = SearchRunOptions::with_level(Level::unlimited(), Selectivity::Level2);
+        let opts = SearchRunOptions::with_level(Level::unlimited());
         assert!(matches!(opts.constraint, SearchConstraint::Level(_)));
-        assert_eq!(opts.selectivity, Selectivity::Level2);
+        assert!(!opts.probcut_disabled);
     }
 
     #[test]
     fn run_options_with_time_sets_a_time_constraint() {
-        let opts = SearchRunOptions::with_time(TimeControlMode::Infinite, Selectivity::None);
+        let opts = SearchRunOptions::with_time(TimeControlMode::Infinite);
         assert!(matches!(opts.constraint, SearchConstraint::Time(_)));
-        assert_eq!(opts.selectivity, Selectivity::None);
+        assert!(!opts.probcut_disabled);
+    }
+
+    #[test]
+    fn disable_probcut_sets_the_flag() {
+        let opts = SearchRunOptions::with_level(Level::unlimited()).disable_probcut();
+        assert!(opts.probcut_disabled);
     }
 }

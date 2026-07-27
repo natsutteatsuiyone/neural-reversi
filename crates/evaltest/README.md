@@ -7,7 +7,6 @@ Evaluation test suite runner for measuring the endgame search performance of Rev
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--depth` or `-d` | Maximum search depth in plies | 60 |
-| `--selectivity` | Search selectivity level: 0: 73% (fastest, less accurate) 1: 95% 2: 99% 3: 100% (complete search) | 0 |
 | `--hash-size` | Transposition table size in MB | 1024 |
 | `--threads` | Number of parallel search threads | System default |
 | `--problem` | Problem set to run: preset name or `.obf` file path. Repeatable. | All `.obf` files in problem directory |
@@ -47,12 +46,6 @@ cargo run -p evaltest --release
 
 ```bash
 cargo run -p evaltest --release -- --depth 20 --hash-size 2048
-```
-
-### Run with complete search (no selectivity)
-
-```bash
-cargo run -p evaltest --release -- --selectivity 3
 ```
 
 ### Run a specific preset

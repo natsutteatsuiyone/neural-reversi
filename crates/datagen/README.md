@@ -13,13 +13,13 @@ Generates game data through AI self-play for neural network training. The self-p
 - Each position is recorded with evaluation scores and game outcome information
 
 ```bash
-datagen selfplay --games 100000 --hash-size 128 --mid-depth 12 --end-depth 21 --selectivity 0 --prefix game --output-dir ./data
+datagen selfplay --games 100000 --hash-size 128 --mid-depth 12 --end-depth 21 --prefix game --output-dir ./data
 ```
 
 To use predefined openings:
 
 ```bash
-datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12 --end-depth 21 --selectivity 0 --prefix game --output-dir ./data
+datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12 --end-depth 21 --prefix game --output-dir ./data
 ```
 
 #### Options
@@ -29,7 +29,6 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12
 - `--hash-size`: Transposition table size in MB for the search algorithm (default: 512).
 - `--mid-depth`: Midgame search depth (1-60; default: 12).
 - `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,None) (default: 21).
-- `--selectivity`: Search selectivity parameter controlling move pruning (0: 73%, 1: 95%, 2: 99%, 3: 100%; default: 0).
 - `--prefix`: Output file prefix for generated data files (default: machine hostname).
 - `--output-dir`: Required output directory where game data will be stored.
 - `--openings`: Optional path to a file containing opening sequences. If provided, selfplay will iterate through these openings instead of generating a set number of games.
@@ -140,7 +139,7 @@ Filtering is applied while reading the serialized records, so large datasets can
 Enumerates every unique board position reachable within a given number of plies from the initial position and scores each one with the search algorithm. Symmetric positions are canonicalized via board uniqueness, so each equivalence class is evaluated only once. If the output file already exists, previously scored positions are loaded and skipped so the command can be resumed.
 
 ```bash
-datagen score-openings --depth 9 --mid-depth 16 --end-depth 24 --selectivity 0 --hash-size 512 --output ./openings_scored.bin
+datagen score-openings --depth 9 --mid-depth 16 --end-depth 24 --hash-size 512 --output ./openings_scored.bin
 ```
 
 #### Options
@@ -149,7 +148,6 @@ datagen score-openings --depth 9 --mid-depth 16 --end-depth 24 --selectivity 0 -
 - `--hash-size`: Transposition table size in MB (default: 512).
 - `--mid-depth`: Midgame search depth (1-60, default: 16).
 - `--end-depth`: Endgame search depth. Single value for all selectivities, or 4 comma-separated values for per-selectivity configuration (Level1,Level2,Level3,None) (default: 24).
-- `--selectivity`: Search selectivity parameter (0: 73%, 1: 95%, 2: 99%, 3: 100%) (default: 0).
 - `--output`: Output file path where scored positions are written.
 
 #### Data format

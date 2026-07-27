@@ -10,7 +10,6 @@ use reversi_core::{
     disc::Disc,
     level::{Level, get_level},
     obf::ObfPosition,
-    probcut::Selectivity,
     search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
 };
@@ -67,7 +66,6 @@ pub fn solve(
             pos.board,
             pos.side_to_move,
             level_config,
-            config.selectivity,
             line_num + 1,
             all_moves,
         );
@@ -173,7 +171,6 @@ fn solve_position(
     board: Board,
     side_to_move: Disc,
     level: Level,
-    selectivity: Selectivity,
     position_num: usize,
     all_moves: bool,
 ) -> (Duration, u64) {
@@ -206,7 +203,7 @@ fn solve_position(
 
     search.init();
     let start_time = Instant::now();
-    let options = SearchRunOptions::with_level(level, selectivity).multi_pv(all_moves);
+    let options = SearchRunOptions::with_level(level).multi_pv(all_moves);
     let result = search.run(&search_board, &options);
     let elapsed = start_time.elapsed();
 

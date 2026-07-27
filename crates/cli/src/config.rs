@@ -2,7 +2,6 @@
 
 use std::path::PathBuf;
 
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 
 /// Engine parameters resolved from CLI arguments.
@@ -12,7 +11,6 @@ use reversi_core::search::options::SearchOptions;
 pub struct EngineConfig {
     pub hash_size: usize,
     pub level: usize,
-    pub selectivity: Selectivity,
     pub threads: Option<usize>,
     pub eval_file: Option<PathBuf>,
     pub eval_sm_file: Option<PathBuf>,

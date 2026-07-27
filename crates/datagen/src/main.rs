@@ -8,7 +8,6 @@ mod shuffle;
 
 use clap::{Parser, Subcommand};
 use reversi_core::level::Level;
-use reversi_core::probcut::Selectivity;
 use reversi_core::types::Depth;
 
 use crate::shuffle::FilterConfig;
@@ -38,9 +37,6 @@ enum SubCommands {
         #[arg(long, default_value = "21", value_parser = parse_end_depth,
             help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values (Level1,Level2,Level3,None)")]
         end_depth: [Depth; 4],
-
-        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=3))]
-        selectivity: u8,
 
         #[arg(long, help = "Output file prefix [default: hostname]")]
         prefix: Option<String>,
@@ -131,9 +127,6 @@ enum SubCommands {
             help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values")]
         end_depth: [Depth; 4],
 
-        #[arg(long, default_value = "0", value_parser = clap::value_parser!(u8).range(0..=3))]
-        selectivity: u8,
-
         #[arg(short, long)]
         output: String,
     },
@@ -193,7 +186,6 @@ fn main() {
             hash_size,
             mid_depth,
             end_depth,
-            selectivity,
             prefix,
             output_dir,
             openings,
@@ -209,7 +201,6 @@ fn main() {
                     games_per_file,
                     hash_size,
                     level,
-                    Selectivity::from_u8(selectivity),
                     &prefix,
                     &output_dir,
                 )
@@ -220,7 +211,6 @@ fn main() {
                     games_per_file,
                     hash_size,
                     level,
-                    Selectivity::from_u8(selectivity),
                     &prefix,
                     &output_dir,
                 )
@@ -276,18 +266,11 @@ fn main() {
             hash_size,
             mid_depth,
             end_depth,
-            selectivity,
             output,
         } => {
             let level = Level::with_depths(mid_depth, end_depth);
-            score_openings::execute(
-                depth,
-                hash_size,
-                level,
-                Selectivity::from_u8(selectivity),
-                &output,
-            )
-            .expect("Failed to execute score-openings");
+            score_openings::execute(depth, hash_size, level, &output)
+                .expect("Failed to execute score-openings");
         }
         SubCommands::OverwriteScores {
             source,

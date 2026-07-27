@@ -7,7 +7,6 @@ use colored::Colorize;
 
 use reversi_core::disc::Disc;
 use reversi_core::game_state::GameState;
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{Search, SearchProgress, SearchRunOptions};
@@ -244,7 +243,6 @@ fn main() {
     let options = SearchOptions::new(args.hash_size);
     let mut black_search = Search::new(&options);
     let mut white_search = Search::new(&options);
-    let selectivity = Selectivity::Level1;
 
     let mut stats = GameStats::default();
 
@@ -259,7 +257,6 @@ fn main() {
         let result = play_game(
             &mut black_search,
             &mut white_search,
-            selectivity,
             &args,
             game_num,
             &mut stats,
@@ -317,7 +314,6 @@ enum GameResult {
 fn play_game(
     black_search: &mut Search,
     white_search: &mut Search,
-    selectivity: Selectivity,
     args: &Args,
     _game_num: u32,
     stats: &mut GameStats,
@@ -421,9 +417,9 @@ fn play_game(
             // Run search with time control
             let start = Instant::now();
             let options = if let Some(cb) = callback {
-                SearchRunOptions::with_time(time_control, selectivity).callback(cb)
+                SearchRunOptions::with_time(time_control).callback(cb)
             } else {
-                SearchRunOptions::with_time(time_control, selectivity)
+                SearchRunOptions::with_time(time_control)
             };
             let result = search.run(board, &options);
             let elapsed_ms = start.elapsed().as_millis() as u64;

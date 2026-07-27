@@ -77,8 +77,10 @@ pub struct SearchSharedResources {
 pub struct SearchTask {
     /// Board position to search.
     pub board: Board,
-    /// Selectivity level controlling ProbCut pruning aggressiveness.
-    pub selectivity: Selectivity,
+    /// Midgame selectivity: [`Selectivity::Mid`] normally, [`Selectivity::None`]
+    /// when ProbCut is disabled. The endgame driver uses its own selectivity
+    /// ladder and ignores this value.
+    pub mid_selectivity: Selectivity,
     /// Shared transposition table.
     pub tt: Arc<TranspositionTable>,
     /// Shared thread pool for parallel search.
@@ -207,7 +209,11 @@ impl Search {
 
         let task = SearchTask {
             board: *board,
-            selectivity: options.selectivity,
+            mid_selectivity: if options.probcut_disabled {
+                Selectivity::None
+            } else {
+                Selectivity::Mid
+            },
             tt: self.tt.clone(),
             pool: self.threads.clone(),
             eval: self.eval.clone(),
