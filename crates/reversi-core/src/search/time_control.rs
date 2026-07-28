@@ -116,15 +116,6 @@ fn calculate_remaining_factor_sum(n_empties: u32) -> f64 {
     sum
 }
 
-/// Returns the default minimum time percentage based on game phase.
-fn default_min_percent(is_endgame: bool) -> u64 {
-    if is_endgame {
-        MIN_PERCENT_ENDGAME
-    } else {
-        MIN_PERCENT_NORMAL
-    }
-}
-
 /// Returns the budget for a single endgame solve attempt in bank modes.
 fn endgame_bank_budget(hard_limit: u64) -> u64 {
     (hard_limit * ENDGAME_BANK_PERCENT) / 100
@@ -197,9 +188,6 @@ pub struct TimeManager {
     /// Previous iteration's score (f32 bits; NO_SCORE_BITS when unset).
     prev_iter_score: AtomicU32,
 
-    /// Latest falling-eval factor (f64 bits), recomputed each iteration.
-    falling_factor: AtomicU64,
-
     /// Number of empty squares at search start (for estimating remaining moves).
     n_empties: u32,
 
@@ -240,7 +228,6 @@ impl TimeManager {
             hard_time_limit_ms: AtomicU64::new(hard_ms),
             abort_state,
             prev_iter_score: AtomicU32::new(NO_SCORE_BITS),
-            falling_factor: AtomicU64::new(1f64.to_bits()),
             n_empties,
             is_endgame_mode: AtomicBool::new(false),
             pv_instability: AtomicU64::new(0f64.to_bits()),
@@ -263,7 +250,11 @@ impl TimeManager {
         match mode {
             TimeControlMode::Infinite => (u64::MAX, u64::MAX),
 
-            TimeControlMode::Byoyomi { time_per_move_ms } => {
+            TimeControlMode::Byoyomi { time_per_move_ms }
+            | TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms,
+            } => {
                 let available = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
                 (available, available)
             }
@@ -292,22 +283,14 @@ impl TimeManager {
                 (base.min(hard), hard)
             }
 
-            TimeControlMode::JapaneseByo {
-                main_time_ms,
-                time_per_move_ms,
-            } => {
-                if main_time_ms == 0 {
-                    let available = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
-                    (available, available)
+            TimeControlMode::JapaneseByo { main_time_ms, .. } => {
+                let hard = Self::calculate_safe_time(main_time_ms, n_empties);
+                let base = if is_endgame {
+                    endgame_bank_budget(hard)
                 } else {
-                    let hard = Self::calculate_safe_time(main_time_ms, n_empties);
-                    let base = if is_endgame {
-                        endgame_bank_budget(hard)
-                    } else {
-                        Self::allocate_budget(main_time_ms, 0, n_empties)
-                    };
-                    (base.min(hard), hard)
-                }
+                    Self::allocate_budget(main_time_ms, 0, n_empties)
+                };
+                (base.min(hard), hard)
             }
         }
     }
@@ -316,8 +299,8 @@ impl TimeManager {
     fn initial_optimum(mode: TimeControlMode, base_ms: u64, hard_ms: u64) -> u64 {
         match mode {
             TimeControlMode::Infinite => u64::MAX,
-            TimeControlMode::Byoyomi { .. } => base_ms * BYOYOMI_MAX_PERCENT / 100,
-            TimeControlMode::JapaneseByo {
+            TimeControlMode::Byoyomi { .. }
+            | TimeControlMode::JapaneseByo {
                 main_time_ms: 0, ..
             } => base_ms * BYOYOMI_MAX_PERCENT / 100,
             _ => base_ms.min(hard_ms),
@@ -348,7 +331,7 @@ impl TimeManager {
     ///
     /// Must be called only from the search's main thread; other threads may
     /// only read.
-    pub fn report_iteration(
+    pub(crate) fn report_iteration(
         &self,
         sq: Square,
         current_score: f32,
@@ -379,16 +362,14 @@ impl TimeManager {
         let prev_iter_bits = self
             .prev_iter_score
             .swap(current_score.to_bits(), Ordering::Relaxed);
-        let reference = (prev_iter_bits != NO_SCORE_BITS).then(|| f32::from_bits(prev_iter_bits));
-
-        let falling = reference.map_or(1.0, |reference| {
-            let drop = f64::from(reference - current_score);
+        let falling = if prev_iter_bits == NO_SCORE_BITS {
+            1.0
+        } else {
+            let drop = f64::from(f32::from_bits(prev_iter_bits) - current_score);
             (drop / FALLING_DIVISOR + 1.0).clamp(FALLING_MIN, FALLING_MAX)
-        });
-        self.falling_factor
-            .store(falling.to_bits(), Ordering::Relaxed);
+        };
 
-        self.recompute_optimum();
+        self.recompute_optimum(falling);
 
         if is_debug_enabled() {
             eprintln!(
@@ -401,40 +382,36 @@ impl TimeManager {
                 f64::from_bits(self.pv_instability.load(Ordering::Relaxed)),
                 falling,
                 self.is_easy_move(),
-                self.optimum_time_ms.load(Ordering::Relaxed),
+                self.maxi_time_ms(),
             );
         }
     }
 
     /// Returns the elapsed time in milliseconds since search started.
     #[inline]
-    pub fn elapsed_ms(&self) -> u64 {
+    fn elapsed_ms(&self) -> u64 {
         self.start_time.elapsed().as_millis() as u64
     }
 
     /// Checks whether the search has exceeded the current optimum time.
     #[inline]
-    pub fn is_time_up(&self) -> bool {
+    fn is_time_up(&self) -> bool {
         if self.mode == TimeControlMode::Infinite {
             return false;
         }
-        self.elapsed_ms() >= self.optimum_time_ms.load(Ordering::Relaxed)
+        self.elapsed_ms() >= self.maxi_time_ms()
     }
 
     /// Returns true when the continuous scaling model applies (bank modes and
     /// Japanese byoyomi main time).
-    fn uses_continuous_scaling(&self) -> bool {
-        self.mode != TimeControlMode::Infinite && !self.is_single_move_time()
-    }
-
-    /// Returns true when the allocation is scoped to this move only (pure byoyomi).
     ///
-    /// Unused time cannot be banked in these modes, so stopping early has no value.
-    fn is_single_move_time(&self) -> bool {
+    /// Pure byoyomi is excluded: unused time cannot be banked, so stopping
+    /// early has no value.
+    fn uses_continuous_scaling(&self) -> bool {
         match self.mode {
-            TimeControlMode::Byoyomi { .. } => true,
-            TimeControlMode::JapaneseByo { main_time_ms, .. } => main_time_ms == 0,
-            _ => false,
+            TimeControlMode::Infinite | TimeControlMode::Byoyomi { .. } => false,
+            TimeControlMode::JapaneseByo { main_time_ms, .. } => main_time_ms > 0,
+            _ => true,
         }
     }
 
@@ -444,7 +421,8 @@ impl TimeManager {
             TimeControlMode::JapaneseByo { main_time_ms, .. } if main_time_ms > 0 => {
                 JP_BYO_MAIN_MIN_PERCENT
             }
-            _ => default_min_percent(self.is_endgame_mode.load(Ordering::Relaxed)),
+            _ if self.is_endgame_mode.load(Ordering::Relaxed) => MIN_PERCENT_ENDGAME,
+            _ => MIN_PERCENT_NORMAL,
         }
     }
 
@@ -466,9 +444,7 @@ impl TimeManager {
     }
 
     /// Upper cap for the scaled optimum, before the hard limit.
-    fn mode_cap(&self, falling: f64) -> u64 {
-        let base = self.base_time_ms.load(Ordering::Relaxed);
-        let hard = self.hard_time_limit_ms.load(Ordering::Relaxed);
+    fn mode_cap(&self, base: u64, hard: u64, falling: f64) -> u64 {
         let reserve_target =
             base.saturating_add(hard.saturating_sub(base) / EXTENSION_RESERVE_DIVISOR);
 
@@ -489,53 +465,28 @@ impl TimeManager {
     }
 
     /// Recomputes the optimum from the current scaling factors.
-    fn recompute_optimum(&self) {
+    fn recompute_optimum(&self, falling: f64) {
         if !self.uses_continuous_scaling() {
             return;
         }
         let base = self.base_time_ms.load(Ordering::Relaxed);
         let hard = self.hard_time_limit_ms.load(Ordering::Relaxed);
         let inst = f64::from_bits(self.pv_instability.load(Ordering::Relaxed));
-        let falling = f64::from_bits(self.falling_factor.load(Ordering::Relaxed));
         let instability_factor = INSTABILITY_WEIGHT.mul_add(inst, 1.0);
 
         let optimum = (base as f64 * self.stability_scale() * instability_factor * falling) as u64;
-        let capped = optimum.min(self.mode_cap(falling)).min(hard);
+        let capped = optimum.min(self.mode_cap(base, hard, falling)).min(hard);
         self.optimum_time_ms.store(capped, Ordering::Relaxed);
     }
 
     /// Checks whether the search should continue to the next iteration.
-    pub fn should_continue_iteration(&self) -> bool {
-        self.should_continue_iteration_with_factor(DEFAULT_CONTINUE_FACTOR)
-    }
-
-    /// Checks whether endgame search should continue to the next selectivity level.
-    pub fn should_continue_endgame_iteration(&self, current_selectivity: Selectivity) -> bool {
+    fn should_continue_iteration(&self) -> bool {
         if !self.uses_continuous_scaling() {
             return true;
         }
 
         let elapsed = self.elapsed_ms();
-        let factor = endgame_continue_factor(current_selectivity);
-        let should_continue = (elapsed as f64 * factor) < self.maxi_time_ms() as f64;
-        if !should_continue && is_debug_enabled() {
-            eprintln!(
-                "[TimeManager] Stopping endgame selectivity: selectivity={current_selectivity:?}, elapsed={}ms, factor={factor:.3}, maxi={}ms",
-                elapsed,
-                self.maxi_time_ms()
-            );
-        }
-
-        should_continue
-    }
-
-    fn should_continue_iteration_with_factor(&self, continue_factor: f64) -> bool {
-        if !self.uses_continuous_scaling() {
-            return true;
-        }
-
-        let elapsed = self.elapsed_ms();
-        let optimum = self.optimum_time_ms.load(Ordering::Relaxed);
+        let optimum = self.maxi_time_ms();
 
         // Easy moves may stop well before the min gate: the best move is stable
         // and provably ahead of every alternative.
@@ -553,10 +504,10 @@ impl TimeManager {
             return true;
         }
 
-        let should_continue = (elapsed as f64 * continue_factor) < optimum as f64;
+        let should_continue = (elapsed as f64 * DEFAULT_CONTINUE_FACTOR) < optimum as f64;
         if !should_continue && is_debug_enabled() {
             eprintln!(
-                "[TimeManager] Stopping iteration: elapsed={}ms, factor={continue_factor:.3}, optimum={}ms",
+                "[TimeManager] Stopping iteration: elapsed={}ms, factor={DEFAULT_CONTINUE_FACTOR:.3}, optimum={}ms",
                 elapsed, optimum
             );
         }
@@ -564,35 +515,43 @@ impl TimeManager {
         should_continue
     }
 
-    /// Signals the search to abort due to time-out.
-    pub fn signal_abort(&self) {
-        self.abort_state.request_abort();
-    }
+    /// Checks whether endgame search should continue to the next selectivity level.
+    fn should_continue_endgame_iteration(&self, current_selectivity: Selectivity) -> bool {
+        if !self.uses_continuous_scaling() {
+            return true;
+        }
 
-    /// Checks whether abort has been signaled.
-    #[inline]
-    pub fn is_aborted(&self) -> bool {
-        self.abort_state.is_aborted()
+        let elapsed = self.elapsed_ms();
+        let maxi = self.maxi_time_ms();
+        let factor = endgame_continue_factor(current_selectivity);
+        let should_continue = (elapsed as f64 * factor) < maxi as f64;
+        if !should_continue && is_debug_enabled() {
+            eprintln!(
+                "[TimeManager] Stopping endgame selectivity: selectivity={current_selectivity:?}, elapsed={}ms, factor={factor:.3}, maxi={}ms",
+                elapsed, maxi
+            );
+        }
+
+        should_continue
     }
 
     /// Checks whether time is up and signals abort if so.
     #[inline]
-    pub fn check_time(&self) -> bool {
-        if self.is_time_up() {
-            if !self.is_aborted() {
-                if is_debug_enabled() {
-                    eprintln!(
-                        "[TimeManager] Time up! elapsed={}ms, optimum={}ms",
-                        self.elapsed_ms(),
-                        self.optimum_time_ms.load(Ordering::Relaxed)
-                    );
-                }
-                self.signal_abort();
-            }
-            true
-        } else {
-            false
+    pub(crate) fn check_time(&self) -> bool {
+        if !self.is_time_up() {
+            return false;
         }
+        if !self.abort_state.is_aborted() {
+            if is_debug_enabled() {
+                eprintln!(
+                    "[TimeManager] Time up! elapsed={}ms, optimum={}ms",
+                    self.elapsed_ms(),
+                    self.maxi_time_ms()
+                );
+            }
+            self.abort_state.request_abort();
+        }
+        true
     }
 
     /// Returns the minimum time in milliseconds.
@@ -601,23 +560,20 @@ impl TimeManager {
         if self.mode == TimeControlMode::Infinite {
             return u64::MAX;
         }
-        self.optimum_time_ms.load(Ordering::Relaxed) * self.min_percent() / 100
+        self.maxi_time_ms() * self.min_percent() / 100
     }
 
     /// Returns the maximum (optimum) time in milliseconds.
-    pub fn maxi_time_ms(&self) -> u64 {
+    fn maxi_time_ms(&self) -> u64 {
         self.optimum_time_ms.load(Ordering::Relaxed)
     }
 
     /// Returns the deadline instant, or [`None`] for infinite mode.
-    pub fn deadline(&self) -> Option<Instant> {
+    pub(crate) fn deadline(&self) -> Option<Instant> {
         if self.mode == TimeControlMode::Infinite {
             None
         } else {
-            Some(
-                self.start_time
-                    + Duration::from_millis(self.optimum_time_ms.load(Ordering::Relaxed)),
-            )
+            Some(self.start_time + Duration::from_millis(self.maxi_time_ms()))
         }
     }
 
@@ -629,7 +585,7 @@ impl TimeManager {
     ///
     /// Must be called only from the search's main thread; other threads may
     /// only read.
-    pub fn set_endgame_mode(&self, enabled: bool) {
+    pub(crate) fn set_endgame_mode(&self, enabled: bool) {
         if self.is_endgame_mode.swap(enabled, Ordering::Relaxed) == enabled {
             return;
         }
@@ -654,7 +610,6 @@ impl TimeManager {
         self.best_move_streak.store(0, Ordering::Relaxed);
         self.prev_best_move.store(NO_PREV_MOVE, Ordering::Relaxed);
         self.window_clean.store(false, Ordering::Relaxed);
-        self.falling_factor.store(1f64.to_bits(), Ordering::Relaxed);
         self.prev_iter_score.store(NO_SCORE_BITS, Ordering::Relaxed);
     }
 }
@@ -665,22 +620,20 @@ impl TimeManager {
 /// Returns `false` if no time manager is provided (unlimited search) or there
 /// is still time remaining.
 #[inline]
-pub fn should_stop_iteration(time_manager: &Option<Arc<TimeManager>>) -> bool {
-    match time_manager {
-        Some(tm) => tm.check_time() || !tm.should_continue_iteration(),
-        None => false,
-    }
+pub(crate) fn should_stop_iteration(time_manager: &Option<Arc<TimeManager>>) -> bool {
+    time_manager
+        .as_ref()
+        .is_some_and(|tm| tm.check_time() || !tm.should_continue_iteration())
 }
 
 #[inline]
-pub fn should_stop_endgame_iteration(
+pub(crate) fn should_stop_endgame_iteration(
     time_manager: &Option<Arc<TimeManager>>,
     current_selectivity: Selectivity,
 ) -> bool {
-    match time_manager {
-        Some(tm) => tm.check_time() || !tm.should_continue_endgame_iteration(current_selectivity),
-        None => false,
-    }
+    time_manager.as_ref().is_some_and(|tm| {
+        tm.check_time() || !tm.should_continue_endgame_iteration(current_selectivity)
+    })
 }
 
 fn is_debug_enabled() -> bool {
@@ -695,22 +648,22 @@ fn is_debug_enabled() -> bool {
 mod tests {
     use super::*;
 
+    fn make_tm(mode: TimeControlMode, n_empties: u32) -> TimeManager {
+        TimeManager::new(mode, Arc::new(AbortState::new()), n_empties)
+    }
+
     fn make_fischer_tm(main_time_ms: u64, increment_ms: u64, n_empties: u32) -> TimeManager {
-        let abort = Arc::new(AbortState::new());
-        let mode = TimeControlMode::Fischer {
-            main_time_ms,
-            increment_ms,
-        };
-        TimeManager::new(mode, abort, n_empties)
+        make_tm(
+            TimeControlMode::Fischer {
+                main_time_ms,
+                increment_ms,
+            },
+            n_empties,
+        )
     }
 
     fn make_moves_to_go_tm(time_ms: u64, moves: u32, n_empties: u32) -> TimeManager {
-        let abort = Arc::new(AbortState::new());
-        TimeManager::new(
-            TimeControlMode::MovesToGo { time_ms, moves },
-            abort,
-            n_empties,
-        )
+        make_tm(TimeControlMode::MovesToGo { time_ms, moves }, n_empties)
     }
 
     fn make_japanese_byo_tm(
@@ -718,14 +671,20 @@ mod tests {
         time_per_move_ms: u64,
         n_empties: u32,
     ) -> TimeManager {
-        let abort = Arc::new(AbortState::new());
-        TimeManager::new(
+        make_tm(
             TimeControlMode::JapaneseByo {
                 main_time_ms,
                 time_per_move_ms,
             },
-            abort,
             n_empties,
+        )
+    }
+
+    fn time_limits(tm: &TimeManager) -> (u64, u64, u64) {
+        (
+            tm.mini_time_ms(),
+            tm.maxi_time_ms(),
+            tm.hard_time_limit_ms.load(Ordering::Relaxed),
         )
     }
 
@@ -745,44 +704,20 @@ mod tests {
         let zero_moves = make_moves_to_go_tm(10_000, 0, 40);
         let one_move = make_moves_to_go_tm(10_000, 1, 40);
 
-        assert_eq!(
-            (
-                zero_moves.mini_time_ms(),
-                zero_moves.maxi_time_ms(),
-                zero_moves.hard_time_limit_ms.load(Ordering::Relaxed),
-            ),
-            (
-                one_move.mini_time_ms(),
-                one_move.maxi_time_ms(),
-                one_move.hard_time_limit_ms.load(Ordering::Relaxed),
-            )
-        );
+        assert_eq!(time_limits(&zero_moves), time_limits(&one_move));
     }
 
     #[test]
     fn japanese_byo_without_main_time_matches_pure_byoyomi() {
         let tm = make_japanese_byo_tm(0, 10_000, 40);
-        let abort = Arc::new(AbortState::new());
-        let byoyomi = TimeManager::new(
+        let byoyomi = make_tm(
             TimeControlMode::Byoyomi {
                 time_per_move_ms: 10_000,
             },
-            abort,
             40,
         );
 
-        assert_eq!(
-            (
-                tm.mini_time_ms(),
-                tm.maxi_time_ms(),
-                tm.hard_time_limit_ms.load(Ordering::Relaxed),
-            ),
-            (
-                byoyomi.mini_time_ms(),
-                byoyomi.maxi_time_ms(),
-                byoyomi.hard_time_limit_ms.load(Ordering::Relaxed),
-            )
-        );
+        assert_eq!(time_limits(&tm), time_limits(&byoyomi));
         assert!(!tm.uses_continuous_scaling());
     }
 
@@ -884,11 +819,12 @@ mod tests {
 
     #[test]
     fn pure_byoyomi_continues_until_deadline() {
-        let abort = Arc::new(AbortState::new());
-        let mode = TimeControlMode::Byoyomi {
-            time_per_move_ms: 1_000,
-        };
-        let mut tm = TimeManager::new(mode, abort, 40);
+        let mut tm = make_tm(
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: 1_000,
+            },
+            40,
+        );
         // Way past any predictive-stop threshold, but before the deadline.
         tm.start_time = Instant::now() - Duration::from_millis(tm.maxi_time_ms() - 100);
 
