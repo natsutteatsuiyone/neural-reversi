@@ -29,18 +29,19 @@ pub use pvs::{LMR_DEEPER_DEPTH, LMR_MIN_DEPTH, search};
 use std::sync::Arc;
 
 use crate::board::Board;
-use crate::constants::MAX_THREADS;
+use crate::constants::{MAX_PLY, MAX_THREADS};
 use crate::eval::{Eval, EvalMode};
 use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
+use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
 use crate::search::options::{SearchOptions, available_cpus};
 use crate::search::result::SearchResult;
 use crate::search::threading::{Thread, ThreadPool};
 use crate::search::time_control::TimeManager;
 use crate::square::Square;
-use crate::transposition_table::TranspositionTable;
+use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, ScaledScore};
 
 /// Main search engine that coordinates game tree exploration.
@@ -399,6 +400,57 @@ pub(crate) fn widen_aspiration_window(
     true
 }
 
+/// Re-stores a completed principal variation into the transposition table.
+///
+/// Walks `pv` from `board`, re-inserting the forced passes that PV lines omit,
+/// and stores an exact entry wherever the table no longer holds the PV move.
+/// `score` and `depth` describe the head position and are negamax-mirrored and
+/// decremented along the line.
+pub(crate) fn store_pv_in_tt(
+    ctx: &SearchContext,
+    board: &Board,
+    pv: &[Square],
+    mut score: ScaledScore,
+    mut depth: Depth,
+    is_endgame: bool,
+) {
+    let mut board = *board;
+    let mut protected_indices = [0; MAX_PLY];
+    let mut protected_len = 0;
+
+    for &sq in pv {
+        if !board.is_legal_move(sq) {
+            board = board.switch_players();
+            score = -score;
+        }
+
+        if let Some(probe) =
+            ctx.tt
+                .probe_for_pv(&board, board.hash(), &protected_indices[..protected_len])
+        {
+            let index = probe.index();
+            if probe.best_move() != sq {
+                ctx.tt.store(
+                    index,
+                    &board,
+                    score,
+                    Bound::Exact,
+                    depth,
+                    sq,
+                    ctx.selectivity,
+                    is_endgame,
+                );
+            }
+            protected_indices[protected_len] = index;
+            protected_len += 1;
+        }
+
+        board = board.make_move(sq);
+        score = -score;
+        depth -= 1;
+    }
+}
+
 /// Dispatches to midgame or endgame search based on remaining empties.
 ///
 /// Compares the minimum endgame depth from the level configuration against the
@@ -418,9 +470,180 @@ fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
 
     fn one_thread_options() -> SearchOptions {
         SearchOptions::new(0).with_threads(Some(1))
+    }
+
+    fn pv_store_ctx(board: &Board, mb_size: usize) -> SearchContext {
+        static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
+        let eval = EVAL
+            .get_or_init(|| {
+                Arc::new(
+                    Eval::with_weight_files(None, None)
+                        .expect("embedded evaluation weights must load"),
+                )
+            })
+            .clone();
+        SearchContext::new(
+            board,
+            Selectivity::None,
+            Arc::new(TranspositionTable::new(mb_size)),
+            eval,
+        )
+    }
+
+    /// Stores an exact entry for `board` into the slot its probe selects.
+    fn seed_tt(
+        tt: &TranspositionTable,
+        board: &Board,
+        score: ScaledScore,
+        depth: Depth,
+        best_move: Square,
+    ) {
+        let probe = tt.probe(board, board.hash());
+        tt.store(
+            probe.index(),
+            board,
+            score,
+            Bound::Exact,
+            depth,
+            best_move,
+            Selectivity::None,
+            false,
+        );
+    }
+
+    #[test]
+    fn store_pv_in_tt_stores_exact_entries_with_negamax_mirroring() {
+        let board = Board::new();
+        let mut line = Vec::new();
+        let mut b = board;
+        for _ in 0..3 {
+            let sq = b.get_moves().iter().next().unwrap();
+            line.push(sq);
+            b = b.make_move(sq);
+        }
+        let ctx = pv_store_ctx(&board, 1);
+        let score = ScaledScore::from_disc_diff(4);
+
+        store_pv_in_tt(&ctx, &board, &line, score, 8, false);
+
+        let mut walk = board;
+        let mut expected_score = score;
+        let mut expected_depth = 8;
+        for &sq in &line {
+            let data = ctx
+                .tt
+                .lookup(&walk, walk.hash())
+                .expect("every PV position must be stored");
+            assert_eq!(data.best_move(), sq);
+            assert_eq!(data.score(), expected_score);
+            assert_eq!(data.depth(), expected_depth);
+            assert_eq!(data.bound(), Bound::Exact);
+            walk = walk.make_move(sq);
+            expected_score = -expected_score;
+            expected_depth -= 1;
+        }
+    }
+
+    #[test]
+    fn store_pv_in_tt_preserves_prefixes_when_a_full_cluster_collides() {
+        let board = Board::new();
+        let ctx = pv_store_ctx(&board, 0);
+        let cluster = |b: &Board| ctx.tt.get_cluster_idx(b.hash());
+
+        // Walk the greedy PV until a position shares a cluster with an earlier
+        // one; a 16-cluster table makes that happen within a few plies.
+        let mut line = Vec::new();
+        let mut positions: Vec<Board> = Vec::new();
+        let mut walk = board;
+        let (earlier_idx, later_idx) = loop {
+            if !walk.has_legal_moves() {
+                walk = walk.switch_players();
+            }
+            let collision = positions.iter().position(|p| cluster(p) == cluster(&walk));
+            let sq = walk.get_moves().iter().next().unwrap();
+            positions.push(walk);
+            line.push(sq);
+
+            if let Some(earlier_idx) = collision {
+                break (earlier_idx, positions.len() - 1);
+            }
+
+            walk = walk.make_move(sq);
+        };
+
+        // A deeper unrelated entry in the same cluster makes the earlier PV slot
+        // the preferred victim, so the prefix survives only if it is protected.
+        let blocker = (1..=10_000u64)
+            .map(|player| Board::from_bitboards(player, 0))
+            .find(|b| cluster(b) == cluster(&positions[later_idx]) && !positions.contains(b))
+            .expect("a colliding unrelated board must exist");
+        seed_tt(&ctx.tt, &blocker, ScaledScore::ZERO, 60, Square::A1);
+
+        store_pv_in_tt(
+            &ctx,
+            &board,
+            &line,
+            ScaledScore::ZERO,
+            line.len() as Depth,
+            false,
+        );
+
+        for idx in [earlier_idx, later_idx] {
+            let position = positions[idx];
+            let data = ctx
+                .tt
+                .lookup(&position, position.hash())
+                .unwrap_or_else(|| panic!("PV position {idx} must remain probeable"));
+            assert_eq!(data.best_move(), line[idx]);
+        }
+    }
+
+    #[test]
+    fn store_pv_in_tt_reinserts_omitted_passes() {
+        let board = Board::new().make_move(Square::D3);
+        let after_pass = board.switch_players();
+        let sq = after_pass
+            .get_moves()
+            .iter()
+            .find(|&sq| !board.is_legal_move(sq))
+            .expect("a move legal only after a pass must exist");
+        let ctx = pv_store_ctx(&board, 1);
+        let score = ScaledScore::from_disc_diff(6);
+
+        store_pv_in_tt(&ctx, &board, &[sq], score, 5, false);
+
+        let data = ctx
+            .tt
+            .lookup(&after_pass, after_pass.hash())
+            .expect("the pass-adjusted position must be stored");
+        assert_eq!(data.best_move(), sq);
+        assert_eq!(data.score(), -score);
+        assert_eq!(data.depth(), 5);
+    }
+
+    #[test]
+    fn store_pv_in_tt_keeps_entries_that_already_hold_the_pv_move() {
+        let board = Board::new();
+        let sq = board.get_moves().iter().next().unwrap();
+        let ctx = pv_store_ctx(&board, 1);
+        seed_tt(&ctx.tt, &board, ScaledScore::from_disc_diff(2), 20, sq);
+
+        store_pv_in_tt(
+            &ctx,
+            &board,
+            &[sq],
+            ScaledScore::from_disc_diff(4),
+            6,
+            false,
+        );
+
+        let data = ctx.tt.lookup(&board, board.hash()).unwrap();
+        assert_eq!(data.depth(), 20);
+        assert_eq!(data.score(), ScaledScore::from_disc_diff(2));
     }
 
     #[test]

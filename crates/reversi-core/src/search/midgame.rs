@@ -21,7 +21,7 @@ use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_iteration;
-use crate::search::{SearchProgress, SearchTask, search, widen_aspiration_window};
+use crate::search::{SearchProgress, SearchTask, search, store_pv_in_tt, widen_aspiration_window};
 use crate::square::Square;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
@@ -101,12 +101,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 break;
             }
 
-            if let Some(ref callback) = task.callback
-                && let Some(rm) = ctx.get_current_pv_root_move()
-            {
-                callback(SearchProgress::from_iteration(
-                    &ctx, &rm, depth, max_depth, score, false,
-                ));
+            if let Some(rm) = ctx.get_current_pv_root_move() {
+                store_pv_in_tt(&ctx, &board, &rm.pv, rm.score, depth, false);
+
+                if let Some(ref callback) = task.callback {
+                    callback(SearchProgress::from_iteration(
+                        &ctx, &rm, depth, max_depth, score, false,
+                    ));
+                }
             }
 
             iteration_window_clean = window_clean;
@@ -578,6 +580,43 @@ mod schedule_tests {
         assert_eq!(result.depth(), 1);
         assert!(result.best_move().is_some());
         assert!(!result.is_invalid_sentinel());
+    }
+
+    #[test]
+    fn completed_search_keeps_the_pv_probeable_in_the_tt() {
+        let pool = ThreadPool::new(1);
+        let board = Board::new().make_move(Square::D3);
+        // A 16-cluster table forces heavy replacement, so the PV only survives
+        // if it is re-stored after the iteration.
+        let tt = Arc::new(TranspositionTable::new(0));
+        let task = SearchTask {
+            board,
+            mid_selectivity: Selectivity::None,
+            tt: tt.clone(),
+            pool: pool.clone(),
+            eval: shared_eval(),
+            level: Level::uniform(8, 4),
+            multi_pv: false,
+            callback: None,
+            time_manager: None,
+            eval_mode: None,
+        };
+
+        let result = search_root(task, pool.main());
+
+        let pv = result.pv_line().to_vec();
+        assert_eq!(pv.len(), 8);
+        let mut walk = board;
+        for &sq in &pv {
+            if !walk.is_legal_move(sq) {
+                walk = walk.switch_players();
+            }
+            let data = tt
+                .lookup(&walk, walk.hash())
+                .unwrap_or_else(|| panic!("PV position before {sq} must stay in the TT"));
+            assert_eq!(data.best_move(), sq);
+            walk = walk.make_move(sq);
+        }
     }
 
     #[test]

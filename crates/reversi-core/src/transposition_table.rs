@@ -756,6 +756,37 @@ impl TranspositionTable {
         }
     }
 
+    /// Probes without selecting a slot already used by an earlier PV position.
+    ///
+    /// On a miss whose normal victim is protected, selects the other entry in
+    /// the cluster. Returns [`None`] when both entries are protected so callers
+    /// can preserve the earlier PV prefix instead of storing a later suffix.
+    #[inline]
+    pub(crate) fn probe_for_pv(
+        &self,
+        board: &Board,
+        key: u64,
+        protected_indices: &[usize],
+    ) -> Option<TTProbeResult> {
+        let index = match self.probe(board, key) {
+            hit @ TTProbeResult::Hit { .. } => return Some(hit),
+            TTProbeResult::Miss { index } => index,
+        };
+        if !protected_indices.contains(&index) {
+            return Some(TTProbeResult::Miss { index });
+        }
+
+        // Cluster starts are multiples of CLUSTER_SIZE == 2, so the sibling slot
+        // of an even/odd pair is one XOR away.
+        let alternate_idx = index ^ 1;
+        if protected_indices.contains(&alternate_idx) {
+            return None;
+        }
+        Some(TTProbeResult::Miss {
+            index: alternate_idx,
+        })
+    }
+
     /// Stores data into a slot previously returned by [`probe`](Self::probe).
     ///
     /// # Panics
@@ -796,7 +827,7 @@ impl TranspositionTable {
 
     /// Returns the first entry index of the cluster selected by `key`.
     #[inline(always)]
-    fn get_cluster_idx(&self, key: u64) -> usize {
+    pub(crate) fn get_cluster_idx(&self, key: u64) -> usize {
         (crate::util::mul_hi64(key, self.cluster_count) as usize) * CLUSTER_SIZE
     }
 }

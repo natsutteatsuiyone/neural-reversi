@@ -22,7 +22,9 @@ use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
 use crate::search::time_control::should_stop_endgame_iteration;
-use crate::search::{SearchProgress, SearchTask, midgame, search, widen_aspiration_window};
+use crate::search::{
+    SearchProgress, SearchTask, midgame, search, store_pv_in_tt, widen_aspiration_window,
+};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
@@ -178,6 +180,12 @@ pub(super) fn solve_root(
 
             // Stable sort moves from pv_idx to end, bringing best to pv_idx position
             ctx.sort_root_moves_from_pv_idx();
+
+            let pv_root_move = ctx.get_current_pv_root_move();
+            if let Some(ref rm) = pv_root_move {
+                store_pv_in_tt(ctx, board, &rm.pv, rm.score, n_empties, true);
+            }
+
             // Multi-PV keeps the entry fallback: mid-loop root moves hold
             // -INF scores for lines not yet searched, so a partial pass must
             // not become the abort result.
@@ -192,10 +200,10 @@ pub(super) fn solve_root(
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(ref callback) = task.callback
-                && let Some(rm) = ctx.get_current_pv_root_move()
+                && let Some(ref rm) = pv_root_move
             {
                 callback(SearchProgress::from_iteration(
-                    ctx, &rm, n_empties, n_empties, score, true,
+                    ctx, rm, n_empties, n_empties, score, true,
                 ));
             }
 
@@ -759,6 +767,71 @@ mod tests {
         assert_eq!(ctx.empty_list.count(), original_empty_count);
         let cache_idx = caches.ec.index(board.hash());
         assert!(caches.ec.probe(cache_idx, &board, 49).is_none());
+    }
+
+    #[test]
+    fn solved_pv_stays_probeable_in_the_tt() {
+        probcut::init();
+        let pool = ThreadPool::new(1);
+        // FFO position #1: 14 empties, Black to move, exact score +18 (G8).
+        let board = Board::from_string(
+            "--XXXXX--OOOXX-O-OOOXXOX-OXOXOXXOXXXOXXX--XOXOXX-XXXOOO--OOOOO--",
+            Disc::Black,
+        )
+        .unwrap();
+        // A 16-cluster table forces heavy replacement, so the PV only survives
+        // if it is re-stored after each completed selectivity level.
+        let tt = Arc::new(TranspositionTable::new(0));
+        let eval = Arc::new(
+            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
+        );
+        let task = SearchTask {
+            board,
+            mid_selectivity: Selectivity::None,
+            tt: tt.clone(),
+            pool: pool.clone(),
+            eval,
+            level: Level::perfect(),
+            multi_pv: false,
+            callback: None,
+            time_manager: None,
+            eval_mode: None,
+        };
+
+        let result = search_root(task, pool.main());
+
+        assert_eq!(result.best_move(), Some(Square::G8));
+        let pv = result.pv_line().to_vec();
+        assert!(!pv.is_empty());
+
+        // Walk the PV, mirroring the forced passes that PV lines omit.
+        let mut positions = Vec::new();
+        let mut walk = board;
+        for &sq in &pv {
+            if !walk.is_legal_move(sq) {
+                walk = walk.switch_players();
+            }
+            positions.push((sq, walk));
+            walk = walk.make_move(sq);
+        }
+
+        let cluster = |b: &Board| tt.get_cluster_idx(b.hash());
+        for (sq, b) in &positions {
+            // A two-way cluster cannot hold three PV positions at once, so
+            // only such overflow positions may be missing.
+            if positions
+                .iter()
+                .filter(|(_, o)| cluster(o) == cluster(b))
+                .count()
+                > 2
+            {
+                continue;
+            }
+            let data = tt
+                .lookup(b, b.hash())
+                .unwrap_or_else(|| panic!("PV position before {sq} must stay in the TT"));
+            assert_eq!(data.best_move(), *sq);
+        }
     }
 
     /// Builds a 9-empty solve task whose `CompletedState` fallback carries a
