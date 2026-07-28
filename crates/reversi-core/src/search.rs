@@ -24,7 +24,7 @@ pub mod time_control;
 pub use endgame::{EndGameCaches, null_window_search, solve_last1};
 pub use options::{SearchConstraint, SearchRunOptions};
 pub use progress::{SearchProgress, SearchProgressCallback};
-pub use pvs::{LMR_DEEPER_DEPTH, LMR_MIN_DEPTH, search};
+pub use pvs::{LMR_MIN_DEPTH, search};
 
 use std::sync::Arc;
 

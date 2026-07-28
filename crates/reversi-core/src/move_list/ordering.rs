@@ -61,6 +61,8 @@ impl MoveList {
             9,  9,  9,  9,  9,  9,  9,  9    // 56-63 empty squares
         ];
 
+        // Midgame LMR reads `Move::value` as a score, so the fast path must stay
+        // strictly below the depth at which reductions start.
         let use_fast = if SS::IS_ENDGAME {
             depth < ENDGAME_MIN_SORT_DEPTH[ctx.empty_list.count() as usize]
         } else {

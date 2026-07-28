@@ -149,10 +149,24 @@ Iterative deepening with aspiration windows.
   to the endgame solve loop, which searches the remaining selectivity
   levels at full depth (see Endgame root).
 
-LMR runs in non-PV midgame nodes once selectivity is enabled and the move
-is past the first few siblings. From `LMR_MIN_DEPTH` the reduction is one
-ply; from `LMR_DEEPER_DEPTH` with sufficiently many earlier siblings it
-grows to two.
+LMR runs in non-PV midgame nodes once selectivity is enabled, from
+`LMR_MIN_DEPTH` onwards, and only for moves past the first few siblings.
+`compute_lmr_reduction` sums three terms in 1/256-ply fixed point:
+
+- a continuous curve `LMR_OFFSET + ln(depth) * ln(move_count) / LMR_LOG_DIV`,
+  evaluated from the `LMR_LOG` table of scaled natural logarithms;
+- an ordering-margin term: the shortfall of the move's ordering estimate
+  against `alpha`, scaled by `LMR_MARGIN_SHIFT` and clamped to
+  `LMR_MARGIN_MIN ..= LMR_MARGIN_MAX`. Midgame ordering values are shallow
+  search scores on the same scale as `alpha`, so a move whose estimate
+  already reaches `alpha` is reduced less and one far below it is reduced
+  more. The switch to unscaled ordering heuristics sits exactly at
+  `LMR_MIN_DEPTH`, which is what keeps the two scales from mixing;
+- one ply given back at All nodes whose reduction exceeds
+  `LMR_ALLNODE_KEEP`.
+
+`lmr_max_reduction` caps the result. Its `depth - 2` term is an invariant,
+not a tuning choice: it keeps the reduced child depth at one ply or more.
 
 ### Endgame root (`endgame::search_root`)
 
