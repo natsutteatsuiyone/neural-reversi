@@ -49,6 +49,15 @@ struct NetworkBuffers {
 }
 
 impl NetworkBuffers {
+    #[cfg(target_os = "windows")]
+    const ZEROED: Self = Self {
+        l1_input: Align64([0; L1_PADDED_INPUT_DIMS]),
+        l1_li_out: Align64([0; L1_PADDED_OUTPUT_DIMS]),
+        l1_out: Align64([0; L2_PADDED_INPUT_DIMS]),
+        l2_li_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
+        l2_out: Align64([0; L2_PADDED_OUTPUT_DIMS]),
+    };
+
     #[inline(always)]
     fn base_input_mut(&mut self) -> &mut [u8] {
         &mut self.l1_input[..BASE_OUTPUT_DIMS]
@@ -70,9 +79,19 @@ impl NetworkBuffers {
 
 /// Length of the raw per-thread scratch storage, with `align_of` bytes of slack
 /// so a 64-aligned `NetworkBuffers` can always be carved out of it.
+#[cfg(not(target_os = "windows"))]
 const SCRATCH_LEN: usize =
     std::mem::size_of::<NetworkBuffers>() + std::mem::align_of::<NetworkBuffers>();
 
+#[cfg(target_os = "windows")]
+thread_local! {
+    /// Windows TLS preserves the type's 64-byte alignment, so store the
+    /// buffers directly and avoid realigning raw storage on every evaluation.
+    static NETWORK_BUFFERS: UnsafeCell<NetworkBuffers> =
+        const { UnsafeCell::new(NetworkBuffers::ZEROED) };
+}
+
+#[cfg(not(target_os = "windows"))]
 thread_local! {
     /// Per-thread scratch reused across evaluations: the ~768-byte buffer is
     /// zeroed once per thread, not per call. `const` init keeps the access on
@@ -93,6 +112,7 @@ thread_local! {
 ///
 /// Computing the pointer is safe; dereferencing it requires that no other
 /// borrow of `NETWORK_BUFFERS` is live (`evaluate` is not reentrant).
+#[cfg(not(target_os = "windows"))]
 #[inline(always)]
 fn scratch_ptr(cell: &UnsafeCell<[u8; SCRATCH_LEN]>) -> *mut NetworkBuffers {
     let base = cell.get().cast::<u8>();
@@ -101,6 +121,27 @@ fn scratch_ptr(cell: &UnsafeCell<[u8; SCRATCH_LEN]>) -> *mut NetworkBuffers {
     // `offset` (in `0..align`) keeps the `size_of::<NetworkBuffers>()`-byte
     // window in bounds.
     unsafe { base.add(offset).cast::<NetworkBuffers>() }
+}
+
+#[inline(always)]
+fn with_network_buffers<R>(f: impl FnOnce(&mut NetworkBuffers) -> R) -> R {
+    #[cfg(target_os = "windows")]
+    {
+        NETWORK_BUFFERS.with(|cell| {
+            // SAFETY: `evaluate` is not reentrant (no forward pass calls back
+            // into it), so this is the only live borrow of the scratch.
+            f(unsafe { &mut *cell.get() })
+        })
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        NETWORK_BUFFERS.with(|cell| {
+            // SAFETY: `evaluate` is not reentrant (no forward pass calls back
+            // into it), so this is the only live borrow of the scratch.
+            f(unsafe { &mut *scratch_ptr(cell) })
+        })
+    }
 }
 
 /// Main neural network structure for position evaluation.
@@ -154,10 +195,7 @@ impl Network {
     ) -> ScaledScore {
         let mobility = board.get_moves().count() as u8;
 
-        NETWORK_BUFFERS.with(|cell| {
-            // SAFETY: `evaluate` is not reentrant (no forward pass calls back
-            // into it), so this is the only live borrow of the scratch.
-            let buffers = unsafe { &mut *scratch_ptr(cell) };
+        with_network_buffers(|buffers| {
             self.base_input
                 .forward(pattern_feature, buffers.base_input_mut());
             self.pa_input
@@ -183,10 +221,10 @@ mod tests {
         let handles: Vec<_> = (0..256)
             .map(|_| {
                 std::thread::spawn(|| {
-                    NETWORK_BUFFERS.with(|cell| {
-                        let addr = scratch_ptr(cell).addr();
+                    with_network_buffers(|buffers| {
+                        let addr = std::ptr::from_ref(buffers).addr();
                         assert_eq!(addr % 64, 0, "scratch not 64-aligned: {addr:#x}");
-                    });
+                    })
                 })
             })
             .collect();
