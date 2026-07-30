@@ -74,18 +74,35 @@ datagen probcut --input ./games.txt --output ./probcut_training_data.csv
 #### Options
 
 - `--input`: Input file containing game sequences (one move sequence per line, moves in algebraic notation like "f5d6c3")
-- `--output`: Output CSV file containing training data with columns: ply, shallow_depth, shallow_score, deep_depth, deep_score, diff
+- `--output`: Output CSV file containing the training samples
+- `--endgame`: Generate endgame rather than midgame samples
 
 #### Data format
 
-CSV format with the following columns:
+Midgame CSV format has the following columns:
 
+- `game`: One-based line number of the source game
 - `ply`: Move number in the game (0-59)
 - `shallow_depth`: Search depth for shallow search
 - `shallow_score`: Score of the shallow search, in the engine's score scale
 - `deep_depth`: Search depth for deep search
 - `deep_score`: Score of the deep search, in the engine's score scale
 - `diff`: Score difference between deep and shallow search results
+
+The endgame CSV uses the same columns without `game`.
+
+### fit-probcut
+
+Fits the midgame ProbCut parameters from a CSV produced by `probcut` and writes
+the Rust `PROBCUT_PARAMS` block to stdout. Diagnostics go to stderr, so the
+source block can be redirected independently.
+
+```bash
+datagen fit-probcut --input ./probcut_training_data.csv > probcut_params.rs
+```
+
+CSVs without the `game` column are rejected; regenerate them with the current
+`probcut` command.
 
 ### shuffle
 

@@ -1,3 +1,4 @@
+mod fit_probcut;
 mod opening;
 mod overwrite_scores;
 mod probcut;
@@ -63,6 +64,10 @@ enum SubCommands {
 
         #[arg(long, default_value = "false")]
         endgame: bool,
+    },
+    FitProbcut {
+        #[arg(short, long)]
+        input: String,
     },
     Shuffle {
         #[arg(short, long)]
@@ -231,6 +236,9 @@ fn main() {
             } else {
                 probcut::execute(&input, &output).expect("Failed to execute probcut");
             }
+        }
+        SubCommands::FitProbcut { input } => {
+            fit_probcut::execute(&input).expect("Failed to execute fit-probcut");
         }
         SubCommands::Shuffle {
             input_dir,

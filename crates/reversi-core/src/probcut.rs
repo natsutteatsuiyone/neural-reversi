@@ -18,7 +18,7 @@ use crate::types::ScaledScore;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {
-    /// Midgame-only level: 58% confidence (t=0.8). Never part of the
+    /// Midgame-only level: 63% confidence (t=0.9). Never part of the
     /// endgame selectivity ladder.
     Mid = 0,
     /// Most aggressive endgame-ladder level: 73% confidence (t=1.1)
@@ -37,7 +37,7 @@ impl Selectivity {
     #[inline]
     pub fn t_value(self) -> f64 {
         match self {
-            Selectivity::Mid => 0.8,
+            Selectivity::Mid => 0.9,
             Selectivity::Level1 => 1.1,
             Selectivity::Level2 => 2.0,
             Selectivity::Level3 => 3.3,
@@ -49,7 +49,7 @@ impl Selectivity {
     #[inline]
     pub fn probability(self) -> i32 {
         match self {
-            Selectivity::Mid => 58,
+            Selectivity::Mid => 63,
             Selectivity::Level1 => 73,
             Selectivity::Level2 => 95,
             Selectivity::Level3 => 99,
@@ -81,6 +81,43 @@ impl Selectivity {
     #[inline]
     pub fn is_enabled(self) -> bool {
         self != Selectivity::None
+    }
+}
+
+/// Fraction of the fitted odd-deep parity offset credited in the runtime mean.
+///
+/// The tempo optimism of odd-depth searches must not be credited in full: a
+/// ProbCut fail-high freezes that optimism into the tree as a bound instead
+/// of letting deeper iterations correct it.
+const PARITY_CREDIT: f64 = 0.5;
+
+/// Statistical parameters for the midgame ProbCut prediction model.
+///
+/// - `mean = mean_intercept + mean_coef_shallow * shallow + mean_coef_deep * deep
+///   + PARITY_CREDIT * mean_coef_parity * (deep & 1)`
+/// - `sigma = exp(std_intercept + std_coef_shallow * shallow + std_coef_deep * sqrt(deep))`
+struct ProbcutMidgameParams {
+    mean_intercept: f64,
+    mean_coef_shallow: f64,
+    mean_coef_deep: f64,
+    mean_coef_parity: f64,
+    std_intercept: f64,
+    std_coef_shallow: f64,
+    std_coef_deep: f64,
+}
+
+impl ProbcutMidgameParams {
+    fn mean(&self, shallow: f64, deep: f64) -> f64 {
+        let deep_parity = ((deep as usize) & 1) as f64;
+        self.mean_intercept
+            + self.mean_coef_shallow * shallow
+            + self.mean_coef_deep * deep
+            + PARITY_CREDIT * self.mean_coef_parity * deep_parity
+    }
+
+    fn sigma(&self, shallow: f64, deep: f64) -> f64 {
+        (self.std_intercept + self.std_coef_shallow * shallow + self.std_coef_deep * deep.sqrt())
+            .exp()
     }
 }
 
@@ -123,7 +160,7 @@ static SIGMA_TABLE_END: OnceLock<EndTable> = OnceLock::new();
 /// Builds a 3D `[ply][shallow][deep]` table from midgame ProbCut parameters.
 ///
 /// Only populates entries where `shallow <= deep` (callers always satisfy this).
-fn build_mid_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> Box<MidTable> {
+fn build_mid_table(f: impl Fn(&ProbcutMidgameParams, f64, f64) -> f64) -> Box<MidTable> {
     let mut tbl: Box<MidTable> = vec![[[0.0f64; NUM_DEPTH]; NUM_DEPTH]; NUM_PLY]
         .into_boxed_slice()
         .try_into()
@@ -159,8 +196,8 @@ fn build_end_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> EndTable {
 /// Must be called before any `get_*` functions. Called automatically by
 /// [`Search::new`](crate::search::Search::new).
 pub fn init() {
-    MEAN_TABLE.get_or_init(|| build_mid_table(ProbcutParams::mean));
-    SIGMA_TABLE.get_or_init(|| build_mid_table(ProbcutParams::sigma));
+    MEAN_TABLE.get_or_init(|| build_mid_table(ProbcutMidgameParams::mean));
+    SIGMA_TABLE.get_or_init(|| build_mid_table(ProbcutMidgameParams::sigma));
     MEAN_TABLE_END.get_or_init(|| build_end_table(ProbcutParams::mean));
     SIGMA_TABLE_END.get_or_init(|| build_end_table(ProbcutParams::sigma));
 }
@@ -270,486 +307,546 @@ const PROBCUT_ENDGAME_PARAMS: ProbcutParams = ProbcutParams {
 
 /// Statistical parameters for midgame ProbCut indexed by ply.
 #[rustfmt::skip]
-const PROBCUT_PARAMS: [ProbcutParams; 60] = [
-    ProbcutParams {
+const PROBCUT_PARAMS: [ProbcutMidgameParams; 60] = [
+    ProbcutMidgameParams {
         mean_intercept: 0.0000000000,
         mean_coef_shallow: 0.0000000000,
         mean_coef_deep: 0.0000000000,
+        mean_coef_parity: 0.0000000000,
         std_intercept: -18.4206807440,
-        std_coef_shallow: -0.0000000000,
-        std_coef_deep: -0.0000000000,
+        std_coef_shallow: 0.0000000000,
+        std_coef_deep: 0.0000000000,
     },
-    ProbcutParams {
-        mean_intercept: 0.8781971386,
-        mean_coef_shallow: 0.0016336644,
-        mean_coef_deep: -0.0381230560,
-        std_intercept: -1.2794101361,
-        std_coef_shallow: 0.0079717112,
-        std_coef_deep: 0.0094355667,
+    ProbcutMidgameParams {
+        mean_intercept: 0.1936797957,
+        mean_coef_shallow: -0.0128700815,
+        mean_coef_deep: 0.0064389782,
+        mean_coef_parity: 0.1087248614,
+        std_intercept: -1.6691406530,
+        std_coef_shallow: 0.0626250178,
+        std_coef_deep: 0.3008221322,
     },
-    ProbcutParams {
-        mean_intercept: -1.4771794089,
-        mean_coef_shallow: 0.1593721857,
-        mean_coef_deep: 0.0689377578,
-        std_intercept: -0.8122622339,
-        std_coef_shallow: 0.0645485629,
-        std_coef_deep: 0.0239454757,
+    ProbcutMidgameParams {
+        mean_intercept: 0.3106663105,
+        mean_coef_shallow: -0.0662605933,
+        mean_coef_deep: -0.0000612726,
+        mean_coef_parity: 0.4748868606,
+        std_intercept: -0.8983856957,
+        std_coef_shallow: 0.0584934606,
+        std_coef_deep: 0.1389003619,
     },
-    ProbcutParams {
-        mean_intercept: -0.1476461405,
-        mean_coef_shallow: 0.0428556575,
-        mean_coef_deep: -0.0076493022,
-        std_intercept: -0.3643950872,
-        std_coef_shallow: 0.0470178624,
-        std_coef_deep: 0.0137807587,
+    ProbcutMidgameParams {
+        mean_intercept: 0.3184243402,
+        mean_coef_shallow: -0.0476883639,
+        mean_coef_deep: -0.0062796737,
+        mean_coef_parity: 0.6681891345,
+        std_intercept: -0.3673164510,
+        std_coef_shallow: 0.0428799731,
+        std_coef_deep: 0.0508810580,
     },
-    ProbcutParams {
-        mean_intercept: -0.2240807499,
-        mean_coef_shallow: 0.0948150811,
-        mean_coef_deep: 0.0111354011,
-        std_intercept: -0.2092700839,
-        std_coef_shallow: 0.0247943887,
-        std_coef_deep: 0.0230855460,
+    ProbcutMidgameParams {
+        mean_intercept: 0.2774474991,
+        mean_coef_shallow: -0.0259283722,
+        mean_coef_deep: -0.0059836339,
+        mean_coef_parity: 0.7246074209,
+        std_intercept: -0.3766454164,
+        std_coef_shallow: 0.0331495910,
+        std_coef_deep: 0.0678413121,
     },
-    ProbcutParams {
-        mean_intercept: -0.3602889857,
-        mean_coef_shallow: 0.0065152102,
-        mean_coef_deep: 0.0533259775,
-        std_intercept: 0.0857688093,
-        std_coef_shallow: 0.0055862504,
-        std_coef_deep: 0.0120759200,
+    ProbcutMidgameParams {
+        mean_intercept: -0.0137697552,
+        mean_coef_shallow: -0.0876504906,
+        mean_coef_deep: 0.0573330430,
+        mean_coef_parity: 0.8152174274,
+        std_intercept: 0.0461232941,
+        std_coef_shallow: -0.0032705827,
+        std_coef_deep: 0.0302935563,
     },
-    ProbcutParams {
-        mean_intercept: 0.4434472386,
-        mean_coef_shallow: -0.0183167641,
-        mean_coef_deep: -0.0530929845,
-        std_intercept: 0.3166527961,
-        std_coef_shallow: -0.0078062140,
-        std_coef_deep: 0.0031285027,
+    ProbcutMidgameParams {
+        mean_intercept: 0.5229131630,
+        mean_coef_shallow: -0.0361444826,
+        mean_coef_deep: -0.0283738430,
+        mean_coef_parity: 0.8275443091,
+        std_intercept: 0.3645428749,
+        std_coef_shallow: -0.0013236059,
+        std_coef_deep: -0.0353121629,
     },
-    ProbcutParams {
-        mean_intercept: -0.7419346358,
-        mean_coef_shallow: 0.0961719780,
-        mean_coef_deep: 0.0853339557,
-        std_intercept: 0.4057015204,
-        std_coef_shallow: -0.0041915114,
-        std_coef_deep: -0.0060408828,
+    ProbcutMidgameParams {
+        mean_intercept: -0.3988327890,
+        mean_coef_shallow: -0.0492463871,
+        mean_coef_deep: 0.1022265240,
+        mean_coef_parity: 0.8050722023,
+        std_intercept: 0.4051367987,
+        std_coef_shallow: -0.0186157442,
+        std_coef_deep: -0.0306527814,
     },
-    ProbcutParams {
-        mean_intercept: 0.2381844257,
-        mean_coef_shallow: -0.0234154094,
-        mean_coef_deep: -0.0403518733,
-        std_intercept: 0.5610233736,
-        std_coef_shallow: -0.0418217325,
-        std_coef_deep: -0.0022265754,
+    ProbcutMidgameParams {
+        mean_intercept: 0.9669359560,
+        mean_coef_shallow: -0.1473040137,
+        mean_coef_deep: -0.0351437699,
+        mean_coef_parity: 0.6779563323,
+        std_intercept: 0.4105785981,
+        std_coef_shallow: -0.0270014912,
+        std_coef_deep: 0.0023529004,
     },
-    ProbcutParams {
-        mean_intercept: 0.0097003852,
-        mean_coef_shallow: 0.0669118728,
-        mean_coef_deep: -0.0056332124,
-        std_intercept: 0.5699077463,
-        std_coef_shallow: -0.0602498657,
-        std_coef_deep: 0.0102066103,
+    ProbcutMidgameParams {
+        mean_intercept: 0.3057204603,
+        mean_coef_shallow: -0.0311021220,
+        mean_coef_deep: 0.0168195488,
+        mean_coef_parity: 0.7947153837,
+        std_intercept: 0.4690848176,
+        std_coef_shallow: -0.0469339268,
+        std_coef_deep: 0.0491759097,
     },
-    ProbcutParams {
-        mean_intercept: -0.0591758559,
-        mean_coef_shallow: -0.0257166812,
-        mean_coef_deep: -0.0050402564,
-        std_intercept: 0.5437663497,
-        std_coef_shallow: -0.0668204799,
-        std_coef_deep: 0.0184794711,
+    ProbcutMidgameParams {
+        mean_intercept: 0.4355199675,
+        mean_coef_shallow: -0.1526847671,
+        mean_coef_deep: -0.0011204783,
+        mean_coef_parity: 0.9175539648,
+        std_intercept: 0.4652657487,
+        std_coef_shallow: -0.0865455177,
+        std_coef_deep: 0.0972096105,
     },
-    ProbcutParams {
-        mean_intercept: 0.1854770343,
-        mean_coef_shallow: 0.0505973584,
-        mean_coef_deep: -0.0398137907,
-        std_intercept: 0.5984367925,
-        std_coef_shallow: -0.0535778195,
-        std_coef_deep: 0.0167856339,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6777874201,
+        mean_coef_shallow: -0.0835461306,
+        mean_coef_deep: -0.0068348530,
+        mean_coef_parity: 1.0174751521,
+        std_intercept: 0.5481433103,
+        std_coef_shallow: -0.0825149253,
+        std_coef_deep: 0.1012381543,
     },
-    ProbcutParams {
-        mean_intercept: -0.4537276493,
-        mean_coef_shallow: 0.0728938856,
-        mean_coef_deep: 0.0384134356,
-        std_intercept: 0.5972552583,
-        std_coef_shallow: -0.0595272316,
-        std_coef_deep: 0.0190575825,
+    ProbcutMidgameParams {
+        mean_intercept: -0.2058046140,
+        mean_coef_shallow: -0.0674682759,
+        mean_coef_deep: 0.0411438121,
+        mean_coef_parity: 1.1282066084,
+        std_intercept: 0.6403405450,
+        std_coef_shallow: -0.0950655216,
+        std_coef_deep: 0.0780241721,
     },
-    ProbcutParams {
-        mean_intercept: 0.3997407003,
-        mean_coef_shallow: -0.0196100610,
-        mean_coef_deep: -0.0726431666,
-        std_intercept: 0.6531370603,
-        std_coef_shallow: -0.0573020171,
-        std_coef_deep: 0.0163707018,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6144319442,
+        mean_coef_shallow: -0.1067809206,
+        mean_coef_deep: -0.0297322362,
+        mean_coef_parity: 1.2240571605,
+        std_intercept: 0.6825624602,
+        std_coef_shallow: -0.0987512025,
+        std_coef_deep: 0.0864169594,
     },
-    ProbcutParams {
-        mean_intercept: -0.2489455268,
-        mean_coef_shallow: 0.0660679992,
-        mean_coef_deep: 0.0403054573,
-        std_intercept: 0.6728071923,
-        std_coef_shallow: -0.0651730733,
-        std_coef_deep: 0.0208820865,
+    ProbcutMidgameParams {
+        mean_intercept: -0.9539363744,
+        mean_coef_shallow: 0.1019725858,
+        mean_coef_deep: 0.0569209093,
+        mean_coef_parity: 1.4014254142,
+        std_intercept: 0.6811351994,
+        std_coef_shallow: -0.1012447307,
+        std_coef_deep: 0.0950630230,
     },
-    ProbcutParams {
-        mean_intercept: 0.2557365076,
-        mean_coef_shallow: -0.0407567825,
-        mean_coef_deep: -0.0510061967,
-        std_intercept: 0.7342895085,
-        std_coef_shallow: -0.0667062261,
-        std_coef_deep: 0.0153212648,
+    ProbcutMidgameParams {
+        mean_intercept: 0.1748714425,
+        mean_coef_shallow: -0.1088436277,
+        mean_coef_deep: -0.0205649534,
+        mean_coef_parity: 1.3598659915,
+        std_intercept: 0.6900179195,
+        std_coef_shallow: -0.0885430844,
+        std_coef_deep: 0.0875844510,
     },
-    ProbcutParams {
-        mean_intercept: -0.0745696055,
-        mean_coef_shallow: 0.0583855224,
-        mean_coef_deep: -0.0071743116,
-        std_intercept: 0.7805237946,
-        std_coef_shallow: -0.0644905410,
-        std_coef_deep: 0.0146097628,
+    ProbcutMidgameParams {
+        mean_intercept: -0.5087798000,
+        mean_coef_shallow: 0.0448440259,
+        mean_coef_deep: 0.0226095289,
+        mean_coef_parity: 1.4464094108,
+        std_intercept: 0.7290677450,
+        std_coef_shallow: -0.1043537171,
+        std_coef_deep: 0.0977518753,
     },
-    ProbcutParams {
-        mean_intercept: -0.3454939507,
-        mean_coef_shallow: 0.0503416731,
-        mean_coef_deep: 0.0186789894,
-        std_intercept: 0.8131070705,
-        std_coef_shallow: -0.0685338645,
-        std_coef_deep: 0.0119557765,
+    ProbcutMidgameParams {
+        mean_intercept: -0.4060011874,
+        mean_coef_shallow: -0.0649346614,
+        mean_coef_deep: 0.0281650777,
+        mean_coef_parity: 1.4423657322,
+        std_intercept: 0.7601286326,
+        std_coef_shallow: -0.1046820812,
+        std_coef_deep: 0.0926496923,
     },
-    ProbcutParams {
-        mean_intercept: 0.2417653237,
-        mean_coef_shallow: 0.0355777585,
-        mean_coef_deep: -0.0769797845,
-        std_intercept: 0.8198764500,
-        std_coef_shallow: -0.0631220894,
-        std_coef_deep: 0.0116546685,
+    ProbcutMidgameParams {
+        mean_intercept: 0.2079026127,
+        mean_coef_shallow: -0.0133739148,
+        mean_coef_deep: -0.0353549502,
+        mean_coef_parity: 1.4896185721,
+        std_intercept: 0.7555119208,
+        std_coef_shallow: -0.1039467401,
+        std_coef_deep: 0.1001580252,
     },
-    ProbcutParams {
-        mean_intercept: -0.4400876776,
-        mean_coef_shallow: 0.0946181552,
-        mean_coef_deep: 0.0418068280,
-        std_intercept: 0.7683124303,
-        std_coef_shallow: -0.0540578488,
-        std_coef_deep: 0.0167376096,
+    ProbcutMidgameParams {
+        mean_intercept: -1.3715141282,
+        mean_coef_shallow: 0.1689529726,
+        mean_coef_deep: 0.0508911601,
+        mean_coef_parity: 1.6220923703,
+        std_intercept: 0.7023338232,
+        std_coef_shallow: -0.0974451171,
+        std_coef_deep: 0.1176588191,
     },
-    ProbcutParams {
-        mean_intercept: 0.1902041657,
-        mean_coef_shallow: -0.0174543789,
-        mean_coef_deep: -0.0597655923,
-        std_intercept: 0.7812893859,
-        std_coef_shallow: -0.0516106823,
-        std_coef_deep: 0.0146076037,
+    ProbcutMidgameParams {
+        mean_intercept: -0.2149275005,
+        mean_coef_shallow: 0.0556122919,
+        mean_coef_deep: -0.0326589028,
+        mean_coef_parity: 1.6008709644,
+        std_intercept: 0.6400292370,
+        std_coef_shallow: -0.0952406155,
+        std_coef_deep: 0.1359054468,
     },
-    ProbcutParams {
-        mean_intercept: 0.0699527872,
-        mean_coef_shallow: 0.0816954843,
-        mean_coef_deep: -0.0480500865,
-        std_intercept: 0.7427519586,
-        std_coef_shallow: -0.0537232560,
-        std_coef_deep: 0.0228417059,
+    ProbcutMidgameParams {
+        mean_intercept: -1.0164954950,
+        mean_coef_shallow: 0.2776032488,
+        mean_coef_deep: -0.0126061013,
+        mean_coef_parity: 1.7571997436,
+        std_intercept: 0.6244608108,
+        std_coef_shallow: -0.0939289222,
+        std_coef_deep: 0.1393003418,
     },
-    ProbcutParams {
-        mean_intercept: -0.2826398970,
-        mean_coef_shallow: 0.0526538201,
-        mean_coef_deep: 0.0156533334,
-        std_intercept: 0.7587045827,
-        std_coef_shallow: -0.0564581612,
-        std_coef_deep: 0.0253417041,
+    ProbcutMidgameParams {
+        mean_intercept: -1.0637976027,
+        mean_coef_shallow: 0.1317233181,
+        mean_coef_deep: 0.0201841946,
+        mean_coef_parity: 1.8501734322,
+        std_intercept: 0.6050758569,
+        std_coef_shallow: -0.0943613257,
+        std_coef_deep: 0.1491455338,
     },
-    ProbcutParams {
-        mean_intercept: -0.1278578835,
-        mean_coef_shallow: 0.0789765177,
-        mean_coef_deep: -0.0120588553,
-        std_intercept: 0.8170566093,
-        std_coef_shallow: -0.0521477391,
-        std_coef_deep: 0.0193052243,
+    ProbcutMidgameParams {
+        mean_intercept: -0.3057062414,
+        mean_coef_shallow: 0.0534528202,
+        mean_coef_deep: 0.0086055966,
+        mean_coef_parity: 1.7912898168,
+        std_intercept: 0.5722186921,
+        std_coef_shallow: -0.0912900444,
+        std_coef_deep: 0.1621919322,
     },
-    ProbcutParams {
-        mean_intercept: -0.3564657081,
-        mean_coef_shallow: 0.1309397274,
-        mean_coef_deep: 0.0000298692,
-        std_intercept: 0.8464839635,
-        std_coef_shallow: -0.0584809887,
-        std_coef_deep: 0.0191871555,
+    ProbcutMidgameParams {
+        mean_intercept: -0.6434071157,
+        mean_coef_shallow: 0.0762401560,
+        mean_coef_deep: 0.0102931746,
+        mean_coef_parity: 1.7908639631,
+        std_intercept: 0.5818584689,
+        std_coef_shallow: -0.0898172411,
+        std_coef_deep: 0.1662842139,
     },
-    ProbcutParams {
-        mean_intercept: -0.0857621738,
-        mean_coef_shallow: 0.0124222448,
-        mean_coef_deep: -0.0088097770,
-        std_intercept: 0.8786245167,
-        std_coef_shallow: -0.0589956523,
-        std_coef_deep: 0.0188086917,
+    ProbcutMidgameParams {
+        mean_intercept: -0.1131433703,
+        mean_coef_shallow: -0.0445341135,
+        mean_coef_deep: 0.0095509488,
+        mean_coef_parity: 1.7907007233,
+        std_intercept: 0.5876017926,
+        std_coef_shallow: -0.0925362724,
+        std_coef_deep: 0.1740004066,
     },
-    ProbcutParams {
-        mean_intercept: -0.3137952831,
-        mean_coef_shallow: 0.1500605418,
-        mean_coef_deep: -0.0020749594,
-        std_intercept: 0.9012072205,
-        std_coef_shallow: -0.0524648538,
-        std_coef_deep: 0.0179556924,
+    ProbcutMidgameParams {
+        mean_intercept: -0.6128262201,
+        mean_coef_shallow: 0.1220994790,
+        mean_coef_deep: 0.0086951988,
+        mean_coef_parity: 1.7915263134,
+        std_intercept: 0.6081210584,
+        std_coef_shallow: -0.0946312317,
+        std_coef_deep: 0.1804973981,
     },
-    ProbcutParams {
-        mean_intercept: -0.1650004566,
-        mean_coef_shallow: 0.0678055142,
-        mean_coef_deep: -0.0161890049,
-        std_intercept: 0.9149459087,
-        std_coef_shallow: -0.0618956687,
-        std_coef_deep: 0.0193254553,
+    ProbcutMidgameParams {
+        mean_intercept: -0.1952629423,
+        mean_coef_shallow: -0.0033225043,
+        mean_coef_deep: 0.0002443148,
+        mean_coef_parity: 1.8051386505,
+        std_intercept: 0.6103962705,
+        std_coef_shallow: -0.0927619427,
+        std_coef_deep: 0.1805550836,
     },
-    ProbcutParams {
-        mean_intercept: -0.1458099625,
-        mean_coef_shallow: 0.0337190676,
-        mean_coef_deep: 0.0022454918,
-        std_intercept: 0.9383313469,
-        std_coef_shallow: -0.0472151061,
-        std_coef_deep: 0.0152359555,
+    ProbcutMidgameParams {
+        mean_intercept: -0.5550654630,
+        mean_coef_shallow: 0.0964746873,
+        mean_coef_deep: 0.0169977412,
+        mean_coef_parity: 1.7678516775,
+        std_intercept: 0.6601009270,
+        std_coef_shallow: -0.0899296722,
+        std_coef_deep: 0.1623524222,
     },
-    ProbcutParams {
-        mean_intercept: -0.2747041526,
-        mean_coef_shallow: 0.1273447526,
-        mean_coef_deep: -0.0017490244,
-        std_intercept: 0.9710626979,
-        std_coef_shallow: -0.0456346255,
-        std_coef_deep: 0.0128850030,
+    ProbcutMidgameParams {
+        mean_intercept: -0.6791846915,
+        mean_coef_shallow: 0.1872519641,
+        mean_coef_deep: 0.0081090883,
+        mean_coef_parity: 1.6911693746,
+        std_intercept: 0.6536252436,
+        std_coef_shallow: -0.0920003921,
+        std_coef_deep: 0.1730219193,
     },
-    ProbcutParams {
-        mean_intercept: -0.1039423978,
-        mean_coef_shallow: 0.0418743573,
-        mean_coef_deep: -0.0065739583,
-        std_intercept: 0.9991049111,
-        std_coef_shallow: -0.0595939822,
-        std_coef_deep: 0.0153907348,
+    ProbcutMidgameParams {
+        mean_intercept: -0.2217794863,
+        mean_coef_shallow: 0.0805339494,
+        mean_coef_deep: 0.0054637105,
+        mean_coef_parity: 1.6188074056,
+        std_intercept: 0.6815035134,
+        std_coef_shallow: -0.0880767033,
+        std_coef_deep: 0.1640600558,
     },
-    ProbcutParams {
-        mean_intercept: -0.2732496000,
-        mean_coef_shallow: 0.0992998886,
-        mean_coef_deep: 0.0057764650,
-        std_intercept: 1.0220917585,
-        std_coef_shallow: -0.0570197278,
-        std_coef_deep: 0.0131929657,
+    ProbcutMidgameParams {
+        mean_intercept: -0.4485801848,
+        mean_coef_shallow: 0.1349894164,
+        mean_coef_deep: 0.0088701282,
+        mean_coef_parity: 1.5260108562,
+        std_intercept: 0.7141214268,
+        std_coef_shallow: -0.0935936388,
+        std_coef_deep: 0.1649149721,
     },
-    ProbcutParams {
-        mean_intercept: -0.1541687820,
-        mean_coef_shallow: 0.1182102170,
-        mean_coef_deep: -0.0351965394,
-        std_intercept: 1.0218851568,
-        std_coef_shallow: -0.0653689642,
-        std_coef_deep: 0.0156949286,
+    ProbcutMidgameParams {
+        mean_intercept: 0.2134516025,
+        mean_coef_shallow: 0.0331412392,
+        mean_coef_deep: -0.0259525877,
+        mean_coef_parity: 1.5423126600,
+        std_intercept: 0.7672093321,
+        std_coef_shallow: -0.0917404988,
+        std_coef_deep: 0.1467673243,
     },
-    ProbcutParams {
-        mean_intercept: -0.1984031804,
-        mean_coef_shallow: 0.0435221378,
-        mean_coef_deep: 0.0183507280,
-        std_intercept: 1.0059028049,
-        std_coef_shallow: -0.0661922355,
-        std_coef_deep: 0.0190793548,
+    ProbcutMidgameParams {
+        mean_intercept: 0.0043811255,
+        mean_coef_shallow: -0.0116545400,
+        mean_coef_deep: 0.0195162127,
+        mean_coef_parity: 1.5121838421,
+        std_intercept: 0.7693075071,
+        std_coef_shallow: -0.0891705355,
+        std_coef_deep: 0.1511074975,
     },
-    ProbcutParams {
-        mean_intercept: -0.2706377910,
-        mean_coef_shallow: 0.1745333572,
-        mean_coef_deep: -0.0417320632,
-        std_intercept: 1.0020153409,
-        std_coef_shallow: -0.0605412911,
-        std_coef_deep: 0.0211209170,
+    ProbcutMidgameParams {
+        mean_intercept: 0.1195833718,
+        mean_coef_shallow: 0.0536055013,
+        mean_coef_deep: -0.0389940957,
+        mean_coef_parity: 1.5507972537,
+        std_intercept: 0.7670349967,
+        std_coef_shallow: -0.0888419315,
+        std_coef_deep: 0.1607566032,
     },
-    ProbcutParams {
-        mean_intercept: -0.3945369190,
-        mean_coef_shallow: 0.1057746251,
-        mean_coef_deep: 0.0497197266,
-        std_intercept: 0.9806288670,
-        std_coef_shallow: -0.0643495662,
-        std_coef_deep: 0.0237608982,
+    ProbcutMidgameParams {
+        mean_intercept: -0.0659650713,
+        mean_coef_shallow: -0.0582863437,
+        mean_coef_deep: 0.0406371213,
+        mean_coef_parity: 1.6048159399,
+        std_intercept: 0.7933957509,
+        std_coef_shallow: -0.0884918404,
+        std_coef_deep: 0.1533379495,
     },
-    ProbcutParams {
-        mean_intercept: -0.1373561437,
-        mean_coef_shallow: 0.0435951241,
-        mean_coef_deep: -0.0109629115,
-        std_intercept: 1.0237998989,
-        std_coef_shallow: -0.0667296943,
-        std_coef_deep: 0.0216928657,
+    ProbcutMidgameParams {
+        mean_intercept: -0.0817922507,
+        mean_coef_shallow: 0.0027673306,
+        mean_coef_deep: -0.0064555770,
+        mean_coef_parity: 1.5356468468,
+        std_intercept: 0.7955398207,
+        std_coef_shallow: -0.0879285302,
+        std_coef_deep: 0.1606616912,
     },
-    ProbcutParams {
-        mean_intercept: -0.1805897025,
-        mean_coef_shallow: 0.1210463285,
-        mean_coef_deep: -0.0295270534,
-        std_intercept: 1.0704636306,
-        std_coef_shallow: -0.0713705333,
-        std_coef_deep: 0.0197504645,
+    ProbcutMidgameParams {
+        mean_intercept: -0.3244800242,
+        mean_coef_shallow: 0.1090803081,
+        mean_coef_deep: -0.0202321036,
+        mean_coef_parity: 1.4800483182,
+        std_intercept: 0.8395992021,
+        std_coef_shallow: -0.0891970609,
+        std_coef_deep: 0.1532182705,
     },
-    ProbcutParams {
-        mean_intercept: -0.2694398811,
-        mean_coef_shallow: 0.0580362423,
-        mean_coef_deep: 0.0189237616,
-        std_intercept: 1.1262923540,
-        std_coef_shallow: -0.0747503360,
-        std_coef_deep: 0.0164496648,
+    ProbcutMidgameParams {
+        mean_intercept: -0.3046200927,
+        mean_coef_shallow: 0.0125569618,
+        mean_coef_deep: 0.0133430672,
+        mean_coef_parity: 1.4108717133,
+        std_intercept: 0.9259499055,
+        std_coef_shallow: -0.0910363237,
+        std_coef_deep: 0.1331863390,
     },
-    ProbcutParams {
-        mean_intercept: -0.0638135538,
-        mean_coef_shallow: 0.1000136929,
-        mean_coef_deep: -0.0649964310,
-        std_intercept: 1.0895627049,
-        std_coef_shallow: -0.0687161644,
-        std_coef_deep: 0.0190893660,
+    ProbcutMidgameParams {
+        mean_intercept: 0.1746003840,
+        mean_coef_shallow: 0.0536711381,
+        mean_coef_deep: -0.0549349222,
+        mean_coef_parity: 1.3415846679,
+        std_intercept: 0.9214471855,
+        std_coef_shallow: -0.0892617055,
+        std_coef_deep: 0.1360464237,
     },
-    ProbcutParams {
-        mean_intercept: -0.4005951275,
-        mean_coef_shallow: 0.0888023128,
-        mean_coef_deep: 0.0556283669,
-        std_intercept: 1.0986819732,
-        std_coef_shallow: -0.0667388717,
-        std_coef_deep: 0.0190770959,
+    ProbcutMidgameParams {
+        mean_intercept: -0.4845672774,
+        mean_coef_shallow: 0.0517536675,
+        mean_coef_deep: 0.0394864705,
+        mean_coef_parity: 1.2370208897,
+        std_intercept: 0.8881891864,
+        std_coef_shallow: -0.0843915796,
+        std_coef_deep: 0.1447577190,
     },
-    ProbcutParams {
-        mean_intercept: -0.0532351028,
-        mean_coef_shallow: 0.0641432303,
-        mean_coef_deep: -0.0672380996,
-        std_intercept: 1.0851450757,
-        std_coef_shallow: -0.0624730912,
-        std_coef_deep: 0.0197057702,
+    ProbcutMidgameParams {
+        mean_intercept: 0.4688838354,
+        mean_coef_shallow: 0.0146361677,
+        mean_coef_deep: -0.0645637771,
+        mean_coef_parity: 1.0676975869,
+        std_intercept: 0.8920672782,
+        std_coef_shallow: -0.0808970774,
+        std_coef_deep: 0.1453686955,
     },
-    ProbcutParams {
-        mean_intercept: -0.2607105065,
-        mean_coef_shallow: 0.0846409702,
-        mean_coef_deep: 0.0344551239,
-        std_intercept: 1.0731649655,
-        std_coef_shallow: -0.0597513922,
-        std_coef_deep: 0.0231316915,
+    ProbcutMidgameParams {
+        mean_intercept: -0.3001304193,
+        mean_coef_shallow: 0.1365940785,
+        mean_coef_deep: 0.0199100810,
+        mean_coef_parity: 0.9631317670,
+        std_intercept: 0.8563974617,
+        std_coef_shallow: -0.0765058374,
+        std_coef_deep: 0.1608477776,
     },
-    ProbcutParams {
-        mean_intercept: -0.0624988352,
-        mean_coef_shallow: 0.0809697583,
-        mean_coef_deep: -0.0658709328,
-        std_intercept: 1.0759424127,
-        std_coef_shallow: -0.0616108277,
-        std_coef_deep: 0.0239988728,
+    ProbcutMidgameParams {
+        mean_intercept: 0.3651436102,
+        mean_coef_shallow: 0.0782657321,
+        mean_coef_deep: -0.0710066847,
+        mean_coef_parity: 0.8507917036,
+        std_intercept: 0.8713186457,
+        std_coef_shallow: -0.0737533181,
+        std_coef_deep: 0.1595633712,
     },
-    ProbcutParams {
-        mean_intercept: -0.1274317030,
-        mean_coef_shallow: 0.0603023344,
-        mean_coef_deep: 0.0069884887,
-        std_intercept: 1.0762485989,
-        std_coef_shallow: -0.0637769739,
-        std_coef_deep: 0.0277180451,
+    ProbcutMidgameParams {
+        mean_intercept: 0.1537456041,
+        mean_coef_shallow: 0.0776460731,
+        mean_coef_deep: -0.0055627135,
+        mean_coef_parity: 0.7629420410,
+        std_intercept: 0.8556698259,
+        std_coef_shallow: -0.0698435029,
+        std_coef_deep: 0.1727535199,
     },
-    ProbcutParams {
-        mean_intercept: -0.2527357122,
-        mean_coef_shallow: 0.1061509806,
-        mean_coef_deep: -0.0202711919,
-        std_intercept: 1.0713234024,
-        std_coef_shallow: -0.0700790296,
-        std_coef_deep: 0.0320075302,
+    ProbcutMidgameParams {
+        mean_intercept: 0.3302717781,
+        mean_coef_shallow: 0.0455512719,
+        mean_coef_deep: -0.0536750014,
+        mean_coef_parity: 0.6243306819,
+        std_intercept: 0.8204510401,
+        std_coef_shallow: -0.0711098953,
+        std_coef_deep: 0.1932180930,
     },
-    ProbcutParams {
-        mean_intercept: -0.0644243399,
-        mean_coef_shallow: 0.0672004707,
-        mean_coef_deep: -0.0274314105,
-        std_intercept: 1.0974216236,
-        std_coef_shallow: -0.0726685628,
-        std_coef_deep: 0.0306565205,
+    ProbcutMidgameParams {
+        mean_intercept: 1.0550879914,
+        mean_coef_shallow: -0.0716476672,
+        mean_coef_deep: -0.0473714211,
+        mean_coef_parity: 0.5501106166,
+        std_intercept: 0.8516299018,
+        std_coef_shallow: -0.0802243379,
+        std_coef_deep: 0.1982170463,
     },
-    ProbcutParams {
-        mean_intercept: -0.3600853280,
-        mean_coef_shallow: 0.1242696450,
-        mean_coef_deep: 0.0099180738,
-        std_intercept: 1.1494486678,
-        std_coef_shallow: -0.0781133653,
-        std_coef_deep: 0.0269351308,
+    ProbcutMidgameParams {
+        mean_intercept: 0.2582046168,
+        mean_coef_shallow: 0.0265737189,
+        mean_coef_deep: -0.0443958307,
+        mean_coef_parity: 0.5132465801,
+        std_intercept: 0.8784556011,
+        std_coef_shallow: -0.0871228768,
+        std_coef_deep: 0.1984768179,
     },
-    ProbcutParams {
-        mean_intercept: -0.0897356638,
-        mean_coef_shallow: 0.0874644160,
-        mean_coef_deep: -0.0430239078,
-        std_intercept: 1.1425693502,
-        std_coef_shallow: -0.0785012598,
-        std_coef_deep: 0.0252379150,
+    ProbcutMidgameParams {
+        mean_intercept: 1.0873302464,
+        mean_coef_shallow: -0.1290539805,
+        mean_coef_deep: -0.0648334861,
+        mean_coef_parity: 0.4743311346,
+        std_intercept: 0.8743228513,
+        std_coef_shallow: -0.0889566560,
+        std_coef_deep: 0.2003810199,
     },
-    ProbcutParams {
-        mean_intercept: -0.2452158311,
-        mean_coef_shallow: 0.0601019694,
-        mean_coef_deep: 0.0137499736,
-        std_intercept: 1.1807339354,
-        std_coef_shallow: -0.0899091218,
-        std_coef_deep: 0.0230256580,
+    ProbcutMidgameParams {
+        mean_intercept: 0.2176347322,
+        mean_coef_shallow: -0.0106458275,
+        mean_coef_deep: -0.0353077982,
+        mean_coef_parity: 0.4415105361,
+        std_intercept: 0.8555182092,
+        std_coef_shallow: -0.0980801476,
+        std_coef_deep: 0.2188487750,
     },
-    ProbcutParams {
-        mean_intercept: -0.0569624690,
-        mean_coef_shallow: 0.0309609517,
-        mean_coef_deep: -0.0352864897,
-        std_intercept: 1.2289942813,
-        std_coef_shallow: -0.1076841409,
-        std_coef_deep: 0.0192636019,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6344202142,
+        mean_coef_shallow: -0.0213964596,
+        mean_coef_deep: -0.0946385218,
+        mean_coef_parity: 0.4203822328,
+        std_intercept: 0.8583781709,
+        std_coef_shallow: -0.1034312550,
+        std_coef_deep: 0.2179956164,
     },
-    ProbcutParams {
-        mean_intercept: -0.1678024492,
-        mean_coef_shallow: 0.0298359037,
-        mean_coef_deep: 0.0150322570,
-        std_intercept: 1.2642590900,
-        std_coef_shallow: -0.1348290236,
-        std_coef_deep: 0.0152762488,
+    ProbcutMidgameParams {
+        mean_intercept: -0.1236553168,
+        mean_coef_shallow: 0.0443181373,
+        mean_coef_deep: -0.0096640027,
+        mean_coef_parity: 0.4014733685,
+        std_intercept: 0.7961268352,
+        std_coef_shallow: -0.1098205740,
+        std_coef_deep: 0.2441625587,
     },
-    ProbcutParams {
-        mean_intercept: -0.1724880666,
-        mean_coef_shallow: 0.0245152619,
-        mean_coef_deep: -0.0076207915,
-        std_intercept: 1.3735011729,
-        std_coef_shallow: -0.2015008197,
-        std_coef_deep: 0.0099355624,
+    ProbcutMidgameParams {
+        mean_intercept: 0.3596524079,
+        mean_coef_shallow: -0.0184847222,
+        mean_coef_deep: -0.0994279068,
+        mean_coef_parity: 0.4119018081,
+        std_intercept: 0.7272997204,
+        std_coef_shallow: -0.1063104713,
+        std_coef_deep: 0.2636415459,
     },
-    ProbcutParams {
-        mean_intercept: -0.1056871497,
-        mean_coef_shallow: -0.0009725156,
-        mean_coef_deep: 0.0088979237,
-        std_intercept: 1.4807274226,
-        std_coef_shallow: -0.3126687633,
-        std_coef_deep: 0.0061099226,
+    ProbcutMidgameParams {
+        mean_intercept: -0.3341883857,
+        mean_coef_shallow: -0.1337773432,
+        mean_coef_deep: 0.0507776731,
+        mean_coef_parity: 0.4745841029,
+        std_intercept: 0.7376400487,
+        std_coef_shallow: -0.1224061310,
+        std_coef_deep: 0.2666076413,
     },
-    ProbcutParams {
-        mean_intercept: -0.1911585077,
-        mean_coef_shallow: 0.0103586936,
-        mean_coef_deep: -0.0048496078,
-        std_intercept: 1.7551440006,
-        std_coef_shallow: -0.6161882234,
-        std_coef_deep: 0.0100132898,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6250169712,
+        mean_coef_shallow: 0.0363997349,
+        mean_coef_deep: -0.2417428479,
+        mean_coef_parity: 0.5019264383,
+        std_intercept: 0.7134237240,
+        std_coef_shallow: -0.1289164632,
+        std_coef_deep: 0.2646755919,
     },
-    ProbcutParams {
-        mean_intercept: -0.0067086171,
-        mean_coef_shallow: -0.0031970589,
-        mean_coef_deep: 0.0019878358,
-        std_intercept: 1.4294640856,
-        std_coef_shallow: -0.5915429446,
-        std_coef_deep: 0.0005571824,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6250169712,
+        mean_coef_shallow: 0.0363997349,
+        mean_coef_deep: -0.2417428479,
+        mean_coef_parity: 0.5019264383,
+        std_intercept: 0.7134237240,
+        std_coef_shallow: -0.1289164632,
+        std_coef_deep: 0.2646755919,
     },
-    ProbcutParams {
-        mean_intercept: -0.2346769930,
-        mean_coef_shallow: -0.0023419478,
-        mean_coef_deep: 0.0025682595,
-        std_intercept: 0.8454568660,
-        std_coef_shallow: -0.5829595232,
-        std_coef_deep: 0.0119112925,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6250169712,
+        mean_coef_shallow: 0.0363997349,
+        mean_coef_deep: -0.2417428479,
+        mean_coef_parity: 0.5019264383,
+        std_intercept: 0.7134237240,
+        std_coef_shallow: -0.1289164632,
+        std_coef_deep: 0.2646755919,
     },
-    ProbcutParams {
-        mean_intercept: -0.1001925134,
-        mean_coef_shallow: -0.0015764096,
-        mean_coef_deep: 0.0011655513,
-        std_intercept: 0.1863429772,
-        std_coef_shallow: -0.5712852987,
-        std_coef_deep: 0.0000019249,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6250169712,
+        mean_coef_shallow: 0.0363997349,
+        mean_coef_deep: -0.2417428479,
+        mean_coef_parity: 0.5019264383,
+        std_intercept: 0.7134237240,
+        std_coef_shallow: -0.1289164632,
+        std_coef_deep: 0.2646755919,
     },
-    ProbcutParams {
-        mean_intercept: -0.3410933064,
-        mean_coef_shallow: -0.0019097601,
-        mean_coef_deep: 0.0017505073,
-        std_intercept: -0.6311956538,
-        std_coef_shallow: -0.4978091489,
-        std_coef_deep: 0.0000123274,
+    ProbcutMidgameParams {
+        mean_intercept: 0.6250169712,
+        mean_coef_shallow: 0.0363997349,
+        mean_coef_deep: -0.2417428479,
+        mean_coef_parity: 0.5019264383,
+        std_intercept: 0.7134237240,
+        std_coef_shallow: -0.1289164632,
+        std_coef_deep: 0.2646755919,
     },
-    ProbcutParams {
+    ProbcutMidgameParams {
         mean_intercept: 0.0000000000,
         mean_coef_shallow: 0.0000000000,
         mean_coef_deep: 0.0000000000,
+        mean_coef_parity: 0.0000000000,
         std_intercept: -18.4206807440,
-        std_coef_shallow: -0.0000000000,
-        std_coef_deep: -0.0000000000,
+        std_coef_shallow: 0.0000000000,
+        std_coef_deep: 0.0000000000,
     },
 ];
 
@@ -758,6 +855,41 @@ const _: () = assert!(PROBCUT_PARAMS.len() == NUM_PLY);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn midgame_model_credits_half_the_deep_parity_and_uses_sqrt_for_sigma() {
+        let params = ProbcutMidgameParams {
+            mean_intercept: 0.25,
+            mean_coef_shallow: -0.5,
+            mean_coef_deep: 0.125,
+            mean_coef_parity: 1.25,
+            std_intercept: 0.75,
+            std_coef_shallow: -0.25,
+            std_coef_deep: 0.5,
+        };
+
+        // Even deep: no parity contribution.
+        assert_eq!(params.mean(2.0, 8.0), 0.25);
+        // Odd deep: the fitted parity offset enters at PARITY_CREDIT (0.5),
+        // so 0.25 - 1.0 + 1.125 + 0.5 * 1.25 = 1.0.
+        assert_eq!(params.mean(2.0, 9.0), 1.0);
+        assert_eq!(params.sigma(2.0, 9.0), (0.75_f64 - 0.5 + 0.5 * 3.0).exp());
+    }
+
+    #[test]
+    fn endgame_model_keeps_linear_deep_features() {
+        let params = ProbcutParams {
+            mean_intercept: 0.25,
+            mean_coef_shallow: -0.5,
+            mean_coef_deep: 0.125,
+            std_intercept: 0.75,
+            std_coef_shallow: -0.25,
+            std_coef_deep: 0.5,
+        };
+
+        assert_eq!(params.mean(2.0, 9.0), 0.375);
+        assert_eq!(params.sigma(2.0, 9.0), (0.75_f64 - 0.5 + 0.5 * 9.0).exp());
+    }
 
     #[test]
     fn from_u8_maps_to_the_five_supported_selectivities() {
@@ -776,6 +908,12 @@ mod tests {
         assert!(Selectivity::Level1 < Selectivity::Level2);
         assert!(Selectivity::Level2 < Selectivity::Level3);
         assert!(Selectivity::Level3 < Selectivity::None);
+    }
+
+    #[test]
+    fn mid_selectivity_reports_confidence_for_its_t_value() {
+        assert_eq!(Selectivity::Mid.t_value(), 0.9);
+        assert_eq!(Selectivity::Mid.probability(), 63);
     }
 
     #[test]

@@ -49,8 +49,12 @@ const MIN_DEPTH_DIFFERENCE: Depth = 2;
 /// Starting ply for endgame ProbCut analysis
 const ENDGAME_START_PLY: u32 = 30;
 
-/// CSV header shared by both generators
+/// CSV header used by the existing endgame pipeline.
 const CSV_HEADER: &[u8] = b"ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n";
+
+/// Midgame CSV header with an explicit game-blocking key.
+const MIDGAME_CSV_HEADER: &[u8] =
+    b"game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n";
 
 /// Command line arguments for ProbCut training data generation.
 #[derive(Parser)]
@@ -84,7 +88,11 @@ struct ProbCutSample {
 }
 
 /// Opens the game-sequence input and the CSV output, writing the CSV header.
-fn open_csv_io(input: &str, output: &str) -> io::Result<(BufReader<File>, BufWriter<File>)> {
+fn open_csv_io(
+    input: &str,
+    output: &str,
+    header: &[u8],
+) -> io::Result<(BufReader<File>, BufWriter<File>)> {
     let input_file = File::open(input).map_err(|e| {
         io::Error::new(
             e.kind(),
@@ -99,7 +107,7 @@ fn open_csv_io(input: &str, output: &str) -> io::Result<(BufReader<File>, BufWri
         )
     })?;
     let mut writer = BufWriter::new(output_file);
-    writer.write_all(CSV_HEADER)?;
+    writer.write_all(header)?;
 
     Ok((BufReader::new(input_file), writer))
 }
@@ -172,7 +180,7 @@ fn depth_scores(
 
 /// Writes one CSV row, pairing the sample's shallow result with `deep_score`.
 fn write_sample(
-    writer: &mut BufWriter<File>,
+    writer: &mut impl Write,
     sample: &ProbCutSample,
     deep_score: Scoref,
 ) -> io::Result<()> {
@@ -186,6 +194,17 @@ fn write_sample(
         deep_score,
         deep_score - sample.shallow_score
     )
+}
+
+/// Writes one midgame CSV row with the source game line number.
+fn write_midgame_sample(
+    writer: &mut impl Write,
+    game: usize,
+    sample: &ProbCutSample,
+    deep_score: Scoref,
+) -> io::Result<()> {
+    write!(writer, "{game},")?;
+    write_sample(writer, sample, deep_score)
 }
 
 /// Generates ProbCut training data.
@@ -212,7 +231,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
     let eval = search.eval().clone();
     let mut visited: HashSet<Board> = HashSet::new();
 
-    let (reader, mut writer) = open_csv_io(input, output)?;
+    let (reader, mut writer) = open_csv_io(input, output, MIDGAME_CSV_HEADER)?;
 
     for (line_no, line_result) in reader.lines().enumerate() {
         let line = line_result.map_err(|e| {
@@ -230,6 +249,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
             io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move: {e}"))
         })?;
 
+        let game = line_no + 1;
         let mut samples: Vec<(ProbCutSample, Scoref)> = Vec::new();
         replay(&moves, |board, side_to_move| {
             if !insert_midgame_position(&mut visited, board) {
@@ -270,7 +290,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         });
 
         for (sample, deep_score) in samples.iter() {
-            write_sample(&mut writer, sample, *deep_score)?;
+            write_midgame_sample(&mut writer, game, sample, *deep_score)?;
         }
         writer.flush()?;
 
@@ -308,7 +328,7 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
     let eval = search.eval().clone();
     let mut visited: HashSet<Board> = HashSet::new();
 
-    let (reader, mut writer) = open_csv_io(input, output)?;
+    let (reader, mut writer) = open_csv_io(input, output, CSV_HEADER)?;
 
     for (line_no, line_result) in reader.lines().enumerate() {
         let line = line_result.map_err(|e| {
@@ -381,6 +401,45 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn csv_rows_include_the_input_game_line_number() {
+        let sample = ProbCutSample {
+            ply: 12,
+            shallow_depth: 2,
+            shallow_score: 1.25,
+            deep_depth: 7,
+            side_to_move: Disc::Black,
+        };
+        let mut output = Vec::new();
+
+        write_midgame_sample(&mut output, 17, &sample, -0.5).unwrap();
+
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "17,12,2,1.25,7,-0.5,-1.75\n"
+        );
+    }
+
+    #[test]
+    fn endgame_csv_contract_remains_six_columns() {
+        let sample = ProbCutSample {
+            ply: 40,
+            shallow_depth: 4,
+            shallow_score: -2.0,
+            deep_depth: 20,
+            side_to_move: Disc::White,
+        };
+        let mut output = Vec::new();
+
+        write_sample(&mut output, &sample, 6.0).unwrap();
+
+        assert_eq!(
+            CSV_HEADER,
+            b"ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n"
+        );
+        assert_eq!(String::from_utf8(output).unwrap(), "40,4,-2,20,6,8\n");
+    }
 
     #[test]
     fn midgame_dedup_keeps_symmetric_positions_distinct() {

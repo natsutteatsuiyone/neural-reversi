@@ -221,13 +221,15 @@ and probes / stores are lock-free.
 at depth `shallow` are correlated, so a shallow search alone can predict
 a cutoff.
 
-- The parameters per `(ply, shallow, deep)` are a linear / exponential fit:
+- The midgame parameters per `(ply, shallow, deep)` are fit as:
 
   ```
-  mean  = a + b·shallow + c·deep
-  sigma = exp(a' + b'·shallow + c'·deep)
+  mean  = a + b·shallow + c·deep + e·(deep & 1)
+  sigma = exp(a' + b'·shallow + c'·sqrt(deep))
   ```
 
+  The endgame model is an independent fit without the parity and `sqrt`
+  terms.
   `probcut::init` populates `MEAN_TABLE / SIGMA_TABLE` (midgame) and
   `MEAN_TABLE_END / SIGMA_TABLE_END` (endgame) into `OnceLock`s. Values are
   pre-multiplied by `ScaledScore::SCALE` so they live directly in
