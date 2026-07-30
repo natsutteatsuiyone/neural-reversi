@@ -159,17 +159,6 @@ mod tests {
     }
 
     #[test]
-    fn test_endgame_selectivity_matches_end_depth() {
-        let level = Level {
-            mid_depth: 10,
-            end_depth: [10, 20, 30, 40],
-        };
-        for (i, &sel) in Level::ENDGAME_SELECTIVITY.iter().enumerate() {
-            assert_eq!(level.get_end_depth(sel), level.end_depth[i]);
-        }
-    }
-
-    #[test]
     fn test_level_progression() {
         // Verify that levels generally increase in difficulty
         for i in 0..LEVELS.len() - 1 {

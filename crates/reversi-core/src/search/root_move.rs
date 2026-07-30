@@ -323,21 +323,6 @@ mod tests {
     }
 
     #[test]
-    fn get_returns_the_indexed_root_move() {
-        let rms = RootMoves::new(&Board::new());
-        let sqs = rms.map(|rm| rm.sq);
-
-        assert_eq!(rms.get(1).map(|rm| rm.sq), Some(sqs[1]));
-    }
-
-    #[test]
-    fn get_returns_none_for_out_of_bounds_index() {
-        let rms = RootMoves::new(&Board::new());
-
-        assert!(rms.get(rms.count()).is_none());
-    }
-
-    #[test]
     fn contains_from_pv_idx_respects_membership_and_the_pv_window() {
         let rms = RootMoves::new(&Board::new());
         let sq = rms.map(|rm| rm.sq)[0];

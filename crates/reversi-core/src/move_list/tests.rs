@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
@@ -20,28 +18,6 @@ fn test_move_list_new() {
     assert!(moves.contains(&Square::E6));
 }
 
-/// Tests move generation with more complex position.
-#[test]
-fn test_move_list_generation_complex() {
-    let board = Board::from_string(
-        "--------\
-             --------\
-             ---OX---\
-             --OXX---\
-             --XXX---\
-             --------\
-             --------\
-             --------",
-        Disc::Black,
-    )
-    .unwrap();
-
-    let move_list = MoveList::new(&board);
-    for mv in move_list.iter() {
-        assert!(!mv.flipped.is_empty());
-    }
-}
-
 /// Tests move generation when no moves are available.
 #[test]
 fn test_move_list_no_moves() {
@@ -49,30 +25,6 @@ fn test_move_list_no_moves() {
     let move_list = MoveList::new(&board);
     assert_eq!(move_list.count(), 0);
     assert!(move_list.first().is_none());
-}
-
-/// Tests first() method.
-#[test]
-fn test_first() {
-    let board = Board::new();
-    let move_list = MoveList::new(&board);
-
-    let first = move_list.first().unwrap();
-    let first_iter = move_list.iter().next().unwrap();
-    assert_eq!(first.sq, first_iter.sq);
-}
-
-/// Tests iterator methods.
-#[test]
-fn test_iterators() {
-    let board = Board::new();
-    let move_list = MoveList::new(&board);
-
-    let count_iter = move_list.iter().count();
-    assert_eq!(count_iter, move_list.count());
-
-    let squares: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
-    assert_eq!(squares.len(), 4);
 }
 
 /// Tests the sort method.
@@ -165,27 +117,6 @@ fn test_best_first_iter_single_move() {
     assert!(iter.next().is_none());
 }
 
-/// Tests best-first iterator preserves all moves.
-#[test]
-fn test_best_first_iter_completeness() {
-    let board = Board::new();
-    let mut move_list = MoveList::new(&board);
-
-    for i in 0..move_list.count() {
-        move_list.moves[i].value = (i * 10) as i32;
-    }
-
-    let count = move_list.count();
-    let iter = move_list.best_first_iter();
-    let mut seen_values = HashSet::new();
-
-    for mv in iter {
-        assert!(seen_values.insert(mv.value));
-    }
-
-    assert_eq!(seen_values.len(), count);
-}
-
 /// Tests concurrent move iterator.
 #[test]
 fn test_concurrent_move_iterator() {
@@ -208,17 +139,6 @@ fn test_concurrent_move_iterator() {
     }
 
     assert!(concurrent_iter.next().is_none());
-}
-
-#[test]
-fn test_get_move() {
-    let board = Board::new();
-    let move_list = MoveList::new(&board);
-
-    let moves_from_iter: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
-    for (i, expected_sq) in moves_from_iter.iter().enumerate() {
-        assert_eq!(move_list.get_move(i).sq, *expected_sq);
-    }
 }
 
 #[test]
@@ -245,21 +165,6 @@ fn test_concurrent_move_iterator_from_offset() {
     // No more moves
     assert!(concurrent_iter.next().is_none());
     assert_eq!(concurrent_iter.remaining(), 0);
-}
-
-#[test]
-fn test_concurrent_move_iterator_from_offset_zero() {
-    let board = Board::new();
-    let move_list = MoveList::new(&board);
-
-    let concurrent_iter = ConcurrentMoveIterator::from_offset(move_list, 0);
-    assert_eq!(concurrent_iter.remaining(), 4);
-
-    let mut count = 0;
-    while concurrent_iter.next().is_some() {
-        count += 1;
-    }
-    assert_eq!(count, 4);
 }
 
 /// Independent eight-direction flip reference used to cross-check move

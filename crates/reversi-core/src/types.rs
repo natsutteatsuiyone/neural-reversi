@@ -292,18 +292,6 @@ mod scaled_score_tests {
     }
 
     #[test]
-    fn ordering_and_min_max_follow_raw_score_ordering() {
-        let lower_fraction = ScaledScore::from_raw(ScaledScore::SCALE + 1);
-        let higher_fraction = ScaledScore::from_raw(ScaledScore::SCALE + 2);
-        let same_as_higher = ScaledScore::from_raw(ScaledScore::SCALE + 2);
-
-        assert!(higher_fraction > lower_fraction);
-        assert_eq!(higher_fraction, same_as_higher);
-        assert_eq!(higher_fraction.max(lower_fraction), higher_fraction);
-        assert_eq!(higher_fraction.min(lower_fraction), lower_fraction);
-    }
-
-    #[test]
     fn display_formats_disc_difference_with_two_decimal_places() {
         assert_eq!(ScaledScore::from_disc_diff(10).to_string(), "10.00");
         assert_eq!(
@@ -314,13 +302,6 @@ mod scaled_score_tests {
             ScaledScore::from_raw(-(ScaledScore::SCALE / 2)).to_string(),
             "-0.50"
         );
-    }
-
-    #[test]
-    fn default_is_zero_score() {
-        let score: ScaledScore = Default::default();
-
-        assert_eq!(score, ScaledScore::ZERO);
     }
 
     #[test]

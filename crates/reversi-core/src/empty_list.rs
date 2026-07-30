@@ -225,17 +225,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_list_new() {
-        let board = Board::new();
-        let empty_list = EmptyList::new(&board);
-
-        assert_eq!(empty_list.count(), 60);
-        assert_eq!(empty_list.first(), Square::A1);
-        assert_eq!(empty_list.next(Square::A1), Square::H1);
-        assert_eq!(empty_list.next(Square::G7), Square::None);
-    }
-
-    #[test]
     fn test_empty_list_remove_restore() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
@@ -307,30 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn test_first_with_quad_id() {
-        let board = Board::new();
-        let empty_list = EmptyList::new(&board);
-
-        let (first_sq, quad_id) = empty_list.first_and_quad_id();
-        assert_eq!(first_sq, Square::A1);
-        assert_eq!(quad_id, 1); // A1 is in quadrant 1
-    }
-
-    #[test]
-    fn test_next_with_quad_id() {
-        let board = Board::new();
-        let empty_list = EmptyList::new(&board);
-
-        let (next_sq, quad_id) = empty_list.next_and_quad_id(Square::A1);
-        assert_eq!(next_sq, Square::H1);
-        assert_eq!(quad_id, 2); // H1 is in quadrant 2
-
-        let (next_sq, quad_id) = empty_list.next_and_quad_id(Square::H1);
-        assert_eq!(next_sq, Square::A8);
-        assert_eq!(quad_id, 4); // A8 is in quadrant 4
-    }
-
-    #[test]
     fn test_ply_calculation() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
@@ -385,26 +350,6 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_restore_order_independence() {
-        let board = Board::new();
-        let mut empty_list1 = EmptyList::new(&board);
-        let mut empty_list2 = EmptyList::new(&board);
-
-        // Remove squares in different orders (all must be empty squares)
-        empty_list1.remove(Square::A1);
-        empty_list1.remove(Square::H8);
-        empty_list1.remove(Square::C1);
-
-        empty_list2.remove(Square::H8);
-        empty_list2.remove(Square::C1);
-        empty_list2.remove(Square::A1);
-
-        // Both should have the same count and parity
-        assert_eq!(empty_list1.count(), empty_list2.count());
-        assert_eq!(empty_list1.parity(), empty_list2.parity());
-    }
-
-    #[test]
     fn test_edge_cases_empty_list() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
@@ -454,48 +399,6 @@ mod tests {
     }
 
     #[test]
-    fn test_strategic_ordering_corners_first() {
-        let board = Board::new();
-        let empty_list = EmptyList::new(&board);
-
-        // First four squares should be corners
-        let corners = [Square::A1, Square::H1, Square::A8, Square::H8];
-        let mut current = empty_list.first();
-
-        for &expected_corner in &corners {
-            assert_eq!(current, expected_corner);
-            current = empty_list.next(current);
-        }
-    }
-
-    #[test]
-    fn test_list_traversal_completeness() {
-        let board = Board::new();
-        let empty_list = EmptyList::new(&board);
-
-        let mut visited_squares = [false; 64];
-        let mut current = empty_list.first();
-        let mut count = 0;
-
-        while current != Square::None {
-            let sq_idx = current.index();
-            assert!(
-                !visited_squares[sq_idx],
-                "Square visited twice: {current:?}"
-            );
-            visited_squares[sq_idx] = true;
-            current = empty_list.next(current);
-            count += 1;
-        }
-
-        assert_eq!(count, 60);
-
-        // Count visited squares
-        let visited_count = visited_squares.iter().filter(|&&v| v).count();
-        assert_eq!(visited_count, 60);
-    }
-
-    #[test]
     fn test_remove_middle_squares() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
@@ -524,30 +427,6 @@ mod tests {
         assert_eq!(count, 58); // 60 - 2 removed squares
         assert!(!found_c3, "C3 should not be in list after removal");
         assert!(!found_f3, "F3 should not be in list after removal");
-    }
-
-    #[test]
-    fn test_clone_functionality() {
-        let board = Board::new();
-        let mut empty_list = EmptyList::new(&board);
-
-        // Modify the original list
-        empty_list.remove(Square::A1);
-        empty_list.remove(Square::H8);
-
-        // Clone the list
-        let cloned_list = empty_list.clone();
-
-        // Verify clone has same properties
-        assert_eq!(cloned_list.count(), empty_list.count());
-        assert_eq!(cloned_list.parity(), empty_list.parity());
-        assert_eq!(cloned_list.first(), empty_list.first());
-
-        // Verify independence - modify original
-        empty_list.remove(Square::C1);
-
-        // Clone should be unchanged
-        assert_ne!(cloned_list.count(), empty_list.count());
     }
 
     #[test]

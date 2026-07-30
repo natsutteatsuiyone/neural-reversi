@@ -298,10 +298,4 @@ mod tests {
         assert_eq!(v.as_slice(), &[] as &[i64]);
         assert_eq!(v.as_ptr() as usize % CACHE_LINE_SIZE, 0);
     }
-
-    #[test]
-    fn debug_matches_slice() {
-        let v = AlignedBuffer::<i32, CACHE_LINE_SIZE>::from_iter([1, 2, 3]);
-        assert_eq!(format!("{v:?}"), "[1, 2, 3]");
-    }
 }

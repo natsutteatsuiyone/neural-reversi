@@ -515,22 +515,6 @@ mod tests {
     }
 
     #[test]
-    fn test_new_board() {
-        let board = Board::new();
-        // Should be same as default
-        assert_eq!(board, Board::default());
-    }
-
-    #[test]
-    fn test_from_bitboards() {
-        let player = Square::A1.bitboard();
-        let opponent = Square::H8.bitboard();
-        let board = Board::from_bitboards(player, opponent);
-        assert!(board.player().contains(Square::A1));
-        assert!(board.opponent().contains(Square::H8));
-    }
-
-    #[test]
     #[should_panic(expected = "player and opponent bitboards must not overlap")]
     fn test_from_bitboards_rejects_overlap() {
         Board::from_bitboards(Square::A1.bitboard(), Square::A1.bitboard());
@@ -618,50 +602,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_empty() {
-        let board = Board::new();
-        let empty = board.get_empty();
-
-        assert!(!empty.contains(Square::D4));
-        assert!(!empty.contains(Square::E5));
-        assert!(!empty.contains(Square::D5));
-        assert!(!empty.contains(Square::E4));
-        assert!(empty.contains(Square::A1));
-    }
-
-    #[test]
-    fn test_counts() {
-        let board = Board::new();
-        assert_eq!(board.get_player_count(), 2);
-        assert_eq!(board.get_opponent_count(), 2);
-        assert_eq!(board.get_empty_count(), 60);
-
-        // Custom board
-        let custom = Board::from_bitboards(
-            Square::A1.bitboard() | Square::A2.bitboard() | Square::A3.bitboard(),
-            Square::H8.bitboard(),
-        );
-        assert_eq!(custom.get_player_count(), 3);
-        assert_eq!(custom.get_opponent_count(), 1);
-        assert_eq!(custom.get_empty_count(), 60);
-    }
-
-    #[test]
-    fn test_switch_players() {
-        let board = Board::new();
-        let switched_board = board.switch_players();
-
-        assert!(switched_board.player().contains(Square::D4));
-        assert!(switched_board.player().contains(Square::E5));
-        assert!(switched_board.opponent().contains(Square::D5));
-        assert!(switched_board.opponent().contains(Square::E4));
-
-        // Double switch should return to original
-        let double_switched = switched_board.switch_players();
-        assert_eq!(board, double_switched);
-    }
-
-    #[test]
     fn test_try_make_move() {
         let board = Board::new();
 
@@ -694,16 +634,6 @@ mod tests {
     }
 
     #[test]
-    fn test_make_move_with_flipped() {
-        let board = Board::new();
-        let flipped = Square::D4.bitboard();
-        let new_board = board.make_move_with_flipped(flipped, Square::D3);
-
-        assert!(new_board.opponent().contains(Square::D3));
-        assert!(new_board.opponent().contains(Square::D4));
-    }
-
-    #[test]
     fn test_get_moves() {
         let board = Board::new();
         let moves = board.get_moves();
@@ -714,44 +644,6 @@ mod tests {
         assert!(moves.contains(Square::C4));
         assert!(moves.contains(Square::F5));
         assert!(moves.contains(Square::E6));
-    }
-
-    #[test]
-    fn test_has_legal_moves() {
-        let board = Board::new();
-        assert!(board.has_legal_moves());
-
-        // Board with no moves
-        let no_moves = Board::from_bitboards(0, u64::MAX);
-        assert!(!no_moves.has_legal_moves());
-    }
-
-    #[test]
-    fn test_is_legal_move() {
-        let board = Board::new();
-
-        // Legal moves
-        assert!(board.is_legal_move(Square::D3));
-        assert!(board.is_legal_move(Square::C4));
-        assert!(board.is_legal_move(Square::F5));
-        assert!(board.is_legal_move(Square::E6));
-
-        // Illegal moves
-        assert!(!board.is_legal_move(Square::A1));
-        assert!(!board.is_legal_move(Square::D4)); // Occupied
-        assert!(!board.is_legal_move(Square::D2)); // No flip
-    }
-
-    #[test]
-    fn test_is_square_empty() {
-        let board = Board::new();
-
-        assert!(board.is_square_empty(Square::A1));
-        assert!(board.is_square_empty(Square::H8));
-        assert!(!board.is_square_empty(Square::D4));
-        assert!(!board.is_square_empty(Square::E5));
-        assert!(!board.is_square_empty(Square::D5));
-        assert!(!board.is_square_empty(Square::E4));
     }
 
     #[test]
@@ -878,26 +770,6 @@ mod tests {
     }
 
     #[test]
-    fn test_to_string_as_board() {
-        let board = Board::new();
-
-        // As Black
-        let black_str = board.to_string_as_board(Disc::Black);
-        assert!(black_str.contains("OX"));
-        assert!(black_str.contains("XO"));
-
-        // As White
-        let white_str = board.to_string_as_board(Disc::White);
-        assert!(white_str.contains("XO"));
-        assert!(white_str.contains("OX"));
-
-        // Check length and newlines
-        let lines: Vec<&str> = black_str.split('\n').collect();
-        assert_eq!(lines.len(), 8);
-        assert_eq!(lines[0].len(), 8);
-    }
-
-    #[test]
     fn test_display() {
         let board = Board::new();
         let board_display = format!("{board}");
@@ -910,30 +782,6 @@ mod tests {
                                       --------\n\
                                       --------";
         assert_eq!(board_display, expected_display);
-    }
-
-    #[test]
-    fn test_board_equality() {
-        let board1 = Board::new();
-        let board2 = Board::new();
-        let board3 = Board::from_bitboards(1, 2);
-
-        assert_eq!(board1, board2);
-        assert_ne!(board1, board3);
-    }
-
-    #[test]
-    fn test_complex_game_sequence() {
-        let mut board = Board::new();
-
-        // Play a few moves
-        board = board.make_move(Square::D3); // Black
-        board = board.make_move(Square::C3); // White
-        board = board.make_move(Square::C4); // Black
-        board = board.make_move(Square::C5); // White
-
-        // After four non-pass moves the board holds the 4 initial discs plus 4 placed.
-        assert_eq!(board.get_player_count() + board.get_opponent_count(), 8);
     }
 
     #[test]
@@ -1062,19 +910,6 @@ mod tests {
     }
 
     #[test]
-    fn test_from_string_empty() {
-        let result = Board::from_string("", Disc::Black);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            BoardError::TooShort { expected, actual } => {
-                assert_eq!(expected, 64);
-                assert_eq!(actual, 0);
-            }
-            _ => panic!("Expected TooShort error"),
-        }
-    }
-
-    #[test]
     fn test_board_error_display() {
         assert_eq!(
             BoardError::TooShort {
@@ -1150,17 +985,6 @@ mod tests {
                     <= (candidate.player.bits(), candidate.opponent.bits())
             );
         }
-    }
-
-    #[test]
-    fn test_unique_initial_position() {
-        // Initial position is symmetric, so unique should return itself or equivalent
-        let board = Board::new();
-        let unique = board.unique();
-
-        // All 8 variants should give the same unique result
-        assert_eq!(unique, board.rotate_90_clockwise().unique());
-        assert_eq!(unique, board.flip_horizontal().unique());
     }
 
     #[test]

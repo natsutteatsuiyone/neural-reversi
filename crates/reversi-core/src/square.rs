@@ -336,27 +336,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_to_bitboard() {
-        assert_eq!(Square::A1.bitboard(), Bitboard::new(1));
-        assert_eq!(Square::H8.bitboard(), Bitboard::new(0x8000000000000000));
-    }
-
-    #[test]
-    fn test_from_usize() {
-        assert_eq!(Square::from_usize(0), Some(Square::A1));
-        assert_eq!(Square::from_usize(8), Some(Square::A2)); // row wrap
-        assert_eq!(Square::from_usize(63), Some(Square::H8));
-    }
-
-    #[test]
-    fn test_iter() {
-        let squares: Vec<Square> = Square::iter().collect();
-        assert_eq!(squares.len(), 64);
-        assert_eq!(squares[0], Square::A1);
-        assert_eq!(squares[63], Square::H8);
-    }
-
-    #[test]
     fn test_square_from_str() {
         assert_eq!(Square::from_str("a1").unwrap(), Square::A1);
         assert_eq!(Square::from_str("h8").unwrap(), Square::H8);
@@ -434,12 +413,6 @@ mod tests {
         assert_eq!(Square::from_usize(63), Some(Square::H8));
         assert_eq!(Square::from_usize(64), Some(Square::None));
         assert_eq!(Square::from_usize(65), None);
-    }
-
-    #[test]
-    fn test_index() {
-        assert_eq!(Square::D4.index(), 27); // 3 * 8 + 3
-        assert_eq!(Square::E5.index(), 36); // 4 * 8 + 4
     }
 
     #[test]

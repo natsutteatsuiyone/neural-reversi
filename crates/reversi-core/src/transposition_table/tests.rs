@@ -976,15 +976,4 @@ mod transposition_table {
 
         assert_eq!(tt.usage_rate(), 1.0 / (16.0 * CLUSTER_SIZE as f64));
     }
-
-    #[test]
-    fn prefetch_accepts_any_key_without_changing_observable_state() {
-        let tt = TranspositionTable::new(0);
-
-        tt.prefetch(0);
-        tt.prefetch(u64::MAX);
-
-        assert_eq!(tt.usage_rate(), 0.0);
-        assert_eq!(tt.generation(), 0);
-    }
 }

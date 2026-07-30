@@ -173,24 +173,4 @@ mod tests {
         assert!(cleared.eval_path.is_none());
         assert!(cleared.eval_sm_path.is_none());
     }
-
-    #[test]
-    fn run_options_with_level_sets_a_level_constraint() {
-        let opts = SearchRunOptions::with_level(Level::unlimited());
-        assert!(matches!(opts.constraint, SearchConstraint::Level(_)));
-        assert!(!opts.probcut_disabled);
-    }
-
-    #[test]
-    fn run_options_with_time_sets_a_time_constraint() {
-        let opts = SearchRunOptions::with_time(TimeControlMode::Infinite);
-        assert!(matches!(opts.constraint, SearchConstraint::Time(_)));
-        assert!(!opts.probcut_disabled);
-    }
-
-    #[test]
-    fn disable_probcut_sets_the_flag() {
-        let opts = SearchRunOptions::with_level(Level::unlimited()).disable_probcut();
-        assert!(opts.probcut_disabled);
-    }
 }

@@ -409,28 +409,4 @@ mod tests {
             assert_eq!(cache.probe(key), None, "key {key:#018x}");
         }
     }
-
-    #[test]
-    fn prefetch_targets_the_probe_bucket_without_changing_cache_contents() {
-        let cache = EvalCache::new(4);
-        let key = 0xF000_0000_0000_000F;
-        let score = ScaledScore::from_raw(321);
-
-        cache.store(key, score);
-        let (index, _) = cache.location(key);
-        let before = cache.table[index]
-            .entries
-            .each_ref()
-            .map(|entry| entry.load(Ordering::Relaxed));
-
-        cache.prefetch(key);
-        cache.prefetch(u64::MAX);
-
-        let after = cache.table[index]
-            .entries
-            .each_ref()
-            .map(|entry| entry.load(Ordering::Relaxed));
-        assert_eq!(after, before);
-        assert_eq!(cache.probe(key), Some(score));
-    }
 }

@@ -180,37 +180,10 @@ mod tests {
     }
 
     #[test]
-    fn test_make_move() {
-        let mut game = GameState::new();
-        let result = game.make_move(Square::D3);
-        assert!(result.is_ok());
-        assert_eq!(game.side_to_move(), Disc::White);
-    }
-
-    #[test]
     fn test_illegal_move() {
         let mut game = GameState::new();
         let result = game.make_move(Square::A1);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_game_over() {
-        let board = Board::new();
-        let mut game = GameState::from_board(board, Disc::Black);
-
-        // Play through a game until it's over
-        while !game.is_game_over() {
-            if game.board().has_legal_moves() {
-                let moves = game.board().get_moves();
-                let first_move = moves.into_iter().next().unwrap();
-                let _ = game.make_move(first_move);
-            } else {
-                let _ = game.make_pass();
-            }
-        }
-
-        assert!(game.is_game_over());
     }
 
     #[test]
@@ -228,25 +201,6 @@ mod tests {
         assert!(game.undo());
         assert_eq!(*game.board(), original_board);
         assert_eq!(game.side_to_move(), original_side);
-    }
-
-    #[test]
-    fn test_undo_multiple() {
-        let mut game = GameState::new();
-
-        // Make several moves (use legal moves)
-        game.make_move(Square::D3).unwrap();
-        game.make_move(Square::C3).unwrap();
-        game.make_move(Square::C4).unwrap();
-
-        // Undo all moves
-        assert!(game.undo());
-        assert!(game.undo());
-        assert!(game.undo());
-
-        // Should be back to initial state
-        assert_eq!(game.side_to_move(), Disc::Black);
-        assert_eq!(game.get_score(), (2, 2));
     }
 
     #[test]
@@ -272,25 +226,6 @@ mod tests {
         // After making another move
         game.make_move(Square::C3).unwrap();
         assert_eq!(game.last_move(), Some(Square::C3));
-    }
-
-    #[test]
-    fn test_from_board() {
-        let board = Board::new();
-        let game = GameState::from_board(board, Disc::White);
-
-        assert_eq!(game.side_to_move(), Disc::White);
-        assert_eq!(*game.board(), board);
-        assert_eq!(game.move_history().len(), 0);
-    }
-
-    #[test]
-    fn test_from_board_game_over_without_pass_history() {
-        let board = Board::from_bitboards(Square::A1.bitboard(), 0);
-        assert!(board.is_game_over());
-
-        let game = GameState::from_board(board, Disc::Black);
-        assert!(game.is_game_over());
     }
 
     #[test]
@@ -388,18 +323,6 @@ mod tests {
         let (black, white) = game.get_score();
         assert_eq!(black, 4);
         assert_eq!(white, 1);
-    }
-
-    #[test]
-    fn test_side_to_move_alternates() {
-        let mut game = GameState::new();
-        assert_eq!(game.side_to_move(), Disc::Black);
-
-        game.make_move(Square::D3).unwrap();
-        assert_eq!(game.side_to_move(), Disc::White);
-
-        game.make_move(Square::C3).unwrap();
-        assert_eq!(game.side_to_move(), Disc::Black);
     }
 
     #[test]

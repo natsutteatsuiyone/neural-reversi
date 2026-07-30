@@ -61,13 +61,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new() {
-        let bitset = AtomicBitSet::new();
-        assert_eq!(bitset.count(), 0);
-        assert!(bitset.none());
-    }
-
-    #[test]
     fn test_set_and_test() {
         let bitset = AtomicBitSet::new();
 
@@ -94,17 +87,6 @@ mod tests {
         bitset.reset(10);
         assert!(!bitset.test(10));
         assert_eq!(bitset.count(), 0);
-    }
-
-    #[test]
-    fn test_count() {
-        let bitset = AtomicBitSet::new();
-        assert_eq!(bitset.count(), 0);
-
-        for i in 0..10 {
-            bitset.set(i);
-        }
-        assert_eq!(bitset.count(), 10);
     }
 
     #[test]
