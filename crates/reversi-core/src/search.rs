@@ -78,9 +78,10 @@ pub struct SearchSharedResources {
 pub struct SearchTask {
     /// Board position to search.
     pub board: Board,
-    /// Midgame selectivity: [`Selectivity::Mid`] normally, [`Selectivity::None`]
-    /// when ProbCut is disabled. The endgame driver uses its own selectivity
-    /// ladder and ignores this value.
+    /// Midgame selectivity: [`Selectivity::Level1`] (73%) for fixed-level searches,
+    /// [`Selectivity::Mid`] (63%) for time-controlled searches, and
+    /// [`Selectivity::None`] when ProbCut is disabled. The endgame driver uses
+    /// its own selectivity ladder and ignores this value.
     pub mid_selectivity: Selectivity,
     /// Shared transposition table.
     pub tt: Arc<TranspositionTable>,
@@ -105,6 +106,17 @@ impl SearchTask {
     /// otherwise one.
     pub(crate) fn pv_count(&self, root_moves_count: usize) -> usize {
         if self.multi_pv { root_moves_count } else { 1 }
+    }
+}
+
+fn midgame_selectivity(options: &SearchRunOptions) -> Selectivity {
+    if options.probcut_disabled {
+        return Selectivity::None;
+    }
+
+    match &options.constraint {
+        SearchConstraint::Level(_) => Selectivity::Level1,
+        SearchConstraint::Time(_) => Selectivity::Mid,
     }
 }
 
@@ -210,11 +222,7 @@ impl Search {
 
         let task = SearchTask {
             board: *board,
-            mid_selectivity: if options.probcut_disabled {
-                Selectivity::None
-            } else {
-                Selectivity::Mid
-            },
+            mid_selectivity: midgame_selectivity(options),
             tt: self.tt.clone(),
             pool: self.threads.clone(),
             eval: self.eval.clone(),
@@ -470,10 +478,38 @@ fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::time_control::TimeControlMode;
     use std::sync::OnceLock;
 
     fn one_thread_options() -> SearchOptions {
         SearchOptions::new(0).with_threads(Some(1))
+    }
+
+    #[test]
+    fn fixed_level_uses_73_percent_midgame_selectivity() {
+        let options = SearchRunOptions::with_level(Level::uniform(8, 8));
+        let selectivity = midgame_selectivity(&options);
+
+        assert_eq!(selectivity, Selectivity::Level1);
+        assert_eq!(selectivity.probability(), 73);
+    }
+
+    #[test]
+    fn time_constraint_keeps_63_percent_midgame_selectivity() {
+        let options = SearchRunOptions::with_time(TimeControlMode::Infinite);
+        let selectivity = midgame_selectivity(&options);
+
+        assert_eq!(selectivity, Selectivity::Mid);
+        assert_eq!(selectivity.probability(), 63);
+    }
+
+    #[test]
+    fn disabling_probcut_overrides_constraint_midgame_selectivity() {
+        let fixed = SearchRunOptions::with_level(Level::uniform(8, 8)).disable_probcut();
+        let timed = SearchRunOptions::with_time(TimeControlMode::Infinite).disable_probcut();
+
+        assert_eq!(midgame_selectivity(&fixed), Selectivity::None);
+        assert_eq!(midgame_selectivity(&timed), Selectivity::None);
     }
 
     fn pv_store_ctx(board: &Board, mb_size: usize) -> SearchContext {
