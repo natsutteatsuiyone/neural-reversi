@@ -68,8 +68,8 @@ mod simd_layout {
 
         let mut rows = tile_slice.chunks_exact_mut(tiles_per_row);
         for row in &mut rows {
-            let mut tiles = row.chunks_exact_mut(ORDER_LEN);
-            for tile in &mut tiles {
+            let (tiles, _) = row.as_chunks_mut::<ORDER_LEN>();
+            for tile in tiles {
                 unsafe { permute_tile::<T, ORDER_LEN>(tile, order) };
             }
         }

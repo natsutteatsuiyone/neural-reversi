@@ -361,7 +361,7 @@ fn read_records(
         let batch = records_remaining.min(READ_BUFFER_RECORDS);
         let batch_bytes = batch * RECORD_SIZE;
         reader.read_exact(&mut buffer[..batch_bytes])?;
-        for chunk in buffer[..batch_bytes].chunks_exact(RECORD_SIZE) {
+        for chunk in buffer[..batch_bytes].as_chunks::<RECORD_SIZE>().0 {
             let ply = chunk[PLY_OFFSET];
             if ply < filter.min_ply {
                 stats.dropped_min_ply += 1;
@@ -389,7 +389,7 @@ fn read_records(
                     }
                 }
             }
-            out.push(chunk.try_into().expect("slice length == RECORD_SIZE"));
+            out.push(*chunk);
         }
         records_remaining -= batch;
     }

@@ -39,7 +39,7 @@ impl AbortState {
     pub(crate) fn request_abort(&self) {
         let _ = self
             .0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 Some((state & SEARCH_GEN_MASK) | (state >> 32))
             });
     }

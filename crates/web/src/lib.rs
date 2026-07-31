@@ -1,3 +1,11 @@
+#![cfg_attr(
+    target_env = "msvc",
+    allow(
+        linker_messages,
+        reason = "localized MSVC import-library creation output is informational"
+    )
+)]
+
 mod transposition_table;
 
 mod eval;

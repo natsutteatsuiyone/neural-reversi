@@ -1,3 +1,11 @@
+#![cfg_attr(
+    target_env = "msvc",
+    allow(
+        linker_messages,
+        reason = "localized MSVC import-library creation output is informational"
+    )
+)]
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 
