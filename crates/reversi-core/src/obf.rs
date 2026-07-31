@@ -12,6 +12,7 @@
 //!   `<board><side>` (compact, no separator);
 //! - trailing `%` comments, which are stripped before parsing;
 //! - lines with zero or more `;`-separated `move:score` segments;
+//! - move-score segments in any order, which are stably sorted by descending score;
 //! - sentinel `--:<score>` segments, which are filtered out.
 //!
 //! Blank lines and lines whose only content is a `%` comment yield
@@ -30,9 +31,8 @@ pub struct ObfPosition {
     pub board: Board,
     /// Side to move (`X` → Black, `O` → White).
     pub side_to_move: Disc,
-    /// Move-score pairs in file order. OBF convention is descending score,
-    /// and [`rank_of`](Self::rank_of) / [`best_moves`](Self::best_moves)
-    /// rely on that ordering. Empty when no move segments were present.
+    /// Move-score pairs in descending score order. Entries with equal scores
+    /// retain their file order. Empty when no move segments were present.
     /// Sentinel entries (`--:<score>`) are not included.
     move_scores: Vec<(Square, i32)>,
     /// Score from a `PS:<score>` segment for pass positions.
@@ -44,6 +44,11 @@ impl ObfPosition {
     /// Parses a single OBF line.
     ///
     /// Returns `Ok(None)` for blank/comment-only input.
+    /// Move-score pairs are stably sorted by descending score.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the board header, side marker, move-score segment, or score is invalid.
     pub fn parse(line: &str) -> Result<Option<Self>, String> {
         let stripped = line.split('%').next().unwrap_or("").trim();
         if stripped.is_empty() {
@@ -84,10 +89,7 @@ impl ObfPosition {
             move_scores.push((square, score));
         }
 
-        debug_assert!(
-            move_scores.windows(2).all(|w| w[0].1 >= w[1].1),
-            "OBF move_scores must be in non-ascending score order"
-        );
+        move_scores.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
 
         Ok(Some(Self {
             board,
@@ -278,6 +280,31 @@ mod tests {
         let line = format!("{INITIAL_BOARD} X; e6:not_a_number");
         let err = ObfPosition::parse(&line).unwrap_err();
         assert!(err.contains("Invalid score"), "{err}");
+    }
+
+    #[test]
+    fn stably_sorts_move_scores_in_descending_order() {
+        let pos = parse(&format!("{INITIAL_BOARD} X; e6:+0; d3:+10; c4:+10; f5:-2"));
+
+        assert_eq!(
+            pos.move_scores,
+            vec![
+                (Square::D3, 10),
+                (Square::C4, 10),
+                (Square::E6, 0),
+                (Square::F5, -2),
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_duplicate_move_entries_in_file_order() {
+        let pos = parse(&format!("{INITIAL_BOARD} X; e6:+10; e6:+8; d3:+8"));
+
+        assert_eq!(
+            pos.move_scores,
+            vec![(Square::E6, 10), (Square::E6, 8), (Square::D3, 8)]
+        );
     }
 
     #[test]
