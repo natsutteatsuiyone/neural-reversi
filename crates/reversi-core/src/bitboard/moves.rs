@@ -120,6 +120,31 @@ macro_rules! horizontal_or2_u64 {
     }};
 }
 
+/// Reduces two 512-bit vectors in parallel.
+///
+/// Returns `(or(a lanes), or(b lanes))`. Interleaving the two vectors first
+/// keeps both reductions in one instruction chain.
+#[cfg(target_arch = "x86_64")]
+macro_rules! horizontal_or2_zmm_u64 {
+    ($a:expr, $b:expr) => {{
+        let lo = _mm512_unpacklo_epi64($a, $b);
+        let hi = _mm512_unpackhi_epi64($a, $b);
+        let pairs = _mm512_or_si512(lo, hi);
+        let m256 = _mm256_or_si256(
+            _mm512_castsi512_si256(pairs),
+            _mm512_extracti64x4_epi64::<1>(pairs),
+        );
+        let m128 = _mm_or_si128(
+            _mm256_castsi256_si128(m256),
+            _mm256_extracti128_si256(m256, 1),
+        );
+        (
+            _mm_cvtsi128_si64(m128) as u64,
+            _mm_cvtsi128_si64(_mm_shuffle_epi32(m128, 0x4e)) as u64,
+        )
+    }};
+}
+
 /// AVX-512-optimized implementation of `get_moves`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
@@ -489,14 +514,21 @@ pub(super) fn get_moves_and_potential_portable(player: u64, opponent: u64) -> (u
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512vl")]
+#[target_feature(enable = "avx512f,avx512vl")]
 #[inline]
 #[allow(dead_code)]
 pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::x86_64::*;
 
-    let sh = _mm256_set_epi64x(7, 9, 8, 1);
-    let masks = _mm256_set_epi64x(
+    // Positive counts in the low half and their modulo-64 negatives in the
+    // high half let one rotate propagate both directions. The edge masks make
+    // the wrapped rotate bits equivalent to zeros from logical shifts.
+    let sh = _mm512_set_epi64(57, 55, 56, 63, 7, 9, 8, 1);
+    let masks = _mm512_set_epi64(
+        DIAGONAL_MASK as i64,
+        DIAGONAL_MASK as i64,
+        VERTICAL_MASK as i64,
+        HORIZONTAL_MASK as i64,
         DIAGONAL_MASK as i64,
         DIAGONAL_MASK as i64,
         VERTICAL_MASK as i64,
@@ -504,35 +536,23 @@ pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64
     );
     let empty = !(player | opponent);
 
-    let pp = _mm256_set1_epi64x(player as i64);
-    let oo = _mm256_set1_epi64x(opponent as i64);
+    let pp = _mm512_set1_epi64(player as i64);
+    let oo = _mm512_set1_epi64(opponent as i64);
 
-    let masked_oo = _mm256_and_si256(oo, masks);
-    let potential_mm = _mm256_or_si256(
-        _mm256_sllv_epi64(masked_oo, sh),
-        _mm256_srlv_epi64(masked_oo, sh),
-    );
+    let masked_oo = _mm512_and_si512(oo, masks);
+    let potential_mm = _mm512_rolv_epi64(masked_oo, sh);
 
     // Moves calculation
-    let mut fl = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(pp, sh));
-    let mut fr = _mm256_and_si256(masked_oo, _mm256_srlv_epi64(pp, sh));
+    let mut flips = _mm512_and_si512(masked_oo, _mm512_rolv_epi64(pp, sh));
+    flips = _mm512_ternarylogic_epi64(flips, masked_oo, _mm512_rolv_epi64(flips, sh), 0xF8);
 
-    fl = _mm256_ternarylogic_epi64(fl, masked_oo, _mm256_sllv_epi64(fl, sh), 0xF8);
-    fr = _mm256_ternarylogic_epi64(fr, masked_oo, _mm256_srlv_epi64(fr, sh), 0xF8);
+    let pre = _mm512_and_si512(masked_oo, potential_mm);
+    let sh2 = _mm512_add_epi64(sh, sh);
+    flips = _mm512_ternarylogic_epi64(flips, pre, _mm512_rolv_epi64(flips, sh2), 0xF8);
+    flips = _mm512_ternarylogic_epi64(flips, pre, _mm512_rolv_epi64(flips, sh2), 0xF8);
 
-    let pre_l = _mm256_and_si256(masked_oo, _mm256_sllv_epi64(masked_oo, sh));
-    let pre_r = _mm256_srlv_epi64(pre_l, sh);
-
-    let sh2 = _mm256_add_epi64(sh, sh);
-
-    fl = _mm256_ternarylogic_epi64(fl, pre_l, _mm256_sllv_epi64(fl, sh2), 0xF8);
-    fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
-
-    fl = _mm256_ternarylogic_epi64(fl, pre_l, _mm256_sllv_epi64(fl, sh2), 0xF8);
-    fr = _mm256_ternarylogic_epi64(fr, pre_r, _mm256_srlv_epi64(fr, sh2), 0xF8);
-
-    let mm = _mm256_or_si256(_mm256_sllv_epi64(fl, sh), _mm256_srlv_epi64(fr, sh));
-    let (moves, potential) = horizontal_or2_u64!(mm, potential_mm);
+    let moves_mm = _mm512_rolv_epi64(flips, sh);
+    let (moves, potential) = horizontal_or2_zmm_u64!(moves_mm, potential_mm);
 
     (moves & empty, potential & empty)
 }
