@@ -502,12 +502,11 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc, cutoff);
 
-            if score > best_score {
+            if score >= beta {
                 best_score = score;
-                if score >= beta {
-                    break;
-                }
+                break;
             }
+            best_score = best_score.max(score);
         }
     } else {
         move_list.sort();
@@ -515,12 +514,11 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
             let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc, cutoff);
 
-            if score > best_score {
+            if score >= beta {
                 best_score = score;
-                if score >= beta {
-                    break;
-                }
+                break;
             }
+            best_score = best_score.max(score);
         }
     }
 
@@ -679,13 +677,11 @@ fn shallow_search_moves(
     for sq in moves.iter() {
         let score = shallow_search_move(ctx, board, sq, beta, sc);
 
-        if score > *best_score {
-            *best_score = score;
-            if score >= beta {
-                sc.store(cache_idx, board, beta - 1, score);
-                return Some(score);
-            }
+        if score >= beta {
+            sc.store(cache_idx, board, beta - 1, score);
+            return Some(score);
         }
+        *best_score = (*best_score).max(score);
     }
 
     None
