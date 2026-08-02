@@ -51,6 +51,9 @@ const MIN_EC_CACHE_BYTES: usize = 128 * 1024;
 /// Minimum per-thread shallow cache budget, in bytes.
 const MIN_SHALLOW_CACHE_BYTES: usize = 32 * 1024;
 
+/// Maximum per-thread shallow cache budget, in bytes.
+const MAX_SHALLOW_CACHE_BYTES: usize = 128 * 1024;
+
 /// Initial aspiration window half-width.
 const INITIAL_ASPIRATION_WINDOW: ScaledScore = ScaledScore::from_disc_diff(1);
 
@@ -75,7 +78,8 @@ impl EndGameCaches {
         Self {
             ec: EndGameCache::new((TOTAL_EC_CACHE_BYTES / n_threads).max(MIN_EC_CACHE_BYTES)),
             shallow: EndGameCache::new(
-                (TOTAL_SHALLOW_CACHE_BYTES / n_threads).max(MIN_SHALLOW_CACHE_BYTES),
+                (TOTAL_SHALLOW_CACHE_BYTES / n_threads)
+                    .clamp(MIN_SHALLOW_CACHE_BYTES, MAX_SHALLOW_CACHE_BYTES),
             ),
         }
     }
@@ -454,11 +458,6 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
-    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-        ctx.counters.increment_stability_cut();
-        return score;
-    }
-
     let moves = board.get_moves();
     if moves.is_empty() {
         let next = board.switch_players();
@@ -472,6 +471,11 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
 
     let cache_idx = ec.index(board.hash());
     if let Some(score) = ec.probe(cache_idx, board, alpha) {
+        return score;
+    }
+
+    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
+        ctx.counters.increment_stability_cut();
         return score;
     }
 
@@ -568,11 +572,6 @@ fn shallow_search(
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
-    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-        ctx.counters.increment_stability_cut();
-        return score;
-    }
-
     let moves = board.get_moves();
     if moves.is_empty() {
         let next = board.switch_players();
@@ -586,6 +585,11 @@ fn shallow_search(
 
     let cache_idx = sc.index(board.hash());
     if let Some(score) = sc.probe(cache_idx, board, alpha) {
+        return score;
+    }
+
+    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
+        ctx.counters.increment_stability_cut();
         return score;
     }
 
