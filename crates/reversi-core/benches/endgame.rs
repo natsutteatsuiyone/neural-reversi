@@ -20,9 +20,6 @@ const REALISTIC_ENDGAME_SEED: u64 = 0x5012_0002;
 const REALISTIC_SOLVE_TARGET_CASES: usize = 4096;
 const REALISTIC_SOLVE_CASE_NAME: &str = "legal_playout";
 const REALISTIC_SOLVE_BENCH_NAME: &str = "legal_playouts_4096";
-const REALISTIC_CACHED_SEARCH_TARGET_CASES: usize = 256;
-const REALISTIC_CACHED_SEARCH_CASE_NAME: &str = "legal_playout";
-const REALISTIC_CACHED_SEARCH_BENCH_NAME: &str = "legal_playouts_256_mixed_window";
 const REALISTIC_ENDGAME_SOURCES: &[&str] = &[
     include_str!("../../../problem/fforum-1-19.obf"),
     include_str!("../../../problem/fforum-20-39.obf"),
@@ -64,7 +61,6 @@ fn realistic_solve_cases<const N_EMPTY: u32>() -> Vec<EndgameCase<N_EMPTY>> {
         REALISTIC_SOLVE_TARGET_CASES,
         REALISTIC_ENDGAME_SEED ^ N_EMPTY as u64,
         REALISTIC_SOLVE_CASE_NAME,
-        fail_high_alpha,
     );
 
     let branch_mix = solve_branch_mix(&cases);
@@ -81,20 +77,10 @@ fn realistic_solve_cases<const N_EMPTY: u32>() -> Vec<EndgameCase<N_EMPTY>> {
     cases
 }
 
-fn realistic_cached_search_cases<const N_EMPTY: u32>() -> Vec<EndgameCase<N_EMPTY>> {
-    legal_playout_cases(
-        REALISTIC_CACHED_SEARCH_TARGET_CASES,
-        (REALISTIC_ENDGAME_SEED ^ 0xca_c4_ed) ^ N_EMPTY as u64,
-        REALISTIC_CACHED_SEARCH_CASE_NAME,
-        mixed_window_alpha,
-    )
-}
-
 fn legal_playout_cases<const N_EMPTY: u32>(
     target_cases: usize,
     seed: u64,
     case_name: &'static str,
-    alpha_for: fn(usize, Score) -> Score,
 ) -> Vec<EndgameCase<N_EMPTY>> {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut cases = Vec::with_capacity(target_cases);
@@ -116,7 +102,7 @@ fn legal_playout_cases<const N_EMPTY: u32>(
                 cases.push(EndgameCase::from_board(
                     case_name,
                     board,
-                    alpha_for(cases.len(), expected),
+                    expected - 1,
                     expected,
                 ));
                 if cases.len() >= target_cases {
@@ -139,18 +125,6 @@ fn legal_playout_cases<const N_EMPTY: u32>(
         "realistic endgame benchmark corpus must stay large enough"
     );
     cases
-}
-
-fn fail_high_alpha(_: usize, expected: Score) -> Score {
-    expected - 1
-}
-
-fn mixed_window_alpha(index: usize, expected: Score) -> Score {
-    if index.is_multiple_of(2) {
-        expected - 1
-    } else {
-        expected
-    }
 }
 
 #[derive(Debug, Default)]
@@ -295,64 +269,10 @@ fn bench_direct_solver_case_set<const N_EMPTY: u32>(
     );
 }
 
-fn bench_cached_search_case_set<const N_EMPTY: u32>(
-    group: &mut BenchmarkGroup<'_, WallTime>,
-    search_name: &str,
-    case_set_name: &str,
-    cases: &[EndgameCase<N_EMPTY>],
-    eval: &Arc<Eval>,
-    tt: &Arc<TranspositionTable>,
-) {
-    for case in cases {
-        assert_expected(case, eval, tt);
-    }
-
-    group.bench_with_input(
-        BenchmarkId::new(search_name, case_set_name),
-        cases,
-        |b, cases| {
-            b.iter_batched_ref(
-                || {
-                    cases
-                        .iter()
-                        .map(|case| {
-                            (
-                                make_context(&case.board, eval, tt),
-                                EndGameCaches::for_thread_count(1),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                },
-                |states| {
-                    let mut checksum = 0;
-                    for (case, (ctx, caches)) in cases.iter().zip(states.iter_mut()) {
-                        let score = null_window_search(
-                            black_box(ctx),
-                            black_box(&case.board),
-                            black_box(case.alpha),
-                            black_box(caches),
-                        );
-                        debug_assert_eq!(score, case.expected);
-                        checksum ^= score;
-                    }
-                    black_box(checksum)
-                },
-                BatchSize::LargeInput,
-            );
-        },
-    );
-}
-
 struct DirectSolverCases<'a> {
     realistic_solve2: &'a [EndgameCase<2>],
     realistic_solve3: &'a [EndgameCase<3>],
     realistic_solve4: &'a [EndgameCase<4>],
-}
-
-struct CachedSearchCases<'a> {
-    cached_5_empty: &'a [EndgameCase<5>],
-    cached_6_empty: &'a [EndgameCase<6>],
-    cached_9_empty: &'a [EndgameCase<9>],
 }
 
 fn bench_direct_solvers(
@@ -392,43 +312,6 @@ fn bench_direct_solvers(
     group.finish();
 }
 
-fn bench_cached_search(
-    c: &mut Criterion,
-    cases: CachedSearchCases<'_>,
-    eval: &Arc<Eval>,
-    tt: &Arc<TranspositionTable>,
-) {
-    let mut group = c.benchmark_group("endgame::cached_search");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(3));
-
-    bench_cached_search_case_set(
-        &mut group,
-        "5_empty",
-        REALISTIC_CACHED_SEARCH_BENCH_NAME,
-        cases.cached_5_empty,
-        eval,
-        tt,
-    );
-    bench_cached_search_case_set(
-        &mut group,
-        "6_empty",
-        REALISTIC_CACHED_SEARCH_BENCH_NAME,
-        cases.cached_6_empty,
-        eval,
-        tt,
-    );
-    bench_cached_search_case_set(
-        &mut group,
-        "9_empty",
-        REALISTIC_CACHED_SEARCH_BENCH_NAME,
-        cases.cached_9_empty,
-        eval,
-        tt,
-    );
-    group.finish();
-}
-
 fn endgame_benchmark(c: &mut Criterion) {
     let eval = Arc::new(
         Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
@@ -437,9 +320,6 @@ fn endgame_benchmark(c: &mut Criterion) {
     let realistic_solve2_cases = realistic_solve_cases::<2>();
     let realistic_solve3_cases = realistic_solve_cases::<3>();
     let realistic_solve4_cases = realistic_solve_cases::<4>();
-    let cached_5_empty_cases = realistic_cached_search_cases::<5>();
-    let cached_6_empty_cases = realistic_cached_search_cases::<6>();
-    let cached_9_empty_cases = realistic_cached_search_cases::<9>();
 
     bench_direct_solvers(
         c,
@@ -447,16 +327,6 @@ fn endgame_benchmark(c: &mut Criterion) {
             realistic_solve2: &realistic_solve2_cases,
             realistic_solve3: &realistic_solve3_cases,
             realistic_solve4: &realistic_solve4_cases,
-        },
-        &eval,
-        &tt,
-    );
-    bench_cached_search(
-        c,
-        CachedSearchCases {
-            cached_5_empty: &cached_5_empty_cases,
-            cached_6_empty: &cached_6_empty_cases,
-            cached_9_empty: &cached_9_empty_cases,
         },
         &eval,
         &tt,
