@@ -339,16 +339,15 @@ pub fn evaluate_depth3<NT: NodeType>(
         let score = -evaluate_depth2(ctx, &next, -beta, -alpha);
         ctx.undo(mv.sq);
 
-        if score > best_score {
+        if score >= beta {
             best_score = score;
-            if score >= beta {
-                best_move = mv.sq;
-                break;
-            }
-            if score > alpha {
-                best_move = mv.sq;
-                alpha = score;
-            }
+            best_move = mv.sq;
+            break;
+        }
+        best_score = best_score.max(score);
+        if score > alpha {
+            best_move = mv.sq;
+            alpha = score;
         }
     }
 
@@ -403,15 +402,12 @@ pub fn evaluate_depth2(
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
         ctx.undo(mv.sq);
 
-        if score > best_score {
+        if score >= beta {
             best_score = score;
-            if score >= beta {
-                break;
-            }
-            if score > alpha {
-                alpha = score;
-            }
+            break;
         }
+        best_score = best_score.max(score);
+        alpha = alpha.max(score);
     }
 
     best_score
@@ -513,12 +509,10 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
     };
     ctx.undo(sq);
 
-    if score > *best_score {
-        *best_score = score;
-        if score >= beta {
-            return Some(score);
-        }
+    if score >= beta {
+        return Some(score);
     }
+    *best_score = (*best_score).max(score);
     None
 }
 
