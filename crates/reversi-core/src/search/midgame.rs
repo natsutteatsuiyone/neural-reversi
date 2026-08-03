@@ -34,6 +34,19 @@ const ASPIRATION_MIN_DEPTH: Depth = 5;
 
 /// Depth threshold for switching iteration step from +2 to +1.
 const DEPTH_STEP_THRESHOLD: Depth = 10;
+/// Square-value tiers (18, 16, ..., 0) used to search depth-1 moves from strongest to weakest.
+const DEPTH1_MOVE_ORDER_MASKS: [Bitboard; 10] = [
+    Bitboard::new(0x8100_0000_0000_0081),
+    Bitboard::new(0x2400_8100_0081_0024),
+    Bitboard::new(0x0000_2400_0024_0000),
+    Bitboard::new(0x1800_0081_8100_0018),
+    Bitboard::new(0x0000_1824_2418_0000),
+    Bitboard::new(0x0018_0042_4200_1800),
+    Bitboard::new(0x0024_4200_0042_2400),
+    Bitboard::new(0x4281_0000_0000_8142),
+    Bitboard::new(0x0042_0000_0000_4200),
+    Bitboard::new(0x0000_0018_1800_0000),
+];
 
 /// Performs the root search using iterative deepening with aspiration windows.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
@@ -389,7 +402,6 @@ pub fn evaluate_depth2(
     if move_list.wipeout_move().is_some() {
         return ScaledScore::MAX;
     }
-
     if move_list.count() >= 2 {
         move_list.evaluate_moves_fast(ctx, board, Square::None);
     }
@@ -449,27 +461,17 @@ fn evaluate_depth1_moves<const USE_MAIN_NETWORK: bool>(
 ) -> ScaledScore {
     let mut best_score = -ScaledScore::INF;
 
-    for sq in moves.corners().iter() {
-        if let Some(score) = search_move_in_evaluate_depth1::<USE_MAIN_NETWORK>(
-            ctx,
-            board,
-            sq,
-            beta,
-            &mut best_score,
-        ) {
-            return score;
-        }
-    }
-
-    for sq in moves.non_corners().iter() {
-        if let Some(score) = search_move_in_evaluate_depth1::<USE_MAIN_NETWORK>(
-            ctx,
-            board,
-            sq,
-            beta,
-            &mut best_score,
-        ) {
-            return score;
+    for &mask in &DEPTH1_MOVE_ORDER_MASKS {
+        for sq in (moves & mask).iter() {
+            if let Some(score) = search_move_in_evaluate_depth1::<USE_MAIN_NETWORK>(
+                ctx,
+                board,
+                sq,
+                beta,
+                &mut best_score,
+            ) {
+                return score;
+            }
         }
     }
 
@@ -536,6 +538,21 @@ mod schedule_tests {
     use crate::search::threading::ThreadPool;
     use crate::search::time_control::{TimeControlMode, TimeManager};
     use crate::transposition_table::TranspositionTable;
+
+    #[test]
+    fn depth1_move_order_masks_partition_the_board() {
+        let mut covered = 0;
+        for &mask in &DEPTH1_MOVE_ORDER_MASKS {
+            let mask = mask.bits();
+            assert_eq!(covered & mask, 0, "depth-1 move-order masks overlap");
+            covered |= mask;
+        }
+        assert_eq!(
+            covered,
+            u64::MAX,
+            "depth-1 move-order masks do not cover the board"
+        );
+    }
 
     fn shared_eval() -> Arc<Eval> {
         static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
