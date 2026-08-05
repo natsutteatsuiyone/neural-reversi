@@ -292,15 +292,6 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
             return false;
         }
 
-        if !g.board().has_legal_moves() {
-            if g.make_pass().is_err() {
-                return false;
-            }
-            if g.is_game_over() {
-                return false;
-            }
-        }
-
         let sq = random_move(g.board());
         opening.push(sq);
         if g.make_move(sq).is_err() {
@@ -350,14 +341,6 @@ fn play_game(
             break;
         }
 
-        // Handle pass moves
-        if !game.board().has_legal_moves() {
-            let _ = game.make_pass();
-            if game.is_game_over() {
-                break;
-            }
-        }
-
         let board = *game.board();
         let side_to_move = game.side_to_move();
 
@@ -395,11 +378,6 @@ fn play_game(
 
     // Continue playing with search
     while !game.is_game_over() {
-        if !game.board().has_legal_moves() {
-            let _ = game.make_pass();
-            continue;
-        }
-
         let board = *game.board();
         let side_to_move = game.side_to_move();
         let options = SearchRunOptions::with_level(lv);

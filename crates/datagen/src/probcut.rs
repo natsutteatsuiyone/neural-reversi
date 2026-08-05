@@ -21,6 +21,7 @@ use reversi_core::{
     constants::INITIAL_EMPTY_COUNT,
     disc::Disc,
     eval::{Eval, EvalMode},
+    game_state::GameState,
     level::Level,
     search::{
         Search, SearchRunOptions,
@@ -115,25 +116,25 @@ fn open_csv_io(
 /// Replays `moves` from the initial position, passing every position reached to
 /// `visit` before its move is played, and returns the final position with the
 /// side to move there.
-fn replay(moves: &[Square], mut visit: impl FnMut(&Board, Disc)) -> (Board, Disc) {
-    let mut board = Board::new();
-    let mut side_to_move = Disc::Black;
+///
+/// Moves left over after the game has ended are ignored.
+///
+/// # Errors
+///
+/// Returns an error if a move is illegal when reached.
+fn replay(moves: &[Square], mut visit: impl FnMut(&Board, Disc)) -> Result<(Board, Disc), String> {
+    let mut game = GameState::new();
 
     for &sq in moves {
-        if !board.has_legal_moves() {
-            board = board.switch_players();
-            side_to_move = side_to_move.opposite();
-            if !board.has_legal_moves() {
-                break;
-            }
+        if game.is_game_over() {
+            break;
         }
 
-        visit(&board, side_to_move);
-        board = board.make_move(sq);
-        side_to_move = side_to_move.opposite();
+        visit(game.board(), game.side_to_move());
+        game.make_move(sq)?;
     }
 
-    (board, side_to_move)
+    Ok((*game.board(), game.side_to_move()))
 }
 
 /// Records an exact midgame position and returns whether it has not been sampled yet.
@@ -287,7 +288,8 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                         }),
                 );
             }
-        });
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Line {game}: {e}")))?;
 
         for (sample, deep_score) in samples.iter() {
             write_midgame_sample(&mut writer, game, sample, *deep_score)?;
@@ -377,7 +379,13 @@ pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
                     side_to_move,
                 }
             }));
-        });
+        })
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Line {}: {e}", line_no + 1),
+            )
+        })?;
 
         let score = final_board.solve(final_board.get_empty_count()) as f32;
 
@@ -442,14 +450,21 @@ mod tests {
     }
 
     #[test]
+    fn replay_rejects_illegal_move() {
+        let moves = Square::parse_sequence("f5f5").unwrap();
+
+        assert!(replay(&moves, |_, _| {}).is_err());
+    }
+
+    #[test]
     fn midgame_dedup_keeps_symmetric_positions_distinct() {
         let moves = Square::parse_sequence("f5d6c4d3").unwrap();
         let rotated_moves: Vec<_> = moves
             .iter()
             .map(|sq| Square::from_usize(63 - sq.index()).unwrap())
             .collect();
-        let board = replay(&moves, |_, _| {}).0;
-        let rotated_board = replay(&rotated_moves, |_, _| {}).0;
+        let board = replay(&moves, |_, _| {}).unwrap().0;
+        let rotated_board = replay(&rotated_moves, |_, _| {}).unwrap().0;
 
         assert_eq!(rotated_board, board.rotate_180_clockwise());
         assert_eq!(board.unique(), rotated_board.unique());

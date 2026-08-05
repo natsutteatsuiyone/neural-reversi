@@ -62,6 +62,25 @@ impl GameState {
         }
     }
 
+    /// Creates a game state by replaying a sequence of moves from the
+    /// initial position.
+    ///
+    /// Passes are inserted automatically; `moves` must contain only actual
+    /// moves.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error naming the first move that is illegal when reached.
+    pub fn from_moves(moves: &[Square]) -> Result<Self, String> {
+        let mut state = Self::new();
+        for (i, &sq) in moves.iter().enumerate() {
+            state
+                .make_move(sq)
+                .map_err(|_| format!("Illegal move at position {}: {sq}", i + 1))?;
+        }
+        Ok(state)
+    }
+
     /// Returns a reference to the current [`Board`] position.
     pub fn board(&self) -> &Board {
         &self.board
@@ -203,6 +222,26 @@ mod tests {
         assert_eq!(game.side_to_move(), Disc::Black);
         assert!(!game.is_game_over());
         assert_eq!(game.get_score(), (2, 2));
+    }
+
+    #[test]
+    fn test_from_moves_empty_is_initial_position() {
+        let game = GameState::from_moves(&[]).unwrap();
+        assert_eq!(game.side_to_move(), Disc::Black);
+        assert_eq!(game.get_score(), (2, 2));
+    }
+
+    #[test]
+    fn test_from_moves_replays_a_legal_opening() {
+        let game = GameState::from_moves(&[Square::D3]).unwrap();
+        assert_eq!(game.side_to_move(), Disc::White);
+        assert_eq!(game.last_move(), Some(Square::D3));
+    }
+
+    #[test]
+    fn test_from_moves_reports_offending_position() {
+        let err = GameState::from_moves(&[Square::D3, Square::D3]).unwrap_err();
+        assert!(err.contains("position 2"), "unexpected error: {err}");
     }
 
     #[test]

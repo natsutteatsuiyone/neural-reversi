@@ -18,11 +18,11 @@ use crate::config::Config;
 use crate::display::DisplayManager;
 use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
-use crate::game::GameState;
 use crate::sprt::{SprtConfig, SprtResult, SprtStatus};
 use crate::statistics::{MatchStatistics, MatchWinner, PentanomialFrequencies};
 use crate::time_tracker::TimeTracker;
 use reversi_core::disc::Disc;
+use reversi_core::game_state::GameState;
 use reversi_core::square::Square;
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
@@ -344,7 +344,7 @@ impl MatchRunner {
             };
 
             game_state
-                .make_move(Some(square))
+                .make_move(square)
                 .map_err(MatchRunnerError::Game)?;
 
             let mv = square.to_string();
@@ -364,7 +364,7 @@ impl MatchRunner {
         current_color: &str,
     ) -> Result<()> {
         if mv.to_lowercase() == "pass" {
-            game_state.make_move(None).map_err(MatchRunnerError::Game)?;
+            game_state.make_pass().map_err(MatchRunnerError::Game)?;
 
             let opponent_engine = if current_color == "black" {
                 white_engine
@@ -376,7 +376,7 @@ impl MatchRunner {
             let square = self.parse_move(mv)?;
 
             game_state
-                .make_move(Some(square))
+                .make_move(square)
                 .map_err(MatchRunnerError::Game)?;
 
             let opponent_engine = if current_color == "black" {

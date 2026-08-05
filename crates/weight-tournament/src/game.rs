@@ -8,6 +8,7 @@ use reversi_core::constants::INITIAL_EMPTY_COUNT;
 use reversi_core::disc::Disc;
 use reversi_core::eval::Network;
 use reversi_core::eval::pattern_feature::PatternFeatures;
+use reversi_core::game_state::GameState;
 use reversi_core::move_list::MoveList;
 use reversi_core::square::Square;
 use reversi_core::types::ScaledScore;
@@ -130,28 +131,21 @@ fn play_game(
     engine1_is_black: bool,
     opening: &str,
 ) -> Result<i32> {
-    let (mut board, mut side_to_move) = apply_opening(opening)?;
+    let mut game = apply_opening(opening)?;
 
-    while !board.is_game_over() {
-        if !board.has_legal_moves() {
-            board = board.switch_players();
-            side_to_move = side_to_move.opposite();
-            continue;
-        }
-
-        let engine = if (side_to_move == Disc::Black) == engine1_is_black {
+    while !game.is_game_over() {
+        let engine = if (game.side_to_move() == Disc::Black) == engine1_is_black {
             engine1
         } else {
             engine2
         };
         let sq = engine
-            .select_move(&board)
+            .select_move(game.board())
             .context("one-ply evaluator found no move in a position with legal moves")?;
-        board = board.make_move(sq);
-        side_to_move = side_to_move.opposite();
+        game.make_move(sq).map_err(anyhow::Error::msg)?;
     }
 
-    let black_score = score_from_black_perspective(&board, side_to_move);
+    let black_score = score_from_black_perspective(game.board(), game.side_to_move());
     Ok(if engine1_is_black {
         black_score
     } else {
@@ -159,32 +153,15 @@ fn play_game(
     })
 }
 
-fn apply_opening(opening: &str) -> Result<(Board, Disc)> {
+fn apply_opening(opening: &str) -> Result<GameState> {
     let opening = opening.trim();
     if !opening.len().is_multiple_of(2) {
         bail!("opening sequence has odd length: '{opening}'");
     }
 
-    let mut board = Board::new();
-    let mut side_to_move = Disc::Black;
-
     let moves = Square::parse_sequence(opening)
         .map_err(|e| anyhow::anyhow!("invalid move in opening sequence: {e}"))?;
-    for sq in moves {
-        if !board.is_legal_move(sq) {
-            bail!("illegal opening move {sq} for {side_to_move:?}");
-        }
-
-        board = board.make_move(sq);
-        side_to_move = side_to_move.opposite();
-
-        if !board.is_game_over() && !board.has_legal_moves() {
-            board = board.switch_players();
-            side_to_move = side_to_move.opposite();
-        }
-    }
-
-    Ok((board, side_to_move))
+    GameState::from_moves(&moves).map_err(|e| anyhow::anyhow!("illegal opening move: {e}"))
 }
 
 fn score_from_black_perspective(board: &Board, side_to_move: Disc) -> i32 {
@@ -202,10 +179,11 @@ mod tests {
 
     #[test]
     fn opening_parser_accepts_compact_match_runner_format() {
-        let (board, side_to_move) = apply_opening("f5d6c4d3").expect("opening should be legal");
+        let game = apply_opening("f5d6c4d3").expect("opening should be legal");
 
+        let board = game.board();
         assert_eq!(board.get_player_count() + board.get_opponent_count(), 8);
-        assert_eq!(side_to_move, Disc::Black);
+        assert_eq!(game.side_to_move(), Disc::Black);
     }
 
     #[test]

@@ -44,21 +44,9 @@ impl GameState {
     ///
     /// Automatically handles passes when a player has no legal moves.
     pub fn from_moves(moves: &[Square]) -> Result<Self, String> {
-        let mut state = Self::new();
-        for (i, &sq) in moves.iter().enumerate() {
-            if !state.board().is_legal_move(sq) {
-                if !state.board().has_legal_moves() {
-                    state.make_pass();
-                    if !state.board().is_legal_move(sq) {
-                        return Err(format!("Illegal move at position {}: {sq}", i + 1));
-                    }
-                } else {
-                    return Err(format!("Illegal move at position {}: {sq}", i + 1));
-                }
-            }
-            state.make_move(sq);
-        }
-        Ok(state)
+        Ok(Self {
+            core: game_state::GameState::from_moves(moves)?,
+        })
     }
 
     /// Returns a reference to the current board position.
@@ -188,42 +176,5 @@ impl GameState {
             .iter()
             .filter_map(|entry| entry.mv)
             .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sq(s: &str) -> Square {
-        s.parse::<Square>().expect("valid square")
-    }
-
-    #[test]
-    fn from_moves_empty_is_initial_position() {
-        let state = GameState::from_moves(&[]).expect("empty is valid");
-        assert_eq!(state.side_to_move(), Disc::Black);
-        assert_eq!(state.score(), (2, 2));
-    }
-
-    #[test]
-    fn from_moves_replays_a_legal_opening() {
-        let state = GameState::from_moves(&[sq("d3")]).expect("d3 is legal for Black");
-        assert_eq!(state.side_to_move(), Disc::White);
-        assert_eq!(state.move_history(), vec![sq("d3")]);
-    }
-
-    #[test]
-    fn from_moves_rejects_illegal_first_move() {
-        assert!(GameState::from_moves(&[sq("a1")]).is_err());
-    }
-
-    #[test]
-    fn from_moves_reports_offending_position() {
-        let err = match GameState::from_moves(&[sq("d3"), sq("d3")]) {
-            Ok(_) => panic!("expected duplicate move to be rejected"),
-            Err(err) => err,
-        };
-        assert!(err.contains("position 2"), "unexpected error: {err}");
     }
 }
