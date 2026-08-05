@@ -59,14 +59,13 @@ pub struct Search {
 /// Shared heavyweight search resources that can back multiple [`Search`]
 /// engines concurrently.
 ///
-/// Engines created from the same resource bundle share the transposition table
-/// and evaluation network, but each engine gets its own thread pool and
-/// endgame-tracking state. This is useful for callers that sometimes need more
-/// than one independent search in flight at once, such as GGS synchro child
-/// games, without reloading neural-network weights for every worker.
+/// Engines created from the same resource bundle share the evaluation network;
+/// the transposition table and thread pool are per-engine. Useful for callers
+/// that need more than one independent search in flight, such as GGS synchro
+/// child games, without reloading neural-network weights for every worker.
 pub struct SearchSharedResources {
-    tt: Arc<TranspositionTable>,
     eval: Arc<Eval>,
+    tt_mb_size: usize,
     n_threads: usize,
 }
 
@@ -141,8 +140,8 @@ impl SearchSharedResources {
         probcut::init();
 
         Self {
-            tt: Arc::new(TranspositionTable::new(options.tt_mb_size)),
             eval: Arc::new(eval),
+            tt_mb_size: options.tt_mb_size,
             n_threads,
         }
     }
@@ -165,7 +164,7 @@ impl Search {
     /// Creates a new search engine from a shared-resource bundle.
     pub fn from_shared_resources(shared: &SearchSharedResources) -> Self {
         Self {
-            tt: shared.tt.clone(),
+            tt: Arc::new(TranspositionTable::new(shared.tt_mb_size)),
             threads: ThreadPool::new(shared.n_threads),
             eval: shared.eval.clone(),
             endgame_start_n_empties: None,
@@ -683,18 +682,16 @@ mod tests {
     }
 
     #[test]
-    fn shared_resources_reuse_tt_and_eval_but_create_independent_thread_pools() {
-        let shared = SearchSharedResources::new(&one_thread_options());
+    fn shared_resources_reuse_eval_but_keep_tt_and_thread_pool_per_engine() {
+        let shared = SearchSharedResources::new(&SearchOptions::new(1).with_threads(Some(1)));
 
         let first = Search::from_shared_resources(&shared);
         let second = Search::from_shared_resources(&shared);
 
-        assert!(Arc::ptr_eq(first.tt(), second.tt()));
         assert!(Arc::ptr_eq(&first.eval, &second.eval));
-
-        let first_pool = first.thread_pool();
-        let second_pool = second.thread_pool();
-        assert!(!Arc::ptr_eq(&first_pool, &second_pool));
+        assert!(!Arc::ptr_eq(first.tt(), second.tt()));
+        assert_eq!(first.tt().mb_size(), 1);
+        assert!(!Arc::ptr_eq(&first.thread_pool(), &second.thread_pool()));
     }
 
     #[test]

@@ -139,8 +139,8 @@ fn repeated_pool_create_solve_drop_is_clean() {
     }
 }
 
-/// Two engines from one `SearchSharedResources` share a transposition table
-/// but own independent thread pools; concurrent solves must both stay exact.
+/// Two engines from one `SearchSharedResources` share only the evaluation
+/// network; concurrent solves must both stay exact.
 #[test]
 fn concurrent_engines_from_shared_resources_solve_correctly() {
     let shared = SearchSharedResources::new(&SearchOptions::default().with_threads(Some(2)));
