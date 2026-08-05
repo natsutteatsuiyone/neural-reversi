@@ -12,7 +12,6 @@ use std::slice;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
-use crate::search::context::SearchContext;
 use crate::square::Square;
 
 pub use iterator::{BestFirstMoveIterator, ConcurrentMoveIterator};
@@ -296,28 +295,6 @@ impl MoveList {
     #[inline]
     pub fn iter_mut(&mut self) -> slice::IterMut<'_, Move> {
         self.moves.iter_mut()
-    }
-
-    /// Excludes moves that were selected as best moves for earlier PV lines in Multi-PV search.
-    ///
-    /// In Multi-PV mode, each PV line explores a different best move at the root. This method
-    /// retains only moves that appear in `root_moves` from `pv_idx` onwards, excluding moves
-    /// that were already selected as the best move for earlier PV lines (indices 0..pv_idx).
-    pub fn exclude_earlier_pv_moves(&mut self, ctx: &SearchContext, board: &Board) {
-        if ctx.pv_idx() == 0 {
-            return;
-        }
-
-        self.moves
-            .retain(|mv| ctx.root_moves.contains_from_pv_idx(mv.sq));
-
-        // Multiple wipeout moves are possible; `with_moves` caches only the
-        // last, so rebuild after retain in case the cached one was excluded.
-        self.wipeout_move = self
-            .moves
-            .iter()
-            .find(|mv| mv.flipped == board.opponent())
-            .map(|mv| mv.sq);
     }
 }
 

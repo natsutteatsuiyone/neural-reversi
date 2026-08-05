@@ -52,7 +52,13 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx.tt.prefetch(tt_key);
 
     // Move generation
-    let mut move_list = MoveList::new(board);
+    let mut move_list = if NT::ROOT_NODE {
+        let moves_bb = ctx.root_moves.moves_bb_from_pv_idx();
+        assert!(!moves_bb.is_empty(), "pv_idx must leave a root move");
+        MoveList::with_moves(board, moves_bb)
+    } else {
+        MoveList::new(board)
+    };
     if move_list.count() == 0 {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -63,14 +69,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             return score;
         } else {
             return board.solve_scaled(ctx.empty_list.count());
-        }
-    }
-
-    // Root node: exclude earlier PV moves (before wipeout/TT shortcuts)
-    if NT::ROOT_NODE {
-        move_list.exclude_earlier_pv_moves(ctx, board);
-        if move_list.count() == 0 {
-            return -ScaledScore::INF;
         }
     }
 

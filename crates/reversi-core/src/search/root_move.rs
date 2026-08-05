@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::move_list::MoveList;
@@ -169,11 +170,14 @@ impl RootMoves {
         moves.iter().map(f).collect()
     }
 
-    /// Checks whether a move square exists in the remaining moves (from pv_idx onwards).
-    pub fn contains_from_pv_idx(&self, sq: Square) -> bool {
+    /// Returns the bitboard of the moves remaining for the current PV line
+    /// (`root_moves[pv_idx..]`).
+    pub fn moves_bb_from_pv_idx(&self) -> Bitboard {
         let pv_idx = self.pv_idx();
         let moves = self.moves.lock().unwrap();
-        moves.iter().skip(pv_idx).any(|rm| rm.sq == sq)
+        moves[pv_idx.min(moves.len())..]
+            .iter()
+            .fold(Bitboard::new(0), |bb, rm| bb | rm.sq.bitboard())
     }
 }
 
@@ -323,15 +327,21 @@ mod tests {
     }
 
     #[test]
-    fn contains_from_pv_idx_respects_membership_and_the_pv_window() {
-        let rms = RootMoves::new(&Board::new());
-        let sq = rms.map(|rm| rm.sq)[0];
+    fn moves_bb_from_pv_idx_respects_the_pv_window() {
+        let board = Board::new();
+        let rms = RootMoves::new(&board);
+        let sqs = rms.map(|rm| rm.sq);
 
-        assert!(rms.contains_from_pv_idx(sq));
-        assert!(!rms.contains_from_pv_idx(Square::A1));
+        assert_eq!(rms.moves_bb_from_pv_idx(), board.get_moves());
 
-        rms.set_pv_idx(rms.count()); // skip every move
-        assert!(!rms.contains_from_pv_idx(sq));
+        rms.set_pv_idx(1);
+        assert_eq!(
+            rms.moves_bb_from_pv_idx(),
+            board.get_moves() & !sqs[0].bitboard()
+        );
+
+        rms.set_pv_idx(rms.count() + 5); // past the end: no moves remain
+        assert!(rms.moves_bb_from_pv_idx().is_empty());
     }
 
     #[test]

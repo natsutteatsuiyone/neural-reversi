@@ -16,7 +16,7 @@ const _: () = assert!(offset_of!(MoveArray, data) == 0);
 /// Fixed-capacity storage specialized for Reversi legal moves.
 ///
 /// The maximum move count is a small game invariant, so this stores moves inline
-/// and tracks the length next to the buffer. `Move` is `Copy`, which lets retain/clone
+/// and tracks the length next to the buffer. `Move` is `Copy`, which lets clone
 /// operate by value without drop bookkeeping.
 #[repr(C)]
 pub(super) struct MoveArray {
@@ -144,27 +144,6 @@ impl MoveArray {
                 .as_mut_slice()
                 .sort_unstable_by_key(|mv| Reverse(mv.value)),
         }
-    }
-
-    #[inline]
-    pub(super) fn retain(&mut self, mut keep: impl FnMut(Move) -> bool) {
-        let len = self.len;
-        let mut write = 0;
-        let ptr = self.as_mut_ptr();
-
-        for read in 0..len {
-            // SAFETY: `read < len`.
-            let mv = unsafe { *ptr.add(read) };
-            if keep(mv) {
-                if write != read {
-                    // SAFETY: `write <= read < len`.
-                    unsafe { ptr.add(write).write(mv) };
-                }
-                write += 1;
-            }
-        }
-
-        self.len = write;
     }
 }
 
