@@ -186,7 +186,7 @@ impl GameState {
         self.core
             .move_history()
             .iter()
-            .filter_map(|(sq, _, _)| *sq)
+            .filter_map(|entry| entry.mv)
             .collect()
     }
 }

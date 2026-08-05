@@ -8,6 +8,21 @@ use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
 
+/// A single recorded action in a game's history.
+///
+/// `board` and `side_to_move` capture the state before the action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HistoryEntry {
+    /// The move played, or [`None`] for a pass.
+    pub mv: Option<Square>,
+    /// Board position before the action.
+    pub board: Board,
+    /// Side to move before the action.
+    pub side_to_move: Disc,
+    /// Whether this pass was inserted automatically by [`GameState::make_move`].
+    pub auto_pass: bool,
+}
+
 /// The state of a Reversi game.
 ///
 /// Handles move execution, automatic passing, move history tracking,
@@ -18,9 +33,8 @@ pub struct GameState {
     board: Board,
     /// Which player's turn it is to move.
     side_to_move: Disc,
-    /// Move history: (move, board_before_move, side_to_move_before).
-    /// None for move indicates a pass.
-    history: Vec<(Option<Square>, Board, Disc)>,
+    /// Move history, one [`HistoryEntry`] per action.
+    history: Vec<HistoryEntry>,
 }
 
 impl Default for GameState {
@@ -71,7 +85,12 @@ impl GameState {
         }
 
         // Record history before making the move
-        self.history.push((Some(sq), self.board, self.side_to_move));
+        self.history.push(HistoryEntry {
+            mv: Some(sq),
+            board: self.board,
+            side_to_move: self.side_to_move,
+            auto_pass: false,
+        });
 
         self.board = self.board.make_move(sq);
         self.side_to_move = self.side_to_move.opposite();
@@ -79,7 +98,7 @@ impl GameState {
         // Handle automatic pass if opponent has no legal moves, but avoid
         // recording a pass after the game has already ended.
         if !self.board.has_legal_moves() && self.board.switch_players().has_legal_moves() {
-            self.handle_pass();
+            self.handle_pass(true);
         }
 
         Ok(())
@@ -99,14 +118,19 @@ impl GameState {
             return Err("Cannot pass when legal moves are available".to_string());
         }
 
-        self.handle_pass();
+        self.handle_pass(false);
         Ok(())
     }
 
     /// Records a pass in history and switches the side to move.
-    fn handle_pass(&mut self) {
+    fn handle_pass(&mut self, auto_pass: bool) {
         // Record pass in history
-        self.history.push((None, self.board, self.side_to_move));
+        self.history.push(HistoryEntry {
+            mv: None,
+            board: self.board,
+            side_to_move: self.side_to_move,
+            auto_pass,
+        });
 
         self.board = self.board.switch_players();
         self.side_to_move = self.side_to_move.opposite();
@@ -140,30 +164,32 @@ impl GameState {
     /// Returns the last move played, or [`None`] if the last move was a pass
     /// or no moves have been played yet.
     pub fn last_move(&self) -> Option<Square> {
-        self.history.last().and_then(|(sq, _, _)| *sq)
+        self.history.last().and_then(|entry| entry.mv)
     }
 
     /// Returns a reference to the move history.
     ///
-    /// Each entry is `(move, board_before_move, side_to_move_before)`.
-    /// [`None`] for the move indicates a pass.
-    pub fn move_history(&self) -> &[(Option<Square>, Board, Disc)] {
+    /// Each entry is a [`HistoryEntry`]; [`None`] for the move indicates a
+    /// pass.
+    pub fn move_history(&self) -> &[HistoryEntry] {
         &self.history
     }
 
-    /// Undoes the last move, returning `true` if successful.
+    /// Undoes the last action, returning `true` if successful.
     ///
-    /// Restores the board position and side to move from the history.
-    /// Returns `false` if there are no moves to undo.
+    /// A move and the automatic pass it triggered are undone together;
+    /// an explicit pass ([`GameState::make_pass`]) is undone on its own.
+    /// Returns `false` if there is nothing to undo.
     pub fn undo(&mut self) -> bool {
-        match self.history.pop() {
-            Some((_, prev_board, prev_side)) => {
-                self.board = prev_board;
-                self.side_to_move = prev_side;
-                true
-            }
-            None => false,
+        let Some(mut entry) = self.history.pop() else {
+            return false;
+        };
+        if entry.auto_pass {
+            entry = self.history.pop().unwrap_or(entry);
         }
+        self.board = entry.board;
+        self.side_to_move = entry.side_to_move;
+        true
     }
 }
 
@@ -267,6 +293,63 @@ mod tests {
     }
 
     #[test]
+    fn test_undo_rolls_back_auto_pass_with_move() {
+        // Black c1 flips b1; White (b8 only) then has no legal move, Black does.
+        let board = Board::from_string(
+            "XO------\
+             --------\
+             --------\
+             --------\
+             --------\
+             --------\
+             --------\
+             XO------",
+            Disc::Black,
+        )
+        .unwrap();
+        let mut game = GameState::from_board(board, Disc::Black);
+
+        game.make_move(Square::C1).unwrap();
+        assert_eq!(game.move_history().len(), 2);
+        assert_eq!(game.side_to_move(), Disc::Black);
+
+        assert!(game.undo());
+        assert_eq!(*game.board(), board);
+        assert_eq!(game.side_to_move(), Disc::Black);
+        assert!(game.move_history().is_empty());
+    }
+
+    #[test]
+    fn test_undo_explicit_pass_is_single_step() {
+        // White to move with no legal moves (must pass); Black can then play c8.
+        let board = Board::from_string(
+            "XXX-----\
+             --------\
+             --------\
+             --------\
+             --------\
+             --------\
+             --------\
+             XO------",
+            Disc::White,
+        )
+        .unwrap();
+        let mut game = GameState::from_board(board, Disc::White);
+
+        game.make_pass().unwrap();
+        game.make_move(Square::C8).unwrap();
+        assert_eq!(game.move_history().len(), 2);
+
+        assert!(game.undo());
+        assert_eq!(game.side_to_move(), Disc::Black);
+        assert_eq!(game.move_history().len(), 1);
+
+        assert!(game.undo());
+        assert_eq!(*game.board(), board);
+        assert_eq!(game.side_to_move(), Disc::White);
+    }
+
+    #[test]
     fn test_history_complete_record() {
         let mut game = GameState::new();
 
@@ -279,16 +362,16 @@ mod tests {
         assert_eq!(history.len(), 3);
 
         // Verify first move
-        assert_eq!(history[0].0, Some(Square::D3));
-        assert_eq!(history[0].2, Disc::Black);
+        assert_eq!(history[0].mv, Some(Square::D3));
+        assert_eq!(history[0].side_to_move, Disc::Black);
 
         // Verify second move
-        assert_eq!(history[1].0, Some(Square::C3));
-        assert_eq!(history[1].2, Disc::White);
+        assert_eq!(history[1].mv, Some(Square::C3));
+        assert_eq!(history[1].side_to_move, Disc::White);
 
         // Verify third move
-        assert_eq!(history[2].0, Some(Square::C4));
-        assert_eq!(history[2].2, Disc::Black);
+        assert_eq!(history[2].mv, Some(Square::C4));
+        assert_eq!(history[2].side_to_move, Disc::Black);
     }
 
     #[test]
@@ -361,27 +444,31 @@ mod tests {
         let history = game.move_history();
 
         // Verify the first few moves in history
-        assert_eq!(history[0].0, Some(Square::E6), "First move should be e6");
-        assert_eq!(history[0].2, Disc::Black, "First move by Black");
+        assert_eq!(history[0].mv, Some(Square::E6), "First move should be e6");
+        assert_eq!(history[0].side_to_move, Disc::Black, "First move by Black");
 
-        assert_eq!(history[1].0, Some(Square::F4), "Second move should be f4");
-        assert_eq!(history[1].2, Disc::White, "Second move by White");
+        assert_eq!(history[1].mv, Some(Square::F4), "Second move should be f4");
+        assert_eq!(history[1].side_to_move, Disc::White, "Second move by White");
 
-        assert_eq!(history[2].0, Some(Square::C3), "Third move should be c3");
-        assert_eq!(history[2].2, Disc::Black, "Third move by Black");
+        assert_eq!(history[2].mv, Some(Square::C3), "Third move should be c3");
+        assert_eq!(history[2].side_to_move, Disc::Black, "Third move by Black");
 
         // Verify last_move
         // Note: The last move in history might be a pass (automatic pass after b1)
         // so we check if b1 appears in the history
-        let b1_found = history.iter().any(|(sq, _, _)| *sq == Some(Square::B1));
+        let b1_found = history.iter().any(|entry| entry.mv == Some(Square::B1));
         assert!(b1_found, "b1 should be in the move history");
 
         // If the last entry is a pass, the previous one should be b1
         if game.last_move().is_none() {
             // Last move was a pass, check the second to last
             let second_to_last = history.iter().rev().nth(1);
-            if let Some((sq, _, _)) = second_to_last {
-                assert_eq!(*sq, Some(Square::B1), "Second to last move should be b1");
+            if let Some(entry) = second_to_last {
+                assert_eq!(
+                    entry.mv,
+                    Some(Square::B1),
+                    "Second to last move should be b1"
+                );
             }
         } else {
             assert_eq!(game.last_move(), Some(Square::B1), "Last move should be b1");
@@ -392,7 +479,7 @@ mod tests {
             moves.iter().map(|s| s.parse::<Square>().unwrap()).collect();
 
         // Extract non-pass moves from history
-        let actual_moves: Vec<Square> = history.iter().filter_map(|(sq, _, _)| *sq).collect();
+        let actual_moves: Vec<Square> = history.iter().filter_map(|entry| entry.mv).collect();
 
         // All expected moves should be in the actual moves
         assert_eq!(
@@ -416,8 +503,16 @@ mod tests {
         // When there's an automatic pass, the side doesn't change
         // We verify by checking each move in sequence
         for i in 0..history.len().saturating_sub(1) {
-            let (sq_current, _, side_current) = history[i];
-            let (sq_next, _, side_next) = history[i + 1];
+            let HistoryEntry {
+                mv: sq_current,
+                side_to_move: side_current,
+                ..
+            } = history[i];
+            let HistoryEntry {
+                mv: sq_next,
+                side_to_move: side_next,
+                ..
+            } = history[i + 1];
 
             if sq_current.is_none() {
                 // Current is a pass - next move should be by the opposite side
@@ -450,7 +545,7 @@ mod tests {
         }
 
         // Count passes in history
-        let pass_count = history.iter().filter(|(sq, _, _)| sq.is_none()).count();
+        let pass_count = history.iter().filter(|entry| entry.mv.is_none()).count();
         println!(
             "Game completed with {} moves and {} automatic passes",
             expected_moves.len(),
