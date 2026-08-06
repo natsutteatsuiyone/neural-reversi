@@ -133,10 +133,9 @@ impl MoveList {
         }
 
         // Depth-0 shallow scoring probes the eval cache for `next` itself
-        // (deeper sort searches evaluate grandchildren instead), so the key is
-        // computed up front and the cache line prefetched before the
-        // pattern-feature update. Callers only reach this path with
-        // `depth >= 4`, so `next` can never be a terminal position.
+        // (deeper sort searches evaluate grandchildren instead). Callers only
+        // reach this path with `depth >= 4`, so `next` can never be a
+        // terminal position.
         let use_cached_child_eval =
             sort_depth == 0 && Eval::should_use_main_network(ctx.eval_mode, ctx.ply() + 1);
 
@@ -148,21 +147,13 @@ impl MoveList {
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                 let cache_key = if use_cached_child_eval {
-                    let key = next.hash();
-                    ctx.eval.prefetch(key);
-                    key
+                    ctx.prefetch_eval_cache(&next)
                 } else {
                     0
                 };
                 ctx.update(mv.sq, mv.flipped);
                 mv.value = if use_cached_child_eval {
-                    (-ctx.eval.evaluate_main(
-                        ctx.get_pattern_feature(),
-                        &next,
-                        ctx.ply(),
-                        cache_key,
-                    ))
-                    .value()
+                    (-ctx.evaluate_main_with_key(&next, cache_key)).value()
                 } else {
                     shallow_search_score(ctx, &next, sort_depth).value()
                 };

@@ -164,6 +164,31 @@ impl SearchContext {
         }
     }
 
+    /// Computes the eval-cache key for `board` and prefetches its cache line.
+    ///
+    /// Call before [`update`](Self::update) so the prefetched load overlaps
+    /// the pattern-feature SIMD update, then hand the returned key to
+    /// [`evaluate_main_with_key`](Self::evaluate_main_with_key) for the same
+    /// board.
+    #[inline(always)]
+    pub fn prefetch_eval_cache(&self, board: &Board) -> u64 {
+        let key = board.hash();
+        self.eval.prefetch(key);
+        key
+    }
+
+    /// Evaluates `board` with the main network, probing the eval cache with
+    /// `key`.
+    ///
+    /// `key` must come from [`prefetch_eval_cache`](Self::prefetch_eval_cache)
+    /// for the same board, and the [`update`](Self::update) for the move
+    /// reaching `board` must already have been applied.
+    #[inline(always)]
+    pub fn evaluate_main_with_key(&self, board: &Board, key: u64) -> ScaledScore {
+        self.eval
+            .evaluate_main(self.get_pattern_feature(), board, self.ply(), key)
+    }
+
     /// Updates a root move with its search results.
     pub fn update_root_move(&mut self, sq: Square, score: ScaledScore, is_pv: bool) {
         if is_pv {

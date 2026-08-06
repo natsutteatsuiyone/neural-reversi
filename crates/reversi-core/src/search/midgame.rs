@@ -484,9 +484,7 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
     let next = board.make_move_with_flipped(flipped, sq);
 
     let cache_key = if USE_MAIN_NETWORK {
-        let key = next.hash();
-        ctx.eval.prefetch(key);
-        key
+        ctx.prefetch_eval_cache(&next)
     } else {
         0
     };
@@ -495,8 +493,7 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
     let score = if ctx.ply() == INITIAL_EMPTY_COUNT {
         -next.final_score_scaled()
     } else if USE_MAIN_NETWORK {
-        -ctx.eval
-            .evaluate_main(ctx.get_pattern_feature(), &next, ctx.ply(), cache_key)
+        -ctx.evaluate_main_with_key(&next, cache_key)
     } else {
         -ctx.eval
             .evaluate_small(ctx.get_pattern_feature(), ctx.ply())
