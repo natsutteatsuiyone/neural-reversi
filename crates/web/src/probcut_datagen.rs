@@ -344,7 +344,7 @@ impl ProbCutDatagen {
         let mut board = Board::new();
         let mut side_to_move = Disc::Black;
 
-        for token in game_sequence.as_bytes().chunks_exact(2) {
+        for token in game_sequence.as_bytes().as_chunks::<2>().0 {
             let move_str = std::str::from_utf8(token)
                 .map_err(|e| JsValue::from_str(&format!("Invalid UTF-8 in move token: {}", e)))?;
 

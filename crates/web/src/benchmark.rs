@@ -12,7 +12,7 @@ use wasm_bindgen::prelude::*;
 use crate::config::{DEFAULT_TT_MB, MIDGAME_SELECTIVITY};
 use crate::eval::Eval;
 use crate::level::Level;
-use crate::search::{Search, search_context::SearchContext, search_result::SearchResult};
+use crate::search::{Search, context::SearchContext, result::SearchResult};
 use crate::transposition_table::TranspositionTable;
 
 const BENCH_TEST_POSITIONS: usize = 11;

@@ -141,7 +141,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             if score > alpha {
                 best_move = mv.sq;
 
-
                 if NT::PV_NODE && score < beta {
                     alpha = score;
                 } else {

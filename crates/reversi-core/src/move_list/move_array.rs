@@ -123,6 +123,18 @@ impl MoveArray {
             }
         }
     }
+    #[inline]
+    pub(super) fn retain(&mut self, mut f: impl FnMut(&Move) -> bool) {
+        let mut write = 0;
+        for read in 0..self.len {
+            let mv = self.as_slice()[read];
+            if f(&mv) {
+                self.data[write].write(mv);
+                write += 1;
+            }
+        }
+        self.len = write;
+    }
 
     #[inline]
     pub(super) fn sort_by_value_desc(&mut self) {

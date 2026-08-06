@@ -130,7 +130,7 @@ unsafe fn flip_index_prepared(
 
     let flip_l = v128_or(flip_l_a, flip_l_b);
     let flip_rr = bit_reverse_u64x2(v128_or(flip_rr_a, flip_rr_b));
-    fold_or_pair(flip_l) | fold_or_pair(flip_rr)
+    fold_or_pair(v128_or(flip_l, flip_rr))
 }
 
 /// Computes a pair of LSB-first rays. Native left-side masks use this form

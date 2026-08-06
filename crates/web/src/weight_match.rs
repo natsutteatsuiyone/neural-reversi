@@ -210,7 +210,7 @@ fn apply_opening(
     }
 
     let bytes = opening.as_bytes();
-    for chunk in bytes.chunks_exact(2) {
+    for chunk in bytes.as_chunks::<2>().0 {
         let move_str = std::str::from_utf8(chunk)
             .map_err(|_| format!("opening sequence is not valid UTF-8: '{opening}'"))?;
         let sq = move_str

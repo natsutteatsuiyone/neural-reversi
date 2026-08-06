@@ -24,7 +24,7 @@ use reversi_core::{
     probcut::Selectivity,
     search::node_type::{NodeType, PV, Root},
     square::Square,
-    types::ScaledScore,
+    types::{Depth, ScaledScore},
 };
 
 use crate::transposition_table::{Bound, TranspositionTable};
@@ -479,8 +479,6 @@ fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     board.get_moves().iter().choose(&mut rng).unwrap()
 }
-
-
 
 /// Performs alpha-beta search specialized for depth 3.
 pub fn evaluate_depth3<NT: NodeType>(

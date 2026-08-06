@@ -24,4 +24,3 @@ pub use endgame_solver::{EndgameSolveResult, EndgameSolver};
 pub use game::Game;
 pub use probcut_datagen::{ProbCutDatagen, ProbCutDatagenResult};
 pub use weight_match::{WeightMatchGameResult, WeightMatchRunner};
-
