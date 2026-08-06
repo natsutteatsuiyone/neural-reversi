@@ -505,9 +505,11 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
     let score = if ctx.ply() == INITIAL_EMPTY_COUNT {
         -next.final_score_scaled()
     } else if USE_MAIN_NETWORK {
-        -ctx.eval.evaluate_main_with_key(ctx, &next, cache_key)
+        -ctx.eval
+            .evaluate_main(ctx.get_pattern_feature(), &next, ctx.ply(), cache_key)
     } else {
-        -ctx.eval.evaluate_small(ctx)
+        -ctx.eval
+            .evaluate_small(ctx.get_pattern_feature(), ctx.ply())
     };
     ctx.undo(sq);
 
@@ -519,13 +521,22 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
 }
 
 /// Evaluates a leaf node position using the neural network.
+///
+/// Selects the network via [`Eval::should_use_main_network`]; only main-network
+/// evaluations go through the eval cache.
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == INITIAL_EMPTY_COUNT {
         return board.final_score_scaled();
     }
 
-    ctx.eval.evaluate(ctx, board)
+    if Eval::should_use_main_network(ctx.eval_mode, ctx.ply()) {
+        ctx.eval
+            .evaluate_main(ctx.get_pattern_feature(), board, ctx.ply(), board.hash())
+    } else {
+        ctx.eval
+            .evaluate_small(ctx.get_pattern_feature(), ctx.ply())
+    }
 }
 
 #[cfg(test)]

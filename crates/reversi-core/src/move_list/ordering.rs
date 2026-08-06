@@ -156,7 +156,13 @@ impl MoveList {
                 };
                 ctx.update(mv.sq, mv.flipped);
                 mv.value = if use_cached_child_eval {
-                    (-ctx.eval.evaluate_main_with_key(ctx, &next, cache_key)).value()
+                    (-ctx.eval.evaluate_main(
+                        ctx.get_pattern_feature(),
+                        &next,
+                        ctx.ply(),
+                        cache_key,
+                    ))
+                    .value()
                 } else {
                     shallow_search_score(ctx, &next, sort_depth).value()
                 };

@@ -14,10 +14,10 @@ pub use network_small::NetworkSmall;
 
 use crate::board::Board;
 use crate::constants::INITIAL_EMPTY_COUNT;
-use crate::search::context::SearchContext;
 use crate::types::ScaledScore;
 
 use self::network_small::ENDGAME_START_PLY;
+use self::pattern_feature::PatternFeature;
 
 pub mod eval_cache;
 mod network;
@@ -139,22 +139,6 @@ impl Eval {
         })
     }
 
-    /// Evaluates the current position.
-    ///
-    /// Network selection:
-    /// - `ply < 30`: Always uses main network (small network does not support early/midgame)
-    /// - `ply >= 30`: Uses small network when [`EvalMode::Small`], otherwise main network
-    ///
-    /// Only main network evaluations are cached; the small network is fast enough without caching.
-    #[inline(always)]
-    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
-        if Self::should_use_main_network(ctx.eval_mode, ctx.ply()) {
-            self.evaluate_main_with_key(ctx, board, board.hash())
-        } else {
-            self.evaluate_small(ctx)
-        }
-    }
-
     /// Returns whether the main network (and thus the eval cache) is used
     /// for the given `(eval_mode, ply)` pair.
     #[inline(always)]
@@ -162,37 +146,38 @@ impl Eval {
         eval_mode == EvalMode::Main || ply < ENDGAME_START_PLY
     }
 
-    /// Evaluates the position with the main network and cache, using a precomputed `board.hash()`.
+    /// Evaluates the position with the main network and cache.
     ///
+    /// `feature` must be the side to move's pattern feature for `board` at `ply`,
+    /// and `key` must be `board.hash()` — precomputed so callers can
+    /// [`prefetch`](Self::prefetch) the cache line first.
     /// Intended for the main-network path — see [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]
-    pub fn evaluate_main_with_key(
+    pub fn evaluate_main(
         &self,
-        ctx: &SearchContext,
+        feature: &PatternFeature,
         board: &Board,
+        ply: usize,
         key: u64,
     ) -> ScaledScore {
-        self.cache.get_or_insert_with(key, || {
-            self.network
-                .evaluate(board, ctx.get_pattern_feature(), ctx.ply())
-        })
+        self.cache
+            .get_or_insert_with(key, || self.network.evaluate(board, feature, ply))
     }
 
     /// Evaluates the position with the small network (no cache).
     ///
+    /// `feature` must be the side to move's pattern feature at `ply`.
     /// Intended for the small-network path — see [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]
-    pub fn evaluate_small(&self, ctx: &SearchContext) -> ScaledScore {
-        self.network_sm
-            .evaluate(ctx.get_pattern_feature(), ctx.ply())
+    pub fn evaluate_small(&self, feature: &PatternFeature, ply: usize) -> ScaledScore {
+        self.network_sm.evaluate(feature, ply)
     }
 
-    /// Evaluates a position without [`SearchContext`].
+    /// Evaluates a position from scratch, building the pattern features on the fly.
     ///
-    /// Selects the network for `eval_mode` exactly as [`evaluate`](Self::evaluate)
-    /// does — see [`should_use_main_network`](Self::should_use_main_network) — but
-    /// builds the pattern features on the fly, so it is slower. Returns the exact
-    /// final score when the board has no empties.
+    /// Selects the network via [`should_use_main_network`](Self::should_use_main_network),
+    /// bypasses the eval cache, and returns the exact final score when the board
+    /// has no empties.
     pub fn evaluate_simple(&self, board: &Board, eval_mode: EvalMode) -> ScaledScore {
         let n_empties = board.get_empty_count() as usize;
         if n_empties == 0 {
@@ -312,6 +297,29 @@ mod tests {
         // the same value deterministically.
         let score = eval.evaluate_simple(&board, EvalMode::Main);
         assert_eq!(eval.evaluate_simple(&board, EvalMode::Main), score);
+    }
+
+    #[test]
+    fn evaluate_main_agrees_with_the_uncached_path() {
+        use crate::eval::pattern_feature::PatternFeatures;
+
+        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
+        let board = Board::new();
+        let ply = INITIAL_EMPTY_COUNT - board.get_empty_count() as usize;
+        let feature = PatternFeatures::new(&board, ply);
+
+        // evaluate_simple bypasses the eval cache, so it pins the expected
+        // value for both the cache-fill call and the cache-hit call.
+        let expected = eval.evaluate_simple(&board, EvalMode::Main);
+        let key = board.hash();
+        assert_eq!(
+            eval.evaluate_main(feature.p_feature(ply), &board, ply, key),
+            expected
+        );
+        assert_eq!(
+            eval.evaluate_main(feature.p_feature(ply), &board, ply, key),
+            expected
+        );
     }
 
     #[test]
