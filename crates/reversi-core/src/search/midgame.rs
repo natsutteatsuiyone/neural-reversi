@@ -135,17 +135,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             return completed.to_result(ctx.counters.clone());
         }
 
-        // Single-PV already sorted the full list at pv_idx 0; only Multi-PV
-        // leaves the searched PV head lines out of score order.
-        if task.multi_pv {
-            ctx.sort_all_root_moves();
-        }
-        completed = CompletedState {
-            root_moves: ctx.root_moves.snapshot(),
-            depth,
-            selectivity: ctx.selectivity,
-            is_endgame: false,
-        };
+        completed.record(&ctx, depth, task.multi_pv, false);
         let best_move = completed
             .root_moves
             .first()

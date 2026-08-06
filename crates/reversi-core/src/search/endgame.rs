@@ -194,12 +194,7 @@ pub(super) fn solve_root(
             // -INF scores for lines not yet searched, so a partial pass must
             // not become the abort result.
             if pv_count == 1 {
-                completed = CompletedState {
-                    root_moves: ctx.root_moves.snapshot(),
-                    depth: n_empties,
-                    selectivity,
-                    is_endgame: true,
-                };
+                completed.record(ctx, n_empties, false, true);
             }
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
@@ -223,22 +218,8 @@ pub(super) fn solve_root(
         }
     }
 
-    // Single-PV already sorted the full list after each completed level; only
-    // Multi-PV leaves the searched PV head lines out of score order.
-    if task.multi_pv {
-        ctx.sort_all_root_moves();
-    }
-    let rm = ctx
-        .get_best_root_move()
-        .expect("internal error: no root moves after search");
-    SearchResult::from_root_move(
-        &ctx.root_moves,
-        &rm,
-        n_empties,
-        ctx.selectivity,
-        true,
-        ctx.counters.clone(),
-    )
+    completed.record(ctx, n_empties, task.multi_pv, true);
+    completed.to_result(ctx.counters.clone())
 }
 
 /// Estimates a base score to center the aspiration window for endgame search.

@@ -183,14 +183,6 @@ impl SearchContext {
         self.root_moves.get(idx)
     }
 
-    /// Returns the first root move, or [`None`] if no moves exist.
-    ///
-    /// The caller must sort the root moves beforehand for this to return the
-    /// highest-scoring move.
-    pub fn get_best_root_move(&self) -> Option<RootMove> {
-        self.root_moves.get_best()
-    }
-
     /// Sets the current PV index for Multi-PV search.
     pub fn set_pv_idx(&self, idx: usize) {
         self.root_moves.set_pv_idx(idx);

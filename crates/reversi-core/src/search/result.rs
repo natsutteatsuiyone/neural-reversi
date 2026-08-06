@@ -2,8 +2,9 @@
 
 use crate::{
     probcut::Selectivity,
+    search::context::SearchContext,
     search::counters::SearchCounters,
-    search::root_move::{RootMove, RootMoves},
+    search::root_move::RootMove,
     square::Square,
     types::{Depth, ScaledScore, Scoref},
 };
@@ -49,6 +50,31 @@ pub(super) struct CompletedState {
 }
 
 impl CompletedState {
+    /// Replaces the fallback with a snapshot of the just-completed iteration,
+    /// taking selectivity from the context.
+    ///
+    /// Multi-PV sorts the full root move list first; single-PV lists are
+    /// already fully sorted by the pv_idx-0 sort. Multi-PV callers must not
+    /// record mid-loop: root moves of unsearched PV lines still hold
+    /// `-ScaledScore::INF` and must not become the abort fallback.
+    pub(super) fn record(
+        &mut self,
+        ctx: &SearchContext,
+        depth: Depth,
+        multi_pv: bool,
+        is_endgame: bool,
+    ) {
+        if multi_pv {
+            ctx.sort_all_root_moves();
+        }
+        *self = CompletedState {
+            root_moves: ctx.root_moves.snapshot(),
+            depth,
+            selectivity: ctx.selectivity,
+            is_endgame,
+        };
+    }
+
     /// Builds the fallback [`SearchResult`] reported when the search stops
     /// before another iteration completes.
     pub(super) fn to_result(&self, counters: SearchCounters) -> SearchResult {
@@ -86,25 +112,6 @@ impl SearchResult {
     /// Creates a result when no legal moves are available.
     pub fn new_no_moves() -> Self {
         Self::NoLegalMove
-    }
-
-    /// Creates a search result from the root move state.
-    pub fn from_root_move(
-        root_moves: &RootMoves,
-        best_move: &RootMove,
-        depth: Depth,
-        selectivity: Selectivity,
-        is_endgame: bool,
-        counters: SearchCounters,
-    ) -> Self {
-        Self::from_root_move_snapshot(
-            &root_moves.snapshot(),
-            best_move,
-            depth,
-            selectivity,
-            is_endgame,
-            counters,
-        )
     }
 
     pub(crate) fn from_root_move_snapshot(
@@ -242,6 +249,7 @@ impl SearchResult {
 mod tests {
     use super::*;
     use crate::board::Board;
+    use crate::search::root_move::RootMoves;
 
     #[test]
     fn random_move_result_is_best_move() {
@@ -293,8 +301,8 @@ mod tests {
         #[cfg(not(feature = "search-stats"))]
         let counters = SearchCounters { n_nodes: 42 };
 
-        let result = SearchResult::from_root_move(
-            &root_moves,
+        let result = SearchResult::from_root_move_snapshot(
+            &root_moves.snapshot(),
             &best_move,
             7,
             Selectivity::Level1,
