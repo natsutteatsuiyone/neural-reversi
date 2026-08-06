@@ -429,6 +429,11 @@ fn sqr_clipped_and_clipped_relu_16_neon(input: &[i32], output: &mut [u8]) {
 /// Clamps input to `[0, 255 << HIDDEN_WEIGHT_SCALE_BITS]`, squares, then scales down.
 /// Output = (clamp(input, 0, max)² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)).
 ///
+/// The output is **not** in input order: `output[i]` holds the activation of
+/// `input[screlu_store_order::<SIZE>()[i]]`, because the vector kernels keep the
+/// lane interleaving their `packus` chain produces. Consumers must reorder their
+/// own per-element data by [`screlu_store_order`].
+///
 /// On x86-64 with AVX-512, both `input` and `output` must be 64-byte aligned
 /// when `SIZE` is a multiple of 64. With AVX2 (or smaller `SIZE`), both must be
 /// 32-byte aligned (or 16-byte aligned when `SIZE` is not a multiple of 32).
@@ -448,6 +453,51 @@ pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
         _ => {
             screlu_scalar(input, output, 0);
         }
+    }
+}
+
+/// Returns the input element index [`screlu`] writes at each output position.
+///
+/// The order is the identity for the kernels that emit input order (scalar,
+/// 128-bit x86-64, and NEON).
+pub fn screlu_store_order<const SIZE: usize>() -> [usize; SIZE] {
+    let lanes = screlu_store_lanes::<SIZE>();
+    std::array::from_fn(|pos| {
+        if lanes == 0 {
+            pos
+        } else {
+            // Each `packus` pair keeps its 4-element groups in lane order: group
+            // `q` of a `lanes * 4`-element block comes from element `4 * (q / 4)`
+            // of the `q % 4`-th source vector.
+            let block = lanes * 4;
+            let p = pos % block;
+            let q = p / 4;
+            pos - p + 4 * (q / 4) + lanes * (q % 4) + p % 4
+        }
+    })
+}
+
+/// Returns the number of `i32` lanes in the vectors [`screlu`] packs from, or `0`
+/// when the selected kernel emits input order.
+const fn screlu_store_lanes<const SIZE: usize>() -> usize {
+    cfg_select! {
+        all(target_arch = "x86_64", target_feature = "avx512bw") => {
+            if SIZE.is_multiple_of(AVX512_SIMD_WIDTH) {
+                AVX512_SIMD_WIDTH / size_of::<i32>()
+            } else if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
+                AVX2_SIMD_WIDTH / size_of::<i32>()
+            } else {
+                0
+            }
+        }
+        all(target_arch = "x86_64", target_feature = "avx2") => {
+            if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
+                AVX2_SIMD_WIDTH / size_of::<i32>()
+            } else {
+                0
+            }
+        }
+        _ => 0,
     }
 }
 
@@ -475,7 +525,6 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     unsafe {
         if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
             let num_chunks = SIZE / AVX2_SIMD_WIDTH;
-            let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
             let input_ptr = input.as_ptr() as *const __m256i;
             let output_ptr = output.as_mut_ptr() as *mut __m256i;
             let max_val = _mm256_set1_epi32(255 << HIDDEN_WEIGHT_SCALE_BITS);
@@ -495,10 +544,7 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
                 words0 = _mm256_srli_epi16(_mm256_mulhi_epu16(words0, words0), SHIFT);
                 words1 = _mm256_srli_epi16(_mm256_mulhi_epu16(words1, words1), SHIFT);
 
-                _mm256_store_si256(
-                    output_ptr.add(i),
-                    _mm256_permutevar8x32_epi32(_mm256_packus_epi16(words0, words1), shuffle),
-                );
+                _mm256_store_si256(output_ptr.add(i), _mm256_packus_epi16(words0, words1));
             }
             return;
         }
@@ -553,8 +599,6 @@ unsafe fn screlu_avx512<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 
     unsafe {
         let num_chunks = SIZE / AVX512_SIMD_WIDTH;
-        let shuffle: __m512i =
-            _mm512_set_epi32(15, 11, 7, 3, 14, 10, 6, 2, 13, 9, 5, 1, 12, 8, 4, 0);
         let input_ptr = input.as_ptr() as *const __m512i;
         let output_ptr = output.as_mut_ptr() as *mut __m512i;
         let max_val = _mm512_set1_epi32(255 << HIDDEN_WEIGHT_SCALE_BITS);
@@ -574,10 +618,7 @@ unsafe fn screlu_avx512<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
             words0 = _mm512_srli_epi16::<SHIFT>(_mm512_mulhi_epu16(words0, words0));
             words1 = _mm512_srli_epi16::<SHIFT>(_mm512_mulhi_epu16(words1, words1));
 
-            _mm512_store_si512(
-                output_ptr.add(i),
-                _mm512_permutexvar_epi32(shuffle, _mm512_packus_epi16(words0, words1)),
-            );
+            _mm512_store_si512(output_ptr.add(i), _mm512_packus_epi16(words0, words1));
         }
     }
 }
@@ -692,8 +733,8 @@ mod tests {
         let mut expected = [0; SIZE];
 
         screlu::<SIZE>(input.as_slice(), actual.as_mut_slice());
-        for (out, &value) in expected.iter_mut().zip(input.iter()) {
-            *out = reference_screlu(value);
+        for (out, &src) in expected.iter_mut().zip(screlu_store_order::<SIZE>().iter()) {
+            *out = reference_screlu(input[src]);
         }
 
         assert_eq!(actual.as_ref(), &expected);
@@ -756,7 +797,7 @@ mod tests {
             64,
             patterned_input::<1>(123, 1, 0)[0],
         ]);
-        assert_screlu_matches_reference(patterned_input::<32>(19, 3011, 18_000));
+        assert_screlu_matches_reference(patterned_input::<32>(7680, 68, 0)); // Distinct outputs.
         assert_screlu_matches_reference(patterned_input::<37>(23, 4099, 20_000));
     }
 
@@ -774,7 +815,7 @@ mod tests {
             63,
         ]);
         assert_screlu_matches_reference(input);
-        assert_screlu_matches_reference(patterned_input::<128>(31, 6151, 22_000));
+        assert_screlu_matches_reference(patterned_input::<128>(7680, 68, 0)); // Distinct outputs.
     }
 
     const FUSED_L1_INPUT: [i32; 16] = [

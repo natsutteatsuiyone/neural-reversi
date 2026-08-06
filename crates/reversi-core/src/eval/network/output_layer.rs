@@ -68,6 +68,26 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         packed
     }
 
+    /// Reorders the leading `order.len()` weights so that index `i` holds the
+    /// weight previously at `order[i]`.
+    ///
+    /// Absorbs a producer's output permutation into the weights, which keeps
+    /// [`forward`](Self::forward) a plain positional dot product.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `order` is longer than the weight vector or holds an index
+    /// outside it.
+    pub(super) fn permute_leading_weights(&mut self, order: &[usize]) {
+        let permuted: Vec<i16> = order.iter().map(|&src| self.weights[src]).collect();
+        self.weights[..order.len()].copy_from_slice(&permuted);
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            self.i8mm_weights = Self::pack_i8mm_weights(self.weights.as_slice());
+        }
+    }
+
     /// Selects the optimal forward implementation based on CPU features.
     ///
     /// Selection priority (highest to lowest):

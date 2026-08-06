@@ -2,7 +2,7 @@ use std::io::{self, Read};
 
 use crate::types::ScaledScore;
 
-use super::activations::{screlu, sqr_clipped_and_clipped_relu_16};
+use super::activations::{screlu, screlu_store_order, sqr_clipped_and_clipped_relu_16};
 use super::linear_layer::LinearLayer;
 use super::output_layer::OutputLayer;
 use super::{
@@ -31,7 +31,12 @@ impl LayerStack {
     fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let l1 = LinearLayer::load(reader)?;
         let l2 = LinearLayer::load(reader)?;
-        let lo = OutputLayer::load(reader)?;
+        let mut lo = OutputLayer::load(reader)?;
+        // `screlu` emits the L2 activations in its own store order; the first
+        // output-layer segment reads them positionally.
+        lo.permute_leading_weights(
+            &screlu_store_order::<L2_PADDED_OUTPUT_DIMS>()[..L2_OUTPUT_DIMS],
+        );
         Ok(Self { l1, l2, lo })
     }
 
