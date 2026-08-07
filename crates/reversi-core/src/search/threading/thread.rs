@@ -372,7 +372,7 @@ impl Thread {
         debug_assert!(self.searching.load(Ordering::Acquire));
         debug_assert!(self.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD);
 
-        sp.lock();
+        let _guard = sp.lock();
         sp.set_move_iter(move_iter);
         // No contention here until split_points_size is incremented
         let sp_state = sp.state_mut();
@@ -413,7 +413,6 @@ impl Thread {
         // it will instantly launch a search, because its 'searching' flag is set.
         // The thread will return from the idle loop when all searchers have finished
         // their work at this split point.
-        sp.unlock();
     }
 
     /// Cleans up after all threads have finished working on a split point.
@@ -473,14 +472,16 @@ impl Thread {
                     .expect("searching thread must have an active split point");
                 self.unlock();
 
-                let (board, depth, node_type) = {
-                    sp.lock();
-                    let task = sp.task();
-                    let sp_state = sp.state();
-                    (task.board, sp_state.depth, sp_state.node_type)
-                };
-
+                // The lock acquisition synchronizes with initialize_split_point,
+                // after which the task and split parameters stay stable until
+                // every helper has finished.
+                let guard = sp.lock();
+                let board = sp.task().board;
+                let depth = sp.state().depth;
+                let node_type = sp.state().node_type;
                 let mut ctx = SearchContext::from_split_point(&sp);
+                drop(guard);
+
                 self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
 
                 self.lock();
@@ -493,6 +494,7 @@ impl Thread {
                 // and the remaining writes are atomic, so this path stays
                 // aliasing-compatible with concurrent lock-free readers in
                 // `try_late_join`.
+                let guard = sp.lock();
                 let sp_state = sp.state();
                 sp.merge_counters_locked(&ctx.counters);
                 sp_state.set_all_helpers_searching(false);
@@ -500,7 +502,7 @@ impl Thread {
 
                 // After clearing our helpers_mask bit, the owner may observe none() and
                 // tear down the split point, so we must not access sp data after this.
-                sp.unlock();
+                drop(guard);
 
                 self.try_late_join();
             }
@@ -667,7 +669,7 @@ impl Thread {
             return;
         };
 
-        sp.lock();
+        let _guard = sp.lock();
 
         let sp_state = sp.state();
         if !sp_state.cutoff()
@@ -682,8 +684,6 @@ impl Thread {
 
             self.unlock();
         }
-
-        sp.unlock();
     }
 
     /// Returns `true` if the search has been aborted (e.g., by deadline or external request).

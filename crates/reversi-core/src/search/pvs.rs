@@ -332,6 +332,8 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 /// Called by helper threads that join an existing split point. Picks moves from
 /// the shared move iterator, searches them, and updates the split
 /// point's best score/move under its lock.
+///
+/// The caller must not hold the split-point lock.
 pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -339,14 +341,19 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     thread: &Arc<Thread>,
     split_point: &Arc<SplitPoint>,
 ) -> ScaledScore {
+    // One acquisition synchronizes with initialize_split_point; the split
+    // parameters and the move iterator stay stable until every helper clears
+    // its helpers_mask bit.
+    let guard = split_point.lock();
     let beta = split_point.state().beta;
     let cut_node = split_point.state().cut_node();
     let move_iter = split_point.move_iter();
     let n_moves = move_iter.count();
+    drop(guard);
 
+    // move_iter.next() is a lock-free fetch_add: helpers claim moves without
+    // the lock, which is only taken to publish results.
     while let Some((mv, move_count)) = move_iter.next() {
-        split_point.unlock();
-
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
@@ -393,10 +400,11 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
         ctx.undo(mv.sq);
 
-        split_point.lock();
+        let _guard = split_point.lock();
 
         // Abort check
         if thread.should_stop() {
+            split_point.state().set_all_helpers_searching(false);
             return ScaledScore::ZERO;
         }
 
@@ -408,6 +416,7 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         }
 
         // Best score update
+        let mut cutoff = false;
         if score > sp.best_score() {
             sp.set_best_score(score);
 
@@ -421,15 +430,19 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
                 if NT::PV_NODE && score < beta {
                     sp.set_alpha(score);
-                    if score >= ScaledScore::MAX {
-                        thread.mark_split_point_cutoff(sp);
-                        break;
-                    }
+                    cutoff = score >= ScaledScore::MAX;
                 } else {
+                    cutoff = true;
+                }
+
+                if cutoff {
                     thread.mark_split_point_cutoff(sp);
-                    break;
                 }
             }
+        }
+
+        if cutoff {
+            break;
         }
     }
 

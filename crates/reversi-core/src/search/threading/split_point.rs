@@ -2,8 +2,6 @@ use std::cell::SyncUnsafeCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 
-use lock_api::RawMutex;
-
 use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::empty_list::EmptyList;
@@ -263,7 +261,7 @@ impl SplitPointTask {
 /// owner proceeds).
 pub struct SplitPoint {
     /// Spinlock for fast synchronization between threads.
-    mutex: spinlock::RawSpinLock,
+    mutex: spinlock::SpinLock,
 
     /// Mutable state, protected by the mutex. Atomic fields, and fields that stay
     /// immutable while the split point is active (`parent_split_point`), are also
@@ -310,7 +308,7 @@ impl Default for SplitPoint {
     /// Creates a new split point with default values.
     fn default() -> Self {
         SplitPoint {
-            mutex: spinlock::RawSpinLock::INIT,
+            mutex: spinlock::SpinLock::new(()),
             state: SyncUnsafeCell::new(SplitPointState {
                 all_helpers_searching: AtomicBool::new(false),
                 alpha: AtomicI32::new(0),
@@ -453,16 +451,9 @@ impl SplitPoint {
         unsafe { std::mem::take(&mut *self.counters.get()) }
     }
 
-    /// Acquires the split point's lock.
+    /// Acquires the split point's lock; the returned guard releases it on drop.
     #[inline]
-    pub fn lock(&self) {
-        self.mutex.lock();
-    }
-
-    /// Releases the split point's lock.
-    #[inline]
-    pub fn unlock(&self) {
-        // SAFETY: Caller has previously called lock().
-        unsafe { self.mutex.unlock() };
+    pub fn lock(&self) -> spinlock::SpinLockGuard<'_> {
+        self.mutex.lock()
     }
 }

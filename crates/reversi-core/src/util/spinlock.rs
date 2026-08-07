@@ -7,6 +7,12 @@ use std::{
 
 use lock_api::{GuardSend, RawMutex};
 
+/// Data-less spinlock whose `lock()` returns a RAII guard.
+pub type SpinLock = lock_api::Mutex<RawSpinLock, ()>;
+
+/// RAII guard for [`SpinLock`]; releases the lock on drop.
+pub type SpinLockGuard<'a> = lock_api::MutexGuard<'a, RawSpinLock, ()>;
+
 /// Maximum spin iterations before yielding to the OS scheduler.
 const SPIN_LIMIT: u32 = 100;
 
