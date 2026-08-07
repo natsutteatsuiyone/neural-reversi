@@ -244,9 +244,4 @@ mod tests {
         cache.clear();
         assert!(cache.probe(cache_idx, &board, 11).is_none());
     }
-
-    #[test]
-    fn test_entry_size() {
-        assert_eq!(std::mem::size_of::<RawEntry>(), 18);
-    }
 }

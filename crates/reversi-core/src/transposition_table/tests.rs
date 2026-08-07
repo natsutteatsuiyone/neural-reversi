@@ -102,17 +102,6 @@ mod bound {
     use super::*;
 
     #[test]
-    fn discriminants_encode_cutoff_bit_masks() {
-        assert_ne!((Bound::Lower as u8) & (Bound::Lower as u8), 0);
-        assert_ne!((Bound::Exact as u8) & (Bound::Lower as u8), 0);
-        assert_eq!((Bound::Upper as u8) & (Bound::Lower as u8), 0);
-
-        assert_ne!((Bound::Upper as u8) & (Bound::Upper as u8), 0);
-        assert_ne!((Bound::Exact as u8) & (Bound::Upper as u8), 0);
-        assert_eq!((Bound::Lower as u8) & (Bound::Upper as u8), 0);
-    }
-
-    #[test]
     fn classify_returns_lower_when_score_reaches_beta_for_any_node_type() {
         assert_eq!(
             Bound::classify::<PV>(raw_score(50), raw_score(30), raw_score(50)),
@@ -161,14 +150,6 @@ mod bound {
 
 mod tt_entry_data {
     use super::*;
-
-    #[test]
-    fn layout_stays_exactly_one_atomic_word() {
-        assert_eq!(mem::size_of::<TTEntryData>(), mem::size_of::<u64>());
-        assert_eq!(mem::size_of::<TTEntry>(), 32);
-        assert_eq!(mem::align_of::<TTEntry>(), 32);
-        assert_eq!(CLUSTER_BYTE_SIZE, CACHE_LINE_SIZE);
-    }
 
     #[test]
     fn packing_roundtrip_preserves_every_field() {

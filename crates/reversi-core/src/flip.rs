@@ -194,6 +194,7 @@ pub(crate) use flip_avx512::BoardCtx as Avx512BoardCtx;
 #[cfg(test)]
 mod tests {
     use crate::board::Board;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     use super::*;
 
@@ -229,13 +230,11 @@ mod tests {
 
     #[test]
     fn test_scalar_flip_matches_reference() {
-        let mut seed = 0x6eed_0e11_d15c_a11du64;
+        let mut rng = StdRng::seed_from_u64(0x6eed_0e11_d15c_a11d);
 
         for _ in 0..2048 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let p = seed;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let o = seed & !p;
+            let p: u64 = rng.random();
+            let o = rng.random::<u64>() & !p;
 
             for sq_idx in 0..64 {
                 let sq = unsafe { Square::from_u32_unchecked(sq_idx) };
@@ -254,17 +253,13 @@ mod tests {
 
     #[test]
     fn flip2_matches_scalar() {
-        let mut seed = 0x1234_5678_9abc_def0u64;
+        let mut rng = StdRng::seed_from_u64(0x1234_5678_9abc_def0);
 
         for _ in 0..4096 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let p = seed;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let o = seed & !p;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq1 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq2 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            let p: u64 = rng.random();
+            let o = rng.random::<u64>() & !p;
+            let sq1 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
+            let sq2 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
 
             let (a, b) = flip2(sq1, sq2, Bitboard::new(p), Bitboard::new(o));
             assert_eq!(
@@ -282,19 +277,14 @@ mod tests {
 
     #[test]
     fn flip3_matches_scalar() {
-        let mut seed = 0x0f1e_2d3c_4b5a_6978u64;
+        let mut rng = StdRng::seed_from_u64(0x0f1e_2d3c_4b5a_6978);
 
         for _ in 0..4096 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let p = seed;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let o = seed & !p;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq1 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq2 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq3 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            let p: u64 = rng.random();
+            let o = rng.random::<u64>() & !p;
+            let sq1 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
+            let sq2 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
+            let sq3 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
 
             let (a, b, c) = flip3(sq1, sq2, sq3, Bitboard::new(p), Bitboard::new(o));
             assert_eq!(
@@ -317,21 +307,15 @@ mod tests {
 
     #[test]
     fn flip4_matches_scalar() {
-        let mut seed = 0xc0ff_ee15_d15e_a5edu64;
+        let mut rng = StdRng::seed_from_u64(0xc0ff_ee15_d15e_a5ed);
 
         for _ in 0..4096 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let p = seed;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let o = seed & !p;
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq1 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq2 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq3 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let sq4 = unsafe { Square::from_u32_unchecked((seed % 64) as u32) };
+            let p: u64 = rng.random();
+            let o = rng.random::<u64>() & !p;
+            let sq1 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
+            let sq2 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
+            let sq3 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
+            let sq4 = unsafe { Square::from_u32_unchecked(rng.random::<u32>() % 64) };
 
             let (a, b, c, d) = flip4(sq1, sq2, sq3, sq4, Bitboard::new(p), Bitboard::new(o));
             assert_eq!(

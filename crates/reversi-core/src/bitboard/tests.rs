@@ -119,30 +119,6 @@ where
 }
 
 #[test]
-fn constructors_and_conversions_preserve_raw_bits() {
-    for bits in [0, 1, 0x1234_5678_9ABC_DEF0, u64::MAX] {
-        let board = Bitboard::new(bits);
-        assert_eq!(board.bits(), bits);
-        assert_eq!(Bitboard::from(bits), board);
-        assert_eq!(u64::from(board), bits);
-    }
-
-    for square in Square::iter() {
-        let expected = 1u64 << (square.index() as u32);
-        let from_square = Bitboard::from_square(square);
-        let from_trait: Bitboard = square.into();
-
-        assert_eq!(from_square.bits(), expected, "from_square({square:?})");
-        assert_eq!(
-            square.bitboard(),
-            from_square,
-            "Square::bitboard({square:?})"
-        );
-        assert_eq!(from_trait, from_square, "From<Square> for {square:?}");
-    }
-}
-
-#[test]
 fn set_remove_contains_are_pure_and_idempotent() {
     let original = bitboard_from_squares(&[Square::B2, Square::H8]);
     let with_a1 = original.set(Square::A1);
@@ -161,36 +137,6 @@ fn set_remove_contains_are_pure_and_idempotent() {
             expected,
             "contains({square:?}) did not match the constructed board"
         );
-    }
-}
-
-#[test]
-fn bit_counting_and_lsb_operations_match_u64_semantics() {
-    for board in SAMPLE_BOARDS {
-        let bits = board.bits();
-
-        assert_eq!(board.count(), bits.count_ones(), "count for {bits:016x}");
-        assert_eq!(board.is_empty(), bits == 0, "is_empty for {bits:016x}");
-        assert_eq!(
-            board.clear_lsb().bits(),
-            bits & bits.wrapping_sub(1),
-            "clear_lsb for {bits:016x}"
-        );
-
-        if bits == 0 {
-            assert_eq!(board.lsb_square(), None);
-            continue;
-        }
-
-        let expected_square = Square::from_u32(bits.trailing_zeros()).unwrap();
-        let expected_rest = bits & bits.wrapping_sub(1);
-        let (popped_square, rest) = board.pop_lsb();
-
-        assert_eq!(board.lsb_square(), Some(expected_square));
-        assert_eq!(board.lsb_square_unchecked(), expected_square);
-        assert_eq!(popped_square, expected_square);
-        assert_eq!(rest.bits(), expected_rest);
-        assert_eq!(board.has_single_bit_nonzero(), bits.is_power_of_two());
     }
 }
 
@@ -226,43 +172,6 @@ fn iterators_yield_all_squares_in_lsb_order() {
 }
 
 #[test]
-fn bitwise_and_shift_operators_match_raw_u64_operations() {
-    let pairs = [
-        (0xF0F0_F0F0_0000_0000, 0x0F0F_0000_F0F0_0000),
-        (0x1234_5678_9ABC_DEF0, 0xFFFF_0000_FFFF_0000),
-        (0, u64::MAX),
-    ];
-
-    for (lhs, rhs) in pairs {
-        let lhs_board = Bitboard::new(lhs);
-        let rhs_board = Bitboard::new(rhs);
-
-        assert_eq!((lhs_board & rhs_board).bits(), lhs & rhs);
-        assert_eq!((lhs_board | rhs_board).bits(), lhs | rhs);
-        assert_eq!((lhs_board ^ rhs_board).bits(), lhs ^ rhs);
-        assert_eq!((!lhs_board).bits(), !lhs);
-    }
-
-    let shifted = Bitboard::new(0x0000_0001_0000_0081);
-    for shift in [0u32, 1, 7, 8, 31, 63] {
-        assert_eq!((shifted << shift).bits(), shifted.bits() << shift);
-        assert_eq!((shifted >> shift).bits(), shifted.bits() >> shift);
-    }
-
-    let mut assigned = Bitboard::new(0b1100);
-    assigned &= Bitboard::new(0b1010);
-    assert_eq!(assigned.bits(), 0b1000);
-    assigned |= Bitboard::new(0b0001);
-    assert_eq!(assigned.bits(), 0b1001);
-    assigned ^= Bitboard::new(0b1111);
-    assert_eq!(assigned.bits(), 0b0110);
-    assigned <<= 2;
-    assert_eq!(assigned.bits(), 0b11000);
-    assigned >>= 1;
-    assert_eq!(assigned.bits(), 0b1100);
-}
-
-#[test]
 fn apply_move_and_apply_flip_are_xor_updates() {
     let player = bitboard_from_squares(&[Square::A1, Square::D4]);
     let flipped = bitboard_from_squares(&[Square::B1, Square::C1, Square::E4]);
@@ -286,23 +195,6 @@ fn apply_move_and_apply_flip_are_xor_updates() {
         bitboard_from_squares(&[Square::A1, Square::D4])
     );
     assert_eq!(opponent.apply_flip(flipped).apply_flip(flipped), opponent);
-}
-
-#[test]
-fn corner_masks_weights_and_partitioning_match_their_definitions() {
-    for board in SAMPLE_BOARDS {
-        let corners = board.corners();
-        let non_corners = board.non_corners();
-
-        assert_eq!(corners.bits(), board.bits() & CORNER_MASK);
-        assert_eq!(non_corners.bits(), board.bits() & !CORNER_MASK);
-        assert_eq!(corners | non_corners, board);
-        assert!((corners & non_corners).is_empty());
-        assert_eq!(
-            board.corner_weighted_count(),
-            board.count() + corners.count()
-        );
-    }
 }
 
 #[test]

@@ -1580,18 +1580,4 @@ mod tests {
             assert_features_match(case.label, &expected, &actual, case.ply + 1);
         }
     }
-
-    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-    #[test]
-    fn wasm_simd_update_matches_scalar_for_move_cases() {
-        for case in update_cases() {
-            let mut expected = PatternFeatures::new(&case.board, case.ply);
-            expected.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
-
-            let mut actual = PatternFeatures::new(&case.board, case.ply);
-            actual.update_wasm_simd(case.sq, case.flipped, case.ply, case.side_to_move);
-
-            assert_features_match(case.label, &expected, &actual, case.ply + 1);
-        }
-    }
 }

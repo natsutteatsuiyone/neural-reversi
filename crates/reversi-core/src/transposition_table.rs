@@ -139,6 +139,7 @@ pub struct TTEntryData {
 }
 
 const _: () = assert!(mem::size_of::<TTEntryData>() == 8);
+const _: () = assert!(CLUSTER_BYTE_SIZE == CACHE_LINE_SIZE);
 
 impl TTEntryData {
     #[inline(always)]

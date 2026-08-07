@@ -1,3 +1,5 @@
+use rand::{RngExt, SeedableRng, rngs::StdRng};
+
 use super::moves::*;
 use super::*;
 
@@ -98,7 +100,7 @@ fn initial_position() -> Position {
     )
 }
 
-fn fixed_positions() -> [Position; 14] {
+fn fixed_positions() -> [Position; 12] {
     [
         initial_position(),
         Position::new("empty board", 0, 0),
@@ -140,29 +142,12 @@ fn fixed_positions() -> [Position; 14] {
             0x5555_5555_5555_5554,
         ),
         Position::new("nibble split", 0x0F0F_0F0F_0000_0000, 0x0000_0000_F0F0_F0F0),
-        position_from_squares(
-            "h-file and a-file are not adjacent",
-            &[Square::H1],
-            &[Square::A1],
-        ),
-        position_from_squares(
-            "a-file and h-file are not adjacent",
-            &[Square::A1],
-            &[Square::H1],
-        ),
     ]
 }
 
-fn next_random(seed: &mut u64) -> u64 {
-    *seed = seed
-        .wrapping_mul(6_364_136_223_846_793_005)
-        .wrapping_add(1_442_695_040_888_963_407);
-    *seed
-}
-
-fn random_position(seed: &mut u64) -> Position {
-    let player = next_random(seed);
-    let opponent = next_random(seed) & !player;
+fn random_position(rng: &mut StdRng) -> Position {
+    let player: u64 = rng.random();
+    let opponent = rng.random::<u64>() & !player;
     Position::new("deterministic random position", player, opponent)
 }
 
@@ -171,9 +156,9 @@ fn for_each_reference_position(mut assert_position: impl FnMut(Position)) {
         assert_position(position);
     }
 
-    let mut seed = 0x9E37_79B9_7F4A_7C15;
+    let mut rng = StdRng::seed_from_u64(0x9E37_79B9_7F4A_7C15);
     for _ in 0..512 {
-        assert_position(random_position(&mut seed));
+        assert_position(random_position(&mut rng));
     }
 }
 

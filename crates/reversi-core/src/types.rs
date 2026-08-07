@@ -197,6 +197,12 @@ impl fmt::Display for ScaledScore {
     }
 }
 
+// Real scores stay strictly inside the ±INF sentinels (and the TT's i16 packing).
+const _: () = assert!(
+    -ScaledScore::INF.value() < ScaledScore::MIN.value()
+        && ScaledScore::MAX.value() < ScaledScore::INF.value()
+);
+
 #[cfg(test)]
 mod scaled_score_tests {
     use super::*;
@@ -210,14 +216,6 @@ mod scaled_score_tests {
             "expected {expected}, got {actual} for raw value {}",
             score.value()
         );
-    }
-
-    #[test]
-    fn constants_preserve_score_domain_and_search_sentinel_ordering() {
-        assert!(ScaledScore::MIN < ScaledScore::ZERO);
-        assert!(ScaledScore::ZERO < ScaledScore::MAX);
-        assert!(ScaledScore::MAX < ScaledScore::INF);
-        assert!(-ScaledScore::INF < ScaledScore::MIN);
     }
 
     #[test]

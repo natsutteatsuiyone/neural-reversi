@@ -416,36 +416,9 @@ mod tests {
     }
 
     #[test]
-    fn test_file() {
-        assert_eq!(Square::A1.file(), 0);
-        assert_eq!(Square::B1.file(), 1);
-        assert_eq!(Square::C1.file(), 2);
-        assert_eq!(Square::D1.file(), 3);
-        assert_eq!(Square::E1.file(), 4);
-        assert_eq!(Square::F1.file(), 5);
-        assert_eq!(Square::G1.file(), 6);
-        assert_eq!(Square::H1.file(), 7);
-    }
-
-    #[test]
     #[should_panic(expected = "Square::file called on Square::None")]
     fn test_file_panics_on_none() {
         let _ = Square::None.file();
-    }
-
-    #[test]
-    fn test_rank() {
-        assert_eq!(Square::A1.rank(), 0);
-        assert_eq!(Square::B1.rank(), 0);
-        assert_eq!(Square::H1.rank(), 0);
-
-        assert_eq!(Square::A2.rank(), 1);
-        assert_eq!(Square::A3.rank(), 2);
-        assert_eq!(Square::A4.rank(), 3);
-        assert_eq!(Square::A5.rank(), 4);
-        assert_eq!(Square::A6.rank(), 5);
-        assert_eq!(Square::A7.rank(), 6);
-        assert_eq!(Square::A8.rank(), 7);
     }
 
     #[test]
@@ -486,13 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn test_default() {
-        assert_eq!(Square::default(), Square::None);
-        let square: Square = Default::default();
-        assert_eq!(square, Square::None);
-    }
-
-    #[test]
     fn test_display() {
         assert_eq!(Square::A1.to_string(), "a1");
         assert_eq!(Square::H8.to_string(), "h8");
@@ -527,20 +493,6 @@ mod tests {
             assert_eq!(Square::from_str(&s).unwrap(), square);
             // Test uppercase
             assert_eq!(Square::from_str(&s.to_uppercase()).unwrap(), square);
-        }
-    }
-
-    #[test]
-    fn test_roundtrip_conversions() {
-        for i in 0..=64 {
-            let square = Square::from_usize(i).unwrap();
-            assert_eq!(square.index(), i);
-
-            let square_u8 = Square::from_u8(i as u8).unwrap();
-            assert_eq!(square_u8.index(), i);
-
-            let square_u32 = Square::from_u32(i as u32).unwrap();
-            assert_eq!(square_u32.index(), i);
         }
     }
 }

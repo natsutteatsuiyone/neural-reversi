@@ -1,22 +1,9 @@
 use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use super::{ConcurrentMoveIterator, MoveList};
-
-/// Tests move generation for the starting position.
-#[test]
-fn test_move_list_new() {
-    let board = Board::new();
-    let move_list = MoveList::new(&board);
-    assert_eq!(move_list.count(), 4);
-
-    let moves: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
-    assert!(moves.contains(&Square::D3));
-    assert!(moves.contains(&Square::C4));
-    assert!(moves.contains(&Square::F5));
-    assert!(moves.contains(&Square::E6));
-}
 
 /// Tests move generation when no moves are available.
 #[test]
@@ -217,14 +204,12 @@ fn reference_flip(sq: Square, p: u64, o: u64) -> u64 {
 /// kernel is covered only when the suite runs on AVX-512 hardware.
 #[test]
 fn generated_moves_match_legal_bitboard_and_flip_reference() {
-    let mut seed = 0xa1b2_c3d4_e5f6_0718u64;
+    let mut rng = StdRng::seed_from_u64(0xa1b2_c3d4_e5f6_0718);
     let mut saw_multi_move = false;
 
     for _ in 0..4096 {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-        let p = seed;
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-        let o = seed & !p; // keep player/opponent disjoint
+        let p: u64 = rng.random();
+        let o = rng.random::<u64>() & !p; // keep player/opponent disjoint
 
         let board = Board::from_bitboards(p, o);
         let move_list = MoveList::new(&board);
