@@ -1,7 +1,7 @@
 //! 64-byte-aligned wrapper for SIMD and cache-line optimization.
 
 use std::fmt;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Deref, DerefMut};
 
 /// Wrapper type ensuring 64-byte alignment for SIMD operations and cache line optimization.
 #[repr(C, align(64))]
@@ -35,38 +35,6 @@ impl<T> Deref for Align64<T> {
 
 impl<T> DerefMut for Align64<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T, I> Index<I> for Align64<T>
-where
-    T: Index<I>,
-{
-    type Output = T::Output;
-
-    fn index(&self, index: I) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
-impl<T, I> IndexMut<I> for Align64<T>
-where
-    T: IndexMut<I>,
-{
-    fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        &mut self.0[index]
-    }
-}
-
-impl<T, const N: usize> Align64<[T; N]> {
-    /// Returns a slice view of the aligned array.
-    pub fn as_slice(&self) -> &[T] {
-        &self.0
-    }
-
-    /// Returns a mutable slice view of the aligned array.
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
         &mut self.0
     }
 }
