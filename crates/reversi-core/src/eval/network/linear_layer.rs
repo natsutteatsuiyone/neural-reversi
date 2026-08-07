@@ -76,36 +76,70 @@ impl<
     -> ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS> {
         cfg_select! {
             all(target_arch = "x86_64", target_feature = "avx512bw") => {
-                use std::arch::x86_64::__m512i;
+                use crate::eval::util::ceil_to_multiple;
                 use std::arch::is_x86_feature_detected;
+                use std::arch::x86_64::{__m256i, __m512i};
 
-                const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
-                let should_use_avx2 = OUTPUT_DIMS > 1 && OUTPUT_DIMS < OUTPUT_SIMD_WIDTH;
+                const AVX2_OUTPUT_WIDTH: usize = size_of::<__m256i>() / size_of::<i32>();
+                const AVX512_OUTPUT_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
+                let has_simd_padding = PADDED_INPUT_DIMS >= ceil_to_multiple(INPUT_DIMS, 8)
+                    && PADDED_OUTPUT_DIMS >= OUTPUT_DIMS;
 
-                if should_use_avx2 {
+                if has_simd_padding
+                    && OUTPUT_DIMS != 0
+                    && OUTPUT_DIMS.is_multiple_of(AVX512_OUTPUT_WIDTH)
+                {
+                    if is_x86_feature_detected!("avx512vnni") {
+                        Self::forward_avx512_vnni
+                    } else {
+                        Self::forward_avx512_no_vnni
+                    }
+                } else if has_simd_padding
+                    && OUTPUT_DIMS != 0
+                    && OUTPUT_DIMS.is_multiple_of(AVX2_OUTPUT_WIDTH)
+                {
                     if is_x86_feature_detected!("avxvnni") {
                         Self::forward_avx2_vnni
                     } else {
                         Self::forward_avx2_no_vnni
                     }
-                } else if is_x86_feature_detected!("avx512vnni") {
-                    Self::forward_avx512_vnni
                 } else {
-                    Self::forward_avx512_no_vnni
+                    Self::forward_scalar_wrapper
                 }
             }
             all(target_arch = "x86_64", target_feature = "avx2") => {
+                use crate::eval::util::ceil_to_multiple;
                 use std::arch::is_x86_feature_detected;
-                if is_x86_feature_detected!("avxvnni") {
-                    Self::forward_avx2_vnni
+                use std::arch::x86_64::__m256i;
+
+                const OUTPUT_SIMD_WIDTH: usize = size_of::<__m256i>() / size_of::<i32>();
+                let can_use_avx2 = OUTPUT_DIMS != 0
+                    && OUTPUT_DIMS.is_multiple_of(OUTPUT_SIMD_WIDTH)
+                    && PADDED_INPUT_DIMS >= ceil_to_multiple(INPUT_DIMS, 8)
+                    && PADDED_OUTPUT_DIMS >= OUTPUT_DIMS;
+
+                if can_use_avx2 {
+                    if is_x86_feature_detected!("avxvnni") {
+                        Self::forward_avx2_vnni
+                    } else {
+                        Self::forward_avx2_no_vnni
+                    }
                 } else {
-                    Self::forward_avx2_no_vnni
+                    Self::forward_scalar_wrapper
                 }
             }
             all(target_arch = "aarch64", target_feature = "neon") => {
+                use crate::eval::util::ceil_to_multiple;
                 use std::arch::is_aarch64_feature_detected;
 
-                if is_aarch64_feature_detected!("i8mm") {
+                let can_use_neon = OUTPUT_DIMS != 0
+                    && OUTPUT_DIMS.is_multiple_of(4)
+                    && PADDED_INPUT_DIMS >= ceil_to_multiple(INPUT_DIMS, 8)
+                    && PADDED_OUTPUT_DIMS >= OUTPUT_DIMS;
+
+                if !can_use_neon {
+                    Self::forward_scalar_wrapper
+                } else if is_aarch64_feature_detected!("i8mm") {
                     Self::forward_neon_i8mm_wrapper
                 } else if is_aarch64_feature_detected!("dotprod") {
                     Self::forward_neon_dotprod_wrapper
@@ -253,7 +287,7 @@ impl<
             for (k, out) in output.iter_mut().take(OUTPUT_DIMS).enumerate() {
                 let weight_idx = self.get_packed_weight_index(i, k);
                 let weight_val = self.weights[weight_idx] as i32;
-                *out += input_val * weight_val;
+                *out = out.wrapping_add(input_val * weight_val);
             }
         }
     }
@@ -824,7 +858,7 @@ mod tests {
             }
             for (output_idx, out) in output.iter_mut().enumerate() {
                 let weight_idx = layer.get_packed_weight_index(input_idx, output_idx);
-                *out += input_value * i32::from(layer.weights[weight_idx]);
+                *out = out.wrapping_add(input_value * i32::from(layer.weights[weight_idx]));
             }
         }
 
@@ -952,7 +986,22 @@ mod tests {
     }
 
     #[test]
+    fn forward_scalar_wraps_on_i32_overflow() {
+        let mut layer = build_layer::<1, 1, 4, 1>(0);
+        layer.biases[0] = i32::MAX;
+        layer.weights[0] = 1;
+        let input = Align64([1, 0, 0, 0]);
+        let mut output = Align64([0]);
+
+        layer.forward_scalar(&input, &mut output);
+
+        assert_eq!(output[0], i32::MIN);
+    }
+
+    #[test]
     fn forward_dispatch_matches_reference_with_main_chunks_and_padding() {
+        assert_forward_matches_reference::<6, 3, 8, 8>(19, 2);
+        assert_forward_matches_reference::<10, 8, 12, 8>(29, 5);
         assert_forward_matches_reference::<18, 8, 24, 8>(43, 3);
         assert_forward_matches_reference::<64, 16, 64, 16>(97, 11);
     }
