@@ -976,7 +976,8 @@ impl PatternFeatures {
 ///
 /// Each pattern is encoded as a base-3 number representing the
 /// configuration of discs in that pattern.
-pub fn set_features(board: &Board, patterns: &mut [u16]) {
+#[cfg(test)]
+fn set_features(board: &Board, patterns: &mut [u16]) {
     patterns.fill(0);
     for i in 0..NUM_PATTERN_FEATURES {
         let f2x = &EVAL_F2X[i];
