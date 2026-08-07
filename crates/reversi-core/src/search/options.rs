@@ -47,13 +47,13 @@ impl SearchOptions {
 
     /// Sets custom paths for the neural network weight files.
     #[must_use]
-    pub fn with_eval_paths<P, Q>(mut self, eval_path: Option<P>, eval_sm_path: Option<Q>) -> Self
-    where
-        P: AsRef<Path>,
-        Q: AsRef<Path>,
-    {
-        self.eval_path = eval_path.map(|p| p.as_ref().to_path_buf());
-        self.eval_sm_path = eval_sm_path.map(|p| p.as_ref().to_path_buf());
+    pub fn with_eval_paths(
+        mut self,
+        eval_path: Option<&Path>,
+        eval_sm_path: Option<&Path>,
+    ) -> Self {
+        self.eval_path = eval_path.map(Path::to_path_buf);
+        self.eval_sm_path = eval_sm_path.map(Path::to_path_buf);
         self
     }
 }
