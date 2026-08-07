@@ -6,7 +6,6 @@ use std::io::{self, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::constants::CACHE_LINE_SIZE;
 use crate::util::align::Align64;
 use crate::util::aligned_buffer::AlignedBuffer;
 
@@ -17,8 +16,8 @@ pub struct LinearLayer<
     const PADDED_INPUT_DIMS: usize,
     const PADDED_OUTPUT_DIMS: usize,
 > {
-    biases: AlignedBuffer<i32, CACHE_LINE_SIZE>,
-    weights: AlignedBuffer<i8, CACHE_LINE_SIZE>,
+    biases: AlignedBuffer<i32>,
+    weights: AlignedBuffer<i8>,
     forward_fn: ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>,
 }
 
@@ -49,11 +48,8 @@ impl<
     ///
     /// `PADDED_INPUT_DIMS` must be a multiple of 4 for correct weight repacking.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = AlignedBuffer::<i32, CACHE_LINE_SIZE>::from_elem(0, PADDED_OUTPUT_DIMS);
-        let mut weights = AlignedBuffer::<i8, CACHE_LINE_SIZE>::from_elem(
-            0,
-            PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS,
-        );
+        let mut biases = AlignedBuffer::<i32>::from_elem(0, PADDED_OUTPUT_DIMS);
+        let mut weights = AlignedBuffer::<i8>::from_elem(0, PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS);
 
         for i in 0..OUTPUT_DIMS {
             biases[i] = reader.read_i32::<LittleEndian>()?;

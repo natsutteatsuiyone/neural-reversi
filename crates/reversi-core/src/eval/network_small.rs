@@ -9,7 +9,6 @@ use std::path::Path;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::constants::CACHE_LINE_SIZE;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
 use crate::types::ScaledScore;
@@ -41,16 +40,13 @@ const ACTIVATION_CLAMP_MAX: i16 = 1023;
 #[derive(Debug)]
 struct InputLayer {
     biases: Align64<[i16; PA_OUTPUT_DIMS]>,
-    weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
+    weights: AlignedBuffer<i16>,
 }
 
 impl InputLayer {
     fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases = Align64([0i16; PA_OUTPUT_DIMS]);
-        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(
-            0,
-            INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS,
-        );
+        let mut weights = AlignedBuffer::<i16>::from_elem(0, INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS);
 
         reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;

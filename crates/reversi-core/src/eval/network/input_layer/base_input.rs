@@ -4,7 +4,6 @@ use std::io::{self, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::constants::CACHE_LINE_SIZE;
 use crate::eval::pattern_feature::NUM_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 use crate::eval::util::clone_biases;
@@ -25,16 +24,15 @@ const _: () = assert!(NUM_FEATURES == 32);
 ///
 /// Reference: <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h>
 pub struct BaseInput {
-    biases: AlignedBuffer<i16, CACHE_LINE_SIZE>,
-    weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
+    biases: AlignedBuffer<i16>,
+    weights: AlignedBuffer<i16>,
 }
 
 impl BaseInput {
     /// Loads network weights and biases from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, HIDDEN_DIMS);
-        let mut weights =
-            AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, INPUT_FEATURE_DIMS * HIDDEN_DIMS);
+        let mut biases = AlignedBuffer::<i16>::from_elem(0, HIDDEN_DIMS);
+        let mut weights = AlignedBuffer::<i16>::from_elem(0, INPUT_FEATURE_DIMS * HIDDEN_DIMS);
 
         reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;

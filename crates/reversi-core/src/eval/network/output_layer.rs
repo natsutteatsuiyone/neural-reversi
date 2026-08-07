@@ -4,7 +4,6 @@ use std::io::{self, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::constants::CACHE_LINE_SIZE;
 use crate::util::aligned_buffer::AlignedBuffer;
 
 /// Output layer with 16-bit weights for computing a single scalar output.
@@ -12,10 +11,10 @@ pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> 
     /// Bias term for the output neuron.
     bias: i32,
     /// Weight vector aligned for SIMD access.
-    weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
+    weights: AlignedBuffer<i16>,
     /// Weights packed as per-chunk low/high bytes for the AArch64 I8MM path.
     #[cfg(target_arch = "aarch64")]
-    i8mm_weights: AlignedBuffer<u8, CACHE_LINE_SIZE>,
+    i8mm_weights: AlignedBuffer<u8>,
     /// Function pointer to the optimal forward implementation, selected at load time
     /// based on detected CPU SIMD capabilities.
     forward_fn: unsafe fn(&Self, [&[u8]; 2]) -> i32,
@@ -28,7 +27,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let bias = reader.read_i32::<LittleEndian>()?;
 
-        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED_INPUT_DIMS);
+        let mut weights = AlignedBuffer::<i16>::from_elem(0, PADDED_INPUT_DIMS);
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
         #[cfg(target_arch = "aarch64")]
@@ -46,13 +45,13 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn pack_i8mm_weights(weights: &[i16]) -> AlignedBuffer<u8, CACHE_LINE_SIZE> {
+    fn pack_i8mm_weights(weights: &[i16]) -> AlignedBuffer<u8> {
         const CHUNK: usize = 16;
 
         debug_assert!(weights.len() >= PADDED_INPUT_DIMS);
 
         let packed_len = PADDED_INPUT_DIMS.div_ceil(CHUNK) * CHUNK * 2;
-        let mut packed = AlignedBuffer::<u8, CACHE_LINE_SIZE>::from_elem(0, packed_len);
+        let mut packed = AlignedBuffer::<u8>::from_elem(0, packed_len);
         let mut offset = 0usize;
         while offset < PADDED_INPUT_DIMS {
             let packed_offset = offset * 2;
@@ -550,7 +549,7 @@ mod tests {
         bias: i32,
         seed: i32,
     ) -> OutputLayer<INPUT, PADDED> {
-        let mut weights = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, PADDED);
+        let mut weights = AlignedBuffer::<i16>::from_elem(0, PADDED);
         for (idx, weight) in weights.iter_mut().take(INPUT).enumerate() {
             *weight = ((idx as i32 * 4099 + seed).rem_euclid(60_001) - 30_000) as i16;
         }

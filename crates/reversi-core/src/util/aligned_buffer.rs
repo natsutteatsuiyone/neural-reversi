@@ -1,15 +1,14 @@
-//! Fixed-length, over-aligned heap buffer for SIMD and cache-line access.
+//! Fixed-length, cache-line-aligned heap buffer for SIMD access.
 //!
-//! [`AlignedBuffer<T, ALIGN>`] owns a heap allocation whose base address is a
-//! multiple of `ALIGN` bytes. Unlike [`Vec`], it has no spare capacity and
-//! cannot grow: every buffer in the engine is sized once at load time and
-//! then only read or overwritten in place, so the length *is* the capacity.
-//! Dropping the growth machinery keeps the type a thin pointer + length pair
-//! and lets SIMD code rely on the alignment of `as_ptr()` for aligned loads
-//! (`_mm256_load_si256`, `_mm512_load_si512`, …).
+//! [`AlignedBuffer<T>`] owns a heap allocation whose base address is a
+//! multiple of [`CACHE_LINE_SIZE`] bytes. Unlike [`Vec`], it has no spare
+//! capacity and cannot grow: every buffer in the engine is sized once at load
+//! time and then only read or overwritten in place, so the length *is* the
+//! capacity. Dropping the growth machinery keeps the type a thin pointer +
+//! length pair and lets SIMD code rely on the alignment of `as_ptr()` for
+//! aligned loads (`_mm256_load_si256`, `_mm512_load_si512`, …).
 //!
-//! `ALIGN` must be a power of two that is at least `align_of::<T>()`; both
-//! conditions are checked at compile time.
+//! `CACHE_LINE_SIZE` must cover `align_of::<T>()`; checked at compile time.
 
 use std::alloc::{Layout, alloc, dealloc, handle_alloc_error};
 use std::fmt;
@@ -17,26 +16,25 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-/// Heap buffer of `len` `T` values whose start address is `ALIGN`-aligned.
-pub struct AlignedBuffer<T, const ALIGN: usize> {
-    /// Allocation base. `ALIGN`-aligned; dangling (never dereferenced) when
-    /// the buffer holds zero bytes.
+use crate::constants::CACHE_LINE_SIZE;
+
+/// Heap buffer of `len` `T` values whose start address is cache-line-aligned.
+pub struct AlignedBuffer<T> {
+    /// Allocation base. `CACHE_LINE_SIZE`-aligned; dangling (never
+    /// dereferenced) when the buffer holds zero bytes.
     ptr: NonNull<T>,
     /// Number of initialized `T` values. Equals the allocation length.
     len: usize,
 }
 
-impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
-    /// Compile-time guard: `ALIGN` is a power of two and covers `T`.
-    const VALID_ALIGN: () = {
-        assert!(ALIGN.is_power_of_two(), "ALIGN must be a power of two");
-        assert!(
-            ALIGN >= mem::align_of::<T>(),
-            "ALIGN must be at least align_of::<T>()"
-        );
-    };
+impl<T> AlignedBuffer<T> {
+    /// Compile-time guard: the cache-line alignment covers `T`.
+    const VALID_ALIGN: () = assert!(
+        CACHE_LINE_SIZE >= mem::align_of::<T>(),
+        "CACHE_LINE_SIZE must be at least align_of::<T>()"
+    );
 
-    /// Allocates `len` uninitialized, `ALIGN`-aligned slots.
+    /// Allocates `len` uninitialized, cache-line-aligned slots.
     ///
     /// For an empty buffer no allocation is performed and a
     /// dangling-but-aligned pointer is returned.
@@ -49,11 +47,12 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
         if size == 0 {
             // Strict-provenance form (not an `int as *mut T` cast) so Miri
             // can still flag real pointer bugs elsewhere.
-            let dangling = std::ptr::without_provenance_mut::<T>(ALIGN);
+            let dangling = std::ptr::without_provenance_mut::<T>(CACHE_LINE_SIZE);
             return NonNull::new(dangling).unwrap();
         }
 
-        let layout = Layout::from_size_align(size, ALIGN).expect("AlignedBuffer: invalid layout");
+        let layout =
+            Layout::from_size_align(size, CACHE_LINE_SIZE).expect("AlignedBuffer: invalid layout");
 
         // SAFETY: `layout` has non-zero size.
         let raw = unsafe { alloc(layout) } as *mut T;
@@ -67,7 +66,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
     fn layout(&self) -> Layout {
         let size = self.len * mem::size_of::<T>();
         // Already validated at allocation time.
-        Layout::from_size_align(size, ALIGN).unwrap()
+        Layout::from_size_align(size, CACHE_LINE_SIZE).unwrap()
     }
 
     /// Creates a buffer of `len` elements, each a clone of `value`.
@@ -75,19 +74,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
     where
         T: Clone,
     {
-        let ptr = Self::alloc_uninit(len);
-        let mut fill = Filling::<T, ALIGN> {
-            ptr,
-            cap: len,
-            initialized: 0,
-        };
-        let base = ptr.as_ptr();
-        for i in 0..len {
-            // SAFETY: `i < len`; slot is allocated and uninitialized.
-            unsafe { base.add(i).write(value.clone()) };
-            fill.initialized = i + 1;
-        }
-        fill.into_buffer()
+        Self::from_iter(std::iter::repeat_n(value, len))
     }
 
     /// Creates a buffer from an iterator of known length.
@@ -101,7 +88,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
         let mut it = iter.into_iter();
         let len = it.len();
         let ptr = Self::alloc_uninit(len);
-        let mut fill = Filling::<T, ALIGN> {
+        let mut fill = Filling {
             ptr,
             cap: len,
             initialized: 0,
@@ -126,7 +113,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
 
     /// Returns a raw const pointer to the first element.
     ///
-    /// `ALIGN`-aligned.
+    /// `CACHE_LINE_SIZE`-aligned.
     #[inline(always)]
     pub fn as_ptr(&self) -> *const T {
         self.ptr.as_ptr()
@@ -150,7 +137,7 @@ impl<T, const ALIGN: usize> AlignedBuffer<T, ALIGN> {
 /// If a panic unwinds before [`Filling::into_buffer`] is called, its `Drop`
 /// drops the `initialized` prefix and frees the full `cap` allocation, so the
 /// `dealloc` layout always matches the original `alloc`.
-struct Filling<T, const ALIGN: usize> {
+struct Filling<T> {
     ptr: NonNull<T>,
     /// Allocated element count (the full allocation).
     cap: usize,
@@ -158,10 +145,10 @@ struct Filling<T, const ALIGN: usize> {
     initialized: usize,
 }
 
-impl<T, const ALIGN: usize> Filling<T, ALIGN> {
+impl<T> Filling<T> {
     /// Hands the completed allocation to an [`AlignedBuffer`], cancelling the
     /// cleanup guard.
-    fn into_buffer(self) -> AlignedBuffer<T, ALIGN> {
+    fn into_buffer(self) -> AlignedBuffer<T> {
         debug_assert_eq!(self.initialized, self.cap);
         let ptr = self.ptr;
         let len = self.cap;
@@ -170,7 +157,7 @@ impl<T, const ALIGN: usize> Filling<T, ALIGN> {
     }
 }
 
-impl<T, const ALIGN: usize> Drop for Filling<T, ALIGN> {
+impl<T> Drop for Filling<T> {
     fn drop(&mut self) {
         // SAFETY: the first `initialized` slots hold valid `T` values.
         unsafe {
@@ -181,14 +168,14 @@ impl<T, const ALIGN: usize> Drop for Filling<T, ALIGN> {
         };
         let size = self.cap * mem::size_of::<T>();
         if size != 0 {
-            let layout = Layout::from_size_align(size, ALIGN).unwrap();
+            let layout = Layout::from_size_align(size, CACHE_LINE_SIZE).unwrap();
             // SAFETY: `ptr`/`layout` come from the matching allocation.
             unsafe { dealloc(self.ptr.as_ptr() as *mut u8, layout) };
         }
     }
 }
 
-impl<T, const ALIGN: usize> Deref for AlignedBuffer<T, ALIGN> {
+impl<T> Deref for AlignedBuffer<T> {
     type Target = [T];
 
     #[inline(always)]
@@ -198,7 +185,7 @@ impl<T, const ALIGN: usize> Deref for AlignedBuffer<T, ALIGN> {
     }
 }
 
-impl<T, const ALIGN: usize> DerefMut for AlignedBuffer<T, ALIGN> {
+impl<T> DerefMut for AlignedBuffer<T> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [T] {
         // SAFETY: `ptr` points to `len` initialized, contiguous `T` values
@@ -207,7 +194,7 @@ impl<T, const ALIGN: usize> DerefMut for AlignedBuffer<T, ALIGN> {
     }
 }
 
-impl<T, const ALIGN: usize> Drop for AlignedBuffer<T, ALIGN> {
+impl<T> Drop for AlignedBuffer<T> {
     fn drop(&mut self) {
         let layout = self.layout();
         // SAFETY: the first `self.len` slots are initialized.
@@ -224,13 +211,13 @@ impl<T, const ALIGN: usize> Drop for AlignedBuffer<T, ALIGN> {
     }
 }
 
-impl<T: Clone, const ALIGN: usize> Clone for AlignedBuffer<T, ALIGN> {
+impl<T: Clone> Clone for AlignedBuffer<T> {
     fn clone(&self) -> Self {
         Self::from_iter(self.iter().cloned())
     }
 }
 
-impl<T: fmt::Debug, const ALIGN: usize> fmt::Debug for AlignedBuffer<T, ALIGN> {
+impl<T: fmt::Debug> fmt::Debug for AlignedBuffer<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_slice(), f)
     }
@@ -238,33 +225,32 @@ impl<T: fmt::Debug, const ALIGN: usize> fmt::Debug for AlignedBuffer<T, ALIGN> {
 
 // SAFETY: `AlignedBuffer` owns a unique heap allocation; sending/sharing it is
 // sound exactly when sending/sharing the contained `T` values is.
-unsafe impl<T: Send, const ALIGN: usize> Send for AlignedBuffer<T, ALIGN> {}
-unsafe impl<T: Sync, const ALIGN: usize> Sync for AlignedBuffer<T, ALIGN> {}
+unsafe impl<T: Send> Send for AlignedBuffer<T> {}
+unsafe impl<T: Sync> Sync for AlignedBuffer<T> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::CACHE_LINE_SIZE;
 
     #[test]
     fn from_elem_len_and_values() {
-        let v = AlignedBuffer::<i32, CACHE_LINE_SIZE>::from_elem(7, 100);
+        let v = AlignedBuffer::<i32>::from_elem(7, 100);
         assert_eq!(v.len(), 100);
         assert!(v.iter().all(|&x| x == 7));
     }
 
     #[test]
     fn base_pointer_is_aligned() {
-        let v = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, 257);
+        let v = AlignedBuffer::<i16>::from_elem(0, 257);
         assert_eq!(v.as_ptr() as usize % CACHE_LINE_SIZE, 0);
 
-        let v8 = AlignedBuffer::<i8, CACHE_LINE_SIZE>::from_elem(0, 1);
+        let v8 = AlignedBuffer::<i8>::from_elem(0, 1);
         assert_eq!(v8.as_ptr() as usize % CACHE_LINE_SIZE, 0);
     }
 
     #[test]
     fn from_iter_matches_source() {
-        let v = AlignedBuffer::<usize, CACHE_LINE_SIZE>::from_iter(0..50);
+        let v = AlignedBuffer::<usize>::from_iter(0..50);
         assert_eq!(v.len(), 50);
         for (i, &x) in v.iter().enumerate() {
             assert_eq!(i, x);
@@ -273,7 +259,7 @@ mod tests {
 
     #[test]
     fn mutation_through_deref() {
-        let mut v = AlignedBuffer::<i32, CACHE_LINE_SIZE>::from_elem(0, 8);
+        let mut v = AlignedBuffer::<i32>::from_elem(0, 8);
         for (i, slot) in v.iter_mut().enumerate() {
             *slot = i as i32;
         }
@@ -284,7 +270,7 @@ mod tests {
 
     #[test]
     fn clone_is_independent() {
-        let mut a = AlignedBuffer::<i32, CACHE_LINE_SIZE>::from_elem(1, 16);
+        let mut a = AlignedBuffer::<i32>::from_elem(1, 16);
         let b = a.clone();
         a[0] = 999;
         assert_eq!(b[0], 1);
@@ -293,7 +279,7 @@ mod tests {
 
     #[test]
     fn empty_buffer_is_safe() {
-        let v = AlignedBuffer::<i64, CACHE_LINE_SIZE>::from_elem(0, 0);
+        let v = AlignedBuffer::<i64>::from_elem(0, 0);
         assert_eq!(v.len(), 0);
         assert_eq!(v.as_slice(), &[] as &[i64]);
         assert_eq!(v.as_ptr() as usize % CACHE_LINE_SIZE, 0);

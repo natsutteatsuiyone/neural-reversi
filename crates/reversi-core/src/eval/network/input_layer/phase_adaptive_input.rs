@@ -4,7 +4,6 @@ use std::io::{self, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::constants::CACHE_LINE_SIZE;
 use crate::eval::network::layer_stack::NUM_LAYER_STACKS;
 use crate::eval::pattern_feature::NUM_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
@@ -26,16 +25,15 @@ const _: () = assert!(NUM_FEATURES == 32);
 /// Phase-adaptive input layer.
 #[derive(Debug)]
 pub struct PhaseAdaptiveInputLayer {
-    biases: AlignedBuffer<i16, CACHE_LINE_SIZE>,
-    weights: AlignedBuffer<i16, CACHE_LINE_SIZE>,
+    biases: AlignedBuffer<i16>,
+    weights: AlignedBuffer<i16>,
 }
 
 impl PhaseAdaptiveInputLayer {
     /// Loads network weights and biases from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, OUTPUT_DIMS);
-        let mut weights =
-            AlignedBuffer::<i16, CACHE_LINE_SIZE>::from_elem(0, INPUT_FEATURE_DIMS * OUTPUT_DIMS);
+        let mut biases = AlignedBuffer::<i16>::from_elem(0, OUTPUT_DIMS);
+        let mut weights = AlignedBuffer::<i16>::from_elem(0, INPUT_FEATURE_DIMS * OUTPUT_DIMS);
 
         reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;

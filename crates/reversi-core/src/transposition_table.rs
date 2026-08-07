@@ -535,7 +535,7 @@ impl TTEntry {
 /// Shared transposition table.
 pub struct TranspositionTable {
     /// Flat array of [`TTEntry`] values grouped into fixed-size clusters.
-    entries: AlignedBuffer<TTEntry, CACHE_LINE_SIZE>,
+    entries: AlignedBuffer<TTEntry>,
     /// Number of [`TTEntry`] clusters in the table.
     cluster_count: u64,
     /// Generation counter for entry aging (incremented each search).
