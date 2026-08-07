@@ -21,7 +21,7 @@ fn bitboard_from_squares(squares: &[Square]) -> Bitboard {
 fn expected_squares(bits: u64) -> Vec<Square> {
     (0..64)
         .filter(|&index| bits & (1u64 << index) != 0)
-        .map(|index| Square::from_u32(index).unwrap())
+        .map(|index| Square::from_usize(index).unwrap())
         .collect()
 }
 

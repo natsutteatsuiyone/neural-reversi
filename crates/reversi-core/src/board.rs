@@ -328,12 +328,6 @@ impl Board {
         self.player.get_moves_and_potential(self.opponent)
     }
 
-    /// Returns whether `sq` is empty.
-    #[inline]
-    pub fn is_square_empty(&self, sq: Square) -> bool {
-        self.get_empty().contains(sq)
-    }
-
     /// Calculates a hash of the current board position.
     #[inline]
     pub fn hash(&self) -> u64 {

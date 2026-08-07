@@ -33,11 +33,6 @@ pub(crate) fn board_ply(board: &Board) -> usize {
     INITIAL_EMPTY_COUNT - board.get_empty_count() as usize
 }
 
-pub(crate) fn random_square(rng: &mut StdRng) -> Square {
-    let square_index: u32 = rng.random_range(0..64);
-    Square::from_u32(square_index).expect("random square index must be in 0..64")
-}
-
 pub(crate) fn random_disjoint_bitboards(rng: &mut StdRng) -> (u64, u64) {
     let player: u64 = rng.random();
     let opponent: u64 = rng.random::<u64>() & !player;
