@@ -87,18 +87,6 @@ impl Bitboard {
         Bitboard(self.0 & self.0.wrapping_sub(1))
     }
 
-    /// Returns the [`Square`] corresponding to the least significant set bit,
-    /// or [`None`] if the bitboard is empty.
-    #[inline(always)]
-    pub fn lsb_square(self) -> Option<Square> {
-        if self.0 == 0 {
-            None
-        } else {
-            // SAFETY: bitboard is non-empty, so trailing_zeros() is 0..=63.
-            Some(unsafe { Square::from_u32_unchecked(self.0.trailing_zeros()) })
-        }
-    }
-
     /// Returns the [`Square`] corresponding to the least significant set bit.
     ///
     /// # Panics
