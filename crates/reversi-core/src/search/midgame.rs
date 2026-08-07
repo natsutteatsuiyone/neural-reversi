@@ -65,7 +65,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         ctx.eval_mode = mode;
     }
 
-    if ctx.root_moves_count() == 0 {
+    if ctx.root_moves.count() == 0 {
         return SearchResult::new_no_moves();
     }
 
@@ -74,7 +74,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         return SearchResult::new_random_move(random_move(&board));
     }
 
-    let pv_count = task.pv_count(ctx.root_moves_count());
+    let pv_count = task.pv_count(ctx.root_moves.count());
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
 
     let mut depth = compute_start_depth(max_depth);
@@ -87,15 +87,16 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         is_endgame: false,
     };
     while depth <= max_depth {
-        ctx.save_previous_scores();
+        ctx.root_moves.save_previous_scores();
 
         let mut iteration_window_clean = false;
         let mut completed_pv_count = 0;
         for pv_idx in 0..pv_count {
-            ctx.set_pv_idx(pv_idx);
+            ctx.root_moves.set_pv_idx(pv_idx);
 
             let (mut alpha, mut beta) = ctx
-                .get_current_pv_root_move()
+                .root_moves
+                .get_current_pv()
                 .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
                 .map(|rm| {
                     (
@@ -108,13 +109,13 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             let (score, window_clean) =
                 aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
 
-            ctx.sort_root_moves_from_pv_idx();
+            ctx.root_moves.sort_from_pv_idx();
 
             if thread.is_search_aborted() {
                 break;
             }
 
-            if let Some(rm) = ctx.get_current_pv_root_move() {
+            if let Some(rm) = ctx.root_moves.get_current_pv() {
                 store_pv_in_tt(&ctx, &board, &rm.pv, rm.score, depth, false);
 
                 if let Some(ref callback) = task.callback {
@@ -155,7 +156,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         // A forced move needs no deep search under time control: answer after the
         // first completed iteration and bank the time. Score and PV are already
         // available for reporting.
-        if use_time_control && ctx.root_moves_count() == 1 {
+        if use_time_control && ctx.root_moves.count() == 1 {
             return completed.to_result(ctx.counters.clone());
         }
 

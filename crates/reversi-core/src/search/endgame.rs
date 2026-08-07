@@ -95,7 +95,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         task.tt.clone(),
         task.eval.clone(),
     );
-    if ctx.root_moves_count() == 0 {
+    if ctx.root_moves.count() == 0 {
         // Handle no legal moves
         return SearchResult::new_no_moves();
     }
@@ -150,15 +150,15 @@ pub(super) fn solve_root(
     ctx.selectivity = Selectivity::None;
     ctx.eval_mode = EvalMode::Small;
 
-    let pv_count = task.pv_count(ctx.root_moves_count());
+    let pv_count = task.pv_count(ctx.root_moves.count());
 
     // Multi-PV loop: search each PV line with its own aspiration window
     for pv_idx in 0..pv_count {
-        ctx.set_pv_idx(pv_idx);
+        ctx.root_moves.set_pv_idx(pv_idx);
 
         let previous_pv_score = pv_idx
             .checked_sub(1)
-            .and_then(|idx| ctx.get_root_move(idx))
+            .and_then(|idx| ctx.root_moves.get(idx))
             .map(|rm| rm.score);
         let (mut alpha, mut beta) =
             initial_aspiration_window(pv_idx, base_score, previous_pv_score);
@@ -183,9 +183,9 @@ pub(super) fn solve_root(
             }
 
             // Stable sort moves from pv_idx to end, bringing best to pv_idx position
-            ctx.sort_root_moves_from_pv_idx();
+            ctx.root_moves.sort_from_pv_idx();
 
-            let pv_root_move = ctx.get_current_pv_root_move();
+            let pv_root_move = ctx.root_moves.get_current_pv();
             if let Some(ref rm) = pv_root_move {
                 store_pv_in_tt(ctx, board, &rm.pv, rm.score, n_empties, true);
             }

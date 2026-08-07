@@ -11,7 +11,7 @@ use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
 use crate::search::counters::SearchCounters;
-use crate::search::root_move::{RootMove, RootMoves};
+use crate::search::root_move::RootMoves;
 use crate::search::side_to_move::SideToMove;
 use crate::search::stack::SearchStack;
 use crate::search::threading::SplitPoint;
@@ -198,45 +198,6 @@ impl SearchContext {
         self.root_moves.update(sq, score, is_pv, self.get_pv());
     }
 
-    /// Returns the root move at the current PV index, or [`None`] if out of bounds.
-    pub fn get_current_pv_root_move(&self) -> Option<RootMove> {
-        self.root_moves.get_current_pv()
-    }
-
-    /// Returns the root move at `idx`, or [`None`] if out of bounds.
-    pub fn get_root_move(&self, idx: usize) -> Option<RootMove> {
-        self.root_moves.get(idx)
-    }
-
-    /// Sets the current PV index for Multi-PV search.
-    pub fn set_pv_idx(&self, idx: usize) {
-        self.root_moves.set_pv_idx(idx);
-    }
-
-    /// Returns the current PV index.
-    #[inline]
-    pub fn pv_idx(&self) -> usize {
-        self.root_moves.pv_idx()
-    }
-
-    /// Saves current scores as previous scores before starting a new iteration.
-    ///
-    /// This is called at the beginning of each iterative deepening iteration
-    /// to preserve scores for aspiration window calculation.
-    pub fn save_previous_scores(&self) {
-        self.root_moves.save_previous_scores();
-    }
-
-    /// Sorts root moves from pv_idx to end by score (stable sort).
-    pub fn sort_root_moves_from_pv_idx(&self) {
-        self.root_moves.sort_from_pv_idx();
-    }
-
-    /// Sorts all root moves by score for final result ordering.
-    pub fn sort_all_root_moves(&self) {
-        self.root_moves.sort_all();
-    }
-
     /// Updates the principal variation at the current ply.
     #[inline]
     pub fn update_pv(&mut self, sq: Square) {
@@ -265,10 +226,5 @@ impl SearchContext {
     #[inline]
     pub fn set_pv(&mut self, pv: &[Square; MAX_PLY]) {
         self.stack.set_pv(self.ply(), pv);
-    }
-
-    /// Returns the number of root moves available from the current position.
-    pub fn root_moves_count(&self) -> usize {
-        self.root_moves.count()
     }
 }

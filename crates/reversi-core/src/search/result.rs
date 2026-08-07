@@ -65,7 +65,7 @@ impl CompletedState {
         is_endgame: bool,
     ) {
         if multi_pv {
-            ctx.sort_all_root_moves();
+            ctx.root_moves.sort_all();
         }
         *self = CompletedState {
             root_moves: ctx.root_moves.snapshot(),
