@@ -105,15 +105,6 @@ impl RootMoves {
         moves.get(idx).cloned()
     }
 
-    /// Returns the first root move, or [`None`] if no moves exist.
-    ///
-    /// The caller must sort the list beforehand (via [`sort_from_pv_idx`](Self::sort_from_pv_idx)
-    /// or [`sort_all`](Self::sort_all)) for this to return the highest-scoring move.
-    pub fn get_best(&self) -> Option<RootMove> {
-        let moves = self.moves.lock().unwrap();
-        moves.first().cloned()
-    }
-
     /// Sets the current PV index for Multi-PV search.
     pub fn set_pv_idx(&self, idx: usize) {
         self.pv_idx.store(idx, Ordering::Relaxed);
@@ -295,7 +286,7 @@ mod tests {
 
         rms.sort_from_pv_idx();
 
-        let best = rms.get_best().unwrap();
+        let best = rms.get(0).unwrap();
         assert_eq!(best.sq, sqs[sqs.len() - 1]);
         assert_eq!(
             best.score,
@@ -388,7 +379,7 @@ mod tests {
         let rms = RootMoves::new(&board);
 
         assert_eq!(rms.count(), 0);
-        assert!(rms.get_best().is_none());
+        assert!(rms.get(0).is_none());
         assert!(rms.get_current_pv().is_none());
     }
 }
