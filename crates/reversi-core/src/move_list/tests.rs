@@ -109,7 +109,7 @@ fn test_best_first_iter_single_move() {
 fn test_concurrent_move_iterator() {
     let board = Board::new();
     let move_list = MoveList::new(&board);
-    let concurrent_iter = ConcurrentMoveIterator::new(move_list);
+    let concurrent_iter = ConcurrentMoveIterator::from_offset(move_list, 0);
 
     assert_eq!(concurrent_iter.count(), 4);
     assert_eq!(concurrent_iter.remaining(), 4);

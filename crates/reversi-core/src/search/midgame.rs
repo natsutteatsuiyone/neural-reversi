@@ -2,9 +2,8 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/midgame.c>
 
+use std::hash::{BuildHasher, Hasher, RandomState};
 use std::sync::Arc;
-
-use rand::seq::IteratorRandom;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
@@ -66,7 +65,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     }
 
     if ctx.root_moves.count() == 0 {
-        return SearchResult::new_no_moves();
+        return SearchResult::NoLegalMove;
     }
 
     let n_empties = ctx.empty_list.count();
@@ -236,8 +235,9 @@ fn next_iteration_depth(current_depth: Depth) -> Depth {
 
 /// Selects a random legal move from the current position.
 fn random_move(board: &Board) -> Square {
-    let mut rng = rand::rng();
-    board.get_moves().iter().choose(&mut rng).unwrap()
+    let moves = board.get_moves();
+    let index = RandomState::new().build_hasher().finish() % u64::from(moves.count());
+    moves.iter().nth(index as usize).unwrap()
 }
 
 /// Attempts ProbCut pruning for midgame positions.

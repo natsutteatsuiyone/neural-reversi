@@ -238,12 +238,6 @@ impl ThreadPool {
         self.abort_state.request_abort();
     }
 
-    /// Checks whether the current search has been aborted.
-    #[inline]
-    pub fn is_aborted(&self) -> bool {
-        self.abort_state.is_aborted()
-    }
-
     /// Returns a clone of the abort state for external use (e.g., time management).
     pub(crate) fn abort_state(&self) -> Arc<AbortState> {
         self.abort_state.clone()

@@ -11,12 +11,12 @@ search-stats = []
 [dependencies]
 byteorder = "1.5"
 lock_api = "0.4"
-rand = "0.10"
 rapidhash = { version = "4.4", features = ["unsafe"] }
 zstd = "0.13"
 
 [dev-dependencies]
 criterion = "0.8"
+rand = "0.10"
 
 [[bench]]
 name = "network"

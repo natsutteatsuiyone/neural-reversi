@@ -42,28 +42,7 @@ fn get_moves_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
     acc
 }
 
-fn get_potential_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
-    let mut acc = 0u64;
-    for &(player, opponent) in cases {
-        acc ^= black_box(player)
-            .get_potential_moves(black_box(opponent))
-            .bits();
-    }
-    acc
-}
-
-fn separate_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
-    let mut acc = 0u64;
-    for &(player, opponent) in cases {
-        let player = black_box(player);
-        let opponent = black_box(opponent);
-        acc ^= player.get_moves(opponent).bits();
-        acc ^= player.get_potential_moves(opponent).bits().rotate_left(1);
-    }
-    acc
-}
-
-fn combined_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
+fn get_moves_and_potential_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
     let mut acc = 0u64;
     for &(player, opponent) in cases {
         let (moves, potential) = black_box(player).get_moves_and_potential(black_box(opponent));
@@ -96,18 +75,15 @@ fn bench_get_moves(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_get_potential_moves(c: &mut Criterion) {
-    let cases = move_cases();
-    let mut group = c.benchmark_group("bitboard::get_potential_moves");
-    bench_case_set(&mut group, "varied", &cases, get_potential_checksum);
-    group.finish();
-}
-
 fn bench_get_moves_and_potential(c: &mut Criterion) {
     let cases = move_cases();
-    let mut group = c.benchmark_group("bitboard::moves_and_potential");
-    bench_case_set(&mut group, "separate", &cases, separate_checksum);
-    bench_case_set(&mut group, "combined", &cases, combined_checksum);
+    let mut group = c.benchmark_group("bitboard::get_moves_and_potential");
+    bench_case_set(
+        &mut group,
+        "varied",
+        &cases,
+        get_moves_and_potential_checksum,
+    );
     group.finish();
 }
 
@@ -128,7 +104,6 @@ fn bench_corner_stability(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_get_moves,
-    bench_get_potential_moves,
     bench_get_moves_and_potential,
     bench_corner_weighted_count,
     bench_corner_stability,

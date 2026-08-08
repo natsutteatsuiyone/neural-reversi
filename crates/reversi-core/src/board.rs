@@ -316,12 +316,6 @@ impl Board {
         self.get_moves().contains(sq)
     }
 
-    /// Returns a [`Bitboard`] of potential moves for the current player.
-    #[inline(always)]
-    pub fn get_potential_moves(&self) -> Bitboard {
-        self.player.get_potential_moves(self.opponent)
-    }
-
     /// Returns `(legal_moves, potential_moves)` for the current player.
     #[inline(always)]
     pub fn get_moves_and_potential(&self) -> (Bitboard, Bitboard) {

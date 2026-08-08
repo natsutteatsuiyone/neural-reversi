@@ -97,7 +97,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     );
     if ctx.root_moves.count() == 0 {
         // Handle no legal moves
-        return SearchResult::new_no_moves();
+        return SearchResult::NoLegalMove;
     }
 
     // Extend to the endgame allocation before any timed work: the aspiration

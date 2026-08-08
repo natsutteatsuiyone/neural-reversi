@@ -10,7 +10,7 @@ fn raw_score(raw_value: i32) -> ScaledScore {
 }
 
 fn sq(idx: usize) -> Square {
-    Square::from_usize(idx).unwrap()
+    Square::from_u8(idx as u8).unwrap()
 }
 
 fn make_board(player: u64, opponent: u64) -> Board {

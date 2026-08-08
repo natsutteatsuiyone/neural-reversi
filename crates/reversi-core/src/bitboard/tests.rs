@@ -21,7 +21,7 @@ fn bitboard_from_squares(squares: &[Square]) -> Bitboard {
 fn expected_squares(bits: u64) -> Vec<Square> {
     (0..64)
         .filter(|&index| bits & (1u64 << index) != 0)
-        .map(|index| Square::from_usize(index).unwrap())
+        .map(|index| Square::from_u8(index).unwrap())
         .collect()
 }
 
@@ -119,17 +119,12 @@ where
 }
 
 #[test]
-fn set_remove_contains_are_pure_and_idempotent() {
+fn set_and_contains_are_pure_and_idempotent() {
     let original = bitboard_from_squares(&[Square::B2, Square::H8]);
     let with_a1 = original.set(Square::A1);
 
     assert_eq!(original, bitboard_from_squares(&[Square::B2, Square::H8]));
     assert_eq!(with_a1.set(Square::A1), with_a1);
-    assert_eq!(with_a1.remove(Square::C3), with_a1);
-
-    let removed = with_a1.remove(Square::B2);
-    assert_eq!(removed, bitboard_from_squares(&[Square::A1, Square::H8]));
-
     for square in Square::iter() {
         let expected = [Square::A1, Square::B2, Square::H8].contains(&square);
         assert_eq!(

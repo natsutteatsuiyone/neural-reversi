@@ -19,11 +19,6 @@ pub struct ConcurrentMoveIterator {
 }
 
 impl ConcurrentMoveIterator {
-    /// Creates a new concurrent iterator from a move list.
-    pub fn new(move_list: MoveList) -> ConcurrentMoveIterator {
-        Self::from_offset(move_list, 0)
-    }
-
     /// Creates a concurrent iterator starting from the given offset.
     ///
     /// Moves before `start` are skipped. The `next()` method returns 1-based
@@ -82,12 +77,6 @@ impl<'a> BestFirstMoveIterator<'a> {
     #[inline]
     fn new(moves: &'a mut [Move]) -> Self {
         BestFirstMoveIterator { moves, current: 0 }
-    }
-
-    /// Returns the number of remaining moves.
-    #[inline]
-    pub fn remaining(&self) -> usize {
-        self.moves.len() - self.current
     }
 }
 

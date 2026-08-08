@@ -109,11 +109,6 @@ impl SearchResult {
         }
     }
 
-    /// Creates a result when no legal moves are available.
-    pub fn new_no_moves() -> Self {
-        Self::NoLegalMove
-    }
-
     pub(crate) fn from_root_move_snapshot(
         root_moves: &[RootMove],
         best_move: &RootMove,
@@ -269,7 +264,7 @@ mod tests {
 
     #[test]
     fn no_legal_move_has_no_best_move_data() {
-        let result = SearchResult::new_no_moves();
+        let result = SearchResult::NoLegalMove;
 
         assert_eq!(result.best_move(), None);
         assert_eq!(result.score(), None);

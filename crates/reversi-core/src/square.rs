@@ -131,15 +131,6 @@ impl Square {
         unsafe { Self::from_u8_unchecked(index as u8) }
     }
 
-    /// Safely converts a `usize` index to a [`Square`].
-    ///
-    /// Accepts indices 0-64 (where 64 maps to [`Square::None`]).
-    /// Returns `None` for indices > 64.
-    #[inline]
-    pub fn from_usize(index: usize) -> Option<Square> {
-        u8::try_from(index).ok().and_then(Square::from_u8)
-    }
-
     /// Returns the file (column) index of this square, where 0 is file A and
     /// 7 is file H.
     ///
@@ -396,10 +387,6 @@ mod tests {
         assert_eq!(Square::from_u8(63), Some(Square::H8));
         assert_eq!(Square::from_u8(64), Some(Square::None));
         assert_eq!(Square::from_u8(65), None);
-
-        assert_eq!(Square::from_usize(63), Some(Square::H8));
-        assert_eq!(Square::from_usize(64), Some(Square::None));
-        assert_eq!(Square::from_usize(65), None);
     }
 
     #[test]

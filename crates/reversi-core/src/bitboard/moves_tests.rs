@@ -301,33 +301,10 @@ fn assert_moves_match_reference(position: Position) {
     );
 }
 
-fn assert_potential_matches_reference(position: Position) {
+fn assert_combined_matches_reference(position: Position) {
     assert_disjoint(position);
-    let expected = reference_get_potential_moves(position.player, position.opponent);
-    let (player, opponent) = position.bitboards();
-
-    assert_eq!(
-        get_potential_moves(position.player, position.opponent),
-        expected,
-        "{}: scalar potential differs from reference for player={:016x}, opponent={:016x}",
-        position.name,
-        position.player,
-        position.opponent
-    );
-    assert_eq!(
-        player.get_potential_moves(opponent).bits(),
-        expected,
-        "{}: public potential differs from reference for player={:016x}, opponent={:016x}",
-        position.name,
-        position.player,
-        position.opponent
-    );
-}
-
-fn assert_combined_matches_separate_paths(position: Position) {
-    assert_disjoint(position);
-    let expected_moves = get_moves_portable(position.player, position.opponent);
-    let expected_potential = get_potential_moves(position.player, position.opponent);
+    let expected_moves = reference_get_moves(position.player, position.opponent);
+    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
     let (portable_moves, portable_potential) =
         get_moves_and_potential_portable(position.player, position.opponent);
     let (player, opponent) = position.bitboards();
@@ -344,17 +321,17 @@ fn assert_combined_matches_separate_paths(position: Position) {
         position.name, position.player, position.opponent
     );
     assert_eq!(
-        public_moves,
-        player.get_moves(opponent),
-        "{}: public combined moves differ from public separate moves for player={:016x}, opponent={:016x}",
+        public_moves.bits(),
+        expected_moves,
+        "{}: public combined moves differ from reference for player={:016x}, opponent={:016x}",
         position.name,
         position.player,
         position.opponent
     );
     assert_eq!(
-        public_potential,
-        player.get_potential_moves(opponent),
-        "{}: public combined potential differs from public separate potential for player={:016x}, opponent={:016x}",
+        public_potential.bits(),
+        expected_potential,
+        "{}: public combined potential differs from reference for player={:016x}, opponent={:016x}",
         position.name,
         position.player,
         position.opponent
@@ -392,7 +369,7 @@ fn assert_neon_sha3_moves_match_scalar(position: Position) {
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn assert_neon_combined_matches_scalar(position: Position) {
     let expected_moves = get_moves_portable(position.player, position.opponent);
-    let expected_potential = get_potential_moves(position.player, position.opponent);
+    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
     let (moves_neon, potential_neon) =
         unsafe { get_moves_and_potential_neon(position.player, position.opponent) };
 
@@ -415,7 +392,7 @@ fn assert_neon_combined_matches_scalar(position: Position) {
 ))]
 fn assert_neon_sha3_combined_matches_scalar(position: Position) {
     let expected_moves = get_moves_portable(position.player, position.opponent);
-    let expected_potential = get_potential_moves(position.player, position.opponent);
+    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
     let (moves_neon, potential_neon) =
         unsafe { get_moves_and_potential_neon_sha3(position.player, position.opponent) };
 
@@ -441,7 +418,7 @@ fn detected_x86_backends() -> Option<(bool, bool)> {
 #[cfg(target_arch = "x86_64")]
 fn assert_x86_backends_match_scalar(position: Position, has_avx2: bool, has_avx512: bool) {
     let expected_moves = get_moves_portable(position.player, position.opponent);
-    let expected_potential = get_potential_moves(position.player, position.opponent);
+    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
 
     if has_avx2 {
         let moves_avx2 = unsafe { get_moves_avx2(position.player, position.opponent) };
@@ -585,21 +562,17 @@ fn legal_moves_do_not_wrap_edges_or_jump_over_gaps() {
 }
 
 #[test]
-fn potential_moves_match_independent_reference_for_representative_positions() {
-    for_each_reference_position(assert_potential_matches_reference);
-}
-
-#[test]
 fn initial_position_has_exact_legal_and_potential_moves() {
     let position = initial_position();
     let (player, opponent) = position.bitboards();
+    let (moves, potential) = player.get_moves_and_potential(opponent);
 
     assert_eq!(
-        player.get_moves(opponent),
+        moves,
         bitboard_from_squares(&[Square::C4, Square::D3, Square::E6, Square::F5])
     );
     assert_eq!(
-        player.get_potential_moves(opponent),
+        potential,
         bitboard_from_squares(&[
             Square::C3,
             Square::D3,
@@ -616,8 +589,8 @@ fn initial_position_has_exact_legal_and_potential_moves() {
 }
 
 #[test]
-fn combined_move_and_potential_matches_separate_paths() {
-    for_each_reference_position(assert_combined_matches_separate_paths);
+fn combined_move_and_potential_matches_independent_reference() {
+    for_each_reference_position(assert_combined_matches_reference);
 }
 
 #[test]

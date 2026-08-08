@@ -461,7 +461,7 @@ mod tests {
         let moves = Square::parse_sequence("f5d6c4d3").unwrap();
         let rotated_moves: Vec<_> = moves
             .iter()
-            .map(|sq| Square::from_usize(63 - sq.index()).unwrap())
+            .map(|sq| Square::from_u8((63 - sq.index()) as u8).unwrap())
             .collect();
         let board = replay(&moves, |_, _| {}).unwrap().0;
         let rotated_board = replay(&rotated_moves, |_, _| {}).unwrap().0;

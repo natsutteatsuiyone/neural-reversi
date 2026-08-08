@@ -273,7 +273,7 @@ to move below alpha.
   (cut nodes) or `MAX_THREADS_PER_NON_CUT_SPLITPOINT` (non-cut) workers.
 - A shared abort flag is polled at a short fixed interval
   (`CHECK_INTERVAL_MS`) so threads can exit on time-out or
-  `Search::abort`.
+  `ThreadPool::abort_search`.
 - The physical thread count is
   `n_threads.min(available_cpus()).clamp(1, MAX_THREADS)`.
 

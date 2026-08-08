@@ -51,12 +51,6 @@ impl Bitboard {
         Bitboard(self.0 | sq.bitboard().0)
     }
 
-    /// Returns a new bitboard with the bit at the given square cleared.
-    #[inline(always)]
-    pub fn remove(self, sq: Square) -> Self {
-        Bitboard(self.0 & !sq.bitboard().0)
-    }
-
     /// Checks whether the given square's bit is set.
     #[inline(always)]
     pub fn contains(self, sq: Square) -> bool {
@@ -282,19 +276,7 @@ impl Bitboard {
         Bitboard(moves::get_moves(self.0, opponent.0))
     }
 
-    /// Returns the potential moves for the player.
-    ///
-    /// Potential moves are empty squares next to an opponent disc in a direction
-    /// where a bracketing player disc could exist beyond that opponent disc.
-    #[inline(always)]
-    pub fn get_potential_moves(self, opponent: Bitboard) -> Bitboard {
-        Bitboard(moves::get_potential_moves(self.0, opponent.0))
-    }
-
     /// Returns both the legal moves and potential moves for the current player.
-    ///
-    /// More efficient than calling [`get_moves`](Self::get_moves) and
-    /// [`get_potential_moves`](Self::get_potential_moves) separately.
     #[inline(always)]
     pub fn get_moves_and_potential(self, opponent: Bitboard) -> (Bitboard, Bitboard) {
         let (m, p) = moves::get_moves_and_potential(self.0, opponent.0);

@@ -329,17 +329,6 @@ impl Search {
         result
     }
 
-    /// Aborts the current search.
-    pub fn abort(&self) {
-        self.threads.stop_timer();
-        self.threads.abort_search();
-    }
-
-    /// Returns whether the search has been aborted.
-    pub fn is_aborted(&self) -> bool {
-        self.threads.is_aborted()
-    }
-
     /// Returns the [`ThreadPool`] used by this search engine.
     ///
     /// [`ThreadPool`]: threading::ThreadPool
