@@ -14,7 +14,6 @@ interface AIMoveSearchOperationOptions {
   player: Player;
   level: number;
   mode: AIMode;
-  timeLimitSeconds: number;
   remainingTimeMs: number;
   getRemainingTime: () => number;
   onStart: () => void;
@@ -49,7 +48,6 @@ export async function runAIMoveSearch({
   player,
   level,
   mode,
-  timeLimitSeconds,
   remainingTimeMs,
   getRemainingTime,
   onStart,
@@ -100,7 +98,6 @@ export async function runAIMoveSearch({
       board,
       player,
       level,
-      mode === "time" ? timeLimitSeconds * 1000 : undefined,
       isGameTime ? remainingTimeMs : undefined,
       (progress) => {
         if (isSameProgress(lastProgress, progress)) return;

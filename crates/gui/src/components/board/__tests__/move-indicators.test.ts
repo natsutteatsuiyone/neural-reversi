@@ -1,8 +1,15 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { LAST_MOVE_RING_COLOR } from "../board3d-utils";
 import { MoveIndicators } from "../MoveIndicators";
+// React DOM warns about React Three Fiber intrinsic elements; these tests
+// intentionally inspect their server-rendered structure.
+const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+afterAll(() => {
+  consoleErrorSpy.mockRestore();
+});
 
 describe("MoveIndicators", () => {
   it("renders one valid-move dot per valid move at the expected world coordinates", () => {

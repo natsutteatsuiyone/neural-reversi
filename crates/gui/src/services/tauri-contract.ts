@@ -20,7 +20,6 @@ export const TAURI_COMMAND = {
   analyzeGame: "analyze_game_command",
   abortGameAnalysis: "abort_game_analysis_command",
   solverSearch: "solver_search_command",
-  getAppVersion: "get_app_version",
   getLicenseText: "get_license_text",
   getThirdPartyLicensesText: "get_third_party_licenses_text",
 } as const;

@@ -1,5 +1,5 @@
 import type { AIService, GameAnalysisProgress } from "@/services/types";
-import type { EngineSearch } from "@/domain/engine/engine-search";
+import type { EngineActivity, EngineSearch } from "@/domain/engine/engine-search";
 import type { Board, Player } from "@/domain/game/types";
 import type { MoveHistory } from "@/domain/game/move-history";
 import {
@@ -8,15 +8,9 @@ import {
   type MoveAnalysis,
 } from "@/domain/game/game-analysis";
 
-/**
- * Everything the Game Analysis feature reads. `isGameAnalyzing` and
- * `isAIThinking` are projections of the Engine Activity (CONTEXT.md →
- * Engine Activity); `resumeQueuedAutomation` is the store-bound automation
- * hook a finished/superseded run releases (CONTEXT.md → Automation).
- */
+/** Everything the Game Analysis feature reads. */
 export interface GameAnalysisSessionState {
-  isGameAnalyzing: boolean;
-  isAIThinking: boolean;
+  engineActivity: EngineActivity;
   moveHistory: MoveHistory;
   historyStartBoard: Board;
   historyStartPlayer: Player;
@@ -63,9 +57,8 @@ export class GameAnalysisSession {
   }
 
   async analyze(): Promise<void> {
-    const { isGameAnalyzing, isAIThinking, moveHistory, historyStartBoard, historyStartPlayer } =
-      this.read();
-    if (isGameAnalyzing || isAIThinking) return;
+    const { engineActivity, moveHistory, historyStartBoard, historyStartPlayer } = this.read();
+    if (engineActivity.kind === "game-analysis" || engineActivity.kind === "ai-move") return;
 
     const allMoves = moveHistory.allMoves;
     if (allMoves.length === 0) return;
@@ -76,19 +69,14 @@ export class GameAnalysisSession {
 
     await this.engineSearch.start<GameAnalysisProgress, void>({
       kind: "game-analysis",
-      // `isGameAnalyzing` is the Engine Activity, stamped SYNCHRONOUSLY
-      // at claim by its owner (before the possibly slow supersede). The
-      // move/navigation guards key off it, so the board is locked for
-      // the queued window and the backend cannot analyze a history the
-      // user mutated meanwhile; it returns to idle on teardown exactly
-      // once (incl. superseded). Only `gameAnalysisResult` is feature
-      // payload cleared here.
+      // Activity is stamped synchronously at claim, so move/navigation guards
+      // lock the board before a possibly slow supersede.
       onClaim: () => this.commit({ gameAnalysisResult: null }),
       run: (accept) =>
         this.ai.analyzeGame(historyStartBoard, historyStartPlayer, moves, level, accept),
       abort: () => this.ai.abortGameAnalysis(),
       onProgress: (p) => {
-        if (!this.read().isGameAnalyzing) return;
+        if (this.read().engineActivity.kind !== "game-analysis") return;
 
         analysisResults = appendGameAnalysisProgress(analysisResults, allMoves, p);
         this.commit({ gameAnalysisResult: analysisResults });
@@ -102,8 +90,7 @@ export class GameAnalysisSession {
 
   async abort(): Promise<void> {
     await this.engineSearch.abort({
-      // `isGameAnalyzing` returns to idle via the Engine Activity owner
-      // (abort stamps idle synchronously at claim).
+      // EngineSearch returns activity to idle synchronously at claim.
       abort: () => this.ai.abortGameAnalysis(),
       onSettled: () => this.read().resumeQueuedAutomation(),
     });

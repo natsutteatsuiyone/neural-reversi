@@ -1,11 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { abortInFlightGameSearches, runGameReplacement } from "@/stores/game-replacement";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createTestStore } from "./test-helpers";
+const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+beforeEach(() => {
+  consoleErrorSpy.mockClear();
+});
+
+afterAll(() => {
+  consoleErrorSpy.mockRestore();
+});
 
 // The Game Replacement seam, tested through its own interface (CONTEXT.md →
 // Game Replacement). The slice tests cover the same paths via startGame /
-// startFromSetup / startSolver; these pin the module's contract in isolation.
+// startFromSetup / startSolverFromSetup; these pin the module's contract in isolation.
 describe("runGameReplacement", () => {
   it("returns false and re-initialises nothing when AI is not ready", async () => {
     const { store, services } = createTestStore({
@@ -20,6 +28,7 @@ describe("runGameReplacement", () => {
 
     expect(ok).toBe(false);
     expect(services.ai.initialize).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith("AI readiness check failed:", expect.any(Error));
   });
 
   it("returns true after re-initialising the backend", async () => {
@@ -70,6 +79,7 @@ describe("runGameReplacement", () => {
     expect(ok).toBe(false);
     expect(services.solver.abort).not.toHaveBeenCalled();
     expect(services.ai.initialize).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith("AI readiness check failed:", expect.any(Error));
   });
 
   it("restores paused and re-triggers automation when init fails (no game analysis)", async () => {
@@ -88,6 +98,10 @@ describe("runGameReplacement", () => {
     expect(ok).toBe(false);
     expect(store.getState().paused).toBe(true);
     expect(triggerSpy).toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to prepare AI for a new position:",
+      expect.any(Error),
+    );
   });
 
   it("resumes a superseded game analysis when init fails", async () => {
@@ -96,7 +110,7 @@ describe("runGameReplacement", () => {
         initialize: vi.fn().mockRejectedValue(new Error("init failed")),
       }),
     });
-    store.setState({ isGameAnalyzing: true });
+    store.setState({ engineActivity: { kind: "game-analysis", runId: 1 } });
     const analyzeGameSpy = vi.spyOn(store.getState(), "analyzeGame");
     const queueResumeSpy = vi.spyOn(store.getState(), "queueResumeAutomation");
 
@@ -107,6 +121,10 @@ describe("runGameReplacement", () => {
     expect(ok).toBe(false);
     expect(analyzeGameSpy).toHaveBeenCalled();
     expect(queueResumeSpy).toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to prepare AI for a new position:",
+      expect.any(Error),
+    );
   });
 
   it("setup-game exits solver mode only after a successful replacement", async () => {
@@ -114,11 +132,7 @@ describe("runGameReplacement", () => {
     const solverBoard = store.getState().board;
     store.setState({
       isSolverActive: true,
-      solverRootBoard: solverBoard,
-      solverRootPlayer: "black",
       solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
-      solverCurrentBoard: solverBoard,
-      solverCurrentPlayer: "black",
     });
 
     const ok = await runGameReplacement(services, store.getState, store.setState, {
@@ -141,11 +155,7 @@ describe("runGameReplacement", () => {
     const solverBoard = store.getState().board;
     store.setState({
       isSolverActive: true,
-      solverRootBoard: solverBoard,
-      solverRootPlayer: "black",
       solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
-      solverCurrentBoard: solverBoard,
-      solverCurrentPlayer: "black",
     });
 
     const ok = await runGameReplacement(services, store.getState, store.setState, {
@@ -155,8 +165,13 @@ describe("runGameReplacement", () => {
     expect(ok).toBe(false);
     expect(services.solver.abort).toHaveBeenCalledTimes(1);
     expect(store.getState().isSolverActive).toBe(true);
-    expect(store.getState().solverCurrentBoard).toBe(solverBoard);
+    const state = store.getState();
+    expect(state.solverHistory[state.solverHistory.length - 1]?.board).toBe(solverBoard);
     expect(store.getState().setupError).toBe("aiInitFailed");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Failed to prepare AI for a new position:",
+      expect.any(Error),
+    );
   });
 
   // Launch auto-start: a new-game target with `pauseForAITurn` starts paused
@@ -209,7 +224,7 @@ describe("runGameReplacement", () => {
 describe("abortInFlightGameSearches", () => {
   it("aborts the AI-move search while one is in flight", async () => {
     const { store } = createTestStore();
-    store.setState({ isAIThinking: true });
+    store.setState({ engineActivity: { kind: "ai-move", runId: 1 } });
     const abortSpy = vi.spyOn(store.getState(), "abortAIMove").mockResolvedValue(undefined);
 
     await abortInFlightGameSearches(store.getState);
@@ -217,16 +232,12 @@ describe("abortInFlightGameSearches", () => {
     expect(abortSpy).toHaveBeenCalled();
   });
 
-  // Regression: a hint abort-then-restart stamps Engine Activity back to idle
-  // synchronously (isAnalyzing=false) while its backend abort + restart are
-  // still in flight; `hintAnalysisAbortPending` is the breadcrumb for that
-  // window. Replacement must still abort, or the pending hint teardown would
-  // restart analysis on the just-reinitialised backend.
+  // Regression: a hint abort-then-restart returns Engine Activity to idle
+  // synchronously while its backend abort + restart are still in flight.
+  // `hintAnalysisAbortPending` remains the breadcrumb for that window.
   it("aborts via abortAIMove while a hint abort is still pending", async () => {
     const { store } = createTestStore();
     store.setState({
-      isAIThinking: false,
-      isAnalyzing: false,
       hintAnalysisAbortPending: true,
     });
     const abortSpy = vi.spyOn(store.getState(), "abortAIMove").mockResolvedValue(undefined);

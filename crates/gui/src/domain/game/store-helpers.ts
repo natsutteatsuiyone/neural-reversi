@@ -108,17 +108,12 @@ export function createGameStartState(
     currentPlayer,
     gameStatus,
     gameOver: false,
-    isPass: false,
     lastMove: null,
     lastAIMove: null,
     showPassNotification: null,
     showGameOverNotification: false,
     analyzeResults: null,
-    // The Engine Activity projection (isAIThinking / isAnalyzing /
-    // isGameAnalyzing / isSolverSearching + engineActivity) is NOT set here:
-    // this domain helper does not know the kind→busy-booleans mapping. The
-    // store reset paths compose it via `idleEngineActivityPatch()` so the
-    // mapping has a single source (CONTEXT.md → Engine Activity).
+    // Engine Activity is store-owned; reset paths compose the idle value.
     hintAnalysisAbortPending: false,
     aiMoveProgress: null,
     aiThinkingHistory: [],

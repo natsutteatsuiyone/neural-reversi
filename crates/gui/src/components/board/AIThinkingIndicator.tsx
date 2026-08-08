@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import type { CSSProperties } from "react";
 import { Bot } from "lucide-react";
 import type { AIMoveProgress } from "@/services/types";
 
@@ -16,24 +16,16 @@ interface AIThinkingIndicatorProps {
   lastAIMove: { row: number; col: number; timestamp: number } | null;
 }
 
+const RIPPLE_DELAYS = ["0.3s", "0.6s", "0.9s"] as const;
+
 function ThinkingRipple() {
   return (
     <>
-      {[1, 2, 3].map((i) => (
-        <motion.div
-          key={i}
-          className="absolute inset-0 rounded-sm border-2 border-accent-ai/70"
-          initial={{ opacity: 0.7, scale: 0.5 }}
-          animate={{
-            opacity: 0,
-            scale: 1.1,
-          }}
-          transition={{
-            duration: 1.5,
-            ease: "easeOut",
-            repeat: Number.POSITIVE_INFINITY,
-            delay: i * 0.3,
-          }}
+      {RIPPLE_DELAYS.map((animationDelay) => (
+        <div
+          key={animationDelay}
+          className="absolute inset-0 rounded-sm border-2 border-accent-ai/70 animate-pulse-ring"
+          style={{ animationDelay }}
         />
       ))}
     </>
@@ -72,20 +64,9 @@ export function AIThinkingIndicator({
         className="absolute inset-0 flex items-center justify-center z-10"
       >
         <ThinkingRipple />
-        <motion.div
-          animate={{
-            rotate: [0, 10, 0, -10, 0],
-            scale: [1, 1.05, 1, 1.05, 1],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Number.POSITIVE_INFINITY,
-            ease: "easeInOut",
-          }}
-          className="relative"
-        >
+        <div className="relative animate-thinking-bot">
           <Bot className="text-accent-ai drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" size={22} />
-        </motion.div>
+        </div>
       </div>
     );
   }
@@ -97,6 +78,7 @@ export function AIThinkingIndicator({
   if (historyIndex !== -1 && historyIndex < 3) {
     const opacity = 0.7 - historyIndex * 0.15;
     const size = 18 - historyIndex * 3;
+    const scale = size / 22;
 
     return (
       <div
@@ -105,20 +87,19 @@ export function AIThinkingIndicator({
         data-ai-trail-index={historyIndex}
         className="absolute inset-0 flex items-center justify-center z-5"
       >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.5 }}
-          animate={{
-            opacity,
-            scale: size / 22,
-          }}
-          transition={{
-            type: "spring",
-            stiffness: 200,
-            damping: 10,
-          }}
+        <div
+          className="animate-scale-in"
+          style={
+            {
+              "--scale-in-from": 0.5,
+              "--scale-in-overshoot": scale * 1.05,
+              "--scale-in-to": scale,
+              "--scale-in-opacity": opacity,
+            } as CSSProperties
+          }
         >
           <Bot className="text-accent-ai/70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]" size={22} />
-        </motion.div>
+        </div>
       </div>
     );
   }

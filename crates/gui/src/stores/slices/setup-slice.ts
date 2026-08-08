@@ -73,8 +73,6 @@ export function createSetupSlice(
 
     setSetupCurrentPlayer: (player) => set({ setupCurrentPlayer: player, setupError: null }),
 
-    setSetupBoard: (board) => set({ setupBoard: board }),
-
     setSetupCellColor: (row, col) => {
       set((state) => {
         const newBoard = cloneBoard(state.setupBoard);

@@ -25,7 +25,7 @@ const baseProps = {
   isAIControlled: true,
   aiLevel: 7,
   isThinking: false,
-  aiMode: "level",
+  aiMode: "level" as const,
   aiRemainingTime: 65_000,
 };
 

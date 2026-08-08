@@ -16,15 +16,15 @@ import {
   GameAnalysisSession,
   type GameAnalysisSessionCommit,
 } from "@/domain/game/game-analysis-session";
-import { engineActivityPatch, IDLE_ENGINE_ACTIVITY } from "./engine-activity";
-import { defaultServices } from "@/services";
+import { IDLE_ENGINE_ACTIVITY } from "./engine-activity";
+import { defaultServices } from "@/services/default-services";
 
 export function createReversiStore(services: Services) {
   // Captured after the store exists; `onActivityChange` only fires during an
   // async start/abort, long after this assignment.
   let setState: StoreApi<ReversiState>["setState"] | null = null;
   const engineSearch = createEngineSearch({
-    onActivityChange: (activity) => setState?.(engineActivityPatch(activity)),
+    onActivityChange: (engineActivity) => setState?.({ engineActivity }),
   });
   const store = create<ReversiState>()((set, get, api) => {
     // One Hint Analysis Session, shared by the UI slice (toggle/analyze) and

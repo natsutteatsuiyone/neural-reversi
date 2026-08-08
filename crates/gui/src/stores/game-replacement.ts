@@ -2,7 +2,7 @@ import type { Services } from "@/services/types";
 import type { Board, Player } from "@/domain/game/types";
 import { initializeBoard } from "@/domain/game/game-logic";
 import { cloneBoard, createGameStartState } from "@/domain/game/store-helpers";
-import { idleEngineActivityPatch } from "@/stores/engine-activity";
+import { IDLE_ENGINE_ACTIVITY } from "@/stores/engine-activity";
 import {
   createNewGamePatch,
   persistNewGameSettings,
@@ -15,13 +15,6 @@ type SolverStarter = (board: Board, player: Player) => Promise<void>;
 export type GameReplacementTarget =
   | { kind: "new-game"; settings?: NewGameSettings; pauseForAITurn?: boolean }
   | { kind: "setup-game"; settings?: NewGameSettings }
-  | {
-      kind: "solver-position";
-      board: Board;
-      player: Player;
-      config?: SolverConfig;
-      startSolver: SolverStarter;
-    }
   | { kind: "setup-solver"; config?: SolverConfig; startSolver: SolverStarter };
 
 /**
@@ -63,14 +56,6 @@ export async function runGameReplacement(
       set({ setupError: replaced ? null : "aiInitFailed" });
       return replaced;
     }
-
-    case "solver-position":
-      return replaceWithSolver(services, get, set, {
-        board: target.board,
-        player: target.player,
-        config: target.config,
-        startSolver: target.startSolver,
-      });
 
     case "setup-solver": {
       const setup = resolveSetupForReplacement(get, set);
@@ -118,21 +103,22 @@ function resolveSetupForReplacement(
  * synchronously inside `abortAIMove` (its teardown entry point); no external
  * timer reach-in.
  *
- * `hintAnalysisAbortPending` is part of "hint engine-active" here even though
- * `isAnalyzing` is already false: a hint abort-then-restart stamps Engine
- * Activity back to idle synchronously while its backend abort + restart are
- * still in flight. Without this, replacement would skip the abort and let the
- * pending hint teardown restart analysis on the just-reinitialised backend.
- * Routing it through `abortAIMove` supersedes that pending run via
- * EngineSearch, so its stale restart is dropped (CONTEXT.md → Engine Search).
+ * `hintAnalysisAbortPending` is part of "hint engine-active" even when Engine
+ * Activity is already idle: an abort-then-restart may still be in flight.
+ * Aborting it prevents a pending teardown from restarting analysis after the
+ * backend is re-initialized.
  */
 export async function abortInFlightGameSearches(get: () => ReversiState): Promise<void> {
   const state = get();
   const aborts: Promise<void>[] = [];
-  if (state.isAIThinking || state.isAnalyzing || state.hintAnalysisAbortPending) {
+  if (
+    state.engineActivity.kind === "ai-move" ||
+    state.engineActivity.kind === "hint" ||
+    state.hintAnalysisAbortPending
+  ) {
     aborts.push(state.abortAIMove());
   }
-  if (state.isGameAnalyzing) {
+  if (state.engineActivity.kind === "game-analysis") {
     aborts.push(state.abortGameAnalysis());
   }
   await Promise.all(aborts);
@@ -166,7 +152,7 @@ async function prepareReplacementBackend(
     return false;
   }
 
-  const shouldResumeGameAnalysis = get().isGameAnalyzing;
+  const shouldResumeGameAnalysis = get().engineActivity.kind === "game-analysis";
   const wasPaused = get().paused;
 
   get().cancelAutomation();
@@ -259,7 +245,7 @@ function installWaitingGameShell(get: () => ReversiState, set: SetState): void {
   const board = initializeBoard();
   set({
     ...createGameStartState(board, "black", "waiting", get().gameTimeLimit * 1000),
-    ...idleEngineActivityPatch(),
+    engineActivity: IDLE_ENGINE_ACTIVITY,
   });
 }
 

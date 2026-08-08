@@ -12,7 +12,6 @@ export function createSettingsSlice(
     // 起動時に hydrateSettings で適用される。非ハイドレート利用(テスト)では人間先手で
     // 始めるためここは ai-white。
     gameMode: "ai-white",
-    timeLimit: DEFAULT_SETTINGS.timeLimit,
     gameTimeLimit: DEFAULT_SETTINGS.gameTimeLimit,
     hintLevel: DEFAULT_SETTINGS.hintLevel,
     gameAnalysisLevel: DEFAULT_SETTINGS.gameAnalysisLevel,
@@ -26,7 +25,6 @@ export function createSettingsSlice(
       const shouldResizeTT = get().hashSize !== settings.hashSize;
       set({
         gameMode: settings.gameMode,
-        timeLimit: settings.timeLimit,
         gameTimeLimit: settings.gameTimeLimit,
         hintLevel: settings.hintLevel,
         gameAnalysisLevel: settings.gameAnalysisLevel,
@@ -44,24 +42,6 @@ export function createSettingsSlice(
       if (shouldResizeTT) {
         void services.ai.resizeTT(settings.hashSize);
       }
-    },
-
-    setGameMode: (mode) => {
-      set({
-        gameMode: mode,
-        analyzeResults: null,
-      });
-      void services.settings.saveSetting("gameMode", mode);
-    },
-
-    setTimeLimit: (limit) => {
-      set({ timeLimit: limit });
-      void services.settings.saveSetting("timeLimit", limit);
-    },
-
-    setGameTimeLimit: (limit) => {
-      set({ gameTimeLimit: limit });
-      void services.settings.saveSetting("gameTimeLimit", limit);
     },
 
     setHintLevel: (level) => {

@@ -16,7 +16,7 @@ import {
 const MAX_ENGINE_LEVEL = 30;
 const MAX_HASH_SIZE = 16384;
 const GAME_MODES = ["ai-black", "ai-white", "pvp"] as const satisfies readonly GameMode[];
-const AI_MODES = ["level", "time", "game-time"] as const satisfies readonly AIMode[];
+const AI_MODES = ["level", "game-time"] as const satisfies readonly AIMode[];
 
 function isIntegerInRange(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
@@ -64,7 +64,6 @@ export class TauriSettingsService implements SettingsService {
         gameMode,
         aiLevel,
         aiMode,
-        timeLimit,
         gameTimeLimit,
         hintLevel,
         gameAnalysisLevel,
@@ -79,7 +78,6 @@ export class TauriSettingsService implements SettingsService {
         s.get<GameMode>("gameMode"),
         s.get<number>("aiLevel"),
         s.get<AIMode>("aiMode"),
-        s.get<number>("timeLimit"),
         s.get<number>("gameTimeLimit"),
         s.get<number>("hintLevel"),
         s.get<number>("gameAnalysisLevel"),
@@ -98,7 +96,6 @@ export class TauriSettingsService implements SettingsService {
           ? aiLevel
           : DEFAULT_SETTINGS.aiLevel,
         aiMode: isValidAiMode(aiMode) ? aiMode : DEFAULT_SETTINGS.aiMode,
-        timeLimit: isPositiveFiniteInteger(timeLimit) ? timeLimit : DEFAULT_SETTINGS.timeLimit,
         gameTimeLimit: isPositiveFiniteInteger(gameTimeLimit)
           ? gameTimeLimit
           : DEFAULT_SETTINGS.gameTimeLimit,

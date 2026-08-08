@@ -266,10 +266,6 @@ fn validate_selectivity(target_selectivity: u8) -> Result<(), String> {
     Ok(())
 }
 
-fn clamp_hash_size(hash_size: usize) -> usize {
-    hash_size.clamp(1, 16384)
-}
-
 #[tauri::command]
 async fn init_ai_command(state: State<'_, AppState>) -> Result<(), String> {
     with_search_lock(state.search.clone(), |s| s.init()).await
@@ -286,7 +282,7 @@ async fn check_ai_ready_command(state: State<'_, AppState>) -> Result<(), String
 
 #[tauri::command]
 async fn resize_tt_command(state: State<'_, AppState>, hash_size: usize) -> Result<(), String> {
-    let hash_size = clamp_hash_size(hash_size);
+    let hash_size = hash_size.clamp(1, 16384);
     with_search_lock(state.search.clone(), move |s| s.resize_tt(hash_size)).await
 }
 
@@ -311,10 +307,9 @@ async fn ai_move_command(
     app: AppHandle,
     board_string: String,
     level: usize,
-    time_limit: Option<u64>,
     remaining_time: Option<u64>,
 ) -> Result<AIMoveResult, String> {
-    if remaining_time.is_none() && time_limit.is_none() {
+    if remaining_time.is_none() {
         validate_level(level)?;
     }
     run_engine_search(
@@ -328,11 +323,6 @@ async fn ai_move_command(
                 SearchRunOptions::with_time(TimeControlMode::Fischer {
                     main_time_ms: remaining_ms,
                     increment_ms: 0,
-                })
-                .callback(callback)
-            } else if let Some(limit_ms) = time_limit {
-                SearchRunOptions::with_time(TimeControlMode::Byoyomi {
-                    time_per_move_ms: limit_ms,
                 })
                 .callback(callback)
             } else {
@@ -480,11 +470,6 @@ async fn abort_game_analysis_command(state: State<'_, AppState>) -> Result<(), S
 }
 
 #[tauri::command]
-fn get_app_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
-#[tauri::command]
 fn get_license_text() -> String {
     const NOTICE: &str = include_str!("../../../../NOTICE");
     const LICENSE: &str = include_str!("../../../../LICENSE");
@@ -526,7 +511,6 @@ pub fn run() {
             analyze_game_command,
             abort_game_analysis_command,
             solver_search_command,
-            get_app_version,
             get_license_text,
             get_third_party_licenses_text,
         ])
@@ -604,13 +588,5 @@ mod tests {
             let err = validate_selectivity(value).unwrap_err();
             assert!(err.contains("Invalid target_selectivity"), "got: {err}");
         }
-    }
-
-    #[test]
-    fn clamp_hash_size_preserves_bounds_and_clamps_outliers() {
-        assert_eq!(clamp_hash_size(0), 1);
-        assert_eq!(clamp_hash_size(1), 1);
-        assert_eq!(clamp_hash_size(16384), 16384);
-        assert_eq!(clamp_hash_size(16385), 16384);
     }
 }

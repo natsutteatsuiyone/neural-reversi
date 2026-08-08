@@ -19,11 +19,11 @@ import { useTranslation } from "react-i18next";
 
 export function AIAnalysisPanelHeader() {
   const { t } = useTranslation();
-  const isAIThinking = useReversiStore((state) => state.isAIThinking);
+  const isAIThinking = useReversiStore((state) => state.engineActivity.kind === "ai-move");
   const aiThinkingHistory = useReversiStore((state) => state.aiThinkingHistory);
   const isOpen = useReversiStore((state) => state.aiAnalysisPanelOpen);
   const setIsOpen = useReversiStore((state) => state.setAIAnalysisPanelOpen);
-  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
+  const isGameAnalyzing = useReversiStore((state) => state.engineActivity.kind === "game-analysis");
   const gameAnalysisResult = useReversiStore((state) => state.gameAnalysisResult);
   const moveHistory = useReversiStore((state) => state.moveHistory);
 
@@ -88,8 +88,8 @@ export function AIAnalysisPanelHeader() {
 
 export function AIAnalysisPanelContent() {
   const { t } = useTranslation();
-  const isAIThinking = useReversiStore((state) => state.isAIThinking);
-  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
+  const isAIThinking = useReversiStore((state) => state.engineActivity.kind === "ai-move");
+  const isGameAnalyzing = useReversiStore((state) => state.engineActivity.kind === "game-analysis");
   const analyzeGame = useReversiStore((state) => state.analyzeGame);
   const abortGameAnalysis = useReversiStore((state) => state.abortGameAnalysis);
   const moveHistory = useReversiStore((state) => state.moveHistory);
@@ -133,10 +133,7 @@ export function AIAnalysisPanelContent() {
                   onValueChange={(v) => setGameAnalysisLevel(Number(v))}
                   disabled={isGameAnalyzing}
                 >
-                  <SelectTrigger
-                    size="sm"
-                    className="h-6 min-w-[3rem] border-card-border bg-white/5 px-2 py-0 text-xs text-foreground-secondary"
-                  >
+                  <SelectTrigger className="h-6 min-w-[3rem] border-card-border bg-white/5 px-2 py-0 text-xs text-foreground-secondary">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="border-card-border">

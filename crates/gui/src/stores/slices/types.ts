@@ -37,7 +37,6 @@ export interface GameSlice {
   currentPlayer: "black" | "white";
   gameOver: boolean;
   gameStatus: "waiting" | "playing" | "finished";
-  isPass: boolean;
   lastMove: Move | null;
   validMoves: [number, number][];
   skipAnimation: boolean;
@@ -54,12 +53,10 @@ export interface GameSlice {
   isAITurn: () => boolean;
   isValidMove: (row: number, col: number) => boolean;
   makeMove: (move: Move) => Promise<void>;
-  makePass: () => void;
   undoMove: () => void;
   redoMove: () => void;
   goToMove: (position: number) => void;
   resumeAI: () => void;
-  resetGame: () => Promise<void>;
   startGame: (settings?: NewGameSettings) => Promise<boolean>;
   /**
    * Auto-start a fresh game on app launch using the hydrated (previously
@@ -67,7 +64,6 @@ export interface GameSlice {
    * play unprompted; the user resumes via the AI card's Resume button.
    */
   startInitialGame: () => Promise<boolean>;
-  setGameStatus: (status: "waiting" | "playing" | "finished") => void;
 }
 
 export interface AIThinkingEntry extends AIMoveProgress {
@@ -78,7 +74,6 @@ export interface AISlice {
   aiLevel: number;
   aiMoveProgress: AIMoveProgress | null;
   aiThinkingHistory: AIThinkingEntry[];
-  isAIThinking: boolean;
   lastAIMove: AIMoveResult | null;
   aiMode: AIMode;
   aiRemainingTime: number;
@@ -86,9 +81,6 @@ export interface AISlice {
   makeAIMove: () => Promise<void>;
   stopAIMove: () => Promise<void>;
   abortAIMove: () => Promise<void>;
-  setAILevelChange: (level: number) => void;
-  setAIMode: (mode: AIMode) => void;
-  clearAiThinkingHistory: () => void;
 }
 
 export type { MoveAnalysis };
@@ -101,13 +93,11 @@ export interface UISlice {
    * the game-over toast fires once per actual finish.
    */
   showGameOverNotification: boolean;
-  isAnalyzing: boolean;
   hintAnalysisAbortPending: boolean;
   analyzeResults: Map<string, AIMoveProgress> | null;
   isNewGameModalOpen: boolean;
   isAboutModalOpen: boolean;
   isHintMode: boolean;
-  isGameAnalyzing: boolean;
   gameAnalysisResult: MoveAnalysis[] | null;
   hidePassNotification: () => void;
   hideGameOverNotification: () => void;
@@ -129,7 +119,6 @@ export interface UISlice {
 
 export interface SettingsSlice {
   gameMode: GameMode;
-  timeLimit: number;
   gameTimeLimit: number;
   hintLevel: number;
   gameAnalysisLevel: number;
@@ -139,9 +128,6 @@ export interface SettingsSlice {
   bottomPanelSize: number;
   language: Language | null;
   hydrateSettings: (settings: AppSettings) => void;
-  setGameMode: (mode: GameMode) => void;
-  setTimeLimit: (limit: number) => void;
-  setGameTimeLimit: (limit: number) => void;
   setHintLevel: (level: number) => void;
   setGameAnalysisLevel: (level: number) => void;
   setHashSize: (size: number) => void;
@@ -163,7 +149,6 @@ export interface SetupSlice {
   resetSetup: () => void;
   setSetupTab: (tab: SetupTab) => void;
   setSetupCurrentPlayer: (player: Player) => void;
-  setSetupBoard: (board: Board) => void;
   setSetupCellColor: (row: number, col: number) => void;
   setTranscriptInput: (input: string) => void;
   setBoardStringInput: (input: string) => void;
@@ -188,15 +173,10 @@ export interface SolverConfig {
 export interface SolverSlice {
   isSolverActive: boolean;
   isSolverModalOpen: boolean;
-  solverRootBoard: Board | null;
-  solverRootPlayer: Player | null;
   solverHistory: SolverHistoryEntry[];
-  solverCurrentBoard: Board | null;
-  solverCurrentPlayer: Player | null;
   targetSelectivity: SolverSelectivity;
   solverMode: SolverMode;
   solverCandidates: Map<string, SolverCandidate>;
-  isSolverSearching: boolean;
   /**
    * True only while the current search has been explicitly paused by the
    * user via `stopSolverSearch`. Cleared when any new search launches
@@ -208,7 +188,6 @@ export interface SolverSlice {
   openSolverModal: () => void;
   closeSolverModal: () => void;
   subscribeSolverProgress: () => Promise<() => void>;
-  startSolver: (board: Board, player: Player, config?: SolverConfig) => Promise<boolean>;
   startSolverFromSetup: (config?: SolverConfig) => Promise<boolean>;
   exitSolver: () => Promise<void>;
   advanceSolver: (row: number, col: number) => Promise<void>;
@@ -221,10 +200,9 @@ export interface SolverSlice {
 }
 
 /**
- * The single Engine Activity (CONTEXT.md → Engine Activity), mirrored from
- * EngineSearch. The four feature "busy" booleans are views of
- * `engineActivity.kind`; nothing mutates this directly except the
- * EngineSearch activity callback wired in `createReversiStore`.
+ * The single Engine Activity mirrored from EngineSearch. Search status is
+ * derived from `engineActivity.kind`; nothing mutates this directly except
+ * the EngineSearch activity callback wired in `createReversiStore`.
  */
 export interface EngineActivityState {
   engineActivity: EngineActivity;

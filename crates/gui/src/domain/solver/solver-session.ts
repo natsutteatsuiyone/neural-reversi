@@ -1,5 +1,5 @@
 import type { Board, Player } from "@/domain/game/types";
-import type { EngineSearch, RunOutcome } from "@/domain/engine/engine-search";
+import type { EngineActivity, EngineSearch, RunOutcome } from "@/domain/engine/engine-search";
 import type {
   SolverCandidate,
   SolverMode,
@@ -17,16 +17,12 @@ import { SolverResultCache } from "./solver-result-cache";
 
 export interface SolverSessionState {
   isSolverActive: boolean;
-  solverRootBoard: Board | null;
-  solverRootPlayer: Player | null;
   solverHistory: SolverHistoryEntry[];
-  solverCurrentBoard: Board | null;
-  solverCurrentPlayer: Player | null;
   targetSelectivity: SolverSelectivity;
   solverMode: SolverMode;
   solverCandidates: Map<string, SolverCandidate>;
-  isSolverSearching: boolean;
   isSolverStopped: boolean;
+  engineActivity: EngineActivity;
 }
 
 export type SolverSessionPatch = Partial<SolverSessionState>;
@@ -43,11 +39,11 @@ interface SolverSessionOptions {
 }
 
 /**
- * Owns Solver Session lifecycle: current position, navigation history,
- * candidate cache, stop/resume state, and stale Engine Search filtering.
- * Pure position/candidate/cache logic lives behind `solver-navigation`,
- * `solver-candidates`, and `solver-result-cache`; this class is the
- * Engine Search choreography only.
+ * Owns Solver Session lifecycle: position history, candidate cache,
+ * stop/resume state, and stale Engine Search filtering. Pure
+ * position/candidate/cache logic lives behind `solver-navigation`,
+ * `solver-candidates`, and `solver-result-cache`; this class owns only the
+ * Engine Search choreography.
  */
 export class SolverSession {
   private readonly solver: SolverService;
@@ -95,10 +91,6 @@ export class SolverSession {
       () =>
         this.commit({
           isSolverActive: true,
-          solverRootBoard: board,
-          solverRootPlayer: player,
-          solverCurrentBoard: board,
-          solverCurrentPlayer: player,
           solverHistory: [rootEntry],
           solverCandidates: new Map<string, SolverCandidate>(),
           isSolverStopped: false,
@@ -111,11 +103,7 @@ export class SolverSession {
   async exit(): Promise<void> {
     await this.supersede({
       isSolverActive: false,
-      solverRootBoard: null,
-      solverRootPlayer: null,
       solverHistory: [],
-      solverCurrentBoard: null,
-      solverCurrentPlayer: null,
       solverCandidates: new Map<string, SolverCandidate>(),
       isSolverStopped: false,
     });
@@ -123,8 +111,9 @@ export class SolverSession {
 
   async advance(row: number, col: number): Promise<void> {
     const current = this.read();
-    const currentBoard = current.solverCurrentBoard;
-    const currentPlayer = current.solverCurrentPlayer;
+    const currentPosition = current.solverHistory[current.solverHistory.length - 1];
+    const currentBoard = currentPosition?.board;
+    const currentPlayer = currentPosition?.player;
     if (!currentBoard || !currentPlayer) {
       return;
     }
@@ -136,8 +125,6 @@ export class SolverSession {
       // run so its stale progress is filtered before the final candidates land.
       await this.supersede((state) => ({
         solverHistory: [...state.solverHistory, nextPosition.entry],
-        solverCurrentBoard: nextPosition.board,
-        solverCurrentPlayer: nextPosition.player,
         solverCandidates: new Map<string, SolverCandidate>(),
         isSolverStopped: false,
       }));
@@ -155,8 +142,6 @@ export class SolverSession {
     if (cached) {
       await this.supersede((state) => ({
         solverHistory: [...state.solverHistory, nextPosition.entry],
-        solverCurrentBoard: nextPosition.board,
-        solverCurrentPlayer: nextPosition.player,
         solverCandidates: cached,
         isSolverStopped: false,
       }));
@@ -169,8 +154,6 @@ export class SolverSession {
       () =>
         this.commit((state) => ({
           solverHistory: [...state.solverHistory, nextPosition.entry],
-          solverCurrentBoard: nextPosition.board,
-          solverCurrentPlayer: nextPosition.player,
           solverCandidates: new Map<string, SolverCandidate>(),
           isSolverStopped: false,
         })),
@@ -195,16 +178,15 @@ export class SolverSession {
       initial.solverMode,
       {
         solverHistory: newHistory,
-        solverCurrentBoard: prevEntry.board,
-        solverCurrentPlayer: prevEntry.player,
       },
     );
   }
 
   async repointCurrent(): Promise<void> {
     const state = this.read();
-    const board = state.solverCurrentBoard;
-    const player = state.solverCurrentPlayer;
+    const currentPosition = state.solverHistory[state.solverHistory.length - 1];
+    const board = currentPosition?.board;
+    const player = currentPosition?.player;
     if (!state.isSolverActive || !board || !player) {
       return;
     }
@@ -214,7 +196,7 @@ export class SolverSession {
 
   async stop(): Promise<void> {
     const state = this.read();
-    if (!state.isSolverActive || !state.isSolverSearching) {
+    if (!state.isSolverActive || state.engineActivity.kind !== "solver") {
       return;
     }
 
@@ -223,12 +205,13 @@ export class SolverSession {
 
   async resume(): Promise<void> {
     const state = this.read();
-    if (!state.isSolverActive || state.isSolverSearching || !state.isSolverStopped) {
+    if (!state.isSolverActive || state.engineActivity.kind === "solver" || !state.isSolverStopped) {
       return;
     }
 
-    const board = state.solverCurrentBoard;
-    const player = state.solverCurrentPlayer;
+    const currentPosition = state.solverHistory[state.solverHistory.length - 1];
+    const board = currentPosition?.board;
+    const player = currentPosition?.player;
     if (!board || !player) {
       return;
     }
@@ -309,12 +292,7 @@ export class SolverSession {
     );
   }
 
-  /**
-   * Cache the completed result. `isSolverSearching` is no longer cleared
-   * here — it is a view of the Engine Activity (CONTEXT.md → Engine
-   * Activity): this run's teardown returns the activity to `idle` only while
-   * it is still the current run, which is exactly the old generation check.
-   */
+  /** Cache a naturally completed result. EngineSearch owns search activity. */
   private solverTeardown(
     board: Board,
     player: Player,

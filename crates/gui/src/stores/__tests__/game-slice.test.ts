@@ -63,8 +63,7 @@ describe("triggerAutomation", () => {
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove");
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
-    // triggerAutomation blocks while any in-game Engine Search is active
-    // (CONTEXT.md → Engine Activity); the busy booleans are its projection.
+    // triggerAutomation blocks while any in-game Engine Search is active.
     for (const kind of ["ai-move", "hint", "game-analysis"] as const) {
       makeAIMoveSpy.mockClear();
       analyzeBoardSpy.mockClear();
@@ -190,7 +189,7 @@ describe("makeMove", () => {
     ) {
       await Promise.resolve();
     }
-    expect(s.getState().isAnalyzing).toBe(true);
+    expect(s.getState().engineActivity.kind).toBe("hint");
 
     await s.getState().makeMove({ row: 2, col: 3, isAI: false });
 
@@ -244,7 +243,7 @@ describe("makeMove", () => {
   });
 
   it("does not move while game analysis is active", async () => {
-    store.setState({ isGameAnalyzing: true });
+    store.setState({ engineActivity: { kind: "game-analysis", runId: 1 } });
 
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
 
@@ -253,9 +252,9 @@ describe("makeMove", () => {
   });
 
   it("aborts analysis when a user move is made during analysis", async () => {
-    store.setState({ isAnalyzing: true });
+    store.setState({ engineActivity: { kind: "hint", runId: 1 } });
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(services.ai.abortSearch).toHaveBeenCalled();
   });
 
@@ -303,7 +302,6 @@ describe("makeMove", () => {
     expect(s.board[0][0].color).toBe("black");
     expect(s.showPassNotification).toBe("white");
     expect(s.currentPlayer).toBe("black");
-    expect(s.isPass).toBe(true);
     expect(s.moveHistory.length).toBe(2);
     expect(s.moveHistory.lastMove?.notation).toBe("Pass");
   });
@@ -387,44 +385,6 @@ describe("game over notification", () => {
     await store.getState().startGame();
 
     expect(store.getState().showGameOverNotification).toBe(false);
-  });
-});
-
-describe("makePass", () => {
-  let store: TestStore;
-
-  beforeEach(async () => {
-    ({ store } = createTestStore());
-    await store.getState().startGame();
-  });
-
-  it("switches currentPlayer", () => {
-    expect(store.getState().currentPlayer).toBe("black");
-    store.getState().makePass();
-    expect(store.getState().currentPlayer).toBe("white");
-  });
-
-  it("does not change the board content", () => {
-    const boardBefore = JSON.stringify(store.getState().board);
-    store.getState().makePass();
-    const boardAfter = JSON.stringify(store.getState().board);
-    expect(boardAfter).toBe(boardBefore);
-  });
-
-  it("appends pass record to moveHistory", () => {
-    store.getState().makePass();
-    const s = store.getState();
-    expect(s.moveHistory.length).toBe(1);
-    expect(s.moveHistory.totalLength).toBe(1);
-    expect(s.moveHistory.currentMoves[0].row).toBe(-1);
-    expect(s.moveHistory.currentMoves[0].col).toBe(-1);
-    expect(s.moveHistory.currentMoves[0].notation).toBe("Pass");
-  });
-
-  it("sets isPass to true", () => {
-    expect(store.getState().isPass).toBe(false);
-    store.getState().makePass();
-    expect(store.getState().isPass).toBe(true);
   });
 });
 
@@ -515,7 +475,6 @@ describe("undoMove", () => {
   it("does nothing while game analysis is active", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.setState({
-      isGameAnalyzing: true,
       engineActivity: { kind: "game-analysis", runId: 1 },
     });
 
@@ -527,7 +486,6 @@ describe("undoMove", () => {
   it("does nothing while an AI-move search is active", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.setState({
-      isAIThinking: true,
       engineActivity: { kind: "ai-move", runId: 1 },
     });
 
@@ -622,7 +580,6 @@ describe("redoMove", () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.getState().undoMove();
     store.setState({
-      isGameAnalyzing: true,
       engineActivity: { kind: "game-analysis", runId: 1 },
     });
 
@@ -644,7 +601,6 @@ describe("goToMove", () => {
   it("does nothing while game analysis is active", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.setState({
-      isGameAnalyzing: true,
       engineActivity: { kind: "game-analysis", runId: 1 },
     });
 
@@ -652,81 +608,6 @@ describe("goToMove", () => {
 
     expect(store.getState().moveHistory.length).toBe(1);
     expect(store.getState().currentPlayer).toBe("white");
-  });
-});
-
-describe("resetGame", () => {
-  it("resets to initial board state", async () => {
-    const { store } = createTestStore();
-    await store.getState().startGame();
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-
-    await store.getState().resetGame();
-    const s = store.getState();
-    expect(s.gameStatus).toBe("waiting");
-    expect(s.moveHistory.length).toBe(0);
-    expect(s.moveHistory.totalLength).toBe(0);
-    expect(s.currentPlayer).toBe("black");
-    expect(s.gameOver).toBe(false);
-    expect(s.lastMove).toBeNull();
-    expect(s.validMoves).toHaveLength(0);
-    expect(s.isPass).toBe(false);
-  });
-
-  it("clears AI-related state", async () => {
-    const { store } = createTestStore();
-    await store.getState().startGame();
-    store.setState({
-      isAIThinking: true,
-      analyzeResults: new Map([["2,3", {} as never]]),
-      aiMoveProgress: { bestMove: "d3" } as never,
-    });
-
-    await store.getState().resetGame();
-    const s = store.getState();
-    expect(s.isAIThinking).toBe(false);
-    expect(s.isAnalyzing).toBe(false);
-    expect(s.analyzeResults).toBeNull();
-    expect(s.aiMoveProgress).toBeNull();
-    expect(s.lastAIMove).toBeNull();
-  });
-
-  it("calls abortAIMove when AI is thinking", async () => {
-    const { store } = createTestStore();
-    await store.getState().startGame();
-    store.setState({ isAIThinking: true });
-    const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
-
-    await store.getState().resetGame();
-    expect(abortSpy).toHaveBeenCalled();
-  });
-
-  it("does not run a scheduled automation step after the game is reset", async () => {
-    vi.useFakeTimers();
-    try {
-      const { store } = createTestStore();
-      // White is the AI; Black (human) plays a flipping move, which schedules
-      // the post-flip auto-step.
-      await store.getState().startGame({
-        gameMode: "ai-white",
-        aiLevel: 5,
-        aiMode: "level",
-        gameTimeLimit: 60,
-      });
-      const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
-      await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-
-      // Reset before the scheduled step fires: Automation must cancel it so
-      // the AI never moves on the fresh board.
-      await store.getState().resetGame();
-      vi.advanceTimersByTime(10_000);
-      await Promise.resolve();
-
-      expect(makeAIMoveSpy).not.toHaveBeenCalled();
-      expect(store.getState().gameStatus).toBe("waiting");
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 
@@ -795,7 +676,7 @@ describe("startGame", () => {
       gameStatus: "playing",
       gameMode: "ai-black",
       currentPlayer: "black",
-      isAIThinking: true,
+      engineActivity: { kind: "ai-move", runId: 1 },
     });
     const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
 
@@ -803,7 +684,7 @@ describe("startGame", () => {
 
     expect(started).toBe(false);
     expect(abortSpy).not.toHaveBeenCalled();
-    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("ai-move");
     expect(store.getState().gameStatus).toBe("playing");
   });
 
@@ -817,7 +698,7 @@ describe("startGame", () => {
       gameStatus: "playing",
       gameMode: "ai-black",
       currentPlayer: "black",
-      isAIThinking: true,
+      engineActivity: { kind: "ai-move", runId: 1 },
       aiLevel: 21,
       aiMode: "game-time",
       gameTimeLimit: 60,
@@ -865,7 +746,7 @@ describe("startGame", () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
     store.setState({
       gameMode: "ai-white",
-      isGameAnalyzing: true,
+      engineActivity: { kind: "game-analysis", runId: 1 },
     });
     const makeAIMoveSpy = vi.spyOn(store.getState(), "makeAIMove").mockResolvedValue(undefined);
 
@@ -877,12 +758,12 @@ describe("startGame", () => {
     });
 
     expect(started).toBe(false);
-    // analyzeGame commits isGameAnalyzing synchronously via onClaim; loop is now a no-op guard.
-    for (let i = 0; i < 10 && !store.getState().isGameAnalyzing; i++) {
+    // The resumed analysis claims Engine Activity synchronously.
+    for (let i = 0; i < 10 && store.getState().engineActivity.kind !== "game-analysis"; i++) {
       await Promise.resolve();
     }
     expect(services.ai.analyzeGame).toHaveBeenCalled();
-    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
     // Automation is deferred (its queue flag is private to the Automation
     // closure); the observable proxy is that the AI does not move yet.
     expect(makeAIMoveSpy).not.toHaveBeenCalled();
@@ -900,8 +781,6 @@ describe("startGame", () => {
     // Seed a solver session as if the user had been exploring a position.
     store.setState({
       isSolverActive: true,
-      solverCurrentBoard: store.getState().board,
-      solverCurrentPlayer: "black",
       solverHistory: [{ board: store.getState().board, player: "black", moveFrom: null }],
     });
 
@@ -914,7 +793,6 @@ describe("startGame", () => {
     expect(services.solver.abort).toHaveBeenCalledTimes(2);
     const s = store.getState();
     expect(s.isSolverActive).toBe(false);
-    expect(s.solverCurrentBoard).toBeNull();
     expect(s.solverHistory).toEqual([]);
     expect(s.gameStatus).toBe("playing");
   });
@@ -929,11 +807,7 @@ describe("startGame", () => {
     const rootEntry = { board: solverBoard, player: "black" as const, moveFrom: null };
     store.setState({
       isSolverActive: true,
-      solverRootBoard: solverBoard,
-      solverRootPlayer: "black",
       solverHistory: [rootEntry],
-      solverCurrentBoard: solverBoard,
-      solverCurrentPlayer: "black",
     });
 
     const started = await store.getState().startGame();
@@ -945,15 +819,15 @@ describe("startGame", () => {
     expect(services.solver.abort).toHaveBeenCalledTimes(1);
     const s = store.getState();
     expect(s.isSolverActive).toBe(true);
-    expect(s.solverCurrentBoard).toBe(solverBoard);
-    expect(s.solverCurrentPlayer).toBe("black");
+    expect(s.solverHistory[s.solverHistory.length - 1]?.board).toBe(solverBoard);
+    expect(s.solverHistory[s.solverHistory.length - 1]?.player).toBe("black");
     expect(s.solverHistory).toHaveLength(1);
   });
 
   it("aborts ongoing game analysis before starting a new game", async () => {
     const { store } = createTestStore();
     store.setState({
-      isGameAnalyzing: true,
+      engineActivity: { kind: "game-analysis", runId: 1 },
       gameAnalysisResult: [{ moveIndex: 0 } as never],
     });
     const abortSpy = vi.spyOn(store.getState(), "abortGameAnalysis");
@@ -962,7 +836,7 @@ describe("startGame", () => {
 
     expect(started).toBe(true);
     expect(abortSpy).toHaveBeenCalled();
-    expect(store.getState().isGameAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(store.getState().gameAnalysisResult).toBeNull();
   });
 });
@@ -1034,19 +908,5 @@ describe("resumeAI", () => {
 
     expect(store.getState().paused).toBe(false);
     expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("setGameStatus", () => {
-  it("sets gameStatus to the given value", () => {
-    const { store } = createTestStore();
-    store.getState().setGameStatus("playing");
-    expect(store.getState().gameStatus).toBe("playing");
-
-    store.getState().setGameStatus("finished");
-    expect(store.getState().gameStatus).toBe("finished");
-
-    store.getState().setGameStatus("waiting");
-    expect(store.getState().gameStatus).toBe("waiting");
   });
 });

@@ -31,11 +31,14 @@ export function useBoardScene(): Board3DSceneProps {
   const aiMoveProgress = useReversiStore((state) => state.aiMoveProgress);
   const analyzeResults = useReversiStore((state) => state.analyzeResults);
   const skipAnimation = useReversiStore((state) => state.skipAnimation);
-  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
+  const isGameAnalyzing = useReversiStore((state) => state.engineActivity.kind === "game-analysis");
 
   const isSolverActive = useReversiStore((state) => state.isSolverActive);
-  const solverCurrentBoard = useReversiStore((state) => state.solverCurrentBoard);
-  const solverCurrentPlayer = useReversiStore((state) => state.solverCurrentPlayer);
+  const solverCurrentPosition = useReversiStore(
+    (state) => state.solverHistory[state.solverHistory.length - 1],
+  );
+  const solverBoard = solverCurrentPosition?.board;
+  const solverPlayer = solverCurrentPosition?.player;
   const solverCandidates = useReversiStore((state) => state.solverCandidates);
   const solverMode = useReversiStore((state) => state.solverMode);
   const advanceSolver = useReversiStore((state) => state.advanceSolver);
@@ -48,11 +51,11 @@ export function useBoardScene(): Board3DSceneProps {
   } | null>(null);
 
   const solverLegalMoves = useMemo(() => {
-    if (!isSolverActive || !solverCurrentBoard || !solverCurrentPlayer) {
+    if (!isSolverActive || !solverBoard || !solverPlayer) {
       return null;
     }
-    return getValidMoves(solverCurrentBoard, solverCurrentPlayer);
-  }, [isSolverActive, solverCurrentBoard, solverCurrentPlayer]);
+    return getValidMoves(solverBoard, solverPlayer);
+  }, [isSolverActive, solverBoard, solverPlayer]);
 
   const isValidSolverMove = useCallback(
     (row: number, col: number) => {
@@ -147,7 +150,7 @@ export function useBoardScene(): Board3DSceneProps {
   );
 
   return {
-    board: isSolverActive && solverCurrentBoard ? solverCurrentBoard : board,
+    board: isSolverActive && solverBoard ? solverBoard : board,
     lastMove: isSolverActive ? null : lastMove,
     gameOver: isSolverActive ? false : gameOver,
     isValidMove: isSolverActive ? isValidSolverMove : isValidGameMove,

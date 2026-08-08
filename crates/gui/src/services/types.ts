@@ -24,7 +24,6 @@ export interface AIService {
     board: Board,
     player: Player,
     level: number,
-    timeLimit: number | undefined,
     remainingTime: number | undefined,
     callback: (progress: AIMoveProgress) => void,
   ): Promise<AIMoveResult>;
@@ -54,7 +53,6 @@ export interface AppSettings {
   gameMode: GameMode;
   aiLevel: number;
   aiMode: AIMode;
-  timeLimit: number;
   gameTimeLimit: number;
   hintLevel: number;
   gameAnalysisLevel: number;
@@ -71,7 +69,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   gameMode: "ai-black",
   aiLevel: 21,
   aiMode: "game-time",
-  timeLimit: 1,
   gameTimeLimit: 60,
   hintLevel: 21,
   gameAnalysisLevel: 20,

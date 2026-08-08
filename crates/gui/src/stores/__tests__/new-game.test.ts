@@ -66,10 +66,6 @@ describe("createNewGamePatch", () => {
     expect(patch.currentPlayer).toBe("white");
     expect(patch.board).toBe(board);
     expect(patch.engineActivity).toEqual({ kind: "idle", runId: 0 });
-    expect(patch.isAIThinking).toBe(false);
-    expect(patch.isAnalyzing).toBe(false);
-    expect(patch.isGameAnalyzing).toBe(false);
-    expect(patch.isSolverSearching).toBe(false);
   });
 });
 

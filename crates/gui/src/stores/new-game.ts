@@ -1,6 +1,6 @@
 import type { Board, Player } from "@/domain/game/types";
 import { createGameStartState } from "@/domain/game/store-helpers";
-import { idleEngineActivityPatch } from "@/stores/engine-activity";
+import { IDLE_ENGINE_ACTIVITY } from "@/stores/engine-activity";
 import type { Services } from "@/services/types";
 import type { NewGameSettings, ReversiState } from "./slices/types";
 
@@ -26,16 +26,7 @@ export function resolveNewGameSettings(
 }
 
 /**
- * The full store patch that installs a new game at `position` with the
- * resolved `settings`: the fresh start state, the idle Engine Activity
- * projection, and the settings fields.
- *
- * Concentrates the parts every starter would otherwise repeat — the
- * seconds→ms clock conversion (`gameTimeLimit * 1000`), the
- * `createGameStartState` + `idleEngineActivityPatch` composition, and the
- * settings-field spread — so they live in exactly one place (CONTEXT.md →
- * New Game Settings). Callers add only what is genuinely caller-specific
- * (e.g. `setupError: null`).
+ * Build the full store patch for a new game, including idle Engine Activity.
  */
 export function createNewGamePatch(
   settings: NewGameSettings,
@@ -48,7 +39,7 @@ export function createNewGamePatch(
       "playing",
       settings.gameTimeLimit * 1000,
     ),
-    ...idleEngineActivityPatch(),
+    engineActivity: IDLE_ENGINE_ACTIVITY,
     gameMode: settings.gameMode,
     aiLevel: settings.aiLevel,
     aiMode: settings.aiMode,

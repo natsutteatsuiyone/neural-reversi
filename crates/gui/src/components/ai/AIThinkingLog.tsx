@@ -23,7 +23,7 @@ export function AIThinkingLog() {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const aiThinkingHistory = useReversiStore((state) => state.aiThinkingHistory);
-  const isAIThinking = useReversiStore((state) => state.isAIThinking);
+  const isAIThinking = useReversiStore((state) => state.engineActivity.kind === "ai-move");
 
   const prevHistoryLengthRef = useRef(aiThinkingHistory.length);
 

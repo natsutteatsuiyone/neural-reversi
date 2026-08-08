@@ -20,12 +20,9 @@ describe("setHintMode", () => {
 
   it("aborts only hint analysis when disabling during analysis", async () => {
     const { store, services } = createTestStore();
-    // A hint analysis is the current Engine Activity (CONTEXT.md → Engine
-    // Activity); `isAnalyzing` is its projection.
+    // A hint analysis is the current Engine Activity.
     store.setState({
       isHintMode: true,
-      isAnalyzing: true,
-      isAIThinking: false,
       engineActivity: { kind: "hint", runId: 1 },
       analyzeResults: new Map([["2,3", {} as never]]),
     });
@@ -36,27 +33,23 @@ describe("setHintMode", () => {
     await Promise.resolve();
 
     expect(store.getState().isHintMode).toBe(false);
-    // Unified abort semantics: the engine is idle at abort-request, so the
-    // hint busy projection clears immediately (previously hint-specific:
-    // it stayed true until the backend abort settled).
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
     expect(store.getState().analyzeResults).toBeNull();
     expect(services.ai.abortSearch).toHaveBeenCalledTimes(1);
   });
 
-  it("does not abort AI thinking when disabling hint mode", () => {
+  it("does not abort an AI move when disabling hint mode", () => {
     const { store, services } = createTestStore();
     store.setState({
       isHintMode: true,
-      isAIThinking: true,
-      isAnalyzing: false,
+      engineActivity: { kind: "ai-move", runId: 1 },
     });
 
     store.getState().setHintMode(false);
 
     expect(store.getState().isHintMode).toBe(false);
-    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("ai-move");
     expect(services.ai.abortSearch).not.toHaveBeenCalled();
   });
 
@@ -70,17 +63,14 @@ describe("setHintMode", () => {
 
     store.setState({
       isHintMode: true,
-      isAnalyzing: true,
-      isAIThinking: false,
       engineActivity: { kind: "hint", runId: 1 },
     });
 
     store.getState().setHintMode(false);
     await Promise.resolve();
-    // Engine is idle at abort-request (unified semantics), but the dedupe
-    // guard persists until the backend abort actually resolves so a same-tick
-    // setHintLevel cannot issue a redundant abort.
-    expect(store.getState().isAnalyzing).toBe(false);
+    // Engine Activity is idle at abort request, but the dedupe guard persists
+    // until the backend abort resolves.
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(store.getState().hintAnalysisAbortPending).toBe(true);
 
     abortDeferred.resolve();
@@ -88,7 +78,7 @@ describe("setHintMode", () => {
     await Promise.resolve();
 
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
   });
 
   it("restarts hint analysis only after the pending abort completes", async () => {
@@ -102,8 +92,7 @@ describe("setHintMode", () => {
 
     store.setState({
       isHintMode: true,
-      isAnalyzing: true,
-      isAIThinking: false,
+      engineActivity: { kind: "hint", runId: 1 },
     });
 
     store.getState().setHintMode(false);
@@ -189,7 +178,6 @@ describe("setHintMode", () => {
     store.setState({
       gameStatus: "playing",
       isHintMode: false,
-      isAIThinking: false,
       currentPlayer: "black",
       gameMode: "pvp",
     });
@@ -269,7 +257,10 @@ describe("setHintMode", () => {
         abortSearch: vi.fn().mockReturnValue(abortDeferred.promise),
       }),
     });
-    store.setState({ isHintMode: true, isAnalyzing: true, isAIThinking: false });
+    store.setState({
+      isHintMode: true,
+      engineActivity: { kind: "hint", runId: 1 },
+    });
 
     // Hint abort claims the guard, then stalls on its slow backend abort.
     store.getState().setHintMode(false);
@@ -305,19 +296,18 @@ describe("setHintMode", () => {
     store.setState({ gameMode: "pvp" }); // isAITurn() === false so analyzeBoard's guard passes
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
 
-    // Game analysis installs a live EngineSearch run. isGameAnalyzing flips
-    // synchronously (claim); wait for the backend run to actually start so
-    // the hint claim below captures the game run as its prior.
+    // Game analysis claims activity synchronously; wait until its backend run
+    // starts so the hint claim captures it as the prior run.
     void store.getState().analyzeGame();
     for (let i = 0; i < 10 && analyzeGameMock.mock.calls.length === 0; i++) await Promise.resolve();
-    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     // Enabling hint mode queues a hint analyzeBoard start; its claim()
     // supersedes the live game run and stamps the hint activity synchronously
     // (CONTEXT.md → Engine Activity), then stalls on the SLOW abortGameAnalysis.
     store.getState().setHintMode(true);
     await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("hint");
 
     // User turns hint mode off while the hint start is still queued. The hint
     // activity is current, so this supersedes the queued hint start via a
@@ -325,14 +315,13 @@ describe("setHintMode", () => {
     store.getState().setHintMode(false);
     expect(store.getState().isHintMode).toBe(false);
 
-    // Slow supersede resolves: the queued hint start is superseded-before-
-    // install, so it bails without ever launching a backend search, and the
-    // hint busy projection is not stranded.
+    // Slow supersede resolves: the queued hint start never launches a backend
+    // search and its activity is not stranded.
     gameAbortDeferred.resolve();
     for (let i = 0; i < 12; i++) await Promise.resolve();
 
     expect(analyzeSpy).not.toHaveBeenCalled();
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
 
     gameRunDeferred.resolve();
   });
@@ -349,13 +338,13 @@ describe("setHintMode", () => {
 
     const aiPending = store.getState().makeAIMove();
     await Promise.resolve();
-    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("ai-move");
 
     store.getState().setHintMode(false);
     await Promise.resolve();
 
     expect(services.ai.abortSearch).not.toHaveBeenCalled();
-    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("ai-move");
 
     moveDeferred.resolve(null);
     await aiPending;
@@ -386,20 +375,18 @@ describe("Engine Activity ownership", () => {
     // A hint analysis is the live Engine Activity.
     store.getState().setHintMode(true);
     for (let i = 0; i < 10 && analyzeMock.mock.calls.length === 0; i++) await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("hint");
 
     // Game analysis supersedes the hint run and becomes the current activity.
     void store.getState().analyzeGame();
     for (let i = 0; i < 10 && analyzeGameMock.mock.calls.length === 0; i++) await Promise.resolve();
-    expect(store.getState().isGameAnalyzing).toBe(true);
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     // The superseded hint run resolves late: its teardown must NOT return the
     // activity to idle — the newer game-analysis run owns it now.
     hintRunDeferred.resolve();
     for (let i = 0; i < 20; i++) await Promise.resolve();
-    expect(store.getState().isGameAnalyzing).toBe(true);
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     gameRunDeferred.resolve();
     await Promise.resolve();
@@ -427,14 +414,15 @@ describe("analyzeGame", () => {
     // Hint analysis in flight: a live EngineSearch run with a slow abort.
     store.setState({ isHintMode: true });
     void store.getState().analyzeBoard();
-    for (let i = 0; i < 10 && !store.getState().isAnalyzing; i++) await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(true);
+    for (let i = 0; i < 10 && store.getState().engineActivity.kind !== "hint"; i++)
+      await Promise.resolve();
+    expect(store.getState().engineActivity.kind).toBe("hint");
 
     // Analyze Game queues behind the slow hint-abort supersede. It must mark
     // itself pending SYNCHRONOUSLY so the board/history stay locked while the
     // backend will run against the move list captured at call time.
     const gamePending = store.getState().analyzeGame();
-    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     // The user cannot mutate the history during the queued window.
     store.getState().undoMove();
@@ -444,7 +432,7 @@ describe("analyzeGame", () => {
     hintRunDeferred.resolve();
     gameRunDeferred.resolve();
     await gamePending;
-    expect(store.getState().isGameAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
   });
 
   it("clears the game-analysis pending flag when superseded before install", async () => {
@@ -466,18 +454,17 @@ describe("analyzeGame", () => {
     // Hint analysis in flight: a live EngineSearch run with a slow abort.
     store.setState({ isHintMode: true });
     void store.getState().analyzeBoard();
-    for (let i = 0; i < 10 && !store.getState().isAnalyzing; i++) await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(true);
+    for (let i = 0; i < 10 && store.getState().engineActivity.kind !== "hint"; i++)
+      await Promise.resolve();
+    expect(store.getState().engineActivity.kind).toBe("hint");
 
-    // analyzeGame commits isGameAnalyzing synchronously (onClaim), then queues
-    // behind the slow hint-abort supersede WITHOUT installing a run.
+    // Game analysis claims activity synchronously, then queues behind the
+    // slow hint-abort supersede without installing a run.
     const gamePending = store.getState().analyzeGame();
-    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
-    // A newer engine op (abortAIMove) claims a higher generation while
-    // analyzeGame is still queued — analyzeGame is now superseded BEFORE it
-    // installs. abortAIMove never touches isGameAnalyzing, so only
-    // analyzeGame's own guaranteed-once onTeardown can release the flag.
+    // A newer engine operation claims a higher generation before game analysis
+    // installs; guaranteed teardown must release its activity.
     const abortPending = store.getState().abortAIMove();
 
     abortDeferred.resolve();
@@ -485,9 +472,7 @@ describe("analyzeGame", () => {
     gameRunDeferred.resolve();
     await Promise.all([gamePending, abortPending]);
 
-    // The onClaim breadcrumb must be undone — the board/history must not be
-    // left permanently locked by a stranded isGameAnalyzing.
-    expect(store.getState().isGameAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
   });
 
   it("resumes queued automation that fired during game analysis", async () => {
@@ -509,9 +494,9 @@ describe("analyzeGame", () => {
       expect(store.getState().currentPlayer).toBe("white");
 
       const analysis = store.getState().analyzeGame();
-      // analyzeGame commits isGameAnalyzing synchronously via onClaim.
-      for (let i = 0; i < 10 && !store.getState().isGameAnalyzing; i++) await Promise.resolve();
-      expect(store.getState().isGameAnalyzing).toBe(true);
+      for (let i = 0; i < 10 && store.getState().engineActivity.kind !== "game-analysis"; i++)
+        await Promise.resolve();
+      expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
       vi.advanceTimersByTime(500);
       expect(makeAIMoveSpy).not.toHaveBeenCalled();
@@ -519,7 +504,7 @@ describe("analyzeGame", () => {
       analyzeDeferred.resolve();
       await analysis;
 
-      expect(store.getState().isGameAnalyzing).toBe(false);
+      expect(store.getState().engineActivity.kind).toBe("idle");
       expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -539,7 +524,7 @@ describe("analyzeGame", () => {
 
       await analysis;
 
-      expect(store.getState().isGameAnalyzing).toBe(false);
+      expect(store.getState().engineActivity.kind).toBe("idle");
       expect(makeAIMoveSpy).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(400);
@@ -567,15 +552,15 @@ describe("analyzeGame", () => {
 
       await store.getState().makeMove({ row: 2, col: 3, isAI: false });
       const analysis = store.getState().analyzeGame();
-      // analyzeGame commits isGameAnalyzing synchronously via onClaim.
-      for (let i = 0; i < 10 && !store.getState().isGameAnalyzing; i++) await Promise.resolve();
+      for (let i = 0; i < 10 && store.getState().engineActivity.kind !== "game-analysis"; i++)
+        await Promise.resolve();
 
       vi.advanceTimersByTime(500);
       expect(makeAIMoveSpy).not.toHaveBeenCalled();
 
       await store.getState().abortGameAnalysis();
 
-      expect(store.getState().isGameAnalyzing).toBe(false);
+      expect(store.getState().engineActivity.kind).toBe("idle");
       expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
 
       analyzeDeferred.resolve();
@@ -602,9 +587,9 @@ describe("analyzeGame", () => {
     store.setState({ paused: true });
 
     const analysis = store.getState().analyzeGame();
-    // analyzeGame commits isGameAnalyzing synchronously via onClaim.
-    for (let i = 0; i < 10 && !store.getState().isGameAnalyzing; i++) await Promise.resolve();
-    expect(store.getState().isGameAnalyzing).toBe(true);
+    for (let i = 0; i < 10 && store.getState().engineActivity.kind !== "game-analysis"; i++)
+      await Promise.resolve();
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     store.getState().resumeAI();
 
@@ -640,7 +625,7 @@ describe("analyzeGame", () => {
 
     await store.getState().abortGameAnalysis();
 
-    expect(store.getState().isGameAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     // Resume ran exactly once (queue flag is private to Automation).
     expect(makeAIMoveSpy).toHaveBeenCalledTimes(1);
 
@@ -712,14 +697,14 @@ describe("analyzeGame", () => {
 
     analyzeDeferred1.resolve();
     await first;
-    expect(store.getState().isGameAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     analyzeDeferred2.resolve();
     await second;
-    expect(store.getState().isGameAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
   });
 
-  it("game analysis supersedes an in-flight hint analysis (no stuck isAnalyzing)", async () => {
+  it("game analysis supersedes an in-flight hint analysis", async () => {
     const hintDeferred = createDeferred<void>();
     const gameDeferred = createDeferred<void>();
     const { store } = createTestStore({
@@ -737,25 +722,15 @@ describe("analyzeGame", () => {
 
     const hintPending = store.getState().analyzeBoard();
     await Promise.resolve();
-    expect(store.getState().isAnalyzing).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("hint");
 
     const gamePending = store.getState().analyzeGame();
-    // analyzeGame marks isGameAnalyzing synchronously (onClaim); the hint run's
-    // supersede (abort + teardown clearing isAnalyzing) still spans a few
-    // microtasks — wait on that, the actual cross-feature handover signal.
-    for (let i = 0; i < 10 && store.getState().isAnalyzing; i++) {
-      await Promise.resolve();
-    }
-
-    // Shared engine: starting game analysis superseded the hint run; its
-    // teardown ran exactly once. Pre-change (separate gameAnalysisSearch) this
-    // assertion fails because isAnalyzing is still true.
-    expect(store.getState().isAnalyzing).toBe(false);
-    expect(store.getState().isGameAnalyzing).toBe(true);
+    // Game analysis synchronously takes ownership from the hint run.
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     hintDeferred.resolve();
     await hintPending;
-    expect(store.getState().isAnalyzing).toBe(false); // stays cleared
+    expect(store.getState().engineActivity.kind).toBe("game-analysis");
 
     gameDeferred.resolve();
     await gamePending;

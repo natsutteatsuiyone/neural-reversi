@@ -39,11 +39,10 @@ function withClears(patch: GameHistoryPatch): Partial<ReversiState> {
  * The single entry rule every history step runs first: navigation is blocked
  * while an in-game Engine Search is active (CONTEXT.md → Engine Activity) —
  * undo/redo/goToMove would change the position out from under the running
- * search — and otherwise the pending auto-play step is cancelled. Concentrating
- * it here (instead of three slice methods each hand-coding a guard, with
- * `goToMove` using the canonical predicate and undo/redo using the narrower
- * `isGameAnalyzing`) keeps the slice methods one-line delegations and the
- * navigation rules one home (ADR-0003). Returns whether navigation may proceed.
+ * search — and otherwise the pending auto-play step is cancelled. Keeping the
+ * guard here leaves the slice methods as one-line delegations and the
+ * navigation rules in one home (ADR-0003). Returns whether navigation may
+ * proceed.
  */
 function beginNavigation(get: Get): boolean {
   if (isGameSearchActive(get().engineActivity)) return false;

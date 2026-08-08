@@ -3,29 +3,25 @@ import { useTranslation } from "react-i18next";
 import { Activity, X } from "lucide-react";
 import { useReversiStore } from "@/stores/use-reversi-store";
 import { cn } from "@/lib/utils";
-import { Stone } from "@/components/board";
+import { Stone } from "@/components/board/Stone";
 import { Button } from "@/components/ui/button";
-import {
-  getBestRoundedScore,
-  sortSolverCandidates,
-} from "@/domain/solver/solver-candidate-ordering";
 import { SolverControls } from "./SolverControls";
 import { SolverCandidateRow } from "./SolverCandidateRow";
 
 export function SolverPanel() {
   const { t } = useTranslation();
   const isSolverActive = useReversiStore((s) => s.isSolverActive);
-  const isSolverSearching = useReversiStore((s) => s.isSolverSearching);
+  const isSolverSearching = useReversiStore((s) => s.engineActivity.kind === "solver");
   const solverCandidates = useReversiStore((s) => s.solverCandidates);
-  const solverCurrentPlayer = useReversiStore((s) => s.solverCurrentPlayer);
+  const solverPlayer = useReversiStore((s) => s.solverHistory[s.solverHistory.length - 1]?.player);
   const advanceSolver = useReversiStore((s) => s.advanceSolver);
   const exitSolver = useReversiStore((s) => s.exitSolver);
 
   const sortedCandidates = useMemo(() => {
-    return sortSolverCandidates(solverCandidates.values());
+    return Array.from(solverCandidates.values()).sort((a, b) => b.score - a.score);
   }, [solverCandidates]);
 
-  const bestScore = getBestRoundedScore(sortedCandidates);
+  const bestScore = sortedCandidates.length > 0 ? Math.round(sortedCandidates[0].score) : null;
 
   const handleCandidateClick = useCallback(
     (row: number, col: number) => {
@@ -67,11 +63,11 @@ export function SolverPanel() {
           <span className="text-xs font-medium text-foreground-muted uppercase tracking-wide">
             {t("solver.candidates")}
           </span>
-          {solverCurrentPlayer && (
+          {solverPlayer && (
             <div className="flex items-center gap-2">
-              <Stone color={solverCurrentPlayer} size="sm" />
+              <Stone color={solverPlayer} size="sm" />
               <span className="text-sm font-medium text-foreground">
-                {t(`colors.${solverCurrentPlayer}`)}
+                {t(`colors.${solverPlayer}`)}
               </span>
             </div>
           )}

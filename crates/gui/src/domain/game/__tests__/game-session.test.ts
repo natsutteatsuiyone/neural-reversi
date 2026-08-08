@@ -117,7 +117,6 @@ describe("createPassTurnPatch", () => {
     expect(patch.currentPlayer).toBe("white");
     expect(patch.moveHistory.lastMove?.notation).toBe("Pass");
     expect(patch.moveHistory.lastMove?.remainingTime).toBe(12_345);
-    expect(patch.isPass).toBe(true);
   });
 });
 

@@ -8,7 +8,7 @@ import { SolverModeSelector } from "./SolverModeSelector";
 export function SolverControls() {
   const { t } = useTranslation();
   const solverHistory = useReversiStore((s) => s.solverHistory);
-  const isSolverSearching = useReversiStore((s) => s.isSolverSearching);
+  const isSolverSearching = useReversiStore((s) => s.engineActivity.kind === "solver");
   const isSolverStopped = useReversiStore((s) => s.isSolverStopped);
   const undoSolver = useReversiStore((s) => s.undoSolver);
   const stopSolverSearch = useReversiStore((s) => s.stopSolverSearch);

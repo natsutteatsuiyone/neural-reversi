@@ -35,15 +35,10 @@ export function createSolverSlice(
     return {
       isSolverActive: false,
       isSolverModalOpen: false,
-      solverRootBoard: null,
-      solverRootPlayer: null,
       solverHistory: [],
-      solverCurrentBoard: null,
-      solverCurrentPlayer: null,
       targetSelectivity: DEFAULT_SETTINGS.solverTargetSelectivity,
       solverMode: DEFAULT_SETTINGS.solverMode,
       solverCandidates: new Map(),
-      isSolverSearching: false,
       isSolverStopped: false,
 
       openSolverModal: () => {
@@ -54,15 +49,6 @@ export function createSolverSlice(
       closeSolverModal: () => set({ isSolverModalOpen: false }),
 
       subscribeSolverProgress: () => solverSession.subscribeProgress(),
-
-      startSolver: async (board, player, config) =>
-        runGameReplacement(services, get, set, {
-          kind: "solver-position",
-          board,
-          player,
-          config,
-          startSolver: (nextBoard, nextPlayer) => solverSession.start(nextBoard, nextPlayer),
-        }),
 
       startSolverFromSetup: async (config) =>
         runGameReplacement(services, get, set, {

@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "@/app/App";
 import { initI18n } from "@/i18n";
-import { defaultServices } from "@/services";
+import { defaultServices } from "@/services/default-services";
 
 async function bootstrap() {
   try {

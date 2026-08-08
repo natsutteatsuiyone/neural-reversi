@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDeferred, createTestStore } from "./test-helpers";
+import { createDeferred, createTestStore, type TestStore } from "./test-helpers";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createMockSolverService } from "@/services/mock-solver-service";
 import {
@@ -56,6 +56,16 @@ function latestSolverRunId(services: ReturnType<typeof createTestStore>["service
   return runId;
 }
 
+function startSolverFromPosition(store: TestStore, board: Board, player: Player): Promise<boolean> {
+  store.setState({
+    setupTab: "manual",
+    setupBoard: board,
+    setupCurrentPlayer: player,
+    setupError: null,
+  });
+  return store.getState().startSolverFromSetup();
+}
+
 describe("solver-slice initial state", () => {
   it("starts inactive with empty history and default selectivity", () => {
     const { store } = createTestStore();
@@ -64,13 +74,9 @@ describe("solver-slice initial state", () => {
     expect(state.isSolverActive).toBe(false);
     expect(state.isSolverModalOpen).toBe(false);
     expect(state.solverHistory).toEqual([]);
-    expect(state.solverRootBoard).toBeNull();
-    expect(state.solverRootPlayer).toBeNull();
-    expect(state.solverCurrentBoard).toBeNull();
-    expect(state.solverCurrentPlayer).toBeNull();
     expect(state.targetSelectivity).toBe(100);
     expect(state.solverCandidates.size).toBe(0);
-    expect(state.isSolverSearching).toBe(false);
+    expect(state.engineActivity.kind).toBe("idle");
   });
 });
 
@@ -108,7 +114,7 @@ describe("subscribeSolverProgress", () => {
       }),
     });
     const board = initializeBoard();
-    await store.getState().startSolver(board, "black");
+    await startSolverFromPosition(store, board, "black");
 
     const unsubscribe = await store.getState().subscribeSolverProgress();
     expect(progressCallbacks).toHaveLength(1);
@@ -129,54 +135,6 @@ describe("subscribeSolverProgress", () => {
 
     expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
     expect(unlisten).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("startSolver", () => {
-  it("enters solver mode and kicks off a search", async () => {
-    const { store, services } = createTestStore();
-    const board = initializeBoard();
-
-    const result = await store.getState().startSolver(board, "black");
-
-    expect(result).toBe(true);
-    const state = store.getState();
-    expect(state.isSolverActive).toBe(true);
-    expect(state.isSolverModalOpen).toBe(false);
-    expect(state.solverRootBoard).toBe(board);
-    expect(state.solverRootPlayer).toBe("black");
-    expect(state.solverCurrentBoard).toBe(board);
-    expect(state.solverCurrentPlayer).toBe("black");
-    expect(state.solverHistory).toHaveLength(1);
-    expect(state.solverHistory[0].moveFrom).toBeNull();
-    // The mock startSearch resolves synchronously, so runSolverSearch's
-    // finally block has already cleared the searching flag by the time
-    // startSolver returns. Real Tauri runs hang here until completion.
-    expect(state.isSolverSearching).toBe(false);
-    expect(services.solver.startSearch).toHaveBeenCalledTimes(1);
-    expect(services.solver.startSearch).toHaveBeenCalledWith(
-      board,
-      "black",
-      100,
-      "multiPv",
-      expect.any(Number),
-    );
-    expect(services.ai.initialize).toHaveBeenCalled();
-  });
-
-  it("bails out when replacement preparation fails", async () => {
-    const { store, services } = createTestStore({
-      ai: createMockAIService({
-        checkReady: vi.fn().mockRejectedValue(new Error("not ready")),
-      }),
-    });
-    const board = initializeBoard();
-
-    const result = await store.getState().startSolver(board, "black");
-
-    expect(result).toBe(false);
-    expect(store.getState().isSolverActive).toBe(false);
-    expect(services.solver.startSearch).not.toHaveBeenCalled();
   });
 });
 
@@ -263,7 +221,7 @@ describe("startSolverFromSetup", () => {
     expect(services.solver.startSearch).not.toHaveBeenCalled();
   });
 
-  it("startSolverFromSetup returns false and sets aiInitFailed when startSolver bails", async () => {
+  it("returns false and sets aiInitFailed when replacement preparation fails", async () => {
     const { store, services } = createTestStore({
       ai: createMockAIService({
         checkReady: vi.fn().mockRejectedValue(new Error("not ready")),
@@ -358,13 +316,9 @@ describe("exitSolver", () => {
     ]);
     store.setState({
       isSolverActive: true,
-      solverRootBoard: board,
-      solverRootPlayer: "black",
       solverHistory: [rootEntry],
-      solverCurrentBoard: board,
-      solverCurrentPlayer: "black",
       solverCandidates: candidates,
-      isSolverSearching: true,
+      engineActivity: { kind: "solver", runId: 1 },
       targetSelectivity: 95,
     });
 
@@ -373,13 +327,9 @@ describe("exitSolver", () => {
     expect(services.solver.abort).toHaveBeenCalledTimes(1);
     const state = store.getState();
     expect(state.isSolverActive).toBe(false);
-    expect(state.solverRootBoard).toBeNull();
-    expect(state.solverRootPlayer).toBeNull();
     expect(state.solverHistory).toEqual([]);
-    expect(state.solverCurrentBoard).toBeNull();
-    expect(state.solverCurrentPlayer).toBeNull();
     expect(state.solverCandidates.size).toBe(0);
-    expect(state.isSolverSearching).toBe(false);
+    expect(state.engineActivity.kind).toBe("idle");
     expect(state.targetSelectivity).toBe(95);
   });
 });
@@ -391,11 +341,7 @@ describe("advanceSolver", () => {
     const rootEntry = buildHistoryEntry(board, "black", null);
     store.setState({
       isSolverActive: true,
-      solverRootBoard: board,
-      solverRootPlayer: "black",
       solverHistory: [rootEntry],
-      solverCurrentBoard: board,
-      solverCurrentPlayer: "black",
       solverCandidates: new Map([
         [
           "0,0",
@@ -413,7 +359,6 @@ describe("advanceSolver", () => {
           },
         ],
       ]),
-      isSolverSearching: false,
     });
 
     await store.getState().advanceSolver(2, 3);
@@ -423,15 +368,14 @@ describe("advanceSolver", () => {
     const state = store.getState();
     expect(state.solverHistory).toHaveLength(2);
     expect(state.solverHistory[1].moveFrom).toBe(getNotation(2, 3));
-    expect(state.solverCurrentPlayer).toBe("white");
+    expect(state.solverHistory[state.solverHistory.length - 1]?.player).toBe("white");
 
     // The board should match applying the move on the original board.
     const expectedBoard = applyMove(board, { row: 2, col: 3, isAI: false, score: 0 }, "black");
-    expect(state.solverCurrentBoard).toEqual(expectedBoard);
+    expect(state.solverHistory[state.solverHistory.length - 1]?.board).toEqual(expectedBoard);
 
     expect(state.solverCandidates.size).toBe(0);
-    // Mock resolves synchronously ↁEfinally clears the flag.
-    expect(state.isSolverSearching).toBe(false);
+    expect(state.engineActivity.kind).toBe("idle");
 
     expect(services.solver.startSearch).toHaveBeenCalledTimes(1);
     expect(services.solver.startSearch).toHaveBeenCalledWith(
@@ -448,13 +392,8 @@ describe("advanceSolver", () => {
     const board = initializeBoard();
     store.setState({
       isSolverActive: true,
-      solverRootBoard: board,
-      solverRootPlayer: "black",
       solverHistory: [buildHistoryEntry(board, "black", null)],
-      solverCurrentBoard: board,
-      solverCurrentPlayer: "black",
       solverCandidates: new Map(),
-      isSolverSearching: false,
     });
 
     // Pretend the position after the move has zero legal moves for any player.
@@ -463,13 +402,13 @@ describe("advanceSolver", () => {
     await store.getState().advanceSolver(2, 3);
 
     const state = store.getState();
-    expect(state.isSolverSearching).toBe(false);
+    expect(state.engineActivity.kind).toBe("idle");
     expect(services.solver.startSearch).not.toHaveBeenCalled();
     // The advance itself still happened.
     expect(state.solverHistory).toHaveLength(2);
     expect(state.solverCandidates.size).toBe(0);
     // Both players empty ↁEgameOver, no auto-pass, turn stays flipped.
-    expect(state.solverCurrentPlayer).toBe("white");
+    expect(state.solverHistory[state.solverHistory.length - 1]?.player).toBe("white");
   });
 
   it("auto-passes when the next player has no moves but the current player still does", async () => {
@@ -477,13 +416,8 @@ describe("advanceSolver", () => {
     const board = initializeBoard();
     store.setState({
       isSolverActive: true,
-      solverRootBoard: board,
-      solverRootPlayer: "black",
       solverHistory: [buildHistoryEntry(board, "black", null)],
-      solverCurrentBoard: board,
-      solverCurrentPlayer: "black",
       solverCandidates: new Map(),
-      isSolverSearching: false,
     });
 
     // White (next player) has no moves, but black still does.
@@ -494,12 +428,11 @@ describe("advanceSolver", () => {
     const state = store.getState();
     expect(state.solverHistory).toHaveLength(2);
     // Auto-pass flipped the turn back to black.
-    expect(state.solverCurrentPlayer).toBe("black");
-    // Mock resolves synchronously ↁEfinally clears the flag.
-    expect(state.isSolverSearching).toBe(false);
+    expect(state.solverHistory[state.solverHistory.length - 1]?.player).toBe("black");
+    expect(state.engineActivity.kind).toBe("idle");
 
     const expectedBoard = applyMove(board, { row: 2, col: 3, isAI: false, score: 0 }, "black");
-    expect(state.solverCurrentBoard).toEqual(expectedBoard);
+    expect(state.solverHistory[state.solverHistory.length - 1]?.board).toEqual(expectedBoard);
     expect(services.solver.startSearch).toHaveBeenCalledWith(
       expectedBoard,
       "black",
@@ -518,14 +451,10 @@ describe("undoSolver", () => {
 
     store.setState({
       isSolverActive: true,
-      solverRootBoard: rootBoard,
-      solverRootPlayer: "black",
       solverHistory: [
         buildHistoryEntry(rootBoard, "black", null),
         buildHistoryEntry(secondBoard, "white", "d3"),
       ],
-      solverCurrentBoard: secondBoard,
-      solverCurrentPlayer: "white",
       solverCandidates: new Map([
         [
           "2,2",
@@ -543,7 +472,6 @@ describe("undoSolver", () => {
           },
         ],
       ]),
-      isSolverSearching: false,
     });
 
     await store.getState().undoSolver();
@@ -551,11 +479,10 @@ describe("undoSolver", () => {
     expect(services.solver.abort).toHaveBeenCalledTimes(1);
     const state = store.getState();
     expect(state.solverHistory).toHaveLength(1);
-    expect(state.solverCurrentBoard).toBe(rootBoard);
-    expect(state.solverCurrentPlayer).toBe("black");
+    expect(state.solverHistory[state.solverHistory.length - 1]?.board).toBe(rootBoard);
+    expect(state.solverHistory[state.solverHistory.length - 1]?.player).toBe("black");
     expect(state.solverCandidates.size).toBe(0);
-    // Mock resolves synchronously ↁEfinally clears the flag.
-    expect(state.isSolverSearching).toBe(false);
+    expect(state.engineActivity.kind).toBe("idle");
     expect(services.solver.startSearch).toHaveBeenCalledWith(
       rootBoard,
       "black",
@@ -578,17 +505,12 @@ describe("undoSolver", () => {
 
     store.setState({
       isSolverActive: true,
-      solverRootBoard: rootBoard,
-      solverRootPlayer: "black",
       solverHistory: [
         buildHistoryEntry(rootBoard, "black", null),
         buildHistoryEntry(secondBoard, "white", "d3"),
         buildHistoryEntry(thirdBoard, "black", "c3"),
       ],
-      solverCurrentBoard: thirdBoard,
-      solverCurrentPlayer: "black",
       solverCandidates: new Map(),
-      isSolverSearching: false,
     });
 
     const firstUndo = store.getState().undoSolver();
@@ -601,8 +523,8 @@ describe("undoSolver", () => {
 
     const state = store.getState();
     expect(state.solverHistory).toHaveLength(1);
-    expect(state.solverCurrentBoard).toBe(rootBoard);
-    expect(state.solverCurrentPlayer).toBe("black");
+    expect(state.solverHistory[state.solverHistory.length - 1]?.board).toBe(rootBoard);
+    expect(state.solverHistory[state.solverHistory.length - 1]?.player).toBe("black");
   });
 
   it("is a no-op when history length is 1", async () => {
@@ -610,12 +532,7 @@ describe("undoSolver", () => {
     const board = initializeBoard();
     store.setState({
       isSolverActive: true,
-      solverRootBoard: board,
-      solverRootPlayer: "black",
       solverHistory: [buildHistoryEntry(board, "black", null)],
-      solverCurrentBoard: board,
-      solverCurrentPlayer: "black",
-      isSolverSearching: false,
     });
 
     await store.getState().undoSolver();
@@ -632,11 +549,7 @@ describe("setTargetSelectivity", () => {
     const board = initializeBoard();
     store.setState({
       isSolverActive: true,
-      solverRootBoard: board,
-      solverRootPlayer: "black",
       solverHistory: [buildHistoryEntry(board, "black", null)],
-      solverCurrentBoard: board,
-      solverCurrentPlayer: "black",
       solverCandidates: new Map([
         [
           "2,3",
@@ -654,7 +567,7 @@ describe("setTargetSelectivity", () => {
           },
         ],
       ]),
-      isSolverSearching: true,
+      engineActivity: { kind: "solver", runId: 1 },
     });
 
     await store.getState().setTargetSelectivity(95);
@@ -671,8 +584,7 @@ describe("setTargetSelectivity", () => {
       expect.any(Number),
     );
     expect(state.solverCandidates.size).toBe(0);
-    // Mock resolves synchronously ↁEfinally clears the flag.
-    expect(state.isSolverSearching).toBe(false);
+    expect(state.engineActivity.kind).toBe("idle");
   });
 
   it("only updates state when solver is inactive", async () => {
@@ -695,9 +607,8 @@ describe("setTargetSelectivity", () => {
     const { store, services } = createTestStore();
     const board = initializeBoard();
 
-    // Start solver, then manually mark as "done searching".
-    await store.getState().startSolver(board, "black");
-    store.setState({ isSolverSearching: false });
+    // The initial synchronous mock search has already completed.
+    await startSolverFromPosition(store, board, "black");
     vi.mocked(services.solver.startSearch).mockClear();
     vi.mocked(services.solver.abort).mockClear();
 
@@ -713,8 +624,7 @@ describe("setTargetSelectivity", () => {
       "multiPv",
       expect.any(Number),
     );
-    // Mock resolves synchronously ↁEfinally clears the flag.
-    expect(store.getState().isSolverSearching).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
   });
 });
 
@@ -722,7 +632,7 @@ describe("applySolverProgress", () => {
   it("upserts a candidate keyed by row,col and parses the PV line", async () => {
     const { store, services } = createTestStore();
     const board = initializeBoard();
-    await store.getState().startSolver(board, "black");
+    await startSolverFromPosition(store, board, "black");
 
     const payload: SolverProgressPayload = {
       runId: latestSolverRunId(services),
@@ -754,7 +664,7 @@ describe("applySolverProgress", () => {
 
   it("marks a midgame candidate incomplete until depth reaches targetDepth", async () => {
     const { store, services } = createTestStore();
-    await store.getState().startSolver(initializeBoard(), "black");
+    await startSolverFromPosition(store, initializeBoard(), "black");
 
     const payload: SolverProgressPayload = {
       runId: latestSolverRunId(services),
@@ -781,7 +691,7 @@ describe("applySolverProgress", () => {
 
   it("marks an endgame candidate complete once acc reaches the target selectivity (< 100)", async () => {
     const { store, services } = createTestStore();
-    await store.getState().startSolver(initializeBoard(), "black");
+    await startSolverFromPosition(store, initializeBoard(), "black");
     store.setState({ targetSelectivity: 73 });
 
     const payload: SolverProgressPayload = {
@@ -828,7 +738,7 @@ describe("applySolverProgress", () => {
     expect(store.getState().solverCandidates.size).toBe(0);
 
     // Active, still searching  Eaccepted.
-    await store.getState().startSolver(initializeBoard(), "black");
+    await startSolverFromPosition(store, initializeBoard(), "black");
     store.getState().applySolverProgress({
       ...payload,
       runId: latestSolverRunId(services),
@@ -840,9 +750,9 @@ describe("applySolverProgress", () => {
     // Regression guard for the Codex review finding: late solver-progress
     // events from an aborted run must not leak into the state of the
     // newly-started run, even though `isSolverActive` stays true across
-    // startSolver/undo/reset/setTargetSelectivity restarts.
+    // root-start/undo/reset/selectivity-change restarts.
     const { store, services } = createTestStore();
-    await store.getState().startSolver(initializeBoard(), "black");
+    await startSolverFromPosition(store, initializeBoard(), "black");
     const staleRunId = latestSolverRunId(services);
     await store.getState().setTargetSelectivity(95);
     const currentRunId = latestSolverRunId(services);
@@ -871,7 +781,7 @@ describe("applySolverProgress", () => {
 
   it("in bestOnly mode keeps only the latest best move (drops earlier-selectivity picks)", async () => {
     const { store, services } = createTestStore();
-    await store.getState().startSolver(initializeBoard(), "black");
+    await startSolverFromPosition(store, initializeBoard(), "black");
     store.setState({
       solverMode: "bestOnly",
       targetSelectivity: 100,
@@ -911,7 +821,7 @@ describe("applySolverProgress", () => {
 
   it("in multiPv mode preserves earlier candidates as new ones arrive", async () => {
     const { store, services } = createTestStore();
-    await store.getState().startSolver(initializeBoard(), "black");
+    await startSolverFromPosition(store, initializeBoard(), "black");
     store.setState({
       solverMode: "multiPv",
       targetSelectivity: 100,
@@ -945,15 +855,11 @@ describe("applySolverProgress", () => {
     expect(store.getState().solverCandidates.size).toBe(2);
   });
 
-  it("accepts trailing payloads after isSolverSearching clears", async () => {
-    // Regression guard: runSolverSearch's finally block clears
-    // isSolverSearching as soon as startSearch resolves, but trailing
-    // solver-progress events can still be queued on the JS side.
-    // Those payloads must still reach the store so the final
-    // depth/accuracy update isn't lost.
+  it("accepts trailing payloads after solver activity clears", async () => {
+    // Solver progress can still be queued on the JS side after startSearch
+    // resolves; those payloads must still reach the store.
     const { store, services } = createTestStore();
-    await store.getState().startSolver(initializeBoard(), "black");
-    store.setState({ isSolverSearching: false });
+    await startSolverFromPosition(store, initializeBoard(), "black");
 
     const payload: SolverProgressPayload = {
       runId: latestSolverRunId(services),
@@ -976,7 +882,7 @@ describe("applySolverProgress", () => {
 });
 
 describe("runSolverSearch error handling", () => {
-  it("clears isSolverSearching when startSearch fails", async () => {
+  it("returns activity to idle when startSearch fails", async () => {
     const { store, services } = createTestStore({
       solver: createMockSolverService({
         startSearch: vi.fn().mockRejectedValue(new Error("boom")),
@@ -986,10 +892,10 @@ describe("runSolverSearch error handling", () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const board = initializeBoard();
-    await store.getState().startSolver(board, "black");
+    await startSolverFromPosition(store, board, "black");
 
-    expect(store.getState().isSolverSearching).toBe(false);
-    // Solver stays active  Eonly the searching flag is cleared.
+    expect(store.getState().engineActivity.kind).toBe("idle");
+    // Solver stays active; only search activity ends.
     expect(store.getState().isSolverActive).toBe(true);
     expect(consoleErrorSpy).toHaveBeenCalled();
     expect(services.solver.startSearch).toHaveBeenCalledTimes(1);
@@ -1025,32 +931,31 @@ describe("runSolverSearch error handling", () => {
     const board = initializeBoard();
 
     // Kick off the first search (its startSearch promise hangs).
-    const firstPromise = store.getState().startSolver(board, "black");
+    const firstPromise = startSolverFromPosition(store, board, "black");
 
     // Wait until the first search has actually reached startSearch.
     await flushUntil(() => startSearchMock.mock.calls.length === 1);
-    expect(store.getState().isSolverSearching).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("solver");
     const firstRunId = startSearchMock.mock.calls[0][4] as number;
 
     // Kick off a second search before the first settles. This simulates
     // the race: the user clicks again while a search is in flight. The
-    // second call bumps the run id so the first's eventual rejection
-    // should notice it is stale and leave isSolverSearching alone.
-    const secondPromise = store.getState().startSolver(board, "white");
+    // second call bumps the run id so the first's eventual rejection cannot
+    // clear the newer activity.
+    const secondPromise = startSolverFromPosition(store, board, "white");
 
     // Wait until the second search has reached startSearch too.
     await flushUntil(() => startSearchMock.mock.calls.length === 2);
     const secondRunId = startSearchMock.mock.calls[1][4] as number;
     expect(secondRunId).toBeGreaterThan(firstRunId);
-    expect(store.getState().isSolverSearching).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("solver");
 
-    // Reject the first  Eits catch branch must detect it is stale and
-    // leave the newer run's `isSolverSearching` flag alone.
+    // Reject the first; its stale teardown must leave newer activity alone.
     firstDeferred.reject(new Error("aborted"));
     await firstPromise;
 
     // The newer run is still active (its promise hasn't settled yet).
-    expect(store.getState().isSolverSearching).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("solver");
     store.getState().applySolverProgress({
       runId: firstRunId,
       bestMove: "d3",
@@ -1103,7 +1008,7 @@ describe("solver result cache", () => {
     });
     firstStore = first.store;
 
-    await first.store.getState().startSolver(board, "black");
+    await startSolverFromPosition(first.store, board, "black");
     expect(first.store.getState().solverCandidates.size).toBe(1);
     expect(startSearchMock).toHaveBeenCalledTimes(1);
 
@@ -1113,11 +1018,9 @@ describe("solver result cache", () => {
     });
     second.store.setState({
       isSolverActive: true,
-      solverCurrentBoard: board,
-      solverCurrentPlayer: "black",
+      solverHistory: [buildHistoryEntry(board, "black", null)],
       targetSelectivity: 100,
       solverMode: "multiPv",
-      isSolverSearching: false,
       isSolverStopped: true,
     });
 
@@ -1135,7 +1038,7 @@ describe("shared EngineSearch cross-feature supersede", () => {
     // move supersedes it: the solver's registered abort runs, the
     // generation is bumped, so a late solver-progress stamped with the
     // superseded run's id is filtered by engineSearch.accepts and cannot
-    // mutate solverCandidates. isSolverSearching must not stick true.
+    // mutate solverCandidates.
     const startSearchDeferred = createDeferred<void>();
     const getAIMoveDeferred = createDeferred<null>();
     let solverRunId = -1;
@@ -1151,19 +1054,17 @@ describe("shared EngineSearch cross-feature supersede", () => {
     });
     const board = initializeBoard();
 
-    const solverPending = store.getState().startSolver(board, "black");
+    const solverPending = startSolverFromPosition(store, board, "black");
     for (let i = 0; i < 20 && solverRunId < 0; i++) await Promise.resolve();
-    expect(store.getState().isSolverSearching).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("solver");
 
     // Starting an AI move supersedes the in-flight solver run. Drain
-    // microtasks until the AI search has taken over (it commits
-    // isAIThinking after EngineSearch's await supersede()).
+    // microtasks until the AI search has taken over.
     const aiPending = store.getState().makeAIMove();
-    for (let i = 0; i < 20 && !store.getState().isAIThinking; i++) {
+    for (let i = 0; i < 20 && store.getState().engineActivity.kind !== "ai-move"; i++) {
       await Promise.resolve();
     }
-    expect(store.getState().isSolverSearching).toBe(false);
-    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("ai-move");
     // The solver run's registered abort fired during the supersede.
     expect(services.solver.abort).toHaveBeenCalled();
 
@@ -1186,11 +1087,11 @@ describe("shared EngineSearch cross-feature supersede", () => {
 
     getAIMoveDeferred.resolve(null);
     await aiPending;
-    expect(store.getState().isSolverSearching).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
 
     startSearchDeferred.resolve();
     await solverPending;
-    expect(store.getState().isSolverSearching).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(store.getState().solverCandidates.size).toBe(0);
   });
 
@@ -1234,7 +1135,7 @@ describe("shared EngineSearch cross-feature supersede", () => {
     const board = initializeBoard();
 
     // Root search completes with a complete candidate -> root is cached.
-    await store.getState().startSolver(board, "black");
+    await startSolverFromPosition(store, board, "black");
     expect(store.getState().solverCandidates.size).toBe(1);
     // Advance d3 then undo back to the cached root.
     await store.getState().advanceSolver(2, 3);
@@ -1245,7 +1146,7 @@ describe("shared EngineSearch cross-feature supersede", () => {
     cacheRootMode = false;
     const pending = store.getState().advanceSolver(2, 2);
     for (let i = 0; i < 30 && hangRunId < 0; i++) await Promise.resolve();
-    expect(store.getState().isSolverSearching).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("solver");
 
     // Undo back to root: root is cached -> cache-hit path supersedes the
     // in-flight run and commits the cached candidates.
@@ -1283,9 +1184,8 @@ describe("superseded solver teardown does not poison the prior position's cache 
   it("a superseded run's teardown must not cache the superseding position's candidates under its own (board,player) key", async () => {
     // Scenario reproducing the P1 #2 race:
     //  1. Root P0 search completes -> P0 cached with candidate "2,3"->d3.
-    //  2. Advance to P1 (after move 2,3); P1's search HANGS -> run R_p1 is
-    //     the live run, isSolverSearching=true, solverCandidates committed
-    //     empty.
+    //  2. Advance to P1 (after move 2,3); P1's search hangs with empty
+    //     candidates.
     //  3. Undo back to P0: P0 is cached -> cache-hit path. Its onClaim
     //     synchronously commits P0's cached candidates AND supersedes R_p1.
     //  4. R_p1's abort (registered as () => solver.abort()) is slow; while
@@ -1353,16 +1253,17 @@ describe("superseded solver teardown does not poison the prior position's cache 
     const board = initializeBoard();
 
     // 1. Root P0 search completes -> P0 cached.
-    await store.getState().startSolver(board, "black");
+    await startSolverFromPosition(store, board, "black");
     expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
 
     // 2. Advance to P1; its search hangs (R_p1 live, in flight).
     rootMode = false;
     const p1Pending = store.getState().advanceSolver(2, 3);
     for (let i = 0; i < 30 && p1RunId < 0; i++) await Promise.resolve();
-    expect(store.getState().isSolverSearching).toBe(true);
-    const p1Board = store.getState().solverCurrentBoard;
-    const p1Player = store.getState().solverCurrentPlayer;
+    expect(store.getState().engineActivity.kind).toBe("solver");
+    const p1State = store.getState();
+    const p1Position = p1State.solverHistory[p1State.solverHistory.length - 1]!;
+    const { board: p1Board, player: p1Player } = p1Position;
     expect(store.getState().solverCandidates.size).toBe(0);
 
     // 3 + 4 + 5. Undo back to P0 (cache hit): commits P0's cached
@@ -1373,7 +1274,10 @@ describe("superseded solver teardown does not poison the prior position's cache 
     hangAbort = true;
     const undoPending = store.getState().undoSolver();
     for (let i = 0; i < 30 && !hungAbortBox.current; i++) await Promise.resolve();
-    expect(store.getState().solverCurrentBoard).toEqual(board);
+    const rootStateBeforeAbort = store.getState();
+    expect(
+      rootStateBeforeAbort.solverHistory[rootStateBeforeAbort.solverHistory.length - 1]?.board,
+    ).toEqual(board);
     expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
     // Release R_p1's abort: supersede() proceeds and fires R_p1's
     // teardown while solverCandidates already holds P0's complete map.
@@ -1381,7 +1285,10 @@ describe("superseded solver teardown does not poison the prior position's cache 
     hungAbortBox.current?.resolve();
     for (let i = 0; i < 10; i++) await Promise.resolve();
     await undoPending;
-    expect(store.getState().solverCurrentBoard).toEqual(board);
+    const rootStateAfterAbort = store.getState();
+    expect(
+      rootStateAfterAbort.solverHistory[rootStateAfterAbort.solverHistory.length - 1]?.board,
+    ).toEqual(board);
     expect(store.getState().solverCandidates.get("2,3")?.move).toBe("d3");
 
     // Let the hung P1 search settle so its start() promise resolves.
@@ -1399,8 +1306,11 @@ describe("superseded solver teardown does not poison the prior position's cache 
     for (let i = 0; i < 30 && startSearch.mock.calls.length === 0; i++) {
       await Promise.resolve();
     }
-    expect(store.getState().solverCurrentBoard).toEqual(p1Board);
-    expect(store.getState().solverCurrentPlayer).toBe(p1Player);
+    const readvancedState = store.getState();
+    const readvancedPosition =
+      readvancedState.solverHistory[readvancedState.solverHistory.length - 1];
+    expect(readvancedPosition?.board).toEqual(p1Board);
+    expect(readvancedPosition?.player).toBe(p1Player);
     // The cache for P1 must NOT have been poisoned with P0's candidates.
     expect(services.solver.startSearch).toHaveBeenCalledWith(
       p1Board,

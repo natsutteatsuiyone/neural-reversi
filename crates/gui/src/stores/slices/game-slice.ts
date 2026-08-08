@@ -5,26 +5,19 @@ import {
   initializeBoard,
   opponentPlayer as nextPlayer,
 } from "@/domain/game/game-logic";
-import {
-  type Move,
-  applyMove,
-  checkGameOver,
-  createGameStartState,
-  createMoveRecord,
-} from "@/domain/game/store-helpers";
+import { type Move, applyMove, checkGameOver, createMoveRecord } from "@/domain/game/store-helpers";
 import { createPassTurnPatch, hasFlippedDiscs } from "@/domain/game/game-session";
 import { MoveHistory } from "@/domain/game/move-history";
 import type { GameSlice, ReversiState } from "./types";
 import type { Services } from "@/services/types";
-import { idleEngineActivityPatch } from "@/stores/engine-activity";
 import { createAutomation } from "@/stores/automation";
 import { navigateHistory, goToHistoryMove } from "@/stores/history-navigation";
-import { abortInFlightGameSearches, runGameReplacement } from "@/stores/game-replacement";
+import { runGameReplacement } from "@/stores/game-replacement";
 
 /**
  * A freshly played move/pass diverges from any analyzed line, so the stale
  * hint result and whole-game analysis result are invalidated. The single
- * expression of that rule for the play paths (makeMove / makePass).
+ * expression of that rule for makeMove, including its automatic-pass branch.
  *
  * History navigation does NOT use this: it deliberately keeps
  * `gameAnalysisResult` so you can review the analyzed game while stepping
@@ -52,7 +45,6 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
       currentPlayer: "black",
       gameOver: false,
       gameStatus: "waiting",
-      isPass: false,
       lastMove: null,
       validMoves: [],
       skipAnimation: false,
@@ -85,16 +77,13 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
       },
 
       makeMove: async (move: Move) => {
-        if (get().isGameAnalyzing) return;
+        if (get().engineActivity.kind === "game-analysis") return;
         automation.cancel();
 
         // A user move makes any in-flight hint analysis stale. Abort it
         // through the canonical hint path so the Engine Search is properly
-        // superseded (run id bumped, stale progress dropped, teardown exactly
-        // once) and re-analysis targets the new position — instead of poking
-        // the `isAnalyzing` projection and the backend directly, which left
-        // the run un-superseded (CONTEXT.md → Engine Activity).
-        if (!move.isAI && get().isAnalyzing) {
+        // superseded and re-analysis targets the new position.
+        if (!move.isAI && get().engineActivity.kind === "hint") {
           get().restartHintAnalysisAfterAbort();
         }
 
@@ -115,7 +104,6 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
             board: newBoard,
             moveHistory: state.moveHistory.append(newMoveRecord),
             currentPlayer: nextPlayerTurn,
-            isPass: false,
             lastMove: move,
             validMoves: getValidMoves(newBoard, nextPlayerTurn),
             ...clearedStaleAnalysis(),
@@ -151,21 +139,12 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
         });
       },
 
-      makePass: () => {
-        if (get().isGameAnalyzing) return;
-        automation.cancel();
-        set((state) => ({
-          ...createPassTurnPatch(state),
-          ...clearedStaleAnalysis(),
-        }));
-      },
-
       undoMove: () => navigateHistory(get, set, "undo"),
 
       redoMove: () => navigateHistory(get, set, "redo"),
 
       resumeAI: () => {
-        if (get().isGameAnalyzing) {
+        if (get().engineActivity.kind === "game-analysis") {
           set({ paused: false });
           automation.queueResume();
           return;
@@ -176,17 +155,6 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
       },
 
       goToMove: (position: number) => goToHistoryMove(get, set, position),
-
-      resetGame: async () => {
-        automation.cancel();
-        await abortInFlightGameSearches(get);
-
-        const board = initializeBoard();
-        set({
-          ...createGameStartState(board, "black", "waiting", get().gameTimeLimit * 1000),
-          ...idleEngineActivityPatch(),
-        });
-      },
 
       startGame: async (settings) =>
         runGameReplacement(services, get, set, { kind: "new-game", settings }),
@@ -207,8 +175,6 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
         });
         return initialGameStartPromise;
       },
-
-      setGameStatus: (status) => set({ gameStatus: status }),
     };
   };
 }

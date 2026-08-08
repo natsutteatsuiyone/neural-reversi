@@ -1,6 +1,6 @@
 export type Player = "black" | "white";
 
-export type Cell = {
+type Cell = {
   color: Player | null;
   isNew?: boolean;
 };
@@ -18,29 +18,9 @@ export type MoveRecord = {
   remainingTime?: number;
 };
 
-export type AIMoveHighlight = {
-  row: number;
-  col: number;
-  timestamp: number;
-};
-
-export type GameState = {
-  board: Board;
-  currentPlayer: Player;
-  scores: {
-    black: number;
-    white: number;
-  };
-  moveCount: number;
-  gameOver: boolean;
-  lastMove: [number, number] | null;
-  validMoves: [number, number][];
-  moves: MoveRecord[];
-};
-
 export type GameMode = "ai-black" | "ai-white" | "pvp";
 export type GameStatus = "waiting" | "playing" | "finished";
-export type AIMode = "level" | "time" | "game-time";
+export type AIMode = "level" | "game-time";
 
 /**
  * What the engine reports about a candidate move while searching a position.

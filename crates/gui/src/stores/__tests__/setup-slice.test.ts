@@ -55,16 +55,6 @@ describe("setSetupCurrentPlayer", () => {
   });
 });
 
-describe("setSetupBoard", () => {
-  it("sets board directly", () => {
-    const { store } = createTestStore();
-    const board = createEmptyBoard();
-    board[0][0] = { color: "black" };
-    store.getState().setSetupBoard(board);
-    expect(store.getState().setupBoard[0][0].color).toBe("black");
-  });
-});
-
 describe("clearSetupBoard", () => {
   it("sets all cells to null", () => {
     const { store } = createTestStore();
@@ -329,7 +319,7 @@ describe("startFromSetup", () => {
       gameStatus: "playing",
       gameMode: "ai-black",
       currentPlayer: "black",
-      isAIThinking: true,
+      engineActivity: { kind: "ai-move", runId: 1 },
     });
     const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
 
@@ -338,7 +328,7 @@ describe("startFromSetup", () => {
     expect(started).toBe(false);
     expect(store.getState().setupError).toBe("aiInitFailed");
     expect(abortSpy).not.toHaveBeenCalled();
-    expect(store.getState().isAIThinking).toBe(true);
+    expect(store.getState().engineActivity.kind).toBe("ai-move");
     expect(store.getState().gameStatus).toBe("playing");
   });
 
@@ -352,7 +342,7 @@ describe("startFromSetup", () => {
       gameStatus: "playing",
       gameMode: "ai-black",
       currentPlayer: "black",
-      isAIThinking: true,
+      engineActivity: { kind: "ai-move", runId: 1 },
       aiLevel: 21,
       aiMode: "game-time",
       gameTimeLimit: 60,
@@ -385,11 +375,7 @@ describe("startFromSetup", () => {
     const solverBoard = store.getState().board;
     store.setState({
       isSolverActive: true,
-      solverRootBoard: solverBoard,
-      solverRootPlayer: "black",
       solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
-      solverCurrentBoard: solverBoard,
-      solverCurrentPlayer: "black",
     });
 
     const started = await store.getState().startFromSetup();
@@ -410,18 +396,15 @@ describe("startFromSetup", () => {
     const solverBoard = store.getState().board;
     store.setState({
       isSolverActive: true,
-      solverRootBoard: solverBoard,
-      solverRootPlayer: "black",
       solverHistory: [{ board: solverBoard, player: "black", moveFrom: null }],
-      solverCurrentBoard: solverBoard,
-      solverCurrentPlayer: "black",
     });
 
     const started = await store.getState().startFromSetup();
 
     expect(started).toBe(false);
     expect(store.getState().isSolverActive).toBe(true);
-    expect(store.getState().solverCurrentBoard).toBe(solverBoard);
+    const state = store.getState();
+    expect(state.solverHistory[state.solverHistory.length - 1]?.board).toBe(solverBoard);
     expect(store.getState().setupError).toBe("aiInitFailed");
   });
 
@@ -432,8 +415,8 @@ describe("startFromSetup", () => {
     expect(s.validMoves).toContainEqual([2, 3]);
   });
 
-  it("calls abortAIMove when AI is thinking", async () => {
-    store.setState({ isAIThinking: true });
+  it("calls abortAIMove when an AI move is active", async () => {
+    store.setState({ engineActivity: { kind: "ai-move", runId: 1 } });
     const abortSpy = vi.spyOn(store.getState(), "abortAIMove");
     await store.getState().startFromSetup();
     expect(abortSpy).toHaveBeenCalled();

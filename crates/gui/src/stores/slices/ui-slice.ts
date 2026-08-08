@@ -11,13 +11,11 @@ export function createUISlice(
     return {
       showPassNotification: null,
       showGameOverNotification: false,
-      isAnalyzing: false,
       hintAnalysisAbortPending: false,
       analyzeResults: null,
       isNewGameModalOpen: false,
       isAboutModalOpen: false,
       isHintMode: false,
-      isGameAnalyzing: false,
       gameAnalysisResult: null,
 
       openNewGameModal: () => {

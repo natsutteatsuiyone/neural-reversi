@@ -52,7 +52,6 @@ export function createAISlice(
       aiLevel: DEFAULT_SETTINGS.aiLevel,
       aiMoveProgress: null,
       aiThinkingHistory: [],
-      isAIThinking: false,
       lastAIMove: null,
       aiMode: DEFAULT_SETTINGS.aiMode,
       aiRemainingTime: 600000,
@@ -70,7 +69,7 @@ export function createAISlice(
       makeAIMove: async () => {
         const state = get();
         if (isGameSearchActive(state.engineActivity)) return;
-        const { currentPlayer: player, board, aiLevel, aiMode, timeLimit, aiRemainingTime } = state;
+        const { currentPlayer: player, board, aiLevel, aiMode, aiRemainingTime } = state;
 
         let aiMove: AIMoveResult = null;
         await engineSearch.start<{ progress: AIMoveProgress; nps: number }, AIMoveResult>({
@@ -82,13 +81,11 @@ export function createAISlice(
               player,
               level: aiLevel,
               mode: aiMode,
-              timeLimitSeconds: timeLimit,
               remainingTimeMs: aiRemainingTime,
               getRemainingTime: () => get().aiRemainingTime,
               onStart: () => {
-                // `isAIThinking` is the Engine Activity (stamped at claim by its
-                // owner); only the AI-move payload is committed here, still
-                // gated to the current run.
+                // Only the AI-move payload is committed here, gated to the
+                // current run.
                 if (run.isCurrent()) set({ aiThinkingHistory: [] });
               },
               onTimerChange: (timer) => {
@@ -112,8 +109,7 @@ export function createAISlice(
             aiMove = move;
           },
           onError: (error) => console.error("AI Move failed:", error),
-          // `isAIThinking` returns to idle via the Engine Activity owner; only
-          // the AI-move payload is cleared here.
+          // Only the AI-move payload is cleared here; EngineSearch owns activity.
           onTeardown: () => set({ aiMoveProgress: null }),
         });
 
@@ -129,7 +125,7 @@ export function createAISlice(
 
       stopAIMove: async () => {
         cancelSearchTimer();
-        if (!get().isAIThinking) return;
+        if (get().engineActivity.kind !== "ai-move") return;
 
         try {
           // User-facing Stop keeps the current EngineSearch run alive. The
@@ -147,20 +143,24 @@ export function createAISlice(
         // teardowns reach the AI-move feature only through this action, so the
         // timer never out-lives the search it belongs to.
         cancelSearchTimer();
-        const { isAIThinking, isAnalyzing, hintAnalysisAbortPending } = get();
+        const { engineActivity, hintAnalysisAbortPending } = get();
         // `hintAnalysisAbortPending` covers the window where a hint
-        // abort-then-restart has already stamped Engine Activity back to idle
-        // (so `isAnalyzing` is false) but its backend abort + restart are still
-        // in flight. Aborting here supersedes that pending run via EngineSearch,
-        // dropping its stale restart (CONTEXT.md → Engine Search).
-        if (!isAIThinking && !isAnalyzing && !hintAnalysisAbortPending) return;
-        const shouldPauseAI = isAIThinking && get().isAITurn() && get().validMoves.length > 0;
+        // abort-then-restart has already returned Engine Activity to idle but
+        // its backend abort + restart are still in flight.
+        if (
+          engineActivity.kind !== "ai-move" &&
+          engineActivity.kind !== "hint" &&
+          !hintAnalysisAbortPending
+        ) {
+          return;
+        }
+        const shouldPauseAI =
+          engineActivity.kind === "ai-move" && get().isAITurn() && get().validMoves.length > 0;
         await engineSearch.abort({
           abort: () => services.ai.abortSearch(),
           onError: (error) => console.error("AI abort failed:", error),
           onSettled: () => {
-            // `isAIThinking`/`isAnalyzing` return to idle via the Engine
-            // Activity owner (abort stamps idle at claim); only payload here.
+            // EngineSearch returns activity to idle; clear only feature payload.
             set({
               aiMoveProgress: null,
               paused: shouldPauseAI,
@@ -168,18 +168,6 @@ export function createAISlice(
           },
         });
       },
-
-      setAILevelChange: (level) => {
-        set({ aiLevel: level });
-        void services.settings.saveSetting("aiLevel", level);
-      },
-
-      setAIMode: (mode) => {
-        set({ aiMode: mode });
-        void services.settings.saveSetting("aiMode", mode);
-      },
-
-      clearAiThinkingHistory: () => set({ aiThinkingHistory: [] }),
     };
   };
 }

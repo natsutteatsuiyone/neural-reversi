@@ -142,7 +142,7 @@ export function EvaluationChart() {
   const gameStatus = useReversiStore((state) => state.gameStatus);
   const goToMove = useReversiStore((state) => state.goToMove);
   const gameAnalysisResult = useReversiStore((state) => state.gameAnalysisResult);
-  const isGameAnalyzing = useReversiStore((state) => state.isGameAnalyzing);
+  const isGameAnalyzing = useReversiStore((state) => state.engineActivity.kind === "game-analysis");
 
   const allMoves = moveHistory.allMoves;
   const cursorPosition = moveHistory.length;

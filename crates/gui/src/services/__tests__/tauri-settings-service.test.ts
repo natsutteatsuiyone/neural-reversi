@@ -45,18 +45,14 @@ describe("TauriSettingsService", () => {
     expect(valid.gameAnalysisLevel).toBe(12);
   });
 
-  it("validates time limits as positive finite integers", async () => {
-    const invalid = await loadSettings({ timeLimit: 0, gameTimeLimit: 1.5 });
-    expect(invalid.timeLimit).toBe(DEFAULT_SETTINGS.timeLimit);
-    expect(invalid.gameTimeLimit).toBe(DEFAULT_SETTINGS.gameTimeLimit);
-
-    const wrongType = await loadSettings({ timeLimit: "5", gameTimeLimit: null });
-    expect(wrongType.timeLimit).toBe(DEFAULT_SETTINGS.timeLimit);
-    expect(wrongType.gameTimeLimit).toBe(DEFAULT_SETTINGS.gameTimeLimit);
-
-    const valid = await loadSettings({ timeLimit: 5, gameTimeLimit: 300 });
-    expect(valid.timeLimit).toBe(5);
-    expect(valid.gameTimeLimit).toBe(300);
+  it("validates game time as a positive finite integer", async () => {
+    expect((await loadSettings({ gameTimeLimit: 1.5 })).gameTimeLimit).toBe(
+      DEFAULT_SETTINGS.gameTimeLimit,
+    );
+    expect((await loadSettings({ gameTimeLimit: null })).gameTimeLimit).toBe(
+      DEFAULT_SETTINGS.gameTimeLimit,
+    );
+    expect((await loadSettings({ gameTimeLimit: 300 })).gameTimeLimit).toBe(300);
   });
 
   it("validates hash size against 1..=16384", async () => {
@@ -67,7 +63,7 @@ describe("TauriSettingsService", () => {
   });
 
   it("validates game and AI modes against their literal unions", async () => {
-    const unsupported = await loadSettings({ gameMode: "online", aiMode: "instant" });
+    const unsupported = await loadSettings({ gameMode: "online", aiMode: "unsupported" });
     expect(unsupported.gameMode).toBe(DEFAULT_SETTINGS.gameMode);
     expect(unsupported.aiMode).toBe(DEFAULT_SETTINGS.aiMode);
 
@@ -75,8 +71,7 @@ describe("TauriSettingsService", () => {
     expect(wrongType.gameMode).toBe(DEFAULT_SETTINGS.gameMode);
     expect(wrongType.aiMode).toBe(DEFAULT_SETTINGS.aiMode);
 
-    const valid = await loadSettings({ gameMode: "pvp", aiMode: "time" });
-    expect(valid.gameMode).toBe("pvp");
-    expect(valid.aiMode).toBe("time");
+    expect((await loadSettings({ gameMode: "pvp", aiMode: "level" })).aiMode).toBe("level");
+    expect((await loadSettings({ aiMode: "game-time" })).aiMode).toBe("game-time");
   });
 });

@@ -29,7 +29,6 @@ export interface HistoryNavigationState {
 
 export interface GameHistoryPatch extends DerivedGamePosition {
   moveHistory: MoveHistory;
-  isPass: false;
   gameOver: boolean;
   gameStatus: GameStatus;
   skipAnimation: true;
@@ -48,7 +47,6 @@ export interface PassTurnPatch {
   moveHistory: MoveHistory;
   currentPlayer: Player;
   validMoves: [number, number][];
-  isPass: true;
 }
 
 export function resolveRemainingTime(history: MoveHistory, defaultMs: number): number {
@@ -94,7 +92,6 @@ export function createHistoryNavigationPatch(
   return {
     ...derived,
     moveHistory,
-    isPass: false,
     gameOver,
     gameStatus: gameOver ? "finished" : "playing",
     skipAnimation: true,
@@ -125,7 +122,6 @@ export function createGoToMovePatch(
   return {
     ...derived,
     moveHistory,
-    isPass: false,
     gameOver,
     gameStatus,
     skipAnimation: true,
@@ -146,7 +142,6 @@ export function createPassTurnPatch(
     moveHistory: state.moveHistory.append(passMove),
     currentPlayer,
     validMoves: getValidMoves(board, currentPlayer),
-    isPass: true,
   };
 }
 

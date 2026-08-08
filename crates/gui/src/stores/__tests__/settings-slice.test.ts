@@ -12,7 +12,6 @@ describe("initial state", () => {
     const { store } = createTestStore();
     const s = store.getState();
     expect(s.gameMode).toBe("ai-white");
-    expect(s.timeLimit).toBe(1);
     expect(s.gameTimeLimit).toBe(60);
     expect(s.hintLevel).toBe(21);
     expect(s.aiAnalysisPanelOpen).toBe(false);
@@ -28,7 +27,6 @@ describe("hydrateSettings", () => {
       gameMode: "ai-black",
       aiLevel: 18,
       aiMode: "level",
-      timeLimit: 3,
       gameTimeLimit: 180,
       hintLevel: 12,
       gameAnalysisLevel: 16,
@@ -47,7 +45,6 @@ describe("hydrateSettings", () => {
     expect(s.gameMode).toBe("ai-black");
     expect(s.aiLevel).toBe(18);
     expect(s.aiMode).toBe("level");
-    expect(s.timeLimit).toBe(3);
     expect(s.gameTimeLimit).toBe(180);
     expect(s.hintLevel).toBe(12);
     expect(s.gameAnalysisLevel).toBe(16);
@@ -58,55 +55,6 @@ describe("hydrateSettings", () => {
     expect(s.solverMode).toBe("bestOnly");
     expect(services.settings.saveSetting).not.toHaveBeenCalled();
     expect(services.ai.resizeTT).toHaveBeenCalledWith(1024);
-  });
-});
-
-describe("setGameMode", () => {
-  it("updates gameMode state", () => {
-    const { store } = createTestStore();
-    store.getState().setGameMode("ai-black");
-    expect(store.getState().gameMode).toBe("ai-black");
-  });
-
-  it("resets analyzeResults to null", () => {
-    const { store } = createTestStore();
-    store.setState({ analyzeResults: new Map([["0,0", {} as never]]) });
-    store.getState().setGameMode("ai-black");
-    expect(store.getState().analyzeResults).toBeNull();
-  });
-
-  it("calls saveSetting with gameMode", () => {
-    const { store, services } = createTestStore();
-    store.getState().setGameMode("ai-black");
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("gameMode", "ai-black");
-  });
-});
-
-describe("setTimeLimit", () => {
-  it("updates timeLimit state", () => {
-    const { store } = createTestStore();
-    store.getState().setTimeLimit(5);
-    expect(store.getState().timeLimit).toBe(5);
-  });
-
-  it("calls saveSetting with timeLimit", () => {
-    const { store, services } = createTestStore();
-    store.getState().setTimeLimit(5);
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("timeLimit", 5);
-  });
-});
-
-describe("setGameTimeLimit", () => {
-  it("updates gameTimeLimit state", () => {
-    const { store } = createTestStore();
-    store.getState().setGameTimeLimit(120);
-    expect(store.getState().gameTimeLimit).toBe(120);
-  });
-
-  it("calls saveSetting with gameTimeLimit", () => {
-    const { store, services } = createTestStore();
-    store.getState().setGameTimeLimit(120);
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("gameTimeLimit", 120);
   });
 });
 
@@ -154,8 +102,7 @@ describe("setHintLevel", () => {
     });
     store.setState({
       isHintMode: true,
-      isAnalyzing: true,
-      isAIThinking: false,
+      engineActivity: { kind: "hint", runId: 1 },
     });
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
@@ -175,7 +122,7 @@ describe("setHintLevel", () => {
     }
 
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(analyzeBoardSpy).toHaveBeenCalled();
   });
 
@@ -188,8 +135,7 @@ describe("setHintLevel", () => {
     });
     store.setState({
       isHintMode: true,
-      isAnalyzing: true,
-      isAIThinking: false,
+      engineActivity: { kind: "hint", runId: 1 },
     });
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
@@ -212,7 +158,7 @@ describe("setHintLevel", () => {
     await Promise.resolve();
 
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -228,11 +174,9 @@ describe("setHintLevel", () => {
     });
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
 
-    // A hint analysis is the current Engine Activity; isAnalyzing is its view.
+    // A hint analysis is the current Engine Activity.
     store.setState({
       isHintMode: true,
-      isAnalyzing: true,
-      isAIThinking: false,
       engineActivity: { kind: "hint", runId: 1 },
     });
 
@@ -251,7 +195,7 @@ describe("setHintLevel", () => {
       await Promise.resolve();
     }
     expect(store.getState().hintAnalysisAbortPending).toBe(false);
-    expect(store.getState().isAnalyzing).toBe(false);
+    expect(store.getState().engineActivity.kind).toBe("idle");
     expect(analyzeBoardSpy).toHaveBeenCalledTimes(1);
   });
 });

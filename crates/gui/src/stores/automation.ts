@@ -61,7 +61,7 @@ export function createAutomation(read: () => ReversiState): Automation {
       timer = null;
       // A game analysis started during the delay: defer this step and let
       // `resumeIfQueued` run it once analysis ends (CONTEXT.md → Automation).
-      if (read().isGameAnalyzing) {
+      if (read().engineActivity.kind === "game-analysis") {
         resumePending = true;
         return;
       }
@@ -83,7 +83,7 @@ export function createAutomation(read: () => ReversiState): Automation {
   }
 
   function resumeIfQueued(): void {
-    if (!resumePending || read().isGameAnalyzing) return;
+    if (!resumePending || read().engineActivity.kind === "game-analysis") return;
     resumePending = false;
     trigger();
   }

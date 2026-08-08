@@ -3,6 +3,7 @@ import { Bot, Loader2, User, Clock, StopCircle, Play } from "lucide-react";
 import { Stone } from "@/components/board/Stone";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
+import type { AIMode } from "@/domain/game/types";
 
 interface PlayerCardProps {
   color: "black" | "white";
@@ -11,7 +12,7 @@ interface PlayerCardProps {
   isAIControlled: boolean;
   aiLevel: number;
   isThinking: boolean;
-  aiMode: string;
+  aiMode: AIMode;
   aiRemainingTime: number;
   playerLabel?: string;
   onStop?: () => void;

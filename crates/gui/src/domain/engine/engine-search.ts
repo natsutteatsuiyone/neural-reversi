@@ -166,10 +166,9 @@ export function createEngineSearch(
     // A newer start/abort claimed a higher generation while we awaited the
     // prior abort; bail without installing. We never installed a record nor
     // ran `spec.run`, and the prior we captured was already torn down inside
-    // `claim()`. But `onClaim` may have synchronously committed caller state
-    // (e.g. analyzeGame's `isGameAnalyzing: true`); the guaranteed-once
-    // `onTeardown` MUST still run — as superseded — to undo it, exactly as
-    // the `abort()` superseded path does. (Spec S13/S15.)
+    // `claim()`. But `onClaim` may have synchronously committed caller state;
+    // the guaranteed-once `onTeardown` MUST still run — as superseded — to
+    // undo it, exactly as the `abort()` superseded path does. (Spec S13/S15.)
     if (await superseded) {
       spec.onTeardown?.({ status: "superseded" });
       return;

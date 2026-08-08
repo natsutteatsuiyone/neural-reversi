@@ -498,8 +498,8 @@ describe("EngineSearch", () => {
     });
     await Promise.resolve();
 
-    // A: commits a synchronous breadcrumb in onClaim (like analyzeGame's
-    // `isGameAnalyzing: true`). Its claim stalls on L0's slow abort.
+    // A commits a synchronous breadcrumb in onClaim while its claim stalls on
+    // L0's slow abort.
     const a = es.start({
       onClaim: () => order.push("A-claim"),
       onStart: () => order.push("A-start"),

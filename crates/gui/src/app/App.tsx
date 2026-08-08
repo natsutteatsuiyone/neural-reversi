@@ -1,6 +1,6 @@
 import { GameLayout } from "@/components/layout/GameLayout";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import type { AppSettings } from "@/services";
+import type { AppSettings } from "@/services/types";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Trophy, Info } from "lucide-react";

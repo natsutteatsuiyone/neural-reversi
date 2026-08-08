@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { Info } from "lucide-react";
@@ -17,7 +18,7 @@ function AboutModalContent() {
   const [tab, setTab] = useState<TabValue>("license");
 
   useEffect(() => {
-    void invoke<string>(TAURI_COMMAND.getAppVersion)
+    void getVersion()
       .then(setVersion)
       .catch(() => {
         setVersion("");

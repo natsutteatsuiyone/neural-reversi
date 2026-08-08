@@ -13,7 +13,7 @@ export function Sidebar() {
   const aiRemainingTime = useReversiStore((state) => state.aiRemainingTime);
   const getScores = useReversiStore((state) => state.getScores);
   const stopAIMove = useReversiStore((state) => state.stopAIMove);
-  const isAIThinking = useReversiStore((state) => state.isAIThinking);
+  const isAIThinking = useReversiStore((state) => state.engineActivity.kind === "ai-move");
   const paused = useReversiStore((state) => state.paused);
   const resumeAI = useReversiStore((state) => state.resumeAI);
   // No move has been played yet (e.g. the launch auto-start where the AI plays

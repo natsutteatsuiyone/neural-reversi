@@ -1,5 +1,5 @@
 import type { AIService } from "@/services/types";
-import type { EngineSearch } from "@/domain/engine/engine-search";
+import type { EngineActivity, EngineSearch } from "@/domain/engine/engine-search";
 import type { AIMoveProgress, Board, Player } from "@/domain/game/types";
 import { applyHintAnalysisProgress, type HintAnalysisResults } from "@/domain/game/game-analysis";
 
@@ -11,9 +11,7 @@ import { applyHintAnalysisProgress, type HintAnalysisResults } from "@/domain/ga
  */
 export interface HintAnalysisSessionState {
   isHintMode: boolean;
-  /** Projection of the Engine Activity (CONTEXT.md → Engine Activity). */
-  isAnalyzing: boolean;
-  isAIThinking: boolean;
+  engineActivity: EngineActivity;
   hintAnalysisAbortPending: boolean;
   gameStatus: "waiting" | "playing" | "finished";
   board: Board;
@@ -27,7 +25,6 @@ export interface HintAnalysisSessionState {
 
 export type HintAnalysisSessionPatch = Partial<{
   isHintMode: boolean;
-  isAnalyzing: boolean;
   hintAnalysisAbortPending: boolean;
   analyzeResults: HintAnalysisResults | null;
 }>;
@@ -51,8 +48,8 @@ interface HintAnalysisSessionOptions {
  * dedupe guard's generation counter. The store slices are thin delegates
  * (mirroring how `SolverSession` backs the Solver slice).
  *
- * `isAnalyzing` is a view of the Engine Activity (CONTEXT.md → Engine
- * Activity), so a hint run no longer needs a generation counter for it.
+ * Search status is derived from Engine Activity, so a hint run needs no
+ * duplicated busy flag.
  * `hintAnalysisAbortPending` is a separate feature breadcrumb (read by the
  * settings level-change path to dedupe backend aborts) that the activity
  * does NOT own, so its own generation guard lives here: a hint abort's
@@ -74,38 +71,21 @@ export class HintAnalysisSession {
     this.engineSearch = engineSearch;
   }
 
-  /**
-   * A hint analysis is in flight and stale, so it must be
-   * aborted-then-restarted (not just left to supersede). `isAnalyzing` is
-   * the Engine Activity projection for the `hint` kind (CONTEXT.md → Engine
-   * Activity); `!isAIThinking` excludes an AI move that is using the shared
-   * engine — restarting then would abort the AI move. The single home for
-   * "is there a stale hint run to abort?", shared by the Hint Mode toggle
-   * and the level-change path.
-   */
-  private staleHintInFlight(state: HintAnalysisSessionState): boolean {
-    return state.isAnalyzing && !state.isAIThinking;
-  }
-
   setMode(enabled: boolean): void {
     if (enabled) {
       this.commit({ isHintMode: true, analyzeResults: null });
-      const { isAnalyzing, hintAnalysisAbortPending } = this.read();
-      if (!isAnalyzing && !hintAnalysisAbortPending) {
+      const { engineActivity, hintAnalysisAbortPending } = this.read();
+      if (engineActivity.kind !== "hint" && !hintAnalysisAbortPending) {
         void this.read().analyzeBoard();
       }
     } else {
       const state = this.read();
-      const shouldAbortHintAnalysis = this.staleHintInFlight(state);
+      const shouldAbortHintAnalysis = state.engineActivity.kind === "hint";
       this.commit({ isHintMode: false, analyzeResults: null });
       if (shouldAbortHintAnalysis) {
         this.read().restartHintAnalysisAfterAbort();
       }
-      // No engine action otherwise: an in-flight hint analysis only occurs in the
-      // shouldAbortHintAnalysis branch, and EngineSearch's generation/exactly-once
-      // teardown already prevents a stale analyzeBoard from clobbering a future
-      // run's isAnalyzing. Do NOT call engineSearch.abort() here — it would
-      // supersede and abort a possibly in-flight AI move.
+      // Do not abort otherwise: that could supersede an in-flight AI move.
     }
   }
 
@@ -123,9 +103,7 @@ export class HintAnalysisSession {
       onError: (error) => console.error("Hint abort failed:", error),
       onSettled: () => {
         const currentState = this.read();
-        // `isAnalyzing` is owned by the Engine Activity projection and is
-        // already false — the abort stamped `idle` at claim. Only the
-        // feature-owned breadcrumb is cleared here.
+        // Only the feature-owned breadcrumb is cleared here.
         this.commit({ hintAnalysisAbortPending: false });
         if (currentState.isHintMode) void currentState.analyzeBoard();
       },
@@ -142,22 +120,17 @@ export class HintAnalysisSession {
   }
 
   async analyze(): Promise<void> {
-    const {
-      isHintMode,
-      gameStatus,
-      isAIThinking,
-      isAITurn,
-      isAnalyzing,
-      hintAnalysisAbortPending,
-    } = this.read();
+    const { isHintMode, gameStatus, engineActivity, isAITurn, hintAnalysisAbortPending } =
+      this.read();
 
-    // Analyze only if Hint Mode is ON, game is playing, not AI thinking, not AI's turn, and not already analyzing
+    // Analyze only while Hint Mode is on during a human turn, with neither
+    // an AI move nor another hint search already active.
     if (
       !isHintMode ||
       gameStatus !== "playing" ||
-      isAIThinking ||
+      engineActivity.kind === "ai-move" ||
       isAITurn() ||
-      isAnalyzing ||
+      engineActivity.kind === "hint" ||
       hintAnalysisAbortPending
     ) {
       return;
@@ -168,8 +141,7 @@ export class HintAnalysisSession {
     let results: HintAnalysisResults = new Map<string, AIMoveProgress>();
 
     await this.engineSearch.start<AIMoveProgress, void>({
-      // `isAnalyzing` is stamped at claim and cleared on teardown by the
-      // Engine Activity owner — no generation counter here.
+      // EngineSearch owns the activity lifecycle.
       kind: "hint",
       // onStart/run run AFTER the (possibly slow) supersede, so Hint Mode
       // may have been turned off while this start was queued. Recheck it:
@@ -186,7 +158,7 @@ export class HintAnalysisSession {
       abort: () => this.ai.abortSearch(),
       onProgress: (progress) => {
         const s = this.read();
-        if (!s.isHintMode || !s.isAnalyzing) return;
+        if (!s.isHintMode || s.engineActivity.kind !== "hint") return;
 
         const nextResults = applyHintAnalysisProgress(results, progress);
         if (!nextResults) return;
@@ -209,7 +181,7 @@ export class HintAnalysisSession {
     const state = this.read();
     if (!state.isHintMode || state.hintAnalysisAbortPending) return;
 
-    if (this.staleHintInFlight(state)) {
+    if (state.engineActivity.kind === "hint") {
       state.restartHintAnalysisAfterAbort();
     } else {
       void state.analyzeBoard();

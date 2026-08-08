@@ -1740,7 +1740,6 @@ version = "6.2.0"
 dependencies = [
  "reversi-core",
  "serde",
- "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-store",

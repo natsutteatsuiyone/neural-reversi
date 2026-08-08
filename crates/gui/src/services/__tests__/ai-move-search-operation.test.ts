@@ -39,7 +39,7 @@ describe("runAIMoveSearch", () => {
       const ai = createMockAIService({
         getAIMove: vi
           .fn()
-          .mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
+          .mockImplementation(async (_board, _player, _level, _remaining, callback) => {
             vi.setSystemTime(1_000);
             callback(progress());
             callback(progress());
@@ -55,7 +55,6 @@ describe("runAIMoveSearch", () => {
         player: "black",
         level: 1,
         mode: "level",
-        timeLimitSeconds: 1,
         remainingTimeMs: 60_000,
         getRemainingTime: () => 60_000,
         onStart: vi.fn(),
@@ -83,7 +82,7 @@ describe("runAIMoveSearch", () => {
     const ai = createMockAIService({
       getAIMove: vi
         .fn()
-        .mockImplementation(async (_board, _player, _level, _time, _remaining, callback) => {
+        .mockImplementation(async (_board, _player, _level, _remaining, callback) => {
           callback(progress());
           callback(progress({ row: 3, col: 2, bestMove: "c4" }));
           callback(progress({ acc: 73, isEndgame: true }));
@@ -97,7 +96,6 @@ describe("runAIMoveSearch", () => {
       player: "black",
       level: 1,
       mode: "level",
-      timeLimitSeconds: 1,
       remainingTimeMs: 60_000,
       getRemainingTime: () => 60_000,
       onStart: vi.fn(),
@@ -134,7 +132,6 @@ describe("runAIMoveSearch", () => {
         player: "black",
         level: 1,
         mode: "game-time",
-        timeLimitSeconds: 1,
         remainingTimeMs: remainingTime,
         getRemainingTime: () => remainingTime,
         onStart: vi.fn(),
@@ -184,7 +181,6 @@ describe("runAIMoveSearch", () => {
         player: "black",
         level: 1,
         mode: "game-time",
-        timeLimitSeconds: 1,
         remainingTimeMs: remainingTime,
         getRemainingTime: () => remainingTime,
         onStart: vi.fn(),
@@ -222,7 +218,6 @@ describe("runAIMoveSearch", () => {
           player: "black",
           level: 1,
           mode: "game-time",
-          timeLimitSeconds: 1,
           remainingTimeMs: 60_000,
           getRemainingTime: () => 60_000,
           onStart: vi.fn(),

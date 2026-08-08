@@ -264,14 +264,11 @@ describe("createGameStartState", () => {
     expect(state.currentPlayer).toBe("black");
     expect(state.gameStatus).toBe("waiting");
     expect(state.gameOver).toBe(false);
-    expect(state.isPass).toBe(false);
     expect(state.lastMove).toBeNull();
     expect(state.lastAIMove).toBeNull();
     expect(state.showPassNotification).toBeNull();
     expect(state.analyzeResults).toBeNull();
-    // The Engine Activity projection (isAIThinking / isAnalyzing / ...) is no
-    // longer produced here — it is composed by the store reset paths via
-    // idleEngineActivityPatch(); see engine-activity.test.ts.
+    // Engine Activity is composed by the store reset path, not this helper.
     expect(state.aiMoveProgress).toBeNull();
     expect(state.aiThinkingHistory).toEqual([]);
     expect(state.aiRemainingTime).toBe(60000);

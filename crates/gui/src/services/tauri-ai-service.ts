@@ -33,7 +33,6 @@ export class TauriAIService implements AIService {
     board: Board,
     player: Player,
     level: number,
-    timeLimit: number | undefined,
     remainingTime: number | undefined,
     callback: (progress: AIMoveProgress) => void,
   ): Promise<AIMoveResult> {
@@ -49,7 +48,6 @@ export class TauriAIService implements AIService {
         invoke<AIMoveResult>(TAURI_COMMAND.aiMove, {
           boardString,
           level,
-          timeLimit,
           remainingTime,
         }),
     );
