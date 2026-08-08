@@ -244,6 +244,8 @@ static DIAG_UNION_COUNT: Align64<[u8; DIAG_UNION_COUNT_LEN]> = Align64(build_dia
 #[inline(always)]
 pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
     let sq_idx = sq.index();
+    // Start POPCNT before the independent table-address work.
+    let score_base = 2 * player.count_ones() as Score - SCORE_MAX + 2;
 
     // SAFETY: `solve1` is called with a real board square. This module is
     // compiled only when BMI2 is enabled, and all table offsets/indices come
@@ -251,18 +253,20 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
     unsafe {
         let entry = &*SOLVE1_TABLE.0.as_ptr().add(sq_idx);
         let row_idx = ((player >> (entry.rank_shift as usize)) & 0xff) as usize;
-        let file_idx = _pext_u64(player, entry.mask_file) as usize;
-        let diag_idx = _pext_u64(player, entry.diag_mask) as usize;
 
         let count_base = COUNT_FLIP.0[0].as_ptr();
         let count_file_row = count_base.add(entry.count_file_offset as usize);
+        // Let the row lookup overlap both PEXT-dependent lookups.
+        let row_count = *count_file_row.add(row_idx) as u32;
+
+        let file_idx = _pext_u64(player, entry.mask_file) as usize;
+        let diag_idx = _pext_u64(player, entry.diag_mask) as usize;
         let count_rank_row = count_base.add(entry.count_rank_offset as usize);
         let diag_count_row = DIAG_UNION_COUNT.0.as_ptr().add(entry.diag_offset as usize);
 
-        let n_flipped = (*count_file_row.add(row_idx) as u32
+        let n_flipped = (row_count
             + *count_rank_row.add(file_idx) as u32
             + *diag_count_row.add(diag_idx) as u32) as i32;
-        let score_base = 2 * player.count_ones() as Score - SCORE_MAX + 2;
         let score = score_base + n_flipped;
 
         if n_flipped != 0 {
