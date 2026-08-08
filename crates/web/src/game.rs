@@ -15,41 +15,6 @@ use crate::level::Level;
 use crate::search::Search;
 use crate::transposition_table::TranspositionTable;
 
-struct EngineState {
-    search: Search,
-    tt: Rc<TranspositionTable>,
-}
-
-impl EngineState {
-    fn new() -> Self {
-        let tt = Rc::new(TranspositionTable::new(DEFAULT_TT_MB));
-        let eval = Rc::new(Eval::new().expect("Failed to load evaluation network"));
-        let search = Search::new(Rc::clone(&tt), eval);
-        EngineState { search, tt }
-    }
-
-    fn reset(&self) {
-        self.tt.clear();
-    }
-
-    fn search(
-        &mut self,
-        board: &Board,
-        level: Level,
-        progress_callback: Option<Function>,
-    ) -> Option<Square> {
-        let result = self
-            .search
-            .run(board, level, MIDGAME_SELECTIVITY, progress_callback);
-        if let Some(best_move) = result.best_move {
-            return Some(best_move);
-        }
-
-        let moves = MoveList::new(board);
-        moves.first().map(|mv| mv.sq)
-    }
-}
-
 /// Game session exposed to JavaScript that pairs a board with the AI engine.
 #[wasm_bindgen]
 pub struct Game {
@@ -57,7 +22,7 @@ pub struct Game {
     current_player: Disc,
     human_player: Disc,
     ai_player: Disc,
-    engine: EngineState,
+    search: Search,
     mid_depth: Depth,
     progress_callback: Option<Function>,
 }
@@ -74,7 +39,7 @@ impl Game {
             current_player: Disc::Black,
             human_player: Disc::Black,
             ai_player: Disc::White,
-            engine: EngineState::new(),
+            search: new_search(),
             mid_depth: DEFAULT_MID_DEPTH,
             progress_callback: None,
         };
@@ -242,7 +207,7 @@ impl Game {
 
 impl Game {
     fn set_players(&mut self, human_is_black: bool) {
-        self.engine.reset();
+        self.search.init();
         self.human_player = if human_is_black {
             Disc::Black
         } else {
@@ -271,8 +236,16 @@ impl Game {
 
     fn select_ai_move(&mut self) -> Option<Square> {
         let level = level_for_position(self.mid_depth);
-        self.engine
-            .search(&self.board, level, self.progress_callback.clone())
+        let result = self.search.run(
+            &self.board,
+            level,
+            MIDGAME_SELECTIVITY,
+            self.progress_callback.clone(),
+            false,
+        );
+        result
+            .best_move
+            .or_else(|| MoveList::new(&self.board).first().map(|mv| mv.sq))
     }
 
     /// Evaluates every legal move for the human player. Does not mutate the board.
@@ -285,11 +258,16 @@ impl Game {
         }
 
         let level = level_for_position(self.mid_depth);
-        self.engine
-            .search
-            .run_multi_pv(&self.board, level, MIDGAME_SELECTIVITY, callback)
+        self.search
+            .run(&self.board, level, MIDGAME_SELECTIVITY, callback, true)
             .multi_pv_scores
     }
+}
+
+fn new_search() -> Search {
+    let tt = Rc::new(TranspositionTable::new(DEFAULT_TT_MB));
+    let eval = Rc::new(Eval::new().expect("Failed to load evaluation network"));
+    Search::new(tt, eval)
 }
 
 fn level_for_position(mid_depth: Depth) -> Level {

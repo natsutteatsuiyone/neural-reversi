@@ -46,7 +46,6 @@ impl EndgameSolveResult {
 #[wasm_bindgen]
 pub struct EndgameSolver {
     search: Search,
-    tt: Rc<TranspositionTable>,
 }
 
 #[wasm_bindgen]
@@ -65,9 +64,10 @@ impl EndgameSolver {
         let eval = Rc::new(Eval::new().map_err(|e| {
             JsValue::from_str(&format!("Failed to load evaluation network: {}", e))
         })?);
-        let search = Search::new(Rc::clone(&tt), eval);
 
-        Ok(EndgameSolver { search, tt })
+        Ok(EndgameSolver {
+            search: Search::new(tt, eval),
+        })
     }
 
     pub fn solve(&mut self, board_str: &str, side: u8) -> Result<EndgameSolveResult, JsValue> {
@@ -82,7 +82,9 @@ impl EndgameSolver {
             perfect_depth: empty_count,
         };
 
-        let result = self.search.run(&board, level, MIDGAME_SELECTIVITY, None);
+        let result = self
+            .search
+            .run(&board, level, MIDGAME_SELECTIVITY, None, false);
 
         Ok(EndgameSolveResult {
             score: result.score,
@@ -93,9 +95,5 @@ impl EndgameSolver {
             n_nodes: result.n_nodes as f64,
             depth: result.depth,
         })
-    }
-
-    pub fn clear_tt(&self) {
-        self.tt.clear();
     }
 }

@@ -104,7 +104,6 @@ impl ProbCutDatagenResult {
 #[wasm_bindgen]
 pub struct ProbCutDatagen {
     search: Search,
-    tt: Rc<TranspositionTable>,
     score_cache: HashMap<(Board, Depth), f32>,
     cache_hits: usize,
     cache_misses: usize,
@@ -125,25 +124,12 @@ impl ProbCutDatagen {
         let eval = Rc::new(Eval::new().map_err(|e| {
             JsValue::from_str(&format!("Failed to load evaluation network: {}", e))
         })?);
-        let search = Search::new(Rc::clone(&tt), eval);
-
         Ok(ProbCutDatagen {
-            search,
-            tt,
+            search: Search::new(tt, eval),
             score_cache: HashMap::new(),
             cache_hits: 0,
             cache_misses: 0,
         })
-    }
-
-    /// Processes a single game sequence and generates training samples.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the game sequence contains an invalid move token.
-    pub fn process_game(&mut self, game_sequence: &str) -> Result<ProbCutDatagenResult, JsValue> {
-        let samples = self.process_game_internal(game_sequence)?;
-        self.build_result(samples)
     }
 
     /// Processes multiple newline-separated game sequences with an optional progress callback.
@@ -190,23 +176,10 @@ impl ProbCutDatagen {
         self.build_result(all_samples)
     }
 
-    /// Processes a single game sequence and generates endgame training samples.
+    /// Processes multiple newline-separated game sequences for endgame ProbCut analysis.
     ///
     /// Only positions with ply >= 30 are analyzed. The shallow search runs at a fixed
     /// depth and the deep score is the exact final game result (disc difference).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the game sequence contains an invalid move token.
-    pub fn process_game_endgame(
-        &mut self,
-        game_sequence: &str,
-    ) -> Result<ProbCutDatagenResult, JsValue> {
-        let samples = self.process_game_endgame_internal(game_sequence)?;
-        self.build_result(samples)
-    }
-
-    /// Processes multiple newline-separated game sequences for endgame ProbCut analysis.
     ///
     /// # Errors
     ///
@@ -248,20 +221,6 @@ impl ProbCutDatagen {
         }
 
         self.build_result(all_samples)
-    }
-
-    /// Clears all caches and resets statistics.
-    pub fn clear(&mut self) {
-        self.score_cache.clear();
-        self.tt.clear();
-        self.cache_hits = 0;
-        self.cache_misses = 0;
-    }
-
-    /// Returns the current number of cached scores.
-    #[wasm_bindgen(getter)]
-    pub fn cache_size(&self) -> u32 {
-        self.score_cache.len() as u32
     }
 }
 
@@ -413,7 +372,9 @@ impl ProbCutDatagen {
             end_depth: ENDGAME_SHALLOW_DEPTH,
             perfect_depth: ENDGAME_SHALLOW_DEPTH,
         };
-        self.search.run(board, level, SELECTIVITY, None).score
+        self.search
+            .run(board, level, SELECTIVITY, None, false)
+            .score
     }
 
     /// Searches at all depths from 0 to `NUM_SEARCH_DEPTHS`.
@@ -444,8 +405,10 @@ impl ProbCutDatagen {
             perfect_depth: depth,
         };
 
-        let result = self.search.run(board, level, SELECTIVITY, None);
-        let score = result.score;
+        let score = self
+            .search
+            .run(board, level, SELECTIVITY, None, false)
+            .score;
 
         self.score_cache.insert(cache_key, score);
         score

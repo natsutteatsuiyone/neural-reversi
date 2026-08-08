@@ -151,18 +151,18 @@ Options:
 | Option | Description |
 |--------|-------------|
 | `-o, --opening-file` | Opening file in match-runner format |
-| `-j, --jobs` | Parallel comparisons per round. Default: 1 |
-| `-r, --rounds` | Pairing rounds. Default: full round-robin for <= 8 weights, otherwise 4 |
-| `--full-round-robin` | Play every pair once. Cannot be combined with `--rounds` |
-| `--seed` | Stable seed for the initial pairing order |
+| `-j, --jobs` | Parallel comparisons. Default: 1 |
 | `-h, --help` | Show help message |
+
+Up to 8 weights every pair is played once. Larger folders play 4 rounds instead,
+pairing each weight with the nearest-ranked opponent it has not met yet, so the
+comparison count stays linear in the number of weights.
 
 ### Examples
 
 ```bash
 bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt>
-bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt> --rounds 6
-bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt> --full-round-robin --jobs 4
+bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt> --jobs 4
 bun scripts/weight-tournament.js ../../weights --opening-file ../../openings.txt
 ```
 

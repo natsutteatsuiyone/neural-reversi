@@ -53,45 +53,27 @@ impl Search {
     }
 
     /// Runs a search on the given position and returns the best move and score.
+    ///
+    /// With `multi_pv` set, every legal root move is scored and the results are
+    /// reported in [`SearchResult::multi_pv_scores`].
     pub fn run(
         &mut self,
         board: &Board,
         level: Level,
         selectivity: Selectivity,
         progress_callback: Option<Function>,
+        multi_pv: bool,
     ) -> SearchResult {
         self.tt.increment_generation();
-        let task = SearchTask {
+        search_root(SearchTask {
             board: *board,
             level,
             selectivity,
             tt: Rc::clone(&self.tt),
             eval: Rc::clone(&self.eval),
             progress_callback,
-            multi_pv: false,
-        };
-        search_root(task)
-    }
-
-    /// Runs a Multi-PV search that scores every legal root move.
-    pub fn run_multi_pv(
-        &mut self,
-        board: &Board,
-        level: Level,
-        selectivity: Selectivity,
-        progress_callback: Option<Function>,
-    ) -> SearchResult {
-        self.tt.increment_generation();
-        let task = SearchTask {
-            board: *board,
-            level,
-            selectivity,
-            tt: Rc::clone(&self.tt),
-            eval: Rc::clone(&self.eval),
-            progress_callback,
-            multi_pv: true,
-        };
-        search_root(task)
+            multi_pv,
+        })
     }
 
     /// Clears the transposition table to reset search state.
@@ -119,7 +101,6 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             best_move: None,
             n_nodes: 0,
             depth: 0,
-            selectivity: Selectivity::None,
             multi_pv_scores: Vec::new(),
         };
     }
@@ -133,7 +114,6 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             best_move: Some(mv),
             n_nodes: 0,
             depth: 0,
-            selectivity: Selectivity::None,
             multi_pv_scores: Vec::new(),
         };
     }
@@ -166,7 +146,6 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
             best_move: None,
             n_nodes: ctx.n_nodes,
             depth: 0,
-            selectivity: Selectivity::None,
             multi_pv_scores: Vec::new(),
         };
     }
@@ -223,7 +202,6 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         depth: max_depth,
-        selectivity: ctx.selectivity,
         multi_pv_scores: Vec::new(),
     }
 }
@@ -280,7 +258,6 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         depth: level.end_depth,
-        selectivity: ctx.selectivity,
         multi_pv_scores: Vec::new(),
     }
 }
@@ -298,7 +275,6 @@ fn finish_multipv_result(ctx: &SearchContext, depth: Depth) -> SearchResult {
         best_move: Some(best.sq),
         n_nodes: ctx.n_nodes,
         depth,
-        selectivity: ctx.selectivity,
         multi_pv_scores,
     }
 }

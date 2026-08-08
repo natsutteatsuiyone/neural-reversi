@@ -51,7 +51,6 @@ impl AlignedWeights {
         }
     }
 
-    #[allow(dead_code)]
     fn as_ptr(&self) -> *const i8 {
         self.ptr
     }
@@ -566,8 +565,9 @@ impl Network {
 
         // SAFETY: `input_layer.weights` owns `len` initialized bytes at `ptr`
         // for the lifetime of the layer, and scalar forward only reads them.
-        let weights =
-            unsafe { std::slice::from_raw_parts(input_layer.weights.ptr, input_layer.weights.len) };
+        let weights = unsafe {
+            std::slice::from_raw_parts(input_layer.weights.as_ptr(), input_layer.weights.len)
+        };
         for feature_idx in 0..NUM_FEATURES {
             let offset = feature_offset(pattern_feature, feature_idx);
             let row = &weights[offset * NN_DIMS..(offset + 1) * NN_DIMS];

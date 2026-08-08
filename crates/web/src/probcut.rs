@@ -35,110 +35,81 @@ impl ProbcutParams {
 const MAX_PLY: usize = 60;
 const MAX_DEPTH: usize = 60;
 
-type MeanTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
-type SigmaTable = [[[f64; MAX_DEPTH]; MAX_DEPTH]; MAX_PLY];
-type EndTable = [[f64; MAX_DEPTH]; MAX_DEPTH];
+/// Minimum deep depth at which midgame ProbCut is attempted.
+const MIN_MIDGAME_DEPTH: Depth = 3;
+
+/// Shallow depth used by endgame ProbCut.
+const ENDGAME_PC_DEPTH: Depth = 2;
 
 const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
 
-static MEAN_TABLE: OnceLock<Box<MeanTable>> = OnceLock::new();
-static SIGMA_TABLE: OnceLock<Box<SigmaTable>> = OnceLock::new();
-static MEAN_TABLE_END: OnceLock<EndTable> = OnceLock::new();
-static SIGMA_TABLE_END: OnceLock<EndTable> = OnceLock::new();
-
-/// Allocates a zeroed 3D table on the heap to avoid stack overflow.
-fn alloc_3d_table() -> Box<MeanTable> {
-    let tbl = vec![[0.0f64; MAX_DEPTH]; MAX_PLY * MAX_DEPTH].into_boxed_slice();
-    unsafe { Box::from_raw(Box::into_raw(tbl) as *mut MeanTable) }
-}
-
-/// Builds the pre-computed mean table for midgame positions.
-fn build_mean_table() -> Box<MeanTable> {
-    let mut tbl = alloc_3d_table();
-
-    for ply in 0..MAX_PLY {
-        let params = &PROBCUT_PARAMS[ply];
-        for shallow in 0..MAX_DEPTH {
-            for deep in shallow..MAX_DEPTH {
-                let v = params.mean(shallow as f64, deep as f64) * SCORE_SCALE_F64;
-                tbl[ply][shallow][deep] = v;
-                tbl[ply][deep][shallow] = v; // Symmetric: mean(a,b) = mean(b,a)
-            }
-        }
-    }
-    tbl
-}
-
-/// Builds the pre-computed sigma table for midgame positions.
-fn build_sigma_table() -> Box<SigmaTable> {
-    let mut tbl = unsafe { Box::from_raw(Box::into_raw(alloc_3d_table()) as *mut SigmaTable) };
-
-    for ply in 0..MAX_PLY {
-        let params = &PROBCUT_PARAMS[ply];
-        for shallow in 0..MAX_DEPTH {
-            for deep in shallow..MAX_DEPTH {
-                let v = params.sigma(shallow as f64, deep as f64) * SCORE_SCALE_F64;
-                tbl[ply][shallow][deep] = v;
-                tbl[ply][deep][shallow] = v; // Symmetric: sigma(a,b) = sigma(b,a)
-            }
-        }
-    }
-    tbl
-}
-
-/// Builds a 2D `[shallow][deep]` table from the endgame ProbCut parameters.
+/// Pre-scaled ProbCut coefficients for one deep search depth.
 ///
-/// Only populates entries where `shallow <= deep` (callers always satisfy this).
-fn build_end_table(f: impl Fn(&ProbcutParams, f64, f64) -> f64) -> EndTable {
-    let mut tbl = [[0.0f64; MAX_DEPTH]; MAX_DEPTH];
-    #[allow(clippy::needless_range_loop)]
-    for shallow in 0..MAX_DEPTH {
-        for deep in shallow..MAX_DEPTH {
-            tbl[shallow][deep] =
-                f(&PROBCUT_ENDGAME_PARAMS, shallow as f64, deep as f64) * SCORE_SCALE_F64;
+/// The shallow depth is a pure function of the deep depth, so a table keyed by
+/// the deep depth alone covers every lookup the search performs.
+#[derive(Clone, Copy, Default)]
+struct ProbcutEntry {
+    /// Predicted mean difference between the shallow and deep scores.
+    mean: f64,
+    /// Predicted standard deviation of that difference.
+    sigma: f64,
+    /// Mean used by the static-evaluation pre-check.
+    eval_mean: f64,
+    /// Half the depth-0 sigma; scaled by the selectivity `t` at use.
+    half_eval_sigma: f64,
+}
+
+impl ProbcutEntry {
+    fn new(params: &ProbcutParams, shallow: Depth, deep: Depth) -> Self {
+        let (shallow, deep) = (shallow as f64, deep as f64);
+        let mean = params.mean(shallow, deep) * SCORE_SCALE_F64;
+        ProbcutEntry {
+            mean,
+            sigma: params.sigma(shallow, deep) * SCORE_SCALE_F64,
+            eval_mean: 0.5 * (params.mean(0.0, deep) * SCORE_SCALE_F64) + mean,
+            half_eval_sigma: 0.5 * (params.sigma(0.0, deep) * SCORE_SCALE_F64),
         }
     }
-    tbl
 }
+
+/// Midgame coefficients, indexed by `ply * MAX_DEPTH + deep`.
+static MIDGAME_TABLE: OnceLock<Vec<ProbcutEntry>> = OnceLock::new();
+
+/// Endgame coefficients, indexed by `deep`.
+static ENDGAME_TABLE: OnceLock<Vec<ProbcutEntry>> = OnceLock::new();
 
 /// Initializes the ProbCut lookup tables.
 pub fn init() {
-    MEAN_TABLE.set(build_mean_table()).ok();
-    SIGMA_TABLE.set(build_sigma_table()).ok();
-    MEAN_TABLE_END
-        .set(build_end_table(ProbcutParams::mean))
-        .ok();
-    SIGMA_TABLE_END
-        .set(build_end_table(ProbcutParams::sigma))
-        .ok();
+    MIDGAME_TABLE.get_or_init(|| {
+        let mut table = vec![ProbcutEntry::default(); MAX_PLY * MAX_DEPTH];
+        for (ply, params) in PROBCUT_PARAMS.iter().enumerate() {
+            for deep in MIN_MIDGAME_DEPTH as usize..MAX_DEPTH {
+                let deep = deep as Depth;
+                table[ply * MAX_DEPTH + deep as usize] =
+                    ProbcutEntry::new(params, determine_probcut_depth(deep), deep);
+            }
+        }
+        table
+    });
+    ENDGAME_TABLE.get_or_init(|| {
+        (0..MAX_DEPTH as Depth)
+            .map(|deep| ProbcutEntry::new(&PROBCUT_ENDGAME_PARAMS, ENDGAME_PC_DEPTH, deep))
+            .collect()
+    });
 }
 
-/// Returns the pre-computed mean value for midgame positions.
+/// Returns the midgame coefficients for the given ply and deep depth.
 #[inline]
-fn calc_mean(ply: usize, shallow: Depth, deep: Depth) -> f64 {
-    let tbl = MEAN_TABLE.get().expect("probcut not initialized");
-    tbl[ply][shallow as usize][deep as usize]
+fn midgame_entry(ply: usize, deep: Depth) -> ProbcutEntry {
+    let table = MIDGAME_TABLE.get().expect("probcut not initialized");
+    table[ply * MAX_DEPTH + deep as usize]
 }
 
-/// Returns the pre-computed sigma value for midgame positions.
+/// Returns the endgame coefficients for the given deep depth.
 #[inline]
-fn calc_sigma(ply: usize, shallow: Depth, deep: Depth) -> f64 {
-    let tbl = SIGMA_TABLE.get().expect("probcut not initialized");
-    tbl[ply][shallow as usize][deep as usize]
-}
-
-/// Returns the pre-computed mean value for endgame positions.
-#[inline]
-fn calc_mean_end(shallow: Depth, deep: Depth) -> f64 {
-    let tbl = MEAN_TABLE_END.get().expect("probcut not initialized");
-    tbl[shallow as usize][deep as usize]
-}
-
-/// Returns the pre-computed sigma value for endgame positions.
-#[inline]
-fn calc_sigma_end(shallow: Depth, deep: Depth) -> f64 {
-    let tbl = SIGMA_TABLE_END.get().expect("probcut not initialized");
-    tbl[shallow as usize][deep as usize]
+fn endgame_entry(deep: Depth) -> ProbcutEntry {
+    let table = ENDGAME_TABLE.get().expect("probcut not initialized");
+    table[deep as usize]
 }
 
 /// Determines the shallow search depth for ProbCut from the given deep search depth.
@@ -160,20 +131,18 @@ pub fn probcut_midgame(
     depth: Depth,
     beta: ScaledScore,
 ) -> Option<ScaledScore> {
-    if depth >= 3 && ctx.selectivity.is_enabled() {
-        let ply = ctx.ply();
+    if depth >= MIN_MIDGAME_DEPTH && ctx.selectivity.is_enabled() {
+        let pc = midgame_entry(ctx.ply(), depth);
         let pc_depth = determine_probcut_depth(depth);
-        let mean = calc_mean(ply, pc_depth, depth);
-        let sigma = calc_sigma(ply, pc_depth, depth);
         let t = ctx.selectivity.t_value();
 
         let eval_score = search::evaluate(ctx, board);
-        let eval_mean = 0.5 * calc_mean(ply, 0, depth) + mean;
-        let eval_sigma = t * 0.5 * calc_sigma(ply, 0, depth) + sigma;
+        let eval_sigma = t * pc.half_eval_sigma + pc.sigma;
 
         let beta_raw = beta.value() as f64;
-        let eval_beta = ScaledScore::from_raw((beta_raw - eval_sigma - eval_mean).floor() as i32);
-        let pc_beta = ScaledScore::from_raw((beta_raw + t * sigma - mean).ceil() as i32);
+        let eval_beta =
+            ScaledScore::from_raw((beta_raw - eval_sigma - pc.eval_mean).floor() as i32);
+        let pc_beta = ScaledScore::from_raw((beta_raw + t * pc.sigma - pc.mean).ceil() as i32);
         if eval_score >= eval_beta && pc_beta < ScaledScore::MAX {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested ProbCut
@@ -211,27 +180,29 @@ pub fn probcut_endgame(
         return None;
     }
 
-    const PC_DEPTH: Depth = 2;
-    let mean = calc_mean_end(PC_DEPTH, depth);
-    let sigma = calc_sigma_end(PC_DEPTH, depth);
+    let pc = endgame_entry(depth);
     let t = ctx.selectivity.t_value();
 
     let beta_raw = beta.value() as f64;
-    let pc_beta = ScaledScore::from_raw((beta_raw + t * sigma - mean).ceil() as i32);
+    let pc_beta = ScaledScore::from_raw((beta_raw + t * pc.sigma - pc.mean).ceil() as i32);
     if pc_beta >= ScaledScore::MAX {
         return None;
     }
 
     let eval_score = search::evaluate(ctx, board);
-    let eval_mean = 0.5 * calc_mean_end(0, depth) + mean;
-    let eval_sigma = t * 0.5 * calc_sigma_end(0, depth) + sigma;
-    let eval_beta = ScaledScore::from_raw((beta_raw - eval_sigma - eval_mean).floor() as i32);
+    let eval_sigma = t * pc.half_eval_sigma + pc.sigma;
+    let eval_beta = ScaledScore::from_raw((beta_raw - eval_sigma - pc.eval_mean).floor() as i32);
 
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
         ctx.selectivity = Selectivity::None; // Disable nested ProbCut
-        let score =
-            search::search::<NonPV, MidGameStrategy>(ctx, board, PC_DEPTH, pc_beta - 1, pc_beta);
+        let score = search::search::<NonPV, MidGameStrategy>(
+            ctx,
+            board,
+            ENDGAME_PC_DEPTH,
+            pc_beta - 1,
+            pc_beta,
+        );
         ctx.selectivity = current_selectivity; // Restore selectivity
         if score >= pc_beta {
             return Some(beta);

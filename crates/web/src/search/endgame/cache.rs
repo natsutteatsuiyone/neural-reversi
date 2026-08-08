@@ -113,12 +113,6 @@ impl EndGameCache {
         }
     }
 
-    /// Clears all entries.
-    #[allow(dead_code)]
-    pub(super) fn clear(&mut self) {
-        self.table.fill(0);
-    }
-
     #[inline(always)]
     fn pack(key: u64, score: Score, bound: EndGameCacheBound) -> u64 {
         (key & KEY_MASK)
@@ -170,19 +164,5 @@ mod tests {
 
         assert_eq!(cache_idx1, cache_idx2);
         assert!(cache.probe(cache_idx2, key2).is_none());
-    }
-
-    #[test]
-    fn clear_removes_entries() {
-        let mut cache = EndGameCache::new(1024);
-        let key = 0x9876_5432_10fe_dcba;
-        let cache_idx = cache.index(key);
-
-        cache.store(cache_idx, key, -8, -7);
-        assert!(cache.probe(cache_idx, key).is_some());
-
-        cache.clear();
-
-        assert!(cache.probe(cache_idx, key).is_none());
     }
 }

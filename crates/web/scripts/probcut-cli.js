@@ -13,7 +13,7 @@
 
 import { readFileSync, writeFileSync } from "fs";
 import { parseArgs } from "util";
-import { importPreferredWasmModule } from "../wasm-loader.js";
+import { importNodeWasm } from "../wasm-loader.js";
 
 // Parse command line arguments
 const { values } = parseArgs({
@@ -51,10 +51,7 @@ Output format:
 
 async function main() {
   // Dynamic import for WASM module (prefer relaxed-simd, fall back to simd128)
-  const { module, relaxedSimd } = await importPreferredWasmModule({
-    relaxedPath: "./pkg-node-relaxed/web.js",
-    fallbackPath: "./pkg-node/web.js",
-  });
+  const { module, relaxedSimd } = await importNodeWasm();
   const { ProbCutDatagen } = module;
 
   console.log("Loading evaluation network...");

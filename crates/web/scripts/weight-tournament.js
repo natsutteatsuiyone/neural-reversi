@@ -9,19 +9,18 @@
 import { readdirSync, readFileSync } from "fs";
 import { basename, join, resolve } from "path";
 import { parseArgs } from "util";
-import { importPreferredWasmModule } from "../wasm-loader.js";
+import { importNodeWasm } from "../wasm-loader.js";
 
 const CLI_OPTIONS = {
-  "full-round-robin": { type: "boolean" },
   "opening-file": { type: "string", short: "o" },
   jobs: { type: "string", short: "j" },
-  rounds: { type: "string", short: "r" },
-  seed: { type: "string" },
   help: { type: "boolean", short: "h" },
 };
 
-const RANK_DISTANCE_PAIRING_PENALTY = 10;
-const EXACT_SWISS_MATCHING_PLAYER_LIMIT = 20;
+// Up to this many weights every pair is played. Larger fields run a sparse
+// league instead, so the comparison count stays linear in the field size.
+const FULL_ROUND_ROBIN_LIMIT = 8;
+const SPARSE_ROUNDS = 4;
 
 function parseCliArgs(args = process.argv.slice(2)) {
   return parseArgs({
@@ -33,24 +32,22 @@ function parseCliArgs(args = process.argv.slice(2)) {
 
 function usage(exitCode = 0) {
   console.log(`
-WASM weight tournament CLI (1-ply, balanced Swiss/round-robin)
+WASM weight tournament CLI (1-ply)
 
 Usage:
   bun scripts/weight-tournament.js <weights-dir> [options]
 
 Options:
   -o, --opening-file  Opening file in match-runner format
-  -j, --jobs          Parallel comparisons per round. Default: 1
-  -r, --rounds        Pairing rounds. Default: full round-robin for <= 8 weights, otherwise 4
-      --full-round-robin
-                      Play every pair once. Cannot be combined with --rounds
-      --seed          Stable seed for the initial pairing order. Default: weight-tournament
+  -j, --jobs          Parallel comparisons. Default: 1
   -h, --help          Show this help message
+
+Every pair is played once for up to ${FULL_ROUND_ROBIN_LIMIT} weights; larger fields play
+${SPARSE_ROUNDS} rounds, paired by current standing.
 
 Examples:
   bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt>
-  bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt> --rounds 6
-  bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt> --full-round-robin --jobs 4
+  bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt> --jobs 4
   bun scripts/weight-tournament.js ../../weights --opening-file ../../openings.txt
 `);
   process.exit(exitCode);
@@ -115,23 +112,6 @@ function parsePositiveInteger(value, optionName) {
   return parsed;
 }
 
-function hashText(text) {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-function seededWeightOrder(weights, seed) {
-  return [...weights].sort((a, b) => {
-    const hashA = hashText(`${seed}\0${a.name}`);
-    const hashB = hashText(`${seed}\0${b.name}`);
-    return hashA - hashB || a.name.localeCompare(b.name, undefined, { numeric: true });
-  });
-}
-
 function compareMatchResult(stats) {
   if (stats.engine1Wins > stats.engine2Wins) return "engine1";
   if (stats.engine2Wins > stats.engine1Wins) return "engine2";
@@ -182,46 +162,14 @@ function winnerName(result, engine1, engine2) {
   return "Draw";
 }
 
-function fullRoundRobinRounds(weightCount) {
-  return weightCount % 2 === 0 ? weightCount - 1 : weightCount;
-}
-
-function defaultRoundCount(weightCount) {
-  if (weightCount <= 8) {
-    return fullRoundRobinRounds(weightCount);
-  }
-
-  return 4;
-}
-
-function resolveRoundCount(weightCount, requestedRounds, fullRoundRobinRequested) {
-  if (fullRoundRobinRequested && requestedRounds !== undefined) {
-    throw new Error("--full-round-robin cannot be combined with --rounds");
-  }
-
-  const maxRounds = fullRoundRobinRounds(weightCount);
-  const rounds = fullRoundRobinRequested
-    ? maxRounds
-    : Math.min(requestedRounds ?? defaultRoundCount(weightCount), maxRounds);
-
-  return {
-    fullRoundRobin: rounds === maxRounds,
-    maxRounds,
-    rounds,
-  };
-}
-
 function createStanding() {
   return {
     games: 0,
-    comparisons: 0,
     wins: 0,
     losses: 0,
     draws: 0,
     gamePoints: 0,
     discScore: 0,
-    byes: 0,
-    opponents: [],
   };
 }
 
@@ -233,25 +181,11 @@ function averageDiscScore(standing) {
   return standing.games === 0 ? 0 : standing.discScore / standing.games;
 }
 
-function opponentScoreRate(standing, standings) {
-  if (standing.opponents.length === 0) {
-    return 0.5;
-  }
-
-  const total = standing.opponents.reduce(
-    (sum, opponentName) => sum + scoreRate(standings.get(opponentName)),
-    0,
-  );
-  return total / standing.opponents.length;
-}
-
 function compareStandings(a, b, standings) {
   const standingA = standings.get(a.name);
   const standingB = standings.get(b.name);
   return (
     scoreRate(standingB) - scoreRate(standingA) ||
-    standingB.comparisons - standingA.comparisons ||
-    opponentScoreRate(standingB, standings) - opponentScoreRate(standingA, standings) ||
     averageDiscScore(standingB) - averageDiscScore(standingA) ||
     a.name.localeCompare(b.name, undefined, { numeric: true })
   );
@@ -261,192 +195,87 @@ function pairKey(a, b) {
   return a.name < b.name ? `${a.name}\0${b.name}` : `${b.name}\0${a.name}`;
 }
 
-function buildRoundRobinSchedule(weights, rounds) {
-  const players = [...weights];
-  if (players.length % 2 === 1) {
-    players.push(null);
-  }
-
-  const schedule = [];
-  let rotated = players;
-  for (let round = 0; round < rounds; round += 1) {
-    const pairings = [];
-    for (let i = 0; i < rotated.length / 2; i += 1) {
-      const left = rotated[i];
-      const right = rotated[rotated.length - 1 - i];
-      if (left !== null && right !== null) {
-        pairings.push(round % 2 === 0 ? [left, right] : [right, left]);
-      }
-    }
-    schedule.push(pairings);
-
-    rotated = [rotated[0], rotated[rotated.length - 1], ...rotated.slice(1, rotated.length - 1)];
-  }
-
-  return schedule;
-}
-
 function rankedWeights(weights, standings) {
   return [...weights].sort((a, b) => compareStandings(a, b, standings));
 }
 
-function chooseBye(order, standings) {
-  const candidates = [...order].sort((a, b) => {
-    const standingA = standings.get(a.name);
-    const standingB = standings.get(b.name);
-    return (
-      standingA.byes - standingB.byes ||
-      standingA.comparisons - standingB.comparisons ||
-      scoreRate(standingA) - scoreRate(standingB) ||
-      a.name.localeCompare(b.name, undefined, { numeric: true })
+/** Every pair once, in discovery order. */
+function allPairings(weights) {
+  const pairings = [];
+  for (let i = 0; i < weights.length; i += 1) {
+    for (let j = i + 1; j < weights.length; j += 1) {
+      pairings.push([weights[i], weights[j]]);
+    }
+  }
+  return pairings;
+}
+
+/**
+ * Pairs each weight with the nearest-ranked opponent it has not met yet,
+ * falling back to a repeat when every remaining opponent has been played.
+ */
+function pairByRank(weights, standings, playedPairs) {
+  const order = rankedWeights(weights, standings);
+  const pairings = [];
+
+  if (order.length % 2 === 1) {
+    // Bench whoever has played the most, so an odd field spreads the idle round
+    // instead of starving the tail of the ranking every time.
+    const idle = order.reduce((a, b) =>
+      standings.get(b.name).games >= standings.get(a.name).games ? b : a,
     );
-  });
-
-  return candidates[0];
-}
-
-function swissPairingCost(engine1, engine2, standings, playedPairs, orderIndexes) {
-  const rankDistance =
-    Math.abs(orderIndexes.get(engine1.name) - orderIndexes.get(engine2.name)) - 1;
-  const balancePenalty = standings.get(engine2.name).comparisons;
-
-  return {
-    repeats: playedPairs.has(pairKey(engine1, engine2)) ? 1 : 0,
-    score: rankDistance * RANK_DISTANCE_PAIRING_PENALTY + balancePenalty,
-  };
-}
-
-function isWorseOrEqualPairing(repeats, score, bestRepeats, bestScore) {
-  return repeats > bestRepeats || (repeats === bestRepeats && score >= bestScore);
-}
-
-function buildBestSwissMatching(unpaired, standings, playedPairs) {
-  const orderIndexes = new Map(unpaired.map((engine, index) => [engine.name, index]));
-  const lowestSeenScores = new Map();
-  const stopOnRepeatFree = unpaired.length > EXACT_SWISS_MATCHING_PLAYER_LIMIT;
-  let bestRepeats = Number.POSITIVE_INFINITY;
-  let bestScore = Number.POSITIVE_INFINITY;
-  let bestPairings = [];
-
-  // Normal tournament sizes get exact secondary scoring; larger fields stop at repeat-free.
-  function search(remaining, pairings, repeats, score) {
-    if (isWorseOrEqualPairing(repeats, score, bestRepeats, bestScore)) {
-      return false;
-    }
-
-    if (remaining.length === 0) {
-      bestRepeats = repeats;
-      bestScore = score;
-      bestPairings = pairings;
-      return stopOnRepeatFree && repeats === 0;
-    }
-
-    const key = remaining.map((engine) => engine.name).join("\0");
-    const lowestSeenScore = lowestSeenScores.get(key);
-    if (
-      lowestSeenScore !== undefined &&
-      (lowestSeenScore.repeats < repeats ||
-        (lowestSeenScore.repeats === repeats && lowestSeenScore.score <= score))
-    ) {
-      return false;
-    }
-    lowestSeenScores.set(key, { repeats, score });
-
-    const engine1 = remaining[0];
-    const rest = remaining.slice(1);
-    const candidates = rest
-      .map((engine2, restIndex) => {
-        const cost = swissPairingCost(engine1, engine2, standings, playedPairs, orderIndexes);
-        return {
-          engine2,
-          restIndex,
-          ...cost,
-        };
-      })
-      .sort(
-        (a, b) =>
-          a.repeats - b.repeats ||
-          a.score - b.score ||
-          orderIndexes.get(a.engine2.name) - orderIndexes.get(b.engine2.name) ||
-          a.engine2.name.localeCompare(b.engine2.name, undefined, { numeric: true }),
-      );
-
-    for (const candidate of candidates) {
-      const nextRepeats = repeats + candidate.repeats;
-      const nextScore = score + candidate.score;
-      if (isWorseOrEqualPairing(nextRepeats, nextScore, bestRepeats, bestScore)) {
-        continue;
-      }
-
-      const nextRemaining = rest
-        .slice(0, candidate.restIndex)
-        .concat(rest.slice(candidate.restIndex + 1));
-      if (
-        search(nextRemaining, [...pairings, [engine1, candidate.engine2]], nextRepeats, nextScore)
-      ) {
-        return true;
-      }
-    }
-
-    return false;
+    order.splice(order.indexOf(idle), 1);
   }
 
-  search(unpaired, [], 0, 0);
-  return bestPairings;
-}
-
-function buildSwissPairings(weights, standings, playedPairs, round, seed) {
-  const order = round === 0 ? seededWeightOrder(weights, seed) : rankedWeights(weights, standings);
-  const unpaired = [...order];
-
-  if (unpaired.length % 2 === 1) {
-    const bye = chooseBye(unpaired, standings);
-    standings.get(bye.name).byes += 1;
-    unpaired.splice(unpaired.indexOf(bye), 1);
+  while (order.length >= 2) {
+    const engine1 = order.shift();
+    const unmet = order.findIndex((engine2) => !playedPairs.has(pairKey(engine1, engine2)));
+    const [engine2] = order.splice(unmet === -1 ? 0 : unmet, 1);
+    pairings.push([engine1, engine2]);
   }
 
-  return buildBestSwissMatching(unpaired, standings, playedPairs).map(([engine1, engine2]) =>
-    round % 2 === 0 ? [engine1, engine2] : [engine2, engine1],
-  );
+  return pairings;
+}
+
+/** Splits pairings into batches so results print while the run progresses. */
+function batchPairings(pairings, size) {
+  const batches = [];
+  for (let i = 0; i < pairings.length; i += size) {
+    batches.push(pairings.slice(i, i + size));
+  }
+  return batches;
 }
 
 function addMatchToStandings(standings, engine1, engine2, result) {
   const standing1 = standings.get(engine1.name);
   const standing2 = standings.get(engine2.name);
-  const engine1GamePoints = result.engine1Wins + result.draws * 0.5;
-  const engine2GamePoints = result.engine2Wins + result.draws * 0.5;
 
   standing1.games += result.games;
-  standing1.comparisons += 1;
   standing1.wins += result.engine1Wins;
   standing1.losses += result.engine2Wins;
   standing1.draws += result.draws;
-  standing1.gamePoints += engine1GamePoints;
+  standing1.gamePoints += result.engine1Wins + result.draws * 0.5;
   standing1.discScore += result.engine1Score;
-  standing1.opponents.push(engine2.name);
 
   standing2.games += result.games;
-  standing2.comparisons += 1;
   standing2.wins += result.engine2Wins;
   standing2.losses += result.engine1Wins;
   standing2.draws += result.draws;
-  standing2.gamePoints += engine2GamePoints;
+  standing2.gamePoints += result.engine2Wins + result.draws * 0.5;
   standing2.discScore -= result.engine1Score;
-  standing2.opponents.push(engine1.name);
 }
 
 function printStandings(weights, standings) {
   console.log("\n## Standings\n");
-  console.log("| # | Weight | Score | Games | W-L-D | Disc/game | Opp score |");
-  console.log("|--:|--------|------:|------:|------:|----------:|----------:|");
+  console.log("| # | Weight | Score | Games | W-L-D | Disc/game |");
+  console.log("|--:|--------|------:|------:|------:|----------:|");
 
   rankedWeights(weights, standings).forEach((weight, index) => {
     const standing = standings.get(weight.name);
     console.log(
       `| ${index + 1} | ${weight.name} | ${formatPercent(scoreRate(standing))} | ` +
         `${standing.games} | ${standing.wins}-${standing.losses}-${standing.draws} | ` +
-        `${formatSigned(averageDiscScore(standing).toFixed(2))} | ` +
-        `${formatPercent(opponentScoreRate(standing, standings))} |`,
+        `${formatSigned(averageDiscScore(standing).toFixed(2))} |`,
     );
   });
 }
@@ -523,10 +352,7 @@ function createMatchWorker(openings) {
 
 async function createMatchExecutor(jobs, openings) {
   if (jobs === 1) {
-    const { module, relaxedSimd } = await importPreferredWasmModule({
-      relaxedPath: "./pkg-node-relaxed/web.js",
-      fallbackPath: "./pkg-node/web.js",
-    });
+    const { module, relaxedSimd } = await importNodeWasm();
     const { WeightMatchRunner } = module;
     if (!WeightMatchRunner) {
       throw new Error("WeightMatchRunner is missing; rebuild with `bun run build:wasm:node`");
@@ -610,42 +436,38 @@ async function main() {
     throw new Error("no playable openings found");
   }
 
-  const requestedRounds = parsePositiveInteger(values.rounds, "--rounds");
-  const { fullRoundRobin, rounds } = resolveRoundCount(
-    weights.length,
-    requestedRounds,
-    values["full-round-robin"] === true,
-  );
   const requestedJobs = parsePositiveInteger(values.jobs, "--jobs") ?? 1;
   const jobs = Math.min(requestedJobs, Math.max(1, Math.floor(weights.length / 2)));
   const matchExecutor = await createMatchExecutor(jobs, openings);
-  const seed = values.seed ?? "weight-tournament";
-  const openingOrder = seededWeightOrder(weights, seed);
   const standings = new Map(weights.map((weight) => [weight.name, createStanding()]));
   const playedPairs = new Set();
-  const roundRobinSchedule = fullRoundRobin ? buildRoundRobinSchedule(openingOrder, rounds) : null;
-  const totalComparisons = rounds * Math.floor(weights.length / 2);
+
+  // The full round-robin schedule is fixed up front; the sparse league rebuilds
+  // each round from the standings, so it is produced inside the loop.
+  const schedule =
+    weights.length <= FULL_ROUND_ROBIN_LIMIT
+      ? batchPairings(allPairings(weights), matchExecutor.jobs)
+      : null;
+  const rounds = schedule ? schedule.length : SPARSE_ROUNDS;
+  const totalComparisons = schedule
+    ? (weights.length * (weights.length - 1)) / 2
+    : rounds * Math.floor(weights.length / 2);
   const gamesPerComparison = openings.length * 2;
 
   console.log(`Wasm SIMD: ${matchExecutor.relaxedSimd ? "relaxed-simd" : "simd128"}`);
   console.log(`Weights: ${weights.length}`);
   console.log(`Openings: ${openings.length}`);
-  console.log(`Mode: ${fullRoundRobin ? "full round-robin" : "Swiss-style sparse league"}`);
-  console.log(`Rounds: ${rounds}`);
+  console.log(`Mode: ${schedule ? "full round-robin" : `sparse league (${rounds} rounds)`}`);
   console.log(`Jobs: ${matchExecutor.jobs}`);
   console.log(`Comparisons: ${totalComparisons}`);
-  console.log(`Games: ${totalComparisons * gamesPerComparison}`);
-  console.log(`Seed: ${seed}\n`);
+  console.log(`Games: ${totalComparisons * gamesPerComparison}\n`);
 
   let comparisonNumber = 1;
   try {
     for (let round = 0; round < rounds; round += 1) {
-      const pairings =
-        roundRobinSchedule?.[round] ??
-        buildSwissPairings(weights, standings, playedPairs, round, seed);
-
-      console.log(`Round ${round + 1}/${rounds}`);
+      const pairings = schedule?.[round] ?? pairByRank(weights, standings, playedPairs);
       const results = await matchExecutor.runRound(pairings);
+
       for (let pairingIndex = 0; pairingIndex < pairings.length; pairingIndex += 1) {
         const [engine1, engine2] = pairings[pairingIndex];
         const result = results[pairingIndex];
@@ -669,14 +491,7 @@ async function main() {
   console.log(`Strongest: ${rankedWeights(weights, standings)[0].name}`);
 }
 
-export {
-  addMatchToStandings,
-  buildSwissPairings,
-  createStanding,
-  pairKey,
-  playMatch,
-  resolveRoundCount,
-};
+export { addMatchToStandings, createStanding, pairByRank, pairKey, playMatch };
 
 if (import.meta.main) {
   main().catch((err) => {

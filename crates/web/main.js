@@ -39,7 +39,6 @@ const locales = {
       startGame: "ゲーム開始",
       undo: "一手戻す",
     },
-    moves: {},
     moveLog: {
       aiEvalLabel: "AI評価値",
       noEval: "--",
@@ -52,7 +51,6 @@ const locales = {
     },
     modal: {
       title: "ゲーム設定",
-      description: "対局を始める前に設定を選んでください。",
     },
     scoreboard: {
       black: "黒",
@@ -65,7 +63,6 @@ const locales = {
       nps: "NPS",
     },
     boardAria: "リバーシ盤面",
-    cellAria: (notation) => `マス ${notation}`,
     colors: {
       black: "黒",
       white: "白",
@@ -76,23 +73,9 @@ const locales = {
       drawTitle: "引き分け",
     },
     messages: {
-      gameOver: (black, white, result) => {
-        let text = `ゲーム終了：黒 ${black} - 白 ${white}。`;
-        if (result === "human") {
-          text += "あなたの勝ちです！";
-        } else if (result === "ai") {
-          text += "AIの勝ちです。";
-        } else {
-          text += "引き分けでした。";
-        }
-        return text;
-      },
       passHuman: "パスしました。AIの番です。",
       passAi: "AIはパスしました。あなたの番です。",
       aiThinking: "AIが考え中です…",
-      humanTurn: (colorName) => `あなたの番です（${colorName}）。`,
-      aiTurn: (colorName) => `AIの番です（${colorName}）。`,
-      confirmNewGame: "現在の対局を終了して新しい対局を始めますか？",
       loadError: "読み込みに失敗しました。ページを再読み込みしてください。",
     },
   },
@@ -110,7 +93,6 @@ const locales = {
       startGame: "Start Game",
       undo: "Undo",
     },
-    moves: {},
     moveLog: {
       aiEvalLabel: "AI evaluation",
       noEval: "--",
@@ -123,7 +105,6 @@ const locales = {
     },
     modal: {
       title: "Game Settings",
-      description: "Choose your preferences before starting the match.",
     },
     scoreboard: {
       black: "Black",
@@ -136,7 +117,6 @@ const locales = {
       nps: "NPS",
     },
     boardAria: "Reversi board",
-    cellAria: (notation) => `Square ${notation}`,
     colors: {
       black: "Black",
       white: "White",
@@ -147,23 +127,9 @@ const locales = {
       drawTitle: "Draw",
     },
     messages: {
-      gameOver: (black, white, result) => {
-        let text = `Game over: Black ${black} - White ${white}.`;
-        if (result === "human") {
-          text += " You win!";
-        } else if (result === "ai") {
-          text += " AI wins.";
-        } else {
-          text += " It's a draw.";
-        }
-        return text;
-      },
       passHuman: "You passed. AI's turn.",
       passAi: "AI passed. Your turn.",
       aiThinking: "AI is thinking…",
-      humanTurn: (colorName) => `Your turn (${colorName}).`,
-      aiTurn: (colorName) => `AI's turn (${colorName}).`,
-      confirmNewGame: "End current game and start a new one?",
       loadError: "Failed to load the app. Please reload the page.",
     },
   },
@@ -188,7 +154,6 @@ const state = reactive({
   hintEnabled: false,
   hintLoading: false,
   hints: null,
-  passNotice: null,
   initialLoading: true,
   level: DEFAULT_LEVEL,
   selectedLevel: String(DEFAULT_LEVEL),
@@ -199,8 +164,6 @@ const state = reactive({
   scoreBlack: 2,
   scoreWhite: 2,
   emptyCount: 60,
-  message: locales[defaultLocale].loading,
-  messageKind: "info",
   searchProgress: null,
   statsTooltip: { visible: false, stats: null, style: {} },
   isNarrow: NARROW_QUERY.matches,
@@ -352,7 +315,6 @@ worker.onmessage = async (event) => {
         const evaluation = state.searchProgress?.score;
         logMove(state.aiColor, payload.move, { evaluation, engineStats: payload.engineStats });
       } else if (!nextState.isGameOver && nextState.currentPlayer === state.humanColor) {
-        state.passNotice = "ai";
         state.lastAiMove = null;
         void showPassToast("ai");
       }
@@ -361,7 +323,6 @@ worker.onmessage = async (event) => {
         aiMoveOccurred && !nextState.isGameOver && nextState.currentPlayer === state.aiColor;
 
       if (humanForcedPass) {
-        state.passNotice = "human";
         state.lastHumanMove = null;
         const blockId = ++forcedPassBlockId;
         state.delayAiUntilToast = true;
@@ -506,7 +467,7 @@ void (function bootstrap() {
   } catch (e) {
     console.error("Error bootstrapping application:", e);
     state.initialLoading = false;
-    state.message = "Error loading application. Please refresh.";
+    state.loadError = currentLocale().messages.loadError;
   }
 })();
 
@@ -558,7 +519,6 @@ async function handleCellClick(index) {
   clearHints();
   state.lastHumanMove = index;
   state.lastAiMove = null;
-  state.passNotice = null;
   logMove(state.humanColor, index);
   workerApi.humanMove(index);
 }
@@ -676,7 +636,6 @@ async function resetGame() {
   workerApi.reset(state.humanIsBlack, state.level);
   state.lastHumanMove = null;
   state.lastAiMove = null;
-  state.passNotice = null;
   clearToast();
   state.moveHistory = [];
   state.gameResult = null;
@@ -714,7 +673,6 @@ async function ensureHumanPassIfNeeded() {
   }
 
   clearHints();
-  state.passNotice = "human";
   state.lastHumanMove = null;
   state.lastAiMove = null;
   await showPassToast("human");
@@ -745,51 +703,25 @@ function syncStateFromGame(gameState) {
   state.scoreWhite = scores[1];
   state.emptyCount = gameState.emptyCount;
 
-  const { text, kind } = computeMessage();
-  state.message = text;
-  state.messageKind = kind;
+  updateGameResult();
 
   renderBoard3D();
 }
 
-function computeMessage() {
-  const locale = currentLocale();
-  const colors = locale.colors;
-
-  if (state.isGameOver) {
-    const black = state.scoreBlack;
-    const white = state.scoreWhite;
-    let result = "draw";
-    if (black > white) {
-      result = state.humanIsBlack ? "human" : "ai";
-    } else if (white > black) {
-      result = state.humanIsBlack ? "ai" : "human";
-    }
-    state.gameResult = result;
-    state.passNotice = null;
-    return { text: "", kind: "info" };
+// Decides which outcome the game-over modal shows. Turn and pass announcements
+// are rendered by the thinking badge and the toast, not from here.
+function updateGameResult() {
+  if (!state.isGameOver) {
+    return;
   }
 
-  if (state.passNotice === "human") {
-    state.passNotice = null;
-    return { text: locale.messages.passHuman, kind: "info" };
+  if (state.scoreBlack > state.scoreWhite) {
+    state.gameResult = state.humanIsBlack ? "human" : "ai";
+  } else if (state.scoreWhite > state.scoreBlack) {
+    state.gameResult = state.humanIsBlack ? "ai" : "human";
+  } else {
+    state.gameResult = "draw";
   }
-
-  if (state.passNotice === "ai") {
-    state.passNotice = null;
-    return { text: locale.messages.passAi, kind: "info" };
-  }
-
-  if (state.aiThinking) {
-    return { text: locale.messages.aiThinking, kind: "info" };
-  }
-
-  if (state.isHumanTurn) {
-    return { text: "", kind: "info" };
-  }
-
-  const aiColorName = state.humanIsBlack ? colors.white : colors.black;
-  return { text: locale.messages.aiTurn(aiColorName), kind: "info" };
 }
 
 function clampLevelValue(value) {
@@ -1014,7 +946,6 @@ async function handleUndo() {
   clearHints();
   state.lastHumanMove = null;
   state.lastAiMove = null;
-  state.passNotice = null;
   state.gameResult = null;
   state.gameOverModalDismissed = false;
 

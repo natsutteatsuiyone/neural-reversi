@@ -43,55 +43,14 @@ pub fn evaluate_moves<SS: SearchStrategy>(
         return;
     }
 
-    if SS::IS_ENDGAME {
-        evaluate_moves_endgame(move_list, ctx, board, depth, tt_move);
-    } else {
-        evaluate_moves_midgame(move_list, ctx, board, depth, tt_move);
-    }
+    evaluate_moves_shallow::<SS>(move_list, ctx, board, depth, tt_move);
 }
 
-/// Assigns ordering values to moves for midgame positions.
-fn evaluate_moves_midgame(
-    move_list: &mut MoveList,
-    ctx: &mut SearchContext,
-    board: &Board,
-    depth: Depth,
-    tt_move: Square,
-) {
-    const MAX_SORT_DEPTH: i32 = 2;
-    let sort_depth = match depth {
-        0..=15 => 0,
-        16..=25 => 1,
-        _ => MAX_SORT_DEPTH,
-    };
-
-    for mv in move_list.iter_mut() {
-        if mv.flipped == board.opponent() {
-            // Wipeout move
-            mv.value = WIPEOUT_VALUE;
-        } else if mv.sq == tt_move {
-            // Transposition table move
-            mv.value = TT_MOVE_VALUE;
-        } else {
-            // Evaluate using shallow search
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            ctx.update(mv.sq, mv.flipped);
-
-            let score = match sort_depth {
-                0 => -search::evaluate(ctx, &next),
-                1 => -search::evaluate_depth1(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
-                2 => -search::evaluate_depth2(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
-                _ => unreachable!(),
-            };
-            mv.value = score.value();
-
-            ctx.undo(mv.sq);
-        }
-    }
-}
-
-/// Assigns ordering values to moves for endgame positions, with mobility adjustments.
-fn evaluate_moves_endgame(
+/// Assigns ordering values from a shallow search, with endgame mobility adjustments.
+///
+/// `SS::IS_ENDGAME` is an associated constant, so the phase-specific branches
+/// fold away when the function is monomorphized.
+fn evaluate_moves_shallow<SS: SearchStrategy>(
     move_list: &mut MoveList,
     ctx: &mut SearchContext,
     board: &Board,
@@ -101,10 +60,18 @@ fn evaluate_moves_endgame(
     const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
     const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
 
-    let sort_depth = match depth {
-        0..=18 => 0,
-        19..=26 => 1,
-        _ => 2,
+    let sort_depth = if SS::IS_ENDGAME {
+        match depth {
+            0..=18 => 0,
+            19..=26 => 1,
+            _ => 2,
+        }
+    } else {
+        match depth {
+            0..=15 => 0,
+            16..=25 => 1,
+            _ => 2,
+        }
     };
 
     for mv in move_list.iter_mut() {
@@ -127,11 +94,13 @@ fn evaluate_moves_endgame(
             };
             mv.value = score.value();
 
-            let (moves, potential) = next.get_moves_and_potential();
-            let mobility = moves.corner_weighted_count() as i32;
-            let potential_mobility = potential.corner_weighted_count() as i32;
-            mv.value -= mobility * MOBILITY_SCALE;
-            mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
+            if SS::IS_ENDGAME {
+                let (moves, potential) = next.get_moves_and_potential();
+                let mobility = moves.corner_weighted_count() as i32;
+                let potential_mobility = potential.corner_weighted_count() as i32;
+                mv.value -= mobility * MOBILITY_SCALE;
+                mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
+            }
 
             ctx.undo(mv.sq);
         }

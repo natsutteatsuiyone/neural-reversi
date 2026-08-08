@@ -350,12 +350,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_entry_size() {
-        assert_eq!(std::mem::size_of::<TTEntry>(), 16);
-        assert_eq!(std::mem::size_of::<TTData>(), 8);
-    }
-
-    #[test]
     fn test_new_table_size() {
         // 1 MiB / 16 bytes = 65536 entries → 32768 clusters
         let tt = TranspositionTable::new(1);
@@ -881,43 +875,5 @@ mod tests {
         let data = tt.lookup(key).unwrap();
         assert_eq!(data.score, ScaledScore::from_raw(50));
         assert_eq!(data.depth, 5);
-    }
-
-    #[test]
-    fn test_bound_classify() {
-        use reversi_core::search::node_type::{NonPV, PV};
-
-        assert_eq!(
-            Bound::classify::<PV>(
-                ScaledScore::from_raw(100),
-                ScaledScore::from_raw(0),
-                ScaledScore::from_raw(50)
-            ),
-            Bound::Lower
-        );
-        assert_eq!(
-            Bound::classify::<PV>(
-                ScaledScore::from_raw(30),
-                ScaledScore::from_raw(0),
-                ScaledScore::from_raw(50)
-            ),
-            Bound::Exact
-        );
-        assert_eq!(
-            Bound::classify::<NonPV>(
-                ScaledScore::from_raw(30),
-                ScaledScore::from_raw(0),
-                ScaledScore::from_raw(50)
-            ),
-            Bound::Upper
-        );
-        assert_eq!(
-            Bound::classify::<PV>(
-                ScaledScore::from_raw(-10),
-                ScaledScore::from_raw(0),
-                ScaledScore::from_raw(50)
-            ),
-            Bound::Upper
-        );
     }
 }

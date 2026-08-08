@@ -23,3 +23,11 @@ export async function importPreferredWasmModule({ relaxedPath, fallbackPath }) {
   const module = await import(/* @vite-ignore */ fallbackPath);
   return { module, relaxedSimd: false };
 }
+
+/** Loads the Node-targeted wasm package used by the `scripts/` CLIs. */
+export function importNodeWasm() {
+  return importPreferredWasmModule({
+    relaxedPath: "./pkg-node-relaxed/web.js",
+    fallbackPath: "./pkg-node/web.js",
+  });
+}

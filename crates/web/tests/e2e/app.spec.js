@@ -575,9 +575,3 @@ test("renders the move log newest-first on narrow screens", async ({ page }) => 
     "2.",
   );
 });
-
-// Undo is a no-op until moveHistory is non-empty, which is populated only by a
-// real click on the 3D canvas (logMove in handleCellClick). There is no
-// emit-only path, and clicking a legal cell requires projecting it to a screen
-// pixel against the orthographic camera — too fragile to assert reliably here.
-test.skip("undo replays the remaining moves after a board click", () => {});

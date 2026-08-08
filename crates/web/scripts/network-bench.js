@@ -8,7 +8,7 @@
  */
 
 import { parseArgs } from "util";
-import { importPreferredWasmModule } from "../wasm-loader.js";
+import { importNodeWasm } from "../wasm-loader.js";
 
 const DEFAULT_ITERATIONS = 10000;
 const DEFAULT_WARMUP_ITERATIONS = 1000;
@@ -69,10 +69,7 @@ function formatOpsPerSecond(value) {
 async function main() {
   const iterations = parsePositiveInteger(values.iterations, "iterations");
   const warmup = parseNonNegativeInteger(values.warmup, "warmup");
-  const { module, relaxedSimd } = await importPreferredWasmModule({
-    relaxedPath: "./pkg-node-relaxed/web.js",
-    fallbackPath: "./pkg-node/web.js",
-  });
+  const { module, relaxedSimd } = await importNodeWasm();
   const { BenchmarkRunner } = module;
 
   console.log("Loading evaluation network...");

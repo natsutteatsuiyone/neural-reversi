@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { importPreferredWasmModule } from "../wasm-loader.js";
+import { importNodeWasm } from "../wasm-loader.js";
 import { playMatch } from "./weight-tournament.js";
 
 let WeightMatchRunner = null;
@@ -30,10 +30,7 @@ self.onmessage = async (event) => {
   try {
     if (message.type === "init") {
       openings = message.openings;
-      const { module, relaxedSimd } = await importPreferredWasmModule({
-        relaxedPath: "./pkg-node-relaxed/web.js",
-        fallbackPath: "./pkg-node/web.js",
-      });
+      const { module, relaxedSimd } = await importNodeWasm();
       WeightMatchRunner = module.WeightMatchRunner;
       if (!WeightMatchRunner) {
         throw new Error("WeightMatchRunner is missing; rebuild with `bun run build:wasm:node`");

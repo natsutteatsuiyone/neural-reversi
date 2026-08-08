@@ -5267,7 +5267,6 @@ dependencies = [
  "rand 0.10.2",
  "reversi-core",
  "wasm-bindgen",
- "web-sys",
  "zstd",
 ]
 

@@ -11,7 +11,7 @@ import { readFileSync } from "fs";
 import { parseArgs } from "util";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
-import { importPreferredWasmModule } from "../wasm-loader.js";
+import { importNodeWasm } from "../wasm-loader.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(__dirname, "..");
@@ -115,17 +115,8 @@ function formatNps(nps) {
   return `${(nps / 1e6).toFixed(2)}Mnps`;
 }
 
-function pad(str, len, align = "right") {
-  str = String(str);
-  if (align === "right") return str.padStart(len);
-  return str.padEnd(len);
-}
-
 async function main() {
-  const { module, relaxedSimd } = await importPreferredWasmModule({
-    relaxedPath: "./pkg-node-relaxed/web.js",
-    fallbackPath: "./pkg-node/web.js",
-  });
+  const { module, relaxedSimd } = await importNodeWasm();
   const { EndgameSolver } = module;
 
   const ttSize = parseInt(values["tt-size"], 10);
@@ -173,7 +164,7 @@ async function main() {
     if (isBest) correct++;
 
     console.log(
-      `| ${pad(tc.number, 3)} | ${pad(tc.empties, 7)} | ${pad(formatTime(elapsed), 8)} | ${pad(formatNodes(nodes), 9)} | ${pad(formatNps(nps), 9)} | ${pad(score, 5)} | ${pad(tc.expectedScore, 5)} | ${pad(move, 4, "left")} | ${pad(tc.bestMoves.join(","), 8, "left")} | ${isBest ? "  OK  " : " MISS "} |`,
+      `| ${`${tc.number}`.padStart(3)} | ${`${tc.empties}`.padStart(7)} | ${formatTime(elapsed).padStart(8)} | ${formatNodes(nodes).padStart(9)} | ${formatNps(nps).padStart(9)} | ${`${score}`.padStart(5)} | ${`${tc.expectedScore}`.padStart(5)} | ${move.padEnd(4)} | ${tc.bestMoves.join(",").padEnd(8)} | ${isBest ? "  OK  " : " MISS "} |`,
     );
 
     result.free();
