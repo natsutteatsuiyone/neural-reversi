@@ -3610,6 +3610,7 @@ dependencies = [
  "lock_api",
  "rand 0.10.2",
  "rapidhash",
+ "windows-sys 0.61.2",
  "zstd",
 ]
 

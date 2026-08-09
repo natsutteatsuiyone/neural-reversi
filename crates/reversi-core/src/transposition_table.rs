@@ -560,7 +560,9 @@ impl TranspositionTable {
         let entries_size = cluster_count as usize * CLUSTER_SIZE;
 
         TranspositionTable {
-            entries: AlignedBuffer::from_iter((0..entries_size).map(|_| TTEntry::default())),
+            // SAFETY: an all-zero `TTEntry` is the empty entry - `clear` relies
+            // on the same equivalence.
+            entries: unsafe { AlignedBuffer::zeroed(entries_size) },
             cluster_count,
             generation: AtomicU8::new(0),
         }

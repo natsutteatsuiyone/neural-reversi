@@ -1,30 +1,33 @@
-//! Fixed-length, cache-line-aligned heap buffer for SIMD access.
+//! Fixed-length, cache-line-aligned buffer for SIMD access.
 //!
-//! [`AlignedBuffer<T>`] owns a heap allocation whose base address is a
+//! [`AlignedBuffer<T>`] owns a fixed-length allocation whose base address is a
 //! multiple of [`CACHE_LINE_SIZE`] bytes. Unlike [`Vec`], it has no spare
 //! capacity and cannot grow: every buffer in the engine is sized once at load
 //! time and then only read or overwritten in place, so the length *is* the
-//! capacity. Dropping the growth machinery keeps the type a thin pointer +
-//! length pair and lets SIMD code rely on the alignment of `as_ptr()` for
-//! aligned loads (`_mm256_load_si256`, `_mm512_load_si512`, …).
+//! capacity. SIMD code can rely on the alignment of `as_ptr()` for aligned
+//! loads (`_mm256_load_si256`, `_mm512_load_si512`, …).
 //!
 //! `CACHE_LINE_SIZE` must cover `align_of::<T>()`; checked at compile time.
 
-use std::alloc::{Layout, alloc, dealloc, handle_alloc_error};
+use std::alloc::{Layout, alloc, alloc_zeroed, dealloc, handle_alloc_error};
 use std::fmt;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 use crate::constants::CACHE_LINE_SIZE;
+use crate::util::large_pages;
 
-/// Heap buffer of `len` `T` values whose start address is cache-line-aligned.
+/// A fixed-length buffer of `len` `T` values whose start address is cache-line-aligned.
 pub struct AlignedBuffer<T> {
     /// Allocation base. `CACHE_LINE_SIZE`-aligned; dangling (never
     /// dereferenced) when the buffer holds zero bytes.
     ptr: NonNull<T>,
     /// Number of initialized `T` values. Equals the allocation length.
     len: usize,
+    /// Whether the allocation came from [`large_pages`] and must be released
+    /// through it instead of the global allocator.
+    large_pages: bool,
 }
 
 impl<T> AlignedBuffer<T> {
@@ -34,11 +37,15 @@ impl<T> AlignedBuffer<T> {
         "CACHE_LINE_SIZE must be at least align_of::<T>()"
     );
 
-    /// Allocates `len` uninitialized, cache-line-aligned slots.
+    /// Allocates `len` cache-line-aligned slots, preferring large pages.
+    ///
+    /// Returns the block and whether it came from [`large_pages`], which the
+    /// matching [`AlignedBuffer::release`] needs. Large-page blocks are always
+    /// zeroed; the global-allocator fallback only when `zeroed` asks for it.
     ///
     /// For an empty buffer no allocation is performed and a
     /// dangling-but-aligned pointer is returned.
-    fn alloc_uninit(len: usize) -> NonNull<T> {
+    fn alloc_raw(len: usize, zeroed: bool) -> (NonNull<T>, bool) {
         let () = Self::VALID_ALIGN;
 
         let size = len
@@ -48,25 +55,67 @@ impl<T> AlignedBuffer<T> {
             // Strict-provenance form (not an `int as *mut T` cast) so Miri
             // can still flag real pointer bugs elsewhere.
             let dangling = std::ptr::without_provenance_mut::<T>(CACHE_LINE_SIZE);
-            return NonNull::new(dangling).unwrap();
+            return (NonNull::new(dangling).unwrap(), false);
+        }
+
+        // Windows aligns the returned address to its large-page minimum.
+        if let Some(ptr) = large_pages::alloc_zeroed(size) {
+            return (ptr.cast(), true);
         }
 
         let layout =
             Layout::from_size_align(size, CACHE_LINE_SIZE).expect("AlignedBuffer: invalid layout");
 
         // SAFETY: `layout` has non-zero size.
-        let raw = unsafe { alloc(layout) } as *mut T;
-        NonNull::new(raw).unwrap_or_else(|| handle_alloc_error(layout))
+        let raw = unsafe {
+            if zeroed {
+                alloc_zeroed(layout)
+            } else {
+                alloc(layout)
+            }
+        } as *mut T;
+        (
+            NonNull::new(raw).unwrap_or_else(|| handle_alloc_error(layout)),
+            false,
+        )
     }
 
-    /// Returns the layout of the current allocation, for [`dealloc`].
+    /// Frees a block from [`AlignedBuffer::alloc_raw`].
     ///
-    /// `len` equals the allocated element count for any successfully
-    /// constructed buffer, so this reproduces the allocation layout.
-    fn layout(&self) -> Layout {
-        let size = self.len * mem::size_of::<T>();
-        // Already validated at allocation time.
-        Layout::from_size_align(size, CACHE_LINE_SIZE).unwrap()
+    /// # Safety
+    ///
+    /// `ptr`, `len` and `from_large_pages` must describe that allocation, and
+    /// every element must already have been dropped.
+    unsafe fn release(ptr: NonNull<T>, len: usize, from_large_pages: bool) {
+        if from_large_pages {
+            // SAFETY: the block came from `large_pages::alloc_zeroed`.
+            unsafe { large_pages::free(ptr.cast()) };
+            return;
+        }
+        let size = len * mem::size_of::<T>();
+        if size != 0 {
+            // Already validated at allocation time.
+            let layout = Layout::from_size_align(size, CACHE_LINE_SIZE).unwrap();
+            // SAFETY: `ptr`/`layout` come from the matching allocation.
+            unsafe { dealloc(ptr.as_ptr() as *mut u8, layout) };
+        }
+    }
+
+    /// Creates a buffer of `len` zeroed elements.
+    ///
+    /// Unlike [`AlignedBuffer::from_elem`] this never writes the elements, so a
+    /// large-page buffer stays as the kernel handed it over.
+    ///
+    /// # Safety
+    ///
+    /// An all-zero byte pattern must be a valid value of `T`.
+    pub unsafe fn zeroed(len: usize) -> Self {
+        let (ptr, large_pages) = Self::alloc_raw(len, true);
+        AlignedBuffer {
+            ptr,
+            len,
+            large_pages,
+        }
     }
 
     /// Creates a buffer of `len` elements, each a clone of `value`.
@@ -87,11 +136,12 @@ impl<T> AlignedBuffer<T> {
     {
         let mut it = iter.into_iter();
         let len = it.len();
-        let ptr = Self::alloc_uninit(len);
+        let (ptr, large_pages) = Self::alloc_raw(len, false);
         let mut fill = Filling {
             ptr,
             cap: len,
             initialized: 0,
+            large_pages,
         };
         let base = ptr.as_ptr();
         for i in 0..len {
@@ -143,6 +193,8 @@ struct Filling<T> {
     cap: usize,
     /// Elements written so far.
     initialized: usize,
+    /// Whether the allocation came from [`large_pages`].
+    large_pages: bool,
 }
 
 impl<T> Filling<T> {
@@ -152,26 +204,27 @@ impl<T> Filling<T> {
         debug_assert_eq!(self.initialized, self.cap);
         let ptr = self.ptr;
         let len = self.cap;
+        let large_pages = self.large_pages;
         mem::forget(self);
-        AlignedBuffer { ptr, len }
+        AlignedBuffer {
+            ptr,
+            len,
+            large_pages,
+        }
     }
 }
 
 impl<T> Drop for Filling<T> {
     fn drop(&mut self) {
-        // SAFETY: the first `initialized` slots hold valid `T` values.
+        // SAFETY: the first `initialized` slots hold valid `T` values, and the
+        // allocation is described by `cap`/`large_pages`.
         unsafe {
             std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(
                 self.ptr.as_ptr(),
                 self.initialized,
-            ))
+            ));
+            AlignedBuffer::release(self.ptr, self.cap, self.large_pages);
         };
-        let size = self.cap * mem::size_of::<T>();
-        if size != 0 {
-            let layout = Layout::from_size_align(size, CACHE_LINE_SIZE).unwrap();
-            // SAFETY: `ptr`/`layout` come from the matching allocation.
-            unsafe { dealloc(self.ptr.as_ptr() as *mut u8, layout) };
-        }
     }
 }
 
@@ -196,18 +249,15 @@ impl<T> DerefMut for AlignedBuffer<T> {
 
 impl<T> Drop for AlignedBuffer<T> {
     fn drop(&mut self) {
-        let layout = self.layout();
-        // SAFETY: the first `self.len` slots are initialized.
+        // SAFETY: the first `self.len` slots are initialized, and the
+        // allocation is described by `len`/`large_pages`.
         unsafe {
             std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(
                 self.ptr.as_ptr(),
                 self.len,
-            ))
+            ));
+            Self::release(self.ptr, self.len, self.large_pages);
         };
-        if layout.size() != 0 {
-            // SAFETY: `ptr`/`layout` come from the matching allocation.
-            unsafe { dealloc(self.ptr.as_ptr() as *mut u8, layout) };
-        }
     }
 }
 

@@ -215,6 +215,26 @@ and probes / stores are lock-free.
   the replacement policy so older entries are overwritten first.
 - `prefetch(key)` is exposed for ETC and split-internal lookups.
 
+#### Windows large pages
+
+On Windows, `AlignedBuffer` automatically tries large-page allocation for
+buffers at least as large as the OS-reported minimum. This includes the TT and
+sufficiently large neural-network buffers. If the required privilege or a
+contiguous large-page region is unavailable, allocation falls back to normal
+pages without failing the engine.
+
+To enable large pages:
+
+1. Run `secpol.msc` as an administrator.
+2. Open **Local Policies > User Rights Assignment > Lock pages in memory** and
+   add the account that runs the engine.
+3. Sign out and back in so the account receives a new access token.
+
+Assign this right only to trusted accounts because large-page memory is
+nonpageable and can reduce the RAM available to the rest of the system. See
+Microsoft's documentation for [large-page support](https://learn.microsoft.com/en-us/windows/win32/memory/large-page-support)
+and [assigning privileges to an account](https://learn.microsoft.com/en-us/windows/win32/secbp/assigning-privileges-to-an-account).
+
 ### ProbCut
 
 `probcut.rs`. The model assumes that a search at depth `deep` and a search
@@ -506,7 +526,7 @@ The integration tests in `tests/` require real weights to load.
 | Main NN                              | `src/eval/network.rs`, `src/eval/network/*`                               |
 | Endgame NN                           | `src/eval/network_small.rs`                                               |
 | Numeric types / constants            | `src/types.rs`, `src/constants.rs`                                        |
-| Utilities                            | `src/util/{align,aligned_buffer,bitset,spinlock}.rs`                      |
+| Utilities                            | `src/util/{align,aligned_buffer,bitset,large_pages,spinlock}.rs`          |
 | Correctness checks                   | `src/perft.rs`, `tests/perft_tests.rs`, `tests/endgame_tests.rs`, `tests/parallel_search_tests.rs` |
 
 ## Build and test
