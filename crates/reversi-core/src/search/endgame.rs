@@ -298,20 +298,16 @@ pub fn try_probcut(
         return None;
     }
 
-    const PC_DEPTH: Depth = 2;
-    let mean = probcut::get_mean_end(PC_DEPTH, depth);
-    let sigma = probcut::get_sigma_end(PC_DEPTH, depth);
+    let pc = probcut::endgame_coefficients(depth);
     let t = ctx.selectivity.t_value();
 
-    let pc_beta = probcut::compute_probcut_beta(beta, t, mean, sigma);
+    let pc_beta = probcut::compute_probcut_beta(beta, t, pc);
     if pc_beta >= ScaledScore::MAX {
         return None;
     }
 
     let eval_score = midgame::evaluate(ctx, board);
-    let mean0 = probcut::get_mean_end(0, depth);
-    let sigma0 = probcut::get_sigma_end(0, depth);
-    let eval_beta = probcut::compute_eval_beta(beta, t, mean, sigma, mean0, sigma0, cut_node);
+    let eval_beta = probcut::compute_eval_beta(beta, t, pc, cut_node);
 
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;
@@ -319,7 +315,7 @@ pub fn try_probcut(
         let score = search::<NonPV, MidGameStrategy>(
             ctx,
             board,
-            PC_DEPTH,
+            probcut::ENDGAME_PROBCUT_DEPTH,
             pc_beta - 1,
             pc_beta,
             thread,
