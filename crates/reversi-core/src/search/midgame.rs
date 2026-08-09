@@ -25,8 +25,11 @@ use crate::square::Square;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
 
-/// Initial aspiration window delta.
-const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(3);
+/// Base aspiration window delta.
+const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(2);
+
+/// Divisor converting a root move's mean squared score into extra window width.
+const ASPIRATION_MSS_DIVISOR: i64 = 10193;
 
 /// Minimum depth to enable aspiration windows.
 const ASPIRATION_MIN_DEPTH: Depth = 5;
@@ -93,20 +96,33 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         for pv_idx in 0..pv_count {
             ctx.root_moves.set_pv_idx(pv_idx);
 
-            let (mut alpha, mut beta) = ctx
+            let (mut alpha, mut beta, delta) = ctx
                 .root_moves
                 .get_current_pv()
                 .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
                 .map(|rm| {
+                    let delta = ASPIRATION_DELTA
+                        + ScaledScore::from_raw(
+                            (rm.mean_squared_score.abs() / ASPIRATION_MSS_DIVISOR) as i32,
+                        );
                     (
-                        (rm.previous_score - ASPIRATION_DELTA).max(-ScaledScore::INF),
-                        (rm.previous_score + ASPIRATION_DELTA).min(ScaledScore::INF),
+                        (rm.average_score - delta).max(-ScaledScore::INF),
+                        (rm.average_score + delta).min(ScaledScore::INF),
+                        delta,
                     )
                 })
-                .unwrap_or((-ScaledScore::INF, ScaledScore::INF));
+                .unwrap_or((-ScaledScore::INF, ScaledScore::INF, ASPIRATION_DELTA));
 
-            let (score, window_clean) =
-                aspiration_search(&mut ctx, &board, depth, &mut alpha, &mut beta, thread);
+            let (score, window_clean) = aspiration_search(
+                &mut ctx,
+                &board,
+                depth,
+                &mut alpha,
+                &mut beta,
+                delta,
+                use_time_control,
+                thread,
+            );
 
             ctx.root_moves.sort_from_pv_idx();
 
@@ -192,32 +208,54 @@ pub(super) fn compute_start_depth(max_depth: Depth) -> Depth {
 
 /// Performs aspiration window search at the given depth.
 ///
+/// When `reduce_fail_high_depth` is set, consecutive fail-high re-searches run
+/// at a reduced effective depth (`depth - failed_high_cnt`) while the result
+/// is still reported at `depth`. Fixed-depth searches must not set it: their
+/// scores are used as exact depth-`depth` references (e.g. ProbCut fitting).
+///
 /// Returns the score and whether the search completed inside its initial
 /// window (i.e. without any fail-low/fail-high re-search). A clean window is
 /// evidence that the best score is stable across iterations and that no
 /// alternative move overtook it.
+#[allow(clippy::too_many_arguments)]
 fn aspiration_search(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
     alpha: &mut ScaledScore,
     beta: &mut ScaledScore,
+    mut delta: ScaledScore,
+    reduce_fail_high_depth: bool,
     thread: &Arc<Thread>,
 ) -> (ScaledScore, bool) {
-    let mut delta = ASPIRATION_DELTA;
     let mut window_clean = true;
+    let mut failed_high_cnt: Depth = 0;
 
     loop {
-        let score =
-            search::<Root, MidGameStrategy>(ctx, board, depth, *alpha, *beta, thread, false);
+        let adjusted_depth = if reduce_fail_high_depth {
+            depth.saturating_sub(failed_high_cnt).max(1)
+        } else {
+            depth
+        };
+        let score = search::<Root, MidGameStrategy>(
+            ctx,
+            board,
+            adjusted_depth,
+            *alpha,
+            *beta,
+            thread,
+            false,
+        );
 
         if thread.is_search_aborted() {
             return (score, window_clean);
         }
 
+        let failed_high = score >= *beta;
         if !widen_aspiration_window(score, alpha, beta, delta) {
             return (score, window_clean);
         }
+        failed_high_cnt = if failed_high { failed_high_cnt + 1 } else { 0 };
 
         window_clean = false;
         delta += delta / 2;

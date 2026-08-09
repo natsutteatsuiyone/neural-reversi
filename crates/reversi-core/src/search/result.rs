@@ -282,11 +282,9 @@ mod tests {
     fn root_move_result_preserves_search_data() {
         let root_moves = RootMoves::new(&Board::new());
         let best_move = RootMove {
-            sq: Square::D3,
             score: ScaledScore::from_disc_diff(4),
-            previous_score: -ScaledScore::INF,
-            average_score: -ScaledScore::INF,
             pv: vec![Square::D3, Square::C3],
+            ..RootMove::new(Square::D3)
         };
         #[cfg(feature = "search-stats")]
         let counters = SearchCounters {
@@ -322,11 +320,9 @@ mod tests {
         let root_moves = RootMoves::new(&Board::new());
         let sq = root_moves.map(|rm| rm.sq)[0];
         let best_move = RootMove {
-            sq,
             score: ScaledScore::from_disc_diff(4),
-            previous_score: -ScaledScore::INF,
-            average_score: -ScaledScore::INF,
             pv: vec![sq],
+            ..RootMove::new(sq)
         };
         let snapshot = vec![best_move.clone()];
 

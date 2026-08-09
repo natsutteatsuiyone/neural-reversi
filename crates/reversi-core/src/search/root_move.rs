@@ -21,6 +21,9 @@ pub struct RootMove {
     pub previous_score: ScaledScore,
     /// Running average score across iterations (for stability analysis).
     pub average_score: ScaledScore,
+    /// Running average of score × |score| across iterations, used to size
+    /// the aspiration window.
+    pub mean_squared_score: i64,
     /// Principal variation line starting from this move.
     pub pv: Vec<Square>,
 }
@@ -33,6 +36,7 @@ impl RootMove {
             score: -ScaledScore::INF,
             previous_score: -ScaledScore::INF,
             average_score: -ScaledScore::INF,
+            mean_squared_score: 0,
             pv: Vec::new(),
         }
     }
@@ -73,11 +77,14 @@ impl RootMoves {
     pub fn update(&self, sq: Square, score: ScaledScore, is_pv: bool, pv: &[Square; MAX_PLY]) {
         let mut moves = self.moves.lock().unwrap();
         let rm = moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
-        rm.average_score = if rm.average_score == -ScaledScore::INF {
-            score
+        let squared = i64::from(score.value()) * i64::from(score.value().abs());
+        if rm.average_score == -ScaledScore::INF {
+            rm.average_score = score;
+            rm.mean_squared_score = squared;
         } else {
-            (rm.average_score + score) / 2
-        };
+            rm.average_score = (rm.average_score + score) / 2;
+            rm.mean_squared_score = (rm.mean_squared_score + squared) / 2;
+        }
 
         if is_pv {
             rm.score = score;
@@ -213,6 +220,8 @@ mod tests {
             find(&rms, sq, |rm| rm.average_score),
             ScaledScore::from_disc_diff(4)
         );
+        // 4 discs = 1024 scaled, squared: 1024 * 1024
+        assert_eq!(find(&rms, sq, |rm| rm.mean_squared_score), 1_048_576);
 
         rms.update(sq, ScaledScore::from_disc_diff(8), true, &pv);
         assert_eq!(
@@ -224,6 +233,8 @@ mod tests {
             find(&rms, sq, |rm| rm.average_score),
             ScaledScore::from_disc_diff(6)
         );
+        // (1024² + 2048²) / 2
+        assert_eq!(find(&rms, sq, |rm| rm.mean_squared_score), 2_621_440);
     }
 
     #[test]
