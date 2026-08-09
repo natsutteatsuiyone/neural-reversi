@@ -3,11 +3,14 @@
 use std::sync::Arc;
 
 use crate::board::Board;
+use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::midgame;
 use crate::search::node_type::NonPV;
 use crate::search::threading::Thread;
+use crate::square::Square;
+use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
 
 /// Marker trait for search strategy specialization.
@@ -63,6 +66,9 @@ pub struct MidGameStrategy;
 /// Endgame search strategy marker.
 #[derive(Copy, Clone)]
 pub struct EndGameStrategy;
+
+/// Minimum NWS subtree size, in nodes, required to share a boundary result.
+const BOUNDARY_STORE_MIN_SUBTREE_NODES: u64 = 256;
 
 impl SearchStrategy for MidGameStrategy {
     const IS_ENDGAME: bool = false;
@@ -124,12 +130,28 @@ impl SearchStrategy for EndGameStrategy {
     fn shallow_search(
         ctx: &mut SearchContext,
         board: &Board,
-        _depth: Depth,
+        depth: Depth,
         alpha: ScaledScore,
-        _beta: ScaledScore,
+        beta: ScaledScore,
         thread: &Arc<Thread>,
     ) -> ScaledScore {
         let alpha_d = alpha.to_disc_diff();
+
+        // ProbCut never runs below this depth, so a boundary result is
+        // selectivity-independent and can be shared at Selectivity::None.
+        let tt_slot = if depth == endgame::DEPTH_TO_NWS && thread.is_parallel_pool() {
+            let probe = ctx.tt.probe(board, board.hash());
+            if let Some(tt_data) = probe.data()
+                && tt_data.can_cut(beta, depth, ctx.selectivity, true)
+            {
+                return tt_data.score();
+            }
+            Some(probe.index())
+        } else {
+            None
+        };
+
+        let nodes_before = ctx.counters.n_nodes;
         let score_d = if thread.has_active_split_point() {
             endgame::null_window_search_with_split_point_cutoff(
                 ctx,
@@ -142,7 +164,25 @@ impl SearchStrategy for EndGameStrategy {
             endgame::null_window_search(ctx, board, alpha_d, thread.endgame_caches())
         };
 
-        ScaledScore::from_disc_diff(score_d)
+        let score = ScaledScore::from_disc_diff(score_d);
+
+        if let Some(tt_index) = tt_slot
+            && ctx.counters.n_nodes - nodes_before >= BOUNDARY_STORE_MIN_SUBTREE_NODES
+            && !thread.should_stop()
+        {
+            ctx.tt.store(
+                tt_index,
+                board,
+                score,
+                Bound::classify::<NonPV>(score, alpha, beta),
+                depth,
+                Square::None,
+                Selectivity::None,
+                true,
+            );
+        }
+
+        score
     }
 
     #[inline(always)]

@@ -224,6 +224,12 @@ impl Thread {
         self.active_split_point().is_some()
     }
 
+    /// Returns `true` when the pool has more than one search thread.
+    #[inline]
+    pub(in crate::search) fn is_parallel_pool(&self) -> bool {
+        self.pool_size > 1
+    }
+
     /// Wakes up this thread when there is work to do.
     pub(super) fn notify_one(&self) {
         let _lock = self.mutex_for_sleep_condition.lock().unwrap();
