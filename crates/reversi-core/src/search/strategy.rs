@@ -119,7 +119,7 @@ impl SearchStrategy for EndGameStrategy {
     const MIN_PROBCUT_DEPTH: Depth = endgame::DEPTH_TO_NWS + 1;
     const DEPTH_TO_SHALLOW: Depth = endgame::DEPTH_TO_NWS;
     const MIN_SPLIT_DEPTH: Depth = endgame::DEPTH_TO_NWS;
-    const SPECULATIVE_SPLIT_MAX_DEPTH: Depth = 20;
+    const SPECULATIVE_SPLIT_MAX_DEPTH: Depth = 24;
 
     #[inline(always)]
     fn evaluate(_ctx: &SearchContext, board: &Board) -> ScaledScore {
