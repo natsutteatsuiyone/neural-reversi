@@ -58,13 +58,13 @@ impl<T> AlignedBuffer<T> {
             return (NonNull::new(dangling).unwrap(), false);
         }
 
+        let layout =
+            Layout::from_size_align(size, CACHE_LINE_SIZE).expect("AlignedBuffer: invalid layout");
+
         // Windows aligns the returned address to its large-page minimum.
         if let Some(ptr) = large_pages::alloc_zeroed(size) {
             return (ptr.cast(), true);
         }
-
-        let layout =
-            Layout::from_size_align(size, CACHE_LINE_SIZE).expect("AlignedBuffer: invalid layout");
 
         // SAFETY: `layout` has non-zero size.
         let raw = unsafe {
