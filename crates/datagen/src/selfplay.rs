@@ -6,7 +6,6 @@
 
 use rand::RngExt;
 use rand::seq::IteratorRandom;
-use regex::Regex;
 use reversi_core::board::Board;
 use reversi_core::game_state::GameState;
 use reversi_core::level::Level;
@@ -47,14 +46,17 @@ struct FileState {
 
 impl FileState {
     fn new(prefix: &str, output_dir: &str, games_per_file: u32) -> io::Result<Self> {
-        let escaped_prefix = regex::escape(prefix);
-        let pattern = format!(r"^{escaped_prefix}_\d{{{FILE_ID_DIGITS}}}\.bin$");
-        let re = Regex::new(&pattern).unwrap();
         let latest_file_entry = fs::read_dir(output_dir)?
             .filter_map(|entry| entry.ok())
             .filter(|entry| {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                re.is_match(&name)
+                let name = entry.file_name();
+                name.to_str()
+                    .and_then(|name| name.strip_prefix(prefix))
+                    .and_then(|name| name.strip_prefix('_'))
+                    .and_then(|name| name.strip_suffix(".bin"))
+                    .is_some_and(|id| {
+                        id.len() == FILE_ID_DIGITS && id.bytes().all(|digit| digit.is_ascii_digit())
+                    })
             })
             .max_by_key(|entry| entry.file_name());
 
