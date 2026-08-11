@@ -61,17 +61,4 @@ impl From<String> for MatchRunnerError {
     }
 }
 
-/// Convenience type alias for Results with MatchRunnerError.
-///
-/// This type alias simplifies function signatures throughout the crate
-/// by providing a default Result type with MatchRunnerError as the error type.
-///
-/// # Examples
-///
-/// ```
-/// # use match_runner::error::Result;
-/// fn might_fail() -> Result<String> {
-///     Ok("success".to_string())
-/// }
-/// ```
-pub type Result<T> = std::result::Result<T, MatchRunnerError>;
+pub(crate) type Result<T> = std::result::Result<T, MatchRunnerError>;

@@ -6,13 +6,12 @@ use std::io;
 
 const ELO_K: f64 = 400.0;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MatchStatistics {
     pub engine1_wins: u32,
     pub engine2_wins: u32,
     pub draws: u32,
     pub total_score: i32,
-    pub games_played: u32,
     pub recent_results: Vec<GameHistory>,
     pub paired_results: Vec<PairedResult>,
 }
@@ -31,25 +30,7 @@ pub struct PairedResult {
     pub game2: (MatchWinner, i32),
 }
 
-impl Default for MatchStatistics {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl MatchStatistics {
-    pub fn new() -> Self {
-        Self {
-            engine1_wins: 0,
-            engine2_wins: 0,
-            draws: 0,
-            total_score: 0,
-            games_played: 0,
-            recent_results: Vec::new(),
-            paired_results: Vec::new(),
-        }
-    }
-
     pub fn add_result(
         &mut self,
         winner: MatchWinner,
@@ -63,7 +44,6 @@ impl MatchStatistics {
             MatchWinner::Draw => self.draws += 1,
         }
         self.total_score += score;
-        self.games_played += 1;
 
         let engine1_color = if engine1_is_black {
             Disc::Black
@@ -84,22 +64,6 @@ impl MatchStatistics {
 
     pub fn total_games(&self) -> u32 {
         self.engine1_wins + self.engine2_wins + self.draws
-    }
-
-    pub fn engine1_win_rate(&self) -> f64 {
-        if self.total_games() == 0 {
-            0.0
-        } else {
-            (self.engine1_wins as f64 / self.total_games() as f64) * 100.0
-        }
-    }
-
-    pub fn engine2_win_rate(&self) -> f64 {
-        if self.total_games() == 0 {
-            0.0
-        } else {
-            (self.engine2_wins as f64 / self.total_games() as f64) * 100.0
-        }
     }
 
     pub fn print_final_results(
@@ -205,7 +169,7 @@ impl MatchStatistics {
 
         // Calculate and display Elo and LOS
         if !self.paired_results.is_empty() {
-            let stats = PentanomialCalculator::calculate(&freq);
+            let stats = calculate_pentanomial_stats(&freq);
             let los = stats.calculate_los();
 
             // Format Elo
@@ -421,64 +385,59 @@ impl PentanomialStats {
     }
 }
 
-pub struct PentanomialCalculator;
+fn calculate_pentanomial_stats(freq: &PentanomialFrequencies) -> PentanomialStats {
+    let n_pairs = (freq.ll + freq.ld + freq.dd + freq.wl + freq.wd + freq.ww) as f64;
 
-impl PentanomialCalculator {
-    pub fn calculate(freq: &PentanomialFrequencies) -> PentanomialStats {
-        let n_pairs = (freq.ll + freq.ld + freq.dd + freq.wl + freq.wd + freq.ww) as f64;
-
-        if n_pairs == 0.0 {
-            return PentanomialStats {
-                elo_diff: 0.0,
-                confidence_interval: 0.0,
-            };
-        }
-
-        // Calculate probabilities for true 5-nomial model
-        let p0 = freq.ll as f64 / n_pairs; // 0 points per pair
-        let p_half = freq.ld as f64 / n_pairs; // 0.5 points per pair
-        let p1_dd = freq.dd as f64 / n_pairs; // 1 point per pair (draw-draw)
-        let p1_wl = freq.wl as f64 / n_pairs; // 1 point per pair (win-loss)
-        let p_three_half = freq.wd as f64 / n_pairs; // 1.5 points per pair
-        let p2 = freq.ww as f64 / n_pairs; // 2 points per pair
-
-        // Calculate score (expected points per pair)
-        let score =
-            0.0 * p0 + 0.5 * p_half + 1.0 * p1_dd + 1.0 * p1_wl + 1.5 * p_three_half + 2.0 * p2;
-        let mu = score / 2.0; // Per game
-
-        // Calculate pentanomial variance per pair using true 5-nomial model
-        // (DD and WL both score 1 point per pair and contribute identically here)
-        let e_t_squared =
-            0.0 * p0 + 0.25 * p_half + 1.0 * p1_dd + 1.0 * p1_wl + 2.25 * p_three_half + 4.0 * p2;
-        let var_pair = e_t_squared - score * score;
-
-        // Calculate ELO difference
-        let elo_diff = if mu == 0.0 || mu == 1.0 {
-            if mu > 0.5 {
-                f64::INFINITY
-            } else {
-                f64::NEG_INFINITY
-            }
-        } else {
-            -ELO_K * (-(mu / (1.0 - mu)).ln()) / std::f64::consts::LN_10
+    if n_pairs == 0.0 {
+        return PentanomialStats {
+            elo_diff: 0.0,
+            confidence_interval: 0.0,
         };
+    }
 
-        // Calculate confidence interval
-        let se_elo = if mu == 0.0 || mu == 1.0 {
+    // Calculate probabilities for true 5-nomial model
+    let p0 = freq.ll as f64 / n_pairs; // 0 points per pair
+    let p_half = freq.ld as f64 / n_pairs; // 0.5 points per pair
+    let p1_dd = freq.dd as f64 / n_pairs; // 1 point per pair (draw-draw)
+    let p1_wl = freq.wl as f64 / n_pairs; // 1 point per pair (win-loss)
+    let p_three_half = freq.wd as f64 / n_pairs; // 1.5 points per pair
+    let p2 = freq.ww as f64 / n_pairs; // 2 points per pair
+
+    // Calculate score (expected points per pair)
+    let score = 0.0 * p0 + 0.5 * p_half + 1.0 * p1_dd + 1.0 * p1_wl + 1.5 * p_three_half + 2.0 * p2;
+    let mu = score / 2.0; // Per game
+
+    // Calculate pentanomial variance per pair using true 5-nomial model
+    // (DD and WL both score 1 point per pair and contribute identically here)
+    let e_t_squared =
+        0.0 * p0 + 0.25 * p_half + 1.0 * p1_dd + 1.0 * p1_wl + 2.25 * p_three_half + 4.0 * p2;
+    let var_pair = e_t_squared - score * score;
+
+    // Calculate ELO difference
+    let elo_diff = if mu == 0.0 || mu == 1.0 {
+        if mu > 0.5 {
             f64::INFINITY
         } else {
-            let se_mu = (var_pair / 4.0 / n_pairs).sqrt();
-            (ELO_K / std::f64::consts::LN_10) * se_mu / (mu * (1.0 - mu))
-        };
-
-        let z_score = 1.96;
-        let confidence_interval = z_score * se_elo;
-
-        PentanomialStats {
-            elo_diff,
-            confidence_interval,
+            f64::NEG_INFINITY
         }
+    } else {
+        -ELO_K * (-(mu / (1.0 - mu)).ln()) / std::f64::consts::LN_10
+    };
+
+    // Calculate confidence interval
+    let se_elo = if mu == 0.0 || mu == 1.0 {
+        f64::INFINITY
+    } else {
+        let se_mu = (var_pair / 4.0 / n_pairs).sqrt();
+        (ELO_K / std::f64::consts::LN_10) * se_mu / (mu * (1.0 - mu))
+    };
+
+    let z_score = 1.96;
+    let confidence_interval = z_score * se_elo;
+
+    PentanomialStats {
+        elo_diff,
+        confidence_interval,
     }
 }
 
@@ -565,7 +524,7 @@ mod tests {
 
     #[test]
     fn zero_pairs_are_even_with_no_uncertainty() {
-        let stats = PentanomialCalculator::calculate(&PentanomialFrequencies::default());
+        let stats = calculate_pentanomial_stats(&PentanomialFrequencies::default());
 
         assert_eq!(stats.elo_diff, 0.0);
         assert_eq!(stats.confidence_interval, 0.0);
@@ -578,7 +537,7 @@ mod tests {
             dd: 50,
             ..PentanomialFrequencies::default()
         };
-        let stats = PentanomialCalculator::calculate(&frequencies);
+        let stats = calculate_pentanomial_stats(&frequencies);
 
         assert_eq!(stats.elo_diff, 0.0);
         assert_eq!(stats.confidence_interval, 0.0);
@@ -587,11 +546,11 @@ mod tests {
 
     #[test]
     fn decisive_pairs_have_infinite_elo_and_certain_los() {
-        let all_wins = PentanomialCalculator::calculate(&PentanomialFrequencies {
+        let all_wins = calculate_pentanomial_stats(&PentanomialFrequencies {
             ww: 50,
             ..PentanomialFrequencies::default()
         });
-        let all_losses = PentanomialCalculator::calculate(&PentanomialFrequencies {
+        let all_losses = calculate_pentanomial_stats(&PentanomialFrequencies {
             ll: 50,
             ..PentanomialFrequencies::default()
         });
@@ -610,7 +569,7 @@ mod tests {
             ll: 30,
             ..PentanomialFrequencies::default()
         };
-        let stats = PentanomialCalculator::calculate(&frequencies);
+        let stats = calculate_pentanomial_stats(&frequencies);
 
         assert_eq!(stats.elo_diff, 0.0);
         assert!((stats.calculate_los() - 0.5).abs() < 1e-6);
@@ -624,7 +583,7 @@ mod tests {
             ll: 20,
             ..PentanomialFrequencies::default()
         };
-        let stats = PentanomialCalculator::calculate(&frequencies);
+        let stats = calculate_pentanomial_stats(&frequencies);
 
         assert!((stats.elo_diff - 70.4365).abs() < 0.01);
         assert!(stats.calculate_los() > 0.99);

@@ -1,25 +1,24 @@
 use std::io;
 
+use clap::Parser;
+
 mod colors;
 mod config;
 mod display;
 mod engine;
 mod error;
-mod match_runner;
+mod runner;
 mod sprt;
 mod statistics;
 mod time_tracker;
 
 use config::Config;
 use error::MatchRunnerError;
-use match_runner::MatchRunner;
 
 fn main() -> io::Result<()> {
-    let config = Config::parse_args();
+    let config = Config::parse();
 
-    let mut match_runner = MatchRunner::new();
-
-    if let Err(e) = match_runner.run_match(&config) {
+    if let Err(e) = runner::run_match(&config) {
         match e {
             MatchRunnerError::Io(io_err) => return Err(io_err),
             error @ MatchRunnerError::Interrupted => {
