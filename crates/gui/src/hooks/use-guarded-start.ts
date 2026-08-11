@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { runGuardedStart } from "@/lib/guarded-start";
 
-/**
- * React adapter for the guarded async-start choreography
- * (`@/lib/guarded-start`). Owns the re-entry ref, the `isStarting` UI flag,
- * and unmount safety: the `isStarting` setter and the error toast never fire
- * after the host component unmounts. Both setup modals adapt to this one
- * seam instead of each hand-rolling the guard.
- */
+/** Guards setup-modal starts against double submits and updates after unmount. */
 export function useGuardedStart(errorMessageKey: string) {
   const { t } = useTranslation();
   const [isStarting, setIsStarting] = useState(false);
@@ -23,26 +16,20 @@ export function useGuardedStart(errorMessageKey: string) {
   }, []);
 
   const run = useCallback(
-    (start: () => Promise<boolean>, onStarted?: () => void) =>
-      runGuardedStart(
-        {
-          isBusy: () => inFlight.current,
-          setBusy: (busy) => {
-            inFlight.current = busy;
-            // Setting busy happens during a render-safe event; clearing it may
-            // resolve after unmount — only then is the setState skipped.
-            if (busy || mounted.current) setIsStarting(busy);
-          },
-        },
-        start,
-        {
-          onStarted,
-          onError: (error) => {
-            console.error("Failed to start:", error);
-            if (mounted.current) toast.error(t(errorMessageKey));
-          },
-        },
-      ),
+    async (start: () => Promise<boolean>, onStarted?: () => void) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setIsStarting(true);
+      try {
+        if (await start()) onStarted?.();
+      } catch (error) {
+        console.error("Failed to start:", error);
+        if (mounted.current) toast.error(t(errorMessageKey));
+      } finally {
+        inFlight.current = false;
+        if (mounted.current) setIsStarting(false);
+      }
+    },
     [t, errorMessageKey],
   );
 

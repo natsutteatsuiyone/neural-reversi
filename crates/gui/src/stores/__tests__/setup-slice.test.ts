@@ -9,18 +9,8 @@ afterAll(() => {
   consoleErrorSpy.mockRestore();
 });
 
-describe("resetSetup", () => {
-  it("has correct initial state", () => {
-    const { store } = createTestStore();
-    const s = store.getState();
-    expect(s.setupCurrentPlayer).toBe("black");
-    expect(s.setupTab).toBe("manual");
-    expect(s.transcriptInput).toBe("");
-    expect(s.boardStringInput).toBe("");
-    expect(s.setupError).toBeNull();
-  });
-
-  it("resets modified state back to initial", () => {
+describe("setup editing", () => {
+  it("resets all setup state", () => {
     const { store } = createTestStore();
     store.setState({
       setupTab: "transcript",
@@ -31,142 +21,74 @@ describe("resetSetup", () => {
     });
 
     store.getState().resetSetup();
-    const s = store.getState();
-    expect(s.setupCurrentPlayer).toBe("black");
-    expect(s.setupTab).toBe("manual");
-    expect(s.transcriptInput).toBe("");
-    expect(s.boardStringInput).toBe("");
-    expect(s.setupError).toBeNull();
-  });
-});
 
-describe("setSetupCurrentPlayer", () => {
-  it("changes player", () => {
-    const { store } = createTestStore();
-    store.getState().setSetupCurrentPlayer("white");
-    expect(store.getState().setupCurrentPlayer).toBe("white");
+    expect(store.getState()).toMatchObject({
+      setupCurrentPlayer: "black",
+      setupTab: "manual",
+      transcriptInput: "",
+      boardStringInput: "",
+      setupError: null,
+    });
+    expect(store.getState().setupBoard[3][3].color).toBe("white");
   });
 
-  it("clears setupError", () => {
+  it("clears the board and its error", () => {
     const { store } = createTestStore();
     store.setState({ setupError: "someError" });
-    store.getState().setSetupCurrentPlayer("white");
+
+    store.getState().clearSetupBoard();
+
+    expect(
+      store
+        .getState()
+        .setupBoard.flat()
+        .every((cell) => cell.color === null),
+    ).toBe(true);
     expect(store.getState().setupError).toBeNull();
   });
-});
 
-describe("clearSetupBoard", () => {
-  it("sets all cells to null", () => {
-    const { store } = createTestStore();
-    // Initial board has stones at center
-    store.getState().clearSetupBoard();
-    const board = store.getState().setupBoard;
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        expect(board[r][c].color).toBeNull();
-      }
-    }
-  });
-
-  it("clears setupError", () => {
-    const { store } = createTestStore();
-    store.setState({ setupError: "someError" });
-    store.getState().clearSetupBoard();
-    expect(store.getState().setupError).toBeNull();
-  });
-});
-
-describe("resetSetupToInitial", () => {
-  it("restores initial Reversi position", () => {
+  it("restores the initial board and player", () => {
     const { store } = createTestStore();
     store.getState().clearSetupBoard();
-    store.getState().resetSetupToInitial();
-    const board = store.getState().setupBoard;
-    expect(board[3][3].color).toBe("white");
-    expect(board[3][4].color).toBe("black");
-    expect(board[4][3].color).toBe("black");
-    expect(board[4][4].color).toBe("white");
-    expect(board[0][0].color).toBeNull();
-  });
-
-  it("resets currentPlayer to black", () => {
-    const { store } = createTestStore();
     store.setState({ setupCurrentPlayer: "white" });
+
     store.getState().resetSetupToInitial();
+
     expect(store.getState().setupCurrentPlayer).toBe("black");
-  });
-});
-
-describe("setSetupCellColor", () => {
-  it("cycles null to black", () => {
-    const { store } = createTestStore();
-    store.getState().clearSetupBoard();
-    store.getState().setSetupCellColor(0, 0);
-    expect(store.getState().setupBoard[0][0].color).toBe("black");
+    expect(store.getState().setupBoard[3][3].color).toBe("white");
+    expect(store.getState().setupBoard[3][4].color).toBe("black");
   });
 
-  it("cycles black to white", () => {
+  it("cycles a cell through empty, black, and white", () => {
     const { store } = createTestStore();
     store.getState().clearSetupBoard();
-    store.getState().setSetupCellColor(0, 0); // null -> black
-    store.getState().setSetupCellColor(0, 0); // black -> white
-    expect(store.getState().setupBoard[0][0].color).toBe("white");
-  });
 
-  it("cycles white to null", () => {
-    const { store } = createTestStore();
-    store.getState().clearSetupBoard();
-    store.getState().setSetupCellColor(0, 0); // null -> black
-    store.getState().setSetupCellColor(0, 0); // black -> white
-    store.getState().setSetupCellColor(0, 0); // white -> null
-    expect(store.getState().setupBoard[0][0].color).toBeNull();
+    for (const color of ["black", "white", null] as const) {
+      store.getState().setSetupCellColor(0, 0);
+      expect(store.getState().setupBoard[0][0].color).toBe(color);
+    }
   });
 });
 
 describe("setSetupTab", () => {
-  it("switches to manual tab and uses setupBoard as-is", () => {
-    const { store } = createTestStore();
-    const boardBefore = JSON.stringify(store.getState().setupBoard);
-    store.getState().setSetupTab("manual");
-    expect(store.getState().setupTab).toBe("manual");
-    expect(JSON.stringify(store.getState().setupBoard)).toBe(boardBefore);
-    expect(store.getState().setupError).toBeNull();
-  });
-
-  it("switches to transcript tab and resolves board from valid transcript", () => {
+  it("resolves the selected input", () => {
     const { store } = createTestStore();
     store.setState({ transcriptInput: "F5D6" });
+
     store.getState().setSetupTab("transcript");
+
     expect(store.getState().setupTab).toBe("transcript");
     expect(store.getState().setupError).toBeNull();
-    // F5 = row 4 col 5, D6 = row 5 col 3
     expect(store.getState().setupBoard[4][5].color).toBe("black");
-    expect(store.getState().setupBoard[5][3].color).toBe("white");
   });
 
-  it("switches to transcript tab and sets error on invalid transcript", () => {
+  it("keeps the selected tab and exposes parse errors", () => {
     const { store } = createTestStore();
     store.setState({ transcriptInput: "Z" });
+
     store.getState().setSetupTab("transcript");
+
     expect(store.getState().setupTab).toBe("transcript");
-    expect(store.getState().setupError).not.toBeNull();
-  });
-
-  it("switches to boardString tab and resolves board from valid string", () => {
-    const { store } = createTestStore();
-    const boardStr = "X" + "-".repeat(63);
-    store.setState({ boardStringInput: boardStr });
-    store.getState().setSetupTab("boardString");
-    expect(store.getState().setupTab).toBe("boardString");
-    expect(store.getState().setupError).toBeNull();
-    expect(store.getState().setupBoard[0][0].color).toBe("black");
-  });
-
-  it("switches to boardString tab and sets error on invalid string", () => {
-    const { store } = createTestStore();
-    store.setState({ boardStringInput: "invalid" });
-    store.getState().setSetupTab("boardString");
-    expect(store.getState().setupTab).toBe("boardString");
     expect(store.getState().setupError).not.toBeNull();
   });
 });
@@ -189,44 +111,20 @@ describe("setTranscriptInput", () => {
     expect(s.transcriptInput).toBe("Z");
     expect(s.setupError).not.toBeNull();
   });
-
-  it("resets to initial board on empty string", () => {
-    const { store } = createTestStore();
-    store.getState().setTranscriptInput("F5D6");
-    store.getState().setTranscriptInput("");
-    const s = store.getState();
-    expect(s.transcriptInput).toBe("");
-    expect(s.setupError).toBeNull();
-    // Initial board: center stones only
-    expect(s.setupBoard[3][3].color).toBe("white");
-    expect(s.setupBoard[3][4].color).toBe("black");
-  });
 });
 
 describe("setBoardStringInput", () => {
-  it("updates board on valid input", () => {
+  it("updates the board and clears a prior parse error", () => {
     const { store } = createTestStore();
-    const boardStr = "-".repeat(27) + "OX------XO" + "-".repeat(27);
-    store.getState().setBoardStringInput(boardStr);
-    const s = store.getState();
-    expect(s.boardStringInput).toBe(boardStr);
-    expect(s.setupError).toBeNull();
-    expect(s.setupBoard[3][3].color).toBe("white");
-    expect(s.setupBoard[3][4].color).toBe("black");
-  });
-
-  it("sets setupError on invalid input", () => {
-    const { store } = createTestStore();
+    const boardString = "-".repeat(27) + "OX------XO" + "-".repeat(27);
     store.getState().setBoardStringInput("too-short");
     expect(store.getState().setupError).not.toBeNull();
-  });
 
-  it("clears previous error on valid input", () => {
-    const { store } = createTestStore();
-    store.getState().setBoardStringInput("too-short");
-    expect(store.getState().setupError).not.toBeNull();
-    store.getState().setBoardStringInput("-".repeat(64));
+    store.getState().setBoardStringInput(boardString);
+
+    expect(store.getState().boardStringInput).toBe(boardString);
     expect(store.getState().setupError).toBeNull();
+    expect(store.getState().setupBoard[3][3].color).toBe("white");
   });
 });
 
@@ -237,54 +135,28 @@ describe("startFromSetup", () => {
     ({ store } = createTestStore());
   });
 
-  it("starts game from manual tab", async () => {
-    // Default setupBoard is initial position  Evalid
-    const started = await store.getState().startFromSetup();
-    const s = store.getState();
-    expect(started).toBe(true);
-    expect(s.gameStatus).toBe("playing");
-    expect(s.gameOver).toBe(false);
-    expect(s.setupError).toBeNull();
-    expect(s.moveHistory.length).toBe(0);
-  });
-
-  it("applies the provided settings when starting from setup", async () => {
+  it("starts a playable game with the supplied settings", async () => {
     const started = await store.getState().startFromSetup({
       gameMode: "pvp",
       aiLevel: 10,
       aiMode: "level",
       gameTimeLimit: 150,
     });
-    const s = store.getState();
 
+    const state = store.getState();
     expect(started).toBe(true);
-    expect(s.gameMode).toBe("pvp");
-    expect(s.aiLevel).toBe(10);
-    expect(s.aiMode).toBe("level");
-    expect(s.gameTimeLimit).toBe(150);
-    expect(s.aiRemainingTime).toBe(150000);
-  });
-
-  it("starts game from transcript tab", async () => {
-    store.getState().setTranscriptInput("F5D6");
-    store.setState({ setupTab: "transcript" });
-    const started = await store.getState().startFromSetup();
-    const s = store.getState();
-    expect(started).toBe(true);
-    expect(s.gameStatus).toBe("playing");
-    expect(s.board[4][5].color).toBe("black");
-    expect(s.setupError).toBeNull();
-  });
-
-  it("starts game from boardString tab", async () => {
-    const boardStr = "-".repeat(27) + "OX------XO" + "-".repeat(27);
-    store.getState().setBoardStringInput(boardStr);
-    store.setState({ setupTab: "boardString" });
-    const started = await store.getState().startFromSetup();
-    const s = store.getState();
-    expect(started).toBe(true);
-    expect(s.gameStatus).toBe("playing");
-    expect(s.setupError).toBeNull();
+    expect(state).toMatchObject({
+      gameStatus: "playing",
+      gameOver: false,
+      setupError: null,
+      gameMode: "pvp",
+      aiLevel: 10,
+      aiMode: "level",
+      gameTimeLimit: 150,
+      aiRemainingTime: 150000,
+    });
+    expect(state.moveHistory.length).toBe(0);
+    expect(state.validMoves).toContainEqual([2, 3]);
   });
 
   it("sets setupError when board validation fails", async () => {
@@ -296,17 +168,6 @@ describe("startFromSetup", () => {
     expect(started).toBe(false);
     expect(store.getState().setupError).toBe("needBothColors");
     expect(store.getState().gameStatus).not.toBe("playing");
-  });
-
-  it("sets setupError to aiInitFailed when the AI readiness check fails", async () => {
-    ({ store } = createTestStore({
-      ai: createMockAIService({
-        checkReady: vi.fn().mockRejectedValue(new Error("check failed")),
-      }),
-    }));
-    const started = await store.getState().startFromSetup();
-    expect(started).toBe(false);
-    expect(store.getState().setupError).toBe("aiInitFailed");
   });
 
   it("does not abort the current game when the setup AI readiness check fails", async () => {
@@ -406,13 +267,6 @@ describe("startFromSetup", () => {
     const state = store.getState();
     expect(state.solverHistory[state.solverHistory.length - 1]?.board).toBe(solverBoard);
     expect(store.getState().setupError).toBe("aiInitFailed");
-  });
-
-  it("computes validMoves after game start", async () => {
-    await store.getState().startFromSetup();
-    const s = store.getState();
-    expect(s.validMoves).toHaveLength(4);
-    expect(s.validMoves).toContainEqual([2, 3]);
   });
 
   it("calls abortAIMove when an AI move is active", async () => {

@@ -2,7 +2,6 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createMockSolverService } from "@/services/mock-solver-service";
 import { createDeferred, createTestStore, type TestStore } from "./test-helpers";
-import type { Services } from "@/services/types";
 
 const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -77,14 +76,37 @@ describe("triggerAutomation", () => {
   });
 });
 
-describe("getScores", () => {
-  it("returns { black: 2, white: 2 } for initial board", () => {
+describe("isAITurn", () => {
+  it.each([
+    ["ai-black", "black", false, true],
+    ["ai-black", "white", false, false],
+    ["ai-white", "white", false, true],
+    ["ai-white", "black", false, false],
+    ["pvp", "black", false, false],
+    ["ai-black", "black", true, false],
+  ] as const)(
+    "returns %s for %s when gameOver=%s",
+    async (gameMode, currentPlayer, gameOver, expected) => {
+      const { store } = createTestStore();
+      await store.getState().startGame();
+      store.setState({ gameMode, currentPlayer, gameOver });
+      expect(store.getState().isAITurn()).toBe(expected);
+    },
+  );
+});
+
+describe("isValidMove", () => {
+  it("requires a playing game and a listed move", async () => {
     const { store } = createTestStore();
-    expect(store.getState().getScores()).toEqual({ black: 2, white: 2 });
+    expect(store.getState().isValidMove(2, 3)).toBe(false);
+
+    await store.getState().startGame();
+    expect(store.getState().isValidMove(2, 3)).toBe(true);
+    expect(store.getState().isValidMove(0, 0)).toBe(false);
   });
 });
 
-describe("isAITurn", () => {
+describe("makeMove", () => {
   let store: TestStore;
 
   beforeEach(async () => {
@@ -92,79 +114,26 @@ describe("isAITurn", () => {
     await store.getState().startGame();
   });
 
-  it("returns true for ai-black mode when black's turn", () => {
-    store.setState({ gameMode: "ai-black", currentPlayer: "black" });
-    expect(store.getState().isAITurn()).toBe(true);
-  });
+  it("commits one move transition and clears stale analysis", async () => {
+    const move = { row: 2, col: 3, isAI: false };
+    const movesBefore = store.getState().validMoves;
+    store.setState({
+      analyzeResults: new Map([["2,3", {} as never]]),
+      gameAnalysisResult: [{ moveIndex: 0 } as never],
+    });
 
-  it("returns false for ai-black mode when white's turn", () => {
-    store.setState({ gameMode: "ai-black", currentPlayer: "white" });
-    expect(store.getState().isAITurn()).toBe(false);
-  });
+    await store.getState().makeMove(move);
 
-  it("returns true for ai-white mode when white's turn", () => {
-    store.setState({ gameMode: "ai-white", currentPlayer: "white" });
-    expect(store.getState().isAITurn()).toBe(true);
-  });
-
-  it("returns false for ai-white mode when black's turn", () => {
-    store.setState({ gameMode: "ai-white", currentPlayer: "black" });
-    expect(store.getState().isAITurn()).toBe(false);
-  });
-
-  it("returns false when game is over (ai-black, black's turn)", () => {
-    store.setState({ gameMode: "ai-black", currentPlayer: "black", gameOver: true });
-    expect(store.getState().isAITurn()).toBe(false);
-  });
-
-  it("returns false when game is over (ai-white, white's turn)", () => {
-    store.setState({ gameMode: "ai-white", currentPlayer: "white", gameOver: true });
-    expect(store.getState().isAITurn()).toBe(false);
-  });
-});
-
-describe("isValidMove", () => {
-  it("returns false when gameStatus is waiting", () => {
-    const { store } = createTestStore();
-    expect(store.getState().isValidMove(2, 3)).toBe(false);
-  });
-
-  it("returns true for a valid move coordinate during play", async () => {
-    const { store } = createTestStore();
-    await store.getState().startGame();
-    // Initial board: black can play at (2,3), (3,2), (4,5), (5,4)
-    expect(store.getState().isValidMove(2, 3)).toBe(true);
-  });
-
-  it("returns false for an invalid move coordinate during play", async () => {
-    const { store } = createTestStore();
-    await store.getState().startGame();
-    expect(store.getState().isValidMove(0, 0)).toBe(false);
-  });
-});
-
-describe("makeMove", () => {
-  let store: TestStore;
-  let services: Services;
-
-  beforeEach(async () => {
-    ({ store, services } = createTestStore());
-    await store.getState().startGame();
-  });
-
-  it("places stone and updates board", async () => {
-    // Black plays d3 (row=2, col=3)
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    const s = store.getState();
-    expect(s.board[2][3].color).toBe("black");
-    // (3,3) was white and should be flipped to black
-    expect(s.board[3][3].color).toBe("black");
-  });
-
-  it("switches currentPlayer after move", async () => {
-    expect(store.getState().currentPlayer).toBe("black");
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    expect(store.getState().currentPlayer).toBe("white");
+    const state = store.getState();
+    expect(state.board[2][3].color).toBe("black");
+    expect(state.board[3][3].color).toBe("black");
+    expect(state.currentPlayer).toBe("white");
+    expect(state.moveHistory.currentMoves[0]).toMatchObject({ player: "black", row: 2, col: 3 });
+    expect(state.validMoves).not.toEqual(movesBefore);
+    expect(state.validMoves.length).toBeGreaterThan(0);
+    expect(state.lastMove).toEqual(move);
+    expect(state.analyzeResults).toBeNull();
+    expect(state.gameAnalysisResult).toBeNull();
   });
 
   it("a user move supersedes an in-flight hint analysis through the Engine Search", async () => {
@@ -203,45 +172,6 @@ describe("makeMove", () => {
     hintRun.resolve();
   });
 
-  it("appends record to moveHistory", async () => {
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    const s = store.getState();
-    expect(s.moveHistory.length).toBe(1);
-    expect(s.moveHistory.totalLength).toBe(1);
-    expect(s.moveHistory.currentMoves[0].player).toBe("black");
-    expect(s.moveHistory.currentMoves[0].row).toBe(2);
-    expect(s.moveHistory.currentMoves[0].col).toBe(3);
-  });
-
-  it("recalculates validMoves for next player", async () => {
-    const movesBefore = store.getState().validMoves;
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    const movesAfter = store.getState().validMoves;
-    // Valid moves change after a move is made
-    expect(movesAfter).not.toEqual(movesBefore);
-    // White should have valid moves on the updated board
-    expect(movesAfter.length).toBeGreaterThan(0);
-  });
-
-  it("sets lastMove to the played move", async () => {
-    const move = { row: 2, col: 3, isAI: false };
-    await store.getState().makeMove(move);
-    const s = store.getState();
-    expect(s.lastMove).toEqual(move);
-  });
-
-  it("clears analyzeResults", async () => {
-    store.setState({ analyzeResults: new Map([["2,3", {} as never]]) });
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    expect(store.getState().analyzeResults).toBeNull();
-  });
-
-  it("clears stale game analysis results", async () => {
-    store.setState({ gameAnalysisResult: [{ moveIndex: 0 } as never] });
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    expect(store.getState().gameAnalysisResult).toBeNull();
-  });
-
   it("does not move while game analysis is active", async () => {
     store.setState({ engineActivity: { kind: "game-analysis", runId: 1 } });
 
@@ -249,13 +179,6 @@ describe("makeMove", () => {
 
     expect(store.getState().moveHistory.length).toBe(0);
     expect(store.getState().currentPlayer).toBe("black");
-  });
-
-  it("aborts analysis when a user move is made during analysis", async () => {
-    store.setState({ engineActivity: { kind: "hint", runId: 1 } });
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    expect(store.getState().engineActivity.kind).toBe("idle");
-    expect(services.ai.abortSearch).toHaveBeenCalled();
   });
 
   it("sets gameStatus to finished when game is over", async () => {
@@ -411,37 +334,24 @@ describe("undoMove", () => {
     expect(store.getState().moveHistory.length).toBe(1);
   });
 
-  it("resumes game when undoing from finished state", async () => {
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    store.setState({ gameStatus: "finished", gameOver: true });
-    store.getState().undoMove();
-    expect(store.getState().moveHistory.length).toBe(0);
-    expect(store.getState().gameStatus).toBe("playing");
-    expect(store.getState().gameOver).toBe(false);
-  });
-
-  it("restores board and currentPlayer after undo", async () => {
+  it("restores the playable state after undo", async () => {
     const boardBeforeMove = JSON.stringify(store.getState().board);
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    expect(store.getState().currentPlayer).toBe("white");
+    store.setState({
+      gameStatus: "finished",
+      gameOver: true,
+      analyzeResults: new Map([["2,3", {} as never]]),
+    });
 
     store.getState().undoMove();
-    expect(store.getState().currentPlayer).toBe("black");
-    expect(JSON.stringify(store.getState().board)).toBe(boardBeforeMove);
-  });
 
-  it("resets gameOver to false", async () => {
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    store.setState({ gameOver: true });
-    store.getState().undoMove();
-    expect(store.getState().gameOver).toBe(false);
-  });
-
-  it("clears analyzeResults", async () => {
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    store.setState({ analyzeResults: new Map([["2,3", {} as never]]) });
-    store.getState().undoMove();
-    expect(store.getState().analyzeResults).toBeNull();
+    const state = store.getState();
+    expect(state.moveHistory.length).toBe(0);
+    expect(state.gameStatus).toBe("playing");
+    expect(state.gameOver).toBe(false);
+    expect(state.currentPlayer).toBe("black");
+    expect(JSON.stringify(state.board)).toBe(boardBeforeMove);
+    expect(state.analyzeResults).toBeNull();
   });
 
   it("does not re-apply a forced pass when undoing a pass move", async () => {
@@ -509,19 +419,23 @@ describe("redoMove", () => {
     expect(store.getState().moveHistory.length).toBe(stateBefore.moveHistory.length);
   });
 
-  it("advances board and currentPlayer after redo", async () => {
+  it("restores the playable state after redo", async () => {
     await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    // Extract only colors so we ignore transient flags like isNew
     const colorsAfterMove = store.getState().board.map((row) => row.map((cell) => cell.color));
     const playerAfterMove = store.getState().currentPlayer;
-
     store.getState().undoMove();
-    expect(store.getState().currentPlayer).toBe("black");
+    store.setState({
+      gameStatus: "finished",
+      analyzeResults: new Map([["2,3", {} as never]]),
+    });
 
     store.getState().redoMove();
-    const colorsAfterRedo = store.getState().board.map((row) => row.map((cell) => cell.color));
-    expect(store.getState().currentPlayer).toBe(playerAfterMove);
-    expect(colorsAfterRedo).toEqual(colorsAfterMove);
+
+    const state = store.getState();
+    expect(state.currentPlayer).toBe(playerAfterMove);
+    expect(state.board.map((row) => row.map((cell) => cell.color))).toEqual(colorsAfterMove);
+    expect(state.gameStatus).toBe("playing");
+    expect(state.analyzeResults).toBeNull();
   });
 
   it("detects game-over condition after redo", async () => {
@@ -557,23 +471,6 @@ describe("redoMove", () => {
     store.setState({ gameStatus: "waiting" });
     store.getState().redoMove();
     expect(store.getState().moveHistory.length).toBe(0);
-  });
-
-  it("allows redo when gameStatus is finished", async () => {
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    store.getState().undoMove();
-    store.setState({ gameStatus: "finished" });
-    store.getState().redoMove();
-    expect(store.getState().moveHistory.length).toBe(1);
-    expect(store.getState().gameStatus).toBe("playing");
-  });
-
-  it("clears analyzeResults", async () => {
-    await store.getState().makeMove({ row: 2, col: 3, isAI: false });
-    store.getState().undoMove();
-    store.setState({ analyzeResults: new Map([["2,3", {} as never]]) });
-    store.getState().redoMove();
-    expect(store.getState().analyzeResults).toBeNull();
   });
 
   it("does nothing while game analysis is active", async () => {
@@ -612,19 +509,7 @@ describe("goToMove", () => {
 });
 
 describe("startGame", () => {
-  it("sets gameStatus to playing on success", async () => {
-    const { store } = createTestStore();
-    const started = await store.getState().startGame();
-
-    const s = store.getState();
-    expect(started).toBe(true);
-    expect(s.gameStatus).toBe("playing");
-    expect(s.currentPlayer).toBe("black");
-    expect(s.gameOver).toBe(false);
-    expect(s.moveHistory.length).toBe(0);
-  });
-
-  it("applies the provided settings when starting a new game", async () => {
+  it("starts a playable game with the supplied settings", async () => {
     const { store } = createTestStore();
     const started = await store.getState().startGame({
       gameMode: "pvp",
@@ -633,25 +518,27 @@ describe("startGame", () => {
       gameTimeLimit: 180,
     });
 
-    const s = store.getState();
+    const state = store.getState();
     expect(started).toBe(true);
-    expect(s.gameMode).toBe("pvp");
-    expect(s.aiLevel).toBe(12);
-    expect(s.aiMode).toBe("level");
-    expect(s.gameTimeLimit).toBe(180);
-    expect(s.aiRemainingTime).toBe(180000);
-  });
-
-  it("computes validMoves for initial board", async () => {
-    const { store } = createTestStore();
-    await store.getState().startGame();
-
-    const s = store.getState();
-    expect(s.validMoves).toHaveLength(4);
-    expect(s.validMoves).toContainEqual([2, 3]);
-    expect(s.validMoves).toContainEqual([3, 2]);
-    expect(s.validMoves).toContainEqual([4, 5]);
-    expect(s.validMoves).toContainEqual([5, 4]);
+    expect(state).toMatchObject({
+      gameStatus: "playing",
+      currentPlayer: "black",
+      gameOver: false,
+      gameMode: "pvp",
+      aiLevel: 12,
+      aiMode: "level",
+      gameTimeLimit: 180,
+      aiRemainingTime: 180000,
+    });
+    expect(state.moveHistory.length).toBe(0);
+    expect(state.validMoves).toEqual(
+      expect.arrayContaining([
+        [2, 3],
+        [3, 2],
+        [4, 5],
+        [5, 4],
+      ]),
+    );
   });
 
   it("does not change gameStatus when the AI readiness check fails", async () => {

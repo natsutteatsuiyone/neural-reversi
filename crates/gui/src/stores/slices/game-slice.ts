@@ -163,7 +163,7 @@ export function createGameSlice(services: Services): StateCreator<ReversiState, 
         // React StrictMode replays mount effects in development. Keep launch
         // auto-start idempotent at the store boundary so concurrent callers
         // share one Game Replacement transaction. Best-effort: unlike the
-        // modal starters (guarded by runGuardedStart), the launch caller has
+        // modal starters (guarded by useGuardedStart), the launch caller has
         // no failure UI — resolve false so App still leaves the loading
         // screen and the user can start a game manually.
         initialGameStartPromise ??= runGameReplacement(services, get, set, {

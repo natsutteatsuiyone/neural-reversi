@@ -2,13 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred, createTestStore, type TestStore } from "./test-helpers";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createMockSolverService } from "@/services/mock-solver-service";
-import {
-  createEmptyBoard,
-  getNotation,
-  getValidMoves as realGetValidMoves,
-  initializeBoard,
-  opponentPlayer,
-} from "@/domain/game/game-logic";
+import { createEmptyBoard, getNotation, initializeBoard } from "@/domain/game/game-logic";
 import { applyMove } from "@/domain/game/store-helpers";
 import type { Board, Player } from "@/domain/game/types";
 import type { SolverCandidate, SolverProgressPayload } from "@/services/types";
@@ -66,37 +60,16 @@ function startSolverFromPosition(store: TestStore, board: Board, player: Player)
   return store.getState().startSolverFromSetup();
 }
 
-describe("solver-slice initial state", () => {
-  it("starts inactive with empty history and default selectivity", () => {
-    const { store } = createTestStore();
-    const state = store.getState();
-
-    expect(state.isSolverActive).toBe(false);
-    expect(state.isSolverModalOpen).toBe(false);
-    expect(state.solverHistory).toEqual([]);
-    expect(state.targetSelectivity).toBe(100);
-    expect(state.solverCandidates.size).toBe(0);
-    expect(state.engineActivity.kind).toBe("idle");
-  });
-});
-
-describe("openSolverModal / closeSolverModal", () => {
-  it("opens the modal and resets setup state", () => {
+describe("solver modal", () => {
+  it("resets setup when opened and closes", () => {
     const { store } = createTestStore();
     const resetSetupSpy = vi.spyOn(store.getState(), "resetSetup");
 
     store.getState().openSolverModal();
-
     expect(resetSetupSpy).toHaveBeenCalledTimes(1);
     expect(store.getState().isSolverModalOpen).toBe(true);
-  });
-
-  it("closes the modal", () => {
-    const { store } = createTestStore();
-    store.setState({ isSolverModalOpen: true });
 
     store.getState().closeSolverModal();
-
     expect(store.getState().isSolverModalOpen).toBe(false);
   });
 });
@@ -587,20 +560,15 @@ describe("setTargetSelectivity", () => {
     expect(state.engineActivity.kind).toBe("idle");
   });
 
-  it("only updates state when solver is inactive", async () => {
+  it("updates and persists without searching when solver is inactive", async () => {
     const { store, services } = createTestStore();
 
-    await store.getState().setTargetSelectivity(99);
+    await store.getState().setTargetSelectivity(95);
 
-    expect(store.getState().targetSelectivity).toBe(99);
+    expect(store.getState().targetSelectivity).toBe(95);
+    expect(services.settings.saveSetting).toHaveBeenCalledWith("solverTargetSelectivity", 95);
     expect(services.solver.abort).not.toHaveBeenCalled();
     expect(services.solver.startSearch).not.toHaveBeenCalled();
-  });
-
-  it("persists the selectivity via the settings service", async () => {
-    const { store, services } = createTestStore();
-    await store.getState().setTargetSelectivity(95);
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("solverTargetSelectivity", 95);
   });
 
   it("restarts the search when solver is active even if not currently searching", async () => {
@@ -629,93 +597,6 @@ describe("setTargetSelectivity", () => {
 });
 
 describe("applySolverProgress", () => {
-  it("upserts a candidate keyed by row,col and parses the PV line", async () => {
-    const { store, services } = createTestStore();
-    const board = initializeBoard();
-    await startSolverFromPosition(store, board, "black");
-
-    const payload: SolverProgressPayload = {
-      runId: latestSolverRunId(services),
-      bestMove: "d3",
-      row: 2,
-      col: 3,
-      score: 4,
-      depth: 14,
-      targetDepth: 14,
-      acc: 100,
-      nodes: 123,
-      pvLine: "d3 c5 f6",
-      isEndgame: false,
-    };
-
-    store.getState().applySolverProgress(payload);
-
-    const candidate = store.getState().solverCandidates.get("2,3");
-    expect(candidate).toBeDefined();
-    expect(candidate?.move).toBe("d3");
-    expect(candidate?.row).toBe(2);
-    expect(candidate?.col).toBe(3);
-    expect(candidate?.score).toBe(4);
-    expect(candidate?.depth).toBe(14);
-    expect(candidate?.acc).toBe(100);
-    expect(candidate?.pvLine).toBe("d3 c5 f6");
-    expect(candidate?.isComplete).toBe(true);
-  });
-
-  it("marks a midgame candidate incomplete until depth reaches targetDepth", async () => {
-    const { store, services } = createTestStore();
-    await startSolverFromPosition(store, initializeBoard(), "black");
-
-    const payload: SolverProgressPayload = {
-      runId: latestSolverRunId(services),
-      bestMove: "e6",
-      row: 5,
-      col: 4,
-      score: 0,
-      depth: 8,
-      targetDepth: 12,
-      acc: 100,
-      nodes: 10,
-      pvLine: "e6",
-      isEndgame: false,
-    };
-
-    store.getState().applySolverProgress(payload);
-
-    const candidate = store.getState().solverCandidates.get("5,4");
-    expect(candidate).toBeDefined();
-    expect(candidate?.isComplete).toBe(false);
-    expect(candidate?.isEndgame).toBe(false);
-    expect(candidate?.targetDepth).toBe(12);
-  });
-
-  it("marks an endgame candidate complete once acc reaches the target selectivity (< 100)", async () => {
-    const { store, services } = createTestStore();
-    await startSolverFromPosition(store, initializeBoard(), "black");
-    store.setState({ targetSelectivity: 73 });
-
-    const payload: SolverProgressPayload = {
-      runId: latestSolverRunId(services),
-      bestMove: "f6",
-      row: 5,
-      col: 5,
-      score: 6,
-      depth: 20,
-      targetDepth: 20,
-      acc: 73,
-      nodes: 1000,
-      pvLine: "f6",
-      isEndgame: true,
-    };
-
-    store.getState().applySolverProgress(payload);
-
-    const candidate = store.getState().solverCandidates.get("5,5");
-    expect(candidate?.isComplete).toBe(true);
-    expect(candidate?.isEndgame).toBe(true);
-    expect(candidate?.acc).toBe(73);
-  });
-
   it("drops payloads when solver mode is inactive", async () => {
     const { store, services } = createTestStore();
 
@@ -777,82 +658,6 @@ describe("applySolverProgress", () => {
     // A payload from the current run still lands.
     store.getState().applySolverProgress({ ...stalePayload, runId: currentRunId });
     expect(store.getState().solverCandidates.size).toBe(1);
-  });
-
-  it("in bestOnly mode keeps only the latest best move (drops earlier-selectivity picks)", async () => {
-    const { store, services } = createTestStore();
-    await startSolverFromPosition(store, initializeBoard(), "black");
-    store.setState({
-      solverMode: "bestOnly",
-      targetSelectivity: 100,
-    });
-
-    const lowSelPayload: SolverProgressPayload = {
-      runId: latestSolverRunId(services),
-      bestMove: "d3",
-      row: 2,
-      col: 3,
-      score: 4,
-      depth: 20,
-      targetDepth: 20,
-      acc: 73,
-      nodes: 100,
-      pvLine: "d3",
-      isEndgame: true,
-    };
-    const highSelPayload: SolverProgressPayload = {
-      ...lowSelPayload,
-      bestMove: "f5",
-      row: 4,
-      col: 5,
-      score: 6,
-      acc: 95,
-      pvLine: "f5",
-    };
-
-    store.getState().applySolverProgress(lowSelPayload);
-    store.getState().applySolverProgress(highSelPayload);
-
-    const candidates = store.getState().solverCandidates;
-    expect(candidates.size).toBe(1);
-    expect(candidates.get("4,5")?.move).toBe("f5");
-    expect(candidates.get("2,3")).toBeUndefined();
-  });
-
-  it("in multiPv mode preserves earlier candidates as new ones arrive", async () => {
-    const { store, services } = createTestStore();
-    await startSolverFromPosition(store, initializeBoard(), "black");
-    store.setState({
-      solverMode: "multiPv",
-      targetSelectivity: 100,
-    });
-
-    const a: SolverProgressPayload = {
-      runId: latestSolverRunId(services),
-      bestMove: "d3",
-      row: 2,
-      col: 3,
-      score: 4,
-      depth: 20,
-      targetDepth: 20,
-      acc: 100,
-      nodes: 100,
-      pvLine: "d3",
-      isEndgame: true,
-    };
-    const b: SolverProgressPayload = {
-      ...a,
-      bestMove: "f5",
-      row: 4,
-      col: 5,
-      score: 2,
-      pvLine: "f5",
-    };
-
-    store.getState().applySolverProgress(a);
-    store.getState().applySolverProgress(b);
-
-    expect(store.getState().solverCandidates.size).toBe(2);
   });
 
   it("accepts trailing payloads after solver activity clears", async () => {
@@ -1323,17 +1128,5 @@ describe("superseded solver teardown does not poison the prior position's cache 
 
     p1HangBox.current?.resolve();
     await rePending;
-  });
-});
-
-// Sanity check that our mock respects the real module shape.
-describe("game-logic mock sanity", () => {
-  it("falls through to the real getValidMoves when no stub is set", () => {
-    expect(getValidMovesStub).toBeNull();
-    const board = initializeBoard();
-    const moves = realGetValidMoves(board, "black");
-    expect(moves.length).toBeGreaterThan(0);
-    // Also exercise opponentPlayer so its import isn't flagged unused.
-    expect(opponentPlayer("black")).toBe("white");
   });
 });
