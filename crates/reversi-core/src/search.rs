@@ -7,7 +7,7 @@
 pub mod context;
 pub mod counters;
 mod endgame;
-pub mod midgame;
+pub(crate) mod midgame;
 pub mod node_type;
 pub mod options;
 pub mod progress;
@@ -24,7 +24,7 @@ pub mod time_control;
 pub use endgame::{EndGameCaches, null_window_search, solve_last1};
 pub use options::{SearchConstraint, SearchRunOptions};
 pub use progress::{SearchProgress, SearchProgressCallback};
-pub use pvs::{LMR_MIN_DEPTH, search};
+pub(crate) use pvs::{LMR_MIN_DEPTH, search};
 
 use std::sync::Arc;
 

@@ -352,7 +352,7 @@ impl SplitPoint {
     /// The caller must hold the split point lock to avoid data races.
     #[inline]
     #[allow(clippy::mut_from_ref)]
-    pub fn state_mut(&self) -> &mut SplitPointState {
+    pub(super) fn state_mut(&self) -> &mut SplitPointState {
         // SAFETY: Caller holds the split point lock.
         unsafe { &mut *self.state.get() }
     }

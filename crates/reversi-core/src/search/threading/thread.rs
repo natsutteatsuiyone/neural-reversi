@@ -3,8 +3,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Weak};
 
-use lock_api::RawMutex;
-
 use crate::board::Board;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::search;
@@ -20,8 +18,7 @@ use crate::util::align::Align64;
 use crate::util::spinlock;
 
 use super::AbortState;
-use super::message::Message;
-use super::pool::ThreadPool;
+use super::pool::{Message, ThreadPool};
 use super::split_point::{SplitPoint, SplitPointState, SplitPointTask};
 
 /// Maximum number of split points that a single thread can have active at once.
@@ -33,7 +30,7 @@ pub struct Thread {
     pub(super) mutex_for_sleep_condition: std::sync::Mutex<()>,
 
     /// Spinlock protecting access to `active_split_point`.
-    mutex_for_state: spinlock::RawSpinLock,
+    mutex_for_state: spinlock::SpinLock,
 
     /// Condition variable for waking up idle threads.
     sleep_condition: std::sync::Condvar,
@@ -123,7 +120,7 @@ impl Thread {
 
         Thread {
             mutex_for_sleep_condition: std::sync::Mutex::new(()),
-            mutex_for_state: spinlock::RawSpinLock::INIT,
+            mutex_for_state: spinlock::SpinLock::new(()),
             sleep_condition: std::sync::Condvar::new(),
             idx,
             pool,
@@ -153,15 +150,9 @@ impl Thread {
         unsafe { &mut *self.endgame_caches.get() }
     }
 
-    /// Acquires the thread's state lock.
-    pub fn lock(&self) {
-        self.mutex_for_state.lock();
-    }
-
-    /// Releases the thread's state lock.
-    pub fn unlock(&self) {
-        // SAFETY: Caller has previously called lock().
-        unsafe { self.mutex_for_state.unlock() };
+    /// Acquires the thread's state lock; the returned guard releases it on drop.
+    pub(super) fn lock(&self) -> spinlock::SpinLockGuard<'_> {
+        self.mutex_for_state.lock()
     }
 
     /// Checks whether this thread can create a new split point.
@@ -429,17 +420,17 @@ impl Thread {
         // In the helpful owner concept, an owner can help only a sub-tree of its
         // split point and because everything is finished here, it's not possible
         // for the owner to be booked.
-        self.lock();
+        {
+            let _guard = self.lock();
 
-        // We have returned from the idle loop, which means that all threads are
-        // finished. Note that decreasing split_points_size must be done under lock
-        // protection to avoid a race with Thread::can_join().
-        self.searching.store(true, Ordering::Release);
-        self.split_points_size.fetch_sub(1, Ordering::Release);
-        *self.active_split_point_mut() = sp.state().parent_split_point.clone();
-        self.reset_cutoff_cache();
-
-        self.unlock();
+            // We have returned from the idle loop, which means that all threads are
+            // finished. Note that decreasing split_points_size must be done under lock
+            // protection to avoid a race with Thread::can_join().
+            self.searching.store(true, Ordering::Release);
+            self.split_points_size.fetch_sub(1, Ordering::Release);
+            *self.active_split_point_mut() = sp.state().parent_split_point.clone();
+            self.reset_cutoff_cache();
+        }
 
         // Clear task data after releasing thread lock to minimize lock duration
         sp.clear_task();
@@ -471,12 +462,12 @@ impl Thread {
 
             // If this thread has been assigned work, launch a search
             while self.searching.load(Ordering::Acquire) {
-                self.lock();
-                let sp = self
-                    .active_split_point()
-                    .clone()
-                    .expect("searching thread must have an active split point");
-                self.unlock();
+                let sp = {
+                    let _guard = self.lock();
+                    self.active_split_point()
+                        .clone()
+                        .expect("searching thread must have an active split point")
+                };
 
                 // The lock acquisition synchronizes with initialize_split_point,
                 // after which the task and split parameters stay stable until
@@ -490,9 +481,10 @@ impl Thread {
 
                 self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
 
-                self.lock();
-                self.searching.store(false, Ordering::Release);
-                self.unlock();
+                {
+                    let _guard = self.lock();
+                    self.searching.store(false, Ordering::Release);
+                }
 
                 // Publish counters before clearing helpers_mask: the Release on
                 // reset() pairs with the owner's Acquire in helpers_mask.none().
@@ -555,9 +547,9 @@ impl Thread {
             let message = receiver.recv();
 
             match message {
-                Ok(Message::StartThinking(task, thread, result_sender)) => {
-                    // Mark thread as actively searching
-                    thread.searching.store(true, Ordering::Release);
+                Ok(Message::StartThinking(task, result_sender)) => {
+                    // Mark this thread as actively searching
+                    self.searching.store(true, Ordering::Release);
 
                     // Keep a reference to the pool before task is consumed
                     let pool = task.pool.clone();
@@ -566,10 +558,10 @@ impl Thread {
                     pool.notify_all();
 
                     // Execute root search - this is where the main work happens
-                    let result = search::search_root(task, &thread);
+                    let result = search::search_root(task, &self);
 
                     // Search complete - update state and send result
-                    thread.searching.store(false, Ordering::Release);
+                    self.searching.store(false, Ordering::Release);
                     pool.thinking.store(false, Ordering::Release);
 
                     // Send result back to caller
@@ -682,13 +674,11 @@ impl Thread {
             && sp_state.all_helpers_searching()
             && sp_state.helpers_mask.count() < sp_state.max_threads()
         {
-            self.lock();
+            let _thread_guard = self.lock();
 
             if self.can_join(sp) {
                 self.book_into(sp, sp_state);
             }
-
-            self.unlock();
         }
     }
 

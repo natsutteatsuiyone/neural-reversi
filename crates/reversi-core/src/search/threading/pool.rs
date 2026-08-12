@@ -10,7 +10,6 @@ use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
 
 use super::AbortState;
-use super::message::Message;
 use super::split_point::SplitPoint;
 use super::thread::Thread;
 
@@ -19,6 +18,15 @@ const CHECK_INTERVAL_MS: u64 = 1;
 
 /// Interval between polls while waiting for threads to signal ready.
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Messages that can be sent to the main thread.
+pub(super) enum Message {
+    /// Starts a new search with the given task and returns results via the sender.
+    StartThinking(SearchTask, Sender<SearchResult>),
+
+    /// Signals the thread to exit.
+    Exit,
+}
 
 /// Thread pool for parallel game tree search.
 pub struct ThreadPool {
@@ -177,11 +185,10 @@ impl ThreadPool {
                 continue;
             }
 
-            thread.lock();
+            let _guard = thread.lock();
             if thread.can_join(sp) {
                 thread.book_into(sp, sp_state);
             }
-            thread.unlock();
         }
     }
 
@@ -202,11 +209,7 @@ impl ThreadPool {
 
         // Dispatch task to main thread
         self.sender
-            .send(Message::StartThinking(
-                task,
-                self.main().clone(),
-                result_sender,
-            ))
+            .send(Message::StartThinking(task, result_sender))
             .expect("main thread receiver must be alive while the pool exists");
 
         result_receiver
