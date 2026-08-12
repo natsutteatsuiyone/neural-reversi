@@ -16,7 +16,7 @@ use crate::config::{Config, parse_engine_command, read_opening_file};
 use crate::display;
 use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
-use crate::sprt::{SprtConfig, SprtResult, SprtStatus};
+use crate::sprt::{Sprt, SprtResult, SprtStatus};
 use crate::statistics::{MatchStatistics, MatchWinner, PentanomialFrequencies};
 use crate::time_tracker::TimeTracker;
 
@@ -45,10 +45,10 @@ fn check_interrupted() -> Result<()> {
 }
 
 fn sprt_snapshot(
-    sprt: Option<&SprtConfig>,
+    sprt: Option<&mut Sprt>,
     frequencies: &PentanomialFrequencies,
 ) -> Option<SprtResult> {
-    sprt.map(|config| config.evaluate(frequencies))
+    sprt.map(|sprt| sprt.update(frequencies))
 }
 
 fn contextualize_game_error(error: MatchRunnerError, game_number: usize) -> MatchRunnerError {
@@ -84,7 +84,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
     let engine_names = (engines.0.name(), engines.1.name());
     let mut time_tracker =
         TimeTracker::new(config.main_time, config.byoyomi_time, config.byoyomi_stones);
-    let sprt = config.sprt_config()?;
+    let mut sprt = config.sprt_config()?.map(Sprt::new);
     let total_games = openings.len() * 2;
     let mut statistics = MatchStatistics::default();
     let mut sprt_frequencies = PentanomialFrequencies::default();
@@ -94,7 +94,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
         &statistics,
         &engine_names.0,
         &engine_names.1,
-        sprt_snapshot(sprt.as_ref(), &sprt_frequencies).as_ref(),
+        sprt_snapshot(sprt.as_mut(), &sprt_frequencies).as_ref(),
     )?;
     let progress_bar = display::create_progress_bar(total_games as u64);
 
@@ -109,23 +109,24 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
                 &progress_bar,
                 &mut time_tracker,
                 &mut sprt_frequencies,
-                sprt.as_ref(),
+                sprt.as_mut(),
             )
         });
         if let Err(error) = result {
             progress_bar.finish_and_clear();
             if statistics.total_games() > 0 {
                 let _ = display::clear_screen();
-                let final_sprt = sprt
-                    .as_ref()
-                    .map(|config| (config, config.evaluate(&sprt_frequencies)));
+                let final_sprt = sprt.as_mut().map(|sprt| {
+                    let result = sprt.update(&sprt_frequencies);
+                    (sprt.config, result)
+                });
                 let _ =
                     statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt);
             }
             return Err(error);
         }
 
-        if let Some(snapshot) = sprt_snapshot(sprt.as_ref(), &sprt_frequencies)
+        if let Some(snapshot) = sprt_snapshot(sprt.as_mut(), &sprt_frequencies)
             && snapshot.status != SprtStatus::Continue
         {
             break;
@@ -134,9 +135,10 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
 
     progress_bar.finish_and_clear();
     display::clear_screen()?;
-    let final_sprt = sprt
-        .as_ref()
-        .map(|config| (config, config.evaluate(&sprt_frequencies)));
+    let final_sprt = sprt.as_mut().map(|sprt| {
+        let result = sprt.update(&sprt_frequencies);
+        (sprt.config, result)
+    });
     statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt)?;
     Ok(())
 }
@@ -304,7 +306,7 @@ fn play_opening_pair(
     progress_bar: &ProgressBar,
     time_tracker: &mut TimeTracker,
     sprt_frequencies: &mut PentanomialFrequencies,
-    sprt: Option<&SprtConfig>,
+    mut sprt: Option<&mut Sprt>,
 ) -> Result<()> {
     let mut first_result = None;
 
@@ -345,7 +347,7 @@ fn play_opening_pair(
             statistics,
             &engine_names.0,
             &engine_names.1,
-            sprt_snapshot(sprt, sprt_frequencies).as_ref(),
+            sprt_snapshot(sprt.as_deref_mut(), sprt_frequencies).as_ref(),
         )?;
         progress_bar.inc(1);
     }

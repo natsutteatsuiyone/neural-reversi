@@ -70,7 +70,7 @@ impl MatchStatistics {
         &self,
         engine1_name: &str,
         engine2_name: &str,
-        sprt: Option<(&SprtConfig, SprtResult)>,
+        sprt: Option<(SprtConfig, SprtResult)>,
     ) -> io::Result<()> {
         let total_games = self.total_games();
 
@@ -91,7 +91,7 @@ impl MatchStatistics {
 
         if let Some((config, result)) = sprt {
             println!();
-            self.print_sprt_summary(engine1_name, engine2_name, config, &result);
+            self.print_sprt_summary(engine1_name, engine2_name, &config, &result);
         }
         println!();
 

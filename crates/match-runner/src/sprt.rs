@@ -4,16 +4,11 @@
 //! paired game results, following the approach used by Fishtest.
 //! After every completed opening pair the accumulated log-likelihood ratio
 //! (LLR) of H1 (`elo1`) versus H0 (`elo0`) is compared against decision
-//! bounds derived from the configured error rates; crossing either bound
-//! ends the match early.
+//! bounds derived from the configured error rates, tightened by Fishtest's
+//! dynamic overshoot estimate (Siegmund, Sequential Analysis, Corollary
+//! 8.33); crossing either bound ends the match early.
 
 use crate::statistics::PentanomialFrequencies;
-
-/// Minimum number of completed opening pairs before a stop decision is allowed.
-///
-/// This operational floor prevents a decision while the regularization prior
-/// still has an outsized influence on the constrained likelihoods.
-const MIN_PAIRS: u32 = 5;
 
 /// SPRT hypothesis test parameters.
 #[derive(Debug, Clone, Copy)]
@@ -48,7 +43,9 @@ pub struct SprtResult {
     pub lower: f64,
     /// Upper decision bound `ln((1 - beta) / alpha)`.
     pub upper: f64,
-    /// Decision after comparing the LLR against the bounds.
+    /// Decision after comparing the LLR against the bounds, each tightened
+    /// by the estimated mean overshoot; a decision may therefore trigger
+    /// with an LLR still strictly inside `(lower, upper)`.
     pub status: SprtStatus,
 }
 
@@ -59,18 +56,83 @@ impl SprtConfig {
         let upper = ((1.0 - self.beta) / self.alpha).ln();
         (lower, upper)
     }
+}
 
-    /// Evaluate the test against the observed pentanomial pair frequencies.
-    pub fn evaluate(&self, freq: &PentanomialFrequencies) -> SprtResult {
-        let (lower, upper) = self.bounds();
-        let llr = llr_pentanomial(freq, self.elo0, self.elo1);
+/// Running SPRT state: the hypothesis parameters plus the dynamic overshoot
+/// estimate of the LLR jump sizes at both decision bounds.
+#[derive(Debug, Clone)]
+pub struct Sprt {
+    pub config: SprtConfig,
+    /// Number of completed pairs seen by the last overshoot update.
+    last_update: u32,
+    ref0: f64,
+    m0: f64,
+    sq0: f64,
+    ref1: f64,
+    m1: f64,
+    sq1: f64,
+}
 
-        let status = if freq.total_pairs() < MIN_PAIRS {
-            SprtStatus::Continue
-        } else if llr >= upper {
-            SprtStatus::AcceptH1
-        } else if llr <= lower {
+impl Sprt {
+    pub fn new(config: SprtConfig) -> Self {
+        Self {
+            config,
+            last_update: 0,
+            ref0: 0.0,
+            m0: 0.0,
+            sq0: 0.0,
+            ref1: 0.0,
+            m1: 0.0,
+            sq1: 0.0,
+        }
+    }
+
+    /// Recompute the LLR from the observed pair frequencies and evaluate the
+    /// stop decision.
+    ///
+    /// Safe to call repeatedly with unchanged frequencies: the overshoot
+    /// estimate only accumulates when exactly one new pair has completed
+    /// since the previous call, and resets its excursion references when
+    /// updates were skipped.
+    pub fn update(&mut self, freq: &PentanomialFrequencies) -> SprtResult {
+        let (lower, upper) = self.config.bounds();
+        let llr = llr_pentanomial(freq, self.config.elo0, self.config.elo1);
+
+        let pairs = freq.total_pairs();
+        if pairs == self.last_update + 1 {
+            if llr < self.ref0 {
+                let delta = llr - self.ref0;
+                self.m0 += delta;
+                self.sq0 += delta * delta;
+                self.ref0 = llr;
+            }
+            if llr > self.ref1 {
+                let delta = llr - self.ref1;
+                self.m1 += delta;
+                self.sq1 += delta * delta;
+                self.ref1 = llr;
+            }
+        } else if pairs != self.last_update {
+            self.ref0 = llr;
+            self.ref1 = llr;
+        }
+        self.last_update = pairs;
+
+        let o0 = if self.m0 != 0.0 {
+            -self.sq0 / self.m0 / 2.0
+        } else {
+            0.0
+        };
+        let o1 = if self.m1 != 0.0 {
+            self.sq1 / self.m1 / 2.0
+        } else {
+            0.0
+        };
+
+        let status = if llr < lower + o0 {
             SprtStatus::AcceptH0
+        } else if llr > upper - o1 {
+            SprtStatus::AcceptH1
         } else {
             SprtStatus::Continue
         };
@@ -169,6 +231,12 @@ mod tests {
         beta: 0.05,
     };
 
+    /// One-shot evaluation on fresh state; the overshoot estimate stays
+    /// zeroed, so the decision uses the raw bounds.
+    fn one_shot(config: SprtConfig, freq: &PentanomialFrequencies) -> SprtResult {
+        Sprt::new(config).update(freq)
+    }
+
     #[test]
     fn bounds_match_error_rates() {
         let (lower, upper) = SYMMETRIC.bounds();
@@ -179,7 +247,7 @@ mod tests {
 
     #[test]
     fn no_pairs_yield_zero_llr_and_continue() {
-        let result = SYMMETRIC.evaluate(&PentanomialFrequencies::default());
+        let result = one_shot(SYMMETRIC, &PentanomialFrequencies::default());
 
         assert_eq!(result.llr, 0.0);
         assert_eq!(result.status, SprtStatus::Continue);
@@ -195,7 +263,7 @@ mod tests {
             ww: 20,
             ..PentanomialFrequencies::default()
         };
-        let result = SYMMETRIC.evaluate(&freq);
+        let result = one_shot(SYMMETRIC, &freq);
 
         assert!(result.llr.abs() < 1e-9);
         assert_eq!(result.status, SprtStatus::Continue);
@@ -209,7 +277,7 @@ mod tests {
             ww: 30,
             ..PentanomialFrequencies::default()
         };
-        let result = SYMMETRIC.evaluate(&freq);
+        let result = one_shot(SYMMETRIC, &freq);
 
         assert!(result.llr > result.upper);
         assert_eq!(result.status, SprtStatus::AcceptH1);
@@ -223,7 +291,7 @@ mod tests {
             dd: 20,
             ..PentanomialFrequencies::default()
         };
-        let result = SYMMETRIC.evaluate(&freq);
+        let result = one_shot(SYMMETRIC, &freq);
 
         assert!(result.llr < result.lower);
         assert_eq!(result.status, SprtStatus::AcceptH0);
@@ -248,33 +316,10 @@ mod tests {
             ww: 5,
         };
 
-        let llr = SYMMETRIC.evaluate(&freq).llr;
-        let mirrored_llr = SYMMETRIC.evaluate(&mirrored).llr;
+        let llr = one_shot(SYMMETRIC, &freq).llr;
+        let mirrored_llr = one_shot(SYMMETRIC, &mirrored).llr;
 
         assert!((llr + mirrored_llr).abs() < 1e-9);
-    }
-
-    #[test]
-    fn decisive_evidence_below_min_pairs_continues() {
-        let freq = PentanomialFrequencies {
-            ww: MIN_PAIRS - 1,
-            ..PentanomialFrequencies::default()
-        };
-        let result = SYMMETRIC.evaluate(&freq);
-
-        assert_eq!(result.status, SprtStatus::Continue);
-    }
-
-    #[test]
-    fn one_sided_evidence_at_min_pairs_does_not_force_decision() {
-        let freq = PentanomialFrequencies {
-            ww: MIN_PAIRS,
-            ..PentanomialFrequencies::default()
-        };
-        let result = SYMMETRIC.evaluate(&freq);
-
-        assert!((result.llr - 0.29).abs() < 0.01);
-        assert_eq!(result.status, SprtStatus::Continue);
     }
 
     #[test]
@@ -294,8 +339,52 @@ mod tests {
             wd: 400,
             ww: 800,
         };
-        let result = config.evaluate(&freq);
+        let result = one_shot(config, &freq);
 
         assert_eq!(result.status, SprtStatus::AcceptH0);
+    }
+
+    #[test]
+    fn overshoot_correction_stops_inside_raw_bounds() {
+        let mut sprt = Sprt::new(SYMMETRIC);
+        let mut freq = PentanomialFrequencies::default();
+
+        for _ in 0..100 {
+            freq.ww += 1;
+            let result = sprt.update(&freq);
+            if result.status == SprtStatus::AcceptH1 {
+                // The mean upward jump tightens the upper bound, so a pure
+                // win stream stops one pair before the raw crossing.
+                assert!(result.llr < result.upper);
+                assert!(result.llr > result.upper - 0.06);
+                return;
+            }
+        }
+        panic!("pure win stream must accept H1");
+    }
+
+    #[test]
+    fn repeated_same_data_updates_do_not_change_the_decision() {
+        let run = |updates_per_pair: usize| {
+            let mut sprt = Sprt::new(SYMMETRIC);
+            let mut freq = PentanomialFrequencies::default();
+            for pair in 1..=200u32 {
+                if pair % 3 == 0 {
+                    freq.wl += 1;
+                } else {
+                    freq.ww += 1;
+                }
+                let mut last = sprt.update(&freq);
+                for _ in 1..updates_per_pair {
+                    last = sprt.update(&freq);
+                }
+                if last.status != SprtStatus::Continue {
+                    return (pair, last.llr);
+                }
+            }
+            panic!("dominant stream must reach a decision");
+        };
+
+        assert_eq!(run(1), run(3));
     }
 }
