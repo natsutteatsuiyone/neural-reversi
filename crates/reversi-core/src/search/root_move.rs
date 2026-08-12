@@ -159,15 +159,6 @@ impl RootMoves {
         self.moves.lock().unwrap().len()
     }
 
-    /// Applies a function to all root moves and collects the results.
-    pub fn map<T, F>(&self, f: F) -> Vec<T>
-    where
-        F: FnMut(&RootMove) -> T,
-    {
-        let moves = self.moves.lock().unwrap();
-        moves.iter().map(f).collect()
-    }
-
     /// Returns the bitboard of the moves remaining for the current PV line
     /// (`root_moves[pv_idx..]`).
     pub fn moves_bb_from_pv_idx(&self) -> Bitboard {
@@ -190,11 +181,15 @@ mod tests {
     }
 
     fn find<T>(rms: &RootMoves, sq: Square, f: impl Fn(&RootMove) -> T) -> T {
-        rms.map(|rm| (rm.sq, f(rm)))
-            .into_iter()
-            .find(|(s, _)| *s == sq)
-            .map(|(_, v)| v)
+        rms.snapshot()
+            .iter()
+            .find(|rm| rm.sq == sq)
+            .map(f)
             .expect("square should be present in the root moves")
+    }
+
+    fn squares(rms: &RootMoves) -> Vec<Square> {
+        rms.snapshot().iter().map(|rm| rm.sq).collect()
     }
 
     #[test]
@@ -207,7 +202,7 @@ mod tests {
     #[test]
     fn update_seeds_then_halves_the_running_average() {
         let rms = RootMoves::new(&Board::new());
-        let sq = rms.map(|rm| rm.sq)[0];
+        let sq = rms.get(0).unwrap().sq;
         let pv = pv_array(&[sq]);
 
         rms.update(sq, ScaledScore::from_disc_diff(4), true, &pv);
@@ -240,7 +235,7 @@ mod tests {
     #[test]
     fn update_non_pv_resets_score_but_still_folds_the_average() {
         let rms = RootMoves::new(&Board::new());
-        let sq = rms.map(|rm| rm.sq)[0];
+        let sq = rms.get(0).unwrap().sq;
         let pv = pv_array(&[sq]);
 
         rms.update(sq, ScaledScore::from_disc_diff(4), true, &pv);
@@ -256,7 +251,7 @@ mod tests {
     #[test]
     fn update_copies_the_pv_until_the_none_sentinel() {
         let rms = RootMoves::new(&Board::new());
-        let sq = rms.map(|rm| rm.sq)[0];
+        let sq = rms.get(0).unwrap().sq;
         let pv = pv_array(&[sq, Square::C3, Square::H8]); // trailing entries stay None
 
         rms.update(sq, ScaledScore::from_disc_diff(1), true, &pv);
@@ -285,7 +280,7 @@ mod tests {
     #[test]
     fn sort_from_pv_idx_orders_the_tail_by_descending_score() {
         let rms = RootMoves::new(&Board::new());
-        let sqs = rms.map(|rm| rm.sq);
+        let sqs = squares(&rms);
         for (i, &sq) in sqs.iter().enumerate() {
             rms.update(
                 sq,
@@ -308,12 +303,12 @@ mod tests {
     #[test]
     fn sort_from_pv_idx_is_a_noop_when_pv_idx_is_out_of_range() {
         let rms = RootMoves::new(&Board::new());
-        let before = rms.map(|rm| rm.sq);
+        let before = squares(&rms);
 
         rms.set_pv_idx(rms.count() + 5);
         rms.sort_from_pv_idx(); // must neither panic nor reorder
 
-        assert_eq!(rms.map(|rm| rm.sq), before);
+        assert_eq!(squares(&rms), before);
     }
 
     #[test]
@@ -332,7 +327,7 @@ mod tests {
     fn moves_bb_from_pv_idx_respects_the_pv_window() {
         let board = Board::new();
         let rms = RootMoves::new(&board);
-        let sqs = rms.map(|rm| rm.sq);
+        let sqs = squares(&rms);
 
         assert_eq!(rms.moves_bb_from_pv_idx(), board.get_moves());
 
@@ -349,7 +344,7 @@ mod tests {
     #[test]
     fn save_previous_scores_snapshots_the_current_scores() {
         let rms = RootMoves::new(&Board::new());
-        let sq = rms.map(|rm| rm.sq)[0];
+        let sq = rms.get(0).unwrap().sq;
         rms.update(sq, ScaledScore::from_disc_diff(5), true, &pv_array(&[sq]));
 
         rms.save_previous_scores();
@@ -363,7 +358,7 @@ mod tests {
     #[test]
     fn snapshot_is_detached_from_later_updates() {
         let rms = RootMoves::new(&Board::new());
-        let sq = rms.map(|rm| rm.sq)[0];
+        let sq = rms.get(0).unwrap().sq;
         rms.update(sq, ScaledScore::from_disc_diff(5), true, &pv_array(&[sq]));
 
         let snapshot = rms.snapshot();

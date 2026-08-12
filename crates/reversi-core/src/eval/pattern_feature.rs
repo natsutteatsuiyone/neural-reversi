@@ -88,13 +88,6 @@ pub struct FeatureToCoordinate {
     pub squares: [Square; 10],
 }
 
-impl FeatureToCoordinate {
-    /// Creates a new feature-to-coordinate mapping with the given squares.
-    pub const fn new(n_square: usize, squares: [Square; 10]) -> Self {
-        Self { n_square, squares }
-    }
-}
-
 /// Storage for pattern features.
 #[derive(Debug, Clone, Copy)]
 #[repr(align(64))]

@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn root_move_snapshot_result_is_not_affected_by_later_root_move_updates() {
         let root_moves = RootMoves::new(&Board::new());
-        let sq = root_moves.map(|rm| rm.sq)[0];
+        let sq = root_moves.get(0).unwrap().sq;
         let best_move = RootMove {
             score: ScaledScore::from_disc_diff(4),
             pv: vec![sq],

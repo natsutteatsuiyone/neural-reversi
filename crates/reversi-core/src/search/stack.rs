@@ -15,15 +15,9 @@ pub struct SearchStack {
     stack: [StackRecord; MAX_PLY],
 }
 
-impl Default for SearchStack {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl SearchStack {
     /// Creates a new search stack with all PV entries cleared.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         SearchStack {
             stack: [StackRecord {
                 pv: [Square::None; MAX_PLY],

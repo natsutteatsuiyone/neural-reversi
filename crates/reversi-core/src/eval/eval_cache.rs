@@ -55,17 +55,9 @@ impl EvalCache {
         }
     }
 
-    /// Stores an evaluation score in the cache.
-    #[inline(always)]
-    pub fn store(&self, key: u64, score: ScaledScore) {
-        let (_, slot) = self.probe_for_store(key);
-        let value = Self::pack(key, score.value());
-        slot.store(value, Ordering::Relaxed);
-    }
-
     /// Returns the cached evaluation score for `key`, or [`None`] if not found.
-    #[inline(always)]
-    pub fn probe(&self, key: u64) -> Option<ScaledScore> {
+    #[cfg(test)]
+    fn probe(&self, key: u64) -> Option<ScaledScore> {
         self.probe_for_store(key).0
     }
 
@@ -265,7 +257,7 @@ mod tests {
             assert_eq!(cache.probe(key), None, "key {key:#018x}");
         }
 
-        cache.store(0, ScaledScore::ZERO);
+        cache.get_or_insert_with(0, || ScaledScore::ZERO);
         assert_eq!(cache.probe(0), Some(ScaledScore::ZERO));
 
         cache.clear();
@@ -308,7 +300,7 @@ mod tests {
             cache.location(stored_key).0,
             cache.location(colliding_key).0
         );
-        cache.store(stored_key, score);
+        cache.get_or_insert_with(stored_key, || score);
 
         assert_eq!(cache.probe(stored_key), Some(score));
         assert_eq!(cache.probe(colliding_key), None);
@@ -316,23 +308,12 @@ mod tests {
     }
 
     #[test]
-    fn store_overwrites_previous_value_for_same_key() {
-        let cache = EvalCache::new(4);
-        let key = 0x1234_5678_9ABC_DEF0;
-
-        cache.store(key, ScaledScore::from_raw(42));
-        cache.store(key, ScaledScore::from_raw(-84));
-
-        assert_eq!(cache.probe(key), Some(ScaledScore::from_raw(-84)));
-    }
-
-    #[test]
-    fn store_retains_two_entries_on_bucket_collision() {
+    fn insert_retains_two_entries_on_bucket_collision() {
         let cache = EvalCache::new(4);
         let (old_key, new_key) = colliding_keys();
 
-        cache.store(old_key, ScaledScore::from_raw(11));
-        cache.store(new_key, ScaledScore::from_raw(22));
+        cache.get_or_insert_with(old_key, || ScaledScore::from_raw(11));
+        cache.get_or_insert_with(new_key, || ScaledScore::from_raw(22));
 
         assert_eq!(cache.probe(old_key), Some(ScaledScore::from_raw(11)));
         assert_eq!(cache.probe(new_key), Some(ScaledScore::from_raw(22)));
@@ -371,7 +352,7 @@ mod tests {
 
         for (key, raw_score) in cases {
             let score = ScaledScore::from_raw(raw_score);
-            cache.store(key, score);
+            cache.get_or_insert_with(key, || score);
             assert_eq!(cache.probe(key), Some(score), "key {key:#018x}");
         }
     }
@@ -379,9 +360,9 @@ mod tests {
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "cache score must be within the ScaledScore sentinel range")]
-    fn store_rejects_scores_outside_the_scaled_score_domain() {
+    fn insert_rejects_scores_outside_the_scaled_score_domain() {
         let cache = EvalCache::new(4);
-        cache.store(1, -ScaledScore::INF - 1);
+        cache.get_or_insert_with(1, || -ScaledScore::INF - 1);
     }
 
     #[test]
@@ -394,7 +375,7 @@ mod tests {
         ];
 
         for (idx, &key) in keys.iter().enumerate() {
-            cache.store(key, ScaledScore::from_raw((idx as i32 + 1) * 100));
+            cache.get_or_insert_with(key, || ScaledScore::from_raw((idx as i32 + 1) * 100));
             assert!(cache.probe(key).is_some(), "precondition key {idx}");
         }
 
