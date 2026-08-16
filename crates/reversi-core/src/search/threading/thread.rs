@@ -563,6 +563,9 @@ impl Thread {
                     // Search complete - update state and send result
                     self.searching.store(false, Ordering::Release);
                     pool.thinking.store(false, Ordering::Release);
+                    // Keep ThreadPool::drop on the caller; dropping the last Arc
+                    // on this thread would make it join itself.
+                    drop(pool);
 
                     // Send result back to caller
                     // Ignore error if receiver was dropped (caller gave up waiting)
