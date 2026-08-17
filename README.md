@@ -13,32 +13,33 @@ This is an experimental project to develop a highly accurate neural network eval
 - High-performance multi-threaded search
 - Supports CLI, desktop GUI (Tauri), and WebAssembly
 
-## Benchmarks (v6.2.0)
+## Benchmarks (v6.3.0)
 
 ### Environment
 
 - **CPU:** AMD Ryzen 9 9950X3D
 - **Threads:** 32
 - **Hash size:** 2048 MB
+- **CPB (Core Performance Boost):** disabled unless noted
 
 ### Evaluation Accuracy
 
-| Test | Problems | Depth | Time | Nodes | NPS | Move Acc. | Score ±3 | MAE |
+| Test | Problems | Depth | Time | Nodes | NPS | Best Move | Score ±3 | MAE |
 |:--|:-:|:-:|--:|--:|--:|--:|--:|--:|
-| [Hard-30](docs/6.2.0/benchmarks/hard-30-depth15.md) | 289 | 15 | 2.911s | 170,323,530 | 58,520,368 | 82.7% | 87.9% | 1.63 |
+| [Hard-30](docs/6.3.0/benchmarks/hard-30-depth15.md) | 289 | 15 | 2.448s | 130,053,393 | 53,124,216 | 80.3% | 85.5% | 1.67 |
 
 ### Endgame Solving
 
 | Test | Problems | Depth | Time | Nodes | NPS |
 |:--|:-:|:-:|--:|--:|--:|
-| [FFO #40–59](docs/6.2.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 6.619s | 12,886,860,222 | 1,946,857,425 |
-| [FFO #40–59 (CPB Enabled)](docs/6.2.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 5.909s | 12,975,594,240 | 2,195,733,797 |
-| [FFO #60–79](docs/6.2.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 206.503s | 339,862,636,700 | 1,645,802,805 |
-| [FFO #60–79 (CPB Enabled)](docs/6.2.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 184.503s | 339,709,280,448 | 1,841,212,826 |
-| [Hard-20](docs/6.2.0/benchmarks/hard-20.md) | 276 | 20 | 2.129s | 1,885,285,412 | 885,441,087 |
-| [Hard-25](docs/6.2.0/benchmarks/hard-25.md) | 311 | 25 | 27.325s | 47,433,112,523 | 1,735,903,761 |
-| [Hard-30](docs/6.2.0/benchmarks/hard-30.md) | 289 | 30 | 784.301s | 1,465,113,429,251 | 1,868,049,295 |
-| [Small-35](docs/6.2.0/benchmarks/small-35.md) | 30 | 35 | 8,972.499s | 14,025,790,373,984 | 1,563,197,843 |
+| [FFO #40–59](docs/6.3.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 6.029s | 12,791,069,853 | 2,121,636,861 |
+| [FFO #40–59 (CPB Enabled)](docs/6.3.0/benchmarks/fforum-40-59.md) | 20 | 20–34 | 5.370s | 12,736,659,249 | 2,371,617,478 |
+| [FFO #60–79](docs/6.3.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 184.418s | 334,416,880,379 | 1,813,367,928 |
+| [FFO #60–79 (CPB Enabled)](docs/6.3.0/benchmarks/fforum-60-79.md) | 20 | 24–36 | 164.525s | 332,545,645,155 | 2,021,247,959 |
+| [Hard-20](docs/6.3.0/benchmarks/hard-20.md) | 276 | 20 | 1.795s | 1,493,278,814 | 831,810,015 |
+| [Hard-25](docs/6.3.0/benchmarks/hard-25.md) | 311 | 25 | 24.473s | 46,422,669,177 | 1,896,910,314 |
+| [Hard-30](docs/6.3.0/benchmarks/hard-30.md) | 289 | 30 | 746.719s | 1,501,762,723,900 | 2,011,149,287 |
+| [Small-35](docs/6.3.0/benchmarks/small-35.md) | 30 | 35 | 8,314.563s | 14,770,436,809,931 | 1,776,453,780 |
 
 ## Getting Started
 
@@ -78,6 +79,18 @@ This is an experimental project to develop a highly accurate neural network eval
    bun install
    bun run dev                   # Start the web version in development mode
    ```
+
+### Large pages
+
+Large pages can improve search performance by reducing memory-translation
+overhead for the transposition table and other large buffers.
+
+On Windows, follow Microsoft's [Lock pages in memory setup instructions](https://learn.microsoft.com/en-us/sql/database-engine/configure-windows/enable-the-lock-pages-in-memory-option-windows).
+Without this privilege, the engine silently falls back to regular pages.
+
+On Linux, Transparent Huge Pages are used automatically via `madvise`;
+no setup or special privilege is needed, as long as the kernel's THP mode
+allows `madvise` requests.
 
 ## Crates
 
