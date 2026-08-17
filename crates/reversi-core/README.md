@@ -215,15 +215,19 @@ and probes / stores are lock-free.
   the replacement policy so older entries are overwritten first.
 - `prefetch(key)` is exposed for ETC and split-internal lookups.
 
-#### Windows large pages
+#### Large pages
 
-On Windows, `AlignedBuffer` automatically tries large-page allocation for
+On Windows and Linux, `AlignedBuffer` automatically tries large-page allocation for
 buffers at least as large as the OS-reported minimum. This includes the TT and
 sufficiently large neural-network buffers. If the required privilege or a
 contiguous large-page region is unavailable, allocation falls back to normal
 pages without failing the engine.
 
-To enable large pages:
+Linux uses Transparent Huge Pages (THP) through `MADV_HUGEPAGE`; no reserved
+hugetlb pool or special privilege is required. The kernel's THP mode must allow
+`madvise` requests. See the [Linux THP documentation](https://docs.kernel.org/admin-guide/mm/transhuge.html).
+
+To enable large pages on Windows:
 
 1. Run `secpol.msc` as an administrator.
 2. Open **Local Policies > User Rights Assignment > Lock pages in memory** and

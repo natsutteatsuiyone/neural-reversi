@@ -61,7 +61,7 @@ impl<T> AlignedBuffer<T> {
         let layout =
             Layout::from_size_align(size, CACHE_LINE_SIZE).expect("AlignedBuffer: invalid layout");
 
-        // Windows aligns the returned address to its large-page minimum.
+        // Large-page allocators return suitably aligned memory on supported OSes.
         if let Some(ptr) = large_pages::alloc_zeroed(size) {
             return (ptr.cast(), true);
         }

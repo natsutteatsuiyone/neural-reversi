@@ -2,10 +2,10 @@
 //!
 //! Transposition-table probes are uniformly distributed over the whole table,
 //! so every access is a dTLB miss candidate: a 1 GiB table spans 262144 4 KiB
-//! pages but only 512 pages when the large-page minimum is 2 MiB. Windows
-//! hands out large pages only while `SeLockMemoryPrivilege` ("Lock pages in
-//! memory" in the local security policy) is enabled, so allocation is
-//! best-effort and callers must keep a fallback path.
+//! pages but only 512 pages when the large-page size is 2 MiB. Linux requests
+//! Transparent Huge Pages with `MADV_HUGEPAGE`; Windows requests explicit
+//! large pages while `SeLockMemoryPrivilege` is enabled. Both are best-effort,
+//! so callers must keep a fallback path.
 
 #[cfg(windows)]
 mod imp {
@@ -159,11 +159,74 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod imp {
+    use std::ptr::{self, NonNull};
+    use std::sync::OnceLock;
+
+    const PAGE_SIZE_PATH: &str = "/sys/kernel/mm/transparent_hugepage/hpage_pmd_size";
+
+    fn page_size() -> Option<usize> {
+        static PAGE_SIZE: OnceLock<Option<usize>> = OnceLock::new();
+
+        *PAGE_SIZE.get_or_init(|| {
+            let size = std::fs::read_to_string(PAGE_SIZE_PATH)
+                .ok()?
+                .trim()
+                .parse::<usize>()
+                .ok()?;
+            size.is_power_of_two().then_some(size)
+        })
+    }
+
+    /// Allocates at least `size` zeroed bytes eligible for Transparent Huge Pages.
+    ///
+    /// Returns [`None`] when `size` is smaller than one huge page or Linux
+    /// rejects the allocation or `MADV_HUGEPAGE` advice. The block is aligned
+    /// and rounded up to the kernel's PMD huge-page size.
+    pub fn alloc_zeroed(size: usize) -> Option<NonNull<u8>> {
+        let page_size = page_size()?;
+        if size < page_size {
+            return None;
+        }
+        let alloc_size = size.checked_next_multiple_of(page_size)?;
+        let mut mem = ptr::null_mut();
+
+        // SAFETY: `mem` is a live out-parameter and the kernel-reported page
+        // size is a power of two and therefore a valid alignment.
+        if unsafe { libc::posix_memalign(&mut mem, page_size, alloc_size) } != 0 {
+            return None;
+        }
+        // Advise before first touch so Linux can satisfy faults with THPs.
+        // SAFETY: `mem` covers `alloc_size` bytes and is page aligned.
+        if unsafe { libc::madvise(mem, alloc_size, libc::MADV_HUGEPAGE) } != 0 {
+            // SAFETY: `mem` came from a successful `posix_memalign` call.
+            unsafe { libc::free(mem) };
+            return None;
+        }
+
+        let ptr = NonNull::new(mem.cast::<u8>())?;
+        // SAFETY: `ptr` covers `alloc_size` writable bytes.
+        unsafe { ptr.as_ptr().write_bytes(0, alloc_size) };
+        Some(ptr)
+    }
+
+    /// Releases a block obtained from [`alloc_zeroed`].
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must come from [`alloc_zeroed`] and must not have been freed.
+    pub unsafe fn free(ptr: NonNull<u8>) {
+        // SAFETY: `ptr` came from `posix_memalign` and is still owned here.
+        unsafe { libc::free(ptr.as_ptr().cast()) };
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 mod imp {
     use std::ptr::NonNull;
 
-    /// Always [`None`]: large pages are only wired up for Windows.
+    /// Always [`None`]: large pages are unsupported on this platform.
     pub fn alloc_zeroed(_size: usize) -> Option<NonNull<u8>> {
         None
     }
@@ -174,7 +237,7 @@ mod imp {
     ///
     /// `ptr` must come from [`alloc_zeroed`], which cannot happen here.
     pub unsafe fn free(_ptr: NonNull<u8>) {
-        unreachable!("no large-page allocation on this platform")
+        unreachable!("large pages are unsupported on this platform")
     }
 }
 
@@ -184,10 +247,7 @@ pub use imp::{alloc_zeroed, free};
 mod tests {
     use super::*;
 
-    /// Exercises the allocate/release pair, which on Windows runs the whole
-    /// privilege-elevation path. Large pages are unavailable on machines
-    /// without the "Lock pages in memory" right, so the test reports which
-    /// path it took instead of requiring one.
+    /// Exercises the platform allocate/release pair when large pages are available.
     #[test]
     fn alloc_zeroed_round_trip() {
         const SIZE: usize = 4 << 20;
@@ -195,7 +255,16 @@ mod tests {
         match alloc_zeroed(SIZE) {
             Some(ptr) => {
                 println!("large pages: available");
-                assert_eq!(ptr.as_ptr() as usize % (2 << 20), 0);
+                #[cfg(target_os = "linux")]
+                let page_size =
+                    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size")
+                        .unwrap()
+                        .trim()
+                        .parse::<usize>()
+                        .unwrap();
+                #[cfg(not(target_os = "linux"))]
+                let page_size = 2 << 20;
+                assert_eq!(ptr.as_ptr() as usize % page_size, 0);
                 // SAFETY: the block is at least `SIZE` bytes and readable.
                 let bytes = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), SIZE) };
                 assert!(bytes.iter().all(|&b| b == 0));

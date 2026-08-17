@@ -3548,6 +3548,7 @@ version = "6.2.0"
 dependencies = [
  "byteorder",
  "criterion",
+ "libc",
  "lock_api",
  "rand 0.10.2",
  "rapidhash",
