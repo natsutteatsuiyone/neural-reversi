@@ -227,31 +227,24 @@ mod tests {
         GameAnalysisMove::Pass
     }
 
-    #[test]
-    fn propagate_step_played_is_negated_prev() {
-        let (played, _, _) = propagate_step(3.0, 2.0);
-        assert_eq!(played, -2.0);
+    fn analysis(best_move: Square, score: Scoref, depth: u32) -> Analysis {
+        Analysis {
+            pv: Vec::new(),
+            best_move,
+            score,
+            depth,
+        }
     }
 
     #[test]
-    fn propagate_step_loss_clamps_at_zero_when_played_beats_best() {
-        // played = 5.0, best = 1.0 -> raw -4.0 -> clamped 0.0
-        let (_, loss, _) = propagate_step(1.0, -5.0);
-        assert_eq!(loss, 0.0);
-    }
-
-    #[test]
-    fn propagate_step_loss_and_next_when_best_exceeds_played() {
-        let (played, loss, next) = propagate_step(4.0, -1.0); // played 1.0
-        assert_eq!(played, 1.0);
-        assert_eq!(loss, 3.0);
-        assert_eq!(next, 4.0); // max(best 4, played 1)
-    }
-
-    #[test]
-    fn propagate_step_next_keeps_the_better_played_line() {
-        let (_, _, next) = propagate_step(-3.0, -5.0); // played 5.0, best -3.0
-        assert_eq!(next, 5.0);
+    fn propagate_step_handles_score_relations() {
+        for (best, prev, expected) in [
+            (3.0, 2.0, (-2.0, 5.0, 3.0)),
+            (1.0, -5.0, (5.0, 0.0, 5.0)),
+            (4.0, -1.0, (1.0, 3.0, 4.0)),
+        ] {
+            assert_eq!(propagate_step(best, prev), expected);
+        }
     }
 
     #[test]
@@ -277,29 +270,20 @@ mod tests {
     }
 
     #[test]
-    fn replay_rejects_an_illegal_move() {
-        // a1 is a valid Square but not a legal opening move.
-        let err = replay(Board::new(), &[play(Square::A1)]).unwrap_err();
-        assert!(err.contains("Illegal move"), "got: {err}");
-    }
-
-    #[test]
-    fn replay_rejects_a_pass_when_legal_moves_are_available() {
-        let err = replay(Board::new(), &[pass()]).unwrap_err();
-        assert!(
-            err.contains("Cannot pass when legal moves are available"),
-            "got: {err}"
-        );
-    }
-
-    #[test]
-    fn replay_rejects_a_pass_after_the_game_is_over() {
+    fn replay_rejects_invalid_moves() {
         let full = Board::from_string(&"X".repeat(64), Disc::Black).unwrap();
-        let err = replay(full, &[pass()]).unwrap_err();
-        assert!(
-            err.contains("Cannot pass after the game is over"),
-            "got: {err}"
-        );
+        for (board, move_input, expected) in [
+            (Board::new(), play(Square::A1), "Illegal move"),
+            (
+                Board::new(),
+                pass(),
+                "Cannot pass when legal moves are available",
+            ),
+            (full, pass(), "Cannot pass after the game is over"),
+        ] {
+            let err = replay(board, &[move_input]).unwrap_err();
+            assert!(err.contains(expected), "got: {err}");
+        }
     }
 
     /// a1=White, b1=Black, rest empty: Black has no Legal Move, but White can
@@ -345,12 +329,7 @@ mod tests {
                 !b.get_moves().is_empty(),
                 "seed must search a Position with moves"
             );
-            Ok(Analysis {
-                best_move: Square::C1,
-                score: 1.0,
-                depth: 1,
-                pv: vec![],
-            })
+            Ok(analysis(Square::C1, 1.0, 1))
         };
         analyze_game(forced_pass_board(), &[], search, || false, |_p| {}).unwrap();
         assert!(
@@ -370,24 +349,12 @@ mod tests {
             call.set(i + 1);
             // call 0: final board (seed); call 1: boards[1] (i=1); call 2: boards[0] (i=0)
             Ok(match i {
-                0 => Analysis {
-                    best_move: Square::A1,
-                    score: 2.0,
-                    depth: 5,
-                    pv: vec![],
-                },
+                0 => analysis(Square::A1, 2.0, 5),
                 1 => Analysis {
-                    best_move: Square::D3,
-                    score: 3.0,
-                    depth: 7,
                     pv: vec![Square::G8, Square::H8],
+                    ..analysis(Square::D3, 3.0, 7)
                 },
-                _ => Analysis {
-                    best_move: Square::C4,
-                    score: 1.0,
-                    depth: 9,
-                    pv: vec![],
-                },
+                _ => analysis(Square::C4, 1.0, 9),
             })
         };
 
@@ -423,18 +390,8 @@ mod tests {
             call.set(i + 1);
             // call 0: final board (seed) = 4.0; call 1: boards[0] (i=0)
             Ok(match i {
-                0 => Analysis {
-                    best_move: Square::A1,
-                    score: 4.0,
-                    depth: 1,
-                    pv: vec![],
-                },
-                _ => Analysis {
-                    best_move: Square::C1,
-                    score: 0.0,
-                    depth: 1,
-                    pv: vec![],
-                },
+                0 => analysis(Square::A1, 4.0, 1),
+                _ => analysis(Square::C1, 0.0, 1),
             })
         };
         let mut emitted: Vec<GameAnalysisProgress> = Vec::new();
@@ -475,18 +432,8 @@ mod tests {
             // call 0: forced-pass seed, scored on the switched Position = 2.0;
             // call 1: the board H8 was played from = 5.0.
             Ok(match i {
-                0 => Analysis {
-                    best_move: Square::A1,
-                    score: 2.0,
-                    depth: 1,
-                    pv: vec![],
-                },
-                _ => Analysis {
-                    best_move: Square::D3,
-                    score: 5.0,
-                    depth: 7,
-                    pv: vec![],
-                },
+                0 => analysis(Square::A1, 2.0, 1),
+                _ => analysis(Square::D3, 5.0, 7),
             })
         };
 
@@ -524,76 +471,31 @@ mod tests {
     }
 
     #[test]
-    fn analyze_game_returns_ok_and_emits_nothing_when_cancelled_upfront() {
-        let moves = vec![play(Square::D3), play(Square::C3)];
-        let search = |_b: &Board| {
-            Ok(Analysis {
-                best_move: Square::A1,
-                score: 1.0,
-                depth: 1,
-                pv: vec![],
-            })
-        };
-        let mut emitted = 0;
-        analyze_game(Board::new(), &moves, search, || true, |_p| emitted += 1).unwrap();
-        assert_eq!(emitted, 0);
-    }
+    fn analyze_game_honors_each_cancellation_boundary() {
+        let two_moves = [play(Square::D3), play(Square::C3)];
+        let one_move = [play(Square::D3)];
 
-    #[test]
-    fn analyze_game_stops_emitting_when_superseded_mid_run() {
-        let moves = vec![play(Square::D3), play(Square::C3)];
-        let search = |_b: &Board| {
-            Ok(Analysis {
-                best_move: Square::A1,
-                score: 1.0,
-                depth: 1,
-                pv: vec![],
-            })
-        };
-        // First two cancellation polls pass (after-replay + after-seed), then supersede.
-        let polls = Cell::new(0usize);
-        let is_cancelled = || {
-            let n = polls.get();
-            polls.set(n + 1);
-            n >= 2
-        };
-        let mut emitted = 0;
-        analyze_game(Board::new(), &moves, search, is_cancelled, |_p| {
-            emitted += 1
-        })
-        .unwrap();
-        assert_eq!(emitted, 0);
-    }
-
-    #[test]
-    fn analyze_game_suppresses_emit_when_superseded_after_a_move_search() {
-        // One played move: the after-replay, after-seed, and loop-top polls all
-        // pass, so cancellation first trips on the poll immediately AFTER the
-        // per-move search. That post-search check is the only thing stopping the
-        // move from emitting — the prior mid-run test bails at the loop-top check
-        // and never reaches here, so without this case the guard is uncovered.
-        let moves = vec![play(Square::D3)];
-        let search = |_b: &Board| {
-            Ok(Analysis {
-                best_move: Square::A1,
-                score: 1.0,
-                depth: 1,
-                pv: vec![],
-            })
-        };
-        // Polls 0..=2 pass (after-replay, after-seed, loop-top); poll 3 (the
-        // post-search check) supersedes before the move can emit.
-        let polls = Cell::new(0usize);
-        let is_cancelled = || {
-            let n = polls.get();
-            polls.set(n + 1);
-            n >= 3
-        };
-        let mut emitted = 0;
-        analyze_game(Board::new(), &moves, search, is_cancelled, |_p| {
-            emitted += 1
-        })
-        .unwrap();
-        assert_eq!(emitted, 0);
+        for (name, moves, cancel_at_poll) in [
+            ("upfront", &two_moves[..], 0),
+            ("backward loop", &two_moves[..], 2),
+            ("after move search", &one_move[..], 3),
+        ] {
+            let polls = Cell::new(0usize);
+            let is_cancelled = || {
+                let n = polls.get();
+                polls.set(n + 1);
+                n >= cancel_at_poll
+            };
+            let mut emitted = 0;
+            analyze_game(
+                Board::new(),
+                moves,
+                |_b| Ok(analysis(Square::A1, 1.0, 1)),
+                is_cancelled,
+                |_p| emitted += 1,
+            )
+            .unwrap();
+            assert_eq!(emitted, 0, "{name}");
+        }
     }
 }

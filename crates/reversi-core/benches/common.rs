@@ -13,6 +13,7 @@ use reversi_core::board::Board;
 use reversi_core::constants::INITIAL_EMPTY_COUNT;
 use reversi_core::disc::Disc;
 use reversi_core::square::Square;
+use reversi_core::types::Score;
 
 pub(crate) fn board_from_rows(rows: [&str; 8]) -> Board {
     let mut board_string = String::with_capacity(64);
@@ -45,6 +46,45 @@ pub(crate) fn choose_square(squares: Bitboard, rng: &mut StdRng) -> Square {
         .iter()
         .nth(index)
         .expect("bitboard must contain the chosen square index")
+}
+
+pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
+    mut board: Board,
+    rng: &mut StdRng,
+) -> Option<Board> {
+    while board.get_empty_count() > N_EMPTY {
+        let moves = board.get_moves();
+        if moves.is_empty() {
+            let passed = board.switch_players();
+            if passed.get_moves().is_empty() {
+                return None;
+            }
+            board = passed;
+            continue;
+        }
+
+        board = board.make_move(choose_square(moves, rng));
+    }
+
+    (board.get_empty_count() == N_EMPTY).then_some(board)
+}
+
+pub(crate) fn exact_endgame_score(board: &Board) -> Score {
+    let moves = board.get_moves();
+    if !moves.is_empty() {
+        return moves
+            .iter()
+            .map(|sq| -exact_endgame_score(&board.make_move(sq)))
+            .max()
+            .expect("non-empty move bitboard must yield at least one move");
+    }
+
+    let passed = board.switch_players();
+    if !passed.get_moves().is_empty() {
+        return -exact_endgame_score(&passed);
+    }
+
+    board.solve(board.get_empty_count())
 }
 
 pub(crate) fn add_random_bit(rng: &mut StdRng, occupied: &mut u64) -> u64 {

@@ -6,7 +6,11 @@ use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main,
     measurement::WallTime,
 };
-use rand::{RngExt, SeedableRng, rngs::StdRng};
+use rand::{SeedableRng, rngs::StdRng};
+
+mod common;
+
+use common::{exact_endgame_score, playout_to_n_empty};
 use reversi_core::board::Board;
 use reversi_core::eval::Eval;
 use reversi_core::obf::ObfPosition;
@@ -163,47 +167,6 @@ fn solve_branch_mix<const N_EMPTY: u32>(cases: &[EndgameCase<N_EMPTY>]) -> Solve
     }
 
     mix
-}
-
-fn playout_to_n_empty<const N_EMPTY: u32>(mut board: Board, rng: &mut StdRng) -> Option<Board> {
-    while board.get_empty_count() > N_EMPTY {
-        let moves = board.get_moves();
-        if moves.is_empty() {
-            let passed = board.switch_players();
-            if passed.get_moves().is_empty() {
-                return None;
-            }
-            board = passed;
-            continue;
-        }
-
-        let move_index = rng.random_range(0..moves.count()) as usize;
-        let sq = moves
-            .iter()
-            .nth(move_index)
-            .expect("random move index must be inside legal move bitboard");
-        board = board.make_move(sq);
-    }
-
-    (board.get_empty_count() == N_EMPTY).then_some(board)
-}
-
-fn exact_endgame_score(board: &Board) -> Score {
-    let moves = board.get_moves();
-    if !moves.is_empty() {
-        return moves
-            .iter()
-            .map(|sq| -exact_endgame_score(&board.make_move(sq)))
-            .max()
-            .expect("non-empty move bitboard must yield at least one move");
-    }
-
-    let passed = board.switch_players();
-    if !passed.get_moves().is_empty() {
-        return -exact_endgame_score(&passed);
-    }
-
-    board.solve(board.get_empty_count())
 }
 
 fn make_context(board: &Board, eval: &Arc<Eval>, tt: &Arc<TranspositionTable>) -> SearchContext {

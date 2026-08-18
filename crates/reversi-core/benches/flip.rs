@@ -6,7 +6,11 @@ use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
     measurement::WallTime,
 };
-use rand::{RngExt, SeedableRng, rngs::StdRng};
+use rand::{SeedableRng, rngs::StdRng};
+
+mod common;
+
+use common::{choose_square, exact_endgame_score, playout_to_n_empty};
 use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
 use reversi_core::eval::Eval;
@@ -87,15 +91,6 @@ fn source_boards() -> Vec<Board> {
     boards
 }
 
-fn choose_move(board: &Board, rng: &mut StdRng) -> Option<Square> {
-    let moves = board.get_moves();
-    if moves.is_empty() {
-        return None;
-    }
-    let index = rng.random_range(0..moves.count()) as usize;
-    moves.iter().nth(index)
-}
-
 fn move_chains(seed: u64) -> Vec<MoveChain> {
     let sources = source_boards();
     let mut rng = StdRng::seed_from_u64(seed);
@@ -109,7 +104,9 @@ fn move_chains(seed: u64) -> Vec<MoveChain> {
         let mut steps = Vec::with_capacity(board.get_empty_count() as usize + 2);
 
         loop {
-            if let Some(sq) = choose_move(&board, &mut rng) {
+            let moves = board.get_moves();
+            if !moves.is_empty() {
+                let sq = choose_square(moves, &mut rng);
                 steps.push(PlayoutStep::Move(sq));
                 board = board.make_move(sq);
                 continue;
@@ -217,41 +214,6 @@ fn bench_single_flip(c: &mut Criterion, cases: &[FlipCase]) {
         b.iter(|| flip_checksum(black_box(cases)));
     });
     group.finish();
-}
-
-fn playout_to_n_empty<const N_EMPTY: u32>(mut board: Board, rng: &mut StdRng) -> Option<Board> {
-    while board.get_empty_count() > N_EMPTY {
-        if let Some(sq) = choose_move(&board, rng) {
-            board = board.make_move(sq);
-            continue;
-        }
-
-        let passed = board.switch_players();
-        if passed.get_moves().is_empty() {
-            return None;
-        }
-        board = passed;
-    }
-
-    (board.get_empty_count() == N_EMPTY).then_some(board)
-}
-
-fn exact_endgame_score(board: &Board) -> Score {
-    let moves = board.get_moves();
-    if !moves.is_empty() {
-        return moves
-            .iter()
-            .map(|sq| -exact_endgame_score(&board.make_move(sq)))
-            .max()
-            .expect("non-empty move bitboard must yield a move");
-    }
-
-    let passed = board.switch_players();
-    if !passed.get_moves().is_empty() {
-        return -exact_endgame_score(&passed);
-    }
-
-    board.solve(board.get_empty_count())
 }
 
 fn endgame_cases<const N_EMPTY: u32>(seed: u64) -> Vec<EndgameCase<N_EMPTY>> {
