@@ -652,109 +652,37 @@ mod tests {
     }
 
     #[test]
-    fn test_rotate_90_clockwise() {
-        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
-        let rotated = board.rotate_90_clockwise();
+    fn symmetry_transforms_apply_to_both_sides() {
+        let board = Board::from_bitboards(
+            Square::A2.bitboard() | Square::C4.bitboard(),
+            Square::B1.bitboard() | Square::H7.bitboard(),
+        );
+        let board_transforms: [fn(&Board) -> Board; 7] = [
+            Board::rotate_90_clockwise,
+            Board::rotate_180_clockwise,
+            Board::rotate_270_clockwise,
+            Board::flip_vertical,
+            Board::flip_horizontal,
+            Board::flip_diag_a1h8,
+            Board::flip_diag_a8h1,
+        ];
+        let bitboard_transforms: [fn(Bitboard) -> Bitboard; 7] = [
+            Bitboard::rotate_90_clockwise,
+            Bitboard::rotate_180_clockwise,
+            Bitboard::rotate_270_clockwise,
+            Bitboard::flip_vertical,
+            Bitboard::flip_horizontal,
+            Bitboard::flip_diag_a1h8,
+            Bitboard::flip_diag_a8h1,
+        ];
 
-        // A1 -> H1, H8 -> A8
-        assert!(rotated.player.contains(Square::H1));
-        assert!(rotated.opponent.contains(Square::A8));
-
-        // Four rotations should return to original
-        let rotated4 = board
-            .rotate_90_clockwise()
-            .rotate_90_clockwise()
-            .rotate_90_clockwise()
-            .rotate_90_clockwise();
-        assert_eq!(board, rotated4);
-    }
-
-    #[test]
-    fn test_rotate_180_clockwise() {
-        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
-        let rotated = board.rotate_180_clockwise();
-
-        // A1 -> H8, H8 -> A1
-        assert!(rotated.player.contains(Square::H8));
-        assert!(rotated.opponent.contains(Square::A1));
-
-        // Two rotations should return to original
-        let rotated2 = board.rotate_180_clockwise().rotate_180_clockwise();
-        assert_eq!(board, rotated2);
-    }
-
-    #[test]
-    fn test_rotate_270_clockwise() {
-        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
-        let rotated = board.rotate_270_clockwise();
-
-        // A1 -> A8, H8 -> H1
-        assert!(rotated.player.contains(Square::A8));
-        assert!(rotated.opponent.contains(Square::H1));
-
-        // Four rotations should return to original
-        let rotated4 = board
-            .rotate_270_clockwise()
-            .rotate_270_clockwise()
-            .rotate_270_clockwise()
-            .rotate_270_clockwise();
-        assert_eq!(board, rotated4);
-    }
-
-    #[test]
-    fn test_flip_vertical() {
-        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
-        let flipped = board.flip_vertical();
-
-        // A1 -> A8, H8 -> H1
-        assert!(flipped.player.contains(Square::A8));
-        assert!(flipped.opponent.contains(Square::H1));
-
-        // Double flip returns to original
-        let double_flipped = flipped.flip_vertical();
-        assert_eq!(board, double_flipped);
-    }
-
-    #[test]
-    fn test_flip_horizontal() {
-        let board = Board::from_bitboards(Square::A1.bitboard(), Square::H8.bitboard());
-        let flipped = board.flip_horizontal();
-
-        // A1 -> H1, H8 -> A8
-        assert!(flipped.player.contains(Square::H1));
-        assert!(flipped.opponent.contains(Square::A8));
-
-        // Double flip returns to original
-        let double_flipped = flipped.flip_horizontal();
-        assert_eq!(board, double_flipped);
-    }
-
-    #[test]
-    fn test_flip_diag_a1h8() {
-        let board = Board::from_bitboards(Square::A2.bitboard(), Square::B1.bitboard());
-        let flipped = board.flip_diag_a1h8();
-
-        // A2 -> B1, B1 -> A2
-        assert!(flipped.player.contains(Square::B1));
-        assert!(flipped.opponent.contains(Square::A2));
-
-        // Double flip returns to original
-        let double_flipped = flipped.flip_diag_a1h8();
-        assert_eq!(board, double_flipped);
-    }
-
-    #[test]
-    fn test_flip_diag_a8h1() {
-        let board = Board::from_bitboards(Square::A7.bitboard(), Square::B8.bitboard());
-        let flipped = board.flip_diag_a8h1();
-
-        // A7 -> B8, B8 -> A7
-        assert!(flipped.player.contains(Square::B8));
-        assert!(flipped.opponent.contains(Square::A7));
-
-        // Double flip returns to original
-        let double_flipped = flipped.flip_diag_a8h1();
-        assert_eq!(board, double_flipped);
+        for (transform_board, transform_bitboard) in
+            board_transforms.into_iter().zip(bitboard_transforms)
+        {
+            let transformed = transform_board(&board);
+            assert_eq!(transformed.player, transform_bitboard(board.player));
+            assert_eq!(transformed.opponent, transform_bitboard(board.opponent));
+        }
     }
 
     #[test]

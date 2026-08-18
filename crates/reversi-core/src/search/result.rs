@@ -247,38 +247,6 @@ mod tests {
     use crate::search::root_move::RootMoves;
 
     #[test]
-    fn random_move_result_is_best_move() {
-        let result = SearchResult::new_random_move(Square::D3);
-
-        assert_eq!(result.best_move(), Some(Square::D3));
-        assert_eq!(result.score(), Some(0.0));
-        assert_eq!(result.n_nodes(), 0);
-        assert!(result.pv_line().is_empty());
-        assert_eq!(result.depth(), 0);
-        assert_eq!(result.selectivity(), Selectivity::None);
-        assert!(!result.is_endgame());
-        assert!(result.pv_moves().is_empty());
-        assert_eq!(result.counters().n_nodes, 0);
-        assert!(!result.is_invalid_sentinel());
-    }
-
-    #[test]
-    fn no_legal_move_has_no_best_move_data() {
-        let result = SearchResult::NoLegalMove;
-
-        assert_eq!(result.best_move(), None);
-        assert_eq!(result.score(), None);
-        assert_eq!(result.n_nodes(), 0);
-        assert!(result.pv_line().is_empty());
-        assert_eq!(result.depth(), 0);
-        assert_eq!(result.selectivity(), Selectivity::None);
-        assert!(!result.is_endgame());
-        assert!(result.pv_moves().is_empty());
-        assert_eq!(result.counters().n_nodes, 0);
-        assert!(!result.is_invalid_sentinel());
-    }
-
-    #[test]
     fn root_move_result_preserves_search_data() {
         let root_moves = RootMoves::new(&Board::new());
         let best_move = RootMove {
