@@ -394,8 +394,11 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
         // PV re-search
         if NT::PV_NODE && score > alpha {
+            // A sibling may have raised the shared alpha since this move started.
             let alpha = split_point.state().alpha();
-            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
+            if score > alpha {
+                score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
+            }
         }
 
         ctx.undo(mv.sq);
