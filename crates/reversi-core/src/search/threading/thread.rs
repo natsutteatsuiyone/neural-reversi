@@ -120,7 +120,7 @@ impl Thread {
 
         Thread {
             mutex_for_sleep_condition: std::sync::Mutex::new(()),
-            mutex_for_state: spinlock::SpinLock::new(()),
+            mutex_for_state: spinlock::SpinLock::new(),
             sleep_condition: std::sync::Condvar::new(),
             idx,
             pool,

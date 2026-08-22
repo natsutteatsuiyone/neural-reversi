@@ -308,7 +308,7 @@ impl Default for SplitPoint {
     /// Creates a new split point with default values.
     fn default() -> Self {
         SplitPoint {
-            mutex: spinlock::SpinLock::new(()),
+            mutex: spinlock::SpinLock::new(),
             state: SyncUnsafeCell::new(SplitPointState {
                 all_helpers_searching: AtomicBool::new(false),
                 alpha: AtomicI32::new(0),
@@ -453,7 +453,7 @@ impl SplitPoint {
 
     /// Acquires the split point's lock; the returned guard releases it on drop.
     #[inline]
-    pub fn lock(&self) -> spinlock::SpinLockGuard<'_> {
+    pub(in crate::search) fn lock(&self) -> spinlock::SpinLockGuard<'_> {
         self.mutex.lock()
     }
 }

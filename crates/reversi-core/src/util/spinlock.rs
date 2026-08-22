@@ -5,48 +5,41 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use lock_api::{GuardSend, RawMutex};
-
-/// Data-less spinlock whose `lock()` returns a RAII guard.
-pub type SpinLock = lock_api::Mutex<RawSpinLock, ()>;
-
-/// RAII guard for [`SpinLock`]; releases the lock on drop.
-pub type SpinLockGuard<'a> = lock_api::MutexGuard<'a, RawSpinLock, ()>;
-
 /// Maximum spin iterations before yielding to the OS scheduler.
 const SPIN_LIMIT: u32 = 100;
 
 /// Maximum exponent for exponential backoff (2^6 = 64 spins).
 const MAX_BACKOFF_EXP: u32 = 6;
 
-/// Raw spinlock with cache-line alignment to prevent false sharing.
+/// A cache-line-aligned, data-less spinlock.
 #[repr(align(64))]
-pub struct RawSpinLock {
+pub(crate) struct SpinLock {
     state: AtomicBool,
 }
 
-// SAFETY: This implementation satisfies RawMutex's contract:
-// - `lock()` spins until the CAS succeeds, guaranteeing mutual exclusion.
-// - `try_lock()` returns true only when CAS atomically transitions false→true.
-// - `unlock()` uses Release store, pairing with Acquire CAS in lock paths to
-//   establish a happens-before relationship for all data protected by the lock.
-unsafe impl RawMutex for RawSpinLock {
-    #[allow(clippy::declare_interior_mutable_const)]
-    const INIT: Self = RawSpinLock {
-        state: AtomicBool::new(false),
-    };
+/// An RAII guard that releases a [`SpinLock`] when dropped.
+#[must_use = "the lock is released immediately if the guard is unused"]
+pub(crate) struct SpinLockGuard<'a>(&'a SpinLock);
 
-    type GuardMarker = GuardSend;
-
-    #[inline]
-    fn lock(&self) {
-        if !self.try_lock() {
-            self.lock_slow();
+impl SpinLock {
+    /// Creates an unlocked spinlock.
+    pub(crate) const fn new() -> Self {
+        Self {
+            state: AtomicBool::new(false),
         }
     }
 
+    /// Acquires the lock and returns its guard.
     #[inline]
-    fn try_lock(&self) -> bool {
+    pub(crate) fn lock(&self) -> SpinLockGuard<'_> {
+        if !self.try_acquire() {
+            self.lock_slow();
+        }
+        SpinLockGuard(self)
+    }
+
+    #[inline]
+    fn try_acquire(&self) -> bool {
         !self.state.load(Ordering::Relaxed)
             && self
                 .state
@@ -54,18 +47,6 @@ unsafe impl RawMutex for RawSpinLock {
                 .is_ok()
     }
 
-    #[inline]
-    unsafe fn unlock(&self) {
-        self.state.store(false, Ordering::Release);
-    }
-
-    #[inline]
-    fn is_locked(&self) -> bool {
-        self.state.load(Ordering::Relaxed)
-    }
-}
-
-impl RawSpinLock {
     #[cold]
     fn lock_slow(&self) {
         let mut spin_count: u32 = 0;
@@ -101,50 +82,46 @@ impl RawSpinLock {
             }
         }
     }
+
+    #[inline]
+    fn unlock(&self) {
+        self.state.store(false, Ordering::Release);
+    }
+}
+
+impl Drop for SpinLockGuard<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        self.0.unlock();
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::thread;
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        },
+        thread,
+    };
 
-    use lock_api::Mutex;
-
-    use super::RawSpinLock;
-
-    type SpinMutex<T> = Mutex<RawSpinLock, T>;
-
-    #[test]
-    fn try_lock_is_exclusive_until_the_guard_drops() {
-        let mutex: SpinMutex<i32> = Mutex::new(0);
-
-        let guard = mutex.try_lock().expect("first try_lock should succeed");
-        assert!(mutex.is_locked());
-        assert!(
-            mutex.try_lock().is_none(),
-            "a second try_lock must fail while the lock is held"
-        );
-
-        drop(guard);
-        assert!(!mutex.is_locked());
-        assert!(
-            mutex.try_lock().is_some(),
-            "try_lock should succeed again after release"
-        );
-    }
+    use super::SpinLock;
 
     #[test]
     fn concurrent_increments_do_not_lose_updates() {
         const THREADS: u64 = 8;
         const ITERS: u64 = 10_000;
 
-        let counter: Arc<SpinMutex<u64>> = Arc::new(Mutex::new(0));
+        let counter = Arc::new((SpinLock::new(), AtomicU64::new(0)));
         let handles: Vec<_> = (0..THREADS)
             .map(|_| {
                 let counter = Arc::clone(&counter);
                 thread::spawn(move || {
                     for _ in 0..ITERS {
-                        *counter.lock() += 1;
+                        let _guard = counter.0.lock();
+                        let value = counter.1.load(Ordering::Relaxed);
+                        counter.1.store(value + 1, Ordering::Relaxed);
                     }
                 })
             })
@@ -154,6 +131,6 @@ mod tests {
             handle.join().unwrap();
         }
 
-        assert_eq!(*counter.lock(), THREADS * ITERS);
+        assert_eq!(counter.1.load(Ordering::Relaxed), THREADS * ITERS);
     }
 }

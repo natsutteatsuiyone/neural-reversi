@@ -10,7 +10,6 @@ search-stats = []
 
 [dependencies]
 byteorder = "1.5"
-lock_api = "0.4"
 rapidhash = { version = "4.4", features = ["unsafe"] }
 zstd = "0.13"
 
