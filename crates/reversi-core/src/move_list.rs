@@ -167,7 +167,11 @@ impl MoveList {
         let mut len = 0usize;
 
         cfg_select! {
-            all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+            all(
+                target_arch = "x86_64",
+                target_feature = "avx512cd",
+                target_feature = "avx512vl"
+            ) => {
                 let ctx = flip::Avx512BoardCtx::new(board.player().bits(), opponent.bits());
                 let opponent_bits = opponent.bits();
                 let pair_count = bb.count_ones() as usize / 2;

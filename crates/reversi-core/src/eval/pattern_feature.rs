@@ -525,15 +525,15 @@ impl PatternFeatures {
         debug_assert!(ply < MAX_PLY - 1);
 
         cfg_select! {
-            all(target_arch = "x86_64", target_feature = "avx512bw") => {
-                unsafe { self.update_avx512(sq, flipped, ply, side_to_move) }
-            }
-            all(target_arch = "x86_64", target_feature = "avx2") => {
-                unsafe { self.update_avx2(sq, flipped, ply, side_to_move) }
-            }
-            all(target_arch = "aarch64", target_feature = "neon") => {
-                unsafe { self.update_neon(sq, flipped, ply, side_to_move) }
-            }
+            all(target_arch = "x86_64", target_feature = "avx512bw") => unsafe {
+                self.update_avx512(sq, flipped, ply, side_to_move)
+            },
+            all(target_arch = "x86_64", target_feature = "avx2") => unsafe {
+                self.update_avx2(sq, flipped, ply, side_to_move)
+            },
+            all(target_arch = "aarch64", target_feature = "neon") => unsafe {
+                self.update_neon(sq, flipped, ply, side_to_move)
+            },
             all(target_arch = "wasm32", target_feature = "simd128") => {
                 self.update_wasm_simd(sq, flipped, ply, side_to_move)
             }
@@ -834,9 +834,7 @@ impl PatternFeatures {
             target_feature = "relaxed-simd" => {
                 self.update_wasm_simd_laneselect(sq, flipped, ply, side_to_move)
             }
-            _ => {
-                self.update_wasm_simd_branch(sq, flipped, ply, side_to_move)
-            }
+            _ => self.update_wasm_simd_branch(sq, flipped, ply, side_to_move),
         }
     }
 

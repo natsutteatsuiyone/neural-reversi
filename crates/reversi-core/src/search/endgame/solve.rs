@@ -96,9 +96,11 @@ pub(super) fn solve4(
     sq4: Square,
 ) -> Score {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
-        }
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ) => solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4),
         all(target_arch = "x86_64", target_feature = "avx2") => {
             solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
@@ -108,9 +110,7 @@ pub(super) fn solve4(
         all(target_arch = "wasm32", target_feature = "simd128") => {
             solve4_eager(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
-        _ => {
-            solve4_fallback(ctx, board, alpha, sq1, sq2, sq3, sq4)
-        }
+        _ => solve4_fallback(ctx, board, alpha, sq1, sq2, sq3, sq4),
     }
 }
 
@@ -412,9 +412,11 @@ pub(super) fn solve3(
     sq3: Square,
 ) -> Score {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
-        }
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ) => solve3_eager(ctx, board, alpha, sq1, sq2, sq3),
         all(target_arch = "x86_64", target_feature = "avx2") => {
             solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
         }
@@ -424,9 +426,7 @@ pub(super) fn solve3(
         all(target_arch = "wasm32", target_feature = "simd128") => {
             solve3_eager(ctx, board, alpha, sq1, sq2, sq3)
         }
-        _ => {
-            solve3_fallback(ctx, board, alpha, sq1, sq2, sq3)
-        }
+        _ => solve3_fallback(ctx, board, alpha, sq1, sq2, sq3),
     }
 }
 
@@ -626,12 +626,12 @@ pub(super) fn solve2(
     sq2: Square,
 ) -> Score {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            solve2_eager(ctx, board, alpha, sq1, sq2)
-        }
-        _ => {
-            solve2_fallback(ctx, board, alpha, sq1, sq2)
-        }
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ) => solve2_eager(ctx, board, alpha, sq1, sq2),
+        _ => solve2_fallback(ctx, board, alpha, sq1, sq2),
     }
 }
 

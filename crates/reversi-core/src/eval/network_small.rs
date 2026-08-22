@@ -144,12 +144,8 @@ impl NetworkSmall {
                     Self::forward_avx2_no_vnni
                 }
             }
-            all(target_arch = "aarch64", target_feature = "neon") => {
-                Self::forward_neon
-            }
-            _ => {
-                Self::forward_scalar_wrapper
-            }
+            all(target_arch = "aarch64", target_feature = "neon") => Self::forward_neon,
+            _ => Self::forward_scalar_wrapper,
         }
     }
 

@@ -8,21 +8,21 @@ use super::{DIAGONAL_MASK, HORIZONTAL_MASK, VERTICAL_MASK};
 #[inline(always)]
 pub(super) fn get_moves(player: u64, opponent: u64) -> u64 {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512vl") => {
-            unsafe { get_moves_avx512(player, opponent) }
-        }
-        all(target_arch = "x86_64", target_feature = "avx2") => {
-            unsafe { get_moves_avx2(player, opponent) }
-        }
-        all(target_arch = "aarch64", target_feature = "neon", target_feature = "sha3") => {
-            unsafe { get_moves_neon_sha3(player, opponent) }
-        }
-        all(target_arch = "aarch64", target_feature = "neon") => {
-            unsafe { get_moves_neon(player, opponent) }
-        }
-        _ => {
-            get_moves_portable(player, opponent)
-        }
+        all(target_arch = "x86_64", target_feature = "avx512vl") => unsafe {
+            get_moves_avx512(player, opponent)
+        },
+        all(target_arch = "x86_64", target_feature = "avx2") => unsafe {
+            get_moves_avx2(player, opponent)
+        },
+        all(
+            target_arch = "aarch64",
+            target_feature = "neon",
+            target_feature = "sha3"
+        ) => unsafe { get_moves_neon_sha3(player, opponent) },
+        all(target_arch = "aarch64", target_feature = "neon") => unsafe {
+            get_moves_neon(player, opponent)
+        },
+        _ => get_moves_portable(player, opponent),
     }
 }
 
@@ -371,21 +371,21 @@ pub(super) fn get_moves_neon_sha3(player: u64, opponent: u64) -> u64 {
 #[inline(always)]
 pub(super) fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512vl") => {
-            unsafe { get_moves_and_potential_avx512(player, opponent) }
-        }
-        all(target_arch = "x86_64", target_feature = "avx2") => {
-            unsafe { get_moves_and_potential_avx2(player, opponent) }
-        }
-        all(target_arch = "aarch64", target_feature = "neon", target_feature = "sha3") => {
-            unsafe { get_moves_and_potential_neon_sha3(player, opponent) }
-        }
-        all(target_arch = "aarch64", target_feature = "neon") => {
-            unsafe { get_moves_and_potential_neon(player, opponent) }
-        }
-        _ => {
-            get_moves_and_potential_portable(player, opponent)
-        }
+        all(target_arch = "x86_64", target_feature = "avx512vl") => unsafe {
+            get_moves_and_potential_avx512(player, opponent)
+        },
+        all(target_arch = "x86_64", target_feature = "avx2") => unsafe {
+            get_moves_and_potential_avx2(player, opponent)
+        },
+        all(
+            target_arch = "aarch64",
+            target_feature = "neon",
+            target_feature = "sha3"
+        ) => unsafe { get_moves_and_potential_neon_sha3(player, opponent) },
+        all(target_arch = "aarch64", target_feature = "neon") => unsafe {
+            get_moves_and_potential_neon(player, opponent)
+        },
+        _ => get_moves_and_potential_portable(player, opponent),
     }
 }
 

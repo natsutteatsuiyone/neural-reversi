@@ -33,9 +33,11 @@ mod lrmask;
 #[inline(always)]
 pub fn flip(sq: Square, player: Bitboard, opponent: Bitboard) -> Bitboard {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
-            Bitboard::new(flip_avx512::flip(sq, player.bits(), opponent.bits()))
-        }
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ) => Bitboard::new(flip_avx512::flip(sq, player.bits(), opponent.bits())),
         all(target_arch = "x86_64", target_feature = "avx2") => {
             Bitboard::new(unsafe { flip_avx2::flip(sq, player.bits(), opponent.bits()) })
         }
@@ -45,9 +47,7 @@ pub fn flip(sq: Square, player: Bitboard, opponent: Bitboard) -> Bitboard {
         all(target_arch = "wasm32", target_feature = "simd128") => {
             Bitboard::new(flip_wasm_simd::flip(sq, player.bits(), opponent.bits()))
         }
-        _ => {
-            Bitboard::new(flip_scalar::flip(sq, player.bits(), opponent.bits()))
-        }
+        _ => Bitboard::new(flip_scalar::flip(sq, player.bits(), opponent.bits())),
     }
 }
 
@@ -63,7 +63,11 @@ pub fn flip2(
     opponent: Bitboard,
 ) -> (Bitboard, Bitboard) {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ) => {
             let ctx = flip_avx512::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
@@ -83,9 +87,7 @@ pub fn flip2(
             let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
         }
-        _ => {
-            (flip(sq1, player, opponent), flip(sq2, player, opponent))
-        }
+        _ => (flip(sq1, player, opponent), flip(sq2, player, opponent)),
     }
 }
 
@@ -103,7 +105,11 @@ pub fn flip3(
     opponent: Bitboard,
 ) -> (Bitboard, Bitboard, Bitboard) {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ) => {
             let ctx = flip_avx512::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
@@ -123,13 +129,11 @@ pub fn flip3(
             let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
-        _ => {
-            (
-                flip(sq1, player, opponent),
-                flip(sq2, player, opponent),
-                flip(sq3, player, opponent),
-            )
-        }
+        _ => (
+            flip(sq1, player, opponent),
+            flip(sq2, player, opponent),
+            flip(sq3, player, opponent),
+        ),
     }
 }
 
@@ -147,35 +151,57 @@ pub fn flip4(
     opponent: Bitboard,
 ) -> (Bitboard, Bitboard, Bitboard, Bitboard) {
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512cd", target_feature = "avx512vl") => {
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ) => {
             let ctx = flip_avx512::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
-            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
+            (
+                Bitboard::new(f0),
+                Bitboard::new(f1),
+                Bitboard::new(f2),
+                Bitboard::new(f3),
+            )
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
             let ctx = flip_avx2::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
-            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
+            (
+                Bitboard::new(f0),
+                Bitboard::new(f1),
+                Bitboard::new(f2),
+                Bitboard::new(f3),
+            )
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
             let ctx = unsafe { flip_neon::BoardCtx::new(player.bits(), opponent.bits()) };
             let (f0, f1, f2, f3) =
                 unsafe { ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index()) };
-            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
+            (
+                Bitboard::new(f0),
+                Bitboard::new(f1),
+                Bitboard::new(f2),
+                Bitboard::new(f3),
+            )
         }
         all(target_arch = "wasm32", target_feature = "simd128") => {
             let ctx = flip_wasm_simd::BoardCtx::new(player.bits(), opponent.bits());
             let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
-            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2), Bitboard::new(f3))
-        }
-        _ => {
             (
-                flip(sq1, player, opponent),
-                flip(sq2, player, opponent),
-                flip(sq3, player, opponent),
-                flip(sq4, player, opponent),
+                Bitboard::new(f0),
+                Bitboard::new(f1),
+                Bitboard::new(f2),
+                Bitboard::new(f3),
             )
         }
+        _ => (
+            flip(sq1, player, opponent),
+            flip(sq2, player, opponent),
+            flip(sq3, player, opponent),
+            flip(sq4, player, opponent),
+        ),
     }
 }
 

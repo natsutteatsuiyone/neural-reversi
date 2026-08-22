@@ -284,7 +284,11 @@ pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
     debug_assert!(output.len() >= 32);
 
     cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx512bw", target_feature = "avx512vl") => {
+        all(
+            target_arch = "x86_64",
+            target_feature = "avx512bw",
+            target_feature = "avx512vl"
+        ) => {
             unsafe { sqr_clipped_and_clipped_relu_16_avx512(input, output) };
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {

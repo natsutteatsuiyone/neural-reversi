@@ -147,9 +147,7 @@ impl<
                     Self::forward_neon_wrapper
                 }
             }
-            _ => {
-                Self::forward_scalar_wrapper
-            }
+            _ => Self::forward_scalar_wrapper,
         }
     }
 

@@ -117,9 +117,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
                         Self::forward_avx2_no_vnni
                     }
                 }
-                _ => {
-                    Self::forward_scalar_wrapper
-                }
+                _ => Self::forward_scalar_wrapper,
             }
         }
 
@@ -137,9 +135,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
                         Self::forward_neon
                     }
                 }
-                _ => {
-                    Self::forward_scalar_wrapper
-                }
+                _ => Self::forward_scalar_wrapper,
             }
         }
 
