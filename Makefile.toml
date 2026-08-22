@@ -158,265 +158,180 @@ script = [
 ]
 
 # ═══════════════════════════════════════════════════════════════
-#  Unified Build Task
+#  Distribution Builds
 # ═══════════════════════════════════════════════════════════════
 
-[tasks.build-tier]
-description = "Build binary for specified CPU tier and build type"
+[tasks.build-dist]
+description = "Build distribution artifacts: build-dist <cli|gui|all> <windows|linux|macos|all> <portable|native|x86-64-v2|x86-64-v3|x86-64-v4|apple-m1>"
+dependencies = ["prepare-dist"]
 script_runner = "@duckscript"
 script = [
-    "tier = get_env CPU_TIER",
-    "rust_tier = get_env RUST_CPU_TIER",
-    "target_triple = get_env TARGET_TRIPLE",
-    "binary_basename = get_env BINARY_BASENAME",
-    "source_file = get_env SOURCE_FILE",
-    "dest_ext = get_env DEST_EXT",
-    "filename_suffix = get_env FILENAME_SUFFIX",
-    "suffix_missing = is_empty ${filename_suffix}",
-    "if ${suffix_missing}",
-    "    prefix = get_env FILENAME_PREFIX",
-    "    prefix_missing = is_empty ${prefix}",
-    "    sanitized_tier = concat ${tier} \"\"",
-    "    if not ${prefix_missing}",
-    "        tier_delimiter = get_env FILENAME_TIER_DELIMITER",
-    "        tier_delimiter_missing = is_empty ${tier_delimiter}",
-    "        if not ${tier_delimiter_missing}",
-    "            sanitized_tier = replace ${tier} \"-\" ${tier_delimiter}",
-    "        end",
-    "        filename_suffix = concat ${prefix} ${sanitized_tier}",
+    "usage = set \"Usage: cargo make build-dist <cli|gui|all> <windows|linux|macos|all> <portable|native|x86-64-v2|x86-64-v3|x86-64-v4|apple-m1>\"",
+    "args = split ${CARGO_MAKE_TASK_ARGS} ;",
+    "arg_count = array_length ${args}",
+    "valid_arg_count = eq ${arg_count} 3",
+    "if not ${valid_arg_count}",
+    "    echo ${usage}",
+    "    exit 2",
+    "end",
+    "build_selector = array_get ${args} 0",
+    "platform_selector = array_get ${args} 1",
+    "tier_selector = array_get ${args} 2",
+    "",
+    "if eq ${build_selector} all",
+    "    build_types = array cli gui",
+    "else",
+    "    if eq ${build_selector} cli",
+    "        build_types = array cli",
     "    else",
-    "        filename_suffix = concat ${sanitized_tier} \"\"",
+    "        if eq ${build_selector} gui",
+    "            build_types = array gui",
+    "        else",
+    "            echo ${usage}",
+    "            exit 2",
+    "        end",
     "    end",
     "end",
     "",
-    "rustflags = concat \"-C target-cpu=\" ${rust_tier}",
-    "set_env RUSTFLAGS ${rustflags}",
-    "build_type = get_env BUILD_TYPE",
-    "if eq ${build_type} gui",
-    "    workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
-    "    gui_dir = join_path ${workspace_root} crates gui",
-    "    cd ${gui_dir}",
-    "    exec --fail-on-error bun run tauri build --target ${target_triple}",
-    "    cd ${workspace_root}",
+    "if eq ${platform_selector} all",
+    "    if eq ${tier_selector} portable",
+    "        platforms = array windows linux macos",
+    "    else",
+    "        if eq ${tier_selector} native",
+    "            platforms = array windows linux macos",
+    "        else",
+    "            echo ${usage}",
+    "            exit 2",
+    "        end",
+    "    end",
     "else",
-    "    exec --fail-on-error cargo build --release -p cli --target ${target_triple}",
+    "    if eq ${platform_selector} windows",
+    "        platforms = array windows",
+    "    else",
+    "        if eq ${platform_selector} linux",
+    "            platforms = array linux",
+    "        else",
+    "            if eq ${platform_selector} macos",
+    "                platforms = array macos",
+    "            else",
+    "                echo ${usage}",
+    "                exit 2",
+    "            end",
+    "        end",
+    "    end",
     "end",
-    "unset_env RUSTFLAGS",
     "",
-    "version = get_env VERSION",
     "workspace_root = get_env CARGO_MAKE_CURRENT_TASK_INITIAL_MAKEFILE_DIRECTORY",
-    "source_subpath = get_env SOURCE_SUBPATH",
-    "subpath_missing = is_empty ${source_subpath}",
-    "if ${subpath_missing}",
-    "    source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-    "else",
-    "    source = join_path ${workspace_root} target ${target_triple} release ${source_subpath}",
+    "version = get_env VERSION",
+    "for platform in ${platforms}",
+    "    if eq ${platform} windows",
+    "        target_triple = set x86_64-pc-windows-msvc",
+    "        dest_ext = set .exe",
+    "    else",
+    "        if eq ${platform} linux",
+    "            target_triple = set x86_64-unknown-linux-gnu",
+    "            dest_ext = set \"\"",
+    "        else",
+    "            target_triple = set aarch64-apple-darwin",
+    "            dest_ext = set \"\"",
+    "        end",
+    "    end",
+    "",
+    "    if eq ${tier_selector} portable",
+    "        if eq ${platform} macos",
+    "            tiers = array apple-m1",
+    "        else",
+    "            tiers = array x86-64-v2 x86-64-v3 x86-64-v4",
+    "        end",
+    "    else",
+    "        tiers = array ${tier_selector}",
+    "    end",
+    "",
+    "    for tier in ${tiers}",
+    "        if eq ${tier} native",
+    "            rust_tier = set native",
+    "        else",
+    "            if eq ${platform} macos",
+    "                valid_tier = eq ${tier} apple-m1",
+    "                if not ${valid_tier}",
+    "                    echo ${usage}",
+    "                    exit 2",
+    "                end",
+    "                rust_tier = set apple-m1",
+    "            else",
+    "                valid_tier = eq ${tier} x86-64-v2",
+    "                if not ${valid_tier}",
+    "                    valid_tier = eq ${tier} x86-64-v3",
+    "                end",
+    "                if not ${valid_tier}",
+    "                    valid_tier = eq ${tier} x86-64-v4",
+    "                end",
+    "                if not ${valid_tier}",
+    "                    echo ${usage}",
+    "                    exit 2",
+    "                end",
+    "                rust_tier = set ${tier}",
+    "            end",
+    "        end",
+    "",
+    "        if eq ${platform} macos",
+    "            if eq ${tier} native",
+    "                filename_suffix = set macos-native",
+    "            else",
+    "                filename_suffix = set aarch64-apple-darwin",
+    "            end",
+    "        else",
+    "            if eq ${tier} native",
+    "                filename_suffix = concat ${platform} \"-native\"",
+    "            else",
+    "                tier_version = replace ${tier} \"x86-64-\" \"\"",
+    "                if eq ${platform} windows",
+    "                    filename_suffix = concat \"windows-x86_64-\" ${tier_version}",
+    "                else",
+    "                    filename_suffix = concat \"linux-x86_64_\" ${tier_version}",
+    "                end",
+    "            end",
+    "        end",
+    "",
+    "        rustflags = concat \"-C target-cpu=\" ${rust_tier}",
+    "        set_env RUSTFLAGS ${rustflags}",
+    "        echo Building ${build_selector} ${platform} ${tier}...",
+    "        for build_type in ${build_types}",
+    "            if eq ${build_type} gui",
+    "                gui_dir = join_path ${workspace_root} crates gui",
+    "                cd ${gui_dir}",
+    "                exec --fail-on-error bun run tauri build --target ${target_triple}",
+    "                cd ${workspace_root}",
+    "                binary_basename = set neural-reversi-gui",
+    "                if eq ${platform} macos",
+    "                    dmg_name = concat \"neural-reversi_\" ${version} \"_aarch64.dmg\"",
+    "                    source = join_path ${workspace_root} target ${target_triple} release bundle dmg ${dmg_name}",
+    "                    artifact_ext = set .dmg",
+    "                else",
+    "                    source_file = set gui",
+    "                    if eq ${platform} windows",
+    "                        source_file = set gui.exe",
+    "                    end",
+    "                    source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+    "                    artifact_ext = set ${dest_ext}",
+    "                end",
+    "            else",
+    "                exec --fail-on-error cargo build --release -p cli --target ${target_triple}",
+    "                binary_basename = set neural-reversi-cli",
+    "                source_file = set cli",
+    "                if eq ${platform} windows",
+    "                    source_file = set cli.exe",
+    "                end",
+    "                source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+    "                artifact_ext = set ${dest_ext}",
+    "            end",
+    "",
+    "            dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${artifact_ext}",
+    "            dest = join_path ${workspace_root} dist ${dest_name}",
+    "            cp ${source} ${dest}",
+    "            echo ✓ Built: ${dest_name}",
+    "        end",
+    "        unset_env RUSTFLAGS",
+    "    end",
     "end",
-    "dest_name = concat ${binary_basename} \"-\" ${version} \"-\" ${filename_suffix} ${dest_ext}",
-    "dest = join_path ${workspace_root} dist ${dest_name}",
-    "cp ${source} ${dest}",
-    "echo ✓ Built: ${dest_name}",
 ]
-
-# ═══════════════════════════════════════════════════════════════
-#  CLI Binary Builds
-# ═══════════════════════════════════════════════════════════════
-
-[tasks.build-cli-base]
-description = "Base task for CLI builds"
-dependencies = ["prepare-dist"]
-env = { BUILD_TYPE = "cli" }
-run_task = { name = ["build-tier"] }
-
-# ───────────────────────────────────────────────────────────────
-#  Windows CLI Builds
-# ───────────────────────────────────────────────────────────────
-
-[tasks.build-cli-windows-v2]
-extend = "build-cli-base"
-description = "Build Windows x86_64-v2 CLI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-cli-windows-v3]
-extend = "build-cli-base"
-description = "Build Windows x86_64-v3 CLI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-cli-windows-v4]
-extend = "build-cli-base"
-description = "Build Windows x86_64-v4 CLI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-cli-windows-native]
-extend = "build-cli-base"
-description = "Build Windows native CLI"
-env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-cli-windows]
-description = "Build all Windows CLI binaries"
-run_task = { name = [
-    "build-cli-windows-v2",
-    "build-cli-windows-v3",
-    "build-cli-windows-v4",
-] }
-
-# ───────────────────────────────────────────────────────────────
-#  Linux CLI Builds
-# ───────────────────────────────────────────────────────────────
-
-[tasks.build-cli-linux-v2]
-extend = "build-cli-base"
-description = "Build Linux x86_64-v2 CLI"
-env = { CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-cli-linux-v3]
-extend = "build-cli-base"
-description = "Build Linux x86_64-v3 CLI"
-env = { CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-cli-linux-v4]
-extend = "build-cli-base"
-description = "Build Linux x86_64-v4 CLI"
-env = { CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-cli-linux-native]
-extend = "build-cli-base"
-description = "Build Linux native CLI"
-env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-cli-linux]
-description = "Build all Linux CLI binaries"
-run_task = { name = [
-    "build-cli-linux-v2",
-    "build-cli-linux-v3",
-    "build-cli-linux-v4",
-] }
-
-# ───────────────────────────────────────────────────────────────
-#  macOS CLI Builds
-# ───────────────────────────────────────────────────────────────
-
-[tasks.build-cli-macos-apple-m1]
-extend = "build-cli-base"
-description = "Build macOS Apple Silicon CLI"
-env = { CPU_TIER = "apple-m1", RUST_CPU_TIER = "apple-m1", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_SUFFIX = "aarch64-apple-darwin" }
-
-[tasks.build-cli-macos-native]
-extend = "build-cli-base"
-description = "Build macOS native CLI"
-env = { CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-cli", SOURCE_FILE = "cli", DEST_EXT = "", FILENAME_PREFIX = "macos-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-cli-macos]
-description = "Build all macOS CLI binaries"
-run_task = { name = [
-    "build-cli-macos-apple-m1",
-] }
-
-# ═══════════════════════════════════════════════════════════════
-#  GUI Application Builds
-# ═══════════════════════════════════════════════════════════════
-
-[tasks.build-gui-base]
-description = "Base task for GUI builds"
-dependencies = ["prepare-dist"]
-env = { BUILD_TYPE = "gui" }
-run_task = { name = ["build-tier"] }
-
-# ───────────────────────────────────────────────────────────────
-#  Windows GUI Builds
-# ───────────────────────────────────────────────────────────────
-
-[tasks.build-gui-windows-v2]
-extend = "build-gui-base"
-description = "Build Windows x86_64-v2 GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-gui-windows-v3]
-extend = "build-gui-base"
-description = "Build Windows x86_64-v3 GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-gui-windows-v4]
-extend = "build-gui-base"
-description = "Build Windows x86_64-v4 GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-gui-windows-native]
-extend = "build-gui-base"
-description = "Build Windows native GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-pc-windows-msvc", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui.exe", DEST_EXT = ".exe", FILENAME_PREFIX = "windows-" }
-
-[tasks.build-gui-windows]
-description = "Build all Windows GUI binaries"
-run_task = { name = [
-    "build-gui-windows-v2",
-    "build-gui-windows-v3",
-    "build-gui-windows-v4",
-] }
-
-# ───────────────────────────────────────────────────────────────
-#  Linux GUI Builds
-# ───────────────────────────────────────────────────────────────
-
-[tasks.build-gui-linux-v2]
-extend = "build-gui-base"
-description = "Build Linux x86_64-v2 GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v2", RUST_CPU_TIER = "x86-64-v2", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-gui-linux-v3]
-extend = "build-gui-base"
-description = "Build Linux x86_64-v3 GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v3", RUST_CPU_TIER = "x86-64-v3", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-gui-linux-v4]
-extend = "build-gui-base"
-description = "Build Linux x86_64-v4 GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "x86_64-v4", RUST_CPU_TIER = "x86-64-v4", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-gui-linux-native]
-extend = "build-gui-base"
-description = "Build Linux native GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "x86_64-unknown-linux-gnu", BINARY_BASENAME = "neural-reversi-gui", SOURCE_FILE = "gui", DEST_EXT = "", FILENAME_PREFIX = "linux-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-gui-linux]
-description = "Build all Linux GUI binaries"
-run_task = { name = [
-    "build-gui-linux-v2",
-    "build-gui-linux-v3",
-    "build-gui-linux-v4",
-] }
-
-# ───────────────────────────────────────────────────────────────
-#  macOS GUI Builds
-# ───────────────────────────────────────────────────────────────
-
-[tasks.build-gui-macos-apple-m1]
-extend = "build-gui-base"
-description = "Build macOS Apple Silicon GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "apple-m1", RUST_CPU_TIER = "apple-m1", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-gui", SOURCE_SUBPATH = "bundle/dmg/neural-reversi_${VERSION}_aarch64.dmg", DEST_EXT = ".dmg", FILENAME_SUFFIX = "aarch64-apple-darwin" }
-
-[tasks.build-gui-macos-native]
-extend = "build-gui-base"
-description = "Build macOS native GUI"
-env = { BUILD_TYPE = "gui", CPU_TIER = "native", RUST_CPU_TIER = "native", TARGET_TRIPLE = "aarch64-apple-darwin", BINARY_BASENAME = "neural-reversi-gui", SOURCE_SUBPATH = "bundle/dmg/neural-reversi_${VERSION}_aarch64.dmg", DEST_EXT = ".dmg", FILENAME_PREFIX = "macos-", FILENAME_TIER_DELIMITER = "_" }
-
-[tasks.build-gui-macos]
-description = "Build all macOS GUI binaries"
-run_task = { name = [
-    "build-gui-macos-apple-m1",
-] }
-
-# ═══════════════════════════════════════════════════════════════
-#  Native Builds (All Platforms)
-# ═══════════════════════════════════════════════════════════════
-
-[tasks.build-native]
-description = "Build native CLI and GUI for all platforms"
-run_task = { name = [
-    "build-cli-windows-native",
-    "build-cli-linux-native",
-    "build-cli-macos-native",
-    "build-gui-windows-native",
-    "build-gui-linux-native",
-    "build-gui-macos-native",
-] }

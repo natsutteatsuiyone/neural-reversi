@@ -142,41 +142,28 @@ All builds are driven by [cargo-make](https://github.com/sagiegurari/cargo-make)
    - `eval_sm-*.zst`
    - `eval_wasm-*.zst`
 
-### Native builds
+### Distribution builds
 
-Optimized for the host CPU (BMI2, LZCNT, AVX2, AVX-512 on x86-64; NEON on Apple Silicon). Recommended for best performance on the machine that runs the binary.
+Use one task for every binary, platform, and CPU tier:
 
-```bash
-# All platforms (Windows + Linux + macOS)
-cargo make build-native
-
-# Windows only
-cargo make build-cli-windows-native
-cargo make build-gui-windows-native
-
-# Linux only
-cargo make build-cli-linux-native
-cargo make build-gui-linux-native
-
-# macOS only (Apple Silicon)
-cargo make build-cli-macos-native
-cargo make build-gui-macos-native
+```text
+cargo make build-dist <cli|gui|all> <windows|linux|macos|all> <portable|native|x86-64-v2|x86-64-v3|x86-64-v4|apple-m1>
 ```
 
-### Portable builds
-
-Targets fixed CPU tiers for distribution: x86-64 (`v2`/`v3`/`v4`) on Windows/Linux, `apple-m1` on macOS.
+`native` optimizes for the build host. `portable` expands to `x86-64-v2`/`x86-64-v3`/`x86-64-v4` on Windows and Linux, and `apple-m1` on macOS. Builds are emitted under `dist/`; the macOS GUI build produces a `.dmg` and must run on macOS.
 
 ```bash
-# CLI binaries
-cargo make build-cli-windows
-cargo make build-cli-linux
-cargo make build-cli-macos
+# Native CLI and GUI for Windows
+cargo make build-dist all windows native
 
-# GUI binaries
-cargo make build-gui-windows
-cargo make build-gui-linux
-cargo make build-gui-macos
+# All portable Windows CLI tiers
+cargo make build-dist cli windows portable
+
+# One AVX2-tier Linux GUI
+cargo make build-dist gui linux x86-64-v3
+
+# Apple Silicon CLI and GUI
+cargo make build-dist all macos apple-m1
 ```
 
 ## License
