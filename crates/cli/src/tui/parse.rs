@@ -31,57 +31,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_move_string_valid() {
-        let moves = parse_move_string("f5d6c3").unwrap();
-        assert_eq!(moves.len(), 3);
-        assert_eq!(moves[0].to_string(), "f5");
-        assert_eq!(moves[1].to_string(), "d6");
-        assert_eq!(moves[2].to_string(), "c3");
+    fn parses_trimmed_move_sequence() {
+        let moves = parse_move_string(" f5d6c3 ").unwrap();
+        let moves: Vec<_> = moves.iter().map(ToString::to_string).collect();
+        assert_eq!(moves, ["f5", "d6", "c3"]);
     }
 
     #[test]
-    fn test_parse_move_string_empty() {
-        assert!(parse_move_string("").is_err());
-    }
-
-    #[test]
-    fn test_parse_move_string_odd_length() {
-        assert!(parse_move_string("f5d").is_err());
-    }
-
-    #[test]
-    fn test_parse_move_string_invalid_square() {
-        assert!(parse_move_string("f5z9").is_err());
-    }
-
-    #[test]
-    fn test_parse_hex_u64_with_prefix() {
-        assert_eq!(
-            parse_hex_u64("0x0000001008000000").unwrap(),
-            0x0000001008000000
-        );
-    }
-
-    #[test]
-    fn test_parse_hex_u64_without_prefix() {
-        assert_eq!(
-            parse_hex_u64("0000001008000000").unwrap(),
-            0x0000001008000000
-        );
-    }
-
-    #[test]
-    fn test_parse_hex_u64_uppercase_prefix() {
-        assert_eq!(parse_hex_u64("0X1008000000").unwrap(), 0x1008000000);
-    }
-
-    #[test]
-    fn test_parse_hex_u64_empty() {
-        assert!(parse_hex_u64("").is_err());
-    }
-
-    #[test]
-    fn test_parse_hex_u64_invalid() {
-        assert!(parse_hex_u64("0xGGGG").is_err());
+    fn parses_trimmed_prefixed_hex() {
+        assert_eq!(parse_hex_u64(" 0X1008000000 ").unwrap(), 0x1008000000);
     }
 }

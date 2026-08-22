@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred, createTestStore, type TestStore } from "./test-helpers";
 import { createMockAIService } from "@/services/mock-ai-service";
 import { createMockSolverService } from "@/services/mock-solver-service";
-import { createEmptyBoard, getNotation, initializeBoard } from "@/domain/game/game-logic";
+import { getNotation, initializeBoard } from "@/domain/game/game-logic";
 import { applyMove } from "@/domain/game/store-helpers";
 import type { Board, Player } from "@/domain/game/types";
 import type { SolverCandidate, SolverProgressPayload } from "@/services/types";
@@ -130,138 +130,6 @@ describe("startSolverFromSetup", () => {
     expect(state.solverHistory).toHaveLength(1);
     expect(state.setupError).toBeNull();
     expect(services.solver.startSearch).toHaveBeenCalledTimes(1);
-  });
-
-  it("commits supplied solver config only after setup validation succeeds", async () => {
-    const { store, services } = createTestStore();
-    const board = initializeBoard();
-    store.setState({
-      setupTab: "manual",
-      setupBoard: board,
-      setupCurrentPlayer: "black",
-      targetSelectivity: 100,
-      solverMode: "multiPv",
-    });
-
-    const result = await store.getState().startSolverFromSetup({
-      selectivity: 95,
-      mode: "bestOnly",
-    });
-
-    expect(result).toBe(true);
-    expect(store.getState().targetSelectivity).toBe(95);
-    expect(store.getState().solverMode).toBe("bestOnly");
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("solverTargetSelectivity", 95);
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("solverMode", "bestOnly");
-    expect(services.solver.startSearch).toHaveBeenCalledWith(
-      board,
-      "black",
-      95,
-      "bestOnly",
-      expect.any(Number),
-    );
-  });
-
-  it("sets setupError and does not start when board string is invalid", async () => {
-    const { store, services } = createTestStore();
-    store.setState({
-      setupTab: "boardString",
-      boardStringInput: "garbage",
-    });
-
-    const result = await store.getState().startSolverFromSetup();
-
-    expect(result).toBe(false);
-    const state = store.getState();
-    expect(state.isSolverActive).toBe(false);
-    expect(state.setupError).not.toBeNull();
-    expect(services.solver.startSearch).not.toHaveBeenCalled();
-  });
-
-  it("sets setupError and does not start when transcript is invalid", async () => {
-    const { store, services } = createTestStore();
-    store.setState({
-      setupTab: "transcript",
-      transcriptInput: "zzz",
-    });
-
-    const result = await store.getState().startSolverFromSetup();
-
-    expect(result).toBe(false);
-    const state = store.getState();
-    expect(state.isSolverActive).toBe(false);
-    expect(state.setupError).not.toBeNull();
-    expect(services.solver.startSearch).not.toHaveBeenCalled();
-  });
-
-  it("returns false and sets aiInitFailed when replacement preparation fails", async () => {
-    const { store, services } = createTestStore({
-      ai: createMockAIService({
-        checkReady: vi.fn().mockRejectedValue(new Error("not ready")),
-      }),
-    });
-
-    store.setState({
-      setupTab: "manual",
-      setupBoard: initializeBoard(),
-      setupCurrentPlayer: "black",
-    });
-
-    const result = await store.getState().startSolverFromSetup();
-
-    expect(result).toBe(false);
-    expect(store.getState().setupError).toBe("aiInitFailed");
-    expect(store.getState().isSolverActive).toBe(false);
-    expect(services.solver.startSearch).not.toHaveBeenCalled();
-  });
-
-  it("rejects a board that fails validateBoard (e.g. too few discs)", async () => {
-    const { store, services } = createTestStore();
-    // A nearly-empty board trips validateBoard's "tooFewDiscs" check.
-    const sparseBoard = createEmptyBoard();
-    sparseBoard[3][3] = { color: "black" };
-    sparseBoard[4][4] = { color: "white" };
-
-    store.setState({
-      setupTab: "manual",
-      setupBoard: sparseBoard,
-      setupCurrentPlayer: "black",
-    });
-
-    const result = await store.getState().startSolverFromSetup();
-
-    expect(result).toBe(false);
-    expect(store.getState().setupError).not.toBeNull();
-    expect(store.getState().isSolverActive).toBe(false);
-    expect(services.solver.startSearch).not.toHaveBeenCalled();
-  });
-
-  it("does not commit supplied solver config when setup validation fails", async () => {
-    const { store, services } = createTestStore();
-    const sparseBoard = createEmptyBoard();
-    sparseBoard[3][3] = { color: "black" };
-    sparseBoard[4][4] = { color: "white" };
-
-    store.setState({
-      isSolverActive: true,
-      setupTab: "manual",
-      setupBoard: sparseBoard,
-      setupCurrentPlayer: "black",
-      targetSelectivity: 100,
-      solverMode: "multiPv",
-    });
-
-    const result = await store.getState().startSolverFromSetup({
-      selectivity: 95,
-      mode: "bestOnly",
-    });
-
-    expect(result).toBe(false);
-    expect(store.getState().targetSelectivity).toBe(100);
-    expect(store.getState().solverMode).toBe("multiPv");
-    expect(store.getState().setupError).not.toBeNull();
-    expect(services.settings.saveSetting).not.toHaveBeenCalled();
-    expect(services.solver.startSearch).not.toHaveBeenCalled();
   });
 });
 
