@@ -172,6 +172,9 @@ impl GtpEngine {
             if line.trim().is_empty() {
                 break;
             }
+            if response.is_empty() && !line.starts_with('=') && !line.starts_with('?') {
+                continue;
+            }
 
             response.push_str(&line);
         }
@@ -506,6 +509,21 @@ mod tests {
 
         assert_eq!(result, "= hello\n");
         assert_eq!(String::from_utf8(writer).unwrap(), "test_cmd\n");
+    }
+
+    #[test]
+    fn test_communicate_ignores_output_before_gtp_response() {
+        let responses = response_channel([
+            Ok(Some("*** SEARCH STILL RUNNING ? (1) ***\n".to_string())),
+            Ok(Some("= d3\n".to_string())),
+            Ok(Some("\n".to_string())),
+        ]);
+        let mut writer = Vec::new();
+
+        let result =
+            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd").unwrap();
+
+        assert_eq!(result, "= d3\n");
     }
 
     #[test]
