@@ -9,10 +9,21 @@ use reversi_core::probcut::Selectivity;
 use reversi_core::search::context::SearchContext;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
-use reversi_core::search::{EndGameCaches, Search, SearchRunOptions, null_window_search};
+use reversi_core::search::{
+    EndGameCaches, Search, SearchRunOptions, SearchSharedResources, null_window_search,
+};
 use reversi_core::square::Square;
 use reversi_core::transposition_table::TranspositionTable;
 use reversi_core::types::Score;
+
+const TEST_TT_MB_SIZE: usize = 8;
+
+fn search() -> Search {
+    static SHARED: OnceLock<SearchSharedResources> = OnceLock::new();
+    Search::from_shared_resources(SHARED.get_or_init(|| {
+        SearchSharedResources::new(&SearchOptions::new(TEST_TT_MB_SIZE).with_threads(Some(1)))
+    }))
+}
 
 fn score(result: &SearchResult) -> i32 {
     result.score().expect("expected best move") as i32
@@ -76,7 +87,7 @@ fn assert_null_window_symmetry_scores<const N_EMPTY: u32>(
 
 #[test]
 fn test_solve_2_case1() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXXXXXXXXXOOXOXXXXXXOXXXXXXOXOXXXXOXOXOXXOOOOOOX--OOOOOX",
         Disc::Black,
@@ -90,7 +101,7 @@ fn test_solve_2_case1() {
 
 #[test]
 fn aborted_endgame_reports_last_completed_selectivity() {
-    let mut search = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXXXXXXXXXOOXOXXXXXXOXXXXXXOXOXXXXOXOXOXXOOOOOOX--OOOOOX",
         Disc::Black,
@@ -128,7 +139,7 @@ fn aborted_endgame_reports_last_completed_selectivity() {
 
 #[test]
 fn multi_pv_solve_18_reports_each_legal_root_move() {
-    let mut search = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let mut search = search();
     let board = Board::from_string(
         "--O-------OOX---OOOXXXO-OOOOXOXXXXXOOXOXXXXXXOOXX-XXXXOX--XXXX--",
         Disc::Black,
@@ -168,7 +179,7 @@ fn multi_pv_solve_18_reports_each_legal_root_move() {
 
 #[test]
 fn test_solve_2_case2() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "X-XXXXOXOOOOOOOXOOXXOXOOOOXXXXOOOOOXXOXOOOOOXXXOOOOOOX-OOOOOOOOO",
         Disc::Black,
@@ -182,7 +193,7 @@ fn test_solve_2_case2() {
 
 #[test]
 fn test_solve_2_case3() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "-OXOOOX-XXXXOOXXXOXOXXXXXOXXXOOXXOOXXOOXXOXOXXOXXXOOOXXXXXXXXXXX",
         Disc::White,
@@ -196,7 +207,7 @@ fn test_solve_2_case3() {
 
 #[test]
 fn test_solve_3_case1() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXXXXXXXXXOOXOXXXXXXOXXXXXXOXOXXXXOXOXOX-OOOOOOX--OOOOOX",
         Disc::Black,
@@ -210,7 +221,7 @@ fn test_solve_3_case1() {
 
 #[test]
 fn test_solve_3_case2() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "X-XXXXOXOOOOOOOXOOXXOXOOOOXXXXOOOOOXXOXOOOOOXXXOOOOOOX-OOOOOOO-O",
         Disc::Black,
@@ -224,7 +235,7 @@ fn test_solve_3_case2() {
 
 #[test]
 fn test_solve_3_case3() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "-OXOOO--XXXXOOXXXOXOXXXXXOXXXOOXXOOXXOOXXOXOXXOXXXOOOXXXXXXXXXXX",
         Disc::White,
@@ -252,7 +263,7 @@ fn test_solve_3_pass_symmetries() {
 
 #[test]
 fn test_solve_4_case1() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "XOOOOOO-XXOOOOOOXXXOXOOOXXOOOOOOXXXOOOOOXXOOXOOOXO-OOOOOOOO-XXX-",
         Disc::Black,
@@ -266,7 +277,7 @@ fn test_solve_4_case1() {
 
 #[test]
 fn test_solve_4_case2() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "XXXXXX-OXXXXXXOOXXXOXOOOXXXXOOOOXXXXOOOOXXXOOOOOXXXXOO-XOOOOOO--",
         Disc::Black,
@@ -280,7 +291,7 @@ fn test_solve_4_case2() {
 
 #[test]
 fn test_solve_4_case3() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXOXOOXXXXXXXXOXXXXXXXXOXXXXXXX-XXXXXXX-XXXXXX-XXXXXXOO-",
         Disc::White,
@@ -308,7 +319,7 @@ fn test_solve_4_pass_symmetries() {
 
 #[test]
 fn test_solve_5_case1() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "-OOOOOO-XXXXXXX---XOXXXOXXXOXXOOXXXXXOXOXXXOOOXOXOOOOXXOXOOOOOOO",
         Disc::White,
@@ -322,7 +333,7 @@ fn test_solve_5_case1() {
 
 #[test]
 fn test_solve_5_case2() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "--O--O----OOOOO-XOOOOOOOXXOOXOOOXXXXXOXXXOXXOOXXXXXXOXOXXOOOOOOX",
         Disc::Black,
@@ -336,7 +347,7 @@ fn test_solve_5_case2() {
 
 #[test]
 fn test_solve_9() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
         Disc::Black,
@@ -350,7 +361,7 @@ fn test_solve_9() {
 
 #[test]
 fn test_solve_15() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-",
         Disc::Black,
@@ -364,7 +375,7 @@ fn test_solve_15() {
 
 #[test]
 fn test_solve_20() {
-    let mut search = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let mut search = search();
     let board = Board::from_string(
         "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--",
         Disc::Black,
@@ -378,7 +389,7 @@ fn test_solve_20() {
 
 #[test]
 fn test_solve_20_case2() {
-    let mut search = Search::new(&SearchOptions::default());
+    let mut search = search();
     let board = Board::from_string(
         "----------XOO---XOOOOOX-XOOOXXXXXOOXOOXXXXOXOOXXX-OOXOO---OXX-O-",
         Disc::Black,

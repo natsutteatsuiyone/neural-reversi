@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
@@ -11,6 +12,24 @@ use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources};
 const BOARD_20_EMPTIES: &str = "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--";
 const BOARD_15_EMPTIES: &str = "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-";
 const BOARD_9_EMPTIES: &str = "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX";
+const TEST_TT_MB_SIZE: usize = 8;
+
+fn search(n_threads: usize) -> Search {
+    static SINGLE: OnceLock<SearchSharedResources> = OnceLock::new();
+    static DOUBLE: OnceLock<SearchSharedResources> = OnceLock::new();
+    static QUAD: OnceLock<SearchSharedResources> = OnceLock::new();
+    let shared = match n_threads {
+        1 => &SINGLE,
+        2 => &DOUBLE,
+        4 => &QUAD,
+        _ => panic!("unsupported test thread count: {n_threads}"),
+    };
+    Search::from_shared_resources(shared.get_or_init(|| {
+        SearchSharedResources::new(
+            &SearchOptions::new(TEST_TT_MB_SIZE).with_threads(Some(n_threads)),
+        )
+    }))
+}
 
 fn score(result: &SearchResult) -> i32 {
     result.score().expect("expected best move") as i32
@@ -18,7 +37,7 @@ fn score(result: &SearchResult) -> i32 {
 
 /// Solves `board_str` with `n_threads` and asserts the exact score.
 fn assert_parallel_solve(board_str: &str, side: Disc, n_threads: usize, expected: i32) {
-    let mut search = Search::new(&SearchOptions::default().with_threads(Some(n_threads)));
+    let mut search = search(n_threads);
     let board = Board::from_string(board_str, side).unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
@@ -43,7 +62,7 @@ fn parallel_solve_matches_single_threaded() {
 
 #[test]
 fn parallel_solve_reused_search_instance_is_consistent() {
-    let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
+    let mut search = search(4);
     let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
 
@@ -56,7 +75,7 @@ fn parallel_solve_reused_search_instance_is_consistent() {
 
 #[test]
 fn timed_search_terminates_within_deadline_margin() {
-    let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
+    let mut search = search(4);
     let board = Board::new();
     let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
         time_per_move_ms: 500,
@@ -85,13 +104,13 @@ fn parallel_midgame_score_matches_single_threaded() {
     let options = SearchRunOptions::with_level(level).disable_probcut();
     let board = Board::new();
 
-    let mut single = Search::new(&SearchOptions::default().with_threads(Some(1)));
+    let mut single = search(1);
     let expected = single
         .run(&board, &options)
         .score()
         .expect("expected best move");
 
-    let mut parallel = Search::new(&SearchOptions::default().with_threads(Some(4)));
+    let mut parallel = search(4);
     let actual = parallel
         .run(&board, &options)
         .score()
@@ -106,7 +125,7 @@ fn parallel_midgame_score_matches_single_threaded() {
 /// paper over the start/reset race.
 #[test]
 fn manual_abort_stops_deep_solve_promptly() {
-    let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
+    let mut search = search(4);
     let pool = search.thread_pool();
     let board = Board::new();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -131,7 +150,7 @@ fn manual_abort_stops_deep_solve_promptly() {
 #[test]
 fn repeated_pool_create_solve_drop_is_clean() {
     for run in 0..3 {
-        let mut search = Search::new(&SearchOptions::default().with_threads(Some(4)));
+        let mut search = search(4);
         let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
         let options = SearchRunOptions::with_level(Level::perfect());
         let result = search.run(&board, &options);
@@ -143,17 +162,16 @@ fn repeated_pool_create_solve_drop_is_clean() {
 /// network; concurrent solves must both stay exact.
 #[test]
 fn concurrent_engines_from_shared_resources_solve_correctly() {
-    let shared = SearchSharedResources::new(&SearchOptions::default().with_threads(Some(2)));
     let options = SearchRunOptions::with_level(Level::perfect());
 
     std::thread::scope(|s| {
         let first = s.spawn(|| {
-            let mut search = Search::from_shared_resources(&shared);
+            let mut search = search(2);
             let board = Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap();
             score(&search.run(&board, &options))
         });
         let second = s.spawn(|| {
-            let mut search = Search::from_shared_resources(&shared);
+            let mut search = search(2);
             let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
             score(&search.run(&board, &options))
         });
