@@ -3,11 +3,7 @@ import type { Board, Player } from "@/domain/game/types";
 import { initializeBoard } from "@/domain/game/game-logic";
 import { cloneBoard, createGameStartState } from "@/domain/game/store-helpers";
 import { IDLE_ENGINE_ACTIVITY } from "@/stores/engine-activity";
-import {
-  createNewGamePatch,
-  persistNewGameSettings,
-  resolveNewGameSettings,
-} from "@/stores/new-game";
+import { createNewGamePatch, resolveNewGameSettings } from "@/stores/new-game";
 import type { NewGameSettings, ReversiState, SetState, SolverConfig } from "./slices/types";
 
 type SolverStarter = (board: Board, player: Player) => Promise<void>;
@@ -203,7 +199,6 @@ async function replaceWithGame(
   }
 
   set(createNewGamePatch(settings, target.position));
-  persistNewGameSettings(services, settings);
   // Launch auto-start (`pauseForAITurn`): start paused when the AI moves first
   // so it does not play unprompted. The user starts it via the AI card's Resume
   // button (Sidebar's `paused && isAITurn`). `triggerAutomation` then no-ops
@@ -233,7 +228,7 @@ async function replaceWithSolver(
   installWaitingGameShell(get, set);
 
   if (target.config) {
-    commitSolverConfig(services, set, target.config);
+    commitSolverConfig(set, target.config);
   }
 
   set({ isSolverModalOpen: false });
@@ -249,11 +244,9 @@ function installWaitingGameShell(get: () => ReversiState, set: SetState): void {
   });
 }
 
-function commitSolverConfig(services: Services, set: SetState, config: SolverConfig): void {
+function commitSolverConfig(set: SetState, config: SolverConfig): void {
   set({
     targetSelectivity: config.selectivity,
     solverMode: config.mode,
   });
-  void services.settings.saveSetting("solverTargetSelectivity", config.selectivity);
-  void services.settings.saveSetting("solverMode", config.mode);
 }

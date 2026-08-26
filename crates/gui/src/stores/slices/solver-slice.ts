@@ -1,7 +1,7 @@
 import { StateCreator } from "zustand";
 import { SolverSession, type SolverSessionCommit } from "@/domain/solver/solver-session";
 import type { EngineSearch } from "@/domain/engine/engine-search";
-import type { Services, SolverMode, SolverSelectivity } from "@/services/types";
+import type { Services } from "@/services/types";
 import { DEFAULT_SETTINGS } from "@/services/types";
 import type { ReversiState, SetState, SolverSlice } from "./types";
 import { runGameReplacement } from "@/stores/game-replacement";
@@ -10,14 +10,6 @@ function createSolverSessionCommit(set: SetState): SolverSessionCommit {
   return (partial) => {
     set(partial as Parameters<SetState>[0]);
   };
-}
-
-function saveTargetSelectivity(services: Services, selectivity: SolverSelectivity): void {
-  void services.settings.saveSetting("solverTargetSelectivity", selectivity);
-}
-
-function saveSolverMode(services: Services, mode: SolverMode): void {
-  void services.settings.saveSetting("solverMode", mode);
 }
 
 export function createSolverSlice(
@@ -71,14 +63,12 @@ export function createSolverSlice(
 
       setTargetSelectivity: async (sel) => {
         set({ targetSelectivity: sel });
-        saveTargetSelectivity(services, sel);
         await solverSession.repointCurrent();
       },
 
       setSolverMode: async (mode) => {
         if (get().solverMode === mode) return;
         set({ solverMode: mode });
-        saveSolverMode(services, mode);
         await solverSession.repointCurrent();
       },
 

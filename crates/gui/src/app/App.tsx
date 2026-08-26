@@ -1,6 +1,5 @@
 import { GameLayout } from "@/components/layout/GameLayout";
 import { useReversiStore } from "@/stores/use-reversi-store";
-import type { AppSettings } from "@/services/types";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Trophy, Info } from "lucide-react";
@@ -11,11 +10,7 @@ import { useTranslation } from "react-i18next";
 import { PASS_NOTIFICATION_DURATION_MS } from "@/lib/timing";
 import "./App.css";
 
-interface AppProps {
-  initialSettings: AppSettings;
-}
-
-function App({ initialSettings }: AppProps) {
+function App() {
   const { t } = useTranslation();
   const [initStatus, setInitStatus] = useState<"loading" | "ready" | "error">("loading");
 
@@ -25,7 +20,6 @@ function App({ initialSettings }: AppProps) {
   const hideGameOverNotification = useReversiStore((state) => state.hideGameOverNotification);
   const gameOver = useReversiStore((state) => state.gameOver);
   const getScores = useReversiStore((state) => state.getScores);
-  const hydrateSettings = useReversiStore((state) => state.hydrateSettings);
   const checkAIReady = useReversiStore((state) => state.checkAIReady);
   const startInitialGame = useReversiStore((state) => state.startInitialGame);
 
@@ -39,7 +33,6 @@ function App({ initialSettings }: AppProps) {
 
   useEffect(() => {
     const initApp = async () => {
-      hydrateSettings(initialSettings);
       const ready = await checkAIReady();
       if (ready) {
         // Auto-start a fresh game in the previously selected mode. Best-effort:
@@ -50,7 +43,7 @@ function App({ initialSettings }: AppProps) {
       setInitStatus(ready ? "ready" : "error");
     };
     void initApp();
-  }, [checkAIReady, hydrateSettings, initialSettings, startInitialGame]);
+  }, [checkAIReady, startInitialGame]);
 
   // Game over notification: consume the store's one-shot play-path signal, so
   // history navigation onto the terminal position never re-fires the toast.

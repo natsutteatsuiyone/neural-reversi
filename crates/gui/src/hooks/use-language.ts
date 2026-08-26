@@ -13,10 +13,7 @@ export function useLanguage() {
 
     try {
       const resolved = await changeLanguage(newSavedLanguage);
-      const saved = await setLanguagePreference(newSavedLanguage);
-      if (!saved) {
-        console.warn("Language preference could not be saved");
-      }
+      setLanguagePreference(newSavedLanguage);
       return resolved;
     } catch (error) {
       console.error("Failed to change language:", error);

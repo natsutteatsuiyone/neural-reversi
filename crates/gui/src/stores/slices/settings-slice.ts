@@ -8,9 +8,8 @@ export function createSettingsSlice(
   hintSession: HintAnalysisSession,
 ): StateCreator<ReversiState, [], [], SettingsSlice> {
   return (set, get) => ({
-    // ハイドレート前のプレースホルダ。実デフォルト(ai-black)は DEFAULT_SETTINGS 側にあり、
-    // 起動時に hydrateSettings で適用される。非ハイドレート利用(テスト)では人間先手で
-    // 始めるためここは ai-white。
+    // Production hydrates before rendering. Non-hydrated test stores keep the
+    // human moving first so automation does not start implicitly.
     gameMode: "ai-white",
     gameTimeLimit: DEFAULT_SETTINGS.gameTimeLimit,
     hintLevel: DEFAULT_SETTINGS.hintLevel,
@@ -21,33 +20,9 @@ export function createSettingsSlice(
     bottomPanelSize: DEFAULT_SETTINGS.bottomPanelSize,
     language: DEFAULT_SETTINGS.language,
 
-    hydrateSettings: (settings) => {
-      const shouldResizeTT = get().hashSize !== settings.hashSize;
-      set({
-        gameMode: settings.gameMode,
-        gameTimeLimit: settings.gameTimeLimit,
-        hintLevel: settings.hintLevel,
-        gameAnalysisLevel: settings.gameAnalysisLevel,
-        hashSize: settings.hashSize,
-        aiAnalysisPanelOpen: settings.aiAnalysisPanelOpen,
-        rightPanelSize: settings.rightPanelSize,
-        bottomPanelSize: settings.bottomPanelSize,
-        aiLevel: settings.aiLevel,
-        aiMode: settings.aiMode,
-        language: settings.language,
-        targetSelectivity: settings.solverTargetSelectivity,
-        solverMode: settings.solverMode,
-        analyzeResults: null,
-      });
-      if (shouldResizeTT) {
-        void services.ai.resizeTT(settings.hashSize);
-      }
-    },
-
     setHintLevel: (level) => {
       if (level === get().hintLevel) return;
       set({ hintLevel: level, analyzeResults: null });
-      void services.settings.saveSetting("hintLevel", level);
 
       // The hint level-change coordination (dedupe guard + restart-vs-
       // analyze decision) belongs to the Hint Analysis feature; settings
@@ -57,36 +32,28 @@ export function createSettingsSlice(
 
     setGameAnalysisLevel: (level) => {
       set({ gameAnalysisLevel: level });
-      void services.settings.saveSetting("gameAnalysisLevel", level);
     },
 
     setHashSize: (size) => {
       if (size === get().hashSize) return;
       set({ hashSize: size });
-      void services.settings.saveSetting("hashSize", size);
       void services.ai.resizeTT(size);
     },
 
     setAIAnalysisPanelOpen: (open) => {
       set({ aiAnalysisPanelOpen: open });
-      void services.settings.saveSetting("aiAnalysisPanelOpen", open);
     },
 
     setRightPanelSize: (size) => {
       if (size === get().rightPanelSize) return;
       set({ rightPanelSize: size });
-      void services.settings.saveSetting("rightPanelSize", size);
     },
 
     setBottomPanelSize: (size) => {
       if (size === get().bottomPanelSize) return;
       set({ bottomPanelSize: size });
-      void services.settings.saveSetting("bottomPanelSize", size);
     },
 
-    setLanguagePreference: async (language) => {
-      set({ language });
-      return services.settings.saveSetting("language", language);
-    },
+    setLanguagePreference: (language) => set({ language }),
   });
 }

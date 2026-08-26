@@ -127,14 +127,13 @@ export interface SettingsSlice {
   rightPanelSize: number;
   bottomPanelSize: number;
   language: Language | null;
-  hydrateSettings: (settings: AppSettings) => void;
   setHintLevel: (level: number) => void;
   setGameAnalysisLevel: (level: number) => void;
   setHashSize: (size: number) => void;
   setAIAnalysisPanelOpen: (open: boolean) => void;
   setRightPanelSize: (size: number) => void;
   setBottomPanelSize: (size: number) => void;
-  setLanguagePreference: (language: Language | null) => Promise<boolean>;
+  setLanguagePreference: (language: Language | null) => void;
 }
 
 export type SetupTab = "manual" | "transcript" | "boardString";

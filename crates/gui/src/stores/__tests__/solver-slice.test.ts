@@ -428,13 +428,12 @@ describe("setTargetSelectivity", () => {
     expect(state.engineActivity.kind).toBe("idle");
   });
 
-  it("updates and persists without searching when solver is inactive", async () => {
+  it("updates without searching when solver is inactive", async () => {
     const { store, services } = createTestStore();
 
     await store.getState().setTargetSelectivity(95);
 
     expect(store.getState().targetSelectivity).toBe(95);
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("solverTargetSelectivity", 95);
     expect(services.solver.abort).not.toHaveBeenCalled();
     expect(services.solver.startSearch).not.toHaveBeenCalled();
   });

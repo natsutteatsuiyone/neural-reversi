@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  createNewGamePatch,
-  persistNewGameSettings,
-  resolveNewGameSettings,
-} from "@/stores/new-game";
+import { createNewGamePatch, resolveNewGameSettings } from "@/stores/new-game";
 import { initializeBoard } from "@/domain/game/game-logic";
-import { createMockSettingsService } from "@/services/mock-settings-service";
-import type { Services } from "@/services/types";
 import type { NewGameSettings } from "@/stores/slices/types";
 
 const DEFAULTS: NewGameSettings = {
@@ -66,25 +60,5 @@ describe("createNewGamePatch", () => {
     expect(patch.currentPlayer).toBe("white");
     expect(patch.board).toBe(board);
     expect(patch.engineActivity).toEqual({ kind: "idle", runId: 0 });
-  });
-});
-
-describe("persistNewGameSettings", () => {
-  it("saves exactly the four New Game Settings fields to disk", () => {
-    const settings = createMockSettingsService();
-    const services = { settings } as unknown as Services;
-
-    persistNewGameSettings(services, {
-      gameMode: "pvp",
-      aiLevel: 7,
-      aiMode: "game-time",
-      gameTimeLimit: 45,
-    });
-
-    expect(settings.saveSetting).toHaveBeenCalledWith("gameMode", "pvp");
-    expect(settings.saveSetting).toHaveBeenCalledWith("aiLevel", 7);
-    expect(settings.saveSetting).toHaveBeenCalledWith("aiMode", "game-time");
-    expect(settings.saveSetting).toHaveBeenCalledWith("gameTimeLimit", 45);
-    expect(settings.saveSetting).toHaveBeenCalledTimes(4);
   });
 });

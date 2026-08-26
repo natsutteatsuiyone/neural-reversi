@@ -55,6 +55,7 @@ export interface AppSettings {
   aiMode: AIMode;
   gameTimeLimit: number;
   hintLevel: number;
+  isHintMode: boolean;
   gameAnalysisLevel: number;
   hashSize: number;
   aiAnalysisPanelOpen: boolean;
@@ -71,6 +72,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   aiMode: "game-time",
   gameTimeLimit: 60,
   hintLevel: 21,
+  isHintMode: false,
   gameAnalysisLevel: 20,
   hashSize: 512,
   aiAnalysisPanelOpen: false,
@@ -80,11 +82,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   solverTargetSelectivity: 100,
   solverMode: "multiPv",
 };
-
-export interface SettingsService {
-  loadSettings(): Promise<AppSettings>;
-  saveSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): Promise<boolean>;
-}
 
 export const SOLVER_SELECTIVITIES = [73, 95, 99, 100] as const;
 export type SolverSelectivity = (typeof SOLVER_SELECTIVITIES)[number];
@@ -154,6 +151,5 @@ export interface SolverService {
 
 export interface Services {
   ai: AIService;
-  settings: SettingsService;
   solver: SolverService;
 }

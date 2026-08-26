@@ -2,16 +2,16 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "@/app/App";
 import { initI18n } from "@/i18n";
-import { defaultServices } from "@/services/default-services";
+import { hydrateReversiStore, useReversiStore } from "@/stores/use-reversi-store";
 
 async function bootstrap() {
   try {
-    const settings = await defaultServices.settings.loadSettings();
-    await initI18n(settings.language);
+    await hydrateReversiStore(useReversiStore);
+    await initI18n(useReversiStore.getState().language);
 
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>
-        <App initialSettings={settings} />
+        <App />
       </React.StrictMode>,
     );
   } catch (error) {

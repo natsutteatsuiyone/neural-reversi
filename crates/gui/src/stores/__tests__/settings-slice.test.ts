@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { createTestStore, createDeferred } from "./test-helpers";
 import { createMockAIService } from "@/services/mock-ai-service";
-import type { AppSettings } from "@/services/types";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -20,47 +19,9 @@ describe("initial state", () => {
   });
 });
 
-describe("hydrateSettings", () => {
-  it("hydrates loaded settings without persisting them again", () => {
-    const { store, services } = createTestStore();
-    const settings: AppSettings = {
-      gameMode: "ai-black",
-      aiLevel: 18,
-      aiMode: "level",
-      gameTimeLimit: 180,
-      hintLevel: 12,
-      gameAnalysisLevel: 16,
-      hashSize: 1024,
-      aiAnalysisPanelOpen: true,
-      rightPanelSize: 30,
-      bottomPanelSize: 35,
-      language: "ja",
-      solverTargetSelectivity: 95,
-      solverMode: "bestOnly",
-    };
-
-    store.getState().hydrateSettings(settings);
-
-    const s = store.getState();
-    expect(s.gameMode).toBe("ai-black");
-    expect(s.aiLevel).toBe(18);
-    expect(s.aiMode).toBe("level");
-    expect(s.gameTimeLimit).toBe(180);
-    expect(s.hintLevel).toBe(12);
-    expect(s.gameAnalysisLevel).toBe(16);
-    expect(s.hashSize).toBe(1024);
-    expect(s.aiAnalysisPanelOpen).toBe(true);
-    expect(s.language).toBe("ja");
-    expect(s.targetSelectivity).toBe(95);
-    expect(s.solverMode).toBe("bestOnly");
-    expect(services.settings.saveSetting).not.toHaveBeenCalled();
-    expect(services.ai.resizeTT).toHaveBeenCalledWith(1024);
-  });
-});
-
 describe("setHintLevel", () => {
-  it("updates, persists, and re-analyzes only in hint mode", () => {
-    const { store, services } = createTestStore();
+  it("updates and re-analyzes only in hint mode", () => {
+    const { store } = createTestStore();
     const analyzeBoardSpy = vi.spyOn(store.getState(), "analyzeBoard");
     store.setState({ analyzeResults: new Map([["0,0", {} as never]]) });
 
@@ -68,7 +29,6 @@ describe("setHintLevel", () => {
 
     expect(store.getState().hintLevel).toBe(10);
     expect(store.getState().analyzeResults).toBeNull();
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("hintLevel", 10);
     expect(analyzeBoardSpy).not.toHaveBeenCalled();
 
     store.setState({ isHintMode: true });
@@ -183,22 +143,20 @@ describe("setHintLevel", () => {
   });
 });
 
-describe("persisted UI settings", () => {
-  it("updates and persists the analysis-panel preference", () => {
-    const { store, services } = createTestStore();
+describe("settings actions", () => {
+  it("updates the analysis-panel preference", () => {
+    const { store } = createTestStore();
 
     store.getState().setAIAnalysisPanelOpen(true);
 
     expect(store.getState().aiAnalysisPanelOpen).toBe(true);
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("aiAnalysisPanelOpen", true);
   });
 
-  it("updates and persists the language preference", async () => {
-    const { store, services } = createTestStore();
+  it("updates the language preference", () => {
+    const { store } = createTestStore();
 
-    await store.getState().setLanguagePreference("ja");
+    store.getState().setLanguagePreference("ja");
 
     expect(store.getState().language).toBe("ja");
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("language", "ja");
   });
 });

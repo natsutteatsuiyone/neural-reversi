@@ -40,13 +40,7 @@ function resolveWindowsRoamingAppData() {
   if (windowsRoamingAppData) return windowsRoamingAppData;
 
   const powershell = process.env.SystemRoot
-    ? path.join(
-        process.env.SystemRoot,
-        "System32",
-        "WindowsPowerShell",
-        "v1.0",
-        "powershell.exe",
-      )
+    ? path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
     : "powershell.exe";
   const result = spawnSync(
     powershell,
@@ -85,7 +79,12 @@ function e2eDataDir() {
 // Seed a deterministic launch: ai-black so the AI plays black (moves first) and
 // the launch starts paused; level 1 so the AI's move after Start resolves fast
 // in the unoptimized e2e build. Other settings fall back to their defaults.
-const E2E_SETTINGS = JSON.stringify({ gameMode: "ai-black", aiMode: "level", aiLevel: 1 });
+const E2E_SETTINGS = JSON.stringify({
+  "neural-reversi-settings": JSON.stringify({
+    version: 2,
+    state: { gameMode: "ai-black", aiMode: "level", aiLevel: 1, isHintMode: false },
+  }),
+});
 
 function seedE2ESettings() {
   const dir = e2eDataDir();
@@ -106,9 +105,7 @@ let nativeWebDriver = null;
 function executableNames(name) {
   if (process.platform !== "win32") return [name];
 
-  const extensions = (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM")
-    .split(";")
-    .filter(Boolean);
+  const extensions = (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean);
   const lowerName = name.toLowerCase();
 
   if (extensions.some((extension) => lowerName.endsWith(extension.toLowerCase()))) {
@@ -222,7 +219,9 @@ function buildApplication() {
   );
 
   if (result.status !== 0) {
-    throw new Error(`Failed to build the Tauri application for E2E testing (exit ${result.status}).`);
+    throw new Error(
+      `Failed to build the Tauri application for E2E testing (exit ${result.status}).`,
+    );
   }
 }
 
@@ -331,7 +330,9 @@ export const config = {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     if (tauriDriver.exitCode !== null) {
-      throw new Error(`tauri-driver exited before the WebDriver session started (${tauriDriver.exitCode}).`);
+      throw new Error(
+        `tauri-driver exited before the WebDriver session started (${tauriDriver.exitCode}).`,
+      );
     }
   },
   afterSession: () => {

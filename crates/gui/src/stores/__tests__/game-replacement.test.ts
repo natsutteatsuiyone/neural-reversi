@@ -174,8 +174,6 @@ describe("runGameReplacement", () => {
       setupError: null,
     });
     expect(startSolver).toHaveBeenCalledWith(board, "black");
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("solverTargetSelectivity", 95);
-    expect(services.settings.saveSetting).toHaveBeenCalledWith("solverMode", "bestOnly");
   });
 
   // Launch auto-start: a new-game target with `pauseForAITurn` starts paused
