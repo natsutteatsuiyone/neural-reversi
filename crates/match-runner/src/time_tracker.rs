@@ -21,6 +21,31 @@ enum TimeControlMode {
     JapaneseByo,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PlayerClock {
+    time_ms: u64,
+    byo_time_used_ms: u64,
+    byo_stones_left: u32,
+    in_byoyomi: bool,
+}
+
+impl PlayerClock {
+    fn new(mode: TimeControlMode, main_time_ms: u64, byoyomi_stones: u32) -> Self {
+        let (time_ms, in_byoyomi) = match mode {
+            TimeControlMode::None => (u64::MAX, false),
+            TimeControlMode::Byoyomi => (0, true),
+            TimeControlMode::Fischer => (main_time_ms, false),
+            TimeControlMode::JapaneseByo => (main_time_ms, main_time_ms == 0),
+        };
+        Self {
+            time_ms,
+            byo_time_used_ms: 0,
+            byo_stones_left: byoyomi_stones,
+            in_byoyomi,
+        }
+    }
+}
+
 /// Tracks time for both players during a game.
 #[derive(Debug)]
 pub struct TimeTracker {
@@ -32,22 +57,8 @@ pub struct TimeTracker {
     byoyomi_time_ms: u64,
     /// Byoyomi stones setting (from GTP time_settings)
     byoyomi_stones: u32,
-    /// Black's remaining main time in milliseconds
-    black_time_ms: u64,
-    /// White's remaining main time in milliseconds
-    white_time_ms: u64,
-    /// Whether black is in byoyomi phase (only for JapaneseByo mode)
-    black_in_byoyomi: bool,
-    /// Whether white is in byoyomi phase (only for JapaneseByo mode)
-    white_in_byoyomi: bool,
-    /// Black's remaining stones in current byoyomi period
-    black_byo_stones_left: u32,
-    /// White's remaining stones in current byoyomi period
-    white_byo_stones_left: u32,
-    /// Black's elapsed time in current byoyomi period (ms)
-    black_byo_time_used_ms: u64,
-    /// White's elapsed time in current byoyomi period (ms)
-    white_byo_time_used_ms: u64,
+    /// Per-player clocks, indexed as black then white.
+    players: [PlayerClock; 2],
     /// Start time of current move
     move_start: Option<Instant>,
 }
@@ -76,32 +87,15 @@ impl TimeTracker {
         // Determine time control mode from parameters
         let mode = Self::determine_mode(main_time_secs, byoyomi_time_secs, byoyomi_stones);
 
-        let (initial_time_ms, initial_in_byoyomi) = Self::initial_player_state(mode, main_time_ms);
+        let player = PlayerClock::new(mode, main_time_ms, byoyomi_stones);
 
         Self {
             mode,
             main_time_ms,
             byoyomi_time_ms,
             byoyomi_stones,
-            black_time_ms: initial_time_ms,
-            white_time_ms: initial_time_ms,
-            black_in_byoyomi: initial_in_byoyomi,
-            white_in_byoyomi: initial_in_byoyomi,
-            black_byo_stones_left: byoyomi_stones,
-            white_byo_stones_left: byoyomi_stones,
-            black_byo_time_used_ms: 0,
-            white_byo_time_used_ms: 0,
+            players: [player; 2],
             move_start: None,
-        }
-    }
-
-    /// Returns the initial (time_ms, in_byoyomi) state for a player.
-    fn initial_player_state(mode: TimeControlMode, main_time_ms: u64) -> (u64, bool) {
-        match mode {
-            TimeControlMode::None => (u64::MAX, false),
-            TimeControlMode::Byoyomi => (0, true),
-            TimeControlMode::Fischer => (main_time_ms, false),
-            TimeControlMode::JapaneseByo => (main_time_ms, main_time_ms == 0),
         }
     }
 
@@ -164,35 +158,21 @@ impl TimeTracker {
     }
 
     fn player_time_left(&self, is_black: bool) -> (u64, u32) {
-        let (time_ms, in_byoyomi, byo_stones_left, byo_time_used_ms) = if is_black {
-            (
-                self.black_time_ms,
-                self.black_in_byoyomi,
-                self.black_byo_stones_left,
-                self.black_byo_time_used_ms,
-            )
-        } else {
-            (
-                self.white_time_ms,
-                self.white_in_byoyomi,
-                self.white_byo_stones_left,
-                self.white_byo_time_used_ms,
-            )
-        };
-
+        let player = self.player(is_black);
         match self.mode {
             TimeControlMode::Byoyomi => {
                 // Pure byoyomi: each move gets the full byoyomi time budget
                 (self.byoyomi_time_ms / 1000, 0)
             }
-            TimeControlMode::JapaneseByo if in_byoyomi => {
+            TimeControlMode::JapaneseByo if player.in_byoyomi => {
                 // In byoyomi phase: report remaining period time and stones
-                let period_remaining_ms = self.byoyomi_time_ms.saturating_sub(byo_time_used_ms);
-                (period_remaining_ms / 1000, byo_stones_left)
+                let period_remaining_ms =
+                    self.byoyomi_time_ms.saturating_sub(player.byo_time_used_ms);
+                (period_remaining_ms / 1000, player.byo_stones_left)
             }
             _ => {
                 // Main time phase (Fischer, JapaneseByo pre-byoyomi, None)
-                (time_ms / 1000, 0)
+                (player.time_ms / 1000, 0)
             }
         }
     }
@@ -234,13 +214,13 @@ impl TimeTracker {
             TimeControlMode::Fischer => {
                 // Deduct time and add increment
                 let increment = self.byoyomi_time_ms;
-                let time_ms = self.player_time_mut(is_black);
+                let player = self.player_mut(is_black);
 
-                if elapsed_ms >= *time_ms {
-                    *time_ms = 0;
+                if elapsed_ms >= player.time_ms {
+                    player.time_ms = 0;
                     false
                 } else {
-                    *time_ms = (*time_ms - elapsed_ms).saturating_add(increment);
+                    player.time_ms = (player.time_ms - elapsed_ms).saturating_add(increment);
                     true
                 }
             }
@@ -256,23 +236,20 @@ impl TimeTracker {
     fn apply_japanese_byo(&mut self, is_black: bool, elapsed_ms: u64) -> bool {
         let byoyomi_time_ms = self.byoyomi_time_ms;
         let byoyomi_stones = self.byoyomi_stones;
-        let (time_ms, in_byoyomi) = self.player_state_mut(is_black);
+        let player = self.player_mut(is_black);
 
-        if !*in_byoyomi {
+        if !player.in_byoyomi {
             // Still in main time
-            if elapsed_ms < *time_ms {
-                *time_ms -= elapsed_ms;
+            if elapsed_ms < player.time_ms {
+                player.time_ms -= elapsed_ms;
                 return true;
             }
             // Main time exhausted, transition to byoyomi
-            let overtime = elapsed_ms - *time_ms;
-            *time_ms = 0;
-            *in_byoyomi = true;
-
-            // Start first byoyomi period with the overtime already consumed
-            let (stones_left, time_used) = self.player_byo_period_mut(is_black);
-            *stones_left = byoyomi_stones;
-            *time_used = overtime;
+            let overtime = elapsed_ms - player.time_ms;
+            player.time_ms = 0;
+            player.in_byoyomi = true;
+            player.byo_stones_left = byoyomi_stones;
+            player.byo_time_used_ms = overtime;
 
             if overtime > byoyomi_time_ms {
                 return false; // Exceeded first period immediately
@@ -284,78 +261,43 @@ impl TimeTracker {
                 return true;
             }
 
-            *stones_left -= 1;
-            if *stones_left == 0 {
+            player.byo_stones_left -= 1;
+            if player.byo_stones_left == 0 {
                 // Completed the period, reset for next
-                *stones_left = byoyomi_stones;
-                *time_used = 0;
+                player.byo_stones_left = byoyomi_stones;
+                player.byo_time_used_ms = 0;
             }
             return true;
         }
 
         // Already in byoyomi phase
-        let (stones_left, time_used) = self.player_byo_period_mut(is_black);
-        *time_used += elapsed_ms;
+        player.byo_time_used_ms += elapsed_ms;
 
-        if *time_used > byoyomi_time_ms {
+        if player.byo_time_used_ms > byoyomi_time_ms {
             return false; // Period time exceeded
         }
 
-        *stones_left -= 1;
-        if *stones_left == 0 {
+        player.byo_stones_left -= 1;
+        if player.byo_stones_left == 0 {
             // Completed all stones in this period, reset for next
-            *stones_left = byoyomi_stones;
-            *time_used = 0;
+            player.byo_stones_left = byoyomi_stones;
+            player.byo_time_used_ms = 0;
         }
         true
     }
 
-    /// Returns a mutable reference to the specified player's remaining time.
-    fn player_time_mut(&mut self, is_black: bool) -> &mut u64 {
-        if is_black {
-            &mut self.black_time_ms
-        } else {
-            &mut self.white_time_ms
-        }
+    fn player(&self, is_black: bool) -> &PlayerClock {
+        &self.players[if is_black { 0 } else { 1 }]
     }
 
-    /// Returns mutable references to the specified player's time and byoyomi state.
-    fn player_state_mut(&mut self, is_black: bool) -> (&mut u64, &mut bool) {
-        if is_black {
-            (&mut self.black_time_ms, &mut self.black_in_byoyomi)
-        } else {
-            (&mut self.white_time_ms, &mut self.white_in_byoyomi)
-        }
-    }
-
-    /// Returns mutable references to the specified player's byoyomi period state.
-    fn player_byo_period_mut(&mut self, is_black: bool) -> (&mut u32, &mut u64) {
-        if is_black {
-            (
-                &mut self.black_byo_stones_left,
-                &mut self.black_byo_time_used_ms,
-            )
-        } else {
-            (
-                &mut self.white_byo_stones_left,
-                &mut self.white_byo_time_used_ms,
-            )
-        }
+    fn player_mut(&mut self, is_black: bool) -> &mut PlayerClock {
+        &mut self.players[if is_black { 0 } else { 1 }]
     }
 
     /// Resets the time tracker for a new game.
     pub fn reset(&mut self) {
-        let (initial_time_ms, initial_in_byoyomi) =
-            Self::initial_player_state(self.mode, self.main_time_ms);
-
-        self.black_time_ms = initial_time_ms;
-        self.white_time_ms = initial_time_ms;
-        self.black_in_byoyomi = initial_in_byoyomi;
-        self.white_in_byoyomi = initial_in_byoyomi;
-        self.black_byo_stones_left = self.byoyomi_stones;
-        self.white_byo_stones_left = self.byoyomi_stones;
-        self.black_byo_time_used_ms = 0;
-        self.white_byo_time_used_ms = 0;
+        let player = PlayerClock::new(self.mode, self.main_time_ms, self.byoyomi_stones);
+        self.players = [player; 2];
         self.move_start = None;
     }
 }
