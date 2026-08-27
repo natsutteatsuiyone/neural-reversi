@@ -168,11 +168,11 @@ impl TimeTracker {
                 // In byoyomi phase: report remaining period time and stones
                 let period_remaining_ms =
                     self.byoyomi_time_ms.saturating_sub(player.byo_time_used_ms);
-                (period_remaining_ms / 1000, player.byo_stones_left)
+                (period_remaining_ms.div_ceil(1000), player.byo_stones_left)
             }
             _ => {
                 // Main time phase (Fischer, JapaneseByo pre-byoyomi, None)
-                (player.time_ms / 1000, 0)
+                (player.time_ms.div_ceil(1000), 0)
             }
         }
     }
@@ -492,6 +492,16 @@ mod tests {
         tracker.apply_elapsed(true, 10_000);
         assert_eq!(tracker.black_time_left(), (295, 0));
         assert_eq!(tracker.white_time_left(), (300, 0));
+    }
+
+    #[test]
+    fn test_time_left_preserves_subsecond_clock() {
+        let mut tracker = TimeTracker::new(2, 0, 0);
+        assert!(tracker.apply_elapsed(true, 501));
+        assert_eq!(tracker.black_time_left(), (2, 0));
+
+        assert!(tracker.apply_elapsed(true, 1_498));
+        assert_eq!(tracker.black_time_left(), (1, 0));
     }
 
     #[test]
