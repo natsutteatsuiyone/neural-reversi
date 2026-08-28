@@ -499,7 +499,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
 }
 
 /// Minimum depth to enable Late Move Reductions.
-pub const LMR_MIN_DEPTH: Depth = 4;
+pub const LMR_MIN_DEPTH: Depth = 5;
 
 /// Fraction bits of the fixed-point reduction curve (1/256 ply).
 const LMR_FRAC_BITS: u32 = 8;
@@ -525,9 +525,9 @@ const LMR_OFFSET: i32 = 128;
 /// Divisor of `ln(depth) * ln(move_count)`, in 1/256 ply.
 ///
 /// Both logarithms carry a 256x scale, so the product is `65536 *
-/// ln(depth) * ln(move_count)`; dividing by `256 * 2.2` leaves
-/// `ln(depth) * ln(move_count) / 2.2` in 1/256 ply.
-const LMR_LOG_DIV: i32 = 563;
+/// ln(depth) * ln(move_count)`; dividing by `256 * 2.0` leaves
+/// `ln(depth) * ln(move_count) / 2.0` in 1/256 ply.
+const LMR_LOG_DIV: i32 = 512;
 
 /// Right shift turning an ordering-estimate shortfall against alpha into
 /// 1/256 ply: two discs of shortfall are worth one extra ply.
@@ -584,7 +584,7 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     reduction.max(0).min(max_reduction as i32) as Depth
 }
 
-/// Evaluates the reduction curve `LMR_OFFSET + ln(depth) * ln(move_count) / 2.2`
+/// Evaluates the reduction curve `LMR_OFFSET + ln(depth) * ln(move_count) / 2.0`
 /// in 1/256 ply.
 #[inline(always)]
 fn lmr_curve(depth: Depth, move_count: usize) -> i32 {
@@ -654,11 +654,19 @@ mod tests {
     }
 
     #[test]
+    fn midgame_lmr_reduces_at_minimum_depth() {
+        assert_eq!(
+            at_alpha::<NonPV, MidGameStrategy>(Selectivity::Level1, 5, 3, 4, true),
+            1
+        );
+    }
+
+    #[test]
     fn curve_grows_monotonically_in_depth_and_move_count() {
         assert_eq!(lmr_curve(LMR_MIN_DEPTH, 3) >> LMR_FRAC_BITS, 1);
         assert_eq!(lmr_curve(8, 6) >> LMR_FRAC_BITS, 2);
         assert_eq!(lmr_curve(16, 11) >> LMR_FRAC_BITS, 3);
-        assert_eq!(lmr_curve(24, 21) >> LMR_FRAC_BITS, 4);
+        assert_eq!(lmr_curve(24, 21) >> LMR_FRAC_BITS, 5);
 
         for depth in LMR_MIN_DEPTH..=60 {
             for move_count in 3..34 {
