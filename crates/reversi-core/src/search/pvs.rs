@@ -538,7 +538,7 @@ const LMR_MARGIN_SHIFT: u32 = 1;
 const LMR_MARGIN_MIN: i32 = -(1 << LMR_FRAC_BITS);
 
 /// Reduction penalty ceiling for a move far below alpha, in 1/256 ply.
-const LMR_MARGIN_MAX: i32 = 2 << LMR_FRAC_BITS;
+const LMR_MARGIN_MAX: i32 = 1 << LMR_FRAC_BITS;
 
 /// Reduction beyond which All nodes give one ply back, in whole plies.
 const LMR_ALLNODE_KEEP: i32 = 2;
@@ -687,10 +687,10 @@ mod tests {
         // A move whose estimate beats alpha earns back at most one ply.
         assert_eq!(margin_reduction(-2), 1);
         assert_eq!(margin_reduction(-40), 1);
-        // A move far below alpha pays at most two extra plies.
+        // A move below alpha pays at most one extra ply.
         assert_eq!(margin_reduction(2), 3);
-        assert_eq!(margin_reduction(4), 4);
-        assert_eq!(margin_reduction(40), 4);
+        assert_eq!(margin_reduction(4), 3);
+        assert_eq!(margin_reduction(40), 3);
     }
 
     #[test]
