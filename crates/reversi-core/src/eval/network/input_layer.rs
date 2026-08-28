@@ -213,6 +213,6 @@ mod tests {
 
         accumulate_scalar::<0>(&pattern_feature, &weights, &mut actual);
 
-        assert_eq!(actual, []);
+        assert!(actual.is_empty());
     }
 }
