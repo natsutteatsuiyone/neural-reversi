@@ -4,6 +4,7 @@ use std::hint::{Locality, prefetch_read};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::types::ScaledScore;
+use crate::util::aligned_buffer::AlignedBuffer;
 
 const KEY_MASK: u64 = 0xFFFFFFFFFFFF;
 const SCORE_BITS: u32 = 16;
@@ -31,7 +32,7 @@ struct Bucket {
 /// depends on all 64 key bits as long as the index keeps at least the 16 bits
 /// that the stored 48-bit tag drops.
 pub struct EvalCache {
-    table: Box<[Bucket]>,
+    table: AlignedBuffer<Bucket>,
     mask: u64,
 }
 
@@ -43,14 +44,10 @@ impl EvalCache {
         let bucket_count = 1usize << size_log2.saturating_sub(WAY_BITS);
         let mask = bucket_count as u64 - 1;
 
-        let table = (0..bucket_count)
-            .map(|_| Bucket {
-                entries: [const { AtomicU64::new(EMPTY_ENTRY) }; WAYS],
-            })
-            .collect::<Vec<_>>();
-
         EvalCache {
-            table: table.into_boxed_slice(),
+            table: AlignedBuffer::from_iter((0..bucket_count).map(|_| Bucket {
+                entries: [const { AtomicU64::new(EMPTY_ENTRY) }; WAYS],
+            })),
             mask,
         }
     }
