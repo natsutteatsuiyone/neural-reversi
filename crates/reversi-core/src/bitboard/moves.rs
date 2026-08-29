@@ -395,56 +395,6 @@ pub(super) fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) 
 pub(super) fn get_moves_and_potential_portable(player: u64, opponent: u64) -> (u64, u64) {
     let empty = !(player | opponent);
     let h_opp = opponent & HORIZONTAL_MASK;
-
-    let mut flip7 = h_opp & (player << 7);
-    let mut flip9 = h_opp & (player << 9);
-    let mut flip8 = opponent & (player << 8);
-    let mut flip1 = h_opp & (player << 1);
-
-    flip7 |= h_opp & (flip7 << 7);
-    flip9 |= h_opp & (flip9 << 9);
-    flip8 |= opponent & (flip8 << 8);
-    let mut moves = h_opp.wrapping_add(flip1);
-
-    let mut pre7 = h_opp & (h_opp << 7);
-    let mut pre9 = h_opp & (h_opp << 9);
-    let mut pre8 = opponent & (opponent << 8);
-
-    flip7 |= pre7 & (flip7 << 14);
-    flip9 |= pre9 & (flip9 << 18);
-    flip8 |= pre8 & (flip8 << 16);
-    flip7 |= pre7 & (flip7 << 14);
-    flip9 |= pre9 & (flip9 << 18);
-    flip8 |= pre8 & (flip8 << 16);
-
-    moves |= (flip7 << 7) | (flip9 << 9) | (flip8 << 8);
-
-    flip7 = h_opp & (player >> 7);
-    flip9 = h_opp & (player >> 9);
-    flip8 = opponent & (player >> 8);
-    flip1 = h_opp & (player >> 1);
-
-    flip7 |= h_opp & (flip7 >> 7);
-    flip9 |= h_opp & (flip9 >> 9);
-    flip8 |= opponent & (flip8 >> 8);
-    flip1 |= h_opp & (flip1 >> 1);
-
-    pre7 >>= 7;
-    pre9 >>= 9;
-    pre8 >>= 8;
-    let pre1 = h_opp & (h_opp >> 1);
-
-    flip7 |= pre7 & (flip7 >> 14);
-    flip9 |= pre9 & (flip9 >> 18);
-    flip8 |= pre8 & (flip8 >> 16);
-    flip1 |= pre1 & (flip1 >> 2);
-    flip7 |= pre7 & (flip7 >> 14);
-    flip9 |= pre9 & (flip9 >> 18);
-    flip8 |= pre8 & (flip8 >> 16);
-    flip1 |= pre1 & (flip1 >> 2);
-
-    moves |= (flip7 >> 7) | (flip9 >> 9) | (flip8 >> 8) | (flip1 >> 1);
-
     let v_opp = opponent & VERTICAL_MASK;
     let d_opp = opponent & DIAGONAL_MASK;
     let potential = ((h_opp << 1)
@@ -457,7 +407,7 @@ pub(super) fn get_moves_and_potential_portable(player: u64, opponent: u64) -> (u
         | (d_opp >> 9))
         & empty;
 
-    (moves & empty, potential)
+    (get_moves_portable(player, opponent), potential)
 }
 
 #[cfg(target_arch = "x86_64")]
