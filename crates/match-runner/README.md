@@ -18,6 +18,7 @@ match-runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <O
 - `--main-time <SECONDS>`: Main time in seconds (default: 0)
 - `--byoyomi-time <SECONDS>`: Byoyomi time in seconds (default: 0)
 - `--byoyomi-stones <STONES>`: Byoyomi stones (default: 0)
+- `--move-timeout <SECONDS>`: Hard per-command engine timeout in seconds, at least 1 (default: none)
 - `--sprt`: Stop the match early once SPRT accepts either configured Elo hypothesis
 - `--sprt-elo0 <ELO>`: Elo difference under the null hypothesis H0 (default: -10, requires `--sprt`)
 - `--sprt-elo1 <ELO>`: Elo difference under the alternative hypothesis H1 (default: 10, requires `--sprt`)
@@ -32,8 +33,9 @@ Time control follows the GTP `time_settings` command format. The mode is automat
 |------|------------|-------------|
 | No time control | `--main-time 0 --byoyomi-time 0` | No time limit (default) |
 | Byoyomi | `--main-time 0 --byoyomi-time N` | N seconds per move |
+| Sudden death | `--main-time M --byoyomi-time 0` | M seconds for the whole game |
 | Fischer | `--main-time M --byoyomi-time N` | M seconds + N seconds increment per move |
-| Japanese byo-yomi | `--main-time M --byoyomi-time N --byoyomi-stones 1` | M seconds main time, then N seconds per move |
+| Japanese byo-yomi | `--main-time M --byoyomi-time N --byoyomi-stones S` | M seconds main time, then S moves per N-second period |
 
 ### Opening File Format
 
@@ -58,13 +60,12 @@ With `--sprt`, the match runs a Sequential Probability Ratio Test (a constrained
 multinomial GSPRT over the pentanomial model, following Fishtest) after every
 completed opening pair. The accumulated log-likelihood ratio (LLR) of H1
 (`--sprt-elo1`) versus H0 (`--sprt-elo0`) is compared against the bounds
-`ln(β / (1 - α))` and `ln((1 - β) / α)`; the match stops as soon as either bound
-is crossed. A decision is never taken before 5 opening pairs (10 games) have
-completed.
+`ln(β / (1 - α))` and `ln((1 - β) / α)`, tightened by a dynamic overshoot
+correction; the match stops as soon as either bound is crossed.
 
 The defaults (`elo0 = -10`, `elo1 = +10`, `α = β = 0.05`) form a symmetric test:
-H1 accepted means engine 1 is stronger, H0 accepted means the evidence favors
-engine 2, and an evenly matched pair plays through the whole opening file. For a
+H1 accepted supports engine1 − engine2 = +10 Elo, H0 accepted supports −10 Elo,
+and an evenly matched pair plays through the whole opening file. For a
 Fishtest-style regression test use one-sided bounds, e.g.
 `--sprt --sprt-elo0 0 --sprt-elo1 10`.
 
@@ -124,7 +125,6 @@ The programs must support the following GTP commands:
 - `clear_board` - Reset the board to the initial state
 - `play <color> <move>` - Play a move of the specified color at the given coordinates
 - `genmove <color>` - Generate a move for the specified color
-- `quit` - Exit the program
 
 When time control is enabled, the following commands are also used (optional support):
 

@@ -36,7 +36,7 @@ fn install_interrupt_handler() -> Result<()> {
     }
 }
 
-fn check_interrupted() -> Result<()> {
+pub(crate) fn check_interrupted() -> Result<()> {
     if INTERRUPTED.load(Ordering::SeqCst) {
         Err(MatchRunnerError::Interrupted)
     } else {
@@ -79,6 +79,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
             "The opening file doesn't contain any valid positions.".to_string(),
         ));
     }
+    validate_openings(&openings)?;
 
     let mut engines = initialize_engines(config)?;
     let engine_names = (engines.0.name(), engines.1.name());
@@ -87,14 +88,13 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
     let mut sprt = config.sprt_config()?.map(Sprt::new);
     let total_games = openings.len() * 2;
     let mut statistics = MatchStatistics::default();
-    let mut sprt_frequencies = PentanomialFrequencies::default();
 
     display::show_match_header()?;
     display::update_live_visualization(
         &statistics,
         &engine_names.0,
         &engine_names.1,
-        sprt_snapshot(sprt.as_mut(), &sprt_frequencies).as_ref(),
+        sprt_snapshot(sprt.as_mut(), statistics.pentanomial_frequencies()).as_ref(),
     )?;
     let progress_bar = display::create_progress_bar(total_games as u64);
 
@@ -108,7 +108,6 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
                 opening_idx,
                 &progress_bar,
                 &mut time_tracker,
-                &mut sprt_frequencies,
                 sprt.as_mut(),
             )
         });
@@ -117,7 +116,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
             if statistics.total_games() > 0 {
                 let _ = display::clear_screen();
                 let final_sprt = sprt.as_mut().map(|sprt| {
-                    let result = sprt.update(&sprt_frequencies);
+                    let result = sprt.update(statistics.pentanomial_frequencies());
                     (sprt.config, result)
                 });
                 let _ =
@@ -126,7 +125,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
             return Err(error);
         }
 
-        if let Some(snapshot) = sprt_snapshot(sprt.as_mut(), &sprt_frequencies)
+        if let Some(snapshot) = sprt_snapshot(sprt.as_mut(), statistics.pentanomial_frequencies())
             && snapshot.status != SprtStatus::Continue
         {
             break;
@@ -136,7 +135,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
     progress_bar.finish_and_clear();
     display::clear_screen()?;
     let final_sprt = sprt.as_mut().map(|sprt| {
-        let result = sprt.update(&sprt_frequencies);
+        let result = sprt.update(statistics.pentanomial_frequencies());
         (sprt.config, result)
     });
     statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt)?;
@@ -190,7 +189,8 @@ fn play_game(
             white_engine.genmove("white")?
         };
 
-        if !time_tracker.end_move(is_black) && time_tracker.is_enabled() {
+        let flagged = !time_tracker.end_move(is_black) && time_tracker.is_enabled();
+        if flagged || mv.eq_ignore_ascii_case("resign") {
             return Ok(if is_black {
                 MatchResult {
                     result: GameResult::WhiteWin,
@@ -244,6 +244,21 @@ fn apply_opening_moves(
         let mv = square.to_string();
         black_engine.play(color, &mv)?;
         white_engine.play(color, &mv)?;
+    }
+    Ok(())
+}
+
+fn validate_openings(openings: &[String]) -> Result<()> {
+    for (index, opening) in openings.iter().enumerate() {
+        let moves = Square::parse_sequence(opening).map_err(|error| {
+            MatchRunnerError::Config(format!("Invalid opening {}: {error}", index + 1))
+        })?;
+        let mut game_state = GameState::new();
+        for square in moves {
+            game_state.make_move(square).map_err(|error| {
+                MatchRunnerError::Config(format!("Invalid opening {}: {error}", index + 1))
+            })?;
+        }
     }
     Ok(())
 }
@@ -305,7 +320,6 @@ fn play_opening_pair(
     opening_idx: usize,
     progress_bar: &ProgressBar,
     time_tracker: &mut TimeTracker,
-    sprt_frequencies: &mut PentanomialFrequencies,
     mut sprt: Option<&mut Sprt>,
 ) -> Result<()> {
     let mut first_result = None;
@@ -335,10 +349,9 @@ fn play_opening_pair(
         };
 
         statistics.add_result(winner, score, opening.to_string(), !is_swapped);
-        let game_result = (winner, score);
+        let game_result = winner;
         if let Some(first_result) = first_result {
             statistics.add_paired_result(first_result, game_result);
-            sprt_frequencies.add_pair(first_result.0, game_result.0);
         } else {
             first_result = Some(game_result);
         }
@@ -347,7 +360,7 @@ fn play_opening_pair(
             statistics,
             &engine_names.0,
             &engine_names.1,
-            sprt_snapshot(sprt.as_deref_mut(), sprt_frequencies).as_ref(),
+            sprt_snapshot(sprt.as_deref_mut(), statistics.pentanomial_frequencies()).as_ref(),
         )?;
         progress_bar.inc(1);
     }
@@ -386,5 +399,15 @@ mod tests {
             }
             other => panic!("expected game error, got {other}"),
         }
+    }
+
+    #[test]
+    fn validates_all_openings_before_play() {
+        let openings = vec!["f5".to_string(), "z9".to_string()];
+
+        assert!(matches!(
+            validate_openings(&openings),
+            Err(MatchRunnerError::Config(message)) if message.contains("opening 2")
+        ));
     }
 }

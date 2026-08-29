@@ -29,6 +29,7 @@ const GTP_CMD_GENMOVE: &str = "genmove";
 const ERR_STDIN_FAILED: &str = "Failed to open stdin";
 const ERR_STDOUT_FAILED: &str = "Failed to open stdout";
 const ERR_PROCESS_CLOSED: &str = "Process closed stdout";
+const INTERRUPT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 type OutputMessage = io::Result<Option<String>>;
 
@@ -138,6 +139,7 @@ impl GtpEngine {
         move_timeout: Option<Duration>,
         engine_name: &str,
         command: &str,
+        check_interrupted: impl Fn() -> Result<()>,
     ) -> Result<String> {
         let started_at = Instant::now();
         writeln!(stdin, "{command}")?;
@@ -146,23 +148,22 @@ impl GtpEngine {
         let mut response = String::new();
 
         loop {
-            let message = if let Some(timeout) = move_timeout {
-                let remaining = timeout.saturating_sub(started_at.elapsed());
-                match responses.recv_timeout(remaining) {
-                    Ok(message) => message,
-                    Err(RecvTimeoutError::Timeout) => {
-                        return Err(MatchRunnerError::Timeout(format!(
-                            "engine '{engine_name}' timed out waiting for response to command '{command}'"
-                        )));
-                    }
-                    Err(RecvTimeoutError::Disconnected) => {
-                        return Err(MatchRunnerError::Engine(ERR_PROCESS_CLOSED.to_string()));
-                    }
+            check_interrupted()?;
+            if move_timeout.is_some_and(|timeout| started_at.elapsed() >= timeout) {
+                return Err(MatchRunnerError::Timeout(format!(
+                    "engine '{engine_name}' timed out waiting for response to command '{command}'"
+                )));
+            }
+            let wait = move_timeout
+                .map(|timeout| timeout.saturating_sub(started_at.elapsed()))
+                .unwrap_or(INTERRUPT_POLL_INTERVAL)
+                .min(INTERRUPT_POLL_INTERVAL);
+            let message = match responses.recv_timeout(wait) {
+                Ok(message) => message,
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(MatchRunnerError::Engine(ERR_PROCESS_CLOSED.to_string()));
                 }
-            } else {
-                responses
-                    .recv()
-                    .map_err(|_| MatchRunnerError::Engine(ERR_PROCESS_CLOSED.to_string()))?
             };
 
             let Some(line) = message? else {
@@ -170,6 +171,9 @@ impl GtpEngine {
             };
 
             if line.trim().is_empty() {
+                if response.is_empty() {
+                    continue;
+                }
                 break;
             }
             if response.is_empty() && !line.starts_with('=') && !line.starts_with('?') {
@@ -239,6 +243,7 @@ impl GtpEngine {
             self.move_timeout,
             &engine_name,
             command,
+            crate::runner::check_interrupted,
         );
 
         if matches!(&result, Err(MatchRunnerError::Timeout(_))) {
@@ -503,9 +508,15 @@ mod tests {
         ]);
         let mut writer = Vec::new();
 
-        let result =
-            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "test_cmd")
-                .unwrap();
+        let result = GtpEngine::communicate(
+            &mut writer,
+            &responses,
+            None,
+            "test-engine",
+            "test_cmd",
+            || Ok(()),
+        )
+        .unwrap();
 
         assert_eq!(result, "= hello\n");
         assert_eq!(String::from_utf8(writer).unwrap(), "test_cmd\n");
@@ -521,7 +532,28 @@ mod tests {
         let mut writer = Vec::new();
 
         let result =
-            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd").unwrap();
+            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd", || {
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(result, "= d3\n");
+    }
+
+    #[test]
+    fn test_communicate_ignores_blank_line_before_gtp_response() {
+        let responses = response_channel([
+            Ok(Some("\n".to_string())),
+            Ok(Some("= d3\n".to_string())),
+            Ok(Some("\n".to_string())),
+        ]);
+        let mut writer = Vec::new();
+
+        let result =
+            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd", || {
+                Ok(())
+            })
+            .unwrap();
 
         assert_eq!(result, "= d3\n");
     }
@@ -536,7 +568,10 @@ mod tests {
         let mut writer = Vec::new();
 
         let result =
-            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd").unwrap();
+            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd", || {
+                Ok(())
+            })
+            .unwrap();
 
         assert_eq!(result, "= line1\nline2\n");
     }
@@ -570,7 +605,10 @@ mod tests {
         let responses = response_channel([Ok(None)]);
         let mut writer = Vec::new();
 
-        let result = GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd");
+        let result =
+            GtpEngine::communicate(&mut writer, &responses, None, "test-engine", "cmd", || {
+                Ok(())
+            });
 
         assert!(result.is_err());
     }
@@ -586,6 +624,7 @@ mod tests {
             Some(Duration::ZERO),
             "slow-engine",
             "genmove black",
+            || Ok(()),
         );
 
         let error = result.unwrap_err();
@@ -593,5 +632,52 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("slow-engine"));
         assert!(message.contains("genmove black"));
+    }
+
+    #[test]
+    fn test_communicate_checks_for_interrupt_while_waiting() {
+        let checks = std::cell::Cell::new(0);
+        let (_sender, responses) = mpsc::channel();
+        let mut writer = Vec::new();
+
+        let result = GtpEngine::communicate(
+            &mut writer,
+            &responses,
+            None,
+            "stalled-engine",
+            "genmove black",
+            || {
+                checks.set(checks.get() + 1);
+                if checks.get() == 1 {
+                    Ok(())
+                } else {
+                    Err(MatchRunnerError::Interrupted)
+                }
+            },
+        );
+
+        assert!(matches!(result, Err(MatchRunnerError::Interrupted)));
+        assert_eq!(checks.get(), 2);
+    }
+
+    #[test]
+    fn test_communicate_times_out_while_output_is_queued() {
+        let responses = response_channel([
+            Ok(Some("diagnostic\n".to_string())),
+            Ok(Some("= d3\n".to_string())),
+            Ok(Some("\n".to_string())),
+        ]);
+        let mut writer = Vec::new();
+
+        let result = GtpEngine::communicate(
+            &mut writer,
+            &responses,
+            Some(Duration::ZERO),
+            "noisy-engine",
+            "genmove black",
+            || Ok(()),
+        );
+
+        assert!(matches!(result, Err(MatchRunnerError::Timeout(_))));
     }
 }

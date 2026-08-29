@@ -68,7 +68,7 @@ pub struct Config {
     pub byoyomi_stones: u32,
 
     /// Hard per-command engine timeout in seconds (default: none)
-    #[arg(long)]
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
     pub move_timeout: Option<u64>,
 
     /// Stop the match early once SPRT accepts either configured hypothesis
@@ -300,6 +300,23 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.move_timeout, Some(2));
+    }
+
+    #[test]
+    fn rejects_zero_move_timeout() {
+        let result = Config::try_parse_from([
+            "match-runner",
+            "--engine1",
+            "engine-one",
+            "--engine2",
+            "engine-two",
+            "--opening-file",
+            "openings.txt",
+            "--move-timeout",
+            "0",
+        ]);
+
+        assert!(result.is_err());
     }
 
     #[test]

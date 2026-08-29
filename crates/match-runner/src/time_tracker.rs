@@ -87,6 +87,14 @@ impl TimeTracker {
         // Determine time control mode from parameters
         let mode = Self::determine_mode(main_time_secs, byoyomi_time_secs, byoyomi_stones);
 
+        // Stones only have meaning in Japanese byo-yomi; zero them elsewhere so
+        // time_settings reports the same mode the tracker enforces.
+        let byoyomi_stones = if mode == TimeControlMode::JapaneseByo {
+            byoyomi_stones
+        } else {
+            0
+        };
+
         let player = PlayerClock::new(mode, main_time_ms, byoyomi_stones);
 
         Self {
@@ -342,6 +350,13 @@ mod tests {
     #[test]
     fn test_mode_detection_sudden_death() {
         let tracker = TimeTracker::new(60, 0, 0);
+        assert!(tracker.is_enabled());
+    }
+
+    #[test]
+    fn test_stones_zeroed_outside_japanese_byo() {
+        let tracker = TimeTracker::new(60, 0, 3);
+        assert_eq!(tracker.byoyomi_stones(), 0);
         assert!(tracker.is_enabled());
     }
 

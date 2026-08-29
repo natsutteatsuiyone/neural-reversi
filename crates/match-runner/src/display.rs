@@ -1,6 +1,6 @@
 //! Terminal display for live match statistics.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -29,11 +29,17 @@ enum BarColor {
 }
 
 pub(crate) fn clear_screen() -> io::Result<()> {
+    if !io::stdout().is_terminal() {
+        return Ok(());
+    }
     print!("{CLEAR_SCREEN}");
     io::stdout().flush()
 }
 
 pub(crate) fn show_match_header() -> io::Result<()> {
+    if !io::stdout().is_terminal() {
+        return Ok(());
+    }
     clear_screen()?;
     for _ in 0..HEADER_RESERVED_LINES {
         println!();
@@ -42,6 +48,9 @@ pub(crate) fn show_match_header() -> io::Result<()> {
 }
 
 pub(crate) fn create_progress_bar(total_games: u64) -> ProgressBar {
+    if !io::stderr().is_terminal() {
+        return ProgressBar::hidden();
+    }
     let progress_bar = ProgressBar::new(total_games);
     progress_bar.set_style(
         ProgressStyle::default_bar()
@@ -58,6 +67,9 @@ pub(crate) fn update_live_visualization(
     engine2_name: &str,
     sprt: Option<&SprtResult>,
 ) -> io::Result<()> {
+    if !io::stdout().is_terminal() {
+        return Ok(());
+    }
     print!("{SAVE_CURSOR}{VISUALIZATION_START_LINE}");
 
     let separator = "─".repeat(BAR_WIDTH + NAME_WIDTH + 15);

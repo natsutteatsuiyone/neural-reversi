@@ -2,7 +2,7 @@ use crate::colors::ThemeColor;
 use crate::sprt::{SprtConfig, SprtResult, SprtStatus};
 use colored::*;
 use reversi_core::disc::Disc;
-use std::io;
+use std::io::{self, IsTerminal};
 
 const ELO_K: f64 = 400.0;
 
@@ -13,7 +13,7 @@ pub struct MatchStatistics {
     pub draws: u32,
     pub total_score: i32,
     pub recent_results: Vec<GameHistory>,
-    pub paired_results: Vec<PairedResult>,
+    paired_frequencies: PentanomialFrequencies,
 }
 
 #[derive(Debug, Clone)]
@@ -22,12 +22,6 @@ pub struct GameHistory {
     pub score: i32,
     pub opening: String,
     pub engine1_color: Disc,
-}
-
-#[derive(Debug, Clone)]
-pub struct PairedResult {
-    pub game1: (MatchWinner, i32),
-    pub game2: (MatchWinner, i32),
 }
 
 impl MatchStatistics {
@@ -79,8 +73,9 @@ impl MatchStatistics {
             return Ok(());
         }
 
-        // Clear line and print header
-        println!("\r\x1B[2K");
+        if io::stdout().is_terminal() {
+            println!("\r\x1B[2K");
+        }
         println!("{}", "═".repeat(80).info().bold());
         let header = format!("{} vs {}", engine1_name, engine2_name);
         println!("{:^80}", header.primary().bold());
@@ -134,7 +129,7 @@ impl MatchStatistics {
 
     fn print_summary(&self) {
         // Calculate pentanomial frequencies
-        let freq = self.calculate_pentanomial_frequencies();
+        let freq = *self.pentanomial_frequencies();
 
         // Combine DD and WL for pentanomial representation (0-2 format)
         let ptnml = [
@@ -168,7 +163,7 @@ impl MatchStatistics {
         );
 
         // Calculate and display Elo and LOS
-        if !self.paired_results.is_empty() {
+        if self.paired_frequencies.total_pairs() != 0 {
             let stats = calculate_pentanomial_stats(&freq);
             let los = stats.calculate_los();
 
@@ -288,16 +283,12 @@ pub enum MatchWinner {
 }
 
 impl MatchStatistics {
-    pub fn add_paired_result(&mut self, game1: (MatchWinner, i32), game2: (MatchWinner, i32)) {
-        self.paired_results.push(PairedResult { game1, game2 });
+    pub fn add_paired_result(&mut self, game1: MatchWinner, game2: MatchWinner) {
+        self.paired_frequencies.add_pair(game1, game2);
     }
 
-    pub fn calculate_pentanomial_frequencies(&self) -> PentanomialFrequencies {
-        let mut frequencies = PentanomialFrequencies::default();
-        for paired_result in &self.paired_results {
-            frequencies.add_pair(paired_result.game1.0, paired_result.game2.0);
-        }
-        frequencies
+    pub fn pentanomial_frequencies(&self) -> &PentanomialFrequencies {
+        &self.paired_frequencies
     }
 }
 
