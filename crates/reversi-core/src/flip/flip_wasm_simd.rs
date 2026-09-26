@@ -153,24 +153,35 @@ fn fold_or_pair(x: v128) -> u64 {
 
 /// Reverses the bits within each 64-bit lane (lane `i` becomes
 /// `reverse_bits(lane_i)`). wasm SIMD has no bit-reversal opcode, so this
-/// reverses the byte order within each lane (`i8x16.swizzle`) and then the
-/// bits within each byte via a 4-bit nibble lookup table (two more swizzles).
+/// reverses the byte order within each lane and then the bits within each
+/// byte via two 4-bit nibble lookup tables.
 /// One short, parallel SIMD sequence in place of the scalar
 /// `u64::reverse_bits` shift/mask chain.
 #[inline]
 #[target_feature(enable = "simd128")]
 fn bit_reverse_u64x2(x: v128) -> v128 {
-    let byte_rev = i8x16_swizzle(
-        x,
-        i8x16(7, 6, 5, 4, 3, 2, 1, 0, 15, 14, 13, 12, 11, 10, 9, 8),
+    let byte_rev = i8x16_shuffle::<7, 6, 5, 4, 3, 2, 1, 0, 15, 14, 13, 12, 11, 10, 9, 8>(x, x);
+    // `lut_hi[n]` is the 4-bit reversal of nibble `n` (e.g. 0b0001 -> 0b1000);
+    // `lut_lo[n]` is the same value moved to the high half of the byte.
+    let lut_hi = u8x16(0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15);
+    let lut_lo = u8x16(
+        0x00, 0x80, 0x40, 0xc0, 0x20, 0xa0, 0x60, 0xe0, 0x10, 0x90, 0x50, 0xd0, 0x30, 0xb0, 0x70,
+        0xf0,
     );
-    // `lut[n]` is the 4-bit reversal of nibble `n` (e.g. 0b0001 -> 0b1000).
-    let lut = i8x16(0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15);
     let low_mask = u8x16_splat(0x0f);
     let lo = v128_and(byte_rev, low_mask);
-    let hi = v128_and(u8x16_shr(byte_rev, 4), low_mask);
-    // The reversed low nibble moves to the high half of the byte and vice versa.
-    let rev_lo = i8x16_swizzle(lut, lo);
-    let rev_hi = i8x16_swizzle(lut, hi);
-    v128_or(i8x16_shl(rev_lo, 4), rev_hi)
+    // The 16-bit shift carries bits across bytes; the mask drops them.
+    let hi = v128_and(u16x8_shr(byte_rev, 4), low_mask);
+    v128_or(nibble_lookup(lut_lo, lo), nibble_lookup(lut_hi, hi))
+}
+
+/// Looks up each byte of `idx` (all in `0..16`) in the 16-byte table `lut`.
+#[inline]
+#[target_feature(enable = "simd128")]
+fn nibble_lookup(lut: v128, idx: v128) -> v128 {
+    cfg_select! {
+        // In-range indices make the relaxed result deterministic.
+        target_feature = "relaxed-simd" => i8x16_relaxed_swizzle(lut, idx),
+        _ => i8x16_swizzle(lut, idx),
+    }
 }
