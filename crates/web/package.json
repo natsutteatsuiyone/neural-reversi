@@ -24,6 +24,7 @@
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
     "verify": "bun run lint && bun run fmt:check && cargo test -p web",
+    "test": "bun test scripts/",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install chromium",
@@ -34,16 +35,15 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.63.0",
     "cross-env": "^10.1.0",
-    "oxfmt": "^0.54.0",
-    "oxlint": "^1.69.0",
-    "vite": "^8.0.16",
-    "vite-plugin-top-level-await": "^1.6.0",
+    "oxfmt": "^0.70.0",
+    "oxlint": "^1.85.0",
+    "vite": "^8.3.1",
     "vite-plugin-wasm": "^3.6.0"
   },
   "dependencies": {
     "petite-vue": "^0.4.1",
-    "three": "^0.184.0"
+    "three": "^0.186.1"
   }
 }

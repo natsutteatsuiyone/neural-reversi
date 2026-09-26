@@ -2,13 +2,12 @@ import { defineConfig } from "vite";
 import { resolve, sep } from "path";
 import { cpSync, existsSync, readFileSync } from "fs";
 import wasm from "vite-plugin-wasm";
-import topLevelAwait from "vite-plugin-top-level-await";
 
 function serveWasm() {
   return {
     name: "serve-wasm",
     configureServer(server) {
-      const root = resolve(__dirname);
+      const root = resolve(import.meta.dirname);
       server.middlewares.use((req, res, next) => {
         if (req.url?.endsWith(".wasm")) {
           let requested;
@@ -47,7 +46,7 @@ function reloadOnWasmChange() {
   return {
     name: "reload-on-wasm-change",
     configureServer(server) {
-      const wasmPath = resolve(__dirname, "pkg/web_bg.wasm");
+      const wasmPath = resolve(import.meta.dirname, "pkg/web_bg.wasm");
       server.watcher.add(wasmPath);
       server.watcher.on("change", (file) => {
         if (file === wasmPath) {
@@ -65,12 +64,12 @@ function copyWasmPackages() {
     name: "copy-wasm-packages",
     writeBundle() {
       for (const dir of packageDirs) {
-        const src = resolve(__dirname, dir);
+        const src = resolve(import.meta.dirname, dir);
         if (!existsSync(src)) {
           console.warn(`[copy-wasm-packages] ${dir} not found; skipping copy.`);
           continue;
         }
-        cpSync(src, resolve(__dirname, "dist", dir), {
+        cpSync(src, resolve(import.meta.dirname, "dist", dir), {
           recursive: true,
         });
       }
@@ -79,17 +78,17 @@ function copyWasmPackages() {
 }
 
 export default defineConfig({
-  plugins: [serveWasm(), reloadOnWasmChange(), copyWasmPackages(), wasm(), topLevelAwait()],
+  plugins: [serveWasm(), reloadOnWasmChange(), copyWasmPackages(), wasm()],
   resolve: {
     alias: {
-      "/pkg": resolve(__dirname, "pkg"),
+      "/pkg": resolve(import.meta.dirname, "pkg"),
     },
   },
   build: {
     target: "esnext",
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
+        main: resolve(import.meta.dirname, "index.html"),
       },
       output: {
         // Enable hash-based cache busting for all assets
@@ -105,6 +104,6 @@ export default defineConfig({
   },
   worker: {
     format: "es",
-    plugins: () => [wasm(), topLevelAwait()],
+    plugins: () => [wasm()],
   },
 });
