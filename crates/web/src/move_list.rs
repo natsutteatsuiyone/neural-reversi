@@ -3,7 +3,9 @@
 pub use reversi_core::move_list::MoveList;
 
 use reversi_core::{
+    bitboard::Bitboard,
     board::Board,
+    move_list::Move,
     square::Square,
     types::{Depth, ScaledScore},
 };
@@ -131,23 +133,131 @@ pub(crate) fn evaluate_moves_fast(
     const CORNER_STABILITY_WEIGHT: i32 = 2048;
     const MOBILITY_WEIGHT: i32 = 16384;
 
+    let score = |sq: Square, next: &Board, moves: Bitboard| {
+        let corner_stability = next.opponent().corner_stability() as i32;
+        let weighted_mobility = moves.corner_weighted_count() as i32;
+        let mut value = SQUARE_VALUE[sq.index()] * SQUARE_VALUE_WEIGHT;
+        value += corner_stability * CORNER_STABILITY_WEIGHT;
+        value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
+        value
+    };
+
+    // Children are generated in pairs so their mobility can share one
+    // two-board move generation.
+    let mut pending: Option<(&mut Move, Board)> = None;
     for mv in move_list.iter_mut() {
-        mv.value = if mv.flipped == board.opponent() {
+        if mv.flipped == board.opponent() {
             // Wipeout move (capture all opponent pieces)
-            WIPEOUT_VALUE
+            mv.value = WIPEOUT_VALUE;
         } else if mv.sq == tt_move {
             // Transposition table move
-            TT_MOVE_VALUE
+            mv.value = TT_MOVE_VALUE;
         } else {
             ctx.increment_nodes();
             let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            let moves = next.get_moves();
-            let corner_stability = next.opponent().corner_stability() as i32;
-            let weighted_mobility = moves.corner_weighted_count() as i32;
-            let mut value = SQUARE_VALUE[mv.sq.index()] * SQUARE_VALUE_WEIGHT;
-            value += corner_stability * CORNER_STABILITY_WEIGHT;
-            value += (36 - weighted_mobility) * MOBILITY_WEIGHT;
-            value
+            match pending.take() {
+                None => pending = Some((mv, next)),
+                Some((prev, prev_next)) => {
+                    let (prev_moves, moves) = get_moves_pair(&prev_next, &next);
+                    prev.value = score(prev.sq, &prev_next, prev_moves);
+                    mv.value = score(mv.sq, &next, moves);
+                }
+            }
         }
     }
+    if let Some((mv, next)) = pending {
+        mv.value = score(mv.sq, &next, next.get_moves());
+    }
+}
+
+/// Returns the legal moves of two boards.
+#[inline(always)]
+fn get_moves_pair(a: &Board, b: &Board) -> (Bitboard, Bitboard) {
+    cfg_select! {
+        all(target_arch = "wasm32", target_feature = "simd128") => {
+            use core::arch::wasm32::*;
+
+            let player = u64x2(a.player().bits(), b.player().bits());
+            let opponent = u64x2(a.opponent().bits(), b.opponent().bits());
+            let moves = get_moves_x2(player, opponent);
+            (
+                Bitboard::new(u64x2_extract_lane::<0>(moves)),
+                Bitboard::new(u64x2_extract_lane::<1>(moves)),
+            )
+        }
+        _ => (a.get_moves(), b.get_moves()),
+    }
+}
+
+/// Lane-wise `get_moves` for two boards packed into `u64x2` lanes.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+fn get_moves_x2(
+    player: core::arch::wasm32::v128,
+    opponent: core::arch::wasm32::v128,
+) -> core::arch::wasm32::v128 {
+    use core::arch::wasm32::*;
+
+    let h_opp = v128_and(opponent, u64x2_splat(0x7E7E_7E7E_7E7E_7E7E));
+    let shl = |x, n| u64x2_shl(x, n);
+    let shr = |x, n| u64x2_shr(x, n);
+
+    let mut flip7 = v128_and(h_opp, shl(player, 7));
+    let mut flip9 = v128_and(h_opp, shl(player, 9));
+    let mut flip8 = v128_and(opponent, shl(player, 8));
+    let mut flip1 = v128_and(h_opp, shl(player, 1));
+
+    flip7 = v128_or(flip7, v128_and(h_opp, shl(flip7, 7)));
+    flip9 = v128_or(flip9, v128_and(h_opp, shl(flip9, 9)));
+    flip8 = v128_or(flip8, v128_and(opponent, shl(flip8, 8)));
+    let mut moves = i64x2_add(h_opp, flip1);
+
+    let mut pre7 = v128_and(h_opp, shl(h_opp, 7));
+    let mut pre9 = v128_and(h_opp, shl(h_opp, 9));
+    let mut pre8 = v128_and(opponent, shl(opponent, 8));
+
+    flip7 = v128_or(flip7, v128_and(pre7, shl(flip7, 14)));
+    flip9 = v128_or(flip9, v128_and(pre9, shl(flip9, 18)));
+    flip8 = v128_or(flip8, v128_and(pre8, shl(flip8, 16)));
+    flip7 = v128_or(flip7, v128_and(pre7, shl(flip7, 14)));
+    flip9 = v128_or(flip9, v128_and(pre9, shl(flip9, 18)));
+    flip8 = v128_or(flip8, v128_and(pre8, shl(flip8, 16)));
+
+    moves = v128_or(
+        moves,
+        v128_or(v128_or(shl(flip7, 7), shl(flip9, 9)), shl(flip8, 8)),
+    );
+
+    flip7 = v128_and(h_opp, shr(player, 7));
+    flip9 = v128_and(h_opp, shr(player, 9));
+    flip8 = v128_and(opponent, shr(player, 8));
+    flip1 = v128_and(h_opp, shr(player, 1));
+
+    flip7 = v128_or(flip7, v128_and(h_opp, shr(flip7, 7)));
+    flip9 = v128_or(flip9, v128_and(h_opp, shr(flip9, 9)));
+    flip8 = v128_or(flip8, v128_and(opponent, shr(flip8, 8)));
+    flip1 = v128_or(flip1, v128_and(h_opp, shr(flip1, 1)));
+
+    pre7 = shr(pre7, 7);
+    pre9 = shr(pre9, 9);
+    pre8 = shr(pre8, 8);
+    let pre1 = v128_and(h_opp, shr(h_opp, 1));
+
+    flip7 = v128_or(flip7, v128_and(pre7, shr(flip7, 14)));
+    flip9 = v128_or(flip9, v128_and(pre9, shr(flip9, 18)));
+    flip8 = v128_or(flip8, v128_and(pre8, shr(flip8, 16)));
+    flip1 = v128_or(flip1, v128_and(pre1, shr(flip1, 2)));
+    flip7 = v128_or(flip7, v128_and(pre7, shr(flip7, 14)));
+    flip9 = v128_or(flip9, v128_and(pre9, shr(flip9, 18)));
+    flip8 = v128_or(flip8, v128_and(pre8, shr(flip8, 16)));
+    flip1 = v128_or(flip1, v128_and(pre1, shr(flip1, 2)));
+
+    moves = v128_or(
+        moves,
+        v128_or(
+            v128_or(shr(flip7, 7), shr(flip9, 9)),
+            v128_or(shr(flip8, 8), shr(flip1, 1)),
+        ),
+    );
+    v128_andnot(moves, v128_or(player, opponent))
 }
