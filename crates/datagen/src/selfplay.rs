@@ -296,10 +296,7 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
 
         let sq = random_move(g.board());
         opening.push(sq);
-        if g.make_move(sq).is_err() {
-            return false;
-        }
-        true
+        g.make_move(sq).is_ok()
     };
 
     for _ in 0..num_moves {

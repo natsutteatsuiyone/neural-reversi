@@ -505,8 +505,7 @@ impl PatternFeatures {
         let p_feature = unsafe { pattern_features.p_features[ply].assume_init_mut() };
         let o_feature = unsafe { pattern_features.o_features[ply].assume_init_mut() };
         for (i, f2x) in EVAL_F2X.iter().enumerate() {
-            for j in 0..f2x.n_square {
-                let sq = f2x.squares[j];
+            for &sq in &f2x.squares[..f2x.n_square] {
                 p_feature[i] = p_feature[i] * 3 + get_square_color(board, sq);
                 o_feature[i] = o_feature[i] * 3 + get_square_color(&o_board, sq);
             }
@@ -1106,8 +1105,7 @@ fn set_features(board: &Board, patterns: &mut [u16]) {
     patterns.fill(0);
     for i in 0..NUM_PATTERN_FEATURES {
         let f2x = &EVAL_F2X[i];
-        for j in 0..f2x.n_square {
-            let sq = f2x.squares[j];
+        for &sq in &f2x.squares[..f2x.n_square] {
             let c = get_square_color(board, sq);
             patterns[i] = patterns[i] * 3 + c;
         }
@@ -1412,8 +1410,7 @@ mod tests {
             assert_eq!(feature.n_square, expected_len, "pattern {idx}");
 
             let mut seen = [false; BOARD_SQUARES];
-            for pos in 0..feature.n_square {
-                let sq = feature.squares[pos];
+            for (pos, &sq) in feature.squares[..feature.n_square].iter().enumerate() {
                 assert_ne!(sq, Square::None, "pattern {idx} active slot {pos}");
                 assert!(
                     !seen[sq.index()],
@@ -1422,12 +1419,8 @@ mod tests {
                 seen[sq.index()] = true;
             }
 
-            for pos in feature.n_square..feature.squares.len() {
-                assert_eq!(
-                    feature.squares[pos],
-                    Square::None,
-                    "pattern {idx} tail {pos}"
-                );
+            for (pos, &sq) in feature.squares.iter().enumerate().skip(feature.n_square) {
+                assert_eq!(sq, Square::None, "pattern {idx} tail {pos}");
             }
         }
     }

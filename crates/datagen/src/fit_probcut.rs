@@ -288,9 +288,9 @@ fn cells_for_ply(data: &AggregatedData, ply: usize) -> (Vec<(u32, u32, CellStats
         let mut merged: HashMap<DepthPair, CellStats> = HashMap::new();
         let first = ply.saturating_sub(1);
         let last = (ply + 1).min(NUM_PLY - 1);
-        for source_ply in first..=last {
+        for (source_ply, source_cells) in data.cells.iter().enumerate().take(last + 1).skip(first) {
             let weight = if source_ply == ply { 2.0 } else { 1.0 };
-            for (&pair, &stats) in &data.cells[source_ply] {
+            for (&pair, &stats) in source_cells {
                 merged.entry(pair).or_default().add_scaled(stats, weight);
             }
         }
