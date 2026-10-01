@@ -313,16 +313,18 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     // Store in transposition table
-    ctx.tt.store(
-        tt_probe_result.index(),
-        board,
-        best_score,
-        Bound::classify::<NT>(best_score, org_alpha, beta),
-        depth,
-        best_move,
-        ctx.selectivity,
-        SS::IS_ENDGAME,
-    );
+    if !NT::ROOT_NODE || ctx.root_moves.pv_idx() == 0 {
+        ctx.tt.store(
+            tt_probe_result.index(),
+            board,
+            best_score,
+            Bound::classify::<NT>(best_score, org_alpha, beta),
+            depth,
+            best_move,
+            ctx.selectivity,
+            SS::IS_ENDGAME,
+        );
+    }
 
     best_score
 }

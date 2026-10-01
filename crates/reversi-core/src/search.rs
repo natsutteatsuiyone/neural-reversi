@@ -401,7 +401,8 @@ pub(crate) fn widen_aspiration_window(
 /// Walks `pv` from `board`, re-inserting the forced passes that PV lines omit,
 /// and stores an exact entry wherever the table no longer holds the PV move.
 /// `score` and `depth` describe the head position and are negamax-mirrored and
-/// decremented along the line.
+/// decremented along the line. Multi-PV lines after the first skip the head,
+/// whose score covers only the root moves left after earlier lines.
 pub(crate) fn store_pv_in_tt(
     ctx: &SearchContext,
     board: &Board,
@@ -413,16 +414,18 @@ pub(crate) fn store_pv_in_tt(
     let mut board = *board;
     let mut protected_indices = [0; MAX_PLY];
     let mut protected_len = 0;
+    let skip_head = ctx.root_moves.pv_idx() > 0;
 
-    for &sq in pv {
+    for (i, &sq) in pv.iter().enumerate() {
         if !board.is_legal_move(sq) {
             board = board.switch_players();
             score = -score;
         }
 
-        if let Some(probe) =
-            ctx.tt
-                .probe_for_pv(&board, board.hash(), &protected_indices[..protected_len])
+        if (i > 0 || !skip_head)
+            && let Some(probe) =
+                ctx.tt
+                    .probe_for_pv(&board, board.hash(), &protected_indices[..protected_len])
         {
             let index = probe.index();
             if probe.best_move() != sq {
@@ -570,6 +573,31 @@ mod tests {
             expected_score = -expected_score;
             expected_depth -= 1;
         }
+    }
+
+    #[test]
+    fn store_pv_in_tt_skips_the_root_on_later_multi_pv_lines() {
+        let board = Board::new();
+        let mut moves = board.get_moves().iter();
+        let first = moves.next().unwrap();
+        let second = moves.next().unwrap();
+        let ctx = pv_store_ctx(&board, 1);
+        let root_score = ScaledScore::from_disc_diff(8);
+        seed_tt(&ctx.tt, &board, root_score, 8, first);
+
+        ctx.root_moves.set_pv_idx(1);
+        store_pv_in_tt(
+            &ctx,
+            &board,
+            &[second],
+            ScaledScore::from_disc_diff(2),
+            8,
+            false,
+        );
+
+        let root = ctx.tt.lookup(&board, board.hash()).unwrap();
+        assert_eq!(root.best_move(), first);
+        assert_eq!(root.score(), root_score);
     }
 
     #[test]
