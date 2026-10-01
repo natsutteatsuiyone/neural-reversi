@@ -22,6 +22,8 @@ use crate::util::align::Align64;
 use crate::util::bitset::AtomicBitSet;
 use crate::util::spinlock;
 
+use super::thread::SplitRequest;
+
 /// Maximum number of threads recorded in a cut-node split point mask.
 const MAX_THREADS_PER_CUT_SPLITPOINT: u32 = 4;
 
@@ -36,17 +38,11 @@ pub struct SplitPointState {
     /// Alpha bound for the alpha-beta search at this node.
     alpha: AtomicI32,
 
-    /// Beta bound for the alpha-beta search at this node.
-    pub beta: ScaledScore,
-
     /// Best score found so far at this split point.
     best_score: AtomicI32,
 
     /// Best move found so far at this split point.
     best_move: AtomicU8,
-
-    /// Type of node (PV, NonPV, or Root) for search specialization.
-    pub(super) node_type: NodeTypeId,
 
     /// Flag indicating if a beta cutoff has occurred.
     cutoff: Align64<AtomicBool>,
@@ -60,23 +56,13 @@ pub struct SplitPointState {
     /// Bitmask tracking which threads are working on this split point.
     pub(super) helpers_mask: Align64<AtomicBitSet>,
 
-    /// Search depth remaining from this position.
-    pub(super) depth: Depth,
-
-    /// Parent split point in the tree hierarchy.
-    pub(super) parent_split_point: Option<Arc<SplitPoint>>,
-
     /// Depth in the split-point tree.
     ///
-    /// Immutable after initialization, like `parent_split_point`; cached so
-    /// idle helpers do not walk ancestors when choosing which split point to join.
+    /// Immutable after initialization; cached so idle helpers do not walk ancestors when choosing which split point to join.
     ///
     /// Relaxed atomic because late-join pre-checks read it lock-free as a
     /// heuristic hint; booking is re-validated under the split-point lock.
     pub(super) level: AtomicUsize,
-
-    /// Whether this split point uses endgame search strategy.
-    pub(super) is_endgame: bool,
 
     /// Whether the parent expected this node to produce a beta cutoff.
     ///
@@ -231,15 +217,34 @@ pub struct SplitPointTask {
 
     /// Pre-computed opponent pattern feature at the split point ply.
     pub o_feature: PatternFeature,
+
+    /// Search depth remaining from this position.
+    pub depth: Depth,
+
+    /// Beta bound for the alpha-beta search at this node.
+    pub beta: ScaledScore,
+
+    /// Type of node (PV, NonPV, or Root) for search specialization.
+    pub node_type: NodeTypeId,
+
+    /// Whether this split point uses endgame search strategy.
+    pub is_endgame: bool,
+
+    /// Parent split point in the tree hierarchy.
+    pub parent_split_point: Option<Arc<SplitPoint>>,
 }
 
 impl SplitPointTask {
     /// Creates task data for a split point.
     #[inline]
-    pub(super) fn new(board: &Board, ctx: &SearchContext) -> Self {
+    pub(super) fn new(
+        req: &SplitRequest,
+        parent_split_point: Option<Arc<SplitPoint>>,
+        ctx: &SearchContext,
+    ) -> Self {
         let ply = ctx.ply();
         Self {
-            board: *board,
+            board: *req.board,
             side_to_move: ctx.side_to_move,
             selectivity: ctx.selectivity,
             eval_mode: ctx.eval_mode,
@@ -249,6 +254,11 @@ impl SplitPointTask {
             empty_list: ctx.empty_list.clone(),
             p_feature: *ctx.pattern_features.p_feature(ply),
             o_feature: *ctx.pattern_features.o_feature(ply),
+            depth: req.depth,
+            beta: req.beta,
+            node_type: req.node_type,
+            is_endgame: req.is_endgame,
+            parent_split_point,
         }
     }
 }
@@ -263,44 +273,37 @@ pub struct SplitPoint {
     /// Spinlock for fast synchronization between threads.
     mutex: spinlock::SpinLock,
 
-    /// Mutable state, protected by the mutex. Atomic fields, and fields that stay
-    /// immutable while the split point is active (`parent_split_point`), are also
-    /// read lock-free in join pre-checks and the cutoff-chain walk. `level`,
-    /// `owner_thread_idx`, and `cut_node` are Relaxed atomics used as lock-free
-    /// heuristic hints; split-point initialization is published by the owner's
-    /// Release update to `split_points_size` and consumed by Acquire observers.
-    state: SyncUnsafeCell<SplitPointState>,
+    /// Atomic state, written under the mutex and read lock-free in join
+    /// pre-checks. `level`, `owner_thread_idx`, and `cut_node` are Relaxed
+    /// atomics used as lock-free heuristic hints; split-point initialization is
+    /// published by the owner's Release update to `split_points_size` and
+    /// consumed by Acquire observers.
+    state: SplitPointState,
 
     /// Shared move iterator for the active split point.
     ///
     /// Stored separately from `state` so searchers can keep a reference to it
-    /// after releasing the split-point lock without aliasing `state_mut()`.
+    /// after releasing the split-point lock.
     /// Mutated only while the split-point lock is held, or after all searchers
     /// finish (see struct-level teardown ordering).
     move_iter: SyncUnsafeCell<Option<ConcurrentMoveIterator>>,
 
     /// Task data containing the position and search context.
     ///
-    /// Stored outside `state` so teardown can clear it without creating a
-    /// `&mut SplitPointState` that aliases lock-free `state()` borrows in
-    /// late-join pre-checks. Mutated only while the split-point lock is held,
-    /// or after all searchers finish.
+    /// Mutated only while the split-point lock is held, or after all searchers
+    /// finish.
     task: SyncUnsafeCell<Option<SplitPointTask>>,
 
     /// Principal variation line from the best move found at this split point.
     ///
-    /// Stored outside `state` so active searchers can update it under the
-    /// split-point lock without creating a `&mut SplitPointState` that aliases
-    /// lock-free `state()` borrows in late-join pre-checks. Also mutated after
-    /// all searchers finish (see struct-level teardown ordering).
+    /// Mutated under the split-point lock, or after all searchers finish (see
+    /// struct-level teardown ordering).
     pv: SyncUnsafeCell<[Square; MAX_PLY]>,
 
     /// Accumulated search counters from all threads that searched this split point.
     ///
-    /// Stored outside `state` so active searchers can merge under the
-    /// split-point lock without creating a `&mut SplitPointState` that aliases
-    /// lock-free `state()` borrows in late-join pre-checks. Also mutated after
-    /// all searchers finish (see struct-level teardown ordering).
+    /// Mutated under the split-point lock, or after all searchers finish (see
+    /// struct-level teardown ordering).
     counters: SyncUnsafeCell<SearchCounters>,
 }
 
@@ -309,22 +312,17 @@ impl Default for SplitPoint {
     fn default() -> Self {
         SplitPoint {
             mutex: spinlock::SpinLock::new(),
-            state: SyncUnsafeCell::new(SplitPointState {
+            state: SplitPointState {
                 all_helpers_searching: AtomicBool::new(false),
                 alpha: AtomicI32::new(0),
-                beta: ScaledScore::from_raw(0),
                 best_score: AtomicI32::new(0),
                 best_move: AtomicU8::new(Square::None as u8),
-                node_type: NodeTypeId::NonPv,
                 cutoff: Align64(AtomicBool::new(false)),
                 owner_thread_idx: AtomicUsize::new(0),
                 helpers_mask: Align64(AtomicBitSet::new()),
-                depth: 0,
-                parent_split_point: None,
                 level: AtomicUsize::new(0),
-                is_endgame: false,
                 cut_node: AtomicBool::new(false),
-            }),
+            },
             move_iter: SyncUnsafeCell::new(None),
             task: SyncUnsafeCell::new(None),
             pv: SyncUnsafeCell::new([Square::None; MAX_PLY]),
@@ -334,27 +332,10 @@ impl Default for SplitPoint {
 }
 
 impl SplitPoint {
-    /// Returns an immutable reference to the split point state.
-    ///
-    /// The caller must hold the split point lock, or otherwise ensure exclusive
-    /// access, to avoid data races on non-atomic fields. Lock-free callers may
-    /// only read atomic fields and the active-immutable fields listed on the
-    /// `state` field doc.
+    /// Returns the split point state.
     #[inline]
     pub fn state(&self) -> &SplitPointState {
-        // SAFETY: Caller must hold the split point lock or guarantee exclusive
-        // access. Non-atomic fields must not be concurrently written.
-        unsafe { &*self.state.get() }
-    }
-
-    /// Returns a mutable reference to the split point state.
-    ///
-    /// The caller must hold the split point lock to avoid data races.
-    #[inline]
-    #[allow(clippy::mut_from_ref)]
-    pub(super) fn state_mut(&self) -> &mut SplitPointState {
-        // SAFETY: Caller holds the split point lock.
-        unsafe { &mut *self.state.get() }
+        &self.state
     }
 
     /// Returns the shared move iterator for the active split point.

@@ -254,7 +254,7 @@ impl Thread {
             if sp_state.cutoff() {
                 return true;
             }
-            current = sp_state.parent_split_point.as_ref();
+            current = sp.task().parent_split_point.as_ref();
         }
         false
     }
@@ -348,12 +348,6 @@ impl Thread {
         // Clean up the split point
         self.finalize_split_point(sp);
 
-        // All searchers have finished this split point, but other threads may
-        // still hold brief lock-free `&SplitPointState` borrows via
-        // `try_late_join`'s pre-check. Stay on `sp.state()` (`&`): `task`, `pv`,
-        // and `counters` live outside `SplitPointState`, so none requires
-        // `&mut SplitPointState`; this follows the same aliasing discipline as
-        // the atomic fields.
         let sp_state = sp.state();
         ctx.set_pv(sp.pv());
         let counters = sp.take_counters_after_finished();
@@ -364,6 +358,7 @@ impl Thread {
     /// Initializes a split point with search parameters and finds workers.
     #[inline]
     fn initialize_split_point(&self, sp: &Arc<SplitPoint>, ctx: &SearchContext, req: SplitRequest) {
+        let task = SplitPointTask::new(&req, self.active_split_point().clone(), ctx);
         let move_iter = ConcurrentMoveIterator::from_offset(req.move_list, req.move_count);
 
         debug_assert!(self.searching.load(Ordering::Acquire));
@@ -372,29 +367,23 @@ impl Thread {
         let _guard = sp.lock();
         sp.set_move_iter(move_iter);
         // No contention here until split_points_size is incremented
-        let sp_state = sp.state_mut();
+        let sp_state = sp.state();
         sp_state.set_owner_thread_idx(self.idx);
-        sp_state.parent_split_point = self.active_split_point().clone();
         sp_state.set_level(
-            sp_state
-                .parent_split_point
+            task.parent_split_point
                 .as_ref()
                 .map_or(0, |parent| parent.state().level() + 1),
         );
         sp_state.helpers_mask.clear();
         sp_state.helpers_mask.set(self.idx);
-        sp_state.depth = req.depth;
         sp_state.set_best_score(req.best_score);
         sp_state.set_best_move(req.best_move);
         sp_state.set_alpha(req.alpha);
-        sp_state.beta = req.beta;
-        sp_state.node_type = req.node_type;
-        sp.set_task(SplitPointTask::new(req.board, ctx));
+        sp.set_task(task);
         sp.reset_counters_locked();
         sp_state.clear_cutoff();
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
         sp.copy_pv(ctx.get_pv());
-        sp_state.is_endgame = req.is_endgame;
         sp_state.set_cut_node(req.cut_node);
 
         self.split_points_size.fetch_add(1, Ordering::Release);
@@ -428,7 +417,7 @@ impl Thread {
             // protection to avoid a race with Thread::can_join().
             self.searching.store(true, Ordering::Release);
             self.split_points_size.fetch_sub(1, Ordering::Release);
-            *self.active_split_point_mut() = sp.state().parent_split_point.clone();
+            *self.active_split_point_mut() = sp.task().parent_split_point.clone();
             self.reset_cutoff_cache();
         }
 
@@ -473,9 +462,8 @@ impl Thread {
                 // after which the task and split parameters stay stable until
                 // every helper has finished.
                 let guard = sp.lock();
-                let board = sp.task().board;
-                let depth = sp.state().depth;
-                let node_type = sp.state().node_type;
+                let task = sp.task();
+                let (board, depth, node_type) = (task.board, task.depth, task.node_type);
                 let mut ctx = SearchContext::from_split_point(&sp);
                 drop(guard);
 
@@ -592,7 +580,7 @@ impl Thread {
         node_type: NodeTypeId,
         sp: &Arc<SplitPoint>,
     ) {
-        match (sp.state().is_endgame, node_type) {
+        match (sp.task().is_endgame, node_type) {
             // Endgame searches
             (true, NodeTypeId::NonPv) => {
                 search_split_point::<NonPV, EndGameStrategy>(ctx, board, depth, self, sp);

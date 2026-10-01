@@ -347,7 +347,7 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     // parameters and the move iterator stay stable until every helper clears
     // its helpers_mask bit.
     let guard = split_point.lock();
-    let beta = split_point.state().beta;
+    let beta = split_point.task().beta;
     let cut_node = split_point.state().cut_node();
     let move_iter = split_point.move_iter();
     let n_moves = move_iter.count();
