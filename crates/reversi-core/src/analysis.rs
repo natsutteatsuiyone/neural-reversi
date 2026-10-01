@@ -303,42 +303,6 @@ mod tests {
     }
 
     #[test]
-    fn classify_seed_distinguishes_searchable_pass_and_terminal() {
-        assert!(matches!(
-            classify_seed(&Board::new()),
-            SeedPosition::Searchable
-        ));
-
-        let full = Board::from_string(&"X".repeat(64), Disc::Black).unwrap();
-        assert!(matches!(classify_seed(&full), SeedPosition::Terminal));
-
-        let must_pass = forced_pass_board();
-        assert!(must_pass.get_moves().is_empty());
-        assert!(!must_pass.is_game_over());
-        assert!(matches!(classify_seed(&must_pass), SeedPosition::Pass));
-    }
-
-    #[test]
-    fn analyze_game_seeds_a_forced_pass_final_board_via_the_switched_position() {
-        // A forced-Pass final board with no recorded moves: the seed is scored
-        // from the post-pass Position (which has moves), not from solve().
-        let searched = Cell::new(false);
-        let search = |b: &Board| {
-            searched.set(true);
-            assert!(
-                !b.get_moves().is_empty(),
-                "seed must search a Position with moves"
-            );
-            Ok(analysis(Square::C1, 1.0, 1))
-        };
-        analyze_game(forced_pass_board(), &[], search, || false, |_p| {}).unwrap();
-        assert!(
-            searched.get(),
-            "forced-pass seed must search the switched Position"
-        );
-    }
-
-    #[test]
     fn analyze_game_emits_per_move_progress_newest_first() {
         // d3 (Black) then c3 (White); the final board still has Legal Moves,
         // so search is called for the seed, then once per move backward.
@@ -417,9 +381,7 @@ mod tests {
         // and this move list does NOT record the resulting forced Pass. The seed
         // is then scored from the switched (post-pass) Position and negated; that
         // seed negation is what this pins — dropping the sign inverts the reported
-        // Played Score and Score Loss for the move, yet leaves every other test
-        // green (the only forced-pass-seed test uses an empty move list, so it
-        // emits nothing and never observes the sign).
+        // Played Score and Score Loss for the move.
         let moves = vec![play(Square::H8)];
         let call = Cell::new(0usize);
         let search = |b: &Board| {

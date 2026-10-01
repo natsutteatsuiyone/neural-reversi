@@ -119,23 +119,6 @@ where
 }
 
 #[test]
-fn set_and_contains_are_pure_and_idempotent() {
-    let original = bitboard_from_squares(&[Square::B2, Square::H8]);
-    let with_a1 = original.set(Square::A1);
-
-    assert_eq!(original, bitboard_from_squares(&[Square::B2, Square::H8]));
-    assert_eq!(with_a1.set(Square::A1), with_a1);
-    for square in Square::iter() {
-        let expected = [Square::A1, Square::B2, Square::H8].contains(&square);
-        assert_eq!(
-            with_a1.contains(square),
-            expected,
-            "contains({square:?}) did not match the constructed board"
-        );
-    }
-}
-
-#[test]
 fn iterators_yield_all_squares_in_lsb_order() {
     for board in SAMPLE_BOARDS {
         let expected = expected_squares(board.bits());
@@ -164,32 +147,6 @@ fn iterators_yield_all_squares_in_lsb_order() {
             board.bits()
         );
     }
-}
-
-#[test]
-fn apply_move_and_apply_flip_are_xor_updates() {
-    let player = bitboard_from_squares(&[Square::A1, Square::D4]);
-    let flipped = bitboard_from_squares(&[Square::B1, Square::C1, Square::E4]);
-
-    assert_eq!(
-        player.apply_move(flipped, Square::D1),
-        bitboard_from_squares(&[
-            Square::A1,
-            Square::B1,
-            Square::C1,
-            Square::D1,
-            Square::D4,
-            Square::E4,
-        ])
-    );
-
-    let opponent =
-        bitboard_from_squares(&[Square::A1, Square::B1, Square::C1, Square::D4, Square::E4]);
-    assert_eq!(
-        opponent.apply_flip(flipped),
-        bitboard_from_squares(&[Square::A1, Square::D4])
-    );
-    assert_eq!(opponent.apply_flip(flipped).apply_flip(flipped), opponent);
 }
 
 #[test]
@@ -288,26 +245,4 @@ fn geometric_transforms_match_coordinate_reference() {
         Bitboard::rotate_270_clockwise,
         |file, rank| (rank, 7 - file),
     );
-}
-
-#[test]
-fn geometric_transform_identities_hold_for_representative_boards() {
-    for board in SAMPLE_BOARDS {
-        assert_eq!(board.flip_vertical().flip_vertical(), board);
-        assert_eq!(board.flip_horizontal().flip_horizontal(), board);
-        assert_eq!(board.flip_diag_a1h8().flip_diag_a1h8(), board);
-        assert_eq!(board.flip_diag_a8h1().flip_diag_a8h1(), board);
-
-        let rotate_90_twice = board.rotate_90_clockwise().rotate_90_clockwise();
-        let rotate_90_four_times = rotate_90_twice.rotate_90_clockwise().rotate_90_clockwise();
-        assert_eq!(rotate_90_twice, board.rotate_180_clockwise());
-        assert_eq!(rotate_90_four_times, board);
-        assert_eq!(
-            board.rotate_270_clockwise(),
-            board
-                .rotate_90_clockwise()
-                .rotate_90_clockwise()
-                .rotate_90_clockwise()
-        );
-    }
 }

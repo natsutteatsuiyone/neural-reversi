@@ -967,23 +967,6 @@ mod tests {
     }
 
     #[test]
-    fn forward_scalar_matches_reference_and_preserves_padded_outputs() {
-        const I: usize = 6;
-        const O: usize = 5;
-        const PI: usize = 8;
-        const PO: usize = 8;
-        let layer = build_layer::<I, O, PI, PO>(31);
-        let input = Align64([0, 255, 7, 0, 31, 128, 200, 201]);
-        let expected = reference_forward(&layer, &input);
-        let mut actual = Align64([777; PO]);
-
-        layer.forward_scalar(&input, &mut actual);
-
-        assert_eq!(&actual.as_ref()[..O], &expected);
-        assert_eq!(&actual.as_ref()[O..], &[777; PO - O]);
-    }
-
-    #[test]
     fn forward_scalar_wraps_on_i32_overflow() {
         let mut layer = build_layer::<1, 1, 4, 1>(0);
         layer.biases[0] = i32::MAX;
@@ -1041,36 +1024,56 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn avx2_forward_kernels_match_reference() {
-        let layer = build_layer::<64, 8, 64, 8>(71);
-        let input = patterned_input::<64, 64>(13);
-        let expected = reference_forward(&layer, &input);
-        let mut actual = Align64([0; 8]);
+        fn run<const I: usize, const O: usize, const PI: usize, const PO: usize>(
+            seed: i32,
+            input_seed: usize,
+        ) {
+            let layer = build_layer::<I, O, PI, PO>(seed);
+            let input = patterned_input::<I, PI>(input_seed);
+            let expected = reference_forward(&layer, &input);
+            let mut actual = Align64([0; PO]);
 
-        unsafe { layer.forward_avx2_no_vnni(&input, &mut actual) };
-        assert_eq!(actual.as_ref(), &expected, "avx2");
+            unsafe { layer.forward_avx2_no_vnni(&input, &mut actual) };
+            assert_eq!(&actual.as_ref()[..O], &expected, "avx2");
 
-        if std::arch::is_x86_feature_detected!("avxvnni") {
-            let mut vnni = Align64([0; 8]);
-            unsafe { layer.forward_avx2_vnni(&input, &mut vnni) };
-            assert_eq!(vnni.as_ref(), &expected, "avx2 vnni");
+            if std::arch::is_x86_feature_detected!("avxvnni") {
+                let mut vnni = Align64([0; PO]);
+                unsafe { layer.forward_avx2_vnni(&input, &mut vnni) };
+                assert_eq!(&vnni.as_ref()[..O], &expected, "avx2 vnni");
+            }
         }
+
+        run::<18, 8, 24, 8>(23, 5);
+        run::<64, 8, 64, 8>(71, 13);
+        run::<64, 16, 64, 16>(71, 13);
+        run::<32, 64, 32, 64>(51, 7);
     }
 
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     fn avx512_forward_kernels_match_reference() {
-        let layer = build_layer::<64, 16, 64, 16>(71);
-        let input = patterned_input::<64, 64>(13);
-        let expected = reference_forward(&layer, &input);
-        let mut actual = Align64([0; 16]);
+        fn run<const I: usize, const O: usize, const PI: usize, const PO: usize>(
+            seed: i32,
+            input_seed: usize,
+        ) {
+            let layer = build_layer::<I, O, PI, PO>(seed);
+            let input = patterned_input::<I, PI>(input_seed);
+            let expected = reference_forward(&layer, &input);
+            let mut actual = Align64([0; PO]);
 
-        unsafe { layer.forward_avx512_no_vnni(&input, &mut actual) };
-        assert_eq!(actual.as_ref(), &expected, "avx512");
+            unsafe { layer.forward_avx512_no_vnni(&input, &mut actual) };
+            assert_eq!(&actual.as_ref()[..O], &expected, "avx512");
 
-        if std::arch::is_x86_feature_detected!("avx512vnni") {
-            let mut vnni = Align64([0; 16]);
-            unsafe { layer.forward_avx512_vnni(&input, &mut vnni) };
-            assert_eq!(vnni.as_ref(), &expected, "avx512 vnni");
+            if std::arch::is_x86_feature_detected!("avx512vnni") {
+                let mut vnni = Align64([0; PO]);
+                unsafe { layer.forward_avx512_vnni(&input, &mut vnni) };
+                assert_eq!(&vnni.as_ref()[..O], &expected, "avx512 vnni");
+            }
         }
+
+        run::<18, 16, 24, 16>(23, 5);
+        run::<64, 16, 64, 16>(71, 13);
+        run::<32, 64, 32, 64>(51, 7);
+        run::<18, 64, 24, 64>(89, 3);
     }
 }

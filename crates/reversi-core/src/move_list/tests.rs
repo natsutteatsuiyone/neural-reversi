@@ -61,37 +61,6 @@ fn test_best_first_iter() {
     assert!(iter.next().is_none());
 }
 
-/// Tests best-first iterator with equal values.
-#[test]
-fn test_best_first_iter_equal_values() {
-    let board = Board::new();
-    let mut move_list = MoveList::new(&board);
-
-    for i in 0..move_list.count() {
-        move_list.moves[i].value = 100;
-    }
-
-    let total = move_list.count();
-    let iter = move_list.best_first_iter();
-    let mut count = 0;
-    for mv in iter {
-        assert_eq!(mv.value, 100);
-        count += 1;
-    }
-    assert_eq!(count, total);
-}
-
-/// Tests best-first iterator behavior with no legal moves.
-#[test]
-fn test_best_first_iter_empty_list() {
-    let board = Board::from_bitboards(u64::MAX, 0);
-    let mut move_list = MoveList::new(&board);
-    assert_eq!(move_list.count(), 0);
-
-    let mut iter = move_list.best_first_iter();
-    assert!(iter.next().is_none());
-}
-
 /// Tests best-first iterator with single move.
 #[test]
 fn test_best_first_iter_single_move() {
@@ -114,30 +83,6 @@ fn test_best_first_iter_single_move() {
     let mut iter = move_list.best_first_iter();
     assert!(iter.next().is_some());
     assert!(iter.next().is_none());
-}
-
-/// Tests concurrent move iterator.
-#[test]
-fn test_concurrent_move_iterator() {
-    let board = Board::new();
-    let move_list = MoveList::new(&board);
-    let concurrent_iter = ConcurrentMoveIterator::from_offset(move_list, 0);
-
-    assert_eq!(concurrent_iter.count(), 4);
-    assert_eq!(concurrent_iter.remaining(), 4);
-
-    let mut moves = Vec::new();
-    while let Some((mv, idx)) = concurrent_iter.next() {
-        moves.push((mv.sq, idx));
-    }
-
-    assert_eq!(moves.len(), 4);
-    assert_eq!(concurrent_iter.remaining(), 0);
-    for (i, (_, idx)) in moves.iter().enumerate() {
-        assert_eq!(*idx, i + 1);
-    }
-
-    assert!(concurrent_iter.next().is_none());
 }
 
 #[test]

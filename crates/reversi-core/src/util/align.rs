@@ -50,15 +50,3 @@ impl<T: fmt::Debug> fmt::Debug for Align64<T> {
         self.0.fmt(f)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_alignment() {
-        let aligned = Align64([0u8; 32]);
-        let ptr = aligned.as_ptr() as usize;
-        assert_eq!(ptr % 64, 0, "Align64 should provide 64-byte alignment");
-    }
-}

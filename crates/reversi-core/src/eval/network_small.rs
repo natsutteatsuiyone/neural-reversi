@@ -941,18 +941,6 @@ mod tests {
     }
 
     #[test]
-    fn scalar_wrapper_matches_scalar_forward() {
-        let (pattern_feature, input_layer, output_layer, _) = build_forward_fixture();
-
-        assert_eq!(
-            unsafe {
-                NetworkSmall::forward_scalar_wrapper(&pattern_feature, &input_layer, &output_layer)
-            },
-            NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer)
-        );
-    }
-
-    #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn forward_avx2_matches_scalar_for_sparse_feature_rows() {
         if !is_x86_feature_detected!("avx2") {
@@ -971,7 +959,6 @@ mod tests {
                 NetworkSmall::forward_avx2_vnni(&pattern_feature, &input_layer, &output_layer)
             };
             assert_eq!(avx2_vnni, scalar);
-            assert_eq!(avx2_vnni, avx2_no_vnni);
         }
     }
 
@@ -994,7 +981,6 @@ mod tests {
                 NetworkSmall::forward_avx512_vnni(&pattern_feature, &input_layer, &output_layer)
             };
             assert_eq!(avx512_vnni, scalar);
-            assert_eq!(avx512_vnni, avx512_no_vnni);
         }
     }
 

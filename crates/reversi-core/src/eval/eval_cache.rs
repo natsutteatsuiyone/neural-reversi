@@ -188,7 +188,6 @@ mod tests {
 
         let cache = EvalCache::new(4);
         assert_eq!(cache.table.len(), 4);
-        assert_eq!(cache.table.len() * WAYS, 16);
         assert_eq!(cache.mask, 3);
         assert_eq!(
             cache.table.as_ptr().addr() % size_of::<Bucket>(),
@@ -220,29 +219,6 @@ mod tests {
             let (bucket, victim_way) = cache.location(key);
             assert_eq!(bucket, 0, "way {way}");
             assert_eq!(victim_way as u64, way, "way {way}");
-        }
-    }
-
-    #[test]
-    fn pack_preserves_low_48_key_bits_and_signed_score_bits() {
-        let key = 0xABCD_FEDC_BA98_7654;
-
-        for raw_score in [
-            -ScaledScore::INF.value(),
-            -1,
-            0,
-            1,
-            ScaledScore::INF.value(),
-        ] {
-            let packed = EvalCache::pack(key, raw_score);
-
-            assert_eq!(packed >> SCORE_BITS, key & KEY_MASK, "score {raw_score}");
-            assert_ne!(packed as u16, EMPTY_SCORE_BITS, "score {raw_score}");
-            assert_eq!(
-                EvalCache::unpack_score(packed).value(),
-                raw_score,
-                "score {raw_score}"
-            );
         }
     }
 

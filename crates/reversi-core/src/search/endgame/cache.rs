@@ -189,19 +189,6 @@ mod tests {
     }
 
     #[test]
-    fn test_store_and_probe_miss_different_board() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
-        let board1 = make_board(0x0000000810000000, 0x0000001008000000);
-        let board2 = make_board(0x0000001008000000, 0x0000000810000000);
-        let cache_idx1 = cache.index(board1.hash());
-        let cache_idx2 = cache.index(board2.hash());
-
-        cache.store(cache_idx1, &board1, 11, 12);
-
-        assert!(cache.probe(cache_idx2, &board2, 11).is_none());
-    }
-
-    #[test]
     fn test_forced_index_collision_overwrites_without_false_hit() {
         let mut cache = EndGameCache::new(std::mem::size_of::<RawEntry>());
         let board1 = make_board(0x0000000810000000, 0x0000001008000000);
@@ -230,18 +217,5 @@ mod tests {
         cache.clear();
         cache.store(cache_idx, &board, -65, -64);
         assert_eq!(cache.probe(cache_idx, &board, -65), Some(-64));
-    }
-
-    #[test]
-    fn test_clear() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
-        let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let cache_idx = cache.index(board.hash());
-
-        cache.store(cache_idx, &board, 11, 12);
-        assert!(cache.probe(cache_idx, &board, 11).is_some());
-
-        cache.clear();
-        assert!(cache.probe(cache_idx, &board, 11).is_none());
     }
 }

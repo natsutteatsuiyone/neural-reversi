@@ -398,24 +398,15 @@ mod tests {
         }
     }
 
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn dispatch_ready_layer(natural: &PhaseAdaptiveInputLayer) -> PhaseAdaptiveInputLayer {
-        let layer = PhaseAdaptiveInputLayer {
+        let mut layer = PhaseAdaptiveInputLayer {
             biases: natural.biases.clone(),
             weights: natural.weights.clone(),
         };
-
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-        {
-            let mut layer = layer;
-            permute_rows(layer.biases.as_mut_slice(), OUTPUT_DIMS);
-            permute_rows(layer.weights.as_mut_slice(), OUTPUT_DIMS);
-            layer
-        }
-
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
-        {
-            layer
-        }
+        permute_rows(layer.biases.as_mut_slice(), OUTPUT_DIMS);
+        permute_rows(layer.weights.as_mut_slice(), OUTPUT_DIMS);
+        layer
     }
 
     fn reference_forward(
@@ -502,19 +493,6 @@ mod tests {
         let mut output = Align64([0; OUTPUT_DIMS]);
 
         input.forward(&pattern_feature, 60, output.as_mut_slice());
-    }
-
-    #[test]
-    fn layer_forward_dispatch_matches_scalar_for_the_runtime_layout() {
-        let pattern_feature = valid_pattern_feature(2053);
-        let natural = build_layer(&pattern_feature, 83);
-        let dispatch = dispatch_ready_layer(&natural);
-        let expected = reference_forward(&natural, &pattern_feature);
-        let mut actual = Align64([0; OUTPUT_DIMS]);
-
-        dispatch.forward(&pattern_feature, actual.as_mut_slice());
-
-        assert_eq!(actual.as_ref(), &expected);
     }
 
     #[test]

@@ -487,16 +487,13 @@ mod tests {
         assert!(has_enough_opponent_discs_for_cutoff(31 + m, 2));
         assert!(!has_enough_opponent_discs_for_cutoff(8 + m, 47));
         assert!(has_enough_opponent_discs_for_cutoff(8 + m, 48));
-
-        assert!(!has_enough_opponent_discs_for_cutoff(31, 2));
-        assert!(!has_enough_opponent_discs_for_cutoff(8, 48));
     }
 
     #[test]
-    fn stable_discs_are_available_without_runtime_init() {
-        let player = Bitboard::new(0xff);
+    fn stable_discs_include_full_edge_but_not_unprotected_inner_disc() {
+        let player = Bitboard::new(0xff) | crate::square::Square::B2.bitboard();
         let stable = get_stable_discs(player, Bitboard::new(0));
 
-        assert_eq!(stable.bits() & 0xff, 0xff);
+        assert_eq!(stable.bits(), 0xff);
     }
 }

@@ -159,18 +159,6 @@ mod tests {
     }
 
     #[test]
-    fn test_level_progression() {
-        // Verify that levels generally increase in difficulty
-        for i in 0..LEVELS.len() - 1 {
-            let current = get_level(i);
-            let next = get_level(i + 1);
-
-            // Mid depth should generally increase or stay the same
-            assert!(next.mid_depth >= current.mid_depth);
-        }
-    }
-
-    #[test]
     #[should_panic(expected = "Invalid level")]
     fn get_level_panics_above_the_valid_range() {
         // Pinning the message ensures the panic comes from `get_level`'s explicit

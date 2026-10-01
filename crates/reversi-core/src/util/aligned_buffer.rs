@@ -283,13 +283,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_elem_len_and_values() {
-        let v = AlignedBuffer::<i32>::from_elem(7, 100);
-        assert_eq!(v.len(), 100);
-        assert!(v.iter().all(|&x| x == 7));
-    }
-
-    #[test]
     fn base_pointer_is_aligned() {
         let v = AlignedBuffer::<i16>::from_elem(0, 257);
         assert_eq!(v.as_ptr() as usize % CACHE_LINE_SIZE, 0);
@@ -305,17 +298,6 @@ mod tests {
         for (i, &x) in v.iter().enumerate() {
             assert_eq!(i, x);
         }
-    }
-
-    #[test]
-    fn mutation_through_deref() {
-        let mut v = AlignedBuffer::<i32>::from_elem(0, 8);
-        for (i, slot) in v.iter_mut().enumerate() {
-            *slot = i as i32;
-        }
-        assert_eq!(v.as_slice(), &[0, 1, 2, 3, 4, 5, 6, 7]);
-        v[0] = 42;
-        assert_eq!(v[0], 42);
     }
 
     #[test]

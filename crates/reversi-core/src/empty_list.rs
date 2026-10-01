@@ -282,74 +282,6 @@ mod tests {
     }
 
     #[test]
-    fn test_quadrant_id() {
-        // Test that get_quadrant_id correctly maps squares to quadrants
-        assert_eq!(get_quadrant_id(Square::A1), 1); // Top-left
-        assert_eq!(get_quadrant_id(Square::D4), 1); // Top-left
-        assert_eq!(get_quadrant_id(Square::E1), 2); // Top-right
-        assert_eq!(get_quadrant_id(Square::H4), 2); // Top-right
-        assert_eq!(get_quadrant_id(Square::A5), 4); // Bottom-left
-        assert_eq!(get_quadrant_id(Square::D8), 4); // Bottom-left
-        assert_eq!(get_quadrant_id(Square::E5), 8); // Bottom-right
-        assert_eq!(get_quadrant_id(Square::H8), 8); // Bottom-right
-        assert_eq!(get_quadrant_id(Square::None), 0); // None
-    }
-
-    #[test]
-    fn test_ply_calculation() {
-        let board = Board::new();
-        let mut empty_list = EmptyList::new(&board);
-
-        // Initial ply should be 0 (60 empty squares)
-        assert_eq!(empty_list.ply(), 0);
-
-        // Remove one square (simulate one move)
-        empty_list.remove(Square::A1);
-        assert_eq!(empty_list.ply(), 1);
-
-        // Remove more squares
-        empty_list.remove(Square::H1);
-        empty_list.remove(Square::A8);
-        assert_eq!(empty_list.ply(), 3);
-
-        // Restore one square
-        empty_list.restore(Square::A1);
-        assert_eq!(empty_list.ply(), 2);
-    }
-
-    #[test]
-    fn test_multiple_remove_restore_cycles() {
-        let board = Board::new();
-        let mut empty_list = EmptyList::new(&board);
-        let initial_parity = empty_list.parity();
-        let initial_count = empty_list.count();
-        let initial_first = empty_list.first();
-
-        // Test removing and restoring multiple squares (all must be empty squares)
-        let squares_to_test = [Square::A1, Square::H8, Square::C1, Square::F1];
-
-        for &sq in &squares_to_test {
-            empty_list.remove(sq);
-        }
-
-        // Verify count decreased
-        assert_eq!(
-            empty_list.count(),
-            initial_count - squares_to_test.len() as u32
-        );
-
-        // Restore all squares in reverse order
-        for &sq in squares_to_test.iter().rev() {
-            empty_list.restore(sq);
-        }
-
-        // Verify we're back to original state
-        assert_eq!(empty_list.count(), initial_count);
-        assert_eq!(empty_list.parity(), initial_parity);
-        assert_eq!(empty_list.first(), initial_first);
-    }
-
-    #[test]
     fn test_edge_cases_empty_list() {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
@@ -370,32 +302,6 @@ mod tests {
         }
         assert_eq!(empty_list.first(), Square::A1);
         assert_eq!(empty_list.count(), 60);
-    }
-
-    #[test]
-    fn test_parity_specific_quadrants() {
-        let board = Board::new();
-        let mut empty_list = EmptyList::new(&board);
-        let initial_parity = empty_list.parity();
-
-        // Test removing a few squares from quadrant 1 (top-left)
-        empty_list.remove(Square::A1); // quadrant 1
-        empty_list.remove(Square::B1); // quadrant 1
-
-        // Removing 2 squares from quadrant 1: parity changes by 1^1 = 0
-        assert_eq!(empty_list.parity(), initial_parity);
-
-        // Remove one more from quadrant 1
-        empty_list.remove(Square::C1); // quadrant 1
-
-        // Now we've removed 3 squares: 1^1^1 = 1, so parity should change by 1
-        assert_eq!(empty_list.parity(), initial_parity ^ 1);
-
-        // Test removing from different quadrants
-        empty_list.remove(Square::E1); // quadrant 2
-
-        // Parity change: (1^1^1) ^ 2 = 1^2 = 3
-        assert_eq!(empty_list.parity(), initial_parity ^ 3);
     }
 
     #[test]

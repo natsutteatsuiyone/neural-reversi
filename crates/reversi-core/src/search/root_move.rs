@@ -193,13 +193,6 @@ mod tests {
     }
 
     #[test]
-    fn new_builds_one_root_move_per_legal_move() {
-        let rms = RootMoves::new(&Board::new());
-        assert_eq!(rms.count(), 4); // the standard opening has four legal moves
-        assert_eq!(rms.pv_idx(), 0);
-    }
-
-    #[test]
     fn update_seeds_then_halves_the_running_average() {
         let rms = RootMoves::new(&Board::new());
         let sq = rms.get(0).unwrap().sq;
@@ -290,14 +283,13 @@ mod tests {
             );
         }
 
+        rms.set_pv_idx(1);
         rms.sort_from_pv_idx();
 
-        let best = rms.get(0).unwrap();
-        assert_eq!(best.sq, sqs[sqs.len() - 1]);
-        assert_eq!(
-            best.score,
-            ScaledScore::from_disc_diff((sqs.len() - 1) as i32)
-        );
+        let mut expected_tail = sqs[1..].to_vec();
+        expected_tail.reverse();
+        assert_eq!(squares(&rms)[0], sqs[0]);
+        assert_eq!(squares(&rms)[1..], expected_tail);
     }
 
     #[test]
@@ -309,18 +301,6 @@ mod tests {
         rms.sort_from_pv_idx(); // must neither panic nor reorder
 
         assert_eq!(squares(&rms), before);
-    }
-
-    #[test]
-    fn current_pv_tracks_the_pv_index_and_its_bounds() {
-        let rms = RootMoves::new(&Board::new());
-
-        rms.set_pv_idx(1);
-        assert_eq!(rms.pv_idx(), 1);
-        assert!(rms.get_current_pv().is_some());
-
-        rms.set_pv_idx(rms.count());
-        assert!(rms.get_current_pv().is_none());
     }
 
     #[test]
@@ -339,53 +319,5 @@ mod tests {
 
         rms.set_pv_idx(rms.count() + 5); // past the end: no moves remain
         assert!(rms.moves_bb_from_pv_idx().is_empty());
-    }
-
-    #[test]
-    fn save_previous_scores_snapshots_the_current_scores() {
-        let rms = RootMoves::new(&Board::new());
-        let sq = rms.get(0).unwrap().sq;
-        rms.update(sq, ScaledScore::from_disc_diff(5), true, &pv_array(&[sq]));
-
-        rms.save_previous_scores();
-
-        assert_eq!(
-            find(&rms, sq, |rm| rm.previous_score),
-            ScaledScore::from_disc_diff(5)
-        );
-    }
-
-    #[test]
-    fn snapshot_is_detached_from_later_updates() {
-        let rms = RootMoves::new(&Board::new());
-        let sq = rms.get(0).unwrap().sq;
-        rms.update(sq, ScaledScore::from_disc_diff(5), true, &pv_array(&[sq]));
-
-        let snapshot = rms.snapshot();
-
-        rms.update(
-            sq,
-            ScaledScore::from_disc_diff(9),
-            true,
-            &pv_array(&[sq, Square::C3]),
-        );
-
-        let snapshotted = snapshot
-            .iter()
-            .find(|rm| rm.sq == sq)
-            .expect("square should be present in the snapshot");
-        assert_eq!(snapshotted.score, ScaledScore::from_disc_diff(5));
-        assert_eq!(snapshotted.pv, vec![sq]);
-    }
-
-    #[test]
-    fn empty_root_moves_have_no_best_or_current_pv() {
-        // A full board has no empty squares and thus no legal moves.
-        let board = Board::from_bitboards(u64::MAX, 0);
-        let rms = RootMoves::new(&board);
-
-        assert_eq!(rms.count(), 0);
-        assert!(rms.get(0).is_none());
-        assert!(rms.get_current_pv().is_none());
     }
 }

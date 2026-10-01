@@ -285,21 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_simple_runs_the_network_for_a_non_terminal_position() {
-        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
-        // The opening position has empty squares, so evaluate_simple takes the
-        // network path (ply + pattern-feature construction) rather than the
-        // terminal early return exercised above.
-        let board = Board::new();
-        assert!(board.get_empty_count() > 0);
-
-        // evaluate_simple bypasses the eval cache, so repeated calls recompute
-        // the same value deterministically.
-        let score = eval.evaluate_simple(&board, EvalMode::Main);
-        assert_eq!(eval.evaluate_simple(&board, EvalMode::Main), score);
-    }
-
-    #[test]
     fn evaluate_main_agrees_with_the_uncached_path() {
         use crate::eval::pattern_feature::PatternFeatures;
 

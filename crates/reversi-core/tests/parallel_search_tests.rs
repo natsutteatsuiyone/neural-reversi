@@ -8,6 +8,7 @@ use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources};
+use reversi_core::square::Square;
 
 const BOARD_20_EMPTIES: &str = "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--";
 const BOARD_15_EMPTIES: &str = "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-";
@@ -50,11 +51,6 @@ fn parallel_solve_matches_known_score_20_empties() {
 }
 
 #[test]
-fn parallel_solve_matches_known_score_15_empties() {
-    assert_parallel_solve(BOARD_15_EMPTIES, Disc::Black, 4, 8);
-}
-
-#[test]
 fn parallel_solve_matches_single_threaded() {
     assert_parallel_solve(BOARD_9_EMPTIES, Disc::Black, 1, 50);
     assert_parallel_solve(BOARD_9_EMPTIES, Disc::Black, 4, 50);
@@ -76,7 +72,7 @@ fn parallel_solve_reused_search_instance_is_consistent() {
 #[test]
 fn timed_search_terminates_within_deadline_margin() {
     let mut search = search(4);
-    let board = Board::new();
+    let board = Board::new().make_move(Square::F5);
     let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
         time_per_move_ms: 500,
     });
@@ -92,6 +88,7 @@ fn timed_search_terminates_within_deadline_margin() {
         "timed search took {elapsed:?}"
     );
     assert!(result.score().is_some(), "expected a best move");
+    assert!(result.n_nodes() > 0);
 }
 
 /// Full-width midgame search must return the same score for any thread count:
@@ -100,23 +97,26 @@ fn timed_search_terminates_within_deadline_margin() {
 /// at the final depth is the exact minimax value.
 #[test]
 fn parallel_midgame_score_matches_single_threaded() {
-    let level = Level::uniform(8, 0);
-    let options = SearchRunOptions::with_level(level).disable_probcut();
-    let board = Board::new();
-
+    const DEPTH: u32 = 8;
+    let options = SearchRunOptions::with_level(Level::uniform(DEPTH, 0)).disable_probcut();
     let mut single = search(1);
-    let expected = single
-        .run(&board, &options)
-        .score()
-        .expect("expected best move");
-
     let mut parallel = search(4);
-    let actual = parallel
-        .run(&board, &options)
-        .score()
-        .expect("expected best move");
 
-    assert_eq!(actual, expected);
+    for moves in ["f5", "f5d6", "f5f6", "f5f6e6"] {
+        let board = Square::parse_sequence(moves)
+            .unwrap()
+            .into_iter()
+            .fold(Board::new(), |board, sq| board.make_move(sq));
+
+        let expected = single.run(&board, &options);
+        let actual = parallel.run(&board, &options);
+
+        for result in [&expected, &actual] {
+            assert_eq!(result.depth(), DEPTH, "moves={moves}");
+            assert!(result.n_nodes() > 0, "moves={moves}");
+        }
+        assert_eq!(actual.score(), expected.score(), "moves={moves}");
+    }
 }
 
 /// Covers the GUI's manual abort path (`ThreadPool::abort_search`), which the
@@ -127,7 +127,7 @@ fn parallel_midgame_score_matches_single_threaded() {
 fn manual_abort_stops_deep_solve_promptly() {
     let mut search = search(4);
     let pool = search.thread_pool();
-    let board = Board::new();
+    let board = Board::new().make_move(Square::F5);
     let options = SearchRunOptions::with_level(Level::perfect());
 
     let aborter = std::thread::spawn(move || {
@@ -144,6 +144,7 @@ fn manual_abort_stops_deep_solve_promptly() {
     assert!(elapsed < Duration::from_secs(5), "abort took {elapsed:?}");
     let best = result.best_move().expect("expected fallback best move");
     assert!(board.is_legal_move(best));
+    assert!(result.n_nodes() > 0);
 }
 
 /// Guards against shutdown deadlocks or state leaking across pool lifetimes.

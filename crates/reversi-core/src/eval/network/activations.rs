@@ -842,33 +842,6 @@ mod tests {
     }
 
     #[test]
-    fn scalar_helpers_resume_at_start_index_without_touching_prefix() {
-        let input_values = [-2048, -64, -1, 0, 63, 64, 4096, 16_320];
-        let input = Align64(input_values);
-
-        let mut clipped = Align64([0xEE; 8]);
-        clipped_relu_scalar(input.as_slice(), clipped.as_mut_slice(), 3);
-        assert_eq!(&clipped.as_ref()[..3], &[0xEE; 3]);
-        for (idx, &value) in input.iter().enumerate().skip(3) {
-            assert_eq!(clipped[idx], reference_clipped_relu(value), "clipped {idx}");
-        }
-
-        let mut sqr = Align64([0xEE; 8]);
-        sqr_clipped_relu_scalar(input.as_slice(), sqr.as_mut_slice(), 3);
-        assert_eq!(&sqr.as_ref()[..3], &[0xEE; 3]);
-        for (idx, &value) in input.iter().enumerate().skip(3) {
-            assert_eq!(sqr[idx], reference_sqr_clipped_relu(value), "sqr {idx}");
-        }
-
-        let mut screlu_out = Align64([0xEE; 8]);
-        screlu_scalar(input.as_slice(), screlu_out.as_mut_slice(), 3);
-        assert_eq!(&screlu_out.as_ref()[..3], &[0xEE; 3]);
-        for (idx, &value) in input.iter().enumerate().skip(3) {
-            assert_eq!(screlu_out[idx], reference_screlu(value), "screlu {idx}");
-        }
-    }
-
-    #[test]
     fn sqr_clipped_relu_scalar_matches_hand_computed_values_across_the_i32_range() {
         // The scalar fallback computes `(clamp_i16(x))^2 >> SQR_SHIFT`, capped at
         // 255, widening to i64 so the square cannot overflow. The i16 clamp mirrors

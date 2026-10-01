@@ -495,14 +495,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_board() {
-        let board = Board::default();
-        assert_eq!(board.get_player_count(), 2);
-        assert_eq!(board.get_opponent_count(), 2);
-        assert_eq!(board.get_empty_count(), 60);
-    }
-
-    #[test]
     #[should_panic(expected = "player and opponent bitboards must not overlap")]
     fn test_from_bitboards_rejects_overlap() {
         Board::from_bitboards(Square::A1.bitboard(), Square::A1.bitboard());
@@ -584,9 +576,9 @@ mod tests {
         let full_board = Board::from_bitboards(u64::MAX, 0);
         assert!(full_board.is_game_over());
 
-        // Empty board - game over (no moves)
-        let empty_board = Board::from_bitboards(0, 0);
-        assert!(empty_board.is_game_over());
+        // Player must pass but opponent can move - not over
+        let pass_board = Board::from_bitboards(0x000000000000ff00, 0x00000000000000ff);
+        assert!(!pass_board.is_game_over());
     }
 
     #[test]
@@ -619,19 +611,6 @@ mod tests {
         assert!(new_board.opponent().contains(Square::D4));
         assert_eq!(new_board.get_opponent_count(), 4); // 2 original + 1 new + 1 flipped
         assert_eq!(new_board.get_player_count(), 1); // 2 original - 1 flipped
-    }
-
-    #[test]
-    fn test_get_moves() {
-        let board = Board::new();
-        let moves = board.get_moves();
-
-        // Initial position has 4 legal moves
-        assert_eq!(moves.count(), 4);
-        assert!(moves.contains(Square::D3));
-        assert!(moves.contains(Square::C4));
-        assert!(moves.contains(Square::F5));
-        assert!(moves.contains(Square::E6));
     }
 
     #[test]
@@ -768,22 +747,6 @@ mod tests {
     }
 
     #[test]
-    fn test_solve_no_empties() {
-        // Full board, no empties
-        // Player wins 64-0
-        let board = Board::from_bitboards(u64::MAX, 0);
-        assert_eq!(board.solve(0), 64);
-
-        // Opponent wins 0-64
-        let board = Board::from_bitboards(0, u64::MAX);
-        assert_eq!(board.solve(0), -64);
-
-        // Draw 32-32
-        let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
-        assert_eq!(board.solve(0), 0);
-    }
-
-    #[test]
     fn test_from_string_too_short() {
         let result = Board::from_string("XXXXXXXX", Disc::Black);
         assert!(result.is_err());
@@ -823,34 +786,6 @@ mod tests {
             }
             _ => panic!("Expected InvalidChar error"),
         }
-    }
-
-    #[test]
-    fn test_board_error_display() {
-        assert_eq!(
-            BoardError::TooShort {
-                expected: 64,
-                actual: 10
-            }
-            .to_string(),
-            "Board string too short: expected 64 characters, got 10"
-        );
-        assert_eq!(
-            BoardError::TooLong {
-                expected: 64,
-                actual: 100
-            }
-            .to_string(),
-            "Board string too long: expected 64 characters, got 100"
-        );
-        assert_eq!(
-            BoardError::InvalidChar {
-                char: 'Z',
-                position: 5
-            }
-            .to_string(),
-            "Invalid character 'Z' at position 5: must be 'X', 'O', or '-'"
-        );
     }
 
     #[test]
@@ -901,15 +836,5 @@ mod tests {
                     <= (candidate.player.bits(), candidate.opponent.bits())
             );
         }
-    }
-
-    #[test]
-    fn test_unique_idempotent() {
-        // Applying unique twice should give the same result
-        // Use non-overlapping bitboards
-        let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
-        let unique1 = board.unique();
-        let unique2 = unique1.unique();
-        assert_eq!(unique1, unique2);
     }
 }

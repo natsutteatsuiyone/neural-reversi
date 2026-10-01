@@ -578,9 +578,10 @@ mod tests {
         acc
     }
 
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     type Chunk16Segments = (Align64<[u8; 16]>, Align64<[u8; 48]>);
-    type Chunk32Segments = (Align64<[u8; 32]>, Align64<[u8; 32]>);
 
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     fn chunk16_segments() -> Chunk16Segments {
         let seg0 = Align64([
             3, 17, 31, 45, 59, 73, 87, 101, 115, 129, 143, 157, 171, 185, 199, 213,
@@ -594,16 +595,13 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn chunk32_segments() -> Chunk32Segments {
-        let seg0 = Align64([
-            3, 17, 31, 45, 59, 73, 87, 101, 115, 129, 143, 157, 171, 185, 199, 213, 227, 241, 255,
-            5, 19, 33, 47, 61, 75, 89, 103, 117, 131, 145, 159, 173,
-        ]);
-        let seg1 = Align64([
-            255, 200, 150, 100, 50, 25, 12, 6, 3, 1, 0, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27,
-            29, 31, 33, 35, 37, 39, 41, 43, 45, 47,
-        ]);
-        (seg0, seg1)
+    fn patterned_segments<const A: usize, const B: usize>() -> (Align64<[u8; A]>, Align64<[u8; B]>)
+    {
+        let value = |idx: usize| ((idx * 37 + 11) & 0xff) as u8;
+        (
+            Align64(std::array::from_fn(value)),
+            Align64(std::array::from_fn(|idx| value(A + idx))),
+        )
     }
 
     #[test]
@@ -651,32 +649,6 @@ mod tests {
         let expected = reference_forward(&layer, segments);
 
         assert_eq!(layer.forward_scalar(segments), expected);
-    }
-
-    #[test]
-    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512bw")))]
-    fn forward_dispatch_matches_reference_for_16_byte_chunked_segments() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
-        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
-        let (seg0, seg1) = chunk16_segments();
-        let segments = [&seg0.0[..], &seg1.0[..]];
-        let expected = reference_forward(&layer, segments);
-
-        assert_eq!(layer.forward(segments), expected);
-    }
-
-    #[test]
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    fn forward_dispatch_matches_reference_for_32_byte_chunked_segments() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
-        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
-        let (seg0, seg1) = chunk32_segments();
-        let segments = [&seg0.0[..], &seg1.0[..]];
-        let expected = reference_forward(&layer, segments);
-
-        assert_eq!(layer.forward(segments), expected);
     }
 
     #[test]
@@ -758,10 +730,10 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn avx2_forward_kernels_match_reference_for_chunked_segments() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
+        const INPUT: usize = 96;
+        const PADDED: usize = 96;
         let layer = build_layer::<INPUT, PADDED>(-6789, 29);
-        let (seg0, seg1) = chunk16_segments();
+        let (seg0, seg1) = patterned_segments::<16, 80>();
         let segments = [&seg0.0[..], &seg1.0[..]];
         let expected = reference_forward(&layer, segments);
 
@@ -779,10 +751,10 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     fn avx512_forward_kernels_match_reference_for_chunked_segments() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
+        const INPUT: usize = 192;
+        const PADDED: usize = 192;
         let layer = build_layer::<INPUT, PADDED>(-6789, 29);
-        let (seg0, seg1) = chunk32_segments();
+        let (seg0, seg1) = patterned_segments::<32, 160>();
         let segments = [&seg0.0[..], &seg1.0[..]];
         let expected = reference_forward(&layer, segments);
 

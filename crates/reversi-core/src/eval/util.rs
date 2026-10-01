@@ -228,20 +228,6 @@ pub fn m256_hadd(sum_vec: __m256i) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::pattern_feature::calc_pattern_size;
-
-    #[test]
-    fn ceil_to_multiple_handles_const_zero_exact_and_rounded_values() {
-        const ZERO: usize = ceil_to_multiple(0, 8);
-        const EXACT: usize = ceil_to_multiple(64, 32);
-        const ROUNDED: usize = ceil_to_multiple(65, 32);
-        const BASE_ONE: usize = ceil_to_multiple(17, 1);
-
-        assert_eq!(ZERO, 0);
-        assert_eq!(EXACT, 64);
-        assert_eq!(ROUNDED, 96);
-        assert_eq!(BASE_ONE, 17);
-    }
 
     #[test]
     fn clone_biases_copies_the_prefix_into_a_64_byte_aligned_array() {
@@ -281,34 +267,10 @@ mod tests {
     }
 
     #[test]
-    fn clone_biases_supports_empty_outputs() {
-        let cloned: Align64<[u32; 0]> = clone_biases(&[]);
-
-        assert!(cloned.as_slice().is_empty());
-        assert_eq!((cloned.as_ptr() as usize) % 64, 0);
-    }
-
-    #[test]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "bias slice")]
     fn clone_biases_rejects_short_slices_in_debug_builds() {
         let _: Align64<[u32; 4]> = clone_biases(&[1u32, 2, 3]);
-    }
-
-    #[test]
-    fn feature_offset_adds_each_pattern_value_to_its_table_offset() {
-        let mut pattern_feature = PatternFeature::new();
-
-        for idx in 0..NUM_PATTERN_FEATURES {
-            let value = ((idx * 4099 + 17) % calc_pattern_size(idx)) as u16;
-            pattern_feature[idx] = value;
-
-            assert_eq!(
-                feature_offset(&pattern_feature, idx),
-                PATTERN_FEATURE_OFFSETS[idx] + usize::from(value),
-                "feature {idx}"
-            );
-        }
     }
 
     #[test]

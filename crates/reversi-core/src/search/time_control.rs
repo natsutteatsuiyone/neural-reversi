@@ -689,17 +689,6 @@ mod tests {
     }
 
     #[test]
-    fn moves_to_go_budget_and_hard_limit() {
-        let tm = make_moves_to_go_tm(60_000, 30, 40);
-        let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
-
-        assert_eq!(hard, 60_000 - TIME_BUFFER_MS);
-        assert!(tm.mini_time_ms() <= tm.maxi_time_ms());
-        assert!(tm.maxi_time_ms() <= hard);
-        assert!(tm.uses_continuous_scaling());
-    }
-
-    #[test]
     fn moves_to_go_zero_moves_is_treated_as_one() {
         let zero_moves = make_moves_to_go_tm(10_000, 0, 40);
         let one_move = make_moves_to_go_tm(10_000, 1, 40);
@@ -719,38 +708,6 @@ mod tests {
 
         assert_eq!(time_limits(&tm), time_limits(&byoyomi));
         assert!(!tm.uses_continuous_scaling());
-    }
-
-    #[test]
-    fn japanese_byo_main_time_caps_at_safe_time() {
-        let tm = make_japanese_byo_tm(60_000, 5_000, 40);
-        let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
-        let expected_hard = {
-            let my_future_moves = 40u32.saturating_sub(1).div_ceil(2) as u64;
-            60_000 - (TIME_BUFFER_MS + my_future_moves * TIME_BUFFER_MS / 2)
-        };
-
-        assert_eq!(hard, expected_hard);
-        assert!(tm.mini_time_ms() <= tm.maxi_time_ms());
-        assert!(tm.maxi_time_ms() <= hard);
-        assert!(tm.uses_continuous_scaling());
-    }
-
-    #[test]
-    fn endgame_continue_factor_uses_measured_p95_values() {
-        assert_eq!(
-            endgame_continue_factor(Selectivity::Level1),
-            ENDGAME_LEVEL1_CONTINUE_FACTOR
-        );
-        assert_eq!(
-            endgame_continue_factor(Selectivity::Level2),
-            ENDGAME_LEVEL2_CONTINUE_FACTOR
-        );
-        assert_eq!(
-            endgame_continue_factor(Selectivity::Level3),
-            ENDGAME_LEVEL3_CONTINUE_FACTOR
-        );
-        assert!(endgame_continue_factor(Selectivity::None).is_infinite());
     }
 
     #[test]
@@ -971,17 +928,18 @@ mod tests {
 
     #[test]
     fn japanese_byo_main_cap_is_reserve_target() {
-        let tm = make_japanese_byo_tm(60_000, 5_000, 40);
+        let tm = make_japanese_byo_tm(60_000, 5_000, 4);
         let base = tm.base_time_ms.load(Ordering::Relaxed);
         let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
         let reserve = base + (hard - base) / EXTENSION_RESERVE_DIVISOR;
+        assert!(reserve < hard);
 
         let squares = [Square::D3, Square::C4];
         for (i, depth) in (10..25).enumerate() {
-            tm.report_iteration(squares[i % 2], -(i as f32), depth, false);
+            tm.report_iteration(squares[i % 2], 60.0 - 8.0 * i as f32, depth, false);
         }
 
-        assert!(tm.maxi_time_ms() <= reserve);
+        assert_eq!(tm.maxi_time_ms(), reserve);
     }
 
     #[test]

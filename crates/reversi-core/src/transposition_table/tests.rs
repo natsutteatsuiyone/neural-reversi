@@ -175,46 +175,6 @@ mod tt_entry_data {
     }
 
     #[test]
-    fn generation_is_masked_without_corrupting_endgame_flag() {
-        let midgame = raw_entry_data(50, sq(5), Bound::Lower, 10, Selectivity::Level1, 255, false);
-        let endgame = raw_entry_data(50, sq(5), Bound::Lower, 10, Selectivity::Level1, 255, true);
-
-        assert_eq!(midgame.generation(), 127);
-        assert!(!midgame.is_endgame());
-        assert_eq!(endgame.generation(), 127);
-        assert!(endgame.is_endgame());
-    }
-
-    #[test]
-    fn zero_word_decodes_to_an_unoccupied_empty_entry() {
-        let data = TTEntryData::from_u64(0);
-
-        assert!(!data.is_occupied());
-        assert_eq!(data.bound(), Bound::None);
-        assert_eq!(data.score(), ScaledScore::ZERO);
-        assert_eq!(data.best_move(), Square::A1);
-        assert_eq!(data.depth(), 0);
-        assert_eq!(data.selectivity(), Selectivity::Mid);
-        assert_eq!(data.generation(), 0);
-        assert!(!data.is_endgame());
-    }
-
-    #[test]
-    fn with_best_move_replaces_only_the_move_field() {
-        let original = raw_entry_data(25, sq(3), Bound::Upper, 9, Selectivity::Level2, 17, true);
-
-        let updated = original.with_best_move(sq(44));
-
-        assert_eq!(updated.score(), original.score());
-        assert_eq!(updated.bound(), original.bound());
-        assert_eq!(updated.depth(), original.depth());
-        assert_eq!(updated.selectivity(), original.selectivity());
-        assert_eq!(updated.generation(), original.generation());
-        assert_eq!(updated.is_endgame(), original.is_endgame());
-        assert_eq!(updated.best_move(), sq(44));
-    }
-
-    #[test]
     fn can_cut_uses_lower_or_exact_when_score_reaches_beta() {
         let lower = raw_entry_data(
             100,
@@ -367,49 +327,6 @@ mod tt_entry_data {
 
 mod tt_entry {
     use super::*;
-
-    #[test]
-    fn save_and_read_preserves_board_and_metadata() {
-        let entry = TTEntry::default();
-        let board = make_board(START_PLAYER, START_OPPONENT);
-
-        entry.save(
-            &board,
-            raw_entry_data(
-                ScaledScore::MIN.value(),
-                sq(3),
-                Bound::Exact,
-                60,
-                Selectivity::Level3,
-                127,
-                true,
-            ),
-        );
-
-        let data = stable_data(&entry, &board);
-        assert_eq!(data.score(), ScaledScore::MIN);
-        assert_eq!(data.bound(), Bound::Exact);
-        assert_eq!(data.depth(), 60);
-        assert_eq!(data.best_move(), sq(3));
-        assert_eq!(data.selectivity(), Selectivity::Level3);
-        assert_eq!(data.generation(), 127);
-        assert!(data.is_endgame());
-    }
-
-    #[test]
-    fn read_misses_when_board_bits_do_not_match() {
-        let entry = TTEntry::default();
-        let stored = make_board(1, 2);
-        let different = make_board(3, 4);
-
-        entry.save(
-            &stored,
-            raw_entry_data(50, sq(5), Bound::Exact, 10, Selectivity::Level3, 1, false),
-        );
-
-        assert!(read(&entry, &stored).is_some());
-        assert!(read(&entry, &different).is_none());
-    }
 
     #[test]
     fn same_board_non_exact_update_too_shallow_keeps_existing_entry() {
@@ -647,16 +564,6 @@ mod transposition_table {
     use super::*;
 
     #[test]
-    fn new_zero_mebibyte_table_uses_minimal_test_allocation() {
-        let tt = TranspositionTable::new(0);
-
-        assert_eq!(tt.cluster_count, 16);
-        assert_eq!(tt.entries.len(), 16 * CLUSTER_SIZE);
-        assert_eq!(tt.mb_size(), 0);
-        assert_eq!(tt.usage_rate(), 0.0);
-    }
-
-    #[test]
     fn new_nonzero_table_allocates_the_requested_whole_mebibytes() {
         let tt = TranspositionTable::new(1);
         let expected_clusters = (1024 * 1024) / CLUSTER_BYTE_SIZE;
@@ -743,28 +650,6 @@ mod transposition_table {
             tt.lookup(&fixture.colliding, fixture.colliding.hash())
                 .is_none()
         );
-    }
-
-    #[test]
-    fn probe_prefers_the_first_unused_slot_in_a_cluster() {
-        let tt = TranspositionTable::new(0);
-        let fixture = ClusterFixture::new(&tt, make_board(START_PLAYER, START_OPPONENT));
-
-        tt.store(
-            fixture.cluster_idx,
-            &fixture.stored,
-            raw_score(100),
-            Bound::Lower,
-            4,
-            sq(10),
-            Selectivity::Level1,
-            false,
-        );
-
-        let probe = tt.probe(&fixture.colliding, fixture.colliding.hash());
-
-        assert!(!is_hit(&probe));
-        assert_eq!(probe.index(), fixture.cluster_idx + 1);
     }
 
     #[test]

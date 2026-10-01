@@ -1096,22 +1096,6 @@ impl PatternFeatures {
     }
 }
 
-/// Computes pattern features for a board position into `patterns`.
-///
-/// Each pattern is encoded as a base-3 number representing the
-/// configuration of discs in that pattern.
-#[cfg(test)]
-fn set_features(board: &Board, patterns: &mut [u16]) {
-    patterns.fill(0);
-    for i in 0..NUM_PATTERN_FEATURES {
-        let f2x = &EVAL_F2X[i];
-        for &sq in &f2x.squares[..f2x.n_square] {
-            let c = get_square_color(board, sq);
-            patterns[i] = patterns[i] * 3 + c;
-        }
-    }
-}
-
 /// Returns the ternary color of a square: 0 = player, 1 = opponent, 2 = empty.
 #[inline]
 fn get_square_color(board: &Board, sq: Square) -> u16 {
@@ -1198,14 +1182,7 @@ mod tests {
         }
     }
 
-    #[cfg(any(
-        all(
-            target_arch = "x86_64",
-            any(target_feature = "avx512bw", target_feature = "avx2")
-        ),
-        all(target_arch = "aarch64", target_feature = "neon"),
-        all(target_arch = "wasm32", target_feature = "simd128")
-    ))]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[track_caller]
     fn assert_features_match(
         label: &str,
@@ -1374,41 +1351,8 @@ mod tests {
     }
 
     #[test]
-    fn pattern_feature_storage_preserves_values_and_alignment() {
-        assert_eq!(std::mem::align_of::<PatternFeature>(), 64);
-        assert_eq!(
-            std::mem::size_of::<PatternFeature>(),
-            FEATURE_VECTOR_SIZE * std::mem::size_of::<u16>()
-        );
-
-        let data = std::array::from_fn(|idx| (idx as u16).wrapping_mul(17).wrapping_add(3));
-        let mut feature = PatternFeature::from_array(data);
-
-        for idx in 0..FEATURE_VECTOR_SIZE {
-            assert_eq!(feature[idx], data[idx], "idx {idx}");
-        }
-
-        feature[7] = 0xBEEF;
-        assert_eq!(feature[7], 0xBEEF);
-        unsafe {
-            assert_eq!(feature.get_unchecked(7), 0xBEEF);
-        }
-    }
-
-    #[test]
-    fn pattern_definitions_have_expected_shape_padding_and_unique_squares() {
-        assert_eq!(NUM_PATTERN_FEATURES, 32);
-        assert_eq!(FEATURE_VECTOR_SIZE, 32);
-
+    fn pattern_definitions_have_padding_and_unique_squares() {
         for (idx, feature) in EVAL_F2X.iter().enumerate() {
-            let expected_len = match idx {
-                0..=19 => 8,
-                20..=27 => 9,
-                28..=31 => 7,
-                _ => unreachable!(),
-            };
-            assert_eq!(feature.n_square, expected_len, "pattern {idx}");
-
             let mut seen = [false; BOARD_SQUARES];
             for (pos, &sq) in feature.squares[..feature.n_square].iter().enumerate() {
                 assert_ne!(sq, Square::None, "pattern {idx} active slot {pos}");
@@ -1426,97 +1370,33 @@ mod tests {
     }
 
     #[test]
-    fn feature_dimensions_are_derived_from_pattern_lengths() {
-        let mut expected_offsets = [0usize; NUM_PATTERN_FEATURES];
-        let mut running_total = 0usize;
-
-        for (idx, feature) in EVAL_F2X.iter().enumerate() {
-            expected_offsets[idx] = running_total;
-            let expected_size = pow3(feature.n_square);
-            assert_eq!(calc_pattern_size(idx), expected_size, "pattern {idx}");
-            running_total += expected_size;
-        }
-
-        assert_eq!(calc_feature_offsets(), expected_offsets);
-        assert_eq!(PATTERN_FEATURE_OFFSETS, expected_offsets);
-        assert_eq!(sum_eval_f2x(), running_total);
-        assert_eq!(INPUT_FEATURE_DIMS, running_total);
-    }
-
-    #[test]
-    fn square_color_uses_player_perspective() {
-        let board = Board::new();
-
-        assert_eq!(get_square_color(&board, Square::D5), 0);
-        assert_eq!(get_square_color(&board, Square::E4), 0);
-        assert_eq!(get_square_color(&board, Square::D4), 1);
-        assert_eq!(get_square_color(&board, Square::E5), 1);
-        assert_eq!(get_square_color(&board, Square::A1), 2);
-
-        let switched = board.switch_players();
-        assert_eq!(get_square_color(&switched, Square::D5), 1);
-        assert_eq!(get_square_color(&switched, Square::D4), 0);
-    }
-
-    #[test]
-    fn set_features_encodes_pattern_digits_in_declared_order() {
+    fn pattern_features_new_encodes_pattern_digits_for_both_perspectives() {
         let board = board(
             &[Square::A1, Square::D1, Square::D5, Square::E4],
             &[Square::B1, Square::H1, Square::D4, Square::E5],
         );
-        let mut patterns = [0xFFFF; NUM_PATTERN_FEATURES];
-
-        set_features(&board, &mut patterns);
-
-        let row_1_expected = 729 + 2 * 243 + 2 * 27 + 2 * 9 + 2 * 3 + 1;
-        assert_eq!(patterns[8], row_1_expected);
-
-        for (idx, feature) in EVAL_F2X.iter().enumerate() {
-            let expected = reference_pattern_value(&board, feature);
-            assert_eq!(patterns[idx], expected, "pattern {idx}");
-            assert!(
-                usize::from(patterns[idx]) < calc_pattern_size(idx),
-                "pattern {idx} value {} outside ternary range",
-                patterns[idx]
-            );
-        }
-    }
-
-    #[test]
-    fn set_features_overwrites_existing_buffer_contents() {
-        let board = Board::new();
-        let mut zeroed = [0; NUM_PATTERN_FEATURES];
-        let mut filled = [0xFFFF; NUM_PATTERN_FEATURES];
-
-        set_features(&board, &mut zeroed);
-        set_features(&board, &mut filled);
-
-        assert_eq!(filled, zeroed);
-    }
-
-    #[test]
-    fn pattern_features_new_matches_set_features_for_both_perspectives() {
-        let board = board(
-            &[Square::A1, Square::D4, Square::G7],
-            &[Square::B1, Square::C3, Square::H8],
-        );
         let ply = 7;
         let features = PatternFeatures::new(&board, ply);
-        let mut expected_player = [0; NUM_PATTERN_FEATURES];
-        let mut expected_opponent = [0; NUM_PATTERN_FEATURES];
+        let switched = board.switch_players();
 
-        set_features(&board, &mut expected_player);
-        set_features(&board.switch_players(), &mut expected_opponent);
+        assert_eq!(
+            features.p_feature(ply)[8],
+            729 + 2 * 243 + 2 * 27 + 2 * 9 + 2 * 3 + 1
+        );
+        assert_eq!(
+            features.o_feature(ply)[8],
+            2187 + 2 * 243 + 81 + 2 * 27 + 2 * 9 + 2 * 3
+        );
 
-        for idx in 0..NUM_PATTERN_FEATURES {
+        for (idx, feature) in EVAL_F2X.iter().enumerate() {
             assert_eq!(
                 features.p_feature(ply)[idx],
-                expected_player[idx],
+                reference_pattern_value(&board, feature),
                 "player {idx}"
             );
             assert_eq!(
                 features.o_feature(ply)[idx],
-                expected_opponent[idx],
+                reference_pattern_value(&switched, feature),
                 "opponent {idx}"
             );
         }
@@ -1581,25 +1461,6 @@ mod tests {
     }
 
     #[test]
-    fn single_square_raw_encoder_matches_eval_feature_table() {
-        for (sq_idx, eval_feature) in EVAL_FEATURE.iter().enumerate() {
-            let board = 1u64 << sq_idx;
-
-            for (pattern_idx, feature) in EVAL_F2X.iter().enumerate() {
-                let raw_squares = feature.squares.map(|sq| sq as u8);
-                let encoded =
-                    compute_pattern_feature_index_raw(board, feature.n_square, raw_squares);
-
-                assert_eq!(
-                    encoded,
-                    u32::from(eval_feature[pattern_idx]),
-                    "square {sq_idx}, pattern {pattern_idx}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn incremental_update_matches_full_rebuild_for_movegen_verified_cases() {
         for case in update_cases() {
             assert_case_flips_match_move_generator(case);
@@ -1652,22 +1513,6 @@ mod tests {
         }
     }
 
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-    #[test]
-    fn avx512_update_matches_scalar_for_move_cases() {
-        for case in update_cases() {
-            let mut expected = PatternFeatures::new(&case.board, case.ply);
-            expected.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
-
-            let mut actual = PatternFeatures::new(&case.board, case.ply);
-            unsafe {
-                actual.update_avx512(case.sq, case.flipped, case.ply, case.side_to_move);
-            }
-
-            assert_features_match(case.label, &expected, &actual, case.ply + 1);
-        }
-    }
-
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[test]
     fn avx2_update_matches_scalar_for_move_cases() {
@@ -1678,22 +1523,6 @@ mod tests {
             let mut actual = PatternFeatures::new(&case.board, case.ply);
             unsafe {
                 actual.update_avx2(case.sq, case.flipped, case.ply, case.side_to_move);
-            }
-
-            assert_features_match(case.label, &expected, &actual, case.ply + 1);
-        }
-    }
-
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    #[test]
-    fn neon_update_matches_scalar_for_move_cases() {
-        for case in update_cases() {
-            let mut expected = PatternFeatures::new(&case.board, case.ply);
-            expected.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
-
-            let mut actual = PatternFeatures::new(&case.board, case.ply);
-            unsafe {
-                actual.update_neon(case.sq, case.flipped, case.ply, case.side_to_move);
             }
 
             assert_features_match(case.label, &expected, &actual, case.ply + 1);

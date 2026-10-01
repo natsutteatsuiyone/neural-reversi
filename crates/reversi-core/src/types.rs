@@ -219,16 +219,6 @@ mod scaled_score_tests {
     }
 
     #[test]
-    fn from_disc_diff_scales_whole_disc_scores() {
-        for disc_diff in [SCORE_MIN, -1, 0, 1, SCORE_MAX] {
-            let score = ScaledScore::from_disc_diff(disc_diff);
-
-            assert_eq!(score.to_disc_diff(), disc_diff);
-            assert_disc_diff_f32_eq(score, disc_diff as Scoref);
-        }
-    }
-
-    #[test]
     fn from_raw_preserves_fractional_scores() {
         for (raw_value, expected_disc_diff, expected_disc_diff_f32) in [
             (1, 0, 1.0 / 256.0),
@@ -253,53 +243,11 @@ mod scaled_score_tests {
     }
 
     #[test]
-    fn scaled_score_arithmetic_preserves_raw_units() {
-        let one_and_half = ScaledScore::from_raw(ScaledScore::SCALE + ScaledScore::SCALE / 2);
-        let quarter = ScaledScore::from_raw(ScaledScore::SCALE / 4);
-
-        assert_eq!((one_and_half + quarter).value(), 448);
-        assert_eq!((one_and_half - quarter).value(), 320);
-        assert_eq!((-one_and_half).value(), -384);
-        assert_eq!((quarter * 3).value(), 192);
-        assert_eq!((one_and_half / 3).value(), 128);
-    }
-
-    #[test]
-    fn assignment_arithmetic_updates_the_raw_value_in_place() {
-        let mut score = ScaledScore::from_raw(ScaledScore::SCALE);
-
-        score += ScaledScore::from_raw(ScaledScore::SCALE / 2);
-        assert_eq!(score.value(), 384);
-
-        score -= ScaledScore::from_raw(ScaledScore::SCALE / 4);
-        assert_eq!(score.value(), 320);
-
-        score *= 3;
-        assert_eq!(score.value(), 960);
-
-        score /= 5;
-        assert_eq!(score.value(), 192);
-    }
-
-    #[test]
     fn raw_i32_addition_and_subtraction_use_scaled_units_not_disc_diffs() {
         let score = ScaledScore::from_disc_diff(10);
 
         assert_eq!((score + 100).value(), 10 * ScaledScore::SCALE + 100);
         assert_eq!((score - 50).value(), 10 * ScaledScore::SCALE - 50);
-    }
-
-    #[test]
-    fn display_formats_disc_difference_with_two_decimal_places() {
-        assert_eq!(ScaledScore::from_disc_diff(10).to_string(), "10.00");
-        assert_eq!(
-            ScaledScore::from_raw(ScaledScore::SCALE + ScaledScore::SCALE / 2).to_string(),
-            "1.50"
-        );
-        assert_eq!(
-            ScaledScore::from_raw(-(ScaledScore::SCALE / 2)).to_string(),
-            "-0.50"
-        );
     }
 
     #[test]

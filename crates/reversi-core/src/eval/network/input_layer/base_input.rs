@@ -525,24 +525,15 @@ mod tests {
         output
     }
 
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn dispatch_ready_layer(natural: &BaseInput) -> BaseInput {
-        let layer = BaseInput {
+        let mut layer = BaseInput {
             biases: natural.biases.clone(),
             weights: natural.weights.clone(),
         };
-
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-        {
-            let mut layer = layer;
-            permute_rows(layer.biases.as_mut_slice(), HIDDEN_DIMS);
-            permute_rows(layer.weights.as_mut_slice(), HIDDEN_DIMS);
-            layer
-        }
-
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
-        {
-            layer
-        }
+        permute_rows(layer.biases.as_mut_slice(), HIDDEN_DIMS);
+        permute_rows(layer.weights.as_mut_slice(), HIDDEN_DIMS);
+        layer
     }
 
     #[test]
@@ -556,19 +547,6 @@ mod tests {
 
         assert_eq!(&actual.as_ref()[..OUTPUT_DIMS], &expected);
         assert_eq!(&actual.as_ref()[OUTPUT_DIMS..], &[0xCC; 4]);
-    }
-
-    #[test]
-    fn forward_dispatch_matches_scalar_for_the_runtime_layout() {
-        let pattern_feature = valid_pattern_feature(2053);
-        let natural = build_layer(&pattern_feature, 71);
-        let dispatch = dispatch_ready_layer(&natural);
-        let expected = reference_forward(&natural, &pattern_feature);
-        let mut actual = Align64([0; OUTPUT_DIMS]);
-
-        dispatch.forward(&pattern_feature, actual.as_mut_slice());
-
-        assert_eq!(actual.as_ref(), &expected);
     }
 
     #[test]

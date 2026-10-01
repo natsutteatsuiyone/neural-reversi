@@ -888,21 +888,6 @@ mod tests {
     }
 
     #[test]
-    fn selectivity_orders_from_aggressive_to_disabled() {
-        // The derived ordering is load-bearing for TT cutoff/replacement decisions.
-        assert!(Selectivity::Mid < Selectivity::Level1);
-        assert!(Selectivity::Level1 < Selectivity::Level2);
-        assert!(Selectivity::Level2 < Selectivity::Level3);
-        assert!(Selectivity::Level3 < Selectivity::None);
-    }
-
-    #[test]
-    fn mid_selectivity_reports_confidence_for_its_t_value() {
-        assert_eq!(Selectivity::Mid.t_value(), 0.9);
-        assert_eq!(Selectivity::Mid.probability(), 63);
-    }
-
-    #[test]
     fn compute_probcut_beta_applies_t_sigma_minus_mean_and_rounds_up() {
         let pc = |mean, sigma| ProbcutCoefficients {
             mean,

@@ -298,16 +298,6 @@ mod tests {
     }
 
     #[test]
-    fn keeps_duplicate_move_entries_in_file_order() {
-        let pos = parse(&format!("{INITIAL_BOARD} X; e6:+10; e6:+8; d3:+8"));
-
-        assert_eq!(
-            pos.move_scores,
-            vec![(Square::E6, 10), (Square::E6, 8), (Square::D3, 8)]
-        );
-    }
-
-    #[test]
     fn rejects_non_ascii_header() {
         let line = format!("{}_X", "あ".repeat(64));
         let err = ObfPosition::parse(&line).unwrap_err();

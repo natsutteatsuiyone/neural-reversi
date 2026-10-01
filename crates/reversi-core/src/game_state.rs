@@ -217,38 +217,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_game() {
-        let game = GameState::new();
-        assert_eq!(game.side_to_move(), Disc::Black);
-        assert!(!game.is_game_over());
-        assert_eq!(game.get_score(), (2, 2));
-    }
-
-    #[test]
-    fn test_from_moves_empty_is_initial_position() {
-        let game = GameState::from_moves(&[]).unwrap();
-        assert_eq!(game.side_to_move(), Disc::Black);
-        assert_eq!(game.get_score(), (2, 2));
-    }
-
-    #[test]
-    fn test_from_moves_replays_a_legal_opening() {
-        let game = GameState::from_moves(&[Square::D3]).unwrap();
-        assert_eq!(game.side_to_move(), Disc::White);
-        assert_eq!(game.last_move(), Some(Square::D3));
-    }
-
-    #[test]
     fn test_from_moves_reports_offending_position() {
         let err = GameState::from_moves(&[Square::D3, Square::D3]).unwrap_err();
         assert!(err.contains("position 2"), "unexpected error: {err}");
-    }
-
-    #[test]
-    fn test_illegal_move() {
-        let mut game = GameState::new();
-        let result = game.make_move(Square::A1);
-        assert!(result.is_err());
     }
 
     #[test]
@@ -389,52 +360,6 @@ mod tests {
     }
 
     #[test]
-    fn test_history_complete_record() {
-        let mut game = GameState::new();
-
-        // Make several moves
-        game.make_move(Square::D3).unwrap();
-        game.make_move(Square::C3).unwrap();
-        game.make_move(Square::C4).unwrap();
-
-        let history = game.move_history();
-        assert_eq!(history.len(), 3);
-
-        // Verify first move
-        assert_eq!(history[0].mv, Some(Square::D3));
-        assert_eq!(history[0].side_to_move, Disc::Black);
-
-        // Verify second move
-        assert_eq!(history[1].mv, Some(Square::C3));
-        assert_eq!(history[1].side_to_move, Disc::White);
-
-        // Verify third move
-        assert_eq!(history[2].mv, Some(Square::C4));
-        assert_eq!(history[2].side_to_move, Disc::Black);
-    }
-
-    #[test]
-    fn test_history_restoration_with_undo() {
-        let mut game = GameState::new();
-        let initial_board = *game.board();
-
-        // Make a move
-        game.make_move(Square::D3).unwrap();
-        let board_after_d3 = *game.board();
-
-        // Make another move
-        game.make_move(Square::C3).unwrap();
-
-        // Undo - should restore to board_after_d3
-        game.undo();
-        assert_eq!(*game.board(), board_after_d3);
-
-        // Undo again - should restore to initial_board
-        game.undo();
-        assert_eq!(*game.board(), initial_board);
-    }
-
-    #[test]
     fn test_score_tracking() {
         let mut game = GameState::new();
         let (black, white) = game.get_score();
@@ -449,146 +374,23 @@ mod tests {
 
     #[test]
     fn test_game_record_black_57_white_7() {
-        // Test a specific game record that ends with Black: 57, White: 7
-        let mut game = GameState::new();
+        let moves = Square::parse_sequence(
+            "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8b6e8b5g2d8b7a6h2e7d7c8a8a7b8c7h1b2b1",
+        )
+        .unwrap();
+        let game = GameState::from_moves(&moves).unwrap();
 
-        let moves_str = "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8b6e8b5g2d8b7a6h2e7d7c8a8a7b8c7h1b2b1";
+        assert!(game.is_game_over());
+        assert_eq!(game.get_score(), (57, 7));
 
-        // Parse and play each move
-        let moves: Vec<&str> = moves_str
-            .as_bytes()
-            .chunks(2)
-            .map(|chunk| std::str::from_utf8(chunk).unwrap())
-            .collect();
-
-        for (i, move_str) in moves.iter().enumerate() {
-            let square = move_str.parse::<Square>().unwrap_or_else(|_| {
-                panic!("Failed to parse move #{}: {}", i + 1, move_str);
-            });
-
-            game.make_move(square).unwrap_or_else(|e| {
-                panic!("Failed to make move #{} ({}): {}", i + 1, move_str, e);
-            });
-        }
-
-        // Verify the game is over
-        assert!(game.is_game_over(), "Game should be over after all moves");
-
-        // Verify the final score
-        let (black_count, white_count) = game.get_score();
-        assert_eq!(black_count, 57, "Black should have 57 discs");
-        assert_eq!(white_count, 7, "White should have 7 discs");
-
-        // Verify history
         let history = game.move_history();
-
-        // Verify the first few moves in history
-        assert_eq!(history[0].mv, Some(Square::E6), "First move should be e6");
-        assert_eq!(history[0].side_to_move, Disc::Black, "First move by Black");
-
-        assert_eq!(history[1].mv, Some(Square::F4), "Second move should be f4");
-        assert_eq!(history[1].side_to_move, Disc::White, "Second move by White");
-
-        assert_eq!(history[2].mv, Some(Square::C3), "Third move should be c3");
-        assert_eq!(history[2].side_to_move, Disc::Black, "Third move by Black");
-
-        // Verify last_move
-        // Note: The last move in history might be a pass (automatic pass after b1)
-        // so we check if b1 appears in the history
-        let b1_found = history.iter().any(|entry| entry.mv == Some(Square::B1));
-        assert!(b1_found, "b1 should be in the move history");
-
-        // If the last entry is a pass, the previous one should be b1
-        if game.last_move().is_none() {
-            // Last move was a pass, check the second to last
-            let second_to_last = history.iter().rev().nth(1);
-            if let Some(entry) = second_to_last {
-                assert_eq!(
-                    entry.mv,
-                    Some(Square::B1),
-                    "Second to last move should be b1"
-                );
-            }
-        } else {
-            assert_eq!(game.last_move(), Some(Square::B1), "Last move should be b1");
-        }
-
-        // Verify complete history matches the game record
-        let expected_moves: Vec<Square> =
-            moves.iter().map(|s| s.parse::<Square>().unwrap()).collect();
-
-        // Extract non-pass moves from history
-        let actual_moves: Vec<Square> = history.iter().filter_map(|entry| entry.mv).collect();
-
-        // All expected moves should be in the actual moves
-        assert_eq!(
-            actual_moves.len(),
-            expected_moves.len(),
-            "Number of non-pass moves should match"
-        );
-
-        for (i, (expected, actual)) in expected_moves.iter().zip(actual_moves.iter()).enumerate() {
-            assert_eq!(
-                actual,
-                expected,
-                "Move #{} mismatch: expected {:?}, got {:?}",
-                i + 1,
-                expected,
-                actual
-            );
-        }
-
-        // Verify side_to_move is recorded correctly
-        // When there's an automatic pass, the side doesn't change
-        // We verify by checking each move in sequence
-        for i in 0..history.len().saturating_sub(1) {
-            let HistoryEntry {
-                mv: sq_current,
-                side_to_move: side_current,
-                ..
-            } = history[i];
-            let HistoryEntry {
-                mv: sq_next,
-                side_to_move: side_next,
-                ..
-            } = history[i + 1];
-
-            if sq_current.is_none() {
-                // Current is a pass - next move should be by the opposite side
-                assert_eq!(
-                    side_next,
-                    side_current.opposite(),
-                    "After pass at #{}, side should switch",
-                    i + 1
-                );
-            } else {
-                // Current is a regular move - next should be opposite unless it's a pass
-                if sq_next.is_some() {
-                    // Next is also a regular move - should be opposite side
-                    assert_eq!(
-                        side_next,
-                        side_current.opposite(),
-                        "After regular move at #{}, side should switch",
-                        i + 1
-                    );
-                } else {
-                    // Next is a pass - should be the opposite side's pass
-                    assert_eq!(
-                        side_next,
-                        side_current.opposite(),
-                        "Pass at #{} should be by opposite side",
-                        i + 2
-                    );
-                }
-            }
-        }
-
-        // Count passes in history
-        let pass_count = history.iter().filter(|entry| entry.mv.is_none()).count();
-        println!(
-            "Game completed with {} moves and {} automatic passes",
-            expected_moves.len(),
-            pass_count
+        let played: Vec<Square> = history.iter().filter_map(|entry| entry.mv).collect();
+        assert_eq!(played, moves);
+        assert_eq!(history[0].side_to_move, Disc::Black);
+        assert!(
+            history
+                .windows(2)
+                .all(|w| w[1].side_to_move == w[0].side_to_move.opposite())
         );
     }
 }

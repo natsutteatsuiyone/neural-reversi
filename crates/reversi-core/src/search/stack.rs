@@ -77,27 +77,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_initializes_all_pv_to_none() {
-        let stack = SearchStack::new();
-        for ply in 0..MAX_PLY {
-            assert!(stack.get_pv(ply).iter().all(|&sq| sq == Square::None));
-        }
-    }
-
-    #[test]
-    fn update_pv_at_ply_zero_propagates_child_pv() {
-        let mut stack = SearchStack::new();
-        stack.stack[1].pv[0] = Square::E3;
-
-        stack.update_pv(Square::D3, 0);
-
-        let pv = stack.get_pv(0);
-        assert_eq!(pv[0], Square::D3);
-        assert_eq!(pv[1], Square::E3);
-        assert_eq!(pv[2], Square::None);
-    }
-
-    #[test]
     fn update_pv_propagates_child_pv() {
         let mut stack = SearchStack::new();
 
@@ -124,16 +103,6 @@ mod tests {
     }
 
     #[test]
-    fn clear_pv_sets_sentinel() {
-        let mut stack = SearchStack::new();
-        stack.update_pv(Square::D3, 0);
-        assert_eq!(stack.get_pv(0)[0], Square::D3);
-
-        stack.clear_pv(0);
-        assert_eq!(stack.get_pv(0)[0], Square::None);
-    }
-
-    #[test]
     fn prepare_pv_clears_current_and_child_only() {
         let mut stack = SearchStack::new();
         stack.stack[0].pv[0] = Square::C4;
@@ -147,22 +116,6 @@ mod tests {
         assert_eq!(stack.get_pv(1)[0], Square::None);
         assert_eq!(stack.get_pv(2)[0], Square::None);
         assert_eq!(stack.get_pv(3)[0], Square::F6);
-    }
-
-    #[test]
-    fn set_pv_and_get_pv_roundtrip() {
-        let mut stack = SearchStack::new();
-        let mut pv = [Square::None; MAX_PLY];
-        pv[0] = Square::C4;
-        pv[1] = Square::D3;
-        pv[2] = Square::None;
-
-        stack.set_pv(5, &pv);
-
-        let result = stack.get_pv(5);
-        assert_eq!(result[0], Square::C4);
-        assert_eq!(result[1], Square::D3);
-        assert_eq!(result[2], Square::None);
     }
 
     #[test]

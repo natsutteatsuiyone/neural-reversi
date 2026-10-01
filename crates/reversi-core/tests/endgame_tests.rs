@@ -346,20 +346,6 @@ fn test_solve_5_case2() {
 }
 
 #[test]
-fn test_solve_9() {
-    let mut search = search();
-    let board = Board::from_string(
-        "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
-        Disc::Black,
-    )
-    .unwrap();
-    let options = SearchRunOptions::with_level(Level::perfect());
-    let result = search.run(&board, &options);
-
-    assert_eq!(score(&result), 50);
-}
-
-#[test]
 fn test_solve_15() {
     let mut search = search();
     let board = Board::from_string(

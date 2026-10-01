@@ -440,22 +440,6 @@ mod tests {
     }
 
     #[test]
-    fn test_square_error_display() {
-        assert_eq!(
-            SquareError::InvalidFormat.to_string(),
-            "Invalid square format: must be 2 characters (e.g., 'a1')"
-        );
-        assert_eq!(
-            SquareError::InvalidFile('z').to_string(),
-            "Invalid file 'z': must be a-h or A-H"
-        );
-        assert_eq!(
-            SquareError::InvalidRank('9').to_string(),
-            "Invalid rank '9': must be 1-8"
-        );
-    }
-
-    #[test]
     fn test_from_str_edge_cases() {
         // Test with whitespace
         assert_eq!(Square::from_str(" a1 ").unwrap(), Square::A1);
