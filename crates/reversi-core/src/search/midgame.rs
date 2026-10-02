@@ -113,7 +113,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 })
                 .unwrap_or((-ScaledScore::INF, ScaledScore::INF, ASPIRATION_DELTA));
 
-            let (score, window_clean) = aspiration_search(
+            let (score, window_clean, searched_depth) = aspiration_search(
                 &mut ctx,
                 &board,
                 depth,
@@ -131,7 +131,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
 
             if let Some(rm) = ctx.root_moves.get_current_pv() {
-                store_pv_in_tt(&ctx, &board, &rm.pv, rm.score, depth, false);
+                store_pv_in_tt(&ctx, &board, &rm.pv, rm.score, searched_depth, false);
 
                 if let Some(ref callback) = task.callback {
                     callback(SearchProgress::from_iteration(
@@ -209,14 +209,14 @@ pub(super) fn compute_start_depth(max_depth: Depth) -> Depth {
 /// Performs aspiration window search at the given depth.
 ///
 /// When `reduce_fail_high_depth` is set, consecutive fail-high re-searches run
-/// at a reduced effective depth (`depth - failed_high_cnt`) while the result
+/// at a reduced effective depth (`depth - failed_high_cnt`) while progress
 /// is still reported at `depth`. Fixed-depth searches must not set it: their
 /// scores are used as exact depth-`depth` references (e.g. ProbCut fitting).
 ///
-/// Returns the score and whether the search completed inside its initial
-/// window (i.e. without any fail-low/fail-high re-search). A clean window is
-/// evidence that the best score is stable across iterations and that no
-/// alternative move overtook it.
+/// Returns the score, whether the search completed inside its initial
+/// window (i.e. without any fail-low/fail-high re-search), and the depth the
+/// final search actually ran at. A clean window is evidence that the best
+/// score is stable across iterations and that no alternative move overtook it.
 #[allow(clippy::too_many_arguments)]
 fn aspiration_search(
     ctx: &mut SearchContext,
@@ -227,7 +227,7 @@ fn aspiration_search(
     mut delta: ScaledScore,
     reduce_fail_high_depth: bool,
     thread: &Arc<Thread>,
-) -> (ScaledScore, bool) {
+) -> (ScaledScore, bool, Depth) {
     let mut window_clean = true;
     let mut failed_high_cnt: Depth = 0;
 
@@ -248,12 +248,12 @@ fn aspiration_search(
         );
 
         if thread.is_search_aborted() {
-            return (score, window_clean);
+            return (score, window_clean, adjusted_depth);
         }
 
         let failed_high = score >= *beta;
         if !widen_aspiration_window(score, alpha, beta, delta) {
-            return (score, window_clean);
+            return (score, window_clean, adjusted_depth);
         }
         failed_high_cnt = if failed_high { failed_high_cnt + 1 } else { 0 };
 
@@ -662,6 +662,37 @@ mod schedule_tests {
             assert_eq!(data.best_move(), sq);
             walk = walk.make_move(sq);
         }
+    }
+
+    #[test]
+    fn fail_high_reduced_research_reports_the_depth_it_ran_at() {
+        let pool = ThreadPool::new(1);
+        let board = Board::new().make_move(Square::D3);
+        let search = |reduce| {
+            let mut ctx = SearchContext::new(
+                &board,
+                Selectivity::None,
+                Arc::new(TranspositionTable::new(0)),
+                shared_eval(),
+            );
+            let mut alpha = -ScaledScore::INF;
+            let mut beta = -ScaledScore::INF + ScaledScore::from_disc_diff(1);
+            let (_, window_clean, searched_depth) = aspiration_search(
+                &mut ctx,
+                &board,
+                6,
+                &mut alpha,
+                &mut beta,
+                ASPIRATION_DELTA,
+                reduce,
+                pool.main(),
+            );
+            assert!(!window_clean, "the initial window must fail high");
+            searched_depth
+        };
+
+        assert!(search(true) < 6);
+        assert_eq!(search(false), 6);
     }
 
     #[test]
