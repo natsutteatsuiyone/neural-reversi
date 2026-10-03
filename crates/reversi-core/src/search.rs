@@ -403,6 +403,8 @@ pub(crate) fn widen_aspiration_window(
 /// `score` and `depth` describe the head position and are negamax-mirrored and
 /// decremented along the line. Multi-PV lines after the first skip the head,
 /// whose score covers only the root moves left after earlier lines.
+/// Selective midgame entries are capped at the remaining PV length, since
+/// IIR can shorten the searched line below the nominal iteration depth.
 pub(crate) fn store_pv_in_tt(
     ctx: &SearchContext,
     board: &Board,
@@ -411,6 +413,9 @@ pub(crate) fn store_pv_in_tt(
     mut depth: Depth,
     is_endgame: bool,
 ) {
+    if !is_endgame && ctx.selectivity.is_enabled() {
+        depth = depth.min(pv.len() as Depth);
+    }
     let mut board = *board;
     let mut protected_indices = [0; MAX_PLY];
     let mut protected_len = 0;

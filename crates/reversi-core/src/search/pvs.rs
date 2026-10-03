@@ -18,11 +18,13 @@ use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
 
+const IIR_MIN_DEPTH: Depth = 6;
+
 /// Searches both midgame and endgame positions using Principal Variation Search.
 pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
-    depth: Depth,
+    mut depth: Depth,
     mut alpha: ScaledScore,
     beta: ScaledScore,
     thread: &Arc<Thread>,
@@ -128,6 +130,17 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 return score;
             }
         }
+    }
+
+    // Internal iterative reductions for PV/Cut nodes without a TT move.
+    if !SS::IS_ENDGAME
+        && !NT::ROOT_NODE
+        && !all_node
+        && ctx.selectivity.is_enabled()
+        && depth >= IIR_MIN_DEPTH
+        && tt_move == Square::None
+    {
+        depth -= 1;
     }
 
     let n_moves = move_list.count();

@@ -106,12 +106,18 @@ time (the `cut_node` flag is also threaded through). One node, in order:
 6. **ETC** (Enhanced Transposition Cutoff) — peek at children through the TT
    to claim a cutoff one ply earlier. Active when `depth >= SS::MIN_ETC_DEPTH`.
 7. **ProbCut** — `SS::try_probcut`; details below.
-8. **TT move first** — in NonPV nodes with a TT move, search the TT move at
+8. **IIR** (Internal Iterative Reductions) — reduce non-root PV/Cut midgame
+   nodes by one ply when `depth >= IIR_MIN_DEPTH` (6), selectivity is enabled,
+   and the TT provides no best move. All nodes, endgame nodes, and ProbCut
+   verification searches retain their depth. Move searches, parallel splits,
+   and TT stores use the reduced depth. Selective midgame PV restoration
+   caps the stored depth at the remaining line length.
+9. **TT move first** — in NonPV nodes with a TT move, search the TT move at
    a null window before running move ordering. A fail-high here cuts off
    without sorting the rest.
-9. **Move ordering** — `MoveList::evaluate_moves` scores the rest;
+10. **Move ordering** — `MoveList::evaluate_moves` scores the rest;
    `MoveList::sort` arranges them. The TT move is always pinned at index 0.
-10. **Main loop**:
+11. **Main loop**:
     - First move (PV): full window.
     - Later moves: `compute_lmr_reduction` picks a reduction; search at a
       null window. If it fails high, re-search at full depth (still null
@@ -119,7 +125,7 @@ time (the `cut_node` flag is also threaded through). One node, in order:
       full window.
     - When the conditions are met, `Thread::split` hands the remaining moves
       to helper threads (see below).
-11. **TT store** — pack `best_score / best_move / bound / depth /
+12. **TT store** — pack `best_score / best_move / bound / depth /
     selectivity / is_endgame` and write back.
 
 `Bound` is `None=0 / Lower=1 / Upper=2 / Exact=3`. The bit patterns are
