@@ -10,12 +10,14 @@ use std::{
 };
 
 use indicatif::ProgressBar;
+use rand::{SeedableRng, rngs::StdRng};
 use reversi_core::{disc::Disc, game_state::GameState, square::Square};
 
 use crate::config::{Config, parse_engine_command, read_opening_file};
 use crate::display;
 use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
+use crate::opening::{Opening, board_string, color, random_position};
 use crate::sprt::{Sprt, SprtResult, SprtStatus};
 use crate::statistics::{MatchStatistics, MatchWinner, PentanomialFrequencies};
 use crate::time_tracker::TimeTracker;
@@ -73,21 +75,44 @@ struct MatchResult {
 
 pub(crate) fn run_match(config: &Config) -> Result<()> {
     install_interrupt_handler()?;
-    let openings = read_opening_file(&config.opening_file)?;
-    if openings.is_empty() {
-        return Err(MatchRunnerError::Config(
-            "The opening file doesn't contain any valid positions.".to_string(),
-        ));
-    }
-    validate_openings(&openings)?;
+    let random_seed = config
+        .ggs_random_discs
+        .map(|_| config.seed.unwrap_or_else(rand::random));
+    let openings = if let Some(discs) = config.ggs_random_discs {
+        let seed = random_seed.expect("random mode has a seed");
+        println!("GGS random openings seed {seed}");
+        let mut rng = StdRng::seed_from_u64(seed);
+        (0..config.pairs.expect("clap requires pairs"))
+            .map(|_| Opening::Position(random_position(discs, &mut rng)))
+            .collect::<Vec<_>>()
+    } else {
+        let sequences = read_opening_file(
+            config
+                .opening_file
+                .as_ref()
+                .expect("clap requires opening file"),
+        )?;
+        if sequences.is_empty() {
+            return Err(MatchRunnerError::Config(
+                "The opening file doesn't contain any valid positions.".to_string(),
+            ));
+        }
+        validate_openings(&sequences)?;
+        sequences.into_iter().map(Opening::Sequence).collect()
+    };
 
     let mut engines = initialize_engines(config)?;
+    if config.ggs_random_discs.is_some() {
+        engines.0.require_setboard()?;
+        engines.1.require_setboard()?;
+    }
     let engine_names = (engines.0.name(), engines.1.name());
     let mut time_tracker =
         TimeTracker::new(config.main_time, config.byoyomi_time, config.byoyomi_stones);
     let mut sprt = config.sprt_config()?.map(Sprt::new);
     let total_games = openings.len() * 2;
     let mut statistics = MatchStatistics::default();
+    statistics.random_seed = random_seed;
 
     display::show_match_header()?;
     display::update_live_visualization(
@@ -113,7 +138,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
         });
         if let Err(error) = result {
             progress_bar.finish_and_clear();
-            if statistics.total_games() > 0 {
+            if statistics.total_games() > 0 || statistics.random_seed.is_some() {
                 let _ = display::clear_screen();
                 let final_sprt = sprt.as_mut().map(|sprt| {
                     let result = sprt.update(statistics.pentanomial_frequencies());
@@ -145,7 +170,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
 fn play_game(
     black_engine: &mut GtpEngine,
     white_engine: &mut GtpEngine,
-    opening: &str,
+    opening: &Opening,
     time_tracker: &mut TimeTracker,
 ) -> Result<MatchResult> {
     black_engine.clear_board()?;
@@ -165,8 +190,18 @@ fn play_game(
         )?;
     }
 
-    let mut game_state = GameState::new();
-    apply_opening_moves(&mut game_state, black_engine, white_engine, opening)?;
+    let mut game_state = match opening {
+        Opening::Sequence(sequence) => {
+            let mut state = GameState::new();
+            apply_opening_moves(&mut state, black_engine, white_engine, sequence)?;
+            state
+        }
+        Opening::Position(state) => {
+            black_engine.setboard(&board_string(state), color(state))?;
+            white_engine.setboard(&board_string(state), color(state))?;
+            state.clone()
+        }
+    };
 
     while !game_state.is_game_over() {
         check_interrupted()?;
@@ -316,7 +351,7 @@ fn play_opening_pair(
     engines: &mut (GtpEngine, GtpEngine),
     statistics: &mut MatchStatistics,
     engine_names: &(String, String),
-    opening: &str,
+    opening: &Opening,
     opening_idx: usize,
     progress_bar: &ProgressBar,
     time_tracker: &mut TimeTracker,
@@ -348,12 +383,15 @@ fn play_opening_pair(
             match_result.score
         };
 
-        statistics.add_result(winner, score, opening.to_string(), !is_swapped);
+        statistics.add_result(winner, score, opening.description(), !is_swapped);
         let game_result = winner;
-        if let Some(first_result) = first_result {
+        if let Some((first_result, first_score)) = first_result {
             statistics.add_paired_result(first_result, game_result);
+            if matches!(opening, Opening::Position(_)) {
+                statistics.ggs_pairs.add_pair(first_score, score);
+            }
         } else {
-            first_result = Some(game_result);
+            first_result = Some((game_result, score));
         }
 
         display::update_live_visualization(

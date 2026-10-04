@@ -13,7 +13,9 @@ pub struct MatchStatistics {
     pub draws: u32,
     pub total_score: i32,
     pub recent_results: Vec<GameHistory>,
+    pub(crate) random_seed: Option<u64>,
     paired_frequencies: PentanomialFrequencies,
+    pub(crate) ggs_pairs: GgsPairStatistics,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +70,10 @@ impl MatchStatistics {
     ) -> io::Result<()> {
         let total_games = self.total_games();
 
+        if let Some(seed) = self.random_seed {
+            println!("GGS random openings seed {seed}");
+        }
+
         if total_games == 0 {
             println!("{}", "No games played yet.".info());
             return Ok(());
@@ -83,6 +89,24 @@ impl MatchStatistics {
         println!();
 
         self.print_summary();
+        if self.ggs_pairs.total() > 0 {
+            let pairs = &self.ggs_pairs;
+            println!(
+                "GGS synchro matches: {} W: {} L: {} D: {}",
+                pairs.total(),
+                pairs.wins,
+                pairs.losses,
+                pairs.draws
+            );
+            println!(
+                "GGS mean disc margin: {:+.2}/game",
+                pairs.margin_sum as f64 / (2.0 * pairs.total() as f64)
+            );
+            println!(
+                "GGS average rating score: {:.6}",
+                pairs.rating_sum / pairs.total() as f64
+            );
+        }
 
         if let Some((config, result)) = sprt {
             println!();
@@ -456,6 +480,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn final_report_retains_random_seed() {
+        for (case, has_games, seed) in [
+            ("completed", true, Some(20261004_u64)),
+            ("empty", false, Some(20261004)),
+            ("ordinary", true, None),
+        ] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "statistics::tests::final_report_fixture",
+                    "--nocapture",
+                ])
+                .env("MATCH_RUNNER_REPORT_CASE", case)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let report = String::from_utf8(output.stdout).unwrap();
+            if let Some(seed) = seed {
+                assert!(
+                    report.contains(&format!("GGS random openings seed {seed}")),
+                    "{report}"
+                );
+            } else {
+                assert!(!report.contains("GGS random openings seed"), "{report}");
+            }
+            assert_eq!(
+                report.contains("No games played yet."),
+                !has_games,
+                "{report}"
+            );
+            assert_eq!(report.contains("Games:"), has_games, "{report}");
+        }
+    }
+
+    #[test]
+    fn final_report_fixture() {
+        let Ok(case) = std::env::var("MATCH_RUNNER_REPORT_CASE") else {
+            return;
+        };
+        let mut statistics = MatchStatistics {
+            random_seed: (case != "ordinary").then_some(20261004),
+            ..MatchStatistics::default()
+        };
+        if case != "empty" {
+            statistics.add_result(MatchWinner::Engine1, 20, String::new(), true);
+        }
+        statistics
+            .print_final_results("engine1", "engine2", None)
+            .unwrap();
+    }
+
+    #[test]
     fn add_pair_updates_pentanomial_frequencies() {
         let mut frequencies = PentanomialFrequencies::default();
         frequencies.add_pair(MatchWinner::Engine2, MatchWinner::Engine2);
@@ -584,5 +660,49 @@ mod tests {
     fn erf_matches_known_values() {
         assert!(erf(0.0).abs() < 1e-6);
         assert!((erf(1.0) - 0.8427).abs() < 1e-3);
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct GgsPairStatistics {
+    wins: u32,
+    losses: u32,
+    draws: u32,
+    margin_sum: i64,
+    rating_sum: f64,
+}
+
+impl GgsPairStatistics {
+    fn total(&self) -> u32 {
+        self.wins + self.losses + self.draws
+    }
+
+    pub(crate) fn add_pair(&mut self, first: i32, second: i32) {
+        let sum = first + second;
+        match sum.cmp(&0) {
+            std::cmp::Ordering::Greater => self.wins += 1,
+            std::cmp::Ordering::Less => self.losses += 1,
+            std::cmp::Ordering::Equal => self.draws += 1,
+        }
+        self.margin_sum += i64::from(sum);
+        let margin = f64::from(sum) / 2.0;
+        self.rating_sum += 0.5 + 0.375 * margin / (1.0 + 0.75 * margin.abs());
+    }
+}
+
+#[cfg(test)]
+mod ggs_tests {
+    use super::*;
+    #[test]
+    fn synchro_uses_average_margin_before_nonlinear_scoring() {
+        let mut stats = GgsPairStatistics::default();
+        stats.add_pair(20, -2);
+        assert_eq!((stats.wins, stats.losses, stats.draws), (1, 0, 0));
+        assert_eq!(stats.margin_sum, 18);
+        assert!((stats.rating_sum - (0.5 + 3.375 / 7.75)).abs() < 1e-12);
+        stats.add_pair(-20, 2);
+        stats.add_pair(20, -20);
+        assert_eq!((stats.wins, stats.losses, stats.draws), (1, 1, 1));
+        assert!((stats.rating_sum / 3.0 - 0.5).abs() < 1e-12);
     }
 }

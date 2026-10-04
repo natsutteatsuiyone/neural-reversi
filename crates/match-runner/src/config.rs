@@ -51,9 +51,26 @@ pub struct Config {
     #[arg(long)]
     pub engine2_working_dir: Option<PathBuf>,
 
-    /// Opening file (required)
-    #[arg(short, long, required = true)]
-    pub opening_file: PathBuf,
+    /// Opening move sequences.
+    #[arg(
+        short,
+        long,
+        required_unless_present = "ggs_random_discs",
+        conflicts_with = "ggs_random_discs"
+    )]
+    pub opening_file: Option<PathBuf>,
+
+    /// Number of discs in generated GGS random positions.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(4..=48), requires = "pairs")]
+    pub ggs_random_discs: Option<u8>,
+
+    /// Number of color-swapped random opening pairs.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..), requires = "ggs_random_discs")]
+    pub pairs: Option<u32>,
+
+    /// Reproducible random opening seed.
+    #[arg(long, requires = "ggs_random_discs")]
+    pub seed: Option<u64>,
 
     /// Main time in seconds (0 for no main time, starts in byoyomi)
     #[arg(long, default_value_t = 0)]
@@ -283,6 +300,40 @@ fn parse_windows_command(cmd: &str) -> (String, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_random_opening_options() {
+        let base = ["match-runner", "--engine1", "one", "--engine2", "two"];
+        for options in [
+            vec![],
+            vec!["--ggs-random-discs", "3", "--pairs", "1"],
+            vec!["--ggs-random-discs", "49", "--pairs", "1"],
+            vec!["--ggs-random-discs", "10", "--pairs", "0"],
+            vec!["--ggs-random-discs", "10"],
+            vec![
+                "--opening-file",
+                "a",
+                "--ggs-random-discs",
+                "10",
+                "--pairs",
+                "1",
+            ],
+            vec!["--opening-file", "a", "--seed", "1"],
+        ] {
+            assert!(Config::try_parse_from(base.iter().copied().chain(options)).is_err());
+        }
+        let config = Config::try_parse_from(base.iter().copied().chain([
+            "--ggs-random-discs",
+            "48",
+            "--pairs",
+            "2",
+            "--seed",
+            "42",
+        ]))
+        .unwrap();
+        assert_eq!(config.ggs_random_discs, Some(48));
+        assert_eq!(config.seed, Some(42));
+    }
 
     #[test]
     fn parses_optional_move_timeout() {

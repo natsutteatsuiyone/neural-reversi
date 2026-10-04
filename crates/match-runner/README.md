@@ -14,7 +14,7 @@ match-runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <O
 - `--engine1-working-dir <ENGINE1_WORKING_DIR>`: Working directory for the first engine
 - `-2, --engine2 <ENGINE2>`: Command for the second engine (executable path and arguments) (required)
 - `--engine2-working-dir <ENGINE2_WORKING_DIR>`: Working directory for the second engine
-- `-o, --opening-file <OPENING_FILE>`: File containing opening sequences (required)
+- `-o, --opening-file <OPENING_FILE>`: File containing opening sequences, required unless `--ggs-random-discs` is used
 - `--main-time <SECONDS>`: Main time in seconds (default: 0)
 - `--byoyomi-time <SECONDS>`: Byoyomi time in seconds (default: 0)
 - `--byoyomi-stones <STONES>`: Byoyomi stones (default: 0)
@@ -53,6 +53,22 @@ f5f6e6f4
 ```
 
 For each opening sequence in the file, two games will be played (with colors swapped in the second game).
+
+### GGS random openings
+
+Use random board positions from the local GGS Othello server algorithms instead of an opening file.
+
+```bash
+match-runner --engine1 "cli gtp --level 10" --engine2 "cli gtp --level 10" --ggs-random-discs 10 --pairs 100 --seed 42
+```
+
+`--ggs-random-discs` accepts 4 through 48 discs on an 8 by 8 board. `--pairs` is required and must be positive. Each pair reuses the same board and side to move, with engine colors swapped. `--seed` is optional. The runner prints the chosen seed so a run can be repeated.
+
+The generator follows `Board::random_setup` and `Board::random_setup_2` in GGS `Service/Othello/src/OthelloImpl.C` with `NICOLET_RANDOM=1`. It fills shuffled rings around the center with randomized color balance and excludes each corner and its neighbors. For at least 10 discs, half of the attempts instead play random legal moves from a five-disc position, retry up to five times, and fall back to scattered discs. Seeds reproduce positions within this runner version. They do not reproduce the server's legacy random number stream.
+
+Both engines must advertise `known_command setboard` as `true`. The extension is `setboard <board> <side>`, where `<board>` contains exactly 64 `X`, `O`, or `-` characters in A1 through H1, A2 through H2 order, and `<side>` is `B` or `W`. Neural Reversi supports this command and resets its move history and search state. Invalid input leaves its position unchanged. Initial forced passes preserve the supplied side and use the normal GTP pass exchange.
+
+The final report adds GGS synchro match W/L/D for completed pairs. It uses the sign of the sum of both engine1-relative disc margins, so margins of +20 and -2 count as a match win. The mean disc margin is the average per game over completed pairs. The average rating score applies the GGS formula `0.5 + 0.375*r/(1 + 0.75*abs(r))` to each pair's average margin `r`, then averages those scores. An incomplete pair contributes only to the existing game totals. Game W/L/D, Elo, and SPRT retain their existing pentanomial meaning.
 
 ### SPRT Early Termination
 

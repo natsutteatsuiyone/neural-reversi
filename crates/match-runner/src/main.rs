@@ -7,6 +7,7 @@ mod config;
 mod display;
 mod engine;
 mod error;
+mod opening;
 mod runner;
 mod sprt;
 mod statistics;

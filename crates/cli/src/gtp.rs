@@ -44,6 +44,8 @@ pub enum Command {
     Boardsize(usize),
     /// Clears the board to initial position
     ClearBoard,
+    /// Replaces the board position and side to move.
+    SetBoard { board: String, side: String },
     /// Plays a move for the specified color
     Play { color: String, move_str: String },
     /// Generates and plays a move for the specified color
@@ -109,6 +111,10 @@ impl Command {
                 }
             }
             "clear_board" => Command::ClearBoard,
+            "setboard" if args.len() == 2 => Command::SetBoard {
+                board: args[0].to_string(),
+                side: args[1].to_string(),
+            },
             "play" => {
                 if args.len() == 2 {
                     Command::Play {
@@ -190,6 +196,7 @@ const COMMAND_NAMES: &[&str] = &[
     "quit",
     "boardsize",
     "clear_board",
+    "setboard",
     "play",
     "genmove",
     "showboard",
@@ -437,6 +444,7 @@ impl GtpEngine {
             Command::Quit => self.handle_quit(),
             Command::Boardsize(size) => self.handle_boardsize(size),
             Command::ClearBoard => self.handle_clear_board(),
+            Command::SetBoard { board, side } => self.handle_setboard(&board, &side),
             Command::Play { color, move_str } => self.handle_play(&color, &move_str),
             Command::Genmove(color) => self.handle_genmove(&color),
             Command::Showboard => self.handle_showboard(),
@@ -531,6 +539,22 @@ impl GtpEngine {
         self.game = GameState::new();
         self.search.init();
         GtpResponse::Success("".to_string())
+    }
+
+    fn handle_setboard(&mut self, text: &str, side: &str) -> GtpResponse {
+        let side = match side.to_ascii_lowercase().as_str() {
+            "b" | "black" | "x" => Disc::Black,
+            "w" | "white" | "o" => Disc::White,
+            _ => return GtpResponse::Error("invalid side to move".to_string()),
+        };
+        match reversi_core::board::Board::from_string(text, side) {
+            Ok(board) => {
+                self.game = GameState::from_board(board, side);
+                self.search.init();
+                GtpResponse::Success(String::new())
+            }
+            Err(error) => GtpResponse::Error(error.to_string()),
+        }
     }
 
     /// Handles the `play` command.
@@ -893,6 +917,58 @@ impl GtpEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn setboard_preserves_absolute_colors_and_rejects_invalid_input_atomically() {
+        let config = EngineConfig {
+            hash_size: 1,
+            level: 1,
+            threads: Some(1),
+            eval_file: None,
+            eval_sm_file: None,
+        };
+        let mut engine = GtpEngine::new(&config).unwrap();
+        let text = format!("XO{}", "-".repeat(62));
+        assert!(matches!(
+            engine.handle_setboard(&text, "W"),
+            GtpResponse::Success(_)
+        ));
+        assert_eq!(engine.game.side_to_move(), Disc::White);
+        assert_eq!(
+            engine.game.board().get_disc_at(Square::A1, Disc::White),
+            Disc::Black
+        );
+        assert_eq!(
+            engine.game.board().get_disc_at(Square::B1, Disc::White),
+            Disc::White
+        );
+        let before = *engine.game.board();
+        for (board, side) in [
+            ("X", "B"),
+            (text.as_str(), "invalid"),
+            (&"?".repeat(64), "B"),
+        ] {
+            assert!(matches!(
+                engine.handle_setboard(board, side),
+                GtpResponse::Error(_)
+            ));
+            assert_eq!(*engine.game.board(), before);
+            assert_eq!(engine.game.side_to_move(), Disc::White);
+        }
+        assert!(engine.is_known_command("setboard"));
+        assert!(matches!(
+            engine.handle_play("white", "C1"),
+            GtpResponse::Error(_)
+        ));
+        assert!(matches!(
+            engine.handle_play("white", "pass"),
+            GtpResponse::Success(_)
+        ));
+        assert!(matches!(
+            engine.handle_play("black", "C1"),
+            GtpResponse::Success(_)
+        ));
+    }
 
     #[test]
     fn parses_zero_arg_commands() {

@@ -287,6 +287,23 @@ impl GtpEngine {
         Ok(())
     }
 
+    pub(crate) fn require_setboard(&mut self) -> Result<()> {
+        let response = self.send_command("known_command setboard")?;
+        if Self::parse_success_response(&response)?.trim() != "true" {
+            return Err(MatchRunnerError::Config(format!(
+                "{} must support setboard for GGS random openings",
+                self.name()
+            )));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn setboard(&mut self, board: &str, side: &str) -> Result<()> {
+        let response = self.send_command(&format!("setboard {board} {side}"))?;
+        Self::parse_success_response(&response)?;
+        Ok(())
+    }
+
     /// Make a move on the engine's internal board.
     ///
     /// Sends a "play" GTP command to inform the engine of a move made
