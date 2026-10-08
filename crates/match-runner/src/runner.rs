@@ -19,7 +19,7 @@ use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
 use crate::opening::{Opening, board_string, color, random_position};
 use crate::sprt::{Sprt, SprtResult, SprtStatus};
-use crate::statistics::{MatchStatistics, MatchWinner, PentanomialFrequencies};
+use crate::statistics::{MatchStatistics, MatchWinner};
 use crate::time_tracker::TimeTracker;
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
@@ -46,11 +46,8 @@ pub(crate) fn check_interrupted() -> Result<()> {
     }
 }
 
-fn sprt_snapshot(
-    sprt: Option<&mut Sprt>,
-    frequencies: &PentanomialFrequencies,
-) -> Option<SprtResult> {
-    sprt.map(|sprt| sprt.update(frequencies))
+fn sprt_snapshot(sprt: Option<&mut Sprt>, statistics: &MatchStatistics) -> Option<SprtResult> {
+    sprt.map(|sprt| statistics.update_sprt(sprt))
 }
 
 fn contextualize_game_error(error: MatchRunnerError, game_number: usize) -> MatchRunnerError {
@@ -113,13 +110,14 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
     let total_games = openings.len() * 2;
     let mut statistics = MatchStatistics::default();
     statistics.random_seed = random_seed;
+    statistics.synchro = config.ggs_random_discs.is_some();
 
     display::show_match_header()?;
     display::update_live_visualization(
         &statistics,
         &engine_names.0,
         &engine_names.1,
-        sprt_snapshot(sprt.as_mut(), statistics.pentanomial_frequencies()).as_ref(),
+        sprt_snapshot(sprt.as_mut(), &statistics).as_ref(),
     )?;
     let progress_bar = display::create_progress_bar(total_games as u64);
 
@@ -141,7 +139,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
             if statistics.total_games() > 0 || statistics.random_seed.is_some() {
                 let _ = display::clear_screen();
                 let final_sprt = sprt.as_mut().map(|sprt| {
-                    let result = sprt.update(statistics.pentanomial_frequencies());
+                    let result = statistics.update_sprt(sprt);
                     (sprt.config, result)
                 });
                 let _ =
@@ -150,7 +148,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
             return Err(error);
         }
 
-        if let Some(snapshot) = sprt_snapshot(sprt.as_mut(), statistics.pentanomial_frequencies())
+        if let Some(snapshot) = sprt_snapshot(sprt.as_mut(), &statistics)
             && snapshot.status != SprtStatus::Continue
         {
             break;
@@ -160,7 +158,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
     progress_bar.finish_and_clear();
     display::clear_screen()?;
     let final_sprt = sprt.as_mut().map(|sprt| {
-        let result = sprt.update(statistics.pentanomial_frequencies());
+        let result = statistics.update_sprt(sprt);
         (sprt.config, result)
     });
     statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt)?;
@@ -383,22 +381,18 @@ fn play_opening_pair(
             match_result.score
         };
 
-        statistics.add_result(winner, score, opening.description(), !is_swapped);
-        let game_result = winner;
-        if let Some((first_result, first_score)) = first_result {
-            statistics.add_paired_result(first_result, game_result);
-            if matches!(opening, Opening::Position(_)) {
-                statistics.ggs_pairs.add_pair(first_score, score);
-            }
+        statistics.add_game(winner, score, opening.description(), !is_swapped);
+        if let Some(first) = first_result {
+            statistics.add_pair(first, (winner, score), opening.description());
         } else {
-            first_result = Some((game_result, score));
+            first_result = Some((winner, score));
         }
 
         display::update_live_visualization(
             statistics,
             &engine_names.0,
             &engine_names.1,
-            sprt_snapshot(sprt.as_deref_mut(), statistics.pentanomial_frequencies()).as_ref(),
+            sprt_snapshot(sprt.as_deref_mut(), statistics).as_ref(),
         )?;
         progress_bar.inc(1);
     }

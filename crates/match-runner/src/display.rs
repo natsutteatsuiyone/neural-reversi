@@ -93,7 +93,7 @@ fn display_header(engine1_name: &str, engine2_name: &str, separator: &str) {
 }
 
 fn display_statistics_bars(statistics: &MatchStatistics) {
-    let total = statistics.total_games();
+    let total = statistics.total_results();
     display_bar(
         "Engine1",
         statistics.engine1_wins,
@@ -168,7 +168,12 @@ fn display_footer(statistics: &MatchStatistics, sprt: Option<&SprtResult>, separ
     }
 
     println!("{CLEAR_LINE}{PADDING}");
-    println!("{CLEAR_LINE}{PADDING}{}", "Recent Games:".subtext());
+    let label = if statistics.synchro {
+        "Recent Synchro Matches (combined disc margin):"
+    } else {
+        "Recent Games:"
+    };
+    println!("{CLEAR_LINE}{PADDING}{}", label.subtext());
     println!("{CLEAR_LINE}{PADDING}{}", separator.subtext());
     display_recent_games(statistics);
 }
@@ -180,7 +185,7 @@ fn display_recent_games(statistics: &MatchStatistics) {
 
     println!("{CLEAR_LINE}{PADDING}");
     let start_game_num = statistics
-        .total_games()
+        .total_results()
         .saturating_sub(statistics.recent_results.len() as u32 - 1);
 
     for (idx, game) in statistics.recent_results.iter().enumerate() {
@@ -223,7 +228,10 @@ fn format_opening(opening: &str) -> String {
     }
 }
 
-fn format_vs_display(engine1_color: Disc) -> String {
+fn format_vs_display(engine1_color: Option<Disc>) -> String {
+    let Some(engine1_color) = engine1_color else {
+        return "Engine1 vs Engine2 (synchro)".to_string();
+    };
     let (engine1_symbol, engine2_symbol) = match engine1_color {
         Disc::Black => ("●", "○"),
         Disc::White => ("○", "●"),

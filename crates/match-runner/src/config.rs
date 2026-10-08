@@ -92,11 +92,11 @@ pub struct Config {
     #[arg(long)]
     pub sprt: bool,
 
-    /// SPRT: Elo difference under the null hypothesis H0
+    /// SPRT: Elo difference under the null hypothesis H0 (per synchro match in GGS mode)
     #[arg(long, default_value_t = -10.0, allow_negative_numbers = true, requires = "sprt")]
     pub sprt_elo0: f64,
 
-    /// SPRT: Elo difference under the alternative hypothesis H1
+    /// SPRT: Elo difference under the alternative hypothesis H1 (per synchro match in GGS mode)
     #[arg(
         long,
         default_value_t = 10.0,

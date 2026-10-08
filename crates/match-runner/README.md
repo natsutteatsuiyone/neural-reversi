@@ -68,12 +68,13 @@ The generator follows `Board::random_setup` and `Board::random_setup_2` in GGS `
 
 Both engines must advertise `known_command setboard` as `true`. The extension is `setboard <board> <side>`, where `<board>` contains exactly 64 `X`, `O`, or `-` characters in A1 through H1, A2 through H2 order, and `<side>` is `B` or `W`. Neural Reversi supports this command and resets its move history and search state. Invalid input leaves its position unchanged. Initial forced passes preserve the supplied side and use the normal GTP pass exchange.
 
-The final report adds GGS synchro match W/L/D for completed pairs. It uses the sign of the sum of both engine1-relative disc margins, so margins of +20 and -2 count as a match win. The mean disc margin is the average per game over completed pairs. The average rating score applies the GGS formula `0.5 + 0.375*r/(1 + 0.75*abs(r))` to each pair's average margin `r`, then averages those scores. An incomplete pair contributes only to the existing game totals. Game W/L/D, Elo, and SPRT retain their existing pentanomial meaning.
+In GGS mode, two games form one synchro match. Sum both engine1-relative disc margins: a positive sum counts as one win, a negative sum as one loss, and zero as one draw. For example, +20 and -2 count as one win; +2 and -20 count as one loss. All W/L/D totals, live bars, recent results, Elo, LOS, and SPRT use these synchro outcomes. Elo and SPRT treat each completed match as one win/draw/loss sample; the size of the margin does not affect them. The report therefore labels Elo and win rate "per match", and `--sprt-elo0`/`--sprt-elo1` are per-match Elo: the same bounds test a smaller per-game strength gap than in opening-file mode, so results are not directly comparable between the modes. The report also prints the GGS average rating score, which applies the GGS formula `0.5 + 0.375*r/(1 + 0.75*abs(r))` to each match's average margin `r`. Disc difference totals and per-game averages include every finished game, including the first game of an incomplete pair. Opening-file mode retains its per-game totals and pentanomial statistics.
 
 ### SPRT Early Termination
 
 With `--sprt`, the match runs a Sequential Probability Ratio Test (a constrained
-multinomial GSPRT over the pentanomial model, following Fishtest) after every
+multinomial GSPRT over the pentanomial model, or the trinomial synchro model
+in GGS mode, following Fishtest) after every
 completed opening pair. The accumulated log-likelihood ratio (LLR) of H1
 (`--sprt-elo1`) versus H0 (`--sprt-elo0`) is compared against the bounds
 `ln(β / (1 - α))` and `ln((1 - β) / α)`, tightened by a dynamic overshoot

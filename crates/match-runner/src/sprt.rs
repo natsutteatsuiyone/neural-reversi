@@ -1,7 +1,7 @@
 //! Sequential Probability Ratio Test (SPRT) for early match termination.
 //!
-//! Implements a constrained multinomial GSPRT over the pentanomial model of
-//! paired game results, following the approach used by Fishtest.
+//! Implements a constrained multinomial GSPRT over paired game results,
+//! using pentanomial scores or GGS synchro win/draw/loss scores.
 //! After every completed opening pair the accumulated log-likelihood ratio
 //! (LLR) of H1 (`elo1`) versus H0 (`elo0`) is compared against decision
 //! bounds derived from the configured error rates, tightened by Fishtest's
@@ -95,10 +95,22 @@ impl Sprt {
     /// since the previous call, and resets its excursion references when
     /// updates were skipped.
     pub fn update(&mut self, freq: &PentanomialFrequencies) -> SprtResult {
-        let (lower, upper) = self.config.bounds();
         let llr = llr_pentanomial(freq, self.config.elo0, self.config.elo1);
+        self.update_llr(llr, freq.total_pairs())
+    }
 
-        let pairs = freq.total_pairs();
+    pub(crate) fn update_trinomial(&mut self, wins: u32, losses: u32, draws: u32) -> SprtResult {
+        let llr = llr_multinomial(
+            [losses, draws, wins],
+            &[0.0, 0.5, 1.0],
+            self.config.elo0,
+            self.config.elo1,
+        );
+        self.update_llr(llr, wins + losses + draws)
+    }
+
+    fn update_llr(&mut self, llr: f64, pairs: u32) -> SprtResult {
+        let (lower, upper) = self.config.bounds();
         if pairs == self.last_update + 1 {
             if llr < self.ref0 {
                 let delta = llr - self.ref0;
@@ -156,11 +168,15 @@ fn logistic(elo: f64) -> f64 {
 fn llr_pentanomial(freq: &PentanomialFrequencies, elo0: f64, elo1: f64) -> f64 {
     // Pair scores normalized to [0, 1]; DD and WL both score 0.5 and are merged.
     const SCORES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
+    let raw = [freq.ll, freq.ld, freq.dd + freq.wl, freq.wd, freq.ww];
+    llr_multinomial(raw, &SCORES, elo0, elo1)
+}
+
+fn llr_multinomial<const N: usize>(raw: [u32; N], scores: &[f64; N], elo0: f64, elo1: f64) -> f64 {
     // Match Fishtest's regularization so every empirical category has support
     // in both constrained likelihood maximizations.
     const EPSILON: f64 = 1e-3;
 
-    let raw = [freq.ll, freq.ld, freq.dd + freq.wl, freq.wd, freq.ww];
     if raw.iter().all(|&count| count == 0) {
         return 0.0;
     }
@@ -176,12 +192,12 @@ fn llr_pentanomial(freq: &PentanomialFrequencies, elo0: f64, elo1: f64) -> f64 {
     // endpoints in f64 and would put the secular root at infinity.
     let s0 = logistic(elo0).clamp(f64::EPSILON, 1.0 - f64::EPSILON);
     let s1 = logistic(elo1).clamp(f64::EPSILON, 1.0 - f64::EPSILON);
-    let root0 = constrained_mle_root(&counts, &SCORES, s0);
-    let root1 = constrained_mle_root(&counts, &SCORES, s1);
+    let root0 = constrained_mle_root(&counts, scores, s0);
+    let root1 = constrained_mle_root(&counts, scores, s1);
 
     counts
         .iter()
-        .zip(SCORES)
+        .zip(scores)
         .map(|(count, score)| {
             let denominator0 = 1.0 + root0 * (score - s0);
             let denominator1 = 1.0 + root1 * (score - s1);
@@ -192,7 +208,7 @@ fn llr_pentanomial(freq: &PentanomialFrequencies, elo0: f64, elo1: f64) -> f64 {
 
 /// Find the Lagrange multiplier for the multinomial MLE constrained to
 /// `expected_score`.
-fn constrained_mle_root(counts: &[f64; 5], scores: &[f64; 5], expected_score: f64) -> f64 {
+fn constrained_mle_root(counts: &[f64], scores: &[f64], expected_score: f64) -> f64 {
     // The secular function is strictly decreasing between these poles. All
     // bisection midpoints remain in the open interval, so every denominator
     // is positive without an arbitrary root tolerance near either pole.
@@ -251,6 +267,16 @@ mod tests {
 
         assert_eq!(result.llr, 0.0);
         assert_eq!(result.status, SprtStatus::Continue);
+    }
+
+    #[test]
+    fn trinomial_llr_matches_closed_form_mle() {
+        // The three-category MLE's secular equation reduces to a quadratic.
+        let result = Sprt::new(SYMMETRIC).update_trinomial(30, 10, 5);
+        assert!((result.llr - 1.2951622140625676).abs() < 1e-12);
+        assert_eq!(result.status, SprtStatus::Continue);
+        let mirrored = Sprt::new(SYMMETRIC).update_trinomial(10, 30, 5);
+        assert!((result.llr + mirrored.llr).abs() < 1e-12);
     }
 
     #[test]
