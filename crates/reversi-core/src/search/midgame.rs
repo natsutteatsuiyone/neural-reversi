@@ -168,10 +168,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             );
         }
 
-        // A forced move needs no deep search under time control: answer after the
+        // A forced move needs no deep search under a deadline: answer after the
         // first completed iteration and bank the time. Score and PV are already
         // available for reporting.
-        if use_time_control && ctx.root_moves.count() == 1 {
+        if ctx.root_moves.count() == 1
+            && time_manager
+                .as_ref()
+                .is_some_and(|tm| tm.deadline().is_some())
+        {
             return completed.to_result(ctx.counters.clone());
         }
 

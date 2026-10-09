@@ -1,7 +1,7 @@
 //! GGS `/os` server-event parser.
 //!
-//! Parses one complete chunk (the block of lines delimited by `READY`
-//! markers on the receive stream) into a structured [`OsEvent`].
+//! Parses every service message in a complete chunk (the block of lines
+//! delimited by `READY` / `ALERT` markers) into structured [`OsEvent`]s.
 
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
@@ -11,14 +11,12 @@ use reversi_core::disc::Disc;
 pub struct PlayerClock {
     /// Remaining active-budget time for us in ms.
     pub main_ms: u64,
-    /// Our increment in ms; 0 when absent or `0:00`.
+    /// Additive every-move increment in ms; 0 for other increment modes.
     pub increment_ms: u64,
-    /// Our extension / byoyomi period in ms; 0 when absent or `0:00`.
-    pub byoyomi_ms: u64,
 }
 
 /// A structured event extracted from a single GGS receive chunk.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OsEvent {
     /// `/os: + match <id> <r1> <n1> <r2> <n2> <variant> <type>` chunk.
     ///
@@ -36,23 +34,25 @@ pub enum OsEvent {
         variant: Option<String>,
     },
     /// `/os: join <id> ...` OR `/os: update <id> ...` chunk, both carrying a full board.
-    MatchState {
+    MatchState(MatchState),
+    /// A join/update header whose board body was unavailable or unparseable.
+    /// This commonly occurs when a reconnect races a persisted `client +`
+    /// setting; the session requests one verbose state after forcing
+    /// `client -`.
+    MatchStateUnavailable {
         id: String,
-        board: Board,
-        side_to_move: Disc,
-        /// Actual color marker for `my_username` in this game, parsed from
-        /// the clock line. This is authoritative because `+ match` lists
-        /// request players, not necessarily black then white.
-        my_color: Option<Disc>,
-        /// `None` when our clock line is absent or unparseable.
-        my_clock: Option<PlayerClock>,
+        variant: Option<String>,
+        is_player: bool,
     },
+    /// An unparseable join/update whose clock lines all name other players:
+    /// we are watching this match, not playing it.
+    SpectatedMatchState { id: String, variant: Option<String> },
     /// `/os: - match <id> ...` or `/os: end <id> ...` chunk.
     MatchEnd {
         id: String,
         /// Match result text as the server prints it (`-64.00`, `aborted`, `name left`, ...).
         result: String,
-        /// Signed score as the server prints it (from first-player perspective), if numeric.
+        /// Disc difference from our side, when the result is numeric and we played.
         score: Option<f64>,
     },
     /// `/os: <id> A <rating> <from>: <message>` (match-attached kibitz/tell).
@@ -66,19 +66,7 @@ pub enum OsEvent {
     /// on the server) to `to` (the challengee, `req.p2`). See
     /// `EXE_Service::ask` / `EXE_Service::accept` in the server and the
     /// matching branch in `BoardGameServiceClient.java` for format details.
-    AskOffer {
-        id: String,
-        /// Challenger username.
-        from: String,
-        /// Challengee username. When this equals our login the offer is
-        /// addressed to us; otherwise it is a third-party offer (or our own
-        /// outgoing request being echoed back).
-        to: String,
-        /// GGS game type / board variant, for example `8b`.
-        game_type: String,
-        /// GGS ask mode, for example `U`.
-        mode: String,
-    },
+    AskOffer(AskOffer),
     /// `/os: -   .<id> ...` — an ask offer has been removed from the server's
     /// queue. Emitted both when the challenger manually withdraws the offer
     /// AND when the server consumes the request during match creation.
@@ -90,44 +78,127 @@ pub enum OsEvent {
     /// diagnostic available: see `Game::err_string` in
     /// `Service/GameLib/src/Game.C`.
     ServerError { id: String, message: String },
+    /// A request/accept command failed before a match was created. GGS emits
+    /// these as generic `/os: ERR ...` messages.
+    RequestError {
+        /// Present for `request '<id>' not found`; the other errors do not
+        /// echo the request id and cannot be correlated safely.
+        id: Option<String>,
+        message: String,
+    },
     /// Everything else: MOTD, `help ...` output, `who` output, `+ack:` echoes, etc.
     Unknown,
 }
 
-/// Parses one complete server chunk (the lines between two `READY` markers,
-/// with the `READY` itself NOT included). Blank lines inside the chunk are tolerated.
+/// Position, side to move, and our color and clock from one `/os: join` or
+/// `/os: update` chunk.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchState {
+    pub id: String,
+    /// Raw variant token from the join/update header.
+    pub variant: Option<String>,
+    /// Other player, when it can be recovered from the clock lines.
+    pub opponent: Option<String>,
+    pub board: Board,
+    pub side_to_move: Disc,
+    /// Actual color marker for `my_username` in this game, parsed from
+    /// the clock line. This is authoritative because `+ match` lists
+    /// request players, not necessarily black then white.
+    pub my_color: Option<Disc>,
+    /// `None` when our clock line is absent or unparseable.
+    pub my_clock: Option<PlayerClock>,
+}
+
+/// A match-request ("ask") offer; [`OsEvent::AskOffer`] describes the wire format.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AskOffer {
+    pub id: String,
+    /// Challenger username.
+    pub from: String,
+    /// Challengee username. When this equals our login the offer is
+    /// addressed to us; otherwise it is a third-party offer (or our own
+    /// outgoing request being echoed back).
+    pub to: String,
+    /// GGS game type / board variant, for example `8b`.
+    pub game_type: String,
+    /// Raw GGS clock setting, for example `01:00//02:00`.
+    pub clock: String,
+    /// GGS ask mode, for example `U`.
+    pub mode: String,
+}
+
+/// Parses every `/os` message in one boundary-delimited receive chunk, with
+/// the board snapshot to display for each join/update that carries one
+/// (including matches we only watch).
+///
+/// GGS can emit multiple service messages before the next boundary marker.
+/// Each `/os: ` header starts a new message; its following lines belong to it
+/// until the next header.
+pub(super) fn parse_server_messages(
+    lines: &[&str],
+    my_username: &str,
+) -> Vec<(OsEvent, Option<DisplayState>)> {
+    let first_header = lines
+        .iter()
+        .position(|line| line.starts_with("/os: "))
+        .unwrap_or(0);
+    lines[first_header..]
+        .chunk_by(|_, next| !next.starts_with("/os: "))
+        .map(|message| {
+            match_state_body(message)
+                .and_then(|body| parse_match_state(body, message, my_username))
+                .unwrap_or_else(|| (parse_server_chunk(message, my_username), None))
+        })
+        .collect()
+}
+
+/// The header body of a join/update message.
+fn match_state_body<'a>(lines: &[&'a str]) -> Option<&'a str> {
+    let header = lines.iter().find(|line| !line.trim().is_empty())?;
+    let rest = header
+        .strip_prefix("/os: ")?
+        .trim_start_matches('\x07')
+        .trim_start();
+    rest.strip_prefix("join ")
+        .or_else(|| rest.strip_prefix("update "))
+}
+
+/// Parses one complete server chunk (the lines between boundary markers,
+/// with the marker itself NOT included). Blank lines inside the chunk are tolerated.
 /// `my_username` is used to decide `my_color` / `my_clock` by
 /// comparing against the names in `+ match` and the `|<name> (<rating> X)` clock lines.
 pub fn parse_server_chunk(lines: &[&str], my_username: &str) -> OsEvent {
-    // Find the first non-blank line (the header).
-    let header = match lines.iter().find(|l| !l.trim().is_empty()) {
-        Some(l) => *l,
-        None => return OsEvent::Unknown,
-    };
+    parse_message(lines, my_username).unwrap_or(OsEvent::Unknown)
+}
 
-    let rest = match header.strip_prefix("/os: ") {
-        Some(r) => r.trim_start(),
-        None => return OsEvent::Unknown,
-    };
+fn parse_message(lines: &[&str], my_username: &str) -> Option<OsEvent> {
+    // Find the first non-blank line (the header).
+    let header = lines.iter().find(|l| !l.trim().is_empty())?;
+    let rest = header
+        .strip_prefix("/os: ")?
+        .trim_start_matches('\x07')
+        .trim_start();
 
     // Dispatch on the header's leading tag.
     if let Some(body) = rest.strip_prefix("+ match ") {
         return parse_match_created(body, my_username);
     }
     if let Some(body) = rest.strip_prefix("- match ") {
-        return parse_match_end(body);
+        return parse_match_end(body, my_username);
     }
     if let Some(body) = rest.strip_prefix("end ") {
-        return parse_child_match_end(body);
+        return parse_child_match_end(body, my_username);
     }
-    if let Some(body) = rest.strip_prefix("join ") {
-        return parse_match_state(body, lines, my_username);
-    }
-    if let Some(body) = rest.strip_prefix("update ") {
-        return parse_match_state(body, lines, my_username);
+    if let Some(body) = match_state_body(lines) {
+        return parse_match_state(body, lines, my_username).map(|(event, _)| event);
     }
     if let Some(body) = rest.strip_prefix("error ") {
         return parse_server_error(body);
+    }
+    if let Some(body) = rest.strip_prefix("ERR ")
+        && let Some(error) = parse_request_error(body)
+    {
+        return Some(error);
     }
     // Ask offer: `+   .<id> ...`. Must be checked AFTER `+ match` so we don't
     // swallow match-created chunks. The server uses variable whitespace
@@ -136,7 +207,7 @@ pub fn parse_server_chunk(lines: &[&str], my_username: &str) -> OsEvent {
     if let Some(body) = rest.strip_prefix("+ ") {
         let body = body.trim_start();
         if body.starts_with('.') {
-            return parse_ask_offer(body).unwrap_or(OsEvent::Unknown);
+            return parse_ask_offer(body, my_username);
         }
     }
     // Ask withdrawal: `-   .<id> ...`. Same variable-whitespace caveat as
@@ -146,60 +217,55 @@ pub fn parse_server_chunk(lines: &[&str], my_username: &str) -> OsEvent {
         && first.starts_with('.')
         && first.len() > 1
     {
-        return OsEvent::AskWithdrawn {
+        return Some(OsEvent::AskWithdrawn {
             id: first.to_string(),
-        };
+        });
     }
 
     // Kibitz: `<id> A <rating> <from>: <message>`.
-    if let Some(ev) = parse_kibitz(rest) {
-        return ev;
-    }
-
-    OsEvent::Unknown
+    parse_kibitz(rest)
 }
 
 /// Parse a `+   .<id> <r0> <n0> <clock> <type> <flag> <r1> <n1> [...]` ask offer.
 ///
-/// The trailing optional fields (`<my_clock>`, `<stored_id>`) are ignored.
-/// Returns `None` on any missing or shape-mismatched token, which the caller
-/// maps to `OsEvent::Unknown`.
-fn parse_ask_offer(body: &str) -> Option<OsEvent> {
+/// An optional second clock is selected when it belongs to this client;
+/// the trailing stored-game id is ignored.
+/// Returns `None` on any missing or shape-mismatched token.
+fn parse_ask_offer(body: &str, my_username: &str) -> Option<OsEvent> {
     let mut it = body.split_whitespace();
     let id = it.next().filter(|s| s.starts_with('.'))?.to_string();
     let _r0 = it.next()?;
     let from = it.next()?.to_string();
-    let _clock = it.next()?;
+    let challenger_clock = it.next()?;
     let game_type = it.next()?.to_string();
     let mode = it.next()?.to_string();
     let _r1 = it.next()?;
     let to = it.next()?.to_string();
-    Some(OsEvent::AskOffer {
+    let second_clock = it.next().filter(|field| field.contains('/'));
+    let clock = if from == my_username {
+        challenger_clock
+    } else {
+        second_clock.unwrap_or(challenger_clock)
+    }
+    .to_string();
+    Some(OsEvent::AskOffer(AskOffer {
         id,
         from,
         to,
         game_type,
+        clock,
         mode,
-    })
+    }))
 }
 
-fn parse_match_created(body: &str, my_username: &str) -> OsEvent {
+fn parse_match_created(body: &str, my_username: &str) -> Option<OsEvent> {
     // Expect: <id> <r1> <n1> <r2> <n2> <variant> <type>
     let mut it = body.split_whitespace();
-    let id = match it.next() {
-        Some(s) => s.to_string(),
-        None => return OsEvent::Unknown,
-    };
-    let _r1 = it.next();
-    let n1 = match it.next() {
-        Some(s) => s,
-        None => return OsEvent::Unknown,
-    };
-    let _r2 = it.next();
-    let n2 = match it.next() {
-        Some(s) => s,
-        None => return OsEvent::Unknown,
-    };
+    let id = it.next()?.to_string();
+    let _r1 = it.next()?;
+    let n1 = it.next()?;
+    let _r2 = it.next()?;
+    let n2 = it.next()?;
     let variant = it.next().map(str::to_string);
 
     let opponent = if my_username == n1 {
@@ -210,63 +276,97 @@ fn parse_match_created(body: &str, my_username: &str) -> OsEvent {
         None
     };
 
-    OsEvent::MatchCreated {
+    Some(OsEvent::MatchCreated {
         id,
         opponent,
         variant,
-    }
+    })
 }
 
-fn parse_match_end(body: &str) -> OsEvent {
+fn parse_match_end(body: &str, my_username: &str) -> Option<OsEvent> {
     // Expect: <id> <r1> <n1> <r2> <n2> <variant> <type> <result...>
     // The result is numeric for completed games, but can be text such as
     // `aborted` or `<name> left` for interrupted games. The Java client and
     // Edax both treat any `- match` as a match end, regardless of score shape.
+    // Rated matches append a global counter after the result. Logins may be
+    // numeric, so `<name> left` must be ruled out before parsing a score.
     let parts: Vec<&str> = body.split_whitespace().collect();
     if parts.len() < 8 {
-        return OsEvent::Unknown;
+        return None;
     }
     let id = parts[0].to_string();
     let result = parts[7..].join(" ");
-    let score = parts[7].parse::<f64>().ok();
-    OsEvent::MatchEnd { id, result, score }
+    let score = if parts.get(8) == Some(&"left") {
+        None
+    } else {
+        player_score(parts[7], parts[2], parts[4], my_username)
+    };
+    Some(OsEvent::MatchEnd { id, result, score })
 }
 
-fn parse_child_match_end(body: &str) -> OsEvent {
-    // Synchro child games are reported as `/os: end <id> ...`. The trailing
-    // payload is not needed for session cleanup, so parse only the child id
-    // and preserve any remainder as best-effort result text.
+/// Converts a result printed from player 0's side to our side.
+fn player_score(result: &str, name0: &str, name1: &str, my_username: &str) -> Option<f64> {
+    let score: f64 = result.trim().parse().ok()?;
+    if name0 == my_username {
+        Some(score)
+    } else if name1 == my_username {
+        Some(-score)
+    } else {
+        None
+    }
+}
+
+fn parse_child_match_end(body: &str, my_username: &str) -> Option<OsEvent> {
+    // Synchro child games are reported as `/os: end <id> ( <n0> vs. <n1> ) <r0>`.
+    // Session cleanup needs only the child id; the remainder is kept as
+    // best-effort result text.
     let mut parts = body.split_whitespace();
-    let Some(id) = parts.next() else {
-        return OsEvent::Unknown;
-    };
+    let id = parts.next()?;
     let remainder: Vec<&str> = parts.collect();
+    let score = match remainder.as_slice() {
+        ["(", name0, "vs.", name1, ")", result] => player_score(result, name0, name1, my_username),
+        _ => None,
+    };
     let result = if remainder.is_empty() {
         "end".to_string()
     } else {
         remainder.join(" ")
     };
-    let score = remainder.first().and_then(|s| s.parse::<f64>().ok());
-    OsEvent::MatchEnd {
+    Some(OsEvent::MatchEnd {
         id: id.to_string(),
         result,
         score,
-    }
+    })
 }
 
 /// Parse `error <id> <message>`. The id is typically a match id (`.5`)
 /// but the server also uses `error` for out-of-match failures (e.g. before a
 /// match exists). We accept any non-empty first token.
-fn parse_server_error(body: &str) -> OsEvent {
-    let body = body.trim();
-    if body.is_empty() {
-        return OsEvent::Unknown;
-    }
-    let (id, message) = match body.split_once(char::is_whitespace) {
-        Some((id, msg)) => (id.to_string(), msg.trim().to_string()),
-        None => (body.to_string(), String::new()),
+fn parse_server_error(body: &str) -> Option<OsEvent> {
+    let (id, message) = take_word(body)?;
+    Some(OsEvent::ServerError {
+        id: id.to_string(),
+        message: message.trim().to_string(),
+    })
+}
+
+fn parse_request_error(message: &str) -> Option<OsEvent> {
+    let id = if message == "your request doesn't fit the opponent's formula."
+        || message == "you cannot accept your own match request."
+    {
+        None
+    } else {
+        Some(
+            message
+                .strip_prefix("request '")?
+                .strip_suffix("' not found.")?
+                .to_string(),
+        )
     };
-    OsEvent::ServerError { id, message }
+    Some(OsEvent::RequestError {
+        id,
+        message: message.to_string(),
+    })
 }
 
 fn parse_kibitz(rest: &str) -> Option<OsEvent> {
@@ -302,104 +402,181 @@ fn take_word(s: &str) -> Option<(&str, &str)> {
     Some((&s[..end], &s[end..]))
 }
 
-fn parse_match_state(header_body: &str, lines: &[&str], my_username: &str) -> OsEvent {
-    // Header body: `<id> <variant> <type>`
+/// A board snapshot with both players' clocks and the numbered moves it lists.
+pub(super) struct DisplayState {
+    pub(super) state: MatchState,
+    pub(super) clocks: Vec<DisplayClock>,
+    /// `(move number, move)` pairs; a join lists the whole game, an update only the last move.
+    pub(super) moves: Vec<(usize, String)>,
+}
+
+/// One player's clock line as shown to the user.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct DisplayClock {
+    pub(super) name: String,
+    pub(super) color: Disc,
+    /// `None` when the clock fields are unparseable.
+    pub(super) main_ms: Option<u64>,
+}
+
+/// Parses `|  <n>: <move>/<eval>/<time>`.
+fn parse_move_line(line: &str) -> Option<(usize, String)> {
+    let (number, rest) = line.strip_prefix('|')?.trim_start().split_once(": ")?;
+    let mv = rest.split('/').next()?.trim();
+    Some((number.parse().ok()?, mv.to_string()))
+}
+
+fn parse_match_state(
+    header_body: &str,
+    lines: &[&str],
+    my_username: &str,
+) -> Option<(OsEvent, Option<DisplayState>)> {
+    // Verbose header: `<id> <variant> K...`. Compact join/update payloads do
+    // not carry a header variant and are deliberately resynced verbosely.
     let mut it = header_body.split_whitespace();
-    let id = match it.next() {
-        Some(s) => s.to_string(),
-        None => return OsEvent::Unknown,
+    let id = it.next()?.to_string();
+    let variant = match (it.next(), it.next()) {
+        (Some(variant), Some(kind)) if kind.starts_with('K') => Some(variant.to_string()),
+        _ => None,
     };
 
-    let mut my_clock = None;
-    let mut my_color = None;
+    let mut matching_clocks = Vec::new();
+    let mut opponent = None;
 
-    let mut board_rows: Vec<[u8; 8]> = Vec::with_capacity(16);
-    let mut side_to_move: Option<Disc> = None;
+    let mut board_rows = Vec::with_capacity(16);
+    let mut side_to_move = None;
+    let mut clocks = Vec::new();
+    let mut moves = Vec::new();
 
-    for raw in lines.iter() {
-        let line = *raw;
-
+    for &line in lines {
+        if let Some(mv) = parse_move_line(line) {
+            moves.push(mv);
+        }
         if let Some(clock) = parse_clock_line(line, my_username) {
+            clocks.push(DisplayClock {
+                name: clock.name.to_string(),
+                color: clock.color,
+                main_ms: clock.clock.map(|clock| clock.main_ms),
+            });
             if clock.is_mine {
-                my_color = clock.color;
-                my_clock = clock.clock;
+                matching_clocks.push((clock.color, clock.clock));
+            } else if opponent.is_none() {
+                opponent = Some(clock.name.to_string());
             }
-            continue;
-        }
-
-        if let Some(row) = parse_board_row(line) {
+        } else if let Some(row) = parse_board_row(line) {
             board_rows.push(row);
-            continue;
-        }
-
-        if let Some(stm) = parse_side_to_move(line) {
+        } else if let Some(stm) = parse_side_to_move(line) {
             side_to_move = Some(stm);
         }
     }
 
-    if board_rows.len() < 8 {
-        return OsEvent::Unknown;
+    // History-bearing joins print setup clocks first and live clocks last.
+    if clocks.len() > 2 {
+        clocks.drain(..clocks.len() - 2);
     }
-    let board_rows = &board_rows[board_rows.len() - 8..];
-    let stm = match side_to_move {
-        Some(s) => s,
-        None => return OsEvent::Unknown,
+    let is_player = !matching_clocks.is_empty();
+    let is_spectator = !is_player && opponent.is_some();
+    let Some((board, stm)) = current_position(&board_rows, side_to_move) else {
+        let event = if is_spectator {
+            OsEvent::SpectatedMatchState { id, variant }
+        } else {
+            OsEvent::MatchStateUnavailable {
+                id,
+                variant,
+                is_player,
+            }
+        };
+        return Some((event, None));
     };
-
-    // Assemble the 64 bytes in Square::iter order (A1..H1, A2..H2, ..., A8..H8).
-    // `parse_board_row` already normalises cells into Board's alphabet.
-    let mut board_bytes = [0u8; 64];
-    for (i, row) in board_rows.iter().enumerate() {
-        board_bytes[i * 8..i * 8 + 8].copy_from_slice(row);
+    // In a supported self-play match both player clock lines have our login.
+    // Prefer the last clock for the side to move: history-bearing join chunks
+    // print setup clocks first and live clocks last. Ordinary matches fall
+    // back to their final matching line regardless of whose turn it is.
+    let (my_color, my_clock) = matching_clocks
+        .iter()
+        .rev()
+        .find(|(color, _)| *color == stm)
+        .or_else(|| matching_clocks.last())
+        .map(|&(color, clock)| (Some(color), clock))
+        .unwrap_or((None, None));
+    if opponent.is_none() && matching_clocks.len() > 1 {
+        opponent = Some(my_username.to_string());
     }
-    let board_string = std::str::from_utf8(&board_bytes).expect("ASCII cells");
-    let board = match Board::from_string(board_string, stm) {
-        Ok(b) => b,
-        Err(_) => return OsEvent::Unknown,
-    };
 
-    OsEvent::MatchState {
+    let state = MatchState {
         id,
+        variant,
+        opponent,
         board,
         side_to_move: stm,
         my_color,
         my_clock,
-    }
+    };
+    let display = DisplayState {
+        state: MatchState {
+            opponent: state.opponent.clone().filter(|_| my_color.is_some()),
+            ..state.clone()
+        },
+        clocks,
+        moves,
+    };
+    let event = if is_spectator {
+        OsEvent::SpectatedMatchState {
+            id: state.id,
+            variant: state.variant,
+        }
+    } else {
+        OsEvent::MatchState(state)
+    };
+    Some((event, Some(display)))
+}
+
+/// The last printed board with its side to move, or `None` if either is missing or invalid.
+fn current_position(rows: &[[u8; 8]], side_to_move: Option<Disc>) -> Option<(Board, Disc)> {
+    let side_to_move = side_to_move?;
+    // Assemble the 64 bytes in Square::iter order (A1..H1, A2..H2, ..., A8..H8).
+    // `parse_board_row` already normalises cells into Board's alphabet.
+    let cells: String = rows
+        .last_chunk::<8>()?
+        .iter()
+        .flatten()
+        .map(|&cell| char::from(cell))
+        .collect();
+    let board = Board::from_string(&cells, side_to_move).ok()?;
+    Some((board, side_to_move))
 }
 
 /// A parsed `|<name> (<rating> <mark>) <main>/<increment>/<extension>` clock line.
-struct ClockLine {
+struct ClockLine<'a> {
+    name: &'a str,
     is_mine: bool,
-    color: Option<Disc>,
+    color: Disc,
     clock: Option<PlayerClock>,
 }
 
 /// Parse `|<name>{spaces}(<rating> <colormark>) <main>/<increment>/<extension>`.
-/// Only populates `color` / `clock` when the line belongs to `my_username` —
-/// everyone else's clock is discarded before any per-field parsing or
-/// allocation, since GGS chunks list every watcher on match kibitz.
-fn parse_clock_line(line: &str, my_username: &str) -> Option<ClockLine> {
+fn parse_clock_line<'a>(line: &'a str, my_username: &str) -> Option<ClockLine<'a>> {
     let body = line.strip_prefix('|')?;
-    let (name_part, after) = body.split_once('(')?;
+    // Login names may contain `(`. The server prints a space-delimited rating
+    // block after its fixed-width name field, so split at that delimiter.
+    let (name_part, after) = body.rsplit_once(" (")?;
     let name = name_part.trim();
     if name.is_empty() {
         return None;
     }
     let is_mine = name == my_username;
     let (rating_block, after_paren) = after.split_once(')')?;
-    let (color, clock) = if is_mine {
-        // The rating block ends in the live color mark, e.g. `1720.0 *`.
-        // Empty increment is valid: the common Othello default prints as
-        // `<main>//<extension>`.
-        let c = rating_block
-            .split_whitespace()
-            .last()
-            .and_then(parse_color_mark);
-        (c, parse_player_clock(after_paren.trim_start()))
-    } else {
-        (None, None)
-    };
+    // The rating block ends in the live color mark, e.g. `1720.0 *`. Requiring
+    // it keeps parenthesized lines such as `|0 move(s)` out of this parser.
+    let color = rating_block
+        .split_whitespace()
+        .last()
+        .and_then(parse_color_mark)?;
+    // Empty increment is valid: the common Othello default prints as
+    // `<main>//<extension>`.
+    let clock = parse_player_clock(after_paren.trim_start());
     Some(ClockLine {
+        name,
         is_mine,
         color,
         clock,
@@ -409,13 +586,30 @@ fn parse_clock_line(line: &str, my_username: &str) -> Option<ClockLine> {
 fn parse_player_clock(fields: &str) -> Option<PlayerClock> {
     let mut fields = fields.split('/');
     let main_ms = parse_clock_time_field(fields.next()?)?;
-    let increment_ms = fields.next().and_then(parse_clock_time_field).unwrap_or(0);
-    let byoyomi_ms = fields.next().and_then(parse_clock_time_field).unwrap_or(0);
+    let increment_ms = fields
+        .next()
+        .and_then(parse_fischer_increment_field)
+        .unwrap_or(0);
     Some(PlayerClock {
         main_ms,
         increment_ms,
-        byoyomi_ms,
     })
+}
+
+/// GGS also supports Bronstein (`N`) and every-N-moves increments. The
+/// engine's time manager models neither, so only expose an additive increment
+/// whose live metadata says it is awarded every move.
+fn parse_fischer_increment_field(field: &str) -> Option<u64> {
+    let (_, metadata) = field.split_once(',')?;
+    let (counter, every) = metadata.trim().split_once(':')?;
+    if counter.starts_with('N') {
+        return Some(0);
+    }
+    counter.parse::<u64>().ok()?;
+    if every.parse::<u64>().ok()? != 1 {
+        return Some(0);
+    }
+    parse_clock_time_field(field)
 }
 
 fn parse_color_mark(mark: &str) -> Option<Disc> {
@@ -442,38 +636,24 @@ fn parse_color_mark(mark: &str) -> Option<Disc> {
 /// `None`, which causes the enclosing clock line to be treated as unparseable.
 fn parse_clock_time_field(field: &str) -> Option<u64> {
     let time_str = field.split(',').next()?.trim();
-    if time_str.is_empty() {
-        return None;
-    }
-
     let (negative, time_str) = match time_str.strip_prefix('-') {
         Some(rest) => (true, rest.trim()),
         None => (false, time_str),
     };
-    if time_str.is_empty() {
-        return None;
-    }
+    let num = |s: &str| s.trim().parse::<u64>().ok();
 
     // Optional leading `<days>.` segment.
     let (days, rest) = match time_str.split_once('.') {
-        Some((d, r)) => (d.trim().parse::<u64>().ok()?, r),
-        None => (0u64, time_str),
+        Some((d, r)) => (num(d)?, r),
+        None => (0, time_str),
     };
 
     // Remaining segment is `SS`, `MM:SS`, or `HH:MM:SS`.
     let parts: Vec<&str> = rest.split(':').collect();
     let (hh, mm, ss) = match parts.as_slice() {
-        [ss] => (0u64, 0u64, ss.trim().parse::<u64>().ok()?),
-        [mm, ss] => (
-            0u64,
-            mm.trim().parse::<u64>().ok()?,
-            ss.trim().parse::<u64>().ok()?,
-        ),
-        [hh, mm, ss] => (
-            hh.trim().parse::<u64>().ok()?,
-            mm.trim().parse::<u64>().ok()?,
-            ss.trim().parse::<u64>().ok()?,
-        ),
+        [ss] => (0, 0, num(ss)?),
+        [mm, ss] => (0, num(mm)?, num(ss)?),
+        [hh, mm, ss] => (num(hh)?, num(mm)?, num(ss)?),
         _ => return None,
     };
 
@@ -488,25 +668,22 @@ fn parse_clock_time_field(field: &str) -> Option<u64> {
 /// Cells are emitted in `Board::from_string`'s alphabet (`-`, `X`, `O`) so the
 /// caller can concatenate rows into a 64-byte board string directly.
 fn parse_board_row(line: &str) -> Option<[u8; 8]> {
-    let body = line.strip_prefix('|')?;
-    let body = body.trim_start();
-    let mut it = body.split_whitespace();
+    let mut it = line.strip_prefix('|')?.split_whitespace();
     let rank = it.next()?;
     if rank.len() != 1 || !rank.as_bytes()[0].is_ascii_digit() {
         return None;
     }
     let mut cells = [b'-'; 8];
-    for cell in cells.iter_mut() {
-        let tok = it.next()?;
-        if tok.len() != 1 {
-            return None;
-        }
-        *cell = match tok.as_bytes()[0] {
-            b'-' => b'-',
-            b'*' => b'X',
-            b'O' => b'O',
+    for cell in &mut cells {
+        *cell = match it.next()? {
+            "-" => b'-',
+            "*" => b'X',
+            "O" => b'O',
             _ => return None,
         };
+    }
+    if it.next()? != rank || it.next().is_some() {
+        return None;
     }
     Some(cells)
 }
@@ -564,19 +741,14 @@ mod tests {
     fn match_created_is_parsed() {
         let all = chunks();
         let chunk = find_chunk(&all, "/os: + match .5");
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
+        assert_eq!(
+            parse_server_chunk(chunk, "alice"),
             OsEvent::MatchCreated {
-                id,
-                opponent,
-                variant,
-            } => {
-                assert_eq!(id, ".5");
-                assert_eq!(opponent.as_deref(), Some("bob"));
-                assert_eq!(variant.as_deref(), Some("8b"));
+                id: ".5".to_string(),
+                opponent: Some("bob".to_string()),
+                variant: Some("8b".to_string()),
             }
-            other => panic!("expected MatchCreated, got {other:?}"),
-        }
+        );
     }
 
     #[test]
@@ -584,60 +756,32 @@ mod tests {
         let all = chunks();
         let chunk = find_chunk(&all, "/os: + match .5");
         let ev = parse_server_chunk(chunk, "charlie");
-        match ev {
-            OsEvent::MatchCreated { id, opponent, .. } => {
-                assert_eq!(id, ".5");
-                assert!(opponent.is_none());
-            }
-            other => panic!("expected MatchCreated, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn synchro_match_created_captures_variant() {
-        let ev = parse_server_chunk(&["/os: + match .5 1720 alice 1720 bob s8r20 R"], "alice");
-        match ev {
-            OsEvent::MatchCreated {
-                id,
-                opponent,
-                variant,
-            } => {
-                assert_eq!(id, ".5");
-                assert_eq!(opponent.as_deref(), Some("bob"));
-                assert_eq!(variant.as_deref(), Some("s8r20"));
-            }
-            other => panic!("expected MatchCreated, got {other:?}"),
-        }
+        let OsEvent::MatchCreated { id, opponent, .. } = ev else {
+            panic!("expected MatchCreated, got {ev:?}")
+        };
+        assert_eq!(id, ".5");
+        assert!(opponent.is_none());
     }
 
     #[test]
     fn match_state_join_is_parsed() {
         let all = chunks();
         let chunk = find_chunk(&all, "/os: join .5");
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState {
-                id,
-                board,
-                side_to_move,
-                my_color,
-                my_clock,
-            } => {
-                assert_eq!(id, ".5");
-                assert_eq!(side_to_move, Disc::Black);
-                assert_eq!(my_color, Some(Disc::Black));
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 59_000,
-                        increment_ms: 0,
-                        byoyomi_ms: 120_000,
-                    })
-                );
-                assert_eq!(board, Board::new());
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
+        assert_eq!(
+            parse_server_chunk(chunk, "alice"),
+            OsEvent::MatchState(MatchState {
+                id: ".5".to_string(),
+                variant: Some("8b".to_string()),
+                opponent: Some("bob".to_string()),
+                board: Board::new(),
+                side_to_move: Disc::Black,
+                my_color: Some(Disc::Black),
+                my_clock: Some(PlayerClock {
+                    main_ms: 59_000,
+                    increment_ms: 0,
+                }),
+            })
+        );
     }
 
     #[test]
@@ -652,26 +796,24 @@ mod tests {
             })
             .expect("update chunk not found");
         let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState {
-                id,
-                side_to_move,
-                my_clock,
-                ..
-            } => {
-                assert_eq!(id, ".5");
-                assert_eq!(side_to_move, Disc::White);
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 56_000,
-                        increment_ms: 0,
-                        byoyomi_ms: 120_000,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
+        let OsEvent::MatchState(MatchState {
+            id,
+            side_to_move,
+            my_clock,
+            ..
+        }) = ev
+        else {
+            panic!("expected MatchState, got {ev:?}")
+        };
+        assert_eq!(id, ".5");
+        assert_eq!(side_to_move, Disc::White);
+        assert_eq!(
+            my_clock,
+            Some(PlayerClock {
+                main_ms: 56_000,
+                increment_ms: 0,
+            })
+        );
     }
 
     #[test]
@@ -713,84 +855,135 @@ mod tests {
             "|* to move",
         ];
         let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { board, .. } => {
-                assert_eq!(board.get_disc_at(Square::A1, Disc::Black), Disc::Black);
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
+        let OsEvent::MatchState(MatchState {
+            board, my_clock, ..
+        }) = ev
+        else {
+            panic!("expected MatchState, got {ev:?}")
+        };
+        assert_eq!(board.get_disc_at(Square::A1, Disc::Black), Disc::Black);
+        assert_eq!(my_clock.map(|clock| clock.main_ms), Some(56_000));
+
+        let display = display_states(chunk, "alice");
+        assert_eq!(
+            display[0].moves,
+            [(1, "f5".to_string()), (2, "f6".to_string())]
+        );
+        let clocks: Vec<_> = display[0]
+            .clocks
+            .iter()
+            .map(|clock| (clock.name.as_str(), clock.color, clock.main_ms))
+            .collect();
+        assert_eq!(
+            clocks,
+            [
+                ("alice", Disc::Black, Some(56_000)),
+                ("bob", Disc::White, Some(58_000)),
+            ]
+        );
     }
 
     #[test]
     fn match_end_is_parsed() {
         let all = chunks();
         let chunk = find_chunk(&all, "/os: - match .5");
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchEnd { id, result, score } => {
-                assert_eq!(id, ".5");
-                assert_eq!(result, "-64.00");
-                assert!((score.unwrap() - -64.0).abs() < 1e-9);
+        assert_eq!(
+            parse_server_chunk(chunk, "alice"),
+            OsEvent::MatchEnd {
+                id: ".5".to_string(),
+                result: "-64.00".to_string(),
+                score: Some(-64.0),
             }
-            other => panic!("expected MatchEnd, got {other:?}"),
-        }
+        );
     }
 
     #[test]
-    fn interrupted_match_end_is_parsed_without_score() {
-        let ev = parse_server_chunk(
-            &["/os: - match .5 1720 alice 1720 bob 8b U alice left"],
-            "alice",
-        );
-        match ev {
-            OsEvent::MatchEnd { id, result, score } => {
-                assert_eq!(id, ".5");
-                assert_eq!(result, "alice left");
-                assert_eq!(score, None);
+    fn rated_match_end_score_ignores_counter() {
+        assert_eq!(
+            parse_server_chunk(
+                &["/os: - match .9 2544 lynx 2505 kitty 8 R +30.00  12345"],
+                "kitty",
+            ),
+            OsEvent::MatchEnd {
+                id: ".9".to_string(),
+                result: "+30.00 12345".to_string(),
+                score: Some(-30.0),
             }
-            other => panic!("expected MatchEnd, got {other:?}"),
+        );
+    }
+
+    #[test]
+    fn interrupted_match_end_is_parsed() {
+        assert_eq!(
+            parse_server_chunk(
+                &["/os: - match .5 1720 alice 1720 bob 8b U alice left"],
+                "alice",
+            ),
+            OsEvent::MatchEnd {
+                id: ".5".to_string(),
+                result: "alice left".to_string(),
+                score: None,
+            }
+        );
+    }
+
+    #[test]
+    fn numeric_login_leaving_is_not_a_score() {
+        for line in [
+            "/os: - match .5 1720 1234 1720 bob 8 R 1234 left 12345",
+            "/os: - match .5 1720 1234 1720 bob 8b U 1234 left",
+        ] {
+            let OsEvent::MatchEnd { score, .. } = parse_server_chunk(&[line], "bob") else {
+                panic!("not a match end: {line}");
+            };
+            assert_eq!(score, None, "{line}");
         }
     }
 
     #[test]
     fn synchro_child_end_is_parsed_as_match_end() {
-        let ev = parse_server_chunk(&["/os: end .5.1 0.00"], "alice");
-        match ev {
-            OsEvent::MatchEnd { id, result, score } => {
-                assert_eq!(id, ".5.1");
-                assert_eq!(result, "0.00");
-                assert_eq!(score, Some(0.0));
+        assert_eq!(
+            parse_server_chunk(&["/os: end .5.1 0.00"], "alice"),
+            OsEvent::MatchEnd {
+                id: ".5.1".to_string(),
+                result: "0.00".to_string(),
+                score: None,
             }
-            other => panic!("expected MatchEnd, got {other:?}"),
-        }
+        );
+        assert_eq!(
+            parse_server_chunk(&["/os: end .5.0 ( bob vs. alice ) +4.00 "], "alice"),
+            OsEvent::MatchEnd {
+                id: ".5.0".to_string(),
+                result: "( bob vs. alice ) +4.00".to_string(),
+                score: Some(-4.0),
+            }
+        );
     }
 
     #[test]
     fn kibitz_is_parsed() {
         let all = chunks();
         let chunk = find_chunk(&all, "/os: .5 A");
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::Kibitz { id, from, message } => {
-                assert_eq!(id, ".5");
-                assert_eq!(from, "bob");
-                assert_eq!(message, "good game");
+        assert_eq!(
+            parse_server_chunk(chunk, "alice"),
+            OsEvent::Kibitz {
+                id: ".5".to_string(),
+                from: "bob".to_string(),
+                message: "good game".to_string(),
             }
-            other => panic!("expected Kibitz, got {other:?}"),
-        }
+        );
     }
 
     #[test]
     fn kibitz_with_padded_rating_is_parsed() {
-        let ev = parse_server_chunk(&["/os: .5 A    0 bob: hello"], "alice");
-        match ev {
-            OsEvent::Kibitz { id, from, message } => {
-                assert_eq!(id, ".5");
-                assert_eq!(from, "bob");
-                assert_eq!(message, "hello");
+        assert_eq!(
+            parse_server_chunk(&["/os: .5 A    0 bob: hello"], "alice"),
+            OsEvent::Kibitz {
+                id: ".5".to_string(),
+                from: "bob".to_string(),
+                message: "hello".to_string(),
             }
-            other => panic!("expected Kibitz, got {other:?}"),
-        }
+        );
     }
 
     #[test]
@@ -800,23 +993,28 @@ mod tests {
         // alice is the challenger (p1), bob is the challengee (p2).
         let all = chunks();
         let chunk = find_chunk(&all, "/os: +   .");
-        let ev = parse_server_chunk(chunk, "bob");
-        match ev {
-            OsEvent::AskOffer {
-                id,
-                from,
-                to,
-                game_type,
-                mode,
-            } => {
-                assert_eq!(id, ".8");
-                assert_eq!(from, "alice");
-                assert_eq!(to, "bob");
-                assert_eq!(game_type, "8b");
-                assert_eq!(mode, "U");
-            }
-            other => panic!("expected AskOffer, got {other:?}"),
-        }
+        assert_eq!(
+            parse_server_chunk(chunk, "bob"),
+            OsEvent::AskOffer(AskOffer {
+                id: ".8".to_string(),
+                from: "alice".to_string(),
+                to: "bob".to_string(),
+                game_type: "8b".to_string(),
+                clock: "01:00//02:00".to_string(),
+                mode: "U".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn ask_offer_uses_our_asymmetric_clock() {
+        let ev = parse_server_chunk(
+            &["/os: + .8 1720 alice 01:00//02:00 8b U 1720 bob 00:30,N0//01:00"],
+            "bob",
+        );
+        assert!(
+            matches!(ev, OsEvent::AskOffer(AskOffer { clock, .. }) if clock == "00:30,N0//01:00")
+        );
     }
 
     #[test]
@@ -824,78 +1022,20 @@ mod tests {
         // `- <padding> .id ...` is an ask withdrawal (or the server's
         // post-accept cleanup). The session needs to observe it as a distinct
         // event, not classify it as Unknown.
-        let ev = parse_server_chunk(
-            &["/os: -   .8 1720.0 alice    01:00//02:00       8b U 1720.0 bob"],
-            "bob",
-        );
-        match ev {
-            OsEvent::AskWithdrawn { id } => assert_eq!(id, ".8"),
-            other => panic!("expected AskWithdrawn, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn match_end_is_not_classified_as_ask_withdrawal() {
-        // Regression: `- match .5 ...` must still route to MatchEnd.
-        let ev = parse_server_chunk(
-            &["/os: - match .5 1720 alice 1720 bob 8b U -64.00"],
-            "alice",
-        );
-        assert!(matches!(ev, OsEvent::MatchEnd { .. }), "got {ev:?}");
-    }
-
-    #[test]
-    fn match_created_is_not_classified_as_ask_offer() {
-        // Regression: `+ match .5 ...` must still route to MatchCreated even
-        // though `+ ` prefix also matches ask-offer dispatch.
-        let ev = parse_server_chunk(&["/os: + match .5 1720 alice 1720 bob 8b U"], "alice");
-        assert!(matches!(ev, OsEvent::MatchCreated { .. }), "got {ev:?}");
-    }
-
-    #[test]
-    fn match_state_missing_or_zero_byoyomi_is_zero() {
-        // Synthetic chunk: same shape as a join chunk but with `//0:00` on alice's
-        // clock and no `//` segment at all on bob's. Both should map to 0 ms.
-        let chunk: &[&str] = &[
-            "/os: join .5 8b K?",
-            "|0 move(s)",
-            "|  0: PASS",
-            "|alice    (1720.0 *) 00:59,0:0//0:00,0:0",
-            "|bob      (1720.0 O) 01:00,0:0",
-            "|",
-            "|   A B C D E F G H",
-            "| 1 - - - - - - - - 1 ",
-            "| 2 - - - - - - - - 2 ",
-            "| 3 - - - - - - - - 3 ",
-            "| 4 - - - O * - - - 4 ",
-            "| 5 - - - * O - - - 5 ",
-            "| 6 - - - - - - - - 6 ",
-            "| 7 - - - - - - - - 7 ",
-            "| 8 - - - - - - - - 8 ",
-            "|   A B C D E F G H",
-            "|",
-            "|* to move",
-        ];
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { my_clock, .. } => {
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 59_000,
-                        increment_ms: 0,
-                        byoyomi_ms: 0,
-                    })
-                );
+        assert_eq!(
+            parse_server_chunk(
+                &["/os: -   .8 1720.0 alice    01:00//02:00       8b U 1720.0 bob"],
+                "bob",
+            ),
+            OsEvent::AskWithdrawn {
+                id: ".8".to_string()
             }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
+        );
     }
 
     #[test]
     fn clock_disambiguation_when_my_username_is_second_player() {
-        // Same synthetic chunk shape as the byoyomi test, but with alice
-        // listed first (different clock) and bob second. With
+        // Alice is listed first with a different clock and bob second. With
         // my_username = "bob", the parser must pick bob's clock line, not
         // alice's.
         let chunk: &[&str] = &[
@@ -919,23 +1059,21 @@ mod tests {
             "|* to move",
         ];
         let ev = parse_server_chunk(chunk, "bob");
-        match ev {
-            OsEvent::MatchState {
-                my_color, my_clock, ..
-            } => {
-                assert_eq!(my_color, Some(Disc::White));
-                // bob's clock, NOT alice's 45_000/120_000.
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 59_000,
-                        increment_ms: 0,
-                        byoyomi_ms: 90_000,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
+        let OsEvent::MatchState(MatchState {
+            my_color, my_clock, ..
+        }) = ev
+        else {
+            panic!("expected MatchState, got {ev:?}")
+        };
+        assert_eq!(my_color, Some(Disc::White));
+        // bob's clock, NOT alice's 45_000/120_000.
+        assert_eq!(
+            my_clock,
+            Some(PlayerClock {
+                main_ms: 59_000,
+                increment_ms: 0,
+            })
+        );
     }
 
     #[test]
@@ -960,243 +1098,48 @@ mod tests {
             "|* to move",
         ];
         let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState {
-                my_color, my_clock, ..
-            } => {
-                assert_eq!(my_color, Some(Disc::Black));
-                assert_eq!(my_clock, None);
-            }
-            other => panic!("expected MatchState, got {other:?}"),
+        let OsEvent::MatchState(MatchState {
+            my_color, my_clock, ..
+        }) = ev
+        else {
+            panic!("expected MatchState, got {ev:?}")
+        };
+        assert_eq!(my_color, Some(Disc::Black));
+        assert_eq!(my_clock, None);
+    }
+
+    #[test]
+    fn clock_fields_are_parsed() {
+        for (fields, main_ms, increment_ms) in [
+            ("120,0:0/5,0:1/0,0:0", 120_000, 5_000),
+            ("05:00,0:0/00:05,0:1/0:00,0:0", 300_000, 5_000),
+            ("01:00:00,0:0//05:00,0:0", 3_600_000, 0),
+            ("1.00:00:00,0:0//05:00,0:0", 86_400_000, 0),
+            ("-00:05,0:0//02:00,0:0", 0, 0),
+        ] {
+            assert_eq!(
+                parse_player_clock(fields),
+                Some(PlayerClock {
+                    main_ms,
+                    increment_ms,
+                })
+            );
         }
     }
 
     #[test]
-    fn zero_clock_is_preserved_as_clock_present() {
-        let chunk: &[&str] = &[
-            "/os: join .5 8b K?",
-            "|0 move(s)",
-            "|  0: PASS",
-            "|alice    (1720.0 *) 00:00,0:0//0:00,0:0",
-            "|",
-            "|   A B C D E F G H",
-            "| 1 - - - - - - - - 1 ",
-            "| 2 - - - - - - - - 2 ",
-            "| 3 - - - - - - - - 3 ",
-            "| 4 - - - O * - - - 4 ",
-            "| 5 - - - * O - - - 5 ",
-            "| 6 - - - - - - - - 6 ",
-            "| 7 - - - - - - - - 7 ",
-            "| 8 - - - - - - - - 8 ",
-            "|   A B C D E F G H",
-            "|",
-            "|* to move",
-        ];
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { my_clock, .. } => {
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 0,
-                        increment_ms: 0,
-                        byoyomi_ms: 0,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
+    fn non_fischer_increments_are_not_exposed_as_per_move_time() {
+        assert_eq!(parse_fischer_increment_field("00:05,N0:1"), Some(0));
+        assert_eq!(parse_fischer_increment_field("00:05,0:2"), Some(0));
+        assert_eq!(parse_fischer_increment_field("00:05,3:1"), Some(5_000));
     }
 
     #[test]
-    fn clock_with_seconds_only_fields_is_parsed() {
-        let chunk: &[&str] = &[
-            "/os: join .5 8b K?",
-            "|0 move(s)",
-            "|  0: PASS",
-            "|alice    (1720.0 *) 120,0:0/5,0:1/0,0:0",
-            "|",
-            "|   A B C D E F G H",
-            "| 1 - - - - - - - - 1 ",
-            "| 2 - - - - - - - - 2 ",
-            "| 3 - - - - - - - - 3 ",
-            "| 4 - - - O * - - - 4 ",
-            "| 5 - - - * O - - - 5 ",
-            "| 6 - - - - - - - - 6 ",
-            "| 7 - - - - - - - - 7 ",
-            "| 8 - - - - - - - - 8 ",
-            "|   A B C D E F G H",
-            "|",
-            "|* to move",
-        ];
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { my_clock, .. } => {
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 120_000,
-                        increment_ms: 5_000,
-                        byoyomi_ms: 0,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn increment_clock_field_is_parsed() {
-        let chunk: &[&str] = &[
-            "/os: join .5 8b K?",
-            "|0 move(s)",
-            "|  0: PASS",
-            "|alice    (1720.0 *) 05:00,0:0/00:05,0:1/0:00,0:0",
-            "|",
-            "|   A B C D E F G H",
-            "| 1 - - - - - - - - 1 ",
-            "| 2 - - - - - - - - 2 ",
-            "| 3 - - - - - - - - 3 ",
-            "| 4 - - - O * - - - 4 ",
-            "| 5 - - - * O - - - 5 ",
-            "| 6 - - - - - - - - 6 ",
-            "| 7 - - - - - - - - 7 ",
-            "| 8 - - - - - - - - 8 ",
-            "|   A B C D E F G H",
-            "|",
-            "|* to move",
-        ];
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { my_clock, .. } => {
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 300_000,
-                        increment_ms: 5_000,
-                        byoyomi_ms: 0,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn clock_with_hour_field_is_parsed() {
-        // A long tournament clock: 1 hour main, 5 minute byoyomi.
-        // HHMMSS prints `01:00:00` / `05:00` with setw(5).
-        let chunk: &[&str] = &[
-            "/os: join .5 8b K?",
-            "|0 move(s)",
-            "|  0: PASS",
-            "|alice    (1720.0 *) 01:00:00,0:0//05:00,0:0",
-            "|bob      (1720.0 O) 01:00:00,0:0//05:00,0:0",
-            "|",
-            "|   A B C D E F G H",
-            "| 1 - - - - - - - - 1 ",
-            "| 2 - - - - - - - - 2 ",
-            "| 3 - - - - - - - - 3 ",
-            "| 4 - - - O * - - - 4 ",
-            "| 5 - - - * O - - - 5 ",
-            "| 6 - - - - - - - - 6 ",
-            "| 7 - - - - - - - - 7 ",
-            "| 8 - - - - - - - - 8 ",
-            "|   A B C D E F G H",
-            "|",
-            "|* to move",
-        ];
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { my_clock, .. } => {
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 3_600_000,
-                        increment_ms: 0,
-                        byoyomi_ms: 300_000,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn clock_with_days_field_is_parsed() {
-        // Pathological but real: `HHMMSS::print` emits `<dd>.<HH:MM:SS>` when
-        // time ≥ 24 hours. Accept it so the parse doesn't silently fall back
-        // to level-based search on very long controls.
-        let chunk: &[&str] = &[
-            "/os: join .5 8b K?",
-            "|0 move(s)",
-            "|  0: PASS",
-            "|alice    (1720.0 *) 1.00:00:00,0:0//05:00,0:0",
-            "|",
-            "|   A B C D E F G H",
-            "| 1 - - - - - - - - 1 ",
-            "| 2 - - - - - - - - 2 ",
-            "| 3 - - - - - - - - 3 ",
-            "| 4 - - - O * - - - 4 ",
-            "| 5 - - - * O - - - 5 ",
-            "| 6 - - - - - - - - 6 ",
-            "| 7 - - - - - - - - 7 ",
-            "| 8 - - - - - - - - 8 ",
-            "|   A B C D E F G H",
-            "|",
-            "|* to move",
-        ];
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { my_clock, .. } => {
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 86_400_000,
-                        increment_ms: 0,
-                        byoyomi_ms: 300_000,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn clock_with_negative_main_field_is_clamped_not_dropped() {
-        let chunk: &[&str] = &[
-            "/os: join .5 8b K?",
-            "|0 move(s)",
-            "|  0: PASS",
-            "|alice    (1720.0 *) -00:05,0:0//02:00,0:0",
-            "|",
-            "|   A B C D E F G H",
-            "| 1 - - - - - - - - 1 ",
-            "| 2 - - - - - - - - 2 ",
-            "| 3 - - - - - - - - 3 ",
-            "| 4 - - - O * - - - 4 ",
-            "| 5 - - - * O - - - 5 ",
-            "| 6 - - - - - - - - 6 ",
-            "| 7 - - - - - - - - 7 ",
-            "| 8 - - - - - - - - 8 ",
-            "|   A B C D E F G H",
-            "|",
-            "|* to move",
-        ];
-        let ev = parse_server_chunk(chunk, "alice");
-        match ev {
-            OsEvent::MatchState { my_clock, .. } => {
-                assert_eq!(
-                    my_clock,
-                    Some(PlayerClock {
-                        main_ms: 0,
-                        increment_ms: 0,
-                        byoyomi_ms: 120_000,
-                    })
-                );
-            }
-            other => panic!("expected MatchState, got {other:?}"),
-        }
+    fn clock_parser_accepts_parenthesis_in_login() {
+        let clock = parse_clock_line("|a(b      (1720.0 *) 00:10,0:0//02:00,0:0", "a(b")
+            .expect("clock line");
+        assert!(clock.is_mine);
+        assert_eq!(clock.color, Disc::Black);
     }
 
     #[test]
@@ -1205,22 +1148,24 @@ mod tests {
         // Both should map to Kibitz, not Unknown.
         for tag in ["O", "P"] {
             let line = format!("/os: .5 {tag} 1720 bob: hello");
-            let ev = parse_server_chunk(&[line.as_str()], "alice");
-            match ev {
-                OsEvent::Kibitz { id, from, message } => {
-                    assert_eq!(id, ".5");
-                    assert_eq!(from, "bob");
-                    assert_eq!(message, "hello");
-                }
-                other => panic!("expected Kibitz for tag {tag}, got {other:?}"),
-            }
+            assert_eq!(
+                parse_server_chunk(&[line.as_str()], "alice"),
+                OsEvent::Kibitz {
+                    id: ".5".to_string(),
+                    from: "bob".to_string(),
+                    message: "hello".to_string(),
+                },
+                "tag {tag}"
+            );
         }
     }
 
     #[test]
     fn kibitz_unknown_tag_is_classified_unknown() {
-        let ev = parse_server_chunk(&["/os: .5 Z 1720 bob: hello"], "alice");
-        assert!(matches!(ev, OsEvent::Unknown), "got {ev:?}");
+        assert_eq!(
+            parse_server_chunk(&["/os: .5 Z 1720 bob: hello"], "alice"),
+            OsEvent::Unknown
+        );
     }
 
     #[test]
@@ -1231,31 +1176,195 @@ mod tests {
             ("/os: error .5", ".5", ""),
         ];
         for &(chunk, want_id, want_msg) in cases {
-            match parse_server_chunk(&[chunk], "alice") {
-                OsEvent::ServerError { id, message } => {
-                    assert_eq!(id, want_id, "chunk: {chunk}");
-                    assert_eq!(message, want_msg, "chunk: {chunk}");
-                }
-                other => panic!("chunk {chunk}: expected ServerError, got {other:?}"),
-            }
+            assert_eq!(
+                parse_server_chunk(&[chunk], "alice"),
+                OsEvent::ServerError {
+                    id: want_id.to_string(),
+                    message: want_msg.to_string(),
+                },
+                "chunk: {chunk}"
+            );
+        }
+    }
+
+    #[test]
+    fn request_error_chunks_are_parsed() {
+        let cases = [
+            (
+                "/os: ERR your request doesn't fit the opponent's formula.",
+                None,
+                "your request doesn't fit the opponent's formula.",
+            ),
+            (
+                "/os: ERR request '.8' not found.",
+                Some(".8"),
+                "request '.8' not found.",
+            ),
+            (
+                "/os: ERR you cannot accept your own match request.",
+                None,
+                "you cannot accept your own match request.",
+            ),
+        ];
+        for (chunk, want_id, want_message) in cases {
+            assert_eq!(
+                parse_server_chunk(&[chunk], "alice"),
+                OsEvent::RequestError {
+                    id: want_id.map(str::to_string),
+                    message: want_message.to_string(),
+                },
+                "chunk: {chunk}"
+            );
         }
     }
 
     #[test]
     fn malformed_chunk_does_not_panic() {
-        assert!(matches!(parse_server_chunk(&[], "alice"), OsEvent::Unknown));
-        assert!(matches!(
-            parse_server_chunk(&["garbage"], "alice"),
-            OsEvent::Unknown
-        ));
-        assert!(matches!(
+        assert_eq!(parse_server_chunk(&[], "alice"), OsEvent::Unknown);
+        assert_eq!(parse_server_chunk(&["garbage"], "alice"), OsEvent::Unknown);
+        assert_eq!(
             parse_server_chunk(&["/os: join"], "alice"),
             OsEvent::Unknown
-        ));
+        );
         // Header looks like update but no body at all.
         assert!(matches!(
             parse_server_chunk(&["/os: update .5 8b K?"], "alice"),
-            OsEvent::Unknown
+            OsEvent::MatchStateUnavailable { id, .. } if id == ".5"
         ));
+    }
+
+    #[test]
+    fn compact_match_state_payload_is_not_a_variant() {
+        for header in ["/os: join .5.0 (;GM[Othello]TY[s8])", "/os: update .5.1 f5"] {
+            assert!(matches!(
+                parse_server_chunk(&[header], "alice"),
+                OsEvent::MatchStateUnavailable { id, variant: None, .. }
+                    if id == if header.contains(".5.0") { ".5.0" } else { ".5.1" }
+            ));
+        }
+    }
+
+    #[test]
+    fn unparseable_state_naming_only_other_players_is_spectated() {
+        let chunk = [
+            "/os: join .9 10 K?",
+            "|bob      (1720.0 *) 01:00//00:30",
+            "|carol    (1720.0 O) 01:00//00:30",
+            "| 1 - - - - - - - - - - 1",
+        ];
+        assert_eq!(
+            parse_server_chunk(&chunk, "alice"),
+            OsEvent::SpectatedMatchState {
+                id: ".9".to_string(),
+                variant: Some("10".to_string()),
+            }
+        );
+    }
+
+    fn display_states(lines: &[&str], my_username: &str) -> Vec<DisplayState> {
+        parse_server_messages(lines, my_username)
+            .into_iter()
+            .filter_map(|(_, display)| display)
+            .collect()
+    }
+
+    #[test]
+    fn complete_state_naming_only_other_players_is_spectated() {
+        let all = chunks();
+        let chunk = find_chunk(&all, "/os: join .5");
+        assert!(matches!(
+            parse_server_chunk(chunk, "dave"),
+            OsEvent::SpectatedMatchState { id, .. } if id == ".5"
+        ));
+        let display = display_states(chunk, "dave");
+        assert_eq!(display.len(), 1);
+        assert_eq!(display[0].state.id, ".5");
+        assert_eq!(display[0].state.board, Board::new());
+        assert_eq!(display[0].state.my_color, None);
+        assert_eq!(display[0].state.my_clock, None);
+        assert_eq!(display[0].state.opponent, None);
+        assert_eq!(display[0].clocks.len(), 2);
+    }
+
+    #[test]
+    fn display_and_session_normalize_bell_and_header_whitespace_identically() {
+        let all = chunks();
+        let chunk = find_chunk(&all, "/os: join .5");
+        let mut lines: Vec<String> = chunk.iter().map(|line| (*line).to_string()).collect();
+        lines[0] = lines[0].replacen("/os: join ", "/os: \x07   join ", 1);
+        let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+        assert!(
+            matches!(parse_server_chunk(&refs, "dave"), OsEvent::SpectatedMatchState { id, .. } if id == ".5")
+        );
+        let display = display_states(&refs, "dave");
+        assert_eq!(display.len(), 1);
+        assert_eq!(display[0].state.board, Board::new());
+        assert_eq!(display[0].state.my_color, None);
+        assert_eq!(display[0].state.my_clock, None);
+        assert_eq!(display[0].state.opponent, None);
+    }
+
+    #[test]
+    fn oversized_board_row_is_rejected() {
+        assert!(
+            parse_board_row("| 1 - - - - - - - - - - 1").is_none(),
+            "10x10 rows must not be truncated into 8x8 rows"
+        );
+    }
+
+    #[test]
+    fn multiple_messages_before_ready_are_all_parsed() {
+        let events = parse_server_messages(
+            &[
+                "/os: + match .5 1720 alice 1720 bob 8b U",
+                "/os: + match .7 1720 alice 1720 carol 8b U",
+            ],
+            "alice",
+        );
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0].0, OsEvent::MatchCreated { id, .. } if id == ".5"));
+        assert!(matches!(&events[1].0, OsEvent::MatchCreated { id, .. } if id == ".7"));
+    }
+
+    #[test]
+    fn bell_prefixed_event_is_parsed() {
+        let event = parse_server_chunk(&["/os: \x07+ match .5 1720 alice 1720 bob 8b U"], "alice");
+        assert!(matches!(event, OsEvent::MatchCreated { id, .. } if id == ".5"));
+    }
+
+    #[test]
+    fn self_play_uses_the_side_to_move_clock() {
+        for (side_line, expected_color, expected_ms) in [
+            ("|* to move", Disc::Black, 10_000),
+            ("|O to move", Disc::White, 20_000),
+        ] {
+            let event = parse_server_chunk(
+                &[
+                    "/os: join .5 8b U",
+                    "|alice (1720.0 *) 00:10//02:00",
+                    "|alice (1720.0 O) 00:20//02:00",
+                    "| 1 - - - - - - - - 1",
+                    "| 2 - - - - - - - - 2",
+                    "| 3 - - - - - - - - 3",
+                    "| 4 - - - O * - - - 4",
+                    "| 5 - - - * O - - - 5",
+                    "| 6 - - - - - - - - 6",
+                    "| 7 - - - - - - - - 7",
+                    "| 8 - - - - - - - - 8",
+                    side_line,
+                ],
+                "alice",
+            );
+
+            let OsEvent::MatchState(MatchState {
+                my_color, my_clock, ..
+            }) = event
+            else {
+                panic!("expected self-play state, got {event:?}")
+            };
+            assert_eq!(my_color, Some(expected_color));
+            assert_eq!(my_clock.map(|clock| clock.main_ms), Some(expected_ms));
+        }
     }
 }

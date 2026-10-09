@@ -588,6 +588,31 @@ impl TranspositionTable {
         }
     }
 
+    /// Returns an independent copy of the table, generation included.
+    ///
+    /// # Safety
+    ///
+    /// No thread may write to the table for the duration of the call.
+    pub unsafe fn duplicate(&self) -> Self {
+        let len = self.entries.len();
+        // SAFETY: an all-zero `TTEntry` is valid (see `new`); the bytes are
+        // then overwritten by a copy of entries with no concurrent writers.
+        let entries = unsafe {
+            let entries = AlignedBuffer::<TTEntry>::zeroed(len);
+            std::ptr::copy_nonoverlapping(
+                self.entries.as_ptr(),
+                entries.as_ptr() as *mut TTEntry,
+                len,
+            );
+            entries
+        };
+        TranspositionTable {
+            entries,
+            cluster_count: self.cluster_count,
+            generation: AtomicU8::new(self.generation.load(Ordering::Relaxed)),
+        }
+    }
+
     /// Estimates the fraction of occupied entries by sampling.
     ///
     /// Samples up to 1024 clusters uniformly across the table and returns

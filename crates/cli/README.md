@@ -96,40 +96,69 @@ genmove black
 
 ### GGS Mode
 
-Connect to the Othello [Generic Game Server](https://skatgame.net/mburo/ggs/) and play `/os` matches. The engine plays moves on your turn; login, matchmaking, and chat are driven by the init script or your own stdin input.
+Connect to the Othello [Generic Game Server](https://skatgame.net/mburo/ggs/) and play `/os` matches. The engine plays moves on your turn. In an interactive terminal, the TUI shows every game's score at a glance, the selected game's board and both clocks, the complete transcript, and a command editor.
 
 ```bash
-cli ggs --user <name> --script <path> [options]
+cli ggs --user <name> --password <password> [--max-games <n>] [options]
 ```
 
 Options:
 
-- `--user <name>` - GGS login name (must match the login used in `--script`).
-- `--script <path>` - Init script; each line is sent verbatim after connect.
+- `--user <name>` - GGS login name.
+- `--password <password>` - GGS password, sent verbatim at the password prompt.
 - `--host <host>` - GGS server hostname. Default: `localhost`.
 - `--port <port>` - GGS server port. Default: `5000`.
+- `--max-games <n>` - Maximum simultaneous matches, matching GGS `/os open`. Default: `1`; a synchro match counts as one match with two game boards. Configured TT memory is divided across up to two boards per match (at least two MB per match), and all boards share one pool of `--threads` search threads and search one at a time.
+- `--ponder` - While every game waits for the opponent, search the opponent-to-move board to warm each game's transposition table. Off by default.
+- `--plain` - Use the original line input and output. This mode is also selected automatically when stdin or stdout is redirected.
+- `--command <TEXT>` - Send one startup command after login and client normalization. Repeat this option to send multiple commands in order.
 - `--hash-size <size>` - Transposition table size in MB. Default: `512`.
 - `-l, --level <level>` - Fallback search level when server time is unparseable. Default: `21`.
 - `--threads <n>` - Number of search threads. Default: CPU count.
 - `--eval-file <FILE>` - Path to the main network weight file. Optional; defaults to the engine's standard weights.
 - `--eval-sm-file <FILE>` - Path to the small network weight file. Optional; defaults to the engine's standard weights.
 
-A template lives at `crates/cli/init.ggs.example`. Copy it to `init.ggs`, fill in your credentials, and pass it via `--script`. The first two lines answer the `Enter login` / `Enter your password` prompts:
+After login, type commands such as `info <text>`, `tell /os rated +`, `tell /os dform <formula>`, or `tell /os ask ...` in either frontend.
 
-```text
-myname
-mypassword
-mso
-ts rated -
-ts open 3
+Use repeated `--command` options in a launcher so stdin stays attached to the console:
+
+```bat
+cli ggs --user <name> --password <password> --command "tell /os rated +" --command "tell /os dform size != 8"
 ```
+
+Each `--command` value must be one line. The client preserves leading and trailing spaces, preserves blank commands, and sends the values in option order after its built-in login and normalization commands. The same ask-clock validation applies to startup commands and commands entered after startup.
+
+The TUI command editor forwards GGS commands, including `help` and `quit`, without local command aliases. Enter sends the command, preserving spaces and blank lines. In terminals that provide bracketed paste events, pasted text stays in the editor until Enter. Multiline paste sends one command per line, preserving empty lines. Windows console input delivers paste as keystrokes, so pasted line breaks send commands immediately.
+
+| Key | Action |
+| --- | --- |
+| F1 | Show or hide keyboard help. |
+| Left, Right, Home, End | Move the command cursor. |
+| Backspace, Delete | Remove a character. |
+| Up, Down | Recall command history and restore the current draft. |
+| Ctrl+U | Clear the command editor. |
+| Tab or F6, Shift+Tab | Select the next or previous game, including synchro child games. |
+| Page Up, Page Down | Scroll the transcript vertically. New output preserves the viewed line. |
+| Alt+Left, Alt+Right | Scroll the transcript horizontally. |
+| Ctrl+Home, Ctrl+End | Show the oldest transcript lines or follow new output. |
+| Mouse wheel | Scroll the transcript; over the game list, select the next or previous game. Shift+wheel scrolls horizontally. |
+| Click | Select a game in the list, or click or drag the transcript scrollbar. |
+| Shift+drag | Select text to copy while the TUI captures the mouse. |
+| Ctrl+C | Exit the client and restore the terminal. |
+
+The game list shows one row per game, including both synchro games, with disc counts, the last search evaluation from your side, and the status or result. Finished games show Win, Loss, or Draw with the disc difference from your side. The board uses absolute black and white colors and highlights the last move. Every game with a board is shown at once, one board below another, when the height allows. Terminals at least 130 columns wide place the transcript in a column to the right of the game. Before a board arrives, a compact welcome panel leaves more room for server output and shows command examples.
+
+Search status distinguishes waiting for the shared engine from actually searching or pondering. The last completed search report remains with its game. Completed games retain their last board and result until the next match starts. Watched games display a board when the server provides a supported snapshot. Both players' clocks show the latest server values, and the side to move counts down locally until the next server update. Small terminals show compact game status while keeping the transcript and command editor usable. The transcript retains all server lines and diagnostics, with control characters shown as escaped text in the TUI.
+
+Use `--plain` when enabling `REVERSI_DEBUG_TIME`, which writes engine timing diagnostics directly to stderr.
 
 Notes:
 
-- Server output is echoed to stdout and stdin is forwarded to the server verbatim. The engine additionally auto-sends moves, `accept`/`decline` for incoming ask offers, and a periodic `tell /os continue` keepalive.
-- Only one concurrent match is supported; further ask offers are auto-declined, and any extra match that still materializes must be ended manually (e.g. `tell /os .N resign`).
-- Clocks are parsed from server lines; matches without byoyomi fall back to Fischer, and unparseable clocks use `--level`.
-- If the search panics, the cause is logged to stderr and the in-flight flag is cleared so the next state update retries the move.
+- Plain mode echoes server output to stdout and writes engine diagnostics to stderr. Both frontends forward commands verbatim, except `tell /os ask` lines whose clock the engine cannot play (or that repeat a stored ask by `.id`), which are dropped with a diagnostic. The engine additionally auto-sends moves and `accept`/`decline` for incoming ask offers, and sends the no-op `:` command after 50 seconds without outbound traffic to keep the connection alive.
+- Simultaneous matches are tracked independently. `--max-games` also sets `/os open`; excess direct asks are declined and over-cap matches are resigned. Only asks addressed to you are accepted automatically; global asks are ignored.
+- After authentication, the client restores the standard `READY`/`ALERT` prompts and forces `/os client -`, `/os trust +`, and `/os vt100 -`. This keeps messages parseable even when account settings persisted from an earlier client. Moves include the elapsed turn time in seconds, including engine queue and result handling waits, so the server uses the reported time rather than charging network latency within its trust tolerance.
+- Clocks use the live main budget plus additive every-move increments. GGS extension, Bronstein, and periodic-increment fields are not misreported as per-move time; unparseable clocks use `--level`.
+- Reconnecting into an active match recovers from the server's join state, including a one-shot verbose-state request when the persisted client mode initially produced compact GGF.
 
 ### Solve Mode
 

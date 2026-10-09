@@ -112,14 +112,6 @@ enum SubCommands {
     },
     #[command(about = "Connect to a GGS server (default localhost:5000) and play via /os")]
     Ggs {
-        #[arg(
-            long,
-            value_name = "FILE",
-            value_hint = clap::ValueHint::FilePath,
-            help = "Path to GGS init script (lines sent verbatim after connect)"
-        )]
-        script: PathBuf,
-
         #[arg(long, default_value = "localhost", help = "GGS server hostname")]
         host: String,
 
@@ -134,9 +126,52 @@ enum SubCommands {
         #[arg(
             long,
             value_name = "NAME",
-            help = "GGS login name (must match the login used in --script); used to identify our side in match events"
+            help = "GGS login name; also identifies our side in match events"
         )]
         user: String,
+
+        #[arg(long, help = "GGS password, sent verbatim at the password prompt")]
+        password: String,
+
+        #[arg(
+            long,
+            default_value = "1",
+            value_parser = parse_usize_range::<1, 64>,
+            help = "Maximum simultaneous GGS matches (synchro counts as one); configured hash is split across up to two boards per match, which share one pool of search threads and search one at a time"
+        )]
+        max_games: usize,
+
+        #[arg(
+            long,
+            help = "While every game waits for the opponent, search the opponent-to-move board to warm each game's transposition table"
+        )]
+        ponder: bool,
+
+        #[arg(
+            long,
+            help = "Use plain line input and output instead of the interactive GGS terminal interface"
+        )]
+        plain: bool,
+
+        #[arg(
+            long,
+            help = "Send `tell /td join <id>` or `tell /os join <id>` when any user tells us to, for unattended tournament entry"
+        )]
+        join_tournaments: bool,
+
+        #[arg(
+            long = "command",
+            value_name = "TEXT",
+            help = "Send a GGS command after login setup; repeat to send multiple commands"
+        )]
+        startup_commands: Vec<String>,
+
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Append every line sent to and received from the server after the password, with Unix timestamps"
+        )]
+        log_file: Option<PathBuf>,
 
         #[command(flatten)]
         engine_params: EngineParams,
@@ -172,14 +207,34 @@ fn main() {
             }
         }
         Some(SubCommands::Ggs {
-            script,
             host,
             port,
             user,
+            password,
+            max_games,
+            ponder,
+            plain,
+            join_tournaments,
+            startup_commands,
+            log_file,
             engine_params,
         }) => {
             let config = EngineConfig::from(engine_params);
-            if let Err(e) = ggs::run_ggs(&script, &host, port, &user, &config) {
+            if let Err(e) = ggs::run_ggs(
+                ggs::GgsOptions {
+                    host: &host,
+                    port,
+                    user: &user,
+                    password: &password,
+                    max_games,
+                    ponder,
+                    plain,
+                    join_tournaments,
+                    startup_commands: &startup_commands,
+                    log_file: log_file.as_deref(),
+                },
+                &config,
+            ) {
                 eprintln!("GGS session error: {e}");
                 std::process::exit(1);
             }

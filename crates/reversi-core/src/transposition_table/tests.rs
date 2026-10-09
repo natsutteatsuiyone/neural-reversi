@@ -842,4 +842,45 @@ mod transposition_table {
 
         assert_eq!(tt.usage_rate(), 1.0 / (16.0 * CLUSTER_SIZE as f64));
     }
+
+    #[test]
+    fn duplicate_copies_entries_and_generation_then_stays_independent() {
+        let tt = TranspositionTable::new(0);
+        let generation = tt.increment_generation();
+        let board = make_board(START_PLAYER, START_OPPONENT);
+        let index = tt.probe(&board, board.hash()).index();
+        tt.store(
+            index,
+            &board,
+            raw_score(100),
+            Bound::Exact,
+            20,
+            sq(10),
+            Selectivity::None,
+            true,
+        );
+
+        // SAFETY: no other thread touches `tt`.
+        let copy = unsafe { tt.duplicate() };
+        assert_eq!(copy.generation(), generation);
+        assert_eq!(
+            copy.lookup(&board, board.hash()),
+            tt.lookup(&board, board.hash())
+        );
+
+        let other = make_board(START_OPPONENT, START_PLAYER);
+        let index = copy.probe(&other, other.hash()).index();
+        copy.store(
+            index,
+            &other,
+            raw_score(5),
+            Bound::Exact,
+            1,
+            sq(1),
+            Selectivity::None,
+            false,
+        );
+        assert!(copy.lookup(&other, other.hash()).is_some());
+        assert!(tt.lookup(&other, other.hash()).is_none());
+    }
 }

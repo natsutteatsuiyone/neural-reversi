@@ -60,13 +60,15 @@ pub struct Search {
 /// engines concurrently.
 ///
 /// Engines created from the same resource bundle share the evaluation network;
-/// the transposition table and thread pool are per-engine. Useful for callers
+/// the transposition table is per-engine, and so is the thread pool unless
+/// [`SearchSharedResources::share_thread_pool`] was called. Useful for callers
 /// that need more than one independent search in flight, such as GGS synchro
 /// child games, without reloading neural-network weights for every worker.
 pub struct SearchSharedResources {
     eval: Arc<Eval>,
     tt_mb_size: usize,
     n_threads: usize,
+    thread_pool: Option<Arc<ThreadPool>>,
 }
 
 /// Task descriptor passed to search threads.
@@ -143,7 +145,17 @@ impl SearchSharedResources {
             eval: Arc::new(eval),
             tt_mb_size: options.tt_mb_size,
             n_threads,
+            thread_pool: None,
         }
+    }
+
+    /// Makes all engines created from this bundle after this call share one
+    /// thread pool of `n_threads` threads.
+    ///
+    /// A pool runs one search at a time: engines sharing it must never search
+    /// concurrently, and the caller is responsible for serializing them.
+    pub fn share_thread_pool(&mut self) {
+        self.thread_pool = Some(ThreadPool::new(self.n_threads));
     }
 }
 
@@ -163,9 +175,26 @@ impl Search {
 
     /// Creates a new search engine from a shared-resource bundle.
     pub fn from_shared_resources(shared: &SearchSharedResources) -> Self {
+        Self::from_shared_resources_with_tt(
+            shared,
+            Arc::new(TranspositionTable::new(shared.tt_mb_size)),
+        )
+    }
+
+    /// Creates a new search engine from a shared-resource bundle that uses
+    /// `tt` instead of allocating its own table.
+    ///
+    /// Engines sharing a table must never search concurrently.
+    pub fn from_shared_resources_with_tt(
+        shared: &SearchSharedResources,
+        tt: Arc<TranspositionTable>,
+    ) -> Self {
         Self {
-            tt: Arc::new(TranspositionTable::new(shared.tt_mb_size)),
-            threads: ThreadPool::new(shared.n_threads),
+            tt,
+            threads: shared
+                .thread_pool
+                .clone()
+                .unwrap_or_else(|| ThreadPool::new(shared.n_threads)),
             eval: shared.eval.clone(),
             endgame_start_n_empties: None,
         }
@@ -200,6 +229,13 @@ impl Search {
         if self.tt.mb_size() != mb_size {
             self.tt = Arc::new(TranspositionTable::new(mb_size));
         }
+    }
+
+    /// Replaces the transposition table, e.g. with one shared by another engine.
+    ///
+    /// Engines sharing a table must never search concurrently.
+    pub fn set_tt(&mut self, tt: Arc<TranspositionTable>) {
+        self.tt = tt;
     }
 
     /// Runs a search on the given board position.

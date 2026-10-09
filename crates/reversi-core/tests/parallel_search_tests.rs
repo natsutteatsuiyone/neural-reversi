@@ -147,6 +147,29 @@ fn manual_abort_stops_deep_solve_promptly() {
     assert!(result.n_nodes() > 0);
 }
 
+/// An infinite search (GGS ponder) has no time to bank, so a forced move must
+/// keep deepening until aborted.
+#[test]
+fn infinite_search_keeps_deepening_a_forced_move() {
+    let mut search = search(4);
+    let pool = search.thread_pool();
+    let board = Square::parse_sequence("d3e3f6c2d2c3f2f3b2g1g2d1e1f1f4h3")
+        .unwrap()
+        .into_iter()
+        .fold(Board::new(), |board, sq| board.make_move(sq));
+    assert_eq!(board.get_moves().count(), 1);
+
+    let options =
+        SearchRunOptions::with_time(TimeControlMode::Infinite).callback(move |progress| {
+            if progress.depth > 4 {
+                pool.abort_search();
+            }
+        });
+    let result = search.run(&board, &options);
+
+    assert!(result.depth() > 4, "stopped at depth {}", result.depth());
+}
+
 /// Guards against shutdown deadlocks or state leaking across pool lifetimes.
 #[test]
 fn repeated_pool_create_solve_drop_is_clean() {
@@ -179,4 +202,28 @@ fn concurrent_engines_from_shared_resources_solve_correctly() {
         assert_eq!(first.join().unwrap(), 6);
         assert_eq!(second.join().unwrap(), 8);
     });
+}
+
+/// Engines from a `share_thread_pool` bundle reuse one pool but keep their own
+/// transposition tables, so searches taking turns on the pool stay exact.
+#[test]
+fn engines_sharing_a_pool_search_in_turn() {
+    let mut shared =
+        SearchSharedResources::new(&SearchOptions::new(TEST_TT_MB_SIZE).with_threads(Some(2)));
+    shared.share_thread_pool();
+    let mut first = Search::from_shared_resources(&shared);
+    let mut second = Search::from_shared_resources(&shared);
+    assert!(std::sync::Arc::ptr_eq(
+        &first.thread_pool(),
+        &second.thread_pool()
+    ));
+    assert!(!std::sync::Arc::ptr_eq(first.tt(), second.tt()));
+
+    let options = SearchRunOptions::with_level(Level::perfect());
+    let board_20 = Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap();
+    let board_15 = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
+    for _ in 0..2 {
+        assert_eq!(score(&first.run(&board_20, &options)), 6);
+        assert_eq!(score(&second.run(&board_15, &options)), 8);
+    }
 }
