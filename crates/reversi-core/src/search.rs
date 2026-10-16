@@ -44,6 +44,13 @@ use crate::square::Square;
 use crate::transposition_table::{Bound, TranspositionTable};
 use crate::types::{Depth, ScaledScore};
 
+/// Lowest endgame selectivity whose completion lets later timed searches
+/// skip the midgame iterations.
+///
+/// A Level1 solve can finish on one move and still abort on the next, which
+/// then has no midgame result to fall back on.
+const ENDGAME_TRACKING_MIN_SELECTIVITY: Selectivity = Selectivity::Level2;
+
 /// Main search engine that coordinates game tree exploration.
 ///
 /// Manages the transposition table, thread pool, and evaluation function
@@ -317,25 +324,53 @@ impl Search {
         }
     }
 
-    /// Replaces an aborted-search sentinel result with a shallow
-    /// [`Self::quick_move`] fallback.
+    /// Replaces an aborted-search sentinel result with the TT move, or with a
+    /// shallow [`Self::quick_move`] when the TT holds none.
     ///
     /// When the search is cancelled before finishing a single iteration the
     /// result score is still the initial sentinel; in that case a minimal
-    /// best move must still be provided to the caller.
+    /// best move must still be provided to the caller. This happens when an
+    /// endgame solve, which skips the midgame iterations once an earlier move
+    /// reached the endgame, cannot finish its first selectivity level; the
+    /// TT then still holds what earlier searches and pondering found.
     fn apply_fallback_if_invalid(&self, board: &Board, result: &mut SearchResult) {
         if !result.is_invalid_sentinel() {
             return;
         }
-        *result = self.quick_move(board);
+        *result = self
+            .tt_move(board)
+            .unwrap_or_else(|| self.quick_move(board));
     }
 
-    /// Records the empty-square count at which the endgame phase first became
-    /// reachable, so future time-controlled searches know to extend their end depth.
+    /// Returns the TT's best move for `board` as a result, if it is legal.
+    fn tt_move(&self, board: &Board) -> Option<SearchResult> {
+        let data = self.tt.lookup(board, board.hash())?;
+        let sq = data.best_move();
+        // `Square::None` must be rejected before the legality check.
+        (sq != Square::None && board.is_legal_move(sq)).then(|| SearchResult::BestMove {
+            sq,
+            score: data.score().to_disc_diff_f32(),
+            n_nodes: 0,
+            pv_line: vec![sq],
+            depth: data.depth(),
+            selectivity: data.selectivity(),
+            is_endgame: data.is_endgame(),
+            pv_moves: vec![],
+            counters: SearchCounters::default(),
+        })
+    }
+
+    /// Records the empty count at which an endgame solve first finished
+    /// [`ENDGAME_TRACKING_MIN_SELECTIVITY`]. Later time-controlled searches
+    /// then skip the midgame iterations and extend their end depth.
+    ///
+    /// Until then, each search starts with midgame iterations, so a result
+    /// exists even if the endgame solve aborts before finishing a level.
     fn update_endgame_tracking(&mut self, n_empties: Depth, result: &SearchResult) {
         if n_empties > 0
             && self.endgame_start_n_empties.is_none()
-            && result.depth() + 1 >= n_empties
+            && result.is_endgame()
+            && result.selectivity() >= ENDGAME_TRACKING_MIN_SELECTIVITY
         {
             self.endgame_start_n_empties = Some(n_empties - 1);
         }
@@ -767,6 +802,64 @@ mod tests {
         assert!(!Arc::ptr_eq(search.tt(), &original_tt));
         assert_eq!(search.tt().mb_size(), 1);
         assert_eq!(search.tt().generation(), 0);
+    }
+
+    #[test]
+    fn aborted_search_falls_back_to_the_tt_move() {
+        let search = Search::new(&one_thread_options());
+        let board = Board::new();
+        let quick = search.quick_move(&board).best_move().unwrap();
+        let tt_sq = board.get_moves().iter().find(|&sq| sq != quick).unwrap();
+        seed_tt(
+            search.tt(),
+            &board,
+            ScaledScore::from_disc_diff(3),
+            20,
+            tt_sq,
+        );
+
+        let sentinel = || SearchResult::BestMove {
+            sq: Square::None,
+            score: (-ScaledScore::INF).to_disc_diff_f32(),
+            n_nodes: 0,
+            pv_line: vec![],
+            depth: 0,
+            selectivity: Selectivity::None,
+            is_endgame: false,
+            pv_moves: vec![],
+            counters: SearchCounters::default(),
+        };
+        let mut result = sentinel();
+        search.apply_fallback_if_invalid(&board, &mut result);
+        assert_eq!(result.best_move(), Some(tt_sq));
+        assert_eq!(result.depth(), 20);
+
+        search.tt().clear();
+        let mut result = sentinel();
+        search.apply_fallback_if_invalid(&board, &mut result);
+        assert_eq!(result.best_move(), Some(quick));
+    }
+
+    #[test]
+    fn midgame_iterations_are_skipped_only_after_a_level2_endgame_solve() {
+        let mut search = Search::new(&one_thread_options());
+        let endgame = |selectivity| SearchResult::BestMove {
+            sq: Square::A1,
+            score: 0.0,
+            n_nodes: 0,
+            pv_line: vec![],
+            depth: 30,
+            selectivity,
+            is_endgame: true,
+            pv_moves: vec![],
+            counters: SearchCounters::default(),
+        };
+
+        search.update_endgame_tracking(30, &endgame(Selectivity::Level1));
+        assert_eq!(search.endgame_start_n_empties, None);
+
+        search.update_endgame_tracking(28, &endgame(Selectivity::Level2));
+        assert_eq!(search.endgame_start_n_empties, Some(27));
     }
 
     #[test]
