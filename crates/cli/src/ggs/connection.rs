@@ -51,6 +51,8 @@ pub enum Event {
         /// The instant the turn was queued, including time waiting for the engine.
         queued_at: Instant,
         result: Result<Option<(Square, Scoref)>, String>,
+        /// Report told to the spectator channel once the move is played.
+        broadcast: Option<String>,
     },
     /// A ponder worker exited (aborted, completed, or never started); its
     /// engine and thread pool are idle again.

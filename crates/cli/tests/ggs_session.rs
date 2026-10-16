@@ -16,6 +16,7 @@ const EXPECTED_STARTUP: &[&str] = &[
     "var _ready",
     "var _alert",
     "notify + /os",
+    "chann + .alice",
     "tell /os client -",
     "tell /os trust +",
     "tell /os vt100 -",

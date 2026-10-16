@@ -36,6 +36,8 @@ pub enum SessionAction {
         /// Identifies this worker's events and result; GGS recycles game ids.
         search_id: u64,
         board: Board,
+        /// Our color on this board.
+        color: Disc,
         search_limit: SearchLimit,
     },
     /// Warm the game's transposition table by searching the opponent-to-move
@@ -692,6 +694,7 @@ impl Session {
             game_id: id,
             search_id,
             board,
+            color: my_color,
             search_limit,
         });
         actions

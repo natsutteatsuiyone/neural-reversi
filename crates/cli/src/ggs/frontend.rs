@@ -1994,6 +1994,7 @@ mod tests {
             game_id: ".5".into(),
             search_id: 1,
             board: Board::new(),
+            color: Disc::Black,
             search_limit: session::SearchLimit::Level { level: 1 },
         });
         model.worker_finished(".5", 0);
