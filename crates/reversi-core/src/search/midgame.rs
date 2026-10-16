@@ -335,6 +335,7 @@ pub fn evaluate_depth3<NT: NodeType>(
     board: &Board,
     mut alpha: ScaledScore,
     beta: ScaledScore,
+    thread: &Arc<Thread>,
 ) -> ScaledScore {
     let org_alpha = alpha;
 
@@ -346,7 +347,7 @@ pub fn evaluate_depth3<NT: NodeType>(
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -evaluate_depth3::<NT>(ctx, &next, -beta, -alpha);
+            let score = -evaluate_depth3::<NT>(ctx, &next, -beta, -alpha, thread);
             ctx.undo_pass();
             return score;
         } else {
@@ -381,6 +382,10 @@ pub fn evaluate_depth3<NT: NodeType>(
         ctx.update(mv.sq, mv.flipped);
         let score = -evaluate_depth2(ctx, &next, -beta, -alpha);
         ctx.undo(mv.sq);
+
+        if thread.split_point_cutoff_occurred() {
+            return ScaledScore::ZERO;
+        }
 
         if score >= beta {
             best_score = score;

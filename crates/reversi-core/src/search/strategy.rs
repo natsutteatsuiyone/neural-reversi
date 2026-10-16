@@ -90,13 +90,13 @@ impl SearchStrategy for MidGameStrategy {
         depth: Depth,
         alpha: ScaledScore,
         beta: ScaledScore,
-        _thread: &Arc<Thread>,
+        thread: &Arc<Thread>,
     ) -> ScaledScore {
         match depth {
             0 => midgame::evaluate(ctx, board),
             1 => midgame::evaluate_depth1(ctx, board, alpha, beta),
             2 => midgame::evaluate_depth2(ctx, board, alpha, beta),
-            _ => midgame::evaluate_depth3::<NonPV>(ctx, board, alpha, beta),
+            _ => midgame::evaluate_depth3::<NonPV>(ctx, board, alpha, beta, thread),
         }
     }
 
