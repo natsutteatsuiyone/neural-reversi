@@ -82,6 +82,14 @@ struct ActiveMatch {
 
 const PENDING_ACCEPT_RECOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Main time a GGS search never spends, in milliseconds.
+///
+/// The engine's endgame bank spends a fixed share of what is left on every
+/// move, so without a floor the clock can reach about a second just before
+/// the exact solve, where server lag could forfeit the game. With less than
+/// this left, the search aborts at once and plays the TT move.
+const MAIN_TIME_RESERVE_MS: u64 = 2000;
+
 struct PendingAccept {
     id: String,
     opponent: Option<String>,
@@ -675,7 +683,7 @@ impl Session {
 
         let search_limit = match my_clock {
             Some(clock) => SearchLimit::Time(TimeControlMode::Fischer {
-                main_time_ms: clock.main_ms,
+                main_time_ms: clock.main_ms.saturating_sub(MAIN_TIME_RESERVE_MS),
                 increment_ms: clock.increment_ms,
             }),
             None => SearchLimit::Level { level: self.level },
@@ -1550,7 +1558,7 @@ mod tests {
                 assert_eq!(
                     *search_limit,
                     SearchLimit::Time(TimeControlMode::Fischer {
-                        main_time_ms: 56_000,
+                        main_time_ms: 56_000 - MAIN_TIME_RESERVE_MS,
                         increment_ms: 0,
                     })
                 );
