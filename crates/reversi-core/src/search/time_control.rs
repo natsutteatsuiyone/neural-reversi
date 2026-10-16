@@ -46,13 +46,13 @@ const MAX_FACTOR: u64 = 3;
 const EASY_STREAK_THRESHOLD: u32 = 3;
 
 /// Stability scale applied when the easy-move conditions are met.
-const EASY_SCALE: f64 = 0.5;
+const EASY_SCALE: f64 = 0.75;
 
 /// Fraction of the optimum after which an easy move may stop immediately.
-const EASY_MIN_FRACTION: f64 = 0.3;
+const EASY_MIN_FRACTION: f64 = 0.45;
 
 /// Stability scale by consecutive unchanged best-move iterations (saturating).
-const STABILITY_SCALE: [f64; 5] = [1.0, 1.0, 0.85, 0.70, 0.60];
+const STABILITY_SCALE: [f64; 5] = [1.0, 1.0, 0.90, 0.85, 0.80];
 
 /// Sentinel bits marking "no previous iteration score recorded".
 const NO_SCORE_BITS: u32 = f32::NEG_INFINITY.to_bits();
