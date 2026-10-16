@@ -38,6 +38,15 @@ const MOBILITY_WEIGHT: i32 = 16384;
 /// (one disc-difference per stable corner-region disc).
 const CORNER_STABILITY_WEIGHT_SEARCH: i32 = ScaledScore::SCALE;
 
+/// Penalty per unit of the opponent's corner-weighted mobility in midgame
+/// search ordering (1/4 disc). LMR reads the penalized value, so moves that
+/// leave the opponent many replies are also reduced more.
+const MOBILITY_SCALE_MIDGAME: i32 = ScaledScore::SCALE / 4;
+
+/// Penalty per unit of the opponent's corner-weighted potential mobility in
+/// midgame search ordering (1/8 disc). Read by LMR like the mobility penalty.
+const POTENTIAL_MOBILITY_SCALE_MIDGAME: i32 = ScaledScore::SCALE / 8;
+
 impl MoveList {
     /// Evaluates all moves and assigns ordering values.
     pub fn evaluate_moves<NT: NodeType, SS: SearchStrategy>(
@@ -167,6 +176,11 @@ impl MoveList {
                     let potential_mobility = potential.corner_weighted_count() as i32;
                     mv.value -= mobility * MOBILITY_SCALE_SEARCH;
                     mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE_SEARCH;
+                } else {
+                    let (moves, potential) = next.get_moves_and_potential();
+                    mv.value -= moves.corner_weighted_count() as i32 * MOBILITY_SCALE_MIDGAME;
+                    mv.value -=
+                        potential.corner_weighted_count() as i32 * POTENTIAL_MOBILITY_SCALE_MIDGAME;
                 }
             }
         }

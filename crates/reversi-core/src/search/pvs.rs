@@ -562,8 +562,9 @@ const LMR_ALLNODE_KEEP: i32 = 2;
 /// (selectivity disabled).
 ///
 /// `move_value` must be a search estimate of the move on the same scale as
-/// `alpha`. Midgame move ordering satisfies this exactly at and above
-/// [`LMR_MIN_DEPTH`], which is where the gate below admits moves; below it
+/// `alpha`. Midgame move ordering provides one at and above
+/// [`LMR_MIN_DEPTH`], which is where the gate below admits moves: the shallow
+/// search score minus a penalty for the opponent's mobility. Below it
 /// ordering falls back to unscaled heuristics.
 #[inline(always)]
 fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
