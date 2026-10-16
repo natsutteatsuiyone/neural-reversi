@@ -315,8 +315,31 @@ pub struct GgsOptions<'a> {
     pub log_file: Option<&'a std::path::Path>,
 }
 
+/// Why a GGS session ended with an error.
+#[derive(Debug)]
+pub enum GgsError {
+    /// The server refused the login or password; reconnecting cannot help.
+    LoginRejected(String),
+    Other(String),
+}
+
+impl From<String> for GgsError {
+    fn from(error: String) -> Self {
+        Self::Other(error)
+    }
+}
+
+impl std::fmt::Display for GgsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LoginRejected(line) => write!(f, "login rejected: {line}"),
+            Self::Other(error) => f.write_str(error),
+        }
+    }
+}
+
 /// Runs a GGS session with automatic engine play and a terminal or plain frontend.
-pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), String> {
+pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), GgsError> {
     let GgsOptions {
         host,
         port,
@@ -378,6 +401,10 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Str
     let log_channel = log_channel(user);
     let mut accumulator = connection::LineAccumulator::new();
     let mut finished_searches = Vec::new();
+    // The server sends its first READY (ALERT when low on memory) only after
+    // accepting the login; later password errors come from `passw` and must
+    // not end the session.
+    let mut logged_in = false;
     frontend.draw()?;
 
     loop {
@@ -394,7 +421,15 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Str
             connection::Event::Server(line) => {
                 frontend.server_line(&line);
                 if is_os_offline(&line) {
-                    return Err("/os went offline; reconnect required".to_string());
+                    return Err("/os went offline; reconnect required".to_string().into());
+                }
+                if !logged_in {
+                    if is_login_rejected(&line) {
+                        return Err(GgsError::LoginRejected(
+                            line.trim().trim_start_matches(": ").to_string(),
+                        ));
+                    }
+                    logged_in = connection::is_message_boundary(&line);
                 }
                 if join_tournaments {
                     for join in tournament_join(&line) {
@@ -463,11 +498,11 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Str
             connection::Event::Log(message) => frontend.log(&message),
             connection::Event::Tick => {}
             connection::Event::InputFailed(error) => {
-                return Err(format!("input read failed: {error}"));
+                return Err(format!("input read failed: {error}").into());
             }
             connection::Event::SocketClosed => break,
             connection::Event::SocketReadFailed(error) => {
-                return Err(format!("socket read failed: {error}"));
+                return Err(format!("socket read failed: {error}").into());
             }
         }
         if !accumulator.has_pending_lines() {
@@ -571,6 +606,13 @@ fn startup_lines(
 /// the login after a dot, cut to GGS's 8-character channel name limit.
 fn log_channel(user: &str) -> String {
     format!(".{}", user.chars().take(7).collect::<String>())
+}
+
+/// The server's answers to a bad password or login name, sent before it asks
+/// for the login again.
+fn is_login_rejected(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with(": ERR Password") || line.starts_with(": ERR Login")
 }
 
 fn is_os_offline(line: &str) -> bool {
@@ -1182,6 +1224,16 @@ mod tests {
         assert!(is_os_offline(": - /os 1"));
         assert!(is_os_offline("\x07: - /os 0"));
         assert!(!is_os_offline("/os: - match .1"));
+    }
+
+    #[test]
+    fn only_login_errors_reject_the_login() {
+        assert!(is_login_rejected(": ERR Password is incorrect."));
+        assert!(is_login_rejected(
+            ": ERR Login (2-8 chars) can not start with '.' or '_' chars"
+        ));
+        assert!(!is_login_rejected(": ERR 3: unknown command"));
+        assert!(!is_login_rejected("bob: ERR Password is incorrect."));
     }
 
     #[test]

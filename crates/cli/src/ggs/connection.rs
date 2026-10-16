@@ -180,7 +180,7 @@ impl Connection {
 }
 
 /// Whether a server line terminates the current response block.
-fn is_message_boundary(line: &str) -> bool {
+pub(super) fn is_message_boundary(line: &str) -> bool {
     matches!(line.trim(), "READY" | "ALERT")
 }
 

@@ -236,7 +236,12 @@ fn main() {
                 &config,
             ) {
                 eprintln!("GGS session error: {e}");
-                std::process::exit(1);
+                // A distinct code lets reconnect loops stop on a bad login.
+                let code = match e {
+                    ggs::GgsError::LoginRejected(_) => 2,
+                    ggs::GgsError::Other(_) => 1,
+                };
+                std::process::exit(code);
             }
         }
         Some(SubCommands::Version) => {
