@@ -79,8 +79,8 @@ pub struct SearchSharedResources {
 pub struct SearchTask {
     /// Board position to search.
     pub board: Board,
-    /// Midgame selectivity: [`Selectivity::Level1`] (73%) for fixed-level searches,
-    /// [`Selectivity::Mid`] (63%) for time-controlled searches, and
+    /// Midgame selectivity: [`Selectivity::Level1`] for fixed-level searches,
+    /// [`Selectivity::Mid`] for time-controlled searches (both 73%), and
     /// [`Selectivity::None`] when ProbCut is disabled. The endgame driver uses
     /// its own selectivity ladder and ignores this value.
     pub mid_selectivity: Selectivity,

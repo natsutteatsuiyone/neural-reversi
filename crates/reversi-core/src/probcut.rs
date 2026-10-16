@@ -18,7 +18,7 @@ use crate::types::ScaledScore;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {
-    /// Midgame-only level: 63% confidence (t=0.9). Never part of the
+    /// Midgame-only level: 73% confidence (t=1.1). Never part of the
     /// endgame selectivity ladder.
     Mid = 0,
     /// Most aggressive endgame-ladder level: 73% confidence (t=1.1)
@@ -37,7 +37,7 @@ impl Selectivity {
     #[inline]
     pub fn t_value(self) -> f64 {
         match self {
-            Selectivity::Mid => 0.9,
+            Selectivity::Mid => 1.1,
             Selectivity::Level1 => 1.1,
             Selectivity::Level2 => 2.0,
             Selectivity::Level3 => 3.3,
@@ -49,7 +49,7 @@ impl Selectivity {
     #[inline]
     pub fn probability(self) -> i32 {
         match self {
-            Selectivity::Mid => 63,
+            Selectivity::Mid => 73,
             Selectivity::Level1 => 73,
             Selectivity::Level2 => 95,
             Selectivity::Level3 => 99,
@@ -155,7 +155,7 @@ pub const ENDGAME_PROBCUT_DEPTH: Depth = 2;
 /// Returns the shallow search depth midgame ProbCut verifies with.
 #[inline(always)]
 pub fn probcut_depth(deep: Depth) -> Depth {
-    2 * (deep / 5)
+    2 * (deep / 6)
 }
 
 /// Pre-scaled model coefficients for one deep search depth.
