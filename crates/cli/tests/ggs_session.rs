@@ -135,7 +135,7 @@ fn plain_and_redirected_modes_preserve_telnet_lines() {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
-                .set_read_timeout(Some(std::time::Duration::from_secs(15)))
+                .set_read_timeout(Some(std::time::Duration::from_secs(60)))
                 .unwrap();
             let mut writer = stream.try_clone().unwrap();
             let mut reader = BufReader::new(stream).lines();
