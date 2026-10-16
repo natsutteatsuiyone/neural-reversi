@@ -39,6 +39,9 @@ pub const DEPTH_TO_NWS: Depth = 12;
 /// Depth threshold for switching to specialized shallow search.
 const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 
+/// Minimum empties for enhanced transposition cutoff via child EC entries.
+const MIN_EC_ETC_EMPTIES: u32 = 12;
+
 /// Total EC cache budget distributed across endgame search threads, in bytes.
 const TOTAL_EC_CACHE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -474,6 +477,19 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
     let mut move_list = MoveList::with_at_least_two_moves(board, moves);
     if move_list.wipeout_move().is_some() {
         return SCORE_MAX;
+    }
+
+    // Enhanced transposition cutoff: a child upper bound at or below `-beta`
+    // proves this node fails high.
+    if n_empties >= MIN_EC_ETC_EMPTIES {
+        for mv in move_list.iter() {
+            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+            if let Some(score) = ec.probe(ec.index(next.hash()), &next, -beta)
+                && score <= -beta
+            {
+                return -score;
+            }
+        }
     }
 
     let mut best_score = -SCORE_INF;
