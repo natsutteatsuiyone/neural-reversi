@@ -20,7 +20,7 @@ const EXPECTED_STARTUP: &[&str] = &[
     "tell /os trust +",
     "tell /os vt100 -",
     "tell /os aform",
-    "tell /os dform size != 8 | anti | mt1 < 60 | mm1 != 0 | !ml1 | mm2 != 1 | !ma2",
+    "tell /os dform size != 8 | anti | komi | saved | mt1 < 60 | mm1 != 0 | !ml1 | mm2 != 1 | !ma2",
     "tell /os request +",
     "tell /os open 1",
 ];

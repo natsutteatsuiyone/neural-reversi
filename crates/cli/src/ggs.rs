@@ -526,7 +526,7 @@ fn startup_lines(
         "tell /os trust +",
         "tell /os vt100 -",
         "tell /os aform",
-        "tell /os dform size != 8 | anti | mt1 < 60 | mm1 != 0 | !ml1 | mm2 != 1 | !ma2",
+        "tell /os dform size != 8 | anti | komi | saved | mt1 < 60 | mm1 != 0 | !ml1 | mm2 != 1 | !ma2",
         "tell /os request +",
         &format!("tell /os open {max_games}"),
     ]
@@ -928,7 +928,7 @@ mod tests {
                 "tell /os trust +",
                 "tell /os vt100 -",
                 "tell /os aform",
-                "tell /os dform size != 8 | anti | mt1 < 60 | mm1 != 0 | !ml1 | mm2 != 1 | !ma2",
+                "tell /os dform size != 8 | anti | komi | saved | mt1 < 60 | mm1 != 0 | !ml1 | mm2 != 1 | !ma2",
                 "tell /os request +",
                 "tell /os open 2",
             ]
