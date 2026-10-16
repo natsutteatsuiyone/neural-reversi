@@ -23,11 +23,7 @@ use reversi_core::{
     eval::{Eval, EvalMode},
     game_state::GameState,
     level::Level,
-    search::{
-        Search, SearchRunOptions,
-        options::SearchOptions,
-        strategy::{EndGameStrategy, SearchStrategy},
-    },
+    search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
     types::{Depth, Scoref},
 };
@@ -41,21 +37,11 @@ const MAX_SEARCH_DEPTH: Depth = 14;
 /// Maximum shallow depth for midgame ProbCut analysis
 const MAX_SHALLOW_DEPTH: Depth = 7;
 
-/// Maximum search depth sampled for endgame ProbCut analysis
-const MAX_ENDGAME_SEARCH_DEPTH: Depth = 12;
-
 /// Minimum depth difference between shallow and deep search
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
-/// Starting ply for endgame ProbCut analysis
-const ENDGAME_START_PLY: u32 = 30;
-
-/// CSV header used by the existing endgame pipeline.
-const CSV_HEADER: &[u8] = b"ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n";
-
 /// Midgame CSV header with an explicit game-blocking key.
-const MIDGAME_CSV_HEADER: &[u8] =
-    b"game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n";
+const CSV_HEADER: &[u8] = b"game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n";
 
 /// Command line arguments for ProbCut training data generation.
 #[derive(Parser)]
@@ -84,33 +70,6 @@ struct ProbCutSample {
     shallow_score: Scoref,
     /// Deep search depth
     deep_depth: Depth,
-    /// Side to move
-    side_to_move: Disc,
-}
-
-/// Opens the game-sequence input and the CSV output, writing the CSV header.
-fn open_csv_io(
-    input: &str,
-    output: &str,
-    header: &[u8],
-) -> io::Result<(BufReader<File>, BufWriter<File>)> {
-    let input_file = File::open(input).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("Failed to open input file '{input}': {e}"),
-        )
-    })?;
-
-    let output_file = File::create(output).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("Failed to create output file '{output}': {e}"),
-        )
-    })?;
-    let mut writer = BufWriter::new(output_file);
-    writer.write_all(header)?;
-
-    Ok((BufReader::new(input_file), writer))
 }
 
 /// Replays `moves` from the initial position, passing every position reached to
@@ -122,7 +81,10 @@ fn open_csv_io(
 /// # Errors
 ///
 /// Returns an error if a move is illegal when reached.
-fn replay(moves: &[Square], mut visit: impl FnMut(&Board, Disc)) -> Result<(Board, Disc), String> {
+pub(crate) fn replay(
+    moves: &[Square],
+    mut visit: impl FnMut(&Board, Disc),
+) -> Result<(Board, Disc), String> {
     let mut game = GameState::new();
 
     for &sq in moves {
@@ -155,7 +117,6 @@ fn depth_scores(
     eval: &Eval,
     board: &Board,
     max_depth: Depth,
-    eval_mode: EvalMode,
 ) -> Vec<(Depth, Scoref)> {
     let n_empties = board.get_empty_count();
 
@@ -163,12 +124,13 @@ fn depth_scores(
         .filter(|&depth| depth < n_empties)
         .map(|depth| {
             let score = if depth == 0 {
-                eval.evaluate_simple(board, eval_mode).to_disc_diff_f32()
+                eval.evaluate_simple(board, EvalMode::Main)
+                    .to_disc_diff_f32()
             } else {
-                let level = Level::with_depths(depth, [depth; 4]);
+                let level = Level::uniform(depth, depth);
                 let run_options = SearchRunOptions::with_level(level)
                     .disable_probcut()
-                    .with_eval_mode(eval_mode);
+                    .with_eval_mode(EvalMode::Main);
                 search
                     .run(board, &run_options)
                     .score()
@@ -179,15 +141,17 @@ fn depth_scores(
         .collect()
 }
 
-/// Writes one CSV row, pairing the sample's shallow result with `deep_score`.
-fn write_sample(
+/// Writes one CSV row with the source game line number, pairing the sample's
+/// shallow result with `deep_score`.
+fn write_midgame_sample(
     writer: &mut impl Write,
+    game: usize,
     sample: &ProbCutSample,
     deep_score: Scoref,
 ) -> io::Result<()> {
     writeln!(
         writer,
-        "{},{},{},{},{},{}",
+        "{game},{},{},{},{},{},{}",
         sample.ply,
         sample.shallow_depth,
         sample.shallow_score,
@@ -195,17 +159,6 @@ fn write_sample(
         deep_score,
         deep_score - sample.shallow_score
     )
-}
-
-/// Writes one midgame CSV row with the source game line number.
-fn write_midgame_sample(
-    writer: &mut impl Write,
-    game: usize,
-    sample: &ProbCutSample,
-    deep_score: Scoref,
-) -> io::Result<()> {
-    write!(writer, "{game},")?;
-    write_sample(writer, sample, deep_score)
 }
 
 /// Generates ProbCut training data.
@@ -232,7 +185,21 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
     let eval = search.eval().clone();
     let mut visited: HashSet<Board> = HashSet::new();
 
-    let (reader, mut writer) = open_csv_io(input, output, MIDGAME_CSV_HEADER)?;
+    let input_file = File::open(input).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to open input file '{input}': {e}"),
+        )
+    })?;
+    let output_file = File::create(output).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to create output file '{output}': {e}"),
+        )
+    })?;
+    let reader = BufReader::new(input_file);
+    let mut writer = BufWriter::new(output_file);
+    writer.write_all(CSV_HEADER)?;
 
     for (line_no, line_result) in reader.lines().enumerate() {
         let line = line_result.map_err(|e| {
@@ -252,7 +219,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
 
         let game = line_no + 1;
         let mut samples: Vec<(ProbCutSample, Scoref)> = Vec::new();
-        replay(&moves, |board, side_to_move| {
+        replay(&moves, |board, _| {
             if !insert_midgame_position(&mut visited, board) {
                 return;
             }
@@ -260,8 +227,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
             // A fresh TT per position keeps deep results of previously analyzed
             // positions from leaking into the shallow searches.
             search.init();
-            let depth_scores =
-                depth_scores(&mut search, &eval, board, MAX_SEARCH_DEPTH, EvalMode::Main);
+            let depth_scores = depth_scores(&mut search, &eval, board, MAX_SEARCH_DEPTH);
 
             let ply = INITIAL_EMPTY_COUNT as u32 - board.get_empty_count();
             for (shallow_depth, shallow_score) in depth_scores
@@ -281,7 +247,6 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                                     shallow_depth: *shallow_depth,
                                     shallow_score: *shallow_score,
                                     deep_depth: *deep_depth,
-                                    side_to_move,
                                 },
                                 *deep_score,
                             )
@@ -303,109 +268,6 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Generates endgame ProbCut training data.
-///
-/// Reads game sequences from the input file, analyzes each position with multiple
-/// search depths, and outputs training data as CSV. Only positions inside the window
-/// where endgame ProbCut can fire are processed (ply >= 30 and enough empties for
-/// [`EndGameStrategy::MIN_PROBCUT_DEPTH`]), and each unique position (up to symmetry)
-/// is sampled once. The deep score is the final game score (disc difference), so input
-/// games must play the endgame perfectly from ply 30 on (e.g. rewritten by
-/// `correct-endgames`).
-///
-/// # Arguments
-///
-/// * `input` - Path to input file containing game sequences (one per line)
-/// * `output` - Path to output CSV file for training data
-///
-/// # Returns
-///
-/// Returns `Ok(())` on success, or an error if file operations fail.
-pub fn execute_endgame(input: &str, output: &str) -> io::Result<()> {
-    let options = SearchOptions {
-        tt_mb_size: TT_SIZE_MB,
-        ..Default::default()
-    };
-    let mut search = Search::new(&options);
-    let eval = search.eval().clone();
-    let mut visited: HashSet<Board> = HashSet::new();
-
-    let (reader, mut writer) = open_csv_io(input, output, CSV_HEADER)?;
-
-    for (line_no, line_result) in reader.lines().enumerate() {
-        let line = line_result.map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("Failed to read line {}: {}", line_no + 1, e),
-            )
-        })?;
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let moves = Square::parse_sequence(line).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move: {e}"))
-        })?;
-
-        let mut samples: Vec<ProbCutSample> = Vec::new();
-        let (final_board, final_side_to_move) = replay(&moves, |board, side_to_move| {
-            let n_empties = board.get_empty_count();
-            let ply = INITIAL_EMPTY_COUNT as u32 - n_empties;
-            if ply < ENDGAME_START_PLY
-                || n_empties < EndGameStrategy::MIN_PROBCUT_DEPTH
-                || !visited.insert(board.unique())
-            {
-                return;
-            }
-
-            // A fresh TT per position keeps deep results of previously analyzed
-            // positions from leaking into the shallow searches.
-            search.init();
-            let depth_scores = depth_scores(
-                &mut search,
-                &eval,
-                board,
-                MAX_ENDGAME_SEARCH_DEPTH,
-                EvalMode::Small,
-            );
-
-            samples.extend(depth_scores.iter().map(|(shallow_depth, shallow_score)| {
-                ProbCutSample {
-                    ply,
-                    shallow_depth: *shallow_depth,
-                    shallow_score: *shallow_score,
-                    deep_depth: n_empties,
-                    side_to_move,
-                }
-            }));
-        })
-        .map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Line {}: {e}", line_no + 1),
-            )
-        })?;
-
-        let score = final_board.solve(final_board.get_empty_count()) as f32;
-
-        for sample in samples.iter() {
-            let deep_score = if sample.side_to_move == final_side_to_move {
-                score
-            } else {
-                -score
-            };
-            write_sample(&mut writer, sample, deep_score)?;
-        }
-        writer.flush()?;
-
-        println!("Processed {} lines", line_no + 1);
-    }
-
-    println!("Endgame ProbCut training data generation completed successfully");
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,7 +279,6 @@ mod tests {
             shallow_depth: 2,
             shallow_score: 1.25,
             deep_depth: 7,
-            side_to_move: Disc::Black,
         };
         let mut output = Vec::new();
 
@@ -427,26 +288,6 @@ mod tests {
             String::from_utf8(output).unwrap(),
             "17,12,2,1.25,7,-0.5,-1.75\n"
         );
-    }
-
-    #[test]
-    fn endgame_csv_contract_remains_six_columns() {
-        let sample = ProbCutSample {
-            ply: 40,
-            shallow_depth: 4,
-            shallow_score: -2.0,
-            deep_depth: 20,
-            side_to_move: Disc::White,
-        };
-        let mut output = Vec::new();
-
-        write_sample(&mut output, &sample, 6.0).unwrap();
-
-        assert_eq!(
-            CSV_HEADER,
-            b"ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n"
-        );
-        assert_eq!(String::from_utf8(output).unwrap(), "40,4,-2,20,6,8\n");
     }
 
     #[test]

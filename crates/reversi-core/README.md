@@ -178,7 +178,7 @@ not a tuning choice: it keeps the reduced child depth at one ply or more.
 
 Iterative selectivity. The depth is fixed (all remaining empties are
 solved); what changes between iterations is the confidence level. The loop
-walks `Level::ENDGAME_SELECTIVITY = [Level1, Level2, Level3, None]`,
+walks `Level::ENDGAME_SELECTIVITY = [Level1, Level2, Level3, Level4, None]`,
 ending with `None` for an exact solve.
 
 - On direct entry, a shallow PVS estimates a centre score for the
@@ -194,7 +194,8 @@ ending with `None` for an exact solve.
 - The root loop keeps aspiration centers, windows, and search return values as
   `ScaledScore`; only the null-window and shallow endgame solvers convert to
   plain `Score` disc differences.
-- `EvalMode::Small` is forced, so the endgame net runs.
+- `EvalMode::Small` is forced, so the endgame net runs. Endgame ProbCut
+  switches to the main network for its screen and verification search.
 - A pair of thread-local `EndGameCache`s accelerates shallow re-searches.
 
 At depth `≤ DEPTH_TO_NWS` the search switches to a null-window-centric
@@ -251,31 +252,48 @@ and [assigning privileges to an account](https://learn.microsoft.com/en-us/windo
 at depth `shallow` are correlated, so a shallow search alone can predict
 a cutoff.
 
-- The midgame parameters per `(ply, shallow, deep)` are fit as:
+- Midgame: the parameters are fit per ply as:
 
   ```
-  mean  = a + b·shallow + c·deep + e·(deep & 1)
+  mean  = a + b·shallow + c·deep + PARITY_CREDIT·e·(deep & 1)
   sigma = exp(a' + b'·shallow + c'·sqrt(deep))
   ```
 
-  The endgame model is an independent fit without the parity and `sqrt`
-  terms.
-  `probcut::init` populates `MEAN_TABLE / SIGMA_TABLE` (midgame) and
-  `MEAN_TABLE_END / SIGMA_TABLE_END` (endgame) into `OnceLock`s. Values are
-  pre-multiplied by `ScaledScore::SCALE` so they live directly in
-  `ScaledScore` units.
-- The verification threshold is `compute_probcut_beta(beta, t, mean, sigma)
-  = ceil(beta + t·sigma − mean)`. If a shallow PVS clears it, the deep
-  search is skipped.
+  The shallow depth is `probcut_depth(deep)`. `probcut::init` tabulates the
+  coefficients per `(ply, deep)` into a `OnceLock`, pre-multiplied by
+  `ScaledScore::SCALE` so they live directly in `ScaledScore` units. The
+  verification threshold is `ceil(beta + t·sigma − mean)`
+  (`compute_probcut_beta`). A static-evaluation pre-screen
+  (`compute_eval_beta`) skips the verification when the evaluation is far
+  below it. If a null-window search at the shallow depth reaches the
+  threshold, the deep search is skipped.
+- Endgame (`probcut/endgame.rs`): a cut takes two steps.
+  1. Screen: if the static evaluation is more than `SCREEN_MARGINS` below
+     the verification threshold, the verification is not searched.
+  2. Verification: a depth-`VERIFY_DEPTH` search must reach
+
+     ```
+     pc_beta = beta + w·sigma(x) − mean(x)
+     ```
+
+     `mean` and `ln sigma` model `exact − score` and are linear in features
+     known before the verification (empty count, node type, beta, and the
+     static evaluation), so the threshold has a closed form. `w` is
+     `endgame_tail_multiplier(selectivity, empties)`, linear in the empty
+     count per level and calibrated against the root score's exactness.
+
+  `datagen fit-endgame-probcut` fits the model and the screen margins on
+  positions traced from the search tree (see `crates/datagen/README.md`).
 - `Selectivity` enumerates discrete confidence levels (`Mid`, `Level1`,
-  `Level2`, `Level3`, ordered from most aggressive to most conservative)
-  plus `None` for an exact solve. Per-level `t` multipliers and confidence
-  percentages are defined by `Selectivity::t_value` and
-  `Selectivity::probability`. Midgame search always runs at the fixed
+  `Level2`, `Level3`, `Level4`, ordered from most aggressive to most conservative)
+  plus `None` for an exact solve. `Selectivity::probability` gives each
+  level's confidence percentage. Midgame ProbCut uses the per-level `t`
+  multiplier `Selectivity::t_value`; endgame ProbCut uses
+  `endgame_tail_multiplier` instead. Midgame search always runs at the fixed
   `Mid` level (`SearchRunOptions::disable_probcut` drops it to `None` for
   data generation); the endgame ladder walks the remaining levels and
-  never uses `Mid`. PV nodes and the final endgame confirmation push
-  selectivity to `None`.
+  never uses `Mid`. PV nodes never attempt ProbCut. The verification
+  searches and the final exact endgame step run at `None`.
 
 ### Stability cutoff
 
@@ -424,8 +442,8 @@ pub struct ScaledScore(i32);
 
 ### Level
 
-`Level { mid_depth, end_depth: [Depth; 4] }`. The `end_depth` slots line
-up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level2 / Level3 / None`).
+`Level { mid_depth, end_depth: [Depth; ENDGAME_STEPS] }`. The `end_depth` slots line
+up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level2 / Level3 / Level4 / None`).
 
 - `get_level(i)` returns a preset configuration for UIs (see the array at
   the bottom of `level.rs`).

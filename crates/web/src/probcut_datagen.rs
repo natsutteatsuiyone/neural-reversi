@@ -287,9 +287,8 @@ impl ProbCutDatagen {
 
     /// Processes a single game for endgame ProbCut and returns the collected samples.
     ///
-    /// Mirrors `execute_endgame` in `crates/datagen/src/probcut.rs`: for each position
-    /// at or beyond [`ENDGAME_START_PLY`], a single fixed-depth shallow search is run and
-    /// paired with the exact final game result as the deep score.
+    /// For each position at or beyond [`ENDGAME_START_PLY`], runs a single fixed-depth
+    /// shallow search and pairs it with the exact final game result as the deep score.
     fn process_game_endgame_internal(
         &mut self,
         game_sequence: &str,
@@ -443,8 +442,7 @@ impl ProbCutDatagen {
 
     /// Converts samples to a CSV string.
     ///
-    /// Format matches `crates/datagen/src/probcut.rs`:
-    /// `ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`
+    /// Columns: `ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`.
     fn samples_to_csv(samples: &[ProbCutSample]) -> String {
         let mut csv = String::from("ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n");
 

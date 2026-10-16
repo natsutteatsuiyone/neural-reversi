@@ -297,7 +297,9 @@ pub fn try_probcut(
 
     let ply = ctx.ply();
     let pc_depth = probcut::probcut_depth(depth);
-    let pc = probcut::midgame_coefficients(ply, depth);
+    // SAFETY: `SearchSharedResources::new` calls `probcut::init()` before any
+    // search can run.
+    let pc = unsafe { probcut::midgame_coefficients(ply, depth) };
     let t = ctx.selectivity.t_value();
 
     let pc_beta = probcut::compute_probcut_beta(beta, t, pc);

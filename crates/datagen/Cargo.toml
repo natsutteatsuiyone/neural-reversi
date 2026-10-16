@@ -3,6 +3,10 @@ name = "datagen"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Enables `endgame-trace`, which needs ProbCut tracing compiled into the engine.
+trace = ["reversi-core/probcut-trace"]
+
 [dependencies]
 byteorder = "1.5.0"
 clap = { version = "4", features = ["derive"] }

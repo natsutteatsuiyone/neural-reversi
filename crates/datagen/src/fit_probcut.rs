@@ -14,7 +14,7 @@ use std::{
 use reversi_core::constants::INITIAL_EMPTY_COUNT;
 
 const NUM_PLY: usize = INITIAL_EMPTY_COUNT;
-const NUM_FOLDS: usize = 5;
+pub(crate) const NUM_FOLDS: usize = 5;
 const MIN_POSITIONS_WITHOUT_SMOOTHING: usize = 200;
 const MIN_MEAN_CELLS: usize = 4;
 const MIN_SIGMA_CELLS: usize = 3;
@@ -254,7 +254,7 @@ fn parse_row(line: &str) -> Option<Sample> {
     })
 }
 
-fn game_fold(game: u64) -> usize {
+pub(crate) fn game_fold(game: u64) -> usize {
     // SplitMix64 gives stable, well-mixed folds even when game ids are
     // consecutive input line numbers.
     let mut value = game.wrapping_add(0x9e3779b97f4a7c15);
@@ -464,7 +464,7 @@ fn residual_sigma(cells: &[(u32, u32, CellStats)], predict: impl Fn(f64, f64) ->
     (sum_sq / n - (sum / n).powi(2)).max(0.0).sqrt()
 }
 
-fn weighted_least_squares<const N: usize>(
+pub(crate) fn weighted_least_squares<const N: usize>(
     rows: impl Iterator<Item = ([f64; N], f64, f64)>,
 ) -> Option<[f64; N]> {
     let mut matrix = [[0.0f64; N]; N];

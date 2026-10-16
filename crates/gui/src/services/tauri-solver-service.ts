@@ -4,7 +4,7 @@ import type { Board, Player } from "@/domain/game/types";
 import { serializeBoardForAI } from "./board-serialization";
 import { TAURI_COMMAND, TAURI_EVENT } from "./tauri-contract";
 import type { SolverMode, SolverProgressPayload, SolverService, SolverSelectivity } from "./types";
-import { SOLVER_SELECTIVITY_TO_U8 } from "./types";
+import { SOLVER_SELECTIVITIES } from "./types";
 
 export class TauriSolverService implements SolverService {
   async startSearch(
@@ -15,11 +15,10 @@ export class TauriSolverService implements SolverService {
     runId: number,
   ): Promise<void> {
     const boardString = serializeBoardForAI(board, player);
-    const targetSelectivityU8 = SOLVER_SELECTIVITY_TO_U8[targetSelectivity];
     try {
       await invoke(TAURI_COMMAND.solverSearch, {
         boardString,
-        targetSelectivity: targetSelectivityU8,
+        targetSelectivity: SOLVER_SELECTIVITIES.indexOf(targetSelectivity),
         multiPv: mode === "multiPv",
         runId,
       });

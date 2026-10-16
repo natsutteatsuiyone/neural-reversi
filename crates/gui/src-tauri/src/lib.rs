@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex, TryLockError};
 use reversi_core::analysis as game_analysis;
 use reversi_core::disc::Disc;
 use reversi_core::level::get_level;
-use reversi_core::probcut::Selectivity;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::{SearchRunOptions, time_control::TimeControlMode};
@@ -227,17 +226,10 @@ where
 }
 
 /// Builds a [`reversi_core::level::Level`] whose endgame iterative-deepening
-/// loop stops at `target`.
-fn solver_level(target: Selectivity) -> reversi_core::level::Level {
-    let mut end_depth = [0u32; 4];
-    for (i, &sel) in reversi_core::level::Level::ENDGAME_SELECTIVITY
-        .iter()
-        .enumerate()
-    {
-        if sel <= target {
-            end_depth[i] = 60;
-        }
-    }
+/// loop stops after step `target` of [`reversi_core::level::Level::ENDGAME_SELECTIVITY`].
+fn solver_level(target: usize) -> reversi_core::level::Level {
+    let mut end_depth = [0u32; reversi_core::level::ENDGAME_STEPS];
+    end_depth[..=target].fill(60);
     reversi_core::level::Level::with_depths(60, end_depth)
 }
 
@@ -258,9 +250,10 @@ fn validate_level(level: usize) -> Result<(), String> {
 }
 
 fn validate_selectivity(target_selectivity: u8) -> Result<(), String> {
-    if target_selectivity > 3 {
+    let max = reversi_core::level::ENDGAME_STEPS - 1;
+    if target_selectivity as usize > max {
         return Err(format!(
-            "Invalid target_selectivity: {target_selectivity} (expected 0..=3)"
+            "Invalid target_selectivity: {target_selectivity} (expected 0..={max})"
         ));
     }
     Ok(())
@@ -384,9 +377,7 @@ async fn solver_search_command(
         state.search.clone(),
         board_string,
         move || {
-            let target =
-                reversi_core::level::Level::ENDGAME_SELECTIVITY[target_selectivity as usize];
-            let level = solver_level(target);
+            let level = solver_level(target_selectivity as usize);
             let callback = move |progress: search::SearchProgress| {
                 let _ = app.emit(
                     "solver-progress",
@@ -524,27 +515,27 @@ mod tests {
 
     #[test]
     fn solver_level_none_equals_perfect() {
-        let lvl = solver_level(Selectivity::None);
+        let lvl = solver_level(4);
         assert_eq!(lvl.mid_depth, 60);
-        assert_eq!(lvl.end_depth, [60, 60, 60, 60]);
+        assert_eq!(lvl.end_depth, [60, 60, 60, 60, 60]);
     }
 
     #[test]
-    fn solver_level_level3_caps_last_entry() {
-        let lvl = solver_level(Selectivity::Level3);
-        assert_eq!(lvl.end_depth, [60, 60, 60, 0]);
+    fn solver_level_level4_caps_last_entry() {
+        let lvl = solver_level(3);
+        assert_eq!(lvl.end_depth, [60, 60, 60, 60, 0]);
     }
 
     #[test]
     fn solver_level_level2_caps_after_level2() {
-        let lvl = solver_level(Selectivity::Level2);
-        assert_eq!(lvl.end_depth, [60, 60, 0, 0]);
+        let lvl = solver_level(1);
+        assert_eq!(lvl.end_depth, [60, 60, 0, 0, 0]);
     }
 
     #[test]
     fn solver_level_level1_only_first() {
-        let lvl = solver_level(Selectivity::Level1);
-        assert_eq!(lvl.end_depth, [60, 0, 0, 0]);
+        let lvl = solver_level(0);
+        assert_eq!(lvl.end_depth, [60, 0, 0, 0, 0]);
     }
 
     #[test]
@@ -579,12 +570,12 @@ mod tests {
     #[test]
     fn validate_selectivity_accepts_boundary_values() {
         assert!(validate_selectivity(0).is_ok());
-        assert!(validate_selectivity(3).is_ok());
+        assert!(validate_selectivity(4).is_ok());
     }
 
     #[test]
     fn validate_selectivity_rejects_out_of_range_values() {
-        for value in [4, 255] {
+        for value in [5, 255] {
             let err = validate_selectivity(value).unwrap_err();
             assert!(err.contains("Invalid target_selectivity"), "got: {err}");
         }

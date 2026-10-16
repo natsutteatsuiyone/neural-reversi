@@ -60,7 +60,7 @@ export function HintScoreDisplay({
 
   // Search progress calculation:
   // - Midgame: iterates by depth (1 ↁE2 ↁE... ↁEtargetDepth)
-  // - Endgame: iterates by selectivity (73% / 95% / 99% / 100%)
+  // - Endgame: iterates by selectivity level
   const isSearchComplete = isEndgame ? acc === 100 : depth >= targetDepth;
   const searchProgress = isEndgame
     ? acc // Endgame: use selectivity probability directly

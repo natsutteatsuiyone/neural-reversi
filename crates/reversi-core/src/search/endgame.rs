@@ -300,38 +300,45 @@ pub fn try_probcut(
     if !ctx.selectivity.is_enabled() {
         return None;
     }
+    // The screen and the verification use the main network; the rest of the
+    // endgame search stays on the small one.
+    ctx.eval_mode = EvalMode::Main;
+    let result = probcut_decision(ctx, board, depth, beta, cut_node, thread);
+    ctx.eval_mode = EvalMode::Small;
+    #[cfg(feature = "probcut-trace")]
+    probcut::trace::record(board, beta, ctx.selectivity, cut_node, result);
+    result
+}
 
-    let pc = probcut::endgame_coefficients(depth);
-    let t = ctx.selectivity.t_value();
-
-    let pc_beta = probcut::compute_probcut_beta(beta, t, pc);
-    if pc_beta >= ScaledScore::MAX {
+fn probcut_decision(
+    ctx: &mut SearchContext,
+    board: &Board,
+    depth: Depth,
+    beta: ScaledScore,
+    cut_node: bool,
+    thread: &Arc<Thread>,
+) -> Option<ScaledScore> {
+    let eval = midgame::evaluate(ctx, board);
+    let window = probcut::endgame_probcut_window(depth, ctx.selectivity, cut_node, beta, eval);
+    let pc_beta = window.pc_beta;
+    if pc_beta >= ScaledScore::MAX || eval < window.screen_beta {
         return None;
     }
 
-    let eval_score = midgame::evaluate(ctx, board);
-    let eval_beta = probcut::compute_eval_beta(beta, t, pc, cut_node);
+    let current_selectivity = ctx.selectivity;
+    ctx.selectivity = Selectivity::None;
+    let score = search::<NonPV, MidGameStrategy>(
+        ctx,
+        board,
+        probcut::VERIFY_DEPTH,
+        pc_beta - 1,
+        pc_beta,
+        thread,
+        true,
+    );
+    ctx.selectivity = current_selectivity;
 
-    if eval_score >= eval_beta {
-        let current_selectivity = ctx.selectivity;
-        ctx.selectivity = Selectivity::None;
-        let score = search::<NonPV, MidGameStrategy>(
-            ctx,
-            board,
-            probcut::ENDGAME_PROBCUT_DEPTH,
-            pc_beta - 1,
-            pc_beta,
-            thread,
-            true,
-        );
-        ctx.selectivity = current_selectivity;
-
-        if score >= pc_beta {
-            return Some(beta);
-        }
-    }
-
-    None
+    (score >= pc_beta).then_some(beta)
 }
 
 /// Searches an endgame position with a null window.

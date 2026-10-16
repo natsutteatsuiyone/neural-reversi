@@ -2,19 +2,32 @@
 //!
 //! Uses a statistical model to predict whether a shallow search result can
 //! substitute for a deeper search, allowing subtrees to be pruned with
-//! controlled error probability. Pre-computed lookup tables for mean and sigma
-//! values are initialized once via [`init`] and accessed through the `get_*`
-//! functions.
+//! controlled error probability. This module holds the midgame regression
+//! coefficients, tabulated once by [`init`]; the endgame submodule holds the
+//! endgame verification model and screen margins.
 
 use std::sync::OnceLock;
 
 use crate::types::Depth;
 use crate::types::ScaledScore;
 
+mod endgame;
+
+#[cfg(feature = "probcut-trace")]
+pub use endgame::trace;
+pub use endgame::{
+    ENDGAME_LEVELS, ENDGAME_PROBCUT_WEIGHTS, EndgameWindow, NUM_VERIFY_FEATURES, SCREEN_RATES,
+    VERIFY_DEPTH, VERIFY_FIT_T_MAX, VerifyModel, endgame_probcut_window, endgame_tail_multiplier,
+};
+
 /// Selectivity level for search pruning (ProbCut confidence levels).
 ///
 /// Lower levels are more aggressive (prune more), higher levels are more conservative.
 /// `None` disables ProbCut entirely.
+///
+/// Midgame ProbCut scales its margin by [`Selectivity::t_value`]. Endgame
+/// ProbCut uses [`endgame_tail_multiplier`] instead, calibrated so the root
+/// score is exact with [`Selectivity::probability`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {
@@ -24,12 +37,14 @@ pub enum Selectivity {
     /// Most aggressive endgame-ladder level: 73% confidence (t=1.1)
     #[default]
     Level1 = 1,
-    /// 95% confidence (t=2.0)
+    /// 86% confidence (t=1.5)
     Level2 = 2,
-    /// Most conservative: 99% confidence (t=3.3)
+    /// 95% confidence (t=2.0)
     Level3 = 3,
+    /// Most conservative: 99% confidence (t=3.3)
+    Level4 = 4,
     /// ProbCut disabled.
-    None = 4,
+    None = 5,
 }
 
 impl Selectivity {
@@ -39,8 +54,9 @@ impl Selectivity {
         match self {
             Selectivity::Mid => 1.1,
             Selectivity::Level1 => 1.1,
-            Selectivity::Level2 => 2.0,
-            Selectivity::Level3 => 3.3,
+            Selectivity::Level2 => 1.5,
+            Selectivity::Level3 => 2.0,
+            Selectivity::Level4 => 3.3,
             Selectivity::None => 999.0,
         }
     }
@@ -51,8 +67,9 @@ impl Selectivity {
         match self {
             Selectivity::Mid => 73,
             Selectivity::Level1 => 73,
-            Selectivity::Level2 => 95,
-            Selectivity::Level3 => 99,
+            Selectivity::Level2 => 86,
+            Selectivity::Level3 => 95,
+            Selectivity::Level4 => 99,
             Selectivity::None => 100,
         }
     }
@@ -65,7 +82,7 @@ impl Selectivity {
 
     /// Creates a [`Selectivity`] from a [`u8`] value, clamping to valid range.
     ///
-    /// Values > 4 are clamped to [`Selectivity::None`].
+    /// Values > 5 are clamped to [`Selectivity::None`].
     #[inline]
     pub fn from_u8(value: u8) -> Self {
         match value {
@@ -73,6 +90,7 @@ impl Selectivity {
             1 => Selectivity::Level1,
             2 => Selectivity::Level2,
             3 => Selectivity::Level3,
+            4 => Selectivity::Level4,
             _ => Selectivity::None,
         }
     }
@@ -121,36 +139,10 @@ impl ProbcutMidgameParams {
     }
 }
 
-/// Statistical parameters for ProbCut prediction models.
-///
-/// - `mean = mean_intercept + mean_coef_shallow * shallow + mean_coef_deep * deep`
-/// - `sigma = exp(std_intercept + std_coef_shallow * shallow + std_coef_deep * deep)`
-struct ProbcutParams {
-    mean_intercept: f64,
-    mean_coef_shallow: f64,
-    mean_coef_deep: f64,
-    std_intercept: f64,
-    std_coef_shallow: f64,
-    std_coef_deep: f64,
-}
-
-impl ProbcutParams {
-    fn mean(&self, shallow: f64, deep: f64) -> f64 {
-        self.mean_intercept + self.mean_coef_shallow * shallow + self.mean_coef_deep * deep
-    }
-
-    fn sigma(&self, shallow: f64, deep: f64) -> f64 {
-        (self.std_intercept + self.std_coef_shallow * shallow + self.std_coef_deep * deep).exp()
-    }
-}
-
 const NUM_PLY: usize = 60;
 const NUM_DEPTH: usize = 60;
 
 const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
-
-/// Shallow depth used by endgame ProbCut.
-pub const ENDGAME_PROBCUT_DEPTH: Depth = 2;
 
 /// Returns the shallow search depth midgame ProbCut verifies with.
 #[inline(always)]
@@ -160,10 +152,9 @@ pub fn probcut_depth(deep: Depth) -> Depth {
 
 /// Pre-scaled model coefficients for one deep search depth.
 ///
-/// The shallow depth is a pure function of the deep depth ([`probcut_depth`]
-/// for midgame, [`ENDGAME_PROBCUT_DEPTH`] for endgame), and the pre-screen
-/// always compares against depth 0, so these four values cover every lookup
-/// the search performs.
+/// The shallow depth is a pure function of the deep depth ([`probcut_depth`]),
+/// and the pre-screen always compares against depth 0, so these four values
+/// cover every midgame lookup.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProbcutCoefficients {
     /// Predicted mean difference between the shallow and deep scores.
@@ -177,10 +168,8 @@ pub struct ProbcutCoefficients {
 }
 
 type MidgameTable = [ProbcutCoefficients; NUM_PLY * NUM_DEPTH];
-type EndgameTable = [ProbcutCoefficients; NUM_DEPTH];
 
 static MIDGAME_TABLE: OnceLock<Box<MidgameTable>> = OnceLock::new();
-static ENDGAME_TABLE: OnceLock<EndgameTable> = OnceLock::new();
 
 /// Builds the midgame table, indexed by `ply * NUM_DEPTH + deep`.
 fn build_midgame_table() -> Box<MidgameTable> {
@@ -204,29 +193,12 @@ fn build_midgame_table() -> Box<MidgameTable> {
     tbl
 }
 
-/// Builds the endgame table, indexed by `deep`.
-fn build_endgame_table() -> EndgameTable {
-    let mut tbl = [ProbcutCoefficients::default(); NUM_DEPTH];
-    let shallow = ENDGAME_PROBCUT_DEPTH as f64;
-    for (deep, entry) in tbl.iter_mut().enumerate() {
-        let deep_f = deep as f64;
-        *entry = ProbcutCoefficients {
-            mean: PROBCUT_ENDGAME_PARAMS.mean(shallow, deep_f) * SCORE_SCALE_F64,
-            sigma: PROBCUT_ENDGAME_PARAMS.sigma(shallow, deep_f) * SCORE_SCALE_F64,
-            mean0: PROBCUT_ENDGAME_PARAMS.mean(0.0, deep_f) * SCORE_SCALE_F64,
-            sigma0: PROBCUT_ENDGAME_PARAMS.sigma(0.0, deep_f) * SCORE_SCALE_F64,
-        };
-    }
-    tbl
-}
-
 /// Initializes the ProbCut lookup tables.
 ///
 /// Must be called before any coefficient lookup. Called automatically by
 /// [`Search::new`](crate::search::Search::new).
 pub fn init() {
     MIDGAME_TABLE.get_or_init(build_midgame_table);
-    ENDGAME_TABLE.get_or_init(build_endgame_table);
 }
 
 /// Returns the midgame coefficients for the given ply and deep search depth.
@@ -235,27 +207,12 @@ pub fn init() {
 ///
 /// [`init`] must have been called before this function.
 #[inline(always)]
-pub fn midgame_coefficients(ply: usize, deep: Depth) -> &'static ProbcutCoefficients {
+pub unsafe fn midgame_coefficients(ply: usize, deep: Depth) -> &'static ProbcutCoefficients {
     debug_assert!(ply < NUM_PLY);
     debug_assert!((deep as usize) < NUM_DEPTH);
-    // SAFETY: `init()` is called once at startup before any search begins,
-    // guaranteeing the OnceLock is initialized.
+    // SAFETY: the caller guarantees that `init()` has run.
     let tbl = unsafe { MIDGAME_TABLE.get().unwrap_unchecked() };
     &tbl[ply * NUM_DEPTH + deep as usize]
-}
-
-/// Returns the endgame coefficients for the given deep search depth.
-///
-/// # Safety
-///
-/// [`init`] must have been called before this function.
-#[inline(always)]
-pub fn endgame_coefficients(deep: Depth) -> &'static ProbcutCoefficients {
-    debug_assert!((deep as usize) < NUM_DEPTH);
-    // SAFETY: `init()` is called once at startup before any search begins,
-    // guaranteeing the OnceLock is initialized.
-    let tbl = unsafe { ENDGAME_TABLE.get().unwrap_unchecked() };
-    &tbl[deep as usize]
 }
 
 /// Computes the ProbCut beta threshold for verification search.
@@ -279,17 +236,6 @@ pub fn compute_eval_beta(
         (beta.value() as f64 - eval_sigma - eval_mean + all_node_margin).floor() as i32,
     )
 }
-
-/// Statistical parameters for endgame ProbCut.
-#[rustfmt::skip]
-const PROBCUT_ENDGAME_PARAMS: ProbcutParams = ProbcutParams {
-    mean_intercept: -0.2142968574,
-    mean_coef_shallow: 0.0258202257,
-    mean_coef_deep: 0.0074065736,
-    std_intercept: 0.8452019175,
-    std_coef_shallow: -0.0616277893,
-    std_coef_deep: 0.0333471614,
-};
 
 /// Statistical parameters for midgame ProbCut indexed by ply.
 #[rustfmt::skip]
@@ -863,28 +809,14 @@ mod tests {
     }
 
     #[test]
-    fn endgame_model_keeps_linear_deep_features() {
-        let params = ProbcutParams {
-            mean_intercept: 0.25,
-            mean_coef_shallow: -0.5,
-            mean_coef_deep: 0.125,
-            std_intercept: 0.75,
-            std_coef_shallow: -0.25,
-            std_coef_deep: 0.5,
-        };
-
-        assert_eq!(params.mean(2.0, 9.0), 0.375);
-        assert_eq!(params.sigma(2.0, 9.0), (0.75_f64 - 0.5 + 0.5 * 9.0).exp());
-    }
-
-    #[test]
-    fn from_u8_maps_to_the_five_supported_selectivities() {
+    fn from_u8_maps_to_the_six_supported_selectivities() {
         assert_eq!(Selectivity::from_u8(0), Selectivity::Mid);
         assert_eq!(Selectivity::from_u8(1), Selectivity::Level1);
         assert_eq!(Selectivity::from_u8(2), Selectivity::Level2);
         assert_eq!(Selectivity::from_u8(3), Selectivity::Level3);
-        assert_eq!(Selectivity::from_u8(4), Selectivity::None);
+        assert_eq!(Selectivity::from_u8(4), Selectivity::Level4);
         assert_eq!(Selectivity::from_u8(5), Selectivity::None);
+        assert_eq!(Selectivity::from_u8(6), Selectivity::None);
     }
 
     #[test]
@@ -942,7 +874,8 @@ mod tests {
             let params = &PROBCUT_PARAMS[ply];
             let shallow = probcut_depth(deep) as f64;
             let deep_f = deep as f64;
-            let pc = midgame_coefficients(ply, deep);
+            // SAFETY: `init()` ran at the top of this test.
+            let pc = unsafe { midgame_coefficients(ply, deep) };
             for (got, want) in [
                 (pc.mean, params.mean(shallow, deep_f)),
                 (pc.sigma, params.sigma(shallow, deep_f)),
@@ -951,18 +884,6 @@ mod tests {
             ] {
                 assert!(approx(got, want * SCORE_SCALE_F64));
             }
-        }
-
-        let end = &PROBCUT_ENDGAME_PARAMS;
-        let shallow = ENDGAME_PROBCUT_DEPTH as f64;
-        let pc = endgame_coefficients(9);
-        for (got, want) in [
-            (pc.mean, end.mean(shallow, 9.0)),
-            (pc.sigma, end.sigma(shallow, 9.0)),
-            (pc.mean0, end.mean(0.0, 9.0)),
-            (pc.sigma0, end.sigma(0.0, 9.0)),
-        ] {
-            assert!(approx(got, want * SCORE_SCALE_F64));
         }
     }
 }

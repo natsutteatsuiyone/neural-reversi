@@ -15,17 +15,21 @@ pub struct Level {
     /// Search depth used during the midgame phase.
     pub mid_depth: Depth,
     /// Endgame search depths, one per [`Self::ENDGAME_SELECTIVITY`] entry.
-    pub end_depth: [Depth; 4],
+    pub end_depth: [Depth; ENDGAME_STEPS],
 }
+
+/// Number of steps in [`Level::ENDGAME_SELECTIVITY`].
+pub const ENDGAME_STEPS: usize = 5;
 
 impl Level {
     /// Selectivity sequence for iterative endgame search.
     ///
     /// Progresses from aggressive pruning to exact solving.
-    pub const ENDGAME_SELECTIVITY: [Selectivity; 4] = [
+    pub const ENDGAME_SELECTIVITY: [Selectivity; ENDGAME_STEPS] = [
         Selectivity::Level1,
         Selectivity::Level2,
         Selectivity::Level3,
+        Selectivity::Level4,
         Selectivity::None,
     ];
 
@@ -34,13 +38,13 @@ impl Level {
     pub const fn uniform(mid_depth: Depth, end_depth: Depth) -> Self {
         Level {
             mid_depth,
-            end_depth: [end_depth; 4],
+            end_depth: [end_depth; ENDGAME_STEPS],
         }
     }
 
     /// Creates a level with `mid_depth` for the midgame and one endgame depth
     /// per [`Self::ENDGAME_SELECTIVITY`] step.
-    pub const fn with_depths(mid_depth: Depth, end_depth: [Depth; 4]) -> Self {
+    pub const fn with_depths(mid_depth: Depth, end_depth: [Depth; ENDGAME_STEPS]) -> Self {
         Level {
             mid_depth,
             end_depth,
@@ -108,37 +112,37 @@ pub fn get_level(lv: usize) -> Level {
 /// Pre-configured difficulty levels ranging from 0 (easiest) to [`MAX_LEVEL`] (hardest).
 #[rustfmt::skip]
 const LEVELS: [Level; 31] = [
-    Level { mid_depth:  1, end_depth: [ 1, 1, 1, 1] },
-    Level { mid_depth:  1, end_depth: [ 2, 2, 2, 2] },
-    Level { mid_depth:  2, end_depth: [ 4, 4, 4, 4] },
-    Level { mid_depth:  3, end_depth: [ 6, 6, 6, 6] },
-    Level { mid_depth:  4, end_depth: [ 8, 8, 8, 8] },
-    Level { mid_depth:  5, end_depth: [10,10,10,10] },
-    Level { mid_depth:  6, end_depth: [12,12,12,12] },
-    Level { mid_depth:  7, end_depth: [14,14,14,14] },
-    Level { mid_depth:  8, end_depth: [16,16,16,16] },
-    Level { mid_depth:  9, end_depth: [18,18,18,18] },
-    Level { mid_depth: 10, end_depth: [20,20,20,20] },
-    Level { mid_depth: 11, end_depth: [21,21,21,21] },
-    Level { mid_depth: 12, end_depth: [21,21,21,21] },
-    Level { mid_depth: 13, end_depth: [22,22,22,22] },
-    Level { mid_depth: 14, end_depth: [22,22,22,22] },
-    Level { mid_depth: 15, end_depth: [24,24,24,24] },
-    Level { mid_depth: 16, end_depth: [24,24,24,24] },
-    Level { mid_depth: 17, end_depth: [24,24,24,24] },
-    Level { mid_depth: 18, end_depth: [26,26,26,26] },
-    Level { mid_depth: 19, end_depth: [26,26,26,26] },
-    Level { mid_depth: 20, end_depth: [26,26,26,26] },
-    Level { mid_depth: 21, end_depth: [28,28,28,28] },
-    Level { mid_depth: 22, end_depth: [28,28,28,28] },
-    Level { mid_depth: 23, end_depth: [30,30,30,30] },
-    Level { mid_depth: 24, end_depth: [30,30,30,30] },
-    Level { mid_depth: 25, end_depth: [30,30,30,30] },
-    Level { mid_depth: 26, end_depth: [30,30,30,30] },
-    Level { mid_depth: 27, end_depth: [30,30,30,30] },
-    Level { mid_depth: 28, end_depth: [30,30,30,30] },
-    Level { mid_depth: 29, end_depth: [30,30,30,30] },
-    Level { mid_depth: 30, end_depth: [30,30,30,30] },
+    Level::uniform(1, 1),
+    Level::uniform(1, 2),
+    Level::uniform(2, 4),
+    Level::uniform(3, 6),
+    Level::uniform(4, 8),
+    Level::uniform(5, 10),
+    Level::uniform(6, 12),
+    Level::uniform(7, 14),
+    Level::uniform(8, 16),
+    Level::uniform(9, 18),
+    Level::uniform(10, 20),
+    Level::uniform(11, 21),
+    Level::uniform(12, 21),
+    Level::uniform(13, 22),
+    Level::uniform(14, 22),
+    Level::uniform(15, 24),
+    Level::uniform(16, 24),
+    Level::uniform(17, 24),
+    Level::uniform(18, 26),
+    Level::uniform(19, 26),
+    Level::uniform(20, 26),
+    Level::uniform(21, 28),
+    Level::uniform(22, 28),
+    Level::uniform(23, 30),
+    Level::uniform(24, 30),
+    Level::uniform(25, 30),
+    Level::uniform(26, 30),
+    Level::uniform(27, 30),
+    Level::uniform(28, 30),
+    Level::uniform(29, 30),
+    Level::uniform(30, 30),
 ];
 
 #[cfg(test)]
@@ -149,12 +153,13 @@ mod tests {
     fn test_get_end_depth() {
         let level = Level {
             mid_depth: 10,
-            end_depth: [20, 22, 24, 25],
+            end_depth: [20, 22, 23, 24, 25],
         };
 
         assert_eq!(level.get_end_depth(Selectivity::Level1), 20);
         assert_eq!(level.get_end_depth(Selectivity::Level2), 22);
-        assert_eq!(level.get_end_depth(Selectivity::Level3), 24);
+        assert_eq!(level.get_end_depth(Selectivity::Level3), 23);
+        assert_eq!(level.get_end_depth(Selectivity::Level4), 24);
         assert_eq!(level.get_end_depth(Selectivity::None), 25);
     }
 

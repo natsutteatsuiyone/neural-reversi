@@ -7,6 +7,8 @@ autobenches = false
 
 [features]
 search-stats = []
+# Records sampled endgame ProbCut decisions for model validation (datagen).
+probcut-trace = []
 
 [dependencies]
 byteorder = "1.5"

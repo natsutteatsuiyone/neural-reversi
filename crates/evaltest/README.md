@@ -13,6 +13,9 @@ Evaluation test suite runner for measuring the endgame search performance of Rev
 | `--problem-dir` | Path to the directory containing `.obf` problem files | Auto-discovered |
 | `--verbose` or `-v` | Enable verbose output with per-iteration search statistics | Off |
 | `--multipv` | Multi-PV mode: score every legal move and compare against OBF per-move scores | Off |
+| `--move-loss` | Solve each move an endgame level chooses, and report how good the moves are per level | Off |
+| `--solve-reference` | Judge each endgame level against the run's own exact solve instead of the OBF score (for positions without exact scores) | Off |
+| `--selective-only` | Skip the exact solve at the end of the endgame ladder; judge the levels against the OBF score | Off |
 
 ### Presets
 
@@ -132,6 +135,7 @@ With `-v`/`--verbose`, each test case displays:
   - **score**: Best score at this iteration
   - **best**: Best move found
   - **nodes**: Nodes searched in this iteration (not cumulative)
+  - **time**: Wall time of this iteration (not cumulative)
   - **TT%**: TT hit rate (hits / probes)
   - **ProbCut%**: ProbCut cutoff rate
   - **ETC%**: Enhanced Transposition Cutoff rate
@@ -152,6 +156,18 @@ After each file section, aggregate statistics are displayed:
 - **Score accuracy**: Percentage of positions solved within various error margins
 - **MAE**: Mean Absolute Error of scores
 - **Std Dev**: Standard deviation of score errors
+
+### Endgame Levels
+
+If the search reaches the endgame, an `### Endgame Levels` table follows, with
+one row per selectivity level. Each row counts only that level's own
+iteration; nodes and time do not include earlier levels.
+
+- **exact**: Positions where the level's score equals the expected score (the OBF score, or the run's own exact solve with `--solve-reference`)
+- **MAE**: Mean absolute score error at that level
+- **W/D/L flips**: Positions where the level's score and the expected score differ in sign (win, draw, or loss)
+- **best move** / **move loss**: With `--move-loss` only. How often the level's move is optimal, and how many discs it loses on average. Moves other than the OBF's best move are solved exactly after the timed search, so this adds run time but does not change the measured nodes or time.
+- **nodes** / **time**: Work spent on the level
 
 ## References
 

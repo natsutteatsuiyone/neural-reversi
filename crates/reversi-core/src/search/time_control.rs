@@ -63,10 +63,20 @@ const NO_PREV_MOVE: u8 = Square::None as u8;
 /// Default next-iteration prediction factor for midgame iterative deepening.
 const DEFAULT_CONTINUE_FACTOR: f64 = 1.5;
 
-/// Endgame selectivity transition factors.
-const ENDGAME_LEVEL1_CONTINUE_FACTOR: f64 = 2.582241;
-const ENDGAME_LEVEL2_CONTINUE_FACTOR: f64 = 2.048957;
-const ENDGAME_LEVEL3_CONTINUE_FACTOR: f64 = 4.592228;
+/// Endgame selectivity transition factors: after a level, the next one starts
+/// only if `elapsed * factor` fits in the budget.
+///
+/// A factor is the 75th percentile of `time to finish the next level / time
+/// to finish this level` (both cumulative) at roots with 26 to 32 empties.
+/// So a level that starts finishes within the budget about 75% of the time.
+///
+/// The percentiles were measured with evaltest at 26 to 28 empties, then
+/// scaled up to 26 to 32 empties by the ratio seen with the old three-level
+/// ladder.
+const ENDGAME_LEVEL1_CONTINUE_FACTOR: f64 = 2.55;
+const ENDGAME_LEVEL2_CONTINUE_FACTOR: f64 = 2.02;
+const ENDGAME_LEVEL3_CONTINUE_FACTOR: f64 = 1.95;
+const ENDGAME_LEVEL4_CONTINUE_FACTOR: f64 = 6.42;
 
 // Time allocation percentages (0-100)
 const MIN_PERCENT_NORMAL: u64 = 75;
@@ -126,6 +136,7 @@ fn endgame_continue_factor(current_selectivity: Selectivity) -> f64 {
         Selectivity::Level1 => ENDGAME_LEVEL1_CONTINUE_FACTOR,
         Selectivity::Level2 => ENDGAME_LEVEL2_CONTINUE_FACTOR,
         Selectivity::Level3 => ENDGAME_LEVEL3_CONTINUE_FACTOR,
+        Selectivity::Level4 => ENDGAME_LEVEL4_CONTINUE_FACTOR,
         Selectivity::None => f64::INFINITY,
         Selectivity::Mid => unreachable!("Mid is midgame-only and never enters the endgame ladder"),
     }

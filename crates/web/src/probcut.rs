@@ -164,9 +164,10 @@ pub fn probcut_midgame(
 
 /// Attempts ProbCut pruning for endgame positions.
 ///
-/// Mirrors `reversi_core::search::endgame::try_probcut`: it predicts the deep
-/// (exact) endgame result from a fixed-depth shallow search using the dedicated
-/// endgame statistical model, then verifies with a null-window shallow search.
+/// Predicts the exact endgame result from a depth-`ENDGAME_PC_DEPTH` search
+/// with a linear model (`PROBCUT_ENDGAME_PARAMS`) scaled by
+/// [`Selectivity::t_value`], then verifies with a null-window search at that
+/// depth. This is an older model than `reversi_core`'s endgame ProbCut.
 ///
 /// Returns [`Some`] with the cutoff score (`beta`) if a beta cutoff is predicted,
 /// or [`None`] if the deep search should proceed.

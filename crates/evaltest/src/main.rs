@@ -18,7 +18,7 @@ use reversi_core::{
     self,
     board::Board,
     disc::Disc,
-    level::Level,
+    level::{ENDGAME_STEPS, Level},
     probcut::Selectivity,
     search::{
         self, SearchProgress, SearchRunOptions,
@@ -52,6 +52,39 @@ struct IterationData {
     probability: i32,
     counters: SearchCounters,
     tt_fill: f64,
+    is_endgame: bool,
+    elapsed: std::time::Duration,
+}
+
+/// Accuracy and cost of one endgame selectivity level, accumulated over test cases.
+///
+/// Nodes and time are the level's own share: the delta from the previous
+/// iteration, so earlier levels and midgame iterations are not counted again.
+#[derive(Default, Clone, Copy)]
+struct LevelStats {
+    cases: usize,
+    exact: usize,
+    wdl_flips: usize,
+    abs_error_sum: f64,
+    nodes: u64,
+    time: std::time::Duration,
+    moves_judged: usize,
+    optimal_moves: usize,
+    move_loss_sum: f64,
+}
+
+impl LevelStats {
+    fn merge(&mut self, other: &LevelStats) {
+        self.moves_judged += other.moves_judged;
+        self.optimal_moves += other.optimal_moves;
+        self.move_loss_sum += other.move_loss_sum;
+        self.cases += other.cases;
+        self.exact += other.exact;
+        self.wdl_flips += other.wdl_flips;
+        self.abs_error_sum += other.abs_error_sum;
+        self.nodes += other.nodes;
+        self.time += other.time;
+    }
 }
 
 /// Result of a single test case execution
@@ -96,6 +129,8 @@ struct SearchStats {
     mpv_perfect_count: usize,
     mpv_good_count: usize,
     mpv_acceptable_count: usize,
+    /// Endgame levels keyed by their probability percentage (100 = exact).
+    levels: std::collections::BTreeMap<i32, LevelStats>,
 }
 
 /// Mean and population standard deviation of a slice of error samples.
@@ -235,6 +270,85 @@ impl SearchStats {
         self.mpv_perfect_count += other.mpv_perfect_count;
         self.mpv_good_count += other.mpv_good_count;
         self.mpv_acceptable_count += other.mpv_acceptable_count;
+        for (&probability, level) in &other.levels {
+            self.levels.entry(probability).or_default().merge(level);
+        }
+    }
+
+    /// Accumulate per-level accuracy and cost. `move_values` holds the exact
+    /// value of each chosen move, used for the move loss.
+    ///
+    /// Levels are judged against the OBF score, or, if given, `reference`
+    /// (the run's own exact solve) for positions without exact scores.
+    fn update_levels(
+        &mut self,
+        iterations: &[IterationData],
+        test_case: &TestCase,
+        move_values: &std::collections::HashMap<Square, Scoref>,
+        reference: Option<&IterationData>,
+    ) {
+        let n_empties = test_case.board().get_empty_count();
+        let orient = |score: Scoref| if test_case.is_pass() { -score } else { score };
+        let expected = reference.map_or(test_case.expected_score() as Scoref, |exact| {
+            orient(exact.score)
+        });
+        let mut prev_nodes = 0;
+        let mut prev_elapsed = std::time::Duration::ZERO;
+        for iter in dedup_iterations(iterations) {
+            let (delta_nodes, delta_time) = (iter.nodes - prev_nodes, iter.elapsed - prev_elapsed);
+            prev_nodes = iter.nodes;
+            prev_elapsed = iter.elapsed;
+            if !iter.is_endgame || iter.depth != n_empties {
+                continue;
+            }
+            let score = orient(iter.score);
+            let error = ((score * 10.0).round() / 10.0 - expected).abs();
+            let level = self.levels.entry(iter.probability).or_default();
+            level.cases += 1;
+            level.exact += usize::from(error < 0.05);
+            level.wdl_flips += usize::from(score.partial_cmp(&0.0) != expected.partial_cmp(&0.0));
+            level.abs_error_sum += error as f64;
+            level.nodes += delta_nodes;
+            level.time += delta_time;
+            if let Some(&value) = move_values.get(&iter.best_move) {
+                let loss = (expected - value).max(0.0);
+                level.moves_judged += 1;
+                level.optimal_moves += usize::from(loss < 0.05);
+                level.move_loss_sum += loss as f64;
+            }
+        }
+    }
+
+    fn print_levels(&self) {
+        if self.levels.is_empty() {
+            return;
+        }
+        println!("\n### Endgame Levels:");
+        println!(
+            "| level | cases | exact | MAE | W/D/L flips | best move | move loss | nodes | time |"
+        );
+        println!(
+            "| ----- | ----: | ----: | --: | ----------: | --------: | --------: | ----: | ---: |"
+        );
+        for (probability, level) in &self.levels {
+            let (best_move, move_loss) = if level.moves_judged > 0 {
+                (
+                    format_ratio(level.optimal_moves, level.moves_judged),
+                    format!("{:.3}", level.move_loss_sum / level.moves_judged as f64),
+                )
+            } else {
+                ("-".to_string(), "-".to_string())
+            };
+            println!(
+                "| {probability}% | {} | {} | {:.3} | {} | {best_move} | {move_loss} | {} | {:.4}s |",
+                level.cases,
+                format_ratio(level.exact, level.cases),
+                level.abs_error_sum / level.cases as f64,
+                level.wdl_flips,
+                level.nodes.to_formatted_string(&Locale::en),
+                level.time.as_secs_f64(),
+            );
+        }
     }
 
     /// Print formatted statistics summary with color coding
@@ -304,6 +418,8 @@ impl SearchStats {
             };
             println!("- {label:<max_label_len$}: {formatted_value}");
         }
+
+        self.print_levels();
 
         if verbose {
             let c = &self.total_counters;
@@ -451,17 +567,16 @@ fn execute_test_case(
     };
     search.init();
 
-    let iterations: Option<Arc<Mutex<Vec<IterationData>>>> = if verbose {
-        Some(Arc::new(Mutex::new(Vec::new())))
-    } else {
-        None
-    };
-    let mut options = SearchRunOptions::with_level(level).multi_pv(multipv);
-    if let Some(ref iters) = iterations {
-        let iter_clone = iters.clone();
-        let tt = search.tt().clone();
-        options = options.callback(move |progress: SearchProgress| {
-            let tt_fill = tt.usage_rate();
+    let iterations: Arc<Mutex<Vec<IterationData>>> = Arc::new(Mutex::new(Vec::new()));
+    let iter_clone = iterations.clone();
+    let tt = search.tt().clone();
+    let start = Instant::now();
+    let options = SearchRunOptions::with_level(level)
+        .multi_pv(multipv)
+        .callback(move |progress: SearchProgress| {
+            let elapsed = start.elapsed();
+            // Usage scans the table, so only verbose output pays for it.
+            let tt_fill = if verbose { tt.usage_rate() } else { 0.0 };
             iter_clone.lock().unwrap().push(IterationData {
                 depth: progress.depth,
                 score: progress.score,
@@ -470,11 +585,11 @@ fn execute_test_case(
                 probability: progress.probability,
                 counters: progress.counters,
                 tt_fill,
+                is_endgame: progress.is_endgame,
+                elapsed,
             });
         });
-    }
 
-    let start = Instant::now();
     let result = search.run(&search_board, &options);
     let elapsed = start.elapsed();
 
@@ -506,10 +621,8 @@ fn execute_test_case(
         pv_moves: result.pv_moves().to_vec(),
     };
 
-    let verbose_data = iterations
-        .map(|i| std::mem::take(&mut *i.lock().unwrap()))
-        .unwrap_or_default();
-    (test_result, verbose_data)
+    let iterations = std::mem::take(&mut *iterations.lock().unwrap());
+    (test_result, iterations)
 }
 
 /// Compute common display metrics from a test result.
@@ -559,17 +672,19 @@ fn print_test_result(test_case: &TestCase, result: &TestResult, num_width: usize
     );
 }
 
-/// Deduplicate consecutive iterations with the same node count.
+/// Deduplicate consecutive iterations with the same depth, selectivity, and
+/// node count.
 ///
-/// `Search::run()` emits a final progress callback that duplicates the last
-/// real iteration. Filter these out so the verbose table has no repeated rows.
+/// `Search::run()` emits a final progress callback that repeats the last
+/// iteration; this drops it. A level that adds no nodes still differs in
+/// selectivity, so it is kept.
 fn dedup_iterations(iterations: &[IterationData]) -> Vec<&IterationData> {
     let mut result = Vec::with_capacity(iterations.len());
     for iter in iterations {
-        if result
-            .last()
-            .is_none_or(|prev: &&IterationData| prev.nodes != iter.nodes)
-        {
+        if result.last().is_none_or(|prev: &&IterationData| {
+            (prev.nodes, prev.depth, prev.probability, prev.is_endgame)
+                != (iter.nodes, iter.depth, iter.probability, iter.is_endgame)
+        }) {
             result.push(iter);
         }
     }
@@ -605,6 +720,7 @@ struct IterationRow {
     score: String,
     best: String,
     nodes: String,
+    time: String,
     tt_rate: String,
     pc_rate: String,
     etc_rate: String,
@@ -615,11 +731,12 @@ impl IterationRow {
     /// Format this row as a markdown table row with the given column widths.
     fn format(&self, w: &ColWidths) -> String {
         format!(
-            "| {:<dw$} | {:>scw$} | {:>bw$} | {:>nw$} | {:>tw$} | {:>pw$} | {:>ew$} | {:>sw$} |",
+            "| {:<dw$} | {:>scw$} | {:>bw$} | {:>nw$} | {:>tiw$} | {:>tw$} | {:>pw$} | {:>ew$} | {:>sw$} |",
             self.depth,
             self.score,
             self.best,
             self.nodes,
+            self.time,
             self.tt_rate,
             self.pc_rate,
             self.etc_rate,
@@ -628,6 +745,7 @@ impl IterationRow {
             scw = w.score,
             bw = w.best,
             nw = w.nodes,
+            tiw = w.time,
             tw = w.tt_rate,
             pw = w.pc_rate,
             ew = w.etc_rate,
@@ -642,6 +760,7 @@ struct ColWidths {
     score: usize,
     best: usize,
     nodes: usize,
+    time: usize,
     tt_rate: usize,
     pc_rate: usize,
     etc_rate: usize,
@@ -663,6 +782,7 @@ impl ColWidths {
             score: max_of(|r| r.score.len()),
             best: max_of(|r| r.best.len()),
             nodes: max_of(|r| r.nodes.len()),
+            time: max_of(|r| r.time.len()),
             tt_rate: max_of(|r| r.tt_rate.len()),
             pc_rate: max_of(|r| r.pc_rate.len()),
             etc_rate: max_of(|r| r.etc_rate.len()),
@@ -674,11 +794,12 @@ impl ColWidths {
     fn separator(&self) -> String {
         let sep = |w: usize| format!("{:-<w$}:", "", w = w - 1);
         format!(
-            "| {:-<dw$} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {:-<dw$} | {} | {} | {} | {} | {} | {} | {} | {} |",
             "",
             sep(self.score),
             sep(self.best),
             sep(self.nodes),
+            sep(self.time),
             sep(self.tt_rate),
             sep(self.pc_rate),
             sep(self.etc_rate),
@@ -700,11 +821,14 @@ fn print_verbose_iterations(iterations: &[IterationData]) {
 
     // Pre-format all rows using per-iteration deltas.
     let mut prev_nodes: u64 = 0;
+    let mut prev_elapsed = std::time::Duration::ZERO;
     let mut prev_counters = SearchCounters::default();
     let rows: Vec<IterationRow> = iterations
         .iter()
         .map(|iter| {
             let delta_nodes = iter.nodes - prev_nodes;
+            let delta_time = iter.elapsed - prev_elapsed;
+            prev_elapsed = iter.elapsed;
             let delta_tt_hits = iter.counters.tt_hits - prev_counters.tt_hits;
             let delta_tt_probes = iter.counters.tt_probes - prev_counters.tt_probes;
             let delta_pc_cuts = iter.counters.probcut_cuts - prev_counters.probcut_cuts;
@@ -726,6 +850,7 @@ fn print_verbose_iterations(iterations: &[IterationData]) {
                 score: format!("{:>+.1}", iter.score),
                 best: format!("{:?}", iter.best_move),
                 nodes: delta_nodes.to_formatted_string(&Locale::en),
+                time: format!("{:.4}s", delta_time.as_secs_f64()),
                 tt_rate: format_rate(delta_tt_hits, delta_tt_probes),
                 pc_rate: format_rate(delta_pc_cuts, delta_pc_attempts),
                 etc_rate: format_rate(delta_etc_cuts, delta_etc_attempts),
@@ -741,6 +866,7 @@ fn print_verbose_iterations(iterations: &[IterationData]) {
         score: String::new(),
         best: String::new(),
         nodes: last.nodes.to_formatted_string(&Locale::en),
+        time: format!("{:.4}s", last.elapsed.as_secs_f64()),
         tt_rate: format_rate(last.counters.tt_hits, last.counters.tt_probes),
         pc_rate: format_rate(last.counters.probcut_cuts, last.counters.probcut_attempts),
         etc_rate: format_rate(last.counters.etc_cuts, last.counters.etc_attempts),
@@ -755,6 +881,7 @@ fn print_verbose_iterations(iterations: &[IterationData]) {
         score: "score".into(),
         best: "best".into(),
         nodes: "nodes".into(),
+        time: "time".into(),
         tt_rate: "TT%".into(),
         pc_rate: "ProbCut%".into(),
         etc_rate: "ETC%".into(),
@@ -962,15 +1089,70 @@ fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
     println!();
 }
 
+/// Exact value, for the side to move, of each move an endgame level chose.
+///
+/// The best move's value is already known (the OBF score, or `reference`
+/// if given). Other moves are solved exactly after the timed search.
+fn exact_move_values(
+    search: &mut search::Search,
+    test_case: &TestCase,
+    iterations: &[IterationData],
+    reference: Option<&IterationData>,
+) -> std::collections::HashMap<Square, Scoref> {
+    let board = test_case.board();
+    let n_empties = board.get_empty_count();
+    let full_depth = |it: &&IterationData| it.is_endgame && it.depth == n_empties;
+    // A move whose value needs no solve: the reference's best move.
+    let known = |sq: Square| match reference {
+        Some(exact) => (sq == exact.best_move).then_some(exact.score),
+        None => (test_case.rank_of(sq) == Some(0)).then(|| test_case.expected_score() as Scoref),
+    };
+    let mut values = std::collections::HashMap::new();
+    for iter in iterations.iter().filter(full_depth) {
+        if values.contains_key(&iter.best_move) {
+            continue;
+        }
+        let value = if let Some(value) = known(iter.best_move) {
+            value
+        } else {
+            let child = board.make_move(iter.best_move);
+            let opponent = if child.has_legal_moves() {
+                Some(child)
+            } else {
+                Some(child.switch_players()).filter(Board::has_legal_moves)
+            };
+            match opponent {
+                Some(position) => {
+                    search.init();
+                    let score = search
+                        .run(&position, &SearchRunOptions::with_level(Level::perfect()))
+                        .score()
+                        .expect("position has a legal move");
+                    if position == child { -score } else { score }
+                }
+                None => -(child.solve(child.get_empty_count()) as Scoref),
+            }
+        };
+        values.insert(iter.best_move, value);
+    }
+    values
+}
+
 /// Execute a section of test cases and return aggregated statistics
 fn execute_section(
     section_name: &str,
     test_cases: &[TestCase],
     search: &mut search::Search,
     level: Level,
-    verbose: bool,
-    multipv: bool,
+    args: &Args,
 ) -> SearchStats {
+    let Args {
+        verbose,
+        multipv,
+        move_loss,
+        solve_reference,
+        ..
+    } = *args;
     println!("\n## {section_name} ({} cases)\n", test_cases.len());
 
     let mut stats = SearchStats::default();
@@ -989,13 +1171,34 @@ fn execute_section(
     };
 
     for test_case in test_cases {
-        let (result, verbose_data) = execute_test_case(test_case, search, level, verbose, multipv);
+        let (result, iterations) = execute_test_case(test_case, search, level, verbose, multipv);
         stats.update(&result);
         if multipv {
             stats.update_multipv(&result, test_case);
             print_multipv_test_result(test_case, &result);
-        } else if verbose {
-            print_verbose_test_case(test_case, &result, &verbose_data);
+            continue;
+        }
+        // Per-level stats skip multi-PV: it reports each PV line as its own
+        // iteration, which would mix lines in one level.
+        let n_empties = test_case.board().get_empty_count();
+        let reference = if solve_reference {
+            iterations
+                .iter()
+                .rfind(|it| it.is_endgame && it.depth == n_empties && it.probability == 100)
+        } else {
+            None
+        };
+        // Without the run's own exact solve there is nothing to judge against.
+        if !solve_reference || reference.is_some() {
+            let move_values = if move_loss && !test_case.is_pass() {
+                exact_move_values(search, test_case, &iterations, reference)
+            } else {
+                std::collections::HashMap::new()
+            };
+            stats.update_levels(&iterations, test_case, &move_values, reference);
+        }
+        if verbose {
+            print_verbose_test_case(test_case, &result, &iterations);
         } else {
             print_test_result(test_case, &result, num_width);
         }
@@ -1040,6 +1243,22 @@ struct Args {
     /// both are set.
     #[arg(long)]
     multipv: bool,
+
+    /// Solve each move an endgame level chooses, and report per level how
+    /// often it is optimal and how many discs it loses on average. Each
+    /// non-optimal move costs an exact solve, outside the timed search.
+    #[arg(long)]
+    move_loss: bool,
+
+    /// Judge each endgame level against the run's own exact solve instead of
+    /// the OBF score, for positions without exact labels.
+    #[arg(long)]
+    solve_reference: bool,
+
+    /// Skip the exact solve at the end of the endgame ladder; judge the levels
+    /// against the OBF score.
+    #[arg(long, conflicts_with = "solve_reference")]
+    selective_only: bool,
 }
 
 fn main() {
@@ -1072,7 +1291,14 @@ fn main() {
 
     let search_options = SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
     let mut search = search::Search::new(&search_options);
-    let level = Level::uniform(args.depth, args.depth);
+    let level = if args.selective_only {
+        // An end depth of 0 for the last step stops the ladder before it.
+        let mut end_depth = [args.depth; ENDGAME_STEPS];
+        end_depth[ENDGAME_STEPS - 1] = 0;
+        Level::with_depths(args.depth, end_depth)
+    } else {
+        Level::uniform(args.depth, args.depth)
+    };
 
     let mut overall_stats = SearchStats::default();
 
@@ -1082,8 +1308,7 @@ fn main() {
             &problem_set.cases,
             &mut search,
             level,
-            args.verbose,
-            args.multipv,
+            &args,
         );
         overall_stats.merge(&stats);
     }

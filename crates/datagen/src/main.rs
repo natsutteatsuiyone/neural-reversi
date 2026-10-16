@@ -1,3 +1,5 @@
+mod endgame_probcut;
+mod fit_endgame_probcut;
 mod fit_probcut;
 mod opening;
 mod overwrite_scores;
@@ -8,7 +10,7 @@ mod selfplay;
 mod shuffle;
 
 use clap::{Parser, Subcommand};
-use reversi_core::level::Level;
+use reversi_core::level::{ENDGAME_STEPS, Level};
 use reversi_core::types::Depth;
 
 use crate::shuffle::FilterConfig;
@@ -36,8 +38,8 @@ enum SubCommands {
         mid_depth: u32,
 
         #[arg(long, default_value = "21", value_parser = parse_end_depth,
-            help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values (Level1,Level2,Level3,None)")]
-        end_depth: [Depth; 4],
+            help = "Endgame search depth. Single value for all selectivities, or 5 comma-separated values (Level1,Level2,Level3,Level4,None)")]
+        end_depth: [Depth; ENDGAME_STEPS],
 
         #[arg(long, help = "Output file prefix [default: hostname]")]
         prefix: Option<String>,
@@ -61,13 +63,74 @@ enum SubCommands {
 
         #[arg(short, long)]
         output: String,
+    },
+    /// Writes one endgame position per held-out game as OBF, for evaltest.
+    EndgameHoldout {
+        #[arg(short, long)]
+        input: String,
 
-        #[arg(long, default_value = "false")]
-        endgame: bool,
+        #[arg(short, long)]
+        output: String,
+
+        #[arg(long, default_value_t = 400)]
+        count: usize,
+
+        #[arg(long, default_value_t = 20)]
+        min_empties: u32,
+
+        #[arg(long, default_value_t = 26)]
+        max_empties: u32,
+
+        /// Draw positions from the fitting folds instead of the holdout fold.
+        #[arg(long)]
+        fit_folds: bool,
+    },
+    /// Traces endgame ProbCut attempts from game positions and labels them
+    /// with exact scores (requires the `trace` feature).
+    EndgameTrace {
+        #[arg(short, long)]
+        input: String,
+
+        #[arg(short, long)]
+        output: String,
+
+        #[arg(long, default_value_t = 400)]
+        roots: usize,
+
+        #[arg(long, default_value_t = 20)]
+        root_min_empties: u32,
+
+        #[arg(long, default_value_t = 24)]
+        root_max_empties: u32,
+
+        /// Draw roots from the fitting folds instead of the holdout fold.
+        #[arg(long)]
+        fit_folds: bool,
+
+        /// Keep attempts whose position hash is divisible by this.
+        #[arg(long, default_value_t = 64)]
+        one_in: u64,
+
+        /// Keep at most this many distinct positions per empty count.
+        #[arg(long, default_value_t = usize::MAX)]
+        max_per_empties: usize,
+
+        #[arg(long, default_value_t = std::thread::available_parallelism().map_or(1, |n| n.get()))]
+        threads: usize,
     },
     FitProbcut {
         #[arg(short, long)]
         input: String,
+    },
+    /// Fits the endgame ProbCut models from `endgame-trace` samples and prints
+    /// the Rust block to stdout; diagnostics go to stderr.
+    FitEndgameProbcut {
+        #[arg(short, long)]
+        input: String,
+
+        /// `endgame-trace` output to check the fitted models against.
+        #[arg(long)]
+        validate: Option<String>,
     },
     Shuffle {
         #[arg(short, long)]
@@ -129,8 +192,8 @@ enum SubCommands {
         mid_depth: u32,
 
         #[arg(long, default_value = "24", value_parser = parse_end_depth,
-            help = "Endgame search depth. Single value for all selectivities, or 4 comma-separated values")]
-        end_depth: [Depth; 4],
+            help = "Endgame search depth. Single value for all selectivities, or 5 comma-separated values")]
+        end_depth: [Depth; ENDGAME_STEPS],
 
         #[arg(short, long)]
         output: String,
@@ -159,7 +222,7 @@ fn parse_score_diff_threshold(s: &str) -> Result<f32, String> {
     Ok(v)
 }
 
-fn parse_end_depth(s: &str) -> Result<[Depth; 4], String> {
+fn parse_end_depth(s: &str) -> Result<[Depth; ENDGAME_STEPS], String> {
     let values: Vec<Depth> = s
         .split(',')
         .map(|v| {
@@ -176,9 +239,9 @@ fn parse_end_depth(s: &str) -> Result<[Depth; 4], String> {
     }
 
     match values.len() {
-        1 => Ok([values[0]; 4]),
-        4 => Ok(values.try_into().unwrap()),
-        n => Err(format!("expected 1 or 4 values, got {n}")),
+        1 => Ok([values[0]; ENDGAME_STEPS]),
+        ENDGAME_STEPS => Ok(values.try_into().unwrap()),
+        n => Err(format!("expected 1 or {ENDGAME_STEPS} values, got {n}")),
     }
 }
 
@@ -225,20 +288,63 @@ fn main() {
         SubCommands::Opening { depth } => {
             opening::generate(depth);
         }
-        SubCommands::Probcut {
+        SubCommands::Probcut { input, output } => {
+            probcut::execute(&input, &output).expect("Failed to execute probcut");
+        }
+        SubCommands::EndgameHoldout {
             input,
             output,
-            endgame,
+            count,
+            min_empties,
+            max_empties,
+            fit_folds,
         } => {
-            if endgame {
-                probcut::execute_endgame(&input, &output)
-                    .expect("Failed to execute probcut endgame");
-            } else {
-                probcut::execute(&input, &output).expect("Failed to execute probcut");
-            }
+            endgame_probcut::export_holdout(
+                &input,
+                &output,
+                count,
+                min_empties..=max_empties,
+                fit_folds,
+            )
+            .expect("Failed to execute endgame-holdout");
+        }
+        #[cfg(feature = "trace")]
+        SubCommands::EndgameTrace {
+            input,
+            output,
+            roots,
+            root_min_empties,
+            root_max_empties,
+            fit_folds,
+            one_in,
+            max_per_empties,
+            threads,
+        } => {
+            endgame_probcut::trace(
+                &input,
+                &output,
+                &endgame_probcut::TraceOptions {
+                    roots,
+                    root_empties: root_min_empties..=root_max_empties,
+                    fit_folds,
+                    one_in,
+                    max_per_empties,
+                    threads,
+                },
+            )
+            .expect("Failed to execute endgame-trace");
+        }
+        #[cfg(not(feature = "trace"))]
+        SubCommands::EndgameTrace { .. } => {
+            eprintln!("endgame-trace needs datagen built with `--features trace`");
+            std::process::exit(1);
         }
         SubCommands::FitProbcut { input } => {
             fit_probcut::execute(&input).expect("Failed to execute fit-probcut");
+        }
+        SubCommands::FitEndgameProbcut { input, validate } => {
+            fit_endgame_probcut::execute(&input, validate.as_deref())
+                .expect("Failed to execute fit-endgame-probcut");
         }
         SubCommands::Shuffle {
             input_dir,
