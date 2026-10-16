@@ -76,7 +76,7 @@ impl SearchStrategy for MidGameStrategy {
     const MIN_PROBCUT_DEPTH: Depth = 4;
     const DEPTH_TO_SHALLOW: Depth = 3;
     const MIN_SPLIT_DEPTH: Depth = 4;
-    const SPECULATIVE_SPLIT_MAX_DEPTH: Depth = 8;
+    const SPECULATIVE_SPLIT_MAX_DEPTH: Depth = 12;
 
     #[inline(always)]
     fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
