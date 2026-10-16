@@ -21,7 +21,7 @@ use crate::search::node_type::{NonPV, Root};
 use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
 use crate::search::threading::Thread;
-use crate::search::time_control::should_stop_endgame_iteration;
+use crate::search::time_control::{record_abort, should_stop_endgame_iteration};
 use crate::search::{
     SearchProgress, SearchTask, midgame, search, store_pv_in_tt, widen_aspiration_window,
 };
@@ -182,6 +182,7 @@ pub(super) fn solve_root(
             beta = (score + delta).min(ScaledScore::INF);
 
             if thread.is_search_aborted() {
+                record_abort(time_manager);
                 break;
             }
 

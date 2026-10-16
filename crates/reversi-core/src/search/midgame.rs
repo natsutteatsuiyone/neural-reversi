@@ -19,7 +19,7 @@ use crate::search::node_type::{NodeType, NonPV, Root};
 use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
-use crate::search::time_control::should_stop_iteration;
+use crate::search::time_control::{record_abort, should_stop_iteration};
 use crate::search::{SearchProgress, SearchTask, search, store_pv_in_tt, widen_aspiration_window};
 use crate::square::Square;
 use crate::transposition_table::Bound;
@@ -148,6 +148,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
 
         if completed_pv_count < pv_count && thread.is_search_aborted() {
+            record_abort(&time_manager);
             return completed.to_result(ctx.counters.clone());
         }
 

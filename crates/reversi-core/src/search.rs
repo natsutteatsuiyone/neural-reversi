@@ -61,6 +61,7 @@ pub struct Search {
     threads: Arc<ThreadPool>,
     eval: Arc<Eval>,
     endgame_start_n_empties: Option<Depth>,
+    timed_out: bool,
 }
 
 /// Shared heavyweight search resources that can back multiple [`Search`]
@@ -164,6 +165,12 @@ impl SearchSharedResources {
     pub fn share_thread_pool(&mut self) {
         self.thread_pool = Some(ThreadPool::new(self.n_threads));
     }
+
+    /// Returns the search thread count after clamping to the CPU count and
+    /// the engine limit.
+    pub fn n_threads(&self) -> usize {
+        self.n_threads
+    }
 }
 
 impl Search {
@@ -204,7 +211,14 @@ impl Search {
                 .unwrap_or_else(|| ThreadPool::new(shared.n_threads)),
             eval: shared.eval.clone(),
             endgame_start_n_empties: None,
+            timed_out: false,
         }
+    }
+
+    /// Returns whether the last [`Search::run`] used up its time and aborted
+    /// the iteration in progress, rather than stopping between iterations.
+    pub fn timed_out(&self) -> bool {
+        self.timed_out
     }
 
     /// Returns a reference to the transposition table.
@@ -257,6 +271,7 @@ impl Search {
         let (time_manager, mut effective_level) =
             self.build_time_controls(n_empties, &options.constraint);
         let is_time_mode = time_manager.is_some();
+        let deadline = time_manager.clone();
 
         if is_time_mode {
             self.maybe_extend_endgame_depth(n_empties, &mut effective_level);
@@ -276,6 +291,7 @@ impl Search {
         };
 
         let mut result = self.execute_search(task);
+        self.timed_out = deadline.is_some_and(|tm| tm.timed_out());
         self.apply_fallback_if_invalid(board, &mut result);
 
         if let Some(callback) = callback {

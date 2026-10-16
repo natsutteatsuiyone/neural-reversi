@@ -216,6 +216,9 @@ pub struct TimeManager {
 
     /// Whether the last completed iteration finished inside its aspiration window.
     window_clean: AtomicBool,
+
+    /// Whether running out of time aborted an iteration in progress.
+    timed_out: AtomicBool,
 }
 
 impl TimeManager {
@@ -245,6 +248,7 @@ impl TimeManager {
             best_move_streak: AtomicU32::new(0),
             prev_best_move: AtomicU8::new(NO_PREV_MOVE),
             window_clean: AtomicBool::new(false),
+            timed_out: AtomicBool::new(false),
         }
     }
 
@@ -622,6 +626,24 @@ impl TimeManager {
         self.prev_best_move.store(NO_PREV_MOVE, Ordering::Relaxed);
         self.window_clean.store(false, Ordering::Relaxed);
         self.prev_iter_score.store(NO_SCORE_BITS, Ordering::Relaxed);
+    }
+}
+
+/// Records an aborted iteration as timed out when the deadline caused the
+/// abort, rather than an external stop. Call it where the search drops an
+/// iteration because of the abort.
+pub(crate) fn record_abort(time_manager: &Option<Arc<TimeManager>>) {
+    if let Some(tm) = time_manager
+        && tm.is_time_up()
+    {
+        tm.timed_out.store(true, Ordering::Relaxed);
+    }
+}
+
+impl TimeManager {
+    /// Returns whether running out of time aborted an iteration in progress.
+    pub(crate) fn timed_out(&self) -> bool {
+        self.timed_out.load(Ordering::Relaxed)
     }
 }
 
