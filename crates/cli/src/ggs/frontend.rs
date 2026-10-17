@@ -320,6 +320,10 @@ impl Model {
             clocks,
             moves,
         } = snapshot;
+        // Boards of games we do not play (watched matches) stay off the list.
+        if state.my_color.is_none() {
+            return;
+        }
         let id = state.id.clone();
         let select_board = self.selected.as_ref().is_none_or(|selected| {
             selected != &id
@@ -454,6 +458,10 @@ impl Model {
 
     fn on_os_event(&mut self, event: &OsEvent) {
         match event {
+            // Other players' games are announced to every `notify + /os` client.
+            OsEvent::MatchCreated { opponent: None, .. } | OsEvent::SpectatedMatchState { .. } => {
+                return;
+            }
             OsEvent::MatchCreated {
                 id,
                 opponent,
@@ -472,8 +480,7 @@ impl Model {
                     },
                 );
             }
-            OsEvent::MatchStateUnavailable { id, variant, .. }
-            | OsEvent::SpectatedMatchState { id, variant } => {
+            OsEvent::MatchStateUnavailable { id, variant, .. } => {
                 let game = self.games.entry(id.clone()).or_default();
                 game.state = None;
                 game.clocks.clear();
@@ -1761,6 +1768,36 @@ mod tests {
         assert!(!model.games.contains_key(".5.1"));
         assert!(model.games[".5"].state.is_none());
         assert!(model.games[".5"].result.is_none());
+    }
+
+    #[test]
+    fn other_players_games_stay_out_of_the_list() {
+        let mut model = Model::new("test".into());
+        model.games.insert(".5".into(), game(".5"));
+        model.on_os_event(&OsEvent::MatchCreated {
+            id: ".6".into(),
+            opponent: None,
+            variant: Some("8b".into()),
+        });
+        model.on_os_event(&OsEvent::SpectatedMatchState {
+            id: ".7".into(),
+            variant: Some("8b".into()),
+        });
+        assert_eq!(model.games.keys().collect::<Vec<_>>(), [".5"]);
+
+        // A watched match reusing a finished game's id leaves that result alone.
+        model.games.get_mut(".5").unwrap().result = Some("+4.00".into());
+        let mut watched = game(".5").state.unwrap();
+        watched.my_color = None;
+        watched.opponent = None;
+        model.snapshot(DisplayState {
+            state: watched,
+            clocks: Vec::new(),
+            moves: Vec::new(),
+        });
+        let kept = &model.games[".5"];
+        assert_eq!(kept.result.as_deref(), Some("+4.00"));
+        assert_eq!(kept.state.as_ref().unwrap().my_color, Some(Disc::Black));
     }
 
     #[test]
