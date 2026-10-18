@@ -577,8 +577,10 @@ impl GtpEngine {
             if self.game.board().has_legal_moves() {
                 return GtpResponse::Error("pass not allowed when legal moves exist".to_string());
             }
-            self.game.make_pass();
-            return GtpResponse::Success("".to_string());
+            return match self.game.make_pass() {
+                Ok(()) => GtpResponse::Success("".to_string()),
+                Err(e) => GtpResponse::Error(e),
+            };
         }
 
         match move_str.parse::<Square>() {
@@ -610,8 +612,10 @@ impl GtpEngine {
         }
 
         if !self.game.board().has_legal_moves() {
-            self.game.make_pass();
-            return GtpResponse::Success("pass".to_string());
+            return match self.game.make_pass() {
+                Ok(()) => GtpResponse::Success("pass".to_string()),
+                Err(e) => GtpResponse::Error(e),
+            };
         }
 
         // Determine time control mode for this move. If no time control is set,
@@ -967,6 +971,31 @@ mod tests {
         assert!(matches!(
             engine.handle_play("black", "C1"),
             GtpResponse::Success(_)
+        ));
+    }
+
+    #[test]
+    fn genmove_and_pass_on_finished_game_return_errors() {
+        let config = EngineConfig {
+            hash_size: 1,
+            level: 1,
+            threads: Some(1),
+            eval_file: None,
+            eval_sm_file: None,
+        };
+        let mut engine = GtpEngine::new(&config).unwrap();
+        let full = format!("{}O", "X".repeat(63));
+        assert!(matches!(
+            engine.handle_setboard(&full, "B"),
+            GtpResponse::Success(_)
+        ));
+        assert!(matches!(
+            engine.handle_genmove("black"),
+            GtpResponse::Error(_)
+        ));
+        assert!(matches!(
+            engine.handle_play("black", "pass"),
+            GtpResponse::Error(_)
         ));
     }
 

@@ -72,12 +72,10 @@ impl GameState {
     /// This is primarily used in GTP protocol where pass moves need to be
     /// explicitly managed.
     ///
-    /// # Panics
-    /// Panics if legal moves are available (a pass is only valid when no moves exist)
-    pub fn make_pass(&mut self) {
-        self.core
-            .make_pass()
-            .expect("Attempted to pass when legal moves exist");
+    /// # Errors
+    /// Returns an error if legal moves are available or the game is over.
+    pub fn make_pass(&mut self) -> Result<(), String> {
+        self.core.make_pass()
     }
 
     /// Returns which player's turn it is to move.
