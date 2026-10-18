@@ -61,6 +61,14 @@ pub fn solve(
                 continue;
             }
         };
+        // The search assumes at most 60 empties.
+        if pos.board.get_player_count() + pos.board.get_opponent_count() < 4 {
+            eprintln!(
+                "Error parsing line {}: At least 4 discs required",
+                line_num + 1
+            );
+            continue;
+        }
         let (elapsed, nodes) = solve_position(
             &mut search,
             pos.board,

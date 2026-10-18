@@ -548,6 +548,10 @@ impl GtpEngine {
             _ => return GtpResponse::Error("invalid side to move".to_string()),
         };
         match reversi_core::board::Board::from_string(text, side) {
+            // The search assumes at most 60 empties.
+            Ok(board) if board.get_player_count() + board.get_opponent_count() < 4 => {
+                GtpResponse::Error("at least 4 discs required".to_string())
+            }
             Ok(board) => {
                 self.game = GameState::from_board(board, side);
                 self.search.init();
@@ -932,7 +936,8 @@ mod tests {
             eval_sm_file: None,
         };
         let mut engine = GtpEngine::new(&config).unwrap();
-        let text = format!("XO{}", "-".repeat(62));
+        // White (b1) has no move; Black can play c1.
+        let text = format!("XO------X-------X-------{}", "-".repeat(40));
         assert!(matches!(
             engine.handle_setboard(&text, "W"),
             GtpResponse::Success(_)
@@ -951,6 +956,7 @@ mod tests {
             ("X", "B"),
             (text.as_str(), "invalid"),
             (&"?".repeat(64), "B"),
+            (&format!("XO{}", "-".repeat(62)), "B"),
         ] {
             assert!(matches!(
                 engine.handle_setboard(board, side),
