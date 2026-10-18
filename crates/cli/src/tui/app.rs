@@ -295,7 +295,11 @@ impl App {
                 Duration::from_millis(100)
             };
 
-            let text_input = matches!(self.ui_mode, UiMode::BoardEdit | UiMode::LevelSelect);
+            // ConfirmQuit needs raw `n`/`N`; normal mapping turns `n` into NewGame.
+            let text_input = matches!(
+                self.ui_mode,
+                UiMode::BoardEdit | UiMode::LevelSelect | UiMode::ConfirmQuit
+            );
             if let Some(event) = event::poll_event(timeout, text_input)? {
                 self.handle_event(event);
             }
@@ -494,7 +498,7 @@ impl App {
             Event::ForceQuit | Event::Char('y') | Event::Char('Y') => {
                 self.should_quit = true;
             }
-            Event::Char('n') | Event::Char('N') | Event::Quit => {
+            Event::Char('n') | Event::Char('N') | Event::Char('q') | Event::Quit => {
                 self.ui_mode = UiMode::Normal;
             }
             _ => {}
