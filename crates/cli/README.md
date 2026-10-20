@@ -215,10 +215,8 @@ cli show-licenses
 
 The CLI bundle is generated from the workspace-level `about.toml` +
 `about.hbs` by [cargo-about](https://github.com/EmbarkStudios/cargo-about).
-The GUI bundle additionally merges frontend npm-package licenses via
-[generate-license-file](https://github.com/TomerAberbach/generate-license-file)
-over `crates/gui/package.json`. Regenerate both bundles after changing
-dependencies with:
+The native GPUI bundle is generated from the same configuration without
+JavaScript dependencies. Regenerate both bundles after changing dependencies with:
 
 ```bash
 cargo make licenses

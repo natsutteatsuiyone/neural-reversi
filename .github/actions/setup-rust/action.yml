@@ -9,11 +9,16 @@ inputs:
 runs:
   using: composite
   steps:
-  - name: Install system dependencies
+  - name: Install Linux GPUI dependencies
+    if: runner.os == 'Linux'
     shell: bash
     run: |
       sudo apt-get update
-      sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      sudo apt-get install -y \
+        build-essential clang cmake pkg-config libclang-dev \
+        libasound2-dev libfontconfig1-dev libfreetype6-dev libglib2.0-dev \
+        libssl-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev \
+        libxcb-shape0-dev libxcb-xfixes0-dev libvulkan-dev
 
   - name: Install Rust
     uses: dtolnay/rust-toolchain@stable

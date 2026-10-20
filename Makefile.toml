@@ -110,22 +110,18 @@ args = [
 ]
 
 [tasks.licenses-gui]
-description = "Regenerate crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt (Rust + JS bundle)"
-script_runner = "@duckscript"
-script = [
-    "exec --fail-on-error cargo about generate -m crates/gui/src-tauri/Cargo.toml -c about.toml about.hbs -o crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt",
-    # Run bunx from crates/gui so Bun resolves the locked generate-license-file devDep
-    # from node_modules instead of pulling a fresh copy into a global cache.
-    "root = pwd",
-    "cd crates/gui",
-    "exec --fail-on-error bunx generate-license-file --input package.json --output src-tauri/_frontend_licenses.tmp --overwrite --ci",
-    "cd ${root}",
-    "rust_text = readfile crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt",
-    "js_text = readfile crates/gui/src-tauri/_frontend_licenses.tmp",
-    "separator = set \"\\n\\n================================================================\\nJavaScript / Node.js packages (frontend bundle)\\n================================================================\\n\\n\"",
-    "combined = concat ${rust_text} ${separator} ${js_text}",
-    "writefile crates/gui/src-tauri/THIRD_PARTY_LICENSES.txt ${combined}",
-    "rm crates/gui/src-tauri/_frontend_licenses.tmp",
+description = "Regenerate crates/gui/THIRD_PARTY_LICENSES.txt via cargo-about"
+command = "cargo"
+args = [
+    "about",
+    "generate",
+    "-m",
+    "crates/gui/Cargo.toml",
+    "-c",
+    "about.toml",
+    "about.hbs",
+    "-o",
+    "crates/gui/THIRD_PARTY_LICENSES.txt",
 ]
 
 [tasks.licenses]
@@ -156,6 +152,38 @@ script = [
     "    mkdir dist",
     "end",
 ]
+
+[tasks.bundle-gui-macos]
+description = "Bundle the native GUI as an ad-hoc signed macOS app and disk image"
+script_runner = "bash"
+script = '''
+set -euo pipefail
+stage="$GUI_BUNDLE_ROOT/target/gui-dmg"
+app="$stage/Neural Reversi.app"
+rm -rf "$stage"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp "$GUI_BUNDLE_BINARY" "$app/Contents/MacOS/gui"
+cp "$GUI_BUNDLE_ROOT/crates/gui/assets/icon.icns" "$app/Contents/Resources/icon.icns"
+cat > "$app/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>gui</string>
+<key>CFBundleIdentifier</key><string>com.neural-reversi.gui</string>
+<key>CFBundleName</key><string>Neural Reversi</string>
+<key>CFBundleDisplayName</key><string>Neural Reversi</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>$VERSION</string>
+<key>CFBundleVersion</key><string>$VERSION</string>
+<key>CFBundleIconFile</key><string>icon.icns</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+EOF
+codesign --force --deep --sign - "$app"
+ln -s /Applications "$stage/Applications"
+ditto "$app" "$GUI_BUNDLE_ROOT/dist/Neural Reversi.app"
+hdiutil create -volname "Neural Reversi" -srcfolder "$stage" -ov -format UDZO "$GUI_BUNDLE_DMG"
+'''
 
 # ═══════════════════════════════════════════════════════════════
 #  Distribution Builds
@@ -298,22 +326,20 @@ script = [
     "        echo Building ${build_selector} ${platform} ${tier}...",
     "        for build_type in ${build_types}",
     "            if eq ${build_type} gui",
-    "                gui_dir = join_path ${workspace_root} crates gui",
-    "                cd ${gui_dir}",
-    "                exec --fail-on-error bun run tauri build --target ${target_triple}",
-    "                cd ${workspace_root}",
+    "                exec --fail-on-error cargo build --release -p gui --bin gui --target ${target_triple}",
     "                binary_basename = set neural-reversi-gui",
+    "                source_file = concat gui ${dest_ext}",
+    "                source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
+    "                artifact_ext = set ${dest_ext}",
     "                if eq ${platform} macos",
-    "                    dmg_name = concat \"neural-reversi_\" ${version} \"_aarch64.dmg\"",
-    "                    source = join_path ${workspace_root} target ${target_triple} release bundle dmg ${dmg_name}",
+    "                    dmg_name = concat neural-reversi-gui- ${version} - ${filename_suffix} .dmg",
+    "                    dmg_path = join_path ${workspace_root} target ${dmg_name}",
+    "                    set_env GUI_BUNDLE_ROOT ${workspace_root}",
+    "                    set_env GUI_BUNDLE_BINARY ${source}",
+    "                    set_env GUI_BUNDLE_DMG ${dmg_path}",
+    "                    exec --fail-on-error cargo make bundle-gui-macos",
+    "                    source = set ${dmg_path}",
     "                    artifact_ext = set .dmg",
-    "                else",
-    "                    source_file = set gui",
-    "                    if eq ${platform} windows",
-    "                        source_file = set gui.exe",
-    "                    end",
-    "                    source = join_path ${workspace_root} target ${target_triple} release ${source_file}",
-    "                    artifact_ext = set ${dest_ext}",
     "                end",
     "            else",
     "                exec --fail-on-error cargo build --release -p cli --target ${target_triple}",

@@ -11,7 +11,7 @@ This is an experimental project to develop a highly accurate neural network eval
 
 - Neural network-based position evaluation
 - High-performance multi-threaded search
-- Supports CLI, desktop GUI (Tauri), and WebAssembly
+- Supports CLI, a native desktop GUI (GPUI), and WebAssembly
 
 ## Benchmarks (v6.3.0)
 
@@ -47,7 +47,8 @@ This is an experimental project to develop a highly accurate neural network eval
 
 - [Rust](https://www.rust-lang.org/tools/install)
 - [cargo-make](https://github.com/sagiegurari/cargo-make) (recommended)
-- [Bun](https://bun.sh/) (for GUI and Web development)
+- [Bun](https://bun.sh/) (Web development only)
+- Desktop GUI: native platform build tools and graphics drivers; see the [GUI prerequisites](crates/gui/README.md#prerequisites). Linux requires X11/Wayland, Fontconfig, and Vulkan development/runtime libraries.
 
 ### Setup
 
@@ -69,9 +70,7 @@ This is an experimental project to develop a highly accurate neural network eval
    ```
 
    ```bash
-   cd crates/gui
-   bun install
-   bun run tauri dev             # Launch the desktop GUI in development mode
+   cargo run -p gui --release    # Launch the native GPUI desktop application
    ```
 
    ```bash
@@ -96,7 +95,7 @@ allows `madvise` requests.
 
 - **[reversi-core](crates/reversi-core/)**: Core library implementing the AI search algorithms.
 - **[cli](crates/cli/)**: Command-line interface for playing Reversi.
-- **[gui](crates/gui/)**: Tauri-based graphical user interface for playing Reversi.
+- **[gui](crates/gui/)**: Native Rust graphical user interface built with GPUI, calling `reversi-core` directly.
 - **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
 - **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
 - **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games and feature extraction.
@@ -126,7 +125,7 @@ allows `madvise` requests.
 
 ## Build
 
-All builds are driven by [cargo-make](https://github.com/sagiegurari/cargo-make) and emit artifacts under `dist/`. The macOS GUI build produces a `.dmg` installer (requires building on macOS).
+Distribution builds are driven by [cargo-make](https://github.com/sagiegurari/cargo-make) and emit artifacts under `dist/`. The GUI is an ordinary Rust binary (`cargo build -p gui --release`): Windows/Linux distributions contain a native executable, while macOS packaging creates a `.app` and `.dmg` using Apple's command-line tools.
 
 ### Prerequisites
 
@@ -150,7 +149,7 @@ Use one task for every binary, platform, and CPU tier:
 cargo make build-dist <cli|gui|all> <windows|linux|macos|all> <portable|native|x86-64-v2|x86-64-v3|x86-64-v4|apple-m1>
 ```
 
-`native` optimizes for the build host. `portable` expands to `x86-64-v2`/`x86-64-v3`/`x86-64-v4` on Windows and Linux, and `apple-m1` on macOS. Builds are emitted under `dist/`; the macOS GUI build produces a `.dmg` and must run on macOS.
+`native` optimizes for the build host. `portable` expands to `x86-64-v2`/`x86-64-v3`/`x86-64-v4` on Windows and Linux, and `apple-m1` on macOS. Choose a tier supported by the destination CPU; "portable" does not mean every CPU can run every tier. Build each GUI on its destination OS with its native toolchain; `all` does not install cross-compilers or platform SDKs. Builds are emitted under `dist/`; macOS packaging requires macOS and produces an ad-hoc signed, non-notarized `.app` and `.dmg`. See [GUI distribution and platform notes](crates/gui/README.md#distribution-and-platform-notes).
 
 ```bash
 # Native CLI and GUI for Windows
@@ -165,6 +164,16 @@ cargo make build-dist gui linux x86-64-v3
 # Apple Silicon CLI and GUI
 cargo make build-dist all macos apple-m1
 ```
+
+### Native GUI checks
+
+```bash
+cargo check -p gui --all-targets
+cargo test -p gui --all-targets
+cargo run -p gui --release
+```
+
+Tests cover the Rust application model and engine rather than a browser/WebDriver layer. Running the window requires a graphical desktop and a compatible GPU driver. See the [GUI README](crates/gui/README.md) for features, saved settings, and platform requirements. The separate `crates/web` application retains its Bun/Vite toolchain.
 
 ## License
 

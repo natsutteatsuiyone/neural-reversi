@@ -1,0 +1,334 @@
+_version: 2
+
+black:
+  en: "Black"
+  ja: "黒"
+white:
+  en: "White"
+  ja: "白"
+you:
+  en: "You"
+  ja: "あなた"
+pass:
+  en: "Pass"
+  ja: "パス"
+thinking:
+  en: "Thinking..."
+  ja: "思考中..."
+settings_unwritable:
+  en: "Settings could not be loaded; the existing file is left unchanged."
+  ja: "設定を読み込めないため、既存の設定ファイルは変更していません。"
+
+loading:
+  en: "Loading..."
+  ja: "読み込み中..."
+engine_init_failed:
+  en: "Failed to initialize AI engine"
+  ja: "AIエンジンの初期化に失敗しました"
+unexpected_error:
+  en: "An unexpected error occurred"
+  ja: "予期しないエラーが発生しました"
+
+new_game:
+  en: "New Game"
+  ja: "新規ゲーム"
+solver:
+  en: "Solver"
+  ja: "ソルバー"
+hint:
+  en: "Hint"
+  ja: "ヒント"
+hint_level:
+  en: "Hint Level"
+  ja: "ヒントレベル"
+hash_size:
+  en: "Hash Size"
+  ja: "ハッシュサイズ"
+language:
+  en: "Language"
+  ja: "言語"
+language_auto:
+  en: "Auto"
+  ja: "自動"
+about:
+  en: "About"
+  ja: "このアプリについて"
+license:
+  en: "License"
+  ja: "ライセンス"
+third_party:
+  en: "Third-Party"
+  ja: "サードパーティ"
+
+game_draw:
+  en: "Game ended in a draw!"
+  ja: "引き分けです！"
+game_win:
+  en: "%{winner} wins!"
+  ja: "%{winner}の勝ちです！"
+player_passed:
+  en: "%{player}: Pass"
+  ja: "%{player}：パス"
+engine_no_move:
+  en: "Engine returned no move"
+  ja: "エンジンが着手を返しませんでした"
+
+start:
+  en: "Start"
+  ja: "開始"
+resume:
+  en: "Resume"
+  ja: "再開"
+no_moves_yet:
+  en: "No moves yet"
+  ja: "まだ着手がありません"
+
+ai_analysis:
+  en: "AI Analysis"
+  ja: "AI分析"
+analyzing:
+  en: "Analyzing"
+  ja: "解析中"
+best:
+  en: "Best:"
+  ja: "最善:"
+thinking_log:
+  en: "Thinking Log"
+  ja: "思考ログ"
+evaluation:
+  en: "Evaluation"
+  ja: "評価値"
+analysis_level:
+  en: "Analysis Lv."
+  ja: "解析Lv."
+abort:
+  en: "Abort"
+  ja: "中止"
+analyze:
+  en: "Analyze"
+  ja: "解析"
+nodes:
+  en: "Nodes:"
+  ja: "ノード:"
+depth:
+  en: "Depth"
+  ja: "深さ"
+score:
+  en: "Score"
+  ja: "評価"
+pv_line:
+  en: "PV Line"
+  ja: "読み筋"
+waiting_for_ai:
+  en: "Waiting for AI turn"
+  ja: "AIの手番です"
+thinking_log_empty:
+  en: "Waiting for AI turn"
+  ja: "AIの手番になると表示されます"
+ai_paused_hint:
+  en: "Press \"%{action}\" to let the AI move."
+  ja: "「%{action}」を押すとAIが着手します。"
+loss:
+  en: "Loss:"
+  ja: "損失:"
+
+board_setup:
+  en: "Board Setup"
+  ja: "盤面設定"
+cancel:
+  en: "Cancel"
+  ja: "キャンセル"
+back:
+  en: "Back"
+  ja: "戻る"
+start_game:
+  en: "Start Game"
+  ja: "開始"
+start_solver:
+  en: "Start Solver"
+  ja: "ソルバー開始"
+
+vs_ai:
+  en: "vs AI"
+  ja: "AI対戦"
+vs_human:
+  en: "vs Human"
+  ja: "対人戦"
+you_play:
+  en: "You play"
+  ja: "あなたの色"
+ai_mode:
+  en: "AI Mode"
+  ja: "AIモード"
+timed:
+  en: "Timed"
+  ja: "持ち時間"
+ai_level:
+  en: "AI Level"
+  ja: "AIレベル"
+time_per_game:
+  en: "Time per game"
+  ja: "持ち時間"
+easy:
+  en: "Easy"
+  ja: "易しい"
+hard:
+  en: "Hard"
+  ja: "難しい"
+
+manual:
+  en: "Manual"
+  ja: "手動配置"
+transcript:
+  en: "Transcript"
+  ja: "棋譜入力"
+board_string:
+  en: "Board String"
+  ja: "ボード文字列"
+transcript_placeholder:
+  en: "e.g. F5D6C3D3C4"
+  ja: "例: F5D6C3D3C4"
+board_placeholder:
+  en: "64 chars: X=black, O=white, -=empty"
+  ja: "64文字: X=黒, O=白, -=空"
+turn:
+  en: "Turn"
+  ja: "手番"
+clear:
+  en: "Clear"
+  ja: "クリア"
+initial:
+  en: "Initial"
+  ja: "初期配置"
+error_transcript_length:
+  en: "Transcript length must be even (2 chars per move)"
+  ja: "棋譜の長さが不正です（1手2文字）"
+error_invalid_notation:
+  en: "Invalid move notation found"
+  ja: "不正な着手表記があります"
+error_illegal_move:
+  en: "Illegal move: %{square}"
+  ja: "非合法手: %{square}"
+error_game_over:
+  en: "Game is already over at this point"
+  ja: "この時点で対局は終了しています"
+error_board_length:
+  en: "Board string must be exactly 64 characters"
+  ja: "ボード文字列は64文字である必要があります"
+error_board_character:
+  en: "Invalid character in board string"
+  ja: "不正な文字が含まれています"
+error_missing_colors:
+  en: "Board must have at least one black and one white stone"
+  ja: "黒と白の石が少なくとも1つずつ必要です"
+error_too_few_discs:
+  en: "At least 4 discs are required on the board"
+  ja: "石は4つ以上配置してください"
+error_no_moves:
+  en: "No valid moves available for either player"
+  ja: "どちらのプレイヤーも打てる場所がありません"
+error_turn_has_no_moves:
+  en: "The selected player has no legal moves. Change the turn or modify the board."
+  ja: "指定された手番のプレイヤーには合法手がありません。手番を変更するか、盤面を修正してください。"
+error_missing_turn:
+  en: "Choose Black or White to move"
+  ja: "手番の色を選んでください"
+
+selectivity:
+  en: "Selectivity"
+  ja: "精度"
+mode:
+  en: "Mode"
+  ja: "モード"
+best_move_only:
+  en: "Best move only"
+  ja: "最善手のみ"
+all_moves:
+  en: "All moves (MultiPV)"
+  ja: "全手スコア"
+candidates:
+  en: "CANDIDATES"
+  ja: "候補手"
+solving:
+  en: "Solving..."
+  ja: "探索中..."
+exit_solver:
+  en: "Exit Solver"
+  ja: "ソルバー終了"
+undo:
+  en: "Undo"
+  ja: "一手戻す"
+stop:
+  en: "Stop"
+  ja: "停止"
+solver_no_legal_moves:
+  en: "This position has no legal moves."
+  ja: "この局面には合法手がありません。"
+
+settings:
+  en: "Settings"
+  ja: "設定"
+
+copy_transcript:
+  en: "Copy transcript through this move"
+  ja: "この手までの棋譜をコピー"
+
+previous_move:
+  en: "Previous move"
+  ja: "前の手"
+
+next_move:
+  en: "Next move"
+  ja: "次の手"
+
+first_position:
+  en: "First position"
+  ja: "最初の局面"
+
+stop_and_play:
+  en: "Stop search and play the best move found"
+  ja: "探索を止め、それまでの最善手を着手"
+
+return_latest:
+  en: "Return to latest position"
+  ja: "最新局面へ戻る"
+
+resume_position:
+  en: "Play from this position"
+  ja: "この局面から再開"
+
+solver_stopped:
+  en: "Stopped"
+  ja: "停止中"
+
+solver_no_results:
+  en: "Search stopped. No results yet."
+  ja: "探索を停止しました。結果はまだありません。"
+
+solver_pending:
+  en: "No results yet. Resume the search."
+  ja: "結果はまだありません。探索を再開してください。"
+
+manual_help:
+  en: "Click or press Enter/Space to cycle Empty → Black → White → Empty."
+  ja: "クリックまたはEnter／Spaceで 空→黒→白→空 の順に切り替わります。"
+
+board:
+  en: "Board"
+  ja: "盤面"
+
+board_keyboard_help:
+  en: "Arrow keys move between cells; Enter or Space plays a legal move."
+  ja: "矢印キーでマス移動、Enter／Spaceで合法手を着手します。"
+
+empty:
+  en: "Empty"
+  ja: "空"
+
+legal_move:
+  en: "Legal move"
+  ja: "合法手"
+
+close:
+  en: "Close"
+  ja: "閉じる"

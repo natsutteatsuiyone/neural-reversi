@@ -73,27 +73,16 @@ jobs:
   gui-test:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: crates/gui
-
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v2
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        cache-key: gui
 
-    - name: Install dependencies
-      run: bun install --frozen-lockfile
+    - name: Check native GUI targets
+      run: cargo check -p gui --all-targets --locked
 
-    - name: Lint
-      run: bun run lint
-
-    - name: Check formatting
-      run: bun run fmt:check
-
-    - name: Run tests
-      run: bun run test
-
-    - name: Typecheck and build
-      run: bun run build
+    - name: Test native GUI model and engine
+      run: cargo test -p gui --all-targets --locked

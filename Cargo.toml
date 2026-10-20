@@ -3,7 +3,7 @@ members = [
     "crates/cli",
     "crates/datagen",
     "crates/evaltest",
-    "crates/gui/src-tauri",
+    "crates/gui",
     "crates/match-runner",
     "crates/reversi-core",
     "crates/time-debug",
