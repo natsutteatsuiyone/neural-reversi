@@ -1,4 +1,6 @@
-use std::sync::OnceLock;
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
@@ -11,9 +13,37 @@ use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources};
 use reversi_core::square::Square;
 
 const BOARD_20_EMPTIES: &str = "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--";
-const BOARD_15_EMPTIES: &str = "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-";
+const BOARD_16_EMPTIES: &str = "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-";
 const BOARD_9_EMPTIES: &str = "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX";
 const TEST_TT_MB_SIZE: usize = 8;
+
+// Run hang-sensitive cases in a child so a deadlocked search or pool destructor
+// cannot also deadlock the thread responsible for enforcing the deadline.
+fn with_watchdog(name: &str, run: impl FnOnce()) {
+    const CHILD_CASE: &str = "REVERSI_PARALLEL_TEST_CHILD";
+    if std::env::var(CHILD_CASE).as_deref() == Ok(name) {
+        run();
+        return;
+    }
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture"])
+        .env(CHILD_CASE, name)
+        .spawn()
+        .expect("start watchdog child");
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().expect("poll watchdog child") {
+            assert!(status.success(), "{name} failed: {status}");
+            return;
+        }
+        if start.elapsed() >= Duration::from_secs(30) {
+            child.kill().expect("kill hung test child");
+            child.wait().expect("reap hung test child");
+            panic!("{name} exceeded the 30-second process deadline");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 
 fn search(n_threads: usize) -> Search {
     static SINGLE: OnceLock<SearchSharedResources> = OnceLock::new();
@@ -59,7 +89,8 @@ fn parallel_solve_matches_single_threaded() {
 #[test]
 fn parallel_solve_reused_search_instance_is_consistent() {
     let mut search = search(4);
-    let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
+    let board = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
+    assert_eq!(board.get_empty_count(), 16);
     let options = SearchRunOptions::with_level(Level::perfect());
 
     // The second run hits a warm transposition table.
@@ -71,24 +102,26 @@ fn parallel_solve_reused_search_instance_is_consistent() {
 
 #[test]
 fn timed_search_terminates_within_deadline_margin() {
-    let mut search = search(4);
-    let board = Board::new().make_move(Square::F5);
-    let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
-        time_per_move_ms: 500,
+    with_watchdog("timed_search_terminates_within_deadline_margin", || {
+        let mut search = search(4);
+        let board = Board::new().make_move(Square::F5);
+        let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
+            time_per_move_ms: 500,
+        });
+
+        let start = Instant::now();
+        let result = search.run(&board, &options);
+        let elapsed = start.elapsed();
+
+        // Generous margin: this guards against a hung abort/timer, not
+        // time-management precision.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "timed search took {elapsed:?}"
+        );
+        assert!(result.score().is_some(), "expected a best move");
+        assert!(result.n_nodes() > 0);
     });
-
-    let start = Instant::now();
-    let result = search.run(&board, &options);
-    let elapsed = start.elapsed();
-
-    // Generous margin: this guards against a hung abort/timer, not
-    // time-management precision.
-    assert!(
-        elapsed < Duration::from_secs(5),
-        "timed search took {elapsed:?}"
-    );
-    assert!(result.score().is_some(), "expected a best move");
-    assert!(result.n_nodes() > 0);
 }
 
 /// Full-width midgame search must return the same score for any thread count:
@@ -120,31 +153,78 @@ fn parallel_midgame_score_matches_single_threaded() {
 }
 
 /// Covers the GUI's manual abort path (`ThreadPool::abort_search`), which the
-/// timer-based test does not exercise. A single abort must not be lost; this
-/// pins the regression that previously required re-firing every 100 ms to
-/// paper over the start/reset race.
+/// timer-based test does not exercise. One abort issued after observed search
+/// progress must stop both the midgame driver and a direct endgame solve.
 #[test]
-fn manual_abort_stops_deep_solve_promptly() {
-    let mut search = search(4);
-    let pool = search.thread_pool();
-    let board = Board::new().make_move(Square::F5);
-    let options = SearchRunOptions::with_level(Level::perfect());
+fn manual_abort_stops_midgame_and_endgame_promptly() {
+    with_watchdog("manual_abort_stops_midgame_and_endgame_promptly", || {
+        for (board, level, endgame) in [
+            (
+                Board::new().make_move(Square::F5),
+                Level::uniform(60, 0),
+                false,
+            ),
+            (
+                Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap(),
+                Level::perfect(),
+                true,
+            ),
+        ] {
+            let mut search = search(4);
+            let pool = search.thread_pool();
+            let (started_tx, started_rx) = mpsc::channel();
+            let (aborted_tx, aborted_rx) = mpsc::channel();
+            let aborted_rx = Mutex::new(aborted_rx);
+            let notified = AtomicBool::new(false);
+            let options = SearchRunOptions::with_level(level).callback(move |progress| {
+                if progress.depth >= 4
+                    && progress.nodes > 0
+                    && !notified.swap(true, Ordering::Relaxed)
+                {
+                    assert_eq!(progress.is_endgame, endgame);
+                    if endgame {
+                        assert!(
+                            progress.probability < 100,
+                            "full solve must still be pending"
+                        );
+                    }
+                    started_tx
+                        .send(())
+                        .expect("aborter must await search progress");
+                    aborted_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(5))
+                        .unwrap();
+                }
+            });
 
-    let aborter = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(150));
-        pool.abort_search();
+            let aborter = std::thread::spawn(move || {
+                started_rx
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("search must start before abort");
+                pool.abort_search();
+                aborted_tx.send(()).unwrap();
+            });
+
+            let start = Instant::now();
+            let result = search.run(&board, &options);
+            let elapsed = start.elapsed();
+            aborter.join().unwrap();
+
+            // Generous margin: this guards against a hung abort, not abort latency.
+            assert!(elapsed < Duration::from_secs(5), "abort took {elapsed:?}");
+            let best = result.best_move().expect("expected fallback best move");
+            assert!(board.is_legal_move(best));
+            assert!(result.n_nodes() > 0);
+            if endgame {
+                assert!(
+                    result.get_probability() < 100,
+                    "abort must stop before the full solve"
+                );
+            }
+        }
     });
-
-    let start = Instant::now();
-    let result = search.run(&board, &options);
-    let elapsed = start.elapsed();
-    aborter.join().unwrap();
-
-    // Generous margin: this guards against a hung abort, not abort latency.
-    assert!(elapsed < Duration::from_secs(5), "abort took {elapsed:?}");
-    let best = result.best_move().expect("expected fallback best move");
-    assert!(board.is_legal_move(best));
-    assert!(result.n_nodes() > 0);
 }
 
 /// An infinite search (GGS ponder) has no time to bank, so a forced move must
@@ -173,13 +253,15 @@ fn infinite_search_keeps_deepening_a_forced_move() {
 /// Guards against shutdown deadlocks or state leaking across pool lifetimes.
 #[test]
 fn repeated_pool_create_solve_drop_is_clean() {
-    for run in 0..3 {
-        let mut search = search(4);
-        let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
-        let options = SearchRunOptions::with_level(Level::perfect());
-        let result = search.run(&board, &options);
-        assert_eq!(score(&result), 8, "run={run}");
-    }
+    with_watchdog("repeated_pool_create_solve_drop_is_clean", || {
+        for run in 0..3 {
+            let mut search = search(4);
+            let board = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
+            let options = SearchRunOptions::with_level(Level::perfect());
+            let result = search.run(&board, &options);
+            assert_eq!(score(&result), 8, "run={run}");
+        }
+    });
 }
 
 /// Two engines from one `SearchSharedResources` share only the evaluation
@@ -196,7 +278,7 @@ fn concurrent_engines_from_shared_resources_solve_correctly() {
         });
         let second = s.spawn(|| {
             let mut search = search(2);
-            let board = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
+            let board = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
             score(&search.run(&board, &options))
         });
         assert_eq!(first.join().unwrap(), 6);
@@ -221,9 +303,9 @@ fn engines_sharing_a_pool_search_in_turn() {
 
     let options = SearchRunOptions::with_level(Level::perfect());
     let board_20 = Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap();
-    let board_15 = Board::from_string(BOARD_15_EMPTIES, Disc::Black).unwrap();
+    let board_16 = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
     for _ in 0..2 {
         assert_eq!(score(&first.run(&board_20, &options)), 6);
-        assert_eq!(score(&second.run(&board_15, &options)), 8);
+        assert_eq!(score(&second.run(&board_16, &options)), 8);
     }
 }

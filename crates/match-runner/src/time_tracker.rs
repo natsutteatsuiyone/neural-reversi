@@ -328,32 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn test_mode_detection_byoyomi() {
-        let tracker = TimeTracker::new(0, 10, 0);
-        assert!(tracker.is_enabled());
-    }
-
-    #[test]
-    fn test_mode_detection_fischer() {
-        let tracker = TimeTracker::new(300, 5, 0);
-        assert!(tracker.is_enabled());
-        assert_eq!(tracker.main_time_secs(), 300);
-        assert_eq!(tracker.byoyomi_time_secs(), 5);
-    }
-
-    #[test]
-    fn test_mode_detection_japanese_byo() {
-        let tracker = TimeTracker::new(300, 30, 1);
-        assert!(tracker.is_enabled());
-    }
-
-    #[test]
-    fn test_mode_detection_sudden_death() {
-        let tracker = TimeTracker::new(60, 0, 0);
-        assert!(tracker.is_enabled());
-    }
-
-    #[test]
     fn test_stones_zeroed_outside_japanese_byo() {
         let tracker = TimeTracker::new(60, 0, 3);
         assert_eq!(tracker.byoyomi_stones(), 0);
@@ -363,7 +337,9 @@ mod tests {
     #[test]
     fn test_byoyomi_within_time() {
         let mut tracker = TimeTracker::new(0, 10, 0);
+        assert!(tracker.is_enabled());
         assert!(tracker.apply_elapsed(true, 5_000)); // 5s < 10s
+        assert_eq!(tracker.black_time_left(), (10, 0));
     }
 
     #[test]
@@ -376,14 +352,6 @@ mod tests {
     fn test_byoyomi_over_time() {
         let mut tracker = TimeTracker::new(0, 10, 0);
         assert!(!tracker.apply_elapsed(true, 15_000)); // 15s > 10s
-    }
-
-    #[test]
-    fn test_fischer_normal_move() {
-        let mut tracker = TimeTracker::new(300, 5, 0); // 300s + 5s increment
-        assert!(tracker.apply_elapsed(true, 10_000)); // use 10s
-        // Remaining: 300000 - 10000 + 5000 = 295000
-        assert_eq!(tracker.black_time_left().0, 295);
     }
 
     #[test]
@@ -411,6 +379,7 @@ mod tests {
     #[test]
     fn test_sudden_death() {
         let mut tracker = TimeTracker::new(60, 0, 0); // 60s, no increment
+        assert!(tracker.is_enabled());
         assert!(tracker.apply_elapsed(true, 30_000)); // use 30s
         // Remaining: 60000 - 30000 + 0 = 30000
         assert_eq!(tracker.black_time_left().0, 30);
@@ -420,6 +389,7 @@ mod tests {
     #[test]
     fn test_japanese_byo_main_time() {
         let mut tracker = TimeTracker::new(300, 30, 1);
+        assert!(tracker.is_enabled());
         assert!(tracker.apply_elapsed(true, 10_000)); // use 10s of main time
         assert_eq!(tracker.black_time_left().0, 290);
     }
@@ -455,13 +425,6 @@ mod tests {
     }
 
     #[test]
-    fn test_white_time_independent() {
-        let mut tracker = TimeTracker::new(300, 5, 0);
-        tracker.apply_elapsed(true, 100_000); // black uses 100s
-        assert_eq!(tracker.white_time_left().0, 300); // white unchanged
-    }
-
-    #[test]
     fn test_reset() {
         let mut tracker = TimeTracker::new(300, 5, 0);
         tracker.apply_elapsed(true, 100_000); // black uses 100s
@@ -471,12 +434,18 @@ mod tests {
     }
 
     #[test]
-    fn test_reset_byoyomi() {
-        let mut tracker = TimeTracker::new(0, 10, 0);
-        tracker.apply_elapsed(true, 5_000);
+    fn test_reset_restores_byoyomi_period_and_clears_running_clock() {
+        let mut tracker = TimeTracker::new(0, 10, 2);
+        assert!(tracker.apply_elapsed(true, 4_000));
+        assert!(tracker.apply_elapsed(false, 6_000));
+        assert_eq!(tracker.black_time_left(), (6, 1));
+        assert_eq!(tracker.white_time_left(), (4, 1));
+        tracker.start_move();
+        assert!(tracker.move_start.is_some());
         tracker.reset();
-        // Pure byoyomi: time_left reports per-move budget
-        assert_eq!(tracker.black_time_left(), (10, 0));
+        assert_eq!(tracker.black_time_left(), (10, 2));
+        assert_eq!(tracker.white_time_left(), (10, 2));
+        assert!(tracker.move_start.is_none());
     }
 
     // =========================================================================
@@ -492,19 +461,13 @@ mod tests {
     }
 
     #[test]
-    fn test_time_left_after_exact_main_time_exhaustion() {
-        let mut tracker = TimeTracker::new(10, 30, 1);
-        // Use exactly all main time → transitions to byoyomi
-        assert!(tracker.apply_elapsed(true, 10_000));
-        // Should report byoyomi period, not (0, 0)
-        assert_eq!(tracker.black_time_left(), (30, 1));
-    }
-
-    #[test]
     fn test_time_left_fischer_reports_main_time() {
         let mut tracker = TimeTracker::new(300, 5, 0);
+        assert!(tracker.is_enabled());
+        assert_eq!(tracker.main_time_secs(), 300);
+        assert_eq!(tracker.byoyomi_time_secs(), 5);
         assert_eq!(tracker.black_time_left(), (300, 0));
-        tracker.apply_elapsed(true, 10_000);
+        assert!(tracker.apply_elapsed(true, 10_000));
         assert_eq!(tracker.black_time_left(), (295, 0));
         assert_eq!(tracker.white_time_left(), (300, 0));
     }
@@ -524,17 +487,6 @@ mod tests {
         let tracker = TimeTracker::new(300, 30, 3);
         // In main time: reports main time, stones=0
         assert_eq!(tracker.black_time_left(), (300, 0));
-    }
-
-    #[test]
-    fn test_time_left_japanese_byo_byoyomi_phase() {
-        let mut tracker = TimeTracker::new(10, 30, 3);
-        // Use exactly 10s → transitions to byoyomi (overtime=0, stone 1 consumed)
-        assert!(tracker.apply_elapsed(true, 10_000));
-        assert_eq!(tracker.black_time_left(), (30, 3)); // fresh period, no stone consumed yet
-        // Move 1 in byoyomi: 8s used, 2 stones left
-        assert!(tracker.apply_elapsed(true, 8_000));
-        assert_eq!(tracker.black_time_left(), (22, 2));
     }
 
     #[test]
@@ -561,15 +513,21 @@ mod tests {
         let mut tracker = TimeTracker::new(10, 30, 3);
         // Exhaust main time
         assert!(tracker.apply_elapsed(true, 10_000));
+        assert_eq!(tracker.black_time_left(), (30, 3));
         // Enter byoyomi: 3 stones in 30s
         // Stone 1: 8s → cumulative 8s ≤ 30s, 2 stones left
         assert!(tracker.apply_elapsed(true, 8_000));
+        assert_eq!(tracker.black_time_left(), (22, 2));
         // Stone 2: 10s → cumulative 18s ≤ 30s, 1 stone left
         assert!(tracker.apply_elapsed(true, 10_000));
+        assert_eq!(tracker.black_time_left(), (12, 1));
         // Stone 3: 10s → cumulative 28s ≤ 30s, 0 stones left → period resets
         assert!(tracker.apply_elapsed(true, 10_000));
+        assert_eq!(tracker.black_time_left(), (30, 3));
         // New period starts: Stone 1: 5s → cumulative 5s ≤ 30s
         assert!(tracker.apply_elapsed(true, 5_000));
+        assert_eq!(tracker.black_time_left(), (25, 2));
+        assert!(!tracker.apply_elapsed(true, 25_001));
     }
 
     #[test]
@@ -603,10 +561,14 @@ mod tests {
         // Use 12s → exhausts 5s main, 7s overtime into byoyomi
         // 7s ≤ 20s → OK, stone 1 consumed, 1 stone left
         assert!(tracker.apply_elapsed(true, 12_000));
+        assert_eq!(tracker.black_time_left(), (13, 1));
         // Stone 2: 10s → cumulative 7+10=17s ≤ 20s → OK, period resets
         assert!(tracker.apply_elapsed(true, 10_000));
+        assert_eq!(tracker.black_time_left(), (20, 2));
         // New period, stone 1: 15s → cumulative 15s ≤ 20s
         assert!(tracker.apply_elapsed(true, 15_000));
+        assert_eq!(tracker.black_time_left(), (5, 1));
+        assert!(!tracker.apply_elapsed(true, 5_001));
     }
 
     #[test]

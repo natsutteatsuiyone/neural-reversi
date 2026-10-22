@@ -6,6 +6,9 @@
 
 pub mod connection;
 mod frontend;
+#[cfg(test)]
+#[path = "ggs/lifecycle_tests.rs"]
+mod lifecycle_tests;
 pub mod protocol;
 pub mod session;
 
@@ -31,6 +34,8 @@ use crate::config::EngineConfig;
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(50);
 
 struct SearchPool {
+    #[cfg(test)]
+    progress_observer: Option<Arc<search::SearchProgressCallback>>,
     events: Sender<connection::Event>,
     shared: search::SearchSharedResources,
     capacity: usize,
@@ -226,6 +231,8 @@ impl SearchPool {
         shared.share_thread_pool();
         let n_threads = shared.n_threads();
         Self {
+            #[cfg(test)]
+            progress_observer: None,
             events,
             shared,
             capacity,
@@ -340,6 +347,19 @@ impl std::fmt::Display for GgsError {
 
 /// Runs a GGS session with automatic engine play and a terminal or plain frontend.
 pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), GgsError> {
+    run_ggs_inner(
+        options,
+        config,
+        #[cfg(test)]
+        None,
+    )
+}
+
+fn run_ggs_inner(
+    options: GgsOptions<'_>,
+    config: &EngineConfig,
+    #[cfg(test)] progress_observer: Option<Arc<search::SearchProgressCallback>>,
+) -> Result<(), GgsError> {
     let GgsOptions {
         host,
         port,
@@ -368,12 +388,13 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
     search_options.tt_mb_size = partition_tt_size(search_options.tt_mb_size, max_games)?;
     let (mut conn, event_tx) = connection::Connection::connect(host, port)
         .map_err(|e| format!("failed to connect to {host}:{port}: {e}"))?;
-    let search_pool = Arc::new(SearchPool::new(
-        &search_options,
-        user,
-        max_game_slots,
-        event_tx.clone(),
-    ));
+    let search_pool = SearchPool::new(&search_options, user, max_game_slots, event_tx.clone());
+    #[cfg(test)]
+    let search_pool = SearchPool {
+        progress_observer,
+        ..search_pool
+    };
+    let search_pool = Arc::new(search_pool);
     let mut frontend =
         frontend::Frontend::start(plain, &event_tx, format!("{user}@{host}:{port}"))?;
 
@@ -727,6 +748,8 @@ fn apply_action(
             let log_tx = event_tx.clone();
             let n_threads = search_pool.n_threads;
             let login = search_pool.login.clone();
+            #[cfg(test)]
+            let progress_observer = search_pool.progress_observer.clone();
             let spawned = spawn_worker(
                 search_pool,
                 &search_pool.search_handles,
@@ -745,6 +768,11 @@ fn apply_action(
                     let waited = queued_at.elapsed();
                     let search_limit = deduct_wait(search_limit, waited);
                     let options = build_search_run_options(search_limit);
+                    #[cfg(test)]
+                    let options = SearchRunOptions {
+                        callback: progress_observer,
+                        ..options
+                    };
                     let _ = log_tx.send(connection::Event::SearchStarted {
                         game_id: job_id.clone(),
                         search_id,
@@ -1369,15 +1397,20 @@ mod tests {
         assert_eq!(*state.lock().unwrap(), WorkerState::Running);
 
         let aborts = Arc::new(AtomicUsize::new(0));
+        let (aborted_tx, aborted_rx) = std::sync::mpsc::channel();
         let finisher = {
             let state = Arc::clone(&state);
             thread::spawn(move || {
-                thread::sleep(Duration::from_millis(10));
+                aborted_rx
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("first abort");
                 *state.lock().unwrap() = WorkerState::Finished;
             })
         };
         retry_abort_while_running(&state, &|| {
-            aborts.fetch_add(1, Ordering::Relaxed);
+            if aborts.fetch_add(1, Ordering::Relaxed) == 0 {
+                aborted_tx.send(()).unwrap();
+            }
         });
         finisher.join().unwrap();
         assert!(aborts.load(Ordering::Relaxed) >= 1);

@@ -121,11 +121,16 @@ mod tests {
     #[test]
     fn update_pv_does_not_affect_other_plies() {
         let mut stack = SearchStack::new();
+        for (ply, record) in stack.stack.iter_mut().enumerate().skip(1) {
+            record.pv[0] = if ply % 2 == 0 { Square::E3 } else { Square::F6 };
+            record.pv[1] = Square::C4;
+        }
+        let before = stack.stack;
         stack.update_pv(Square::D3, 0);
 
         // Other plies should remain untouched
-        for ply in 1..MAX_PLY {
-            assert!(stack.get_pv(ply).iter().all(|&sq| sq == Square::None));
+        for (ply, record) in before.iter().enumerate().skip(1) {
+            assert_eq!(*stack.get_pv(ply), record.pv, "ply={ply}");
         }
     }
 }

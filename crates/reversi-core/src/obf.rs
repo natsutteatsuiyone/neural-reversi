@@ -213,8 +213,9 @@ mod tests {
 
     #[test]
     fn parses_standard_obf_with_moves() {
-        let pos = parse(&format!("{INITIAL_BOARD} X; e6:+10; d3:+8; --:-127"));
+        let pos = parse(&format!("XOOX{} X; e6:+10; d3:+8; --:-127", "-".repeat(60)));
         assert_eq!(pos.side_to_move, Disc::Black);
+        assert_eq!(pos.board, Board::from_bitboards(0b1001, 0b0110));
         assert_eq!(pos.move_scores.len(), 2);
         assert_eq!(pos.move_scores[0], (Square::E6, 10));
         assert_eq!(pos.move_scores[1], (Square::D3, 8));
@@ -231,8 +232,9 @@ mod tests {
 
     #[test]
     fn parses_white_to_move() {
-        let pos = parse(&format!("{INITIAL_BOARD} O"));
+        let pos = parse(&format!("XOOX{} O", "-".repeat(60)));
         assert_eq!(pos.side_to_move, Disc::White);
+        assert_eq!(pos.board, Board::from_bitboards(0b0110, 0b1001));
     }
 
     #[test]

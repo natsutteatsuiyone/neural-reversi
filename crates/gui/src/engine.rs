@@ -71,6 +71,7 @@ pub enum EventKind {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Progress {
     pub square: Option<Square>,
     pub score: f32,
@@ -100,6 +101,11 @@ pub struct Engine {
 }
 
 impl Engine {
+    #[cfg(test)]
+    pub(crate) fn emit_for_test(&self, id: u64, kind: EventKind) {
+        self.errors.send(Event { id, kind }).unwrap();
+    }
+
     pub fn new(hash_size: usize) -> Self {
         let (requests, jobs) = mpsc::channel();
         let (errors, events) = mpsc::channel();

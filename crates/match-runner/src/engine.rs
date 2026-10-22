@@ -498,23 +498,19 @@ mod tests {
     }
 
     #[test]
-    fn test_format_version_empty() {
-        assert_eq!(GtpEngine::format_version(""), "");
-    }
-
-    #[test]
-    fn test_format_version_with_v_prefix() {
-        assert_eq!(GtpEngine::format_version("v1.0"), "v1.0");
-    }
-
-    #[test]
-    fn test_format_version_with_capital_v_prefix() {
-        assert_eq!(GtpEngine::format_version("V2.0"), "V2.0");
-    }
-
-    #[test]
-    fn test_format_version_without_prefix() {
-        assert_eq!(GtpEngine::format_version("1.0"), "v1.0");
+    fn test_format_version() {
+        for (input, expected) in [
+            ("", ""),
+            ("v1.0", "v1.0"),
+            ("V2.0", "V2.0"),
+            ("1.0", "v1.0"),
+        ] {
+            assert_eq!(
+                GtpEngine::format_version(input),
+                expected,
+                "input={input:?}"
+            );
+        }
     }
 
     #[test]

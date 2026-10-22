@@ -709,8 +709,9 @@ mod schedule_tests {
 
     #[test]
     fn start_depth_is_two_for_even_targets_and_one_for_odd() {
-        assert_eq!(compute_start_depth(1), 1);
-        assert_eq!(compute_start_depth(2), 2);
+        for (target, expected) in [(1, 1), (2, 2), (7, 1), (8, 2), (59, 1), (60, 2)] {
+            assert_eq!(compute_start_depth(target), expected, "target={target}");
+        }
     }
 
     #[test]

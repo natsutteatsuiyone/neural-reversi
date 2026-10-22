@@ -501,6 +501,20 @@ mod tests {
                 Ok::<_, io::Error>(total + std::fs::metadata(path)?.len())
             })?;
         assert_eq!(total_output_size, 10 * RECORD_SIZE as u64);
+        let mut output_records = Vec::<Record>::new();
+        for (file_index, &count) in records_per_file.iter().enumerate() {
+            let bytes = std::fs::read(
+                output_dir
+                    .path()
+                    .join(format!("shuffled_{file_index:0OUTPUT_FILE_DIGITS$}.bin")),
+            )?;
+            assert_eq!(bytes.len(), count as usize * RECORD_SIZE);
+            output_records.extend_from_slice(bytes.as_chunks::<RECORD_SIZE>().0);
+        }
+        output_records.sort_unstable();
+        let mut expected = records;
+        expected.sort_unstable();
+        assert_eq!(output_records, expected);
         Ok(())
     }
 

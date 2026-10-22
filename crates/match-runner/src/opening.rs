@@ -137,11 +137,13 @@ mod tests {
                         Disc::White
                     }
                 );
-                for sq in Square::iter().filter(|&sq| !allowed(sq)) {
-                    assert_eq!(
-                        state.board().get_disc_at(sq, state.side_to_move()),
-                        Disc::Empty
-                    );
+                // GGS excludes the four 2x2 corners. This literal is independent
+                // of the generator's allowed() predicate.
+                const FORBIDDEN_CORNERS: u64 = 0xc3c3_0000_0000_c3c3;
+                let occupied = state.board().player().bits() | state.board().opponent().bits();
+                assert_eq!(occupied & FORBIDDEN_CORNERS, 0);
+                if discs == 48 {
+                    assert_eq!(occupied, !FORBIDDEN_CORNERS);
                 }
             }
         }

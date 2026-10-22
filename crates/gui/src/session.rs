@@ -717,12 +717,27 @@ mod tests {
         let mut session = Session::new(&settings);
         run_until(&mut session, &settings, Session::is_ready);
 
-        // 42 moves leave 18 empties, where the best move changes across selectivity steps.
-        let game =
-            "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8";
-        session.enter_solver(Position::from_transcript(&game[..84]).unwrap(), &settings);
-        run_until(&mut session, &settings, |s| s.activity().is_none());
-        assert_eq!(session.candidates().len(), 1);
+        // Inject successive engine reports through the same queue tick consumes.
+        // The best move changes explicitly, independent of weights or search timing.
+        session.activity = Some(Activity::Solver);
+        for (square, score, probability) in [(Square::D3, 2.0, 73), (Square::C4, 4.0, 100)] {
+            let progress = Progress {
+                square: Some(square),
+                score,
+                depth: 18,
+                target_depth: 18,
+                probability,
+                nodes: 123,
+                nps: 456.0,
+                pv: square.to_string(),
+                is_endgame: true,
+            };
+            session
+                .engine
+                .emit_for_test(session.run_id, EventKind::Progress(progress.clone()));
+            session.tick(&settings, Instant::now());
+            assert_eq!(session.candidates(), &[progress]);
+        }
     }
 
     #[test]
@@ -739,7 +754,17 @@ mod tests {
         let game =
             "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8";
         session.enter_solver(Position::from_transcript(&game[..84]).unwrap(), &settings);
+        let legal: std::collections::HashSet<_> =
+            session.game().position().board.get_moves().iter().collect();
+        assert!(!legal.is_empty());
         run_until(&mut session, &settings, |s| s.activity().is_none());
+        let candidates: std::collections::HashSet<_> = session
+            .candidates()
+            .iter()
+            .map(|c| c.square.expect("legal solver move"))
+            .collect();
+        assert_eq!(candidates, legal);
+        assert_eq!(session.candidates().len(), legal.len());
         assert!(session.candidates().iter().all(|c| c.probability == 73));
         assert!(session.candidates_complete());
     }
@@ -762,11 +787,11 @@ mod tests {
         assert_eq!(session.activity(), Some(Activity::Solver));
         session.toggle_pause(&settings);
         assert!(!session.candidates_complete());
-        let stopped = session.candidates().len();
+        let stopped = session.candidates().to_vec();
 
         settings.hints = false;
         session.hints_toggled(&settings);
-        assert_eq!(session.candidates().len(), stopped);
+        assert_eq!(session.candidates(), stopped);
         assert_eq!(session.activity(), None);
     }
 

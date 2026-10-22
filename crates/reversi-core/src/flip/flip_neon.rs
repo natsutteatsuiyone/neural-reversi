@@ -283,17 +283,19 @@ mod tests {
     /// diagonal.
     #[test]
     fn neon_specific_cases() {
-        let cases: &[(Square, u64, u64)] = &[
-            (Square::D5, 0, 0),
+        let cases: &[(Square, u64, u64, u64)] = &[
+            (Square::D5, 0, 0, 0),
             (
                 Square::C4,
-                (1u64 << 27) | (1u64 << 36),
                 (1u64 << 28) | (1u64 << 35),
+                (1u64 << 27) | (1u64 << 36),
+                1u64 << 27,
             ),
             (
                 Square::D3,
-                (1u64 << 27) | (1u64 << 36),
                 (1u64 << 28) | (1u64 << 35),
+                (1u64 << 27) | (1u64 << 36),
+                1u64 << 27,
             ),
             // corner A1 with player on H8 and opponents on the diagonal between.
             (
@@ -305,13 +307,12 @@ mod tests {
                     | (1u64 << 36)
                     | (1u64 << 45)
                     | (1u64 << 54),
+                0x0040_2010_0804_0200,
             ),
         ];
-        for &(sq, p, o) in cases {
-            if (p | o) & (1u64 << sq.index()) != 0 {
-                continue;
-            }
-            let expected = flip_scalar::flip(sq, p, o);
+        for &(sq, p, o, expected) in cases {
+            assert_eq!((p | o) & (1u64 << sq.index()), 0);
+            assert_eq!(flip_scalar::flip(sq, p, o), expected);
             let got = unsafe { flip(sq, p, o) };
             assert_eq!(got, expected, "sq={:?} p={:#x} o={:#x}", sq, p, o);
         }

@@ -259,6 +259,16 @@ test("does not flash AI thinking badge when closing settings resumes a fast AI t
 
   await page.keyboard.press("Escape");
   await expect(settingsDialog).toBeHidden();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.__fakeWorkers[0].messages.filter((message) => message.type === "ai_move").length,
+      ),
+    )
+    .toBe(1);
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.__aiThinkingFrameCount)).toBeGreaterThan(0);
   await page.waitForTimeout(250);
 
   const paintedAiThinkingBadge = await page.evaluate(() => {
@@ -366,10 +376,10 @@ test("aborts an in-flight hint by terminating and respawning the hint worker", a
   await page.locator(".hint-toggle").click();
   await expect.poll(() => hintRequestCount(page)).toBe(1);
 
+  const oldGeneration = await latestHintGeneration(page);
   const workerCountBefore = await page.evaluate(() => window.__fakeWorkers.length);
 
-  // Toggling off clears hints, which aborts the in-flight search. This is the same
-  // clearHints path that a board move takes, so it covers the play-during-hint abort.
+  // Toggling off clears hints and aborts the in-flight search.
   await page.locator(".hint-toggle").click();
   await expect(page.locator("#hint-toggle")).not.toBeChecked();
 
@@ -378,6 +388,32 @@ test("aborts an in-flight hint by terminating and respawning the hint worker", a
     .poll(() => page.evaluate(() => window.__fakeWorkers.length))
     .toBe(workerCountBefore + 1);
   expect(await page.evaluate(() => window.__fakeWorkers[1].terminated)).toBe(true);
+
+  await page.locator(".hint-toggle").click();
+  await expect.poll(() => hintRequestCount(page)).toBe(2);
+  const currentGeneration = await latestHintGeneration(page);
+  expect(currentGeneration).toBeGreaterThan(oldGeneration);
+  expect(
+    await page.evaluate(() =>
+      window.__fakeWorkers.at(-1).messages.some((m) => m.type === "hint_replay"),
+    ),
+  ).toBe(true);
+
+  // A late completion from the terminated worker must not finish the new search.
+  await completeHint(page, oldGeneration);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await page.locator(".hint-toggle").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__fakeWorkers.length))
+    .toBe(workerCountBefore + 2);
+
+  await page.locator(".hint-toggle").click();
+  await expect.poll(() => hintRequestCount(page)).toBe(3);
+  await completeHint(page, await latestHintGeneration(page));
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await page.locator(".hint-toggle").click();
+  // A completed replacement worker is reusable and no longer needs aborting.
+  expect(await page.evaluate(() => window.__fakeWorkers.length)).toBe(workerCountBefore + 2);
 });
 
 test("surfaces a load failure instead of hanging on the spinner", async ({ page }) => {
@@ -447,7 +483,54 @@ test("shows the game over modal when a terminal state arrives", async ({ page })
   await expect(page.locator(".game-over-modal__score-value")).toHaveText(["40", "24"]);
 });
 
-test("auto-passes when the human has no legal move", async ({ page }) => {
+test("real WASM worker keeps the same player after a forced pass", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const worker = new Worker(new URL("/reversi-worker.js", location.href), { type: "module" });
+    const request = (type, payload, responseType) =>
+      new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`worker timed out: ${type}`)), 20_000);
+        worker.onmessage = ({ data }) => {
+          if (data.type === "error" || data.type === responseType) {
+            clearTimeout(timeout);
+            if (data.type === "error") reject(new Error(data.payload.message));
+            else resolve(data.payload);
+          }
+        };
+        worker.onerror = (event) => {
+          clearTimeout(timeout);
+          reject(new Error(event.message));
+        };
+        worker.postMessage({ type, payload, generation: 1 });
+      });
+    try {
+      await request("init", { humanIsBlack: false, level: 1 }, "initialized");
+      const indices = [19, 18, 17, 9, 1, 0, 26, 2, 10, 11, 3, 4, 8, 16, 37, 12, 5];
+      const before = await request(
+        "replay_moves",
+        { humanIsBlack: false, level: 1, moves: indices.map((index) => ({ index })) },
+        "replay_completed",
+      );
+      const after = await request("human_move", { index: 6 }, "state_updated");
+      const next = await request("human_move", { index: 13 }, "state_updated");
+      return { before, after, next };
+    } finally {
+      worker.terminate();
+    }
+  });
+  expect(result.before.currentPlayer).toBe(2);
+  expect(result.before.legalMoves).toContain(6);
+  expect(result.after.currentPlayer).toBe(2);
+  expect(result.after.emptyCount).toBe(42);
+  expect(Array.from(result.after.score)).toEqual([10, 12]);
+  expect(Array.from(result.after.legalMoves).sort((a, b) => a - b)).toEqual([
+    13, 20, 21, 24, 25, 33, 34, 43, 44, 45, 46,
+  ]);
+  expect(result.next.emptyCount).toBe(41);
+  expect(result.next.board[13]).toBe(2);
+});
+
+test("defensively auto-passes an injected human state with no legal move", async ({ page }) => {
   await installFakeWorker(page);
   await waitForAppReady(page);
 
@@ -516,17 +599,37 @@ test("caps the move-log height on narrow screens", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await installFakeWorker(page);
   await waitForAppReady(page);
-  await startGameAndGetGeneration(page);
+  const generation = await startGameAndGetGeneration(page);
+  // Fill the presentation's move log through its normal worker-message path.
+  await page.evaluate((gen) => {
+    const worker = window.__fakeWorkers[0];
+    for (let index = 0; index < 50; index += 1) {
+      worker.emit({
+        type: "ai_moved",
+        generation: gen,
+        payload: { move: index, gameState: window.__aiMovedGameState },
+      });
+    }
+  }, generation);
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(50);
 
   // The narrow layout reserves a fixed height up front and scrolls the log
   // internally rather than stretching the page into a tall, thin strip.
   const style = await page.locator("#move-log-scroll").evaluate((el) => {
     const computed = getComputedStyle(el);
-    return { height: computed.height, overflowY: computed.overflowY };
+    return {
+      height: el.getBoundingClientRect().height,
+      overflowY: computed.overflowY,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      viewportHeight: window.innerHeight,
+    };
   });
   expect(style.overflowY).toBe("auto");
   // 50vh of an 800px-tall viewport ≈ 400px.
-  expect(Number.parseFloat(style.height)).toBeGreaterThan(300);
+  expect(style.height).toBeGreaterThan(300);
+  expect(style.height).toBeLessThanOrEqual(style.viewportHeight * 0.5 + 1);
+  expect(style.scrollHeight).toBeGreaterThan(style.clientHeight);
 });
 
 test("places the hint toggle to the right of the level", async ({ page }) => {

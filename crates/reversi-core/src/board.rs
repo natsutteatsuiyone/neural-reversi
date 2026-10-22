@@ -802,6 +802,8 @@ mod tests {
         let unique_diag1 = board.flip_diag_a1h8().unique();
         let unique_diag2 = board.flip_diag_a8h1().unique();
 
+        assert_eq!(unique_original.player.count(), board.player.count());
+        assert_eq!(unique_original.opponent.count(), board.opponent.count());
         assert_eq!(unique_original, unique_rot90);
         assert_eq!(unique_original, unique_rot180);
         assert_eq!(unique_original, unique_rot270);
@@ -830,11 +832,10 @@ mod tests {
             board.flip_diag_a8h1(),
         ];
 
-        for candidate in candidates {
-            assert!(
-                (unique.player.bits(), unique.opponent.bits())
-                    <= (candidate.player.bits(), candidate.opponent.bits())
-            );
-        }
+        let expected = candidates
+            .into_iter()
+            .min_by_key(|b| (b.player.bits(), b.opponent.bits()))
+            .unwrap();
+        assert_eq!(unique, expected);
     }
 }

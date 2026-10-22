@@ -422,8 +422,9 @@ mod tests {
     #[test]
     fn test_probe_miss_on_different_key() {
         let tt = TranspositionTable::new(1);
-        let key1: u64 = 0x1111111111111111;
-        let key2: u64 = 0x2222222222222222;
+        let key1: u64 = 0x1111111100000001;
+        let key2: u64 = 0x1111111100000002;
+        assert_eq!(tt.cluster_index(key1), tt.cluster_index(key2));
 
         let idx = tt.probe(key1).index();
         tt.store(
@@ -437,7 +438,7 @@ mod tests {
             false,
         );
 
-        // key2 may or may not map to the same cluster, but should not hit key1
+        // Probe the occupied cluster with a different tag.
         let probe = tt.probe(key2);
         if let TTProbeResult::Hit { data, .. } = probe {
             // If it's a hit, it must not be key1's data (different key)
@@ -491,54 +492,59 @@ mod tests {
 
     #[test]
     fn test_replacement_evicts_shallowest() {
-        let tt = TranspositionTable::new(1);
-        // Fill both cluster slots
-        let key1: u64 = 0x1234567800000001;
-        let key2: u64 = 0x1234567800000002;
-        let key3: u64 = 0x1234567800000003;
+        for age in [0, 2] {
+            let tt = TranspositionTable::new(1);
+            // Fill both cluster slots
+            let key1: u64 = 0x1234567800000001;
+            let key2: u64 = 0x1234567800000002;
+            let key3: u64 = 0x1234567800000003;
 
-        let idx1 = tt.probe(key1).index();
-        tt.store(
-            idx1,
-            key1,
-            ScaledScore::from_raw(10),
-            Bound::Exact,
-            3,
-            Square::A1,
-            Selectivity::None,
-            false,
-        );
+            let idx1 = tt.probe(key1).index();
+            tt.store(
+                idx1,
+                key1,
+                ScaledScore::from_raw(10),
+                Bound::Exact,
+                3,
+                Square::A1,
+                Selectivity::None,
+                false,
+            );
 
-        let idx2 = tt.probe(key2).index();
-        tt.store(
-            idx2,
-            key2,
-            ScaledScore::from_raw(20),
-            Bound::Exact,
-            10,
-            Square::B2,
-            Selectivity::None,
-            false,
-        );
+            let idx2 = tt.probe(key2).index();
+            tt.store(
+                idx2,
+                key2,
+                ScaledScore::from_raw(20),
+                Bound::Exact,
+                10,
+                Square::B2,
+                Selectivity::None,
+                false,
+            );
 
-        // Third key should evict key1 (depth 3) not key2 (depth 10)
-        let idx3 = tt.probe(key3).index();
-        tt.store(
-            idx3,
-            key3,
-            ScaledScore::from_raw(30),
-            Bound::Exact,
-            7,
-            Square::C3,
-            Selectivity::None,
-            false,
-        );
+            for _ in 0..age {
+                tt.increment_generation();
+            }
+            // Equal ages cancel out, so depth decides the victim in either generation.
+            let idx3 = tt.probe(key3).index();
+            tt.store(
+                idx3,
+                key3,
+                ScaledScore::from_raw(30),
+                Bound::Exact,
+                7,
+                Square::C3,
+                Selectivity::None,
+                false,
+            );
 
-        // key1 should be gone, key2 and key3 should remain
-        assert!(tt.lookup(key1).is_none());
-        assert!(tt.lookup(key2).is_some());
-        let data3 = tt.lookup(key3).unwrap();
-        assert_eq!(data3.score, ScaledScore::from_raw(30));
+            // key1 should be gone, key2 and key3 should remain
+            assert!(tt.lookup(key1).is_none());
+            assert!(tt.lookup(key2).is_some());
+            let data3 = tt.lookup(key3).unwrap();
+            assert_eq!(data3.score, ScaledScore::from_raw(30));
+        }
     }
 
     #[test]
@@ -724,62 +730,6 @@ mod tests {
         let data = tt.probe(key).data().unwrap();
         assert!(data.can_cut(ScaledScore::from_raw(50)));
         assert!(!data.can_cut(ScaledScore::from_raw(200)));
-    }
-
-    #[test]
-    fn test_age_based_eviction() {
-        let tt = TranspositionTable::new(1);
-        let key1: u64 = 0x1234567800000001;
-        let key2: u64 = 0x1234567800000002;
-        let key3: u64 = 0x1234567800000003;
-
-        // Store key1 at generation 0, depth 10
-        let idx1 = tt.probe(key1).index();
-        tt.store(
-            idx1,
-            key1,
-            ScaledScore::from_raw(10),
-            Bound::Lower,
-            10,
-            Square::A1,
-            Selectivity::None,
-            false,
-        );
-
-        // Store key2 at generation 0, depth 3
-        let idx2 = tt.probe(key2).index();
-        tt.store(
-            idx2,
-            key2,
-            ScaledScore::from_raw(20),
-            Bound::Lower,
-            3,
-            Square::B2,
-            Selectivity::None,
-            false,
-        );
-
-        // Advance generation by 2
-        tt.increment_generation();
-        tt.increment_generation();
-
-        // key3 should evict key2 (depth 3, age 2 → score = 3 - 8*2 = -13)
-        // over key1 (depth 10, age 2 → score = 10 - 8*2 = -6)
-        let idx3 = tt.probe(key3).index();
-        tt.store(
-            idx3,
-            key3,
-            ScaledScore::from_raw(30),
-            Bound::Exact,
-            5,
-            Square::C3,
-            Selectivity::None,
-            false,
-        );
-
-        assert!(tt.lookup(key1).is_some());
-        assert!(tt.lookup(key2).is_none());
-        assert!(tt.lookup(key3).is_some());
     }
 
     #[test]

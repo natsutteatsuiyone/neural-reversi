@@ -744,13 +744,13 @@ mod tests {
 
     #[test]
     fn store_pv_in_tt_reinserts_omitted_passes() {
-        let board = Board::new().make_move(Square::D3);
+        // C1 is the only empty square; Black B1 cannot move, while White
+        // can capture it from A1 after Black passes.
+        let board = Board::from_bitboards(0b10, !0b110u64);
         let after_pass = board.switch_players();
-        let sq = after_pass
-            .get_moves()
-            .iter()
-            .find(|&sq| !board.is_legal_move(sq))
-            .expect("a move legal only after a pass must exist");
+        assert!(board.get_moves().is_empty());
+        assert_eq!(after_pass.get_moves(), Square::C1.bitboard());
+        let sq = Square::C1;
         let ctx = pv_store_ctx(&board, 1);
         let score = ScaledScore::from_disc_diff(6);
 
@@ -763,6 +763,7 @@ mod tests {
         assert_eq!(data.best_move(), sq);
         assert_eq!(data.score(), -score);
         assert_eq!(data.depth(), 5);
+        assert!(ctx.tt.lookup(&board, board.hash()).is_none());
     }
 
     #[test]

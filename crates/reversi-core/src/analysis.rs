@@ -252,11 +252,22 @@ mod tests {
         let moves = vec![play(Square::D3), play(Square::C3)];
         let replayed = replay(Board::new(), &moves).unwrap();
         assert_eq!(replayed.steps.len(), 2);
-        assert!(matches!(replayed.steps[1], Step::Play { .. }));
-        let Step::Play { before } = &replayed.steps[0] else {
-            panic!("expected a play step");
-        };
-        assert_eq!(*before, Board::new());
+        // Fixed bitboards keep the replay oracle independent of make_move.
+        let after_d3 =
+            Board::from_bitboards(1 << 36, (1 << 19) | (1 << 27) | (1 << 28) | (1 << 35));
+        for (step, expected) in replayed.steps.iter().zip([Board::new(), after_d3]) {
+            let Step::Play { before } = step else {
+                panic!("expected a play step");
+            };
+            assert_eq!(*before, expected);
+        }
+        assert_eq!(
+            replayed.final_board,
+            Board::from_bitboards(
+                (1 << 19) | (1 << 28) | (1 << 35),
+                (1 << 18) | (1 << 27) | (1 << 36)
+            )
+        );
     }
 
     #[test]
@@ -421,43 +432,85 @@ mod tests {
 
     #[test]
     fn analyze_game_scores_a_terminal_final_board_without_search() {
-        // A full board has no empties and no Legal Moves: the seed comes from
-        // solve(), never from search.
-        let full = Board::from_string(&"X".repeat(64), Disc::Black).unwrap();
-        let search = |_b: &Board| -> Result<Analysis, String> {
-            panic!("search must not run on a terminal board");
+        // C1 flips the last white disc; the terminal seed scores -64 from
+        // White's perspective, including unoccupied squares in the winner's score.
+        let initial = Board::from_bitboards(1, 2);
+        let calls = Cell::new(0);
+        let search = |board: &Board| -> Result<Analysis, String> {
+            assert_eq!(*board, initial, "terminal seed must not be searched");
+            calls.set(calls.get() + 1);
+            Ok(analysis(Square::C1, 64.0, 1))
         };
-        let mut emitted = 0;
-        analyze_game(full, &[], search, || false, |_p| emitted += 1).unwrap();
-        assert_eq!(emitted, 0);
+        let mut emitted = Vec::new();
+        analyze_game(
+            initial,
+            &[play(Square::C1)],
+            search,
+            || false,
+            |p| emitted.push(p),
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].played_score, 64.0);
+        assert_eq!(emitted[0].score_loss, 0.0);
     }
 
     #[test]
     fn analyze_game_honors_each_cancellation_boundary() {
-        let two_moves = [play(Square::D3), play(Square::C3)];
-        let one_move = [play(Square::D3)];
-
-        for (name, moves, cancel_at_poll) in [
-            ("upfront", &two_moves[..], 0),
-            ("backward loop", &two_moves[..], 2),
-            ("after move search", &one_move[..], 3),
-        ] {
-            let polls = Cell::new(0usize);
-            let is_cancelled = || {
-                let n = polls.get();
-                polls.set(n + 1);
-                n >= cancel_at_poll
-            };
-            let mut emitted = 0;
-            analyze_game(
+        for (initial, moves, expected_searches, expected_progress) in [
+            (
                 Board::new(),
-                moves,
-                |_b| Ok(analysis(Square::A1, 1.0, 1)),
-                is_cancelled,
-                |_p| emitted += 1,
-            )
-            .unwrap();
-            assert_eq!(emitted, 0, "{name}");
+                vec![play(Square::D3), play(Square::C3)],
+                vec![0, 1, 1, 2, 2, 3],
+                vec![0, 0, 0, 0, 1, 1],
+            ),
+            (
+                move_then_forced_pass_board(),
+                vec![play(Square::H8)],
+                vec![0, 1, 1, 2],
+                vec![0, 0, 0, 0],
+            ),
+            (
+                move_then_forced_pass_board(),
+                vec![play(Square::H8), pass()],
+                vec![0, 1, 1, 1, 2],
+                vec![0, 0, 0, 0, 0],
+            ),
+        ] {
+            for (cancel_at_poll, (&search_count, &progress_count)) in
+                expected_searches.iter().zip(&expected_progress).enumerate()
+            {
+                let polls = Cell::new(0usize);
+                let searches = Cell::new(0);
+                let is_cancelled = || {
+                    let n = polls.get();
+                    polls.set(n + 1);
+                    n >= cancel_at_poll
+                };
+                let mut emitted = 0;
+                analyze_game(
+                    initial,
+                    &moves,
+                    |_b| {
+                        searches.set(searches.get() + 1);
+                        Ok(analysis(Square::A1, 1.0, 1))
+                    },
+                    is_cancelled,
+                    |_p| emitted += 1,
+                )
+                .unwrap();
+                assert_eq!(
+                    searches.get(),
+                    search_count,
+                    "poll {cancel_at_poll}, moves={moves:?}"
+                );
+                assert_eq!(
+                    emitted, progress_count,
+                    "poll {cancel_at_poll}, moves={moves:?}"
+                );
+                assert_eq!(polls.get(), cancel_at_poll + 1);
+            }
         }
     }
 }

@@ -800,6 +800,7 @@ mod tests {
             id,
             side_to_move,
             my_clock,
+            board,
             ..
         }) = ev
         else {
@@ -807,6 +808,10 @@ mod tests {
         };
         assert_eq!(id, ".5");
         assert_eq!(side_to_move, Disc::White);
+        assert_eq!(
+            board,
+            Board::from_bitboards(1 << 27, (1 << 28) | (1 << 35) | (1 << 36) | (1 << 37))
+        );
         assert_eq!(
             my_clock,
             Some(PlayerClock {

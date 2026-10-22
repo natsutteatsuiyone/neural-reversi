@@ -183,6 +183,13 @@ mod tests {
 
         let board = game.board();
         assert_eq!(board.get_player_count() + board.get_opponent_count(), 8);
+        assert_eq!(
+            *board,
+            Board::from_bitboards(
+                (1 << 26) | (1 << 28) | (1 << 36) | (1 << 37),
+                (1 << 19) | (1 << 27) | (1 << 35) | (1 << 43),
+            )
+        );
         assert_eq!(game.side_to_move(), Disc::Black);
     }
 
@@ -202,14 +209,21 @@ mod tests {
 
     #[test]
     fn match_winner_uses_disc_score_as_tiebreak() {
-        let result = MatchResult {
-            games: 2,
-            engine1_wins: 1,
-            engine2_wins: 1,
-            draws: 0,
-            engine1_score: 4,
-        };
-
-        assert_eq!(result.winner(), MatchWinner::Engine1);
+        for (wins1, wins2, score, expected) in [
+            (1, 1, 4, MatchWinner::Engine1),
+            (1, 1, -4, MatchWinner::Engine2),
+            (1, 1, 0, MatchWinner::Draw),
+            (2, 1, -4, MatchWinner::Engine1),
+            (1, 2, 4, MatchWinner::Engine2),
+        ] {
+            let result = MatchResult {
+                games: wins1 + wins2,
+                engine1_wins: wins1,
+                engine2_wins: wins2,
+                draws: 0,
+                engine1_score: score,
+            };
+            assert_eq!(result.winner(), expected, "{result:?}");
+        }
     }
 }

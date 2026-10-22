@@ -322,16 +322,31 @@ mod tests {
 
     #[test]
     fn round_robin_pairings_cover_each_pair_once() {
-        let pairings = build_round_robin_pairings(5);
-        let unique = pairings.iter().copied().collect::<HashSet<_>>();
-
-        assert_eq!(pairings.len(), 10);
-        assert_eq!(unique.len(), 10);
-        assert!(pairings.iter().all(|&(engine1, engine2)| engine1 < engine2));
+        for count in [0, 1, 4, 5] {
+            let pairings = build_round_robin_pairings(count);
+            let unique = pairings.iter().copied().collect::<HashSet<_>>();
+            let expected: HashSet<_> = (0..count)
+                .flat_map(|left| ((left + 1)..count).map(move |right| (left, right)))
+                .collect();
+            assert_eq!(unique, expected, "count={count}");
+            assert_eq!(
+                pairings.len(),
+                unique.len(),
+                "duplicate pair, count={count}"
+            );
+        }
     }
 
     #[test]
     fn natural_order_compares_numeric_filename_parts() {
-        assert_eq!(natural_cmp("weight-2.zst", "weight-10.zst"), Ordering::Less);
+        for (left, right, expected) in [
+            ("weight-2.zst", "weight-10.zst", Ordering::Less),
+            ("weight-10.zst", "weight-2.zst", Ordering::Greater),
+            ("weight-2.zst", "weight-2.zst", Ordering::Equal),
+            ("weight-2-12.zst", "weight-2-3.zst", Ordering::Greater),
+            ("weight-2-12.zst", "weight-10-3.zst", Ordering::Less),
+        ] {
+            assert_eq!(natural_cmp(left, right), expected, "{left} vs {right}");
+        }
     }
 }

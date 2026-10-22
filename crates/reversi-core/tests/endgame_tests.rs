@@ -332,13 +332,14 @@ fn test_solve_5_case1() {
 }
 
 #[test]
-fn test_solve_5_case2() {
+fn test_solve_9_case2() {
     let mut search = search();
     let board = Board::from_string(
         "--O--O----OOOOO-XOOOOOOOXXOOXOOOXXXXXOXXXOXXOOXXXXXXOXOXXOOOOOOX",
         Disc::Black,
     )
     .unwrap();
+    assert_eq!(board.get_empty_count(), 9);
     let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
@@ -346,13 +347,14 @@ fn test_solve_5_case2() {
 }
 
 #[test]
-fn test_solve_15() {
+fn test_solve_16() {
     let mut search = search();
     let board = Board::from_string(
         "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-",
         Disc::Black,
     )
     .unwrap();
+    assert_eq!(board.get_empty_count(), 16);
     let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 

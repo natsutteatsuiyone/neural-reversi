@@ -361,32 +361,22 @@ mod tests {
     }
 
     #[test]
-    fn replaying_same_moves_reproduces_identical_state() {
-        let mut game_a = Game::new(true);
-        let mut replayed_moves = Vec::new();
-
-        for _ in 0..12 {
-            if game_a.is_game_over() {
-                break;
-            }
-            let moves = game_a.legal_moves();
-            if moves.is_empty() {
-                break;
-            }
-            let next_move = moves[0];
-            assert!(game_a.make_move_unchecked(next_move));
-            replayed_moves.push(next_move);
-            assert_conservation(&game_a);
+    fn replay_matches_a_fixed_opening_board() {
+        let mut game = Game::new(true);
+        for square in [Square::F5, Square::D6, Square::C4, Square::D3] {
+            assert!(game.make_move_unchecked(square.index() as u8));
         }
-
-        let mut game_b = Game::new(true);
-        for mv in replayed_moves {
-            assert!(game_b.make_move_unchecked(mv));
+        let mut expected = vec![0; 64];
+        for index in [26, 28, 36, 37] {
+            expected[index] = 1;
         }
-
-        assert_eq!(game_a.board(), game_b.board());
-        assert_eq!(game_a.score(), game_b.score());
-        assert_eq!(game_a.current_player(), game_b.current_player());
+        for index in [19, 27, 35, 43] {
+            expected[index] = 2;
+        }
+        assert_eq!(game.board(), expected);
+        assert_eq!(game.score(), vec![4, 4]);
+        assert_eq!(game.current_player(), 1);
+        assert_eq!(game.empty_count(), 56);
     }
 
     #[test]
@@ -441,6 +431,11 @@ mod tests {
         let hints = game.hint_scores(None);
 
         assert_eq!(hints.len(), legal.len());
+        let mut hinted: Vec<_> = hints.iter().map(|(sq, _)| sq.index() as u8).collect();
+        hinted.sort_unstable();
+        let mut expected = legal.clone();
+        expected.sort_unstable();
+        assert_eq!(hinted, expected);
         for (sq, score) in &hints {
             assert!(legal.contains(&(sq.index() as u8)));
             assert!(score.is_finite());
@@ -461,43 +456,56 @@ mod tests {
     fn hint_results_are_sorted_best_first() {
         let mut game = Game::new(true);
         game.set_level(2);
-
+        for square in [Square::E6, Square::F4, Square::C3, Square::C4] {
+            assert!(game.make_move_unchecked(square.index() as u8));
+        }
         let hints = game.hint_scores(None);
-
-        let best = hints
-            .iter()
-            .cloned()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            .unwrap();
-        assert_eq!(hints[0].1, best.1);
+        assert!(hints.len() > 2);
+        assert!(
+            hints.windows(2).any(|pair| pair[0].1 != pair[1].1),
+            "fixture must distinguish scores"
+        );
+        assert!(hints.windows(2).all(|pair| pair[0].1 >= pair[1].1));
     }
 
     #[test]
     fn hint_scores_covers_endgame_path() {
-        let mut game = Game::new(true);
-        game.set_level(10);
-
-        // Greedily play moves until the human is to move with few empties,
-        // so the position routes through the endgame Multi-PV driver.
-        loop {
-            if game.is_game_over() {
-                panic!("greedy line no longer reaches an endgame hint position");
+        // Full-width exhaustive oracle for a five-empty fixture, independent
+        // of the web search's selective Multi-PV implementation.
+        fn exact_score(board: Board) -> i32 {
+            if board.is_game_over() {
+                return board.solve(board.get_empty_count());
             }
-            if game.empty_count() <= 12 && game.current_player() == game.human_color() {
-                break;
+            let moves = board.get_moves();
+            if moves.is_empty() {
+                return -exact_score(board.switch_players());
             }
-            let moves = game.legal_moves();
-            assert!(!moves.is_empty());
-            assert!(game.make_move_unchecked(moves[0]));
+            moves
+                .iter()
+                .map(|sq| -exact_score(board.make_move(sq)))
+                .max()
+                .unwrap()
         }
-
+        let mut game = Game::new(false);
+        game.set_level(10);
+        game.board = Board::from_string(
+            "-OOOOOO-XXXXXXX---XOXXXOXXXOXXOOXXXXXOXOXXXOOOXOXOOOOXXOXOOOOOOO",
+            Disc::White,
+        )
+        .unwrap();
+        game.current_player = Disc::White;
+        assert_eq!(game.empty_count(), 5);
+        assert_eq!(exact_score(game.board), 32);
         let legal = game.legal_moves();
         let hints = game.hint_scores(None);
-
-        assert_eq!(hints.len(), legal.len());
-        for (sq, score) in &hints {
-            assert!(legal.contains(&(sq.index() as u8)));
-            assert!(score.is_finite());
+        let mut actual: Vec<_> = hints.iter().map(|(sq, _)| sq.index() as u8).collect();
+        actual.sort_unstable();
+        let mut expected = legal;
+        expected.sort_unstable();
+        assert!(!expected.is_empty());
+        assert_eq!(actual, expected);
+        for (sq, score) in hints {
+            assert_eq!(score, -exact_score(game.board.make_move(sq)) as f32, "{sq}");
         }
     }
 

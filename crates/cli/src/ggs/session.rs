@@ -1767,8 +1767,29 @@ mod tests {
     fn child_end_identifies_an_unknown_parent_as_synchro() {
         let mut s = session_with_max(4);
         let _ = s.on_event(unavailable(".5", None, true));
+        assert_eq!(s.resync_requested[".5"].game_slots, None);
         let _ = s.on_event(match_end(".5.0", "0.00"));
+        assert_eq!(s.resync_requested[".5"].game_slots, Some(2));
+        assert_eq!(
+            s.resync_requested[".5"].ended_games,
+            HashSet::from([".5.0".to_string()])
+        );
         assert_eq!(s.active_match_slots(), 1);
+        let _ = s.on_event(OsEvent::MatchState(MatchState {
+            id: ".5.1".to_string(),
+            variant: Some("s8".to_string()),
+            opponent: Some("bob".to_string()),
+            board: Board::new(),
+            side_to_move: Disc::White,
+            my_color: Some(Disc::Black),
+            my_clock: None,
+        }));
+        assert!(s.resync_requested.is_empty());
+        assert_eq!(s.active_matches[0].game_slots, 2);
+        assert_eq!(
+            s.active_matches[0].ended_games,
+            HashSet::from([".5.0".to_string()])
+        );
     }
 
     #[test]
@@ -1831,25 +1852,6 @@ mod tests {
                 .iter()
                 .any(|action| matches!(action, SessionAction::Send(_)))
         );
-    }
-
-    #[test]
-    fn ended_synchro_child_releases_its_game_slot() {
-        let mut s = session_with_max(2);
-        let _ = s.on_event(match_created_with_variant(".5", Some("bob"), Some("s8")));
-        let search = s.on_event(match_state_with_color(
-            ".5.1",
-            Disc::White,
-            Some(Disc::White),
-            None,
-        ));
-        assert!(matches!(&search[0], SessionAction::StartSearch { .. }));
-        let _ = s.on_event(match_end(".5.1", "0.00"));
-
-        let _ = s.on_move_ready(".5.1", 0, Some((Square::F5, 0.0)), Duration::ZERO);
-        let accepted = s.on_event(ask_offer(".9", "carol", "alice"));
-        assert_eq!(accepted[0], send("tell /os accept .9"));
-        assert!(s.active_matches[0].contains_game(".5.0"));
     }
 
     #[test]
@@ -2258,7 +2260,9 @@ mod tests {
 
     #[test]
     fn synchro_and_random_ask_types_are_auto_accepted() {
-        for game_type in ["s8", "s8b", "s8w", "8r20", "s8r20", "8br20", "s8wr20"] {
+        // GGS requires random starts to be synchro (or komi, unsupported here),
+        // and rejects combining random starts with a requested color.
+        for game_type in ["s8", "s8b", "s8w", "s8r20"] {
             let mut s = new_session();
             let actions = s.on_event(ask_offer_with_game(".8", "bob", "alice", game_type, "U"));
             assert_eq!(
@@ -2557,11 +2561,20 @@ mod tests {
 
     #[test]
     fn withdrawn_pending_offer_recovers_after_timeout() {
-        let mut s = new_session();
-        let _ = s.on_event(ask_offer(".8", "bob", "alice"));
+        let mut s = session_with_max(1);
+        assert_eq!(
+            s.on_event(ask_offer(".8", "bob", "alice"))[0],
+            send("tell /os accept .8")
+        );
         let _ = s.on_event(OsEvent::AskWithdrawn {
             id: ".8".to_string(),
         });
+        assert_eq!(s.reserved_match_slots(), 1);
+        assert_eq!(
+            s.on_event(ask_offer(".9", "carol", "alice"))[0],
+            send("tell /os decline .9")
+        );
+        assert_eq!(s.pending_accepts[0].id, ".8");
         s.pending_accepts[0].withdrawn_at = Some(
             Instant::now()
                 .checked_sub(PENDING_ACCEPT_RECOVERY_TIMEOUT + Duration::from_millis(1))
@@ -2572,6 +2585,8 @@ mod tests {
             s.on_event(ask_offer(".9", "carol", "alice"))[0],
             send("tell /os accept .9")
         );
+        assert_eq!(s.pending_accepts.len(), 1);
+        assert_eq!(s.pending_accepts[0].id, ".9");
     }
 
     #[test]

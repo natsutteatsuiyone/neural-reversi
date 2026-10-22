@@ -5,8 +5,10 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 const EXPECTED_STARTUP: &[&str] = &[
     "alice",
@@ -55,13 +57,35 @@ fn join_chunk(to_move: &str) -> String {
     ])
 }
 
+fn wait_for_cli(mut child: Child) -> Output {
+    let deadline = Instant::now() + Duration::from_secs(40);
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return child.wait_with_output().unwrap();
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "CLI did not exit: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
 #[test]
-fn ggs_exits_when_os_restarts_during_search() {
+fn ggs_exits_when_os_restarts_after_join() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
     let addr = listener.local_addr().expect("local addr");
 
+    let (done_tx, done_rx) = mpsc::channel();
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().expect("accept");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
         let mut writer = stream.try_clone().expect("clone stream");
         let mut reader = BufReader::new(stream).lines();
 
@@ -91,6 +115,7 @@ fn ggs_exits_when_os_restarts_during_search() {
         writer
             .write_all(crlf(&["\x07: - /os 1", "READY"]).as_bytes())
             .unwrap();
+        done_tx.send(()).unwrap();
     });
 
     let bin = env!("CARGO_BIN_EXE_cli");
@@ -114,8 +139,11 @@ fn ggs_exits_when_os_restarts_during_search() {
         .spawn()
         .expect("spawn cli");
 
+    let output = wait_for_cli(child);
+    done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("mock server completed");
     server.join().expect("server thread panicked");
-    let output = child.wait_with_output().expect("wait for cli");
     assert!(
         !output.status.success(),
         "cli should exit after /os restart"
@@ -132,6 +160,7 @@ fn plain_and_redirected_modes_preserve_telnet_lines() {
     for explicit_plain in [false, true] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        let (done_tx, done_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
@@ -150,6 +179,7 @@ fn plain_and_redirected_modes_preserve_telnet_lines() {
                     crlf(&["MOTD", "", "unknown service output\x1b[31m", "READY"]).as_bytes(),
                 )
                 .unwrap();
+            done_tx.send(()).unwrap();
         });
         let mut command = Command::new(env!("CARGO_BIN_EXE_cli"));
         command.args([
@@ -182,8 +212,11 @@ fn plain_and_redirected_modes_preserve_telnet_lines() {
             .unwrap()
             .write_all(" help  \n\ntell bob 日本語 | @ \\ {\nquit\n".as_bytes())
             .unwrap();
+        let output = wait_for_cli(child);
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("mock server completed");
         server.join().unwrap();
-        let output = child.wait_with_output().unwrap();
         assert!(
             output.status.success(),
             "{}",

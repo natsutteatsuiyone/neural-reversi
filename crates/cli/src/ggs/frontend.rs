@@ -2076,8 +2076,10 @@ mod tests {
             game.activity = activity;
             game.worker = Some(0);
             model.worker_finished(".5", 0);
+            assert_eq!(model.games[".5"].activity, Activity::WaitingForServer);
+            assert!(game_status(&model.games[".5"]).is_empty());
             let view = screen(&mut model, 80, 25);
-            assert!(!view.contains("Status:"));
+            assert!(view.contains("Idle"));
             assert!(!view.contains("queued"));
         }
     }
