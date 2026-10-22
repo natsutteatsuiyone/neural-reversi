@@ -40,14 +40,14 @@ impl OnePlyEngine {
 
     fn evaluate_position(&self, board: &Board) -> ScaledScore {
         if board.is_game_over() {
-            return ScaledScore::from_disc_diff(board.solve(board.get_empty_count()));
+            return ScaledScore::from_disc_diff(board.solve(board.empty_count()));
         }
 
         if !board.has_legal_moves() {
             return -self.evaluate_position(&board.switch_players());
         }
 
-        let ply = INITIAL_EMPTY_COUNT - board.get_empty_count() as usize;
+        let ply = INITIAL_EMPTY_COUNT - board.empty_count() as usize;
         let pattern_features = PatternFeatures::new(board, ply);
         self.eval
             .evaluate_network(pattern_features.p_feature(ply), ply)
@@ -270,7 +270,7 @@ fn build_result(
 }
 
 fn score_from_black_perspective(board: &Board, side_to_move: Disc) -> i32 {
-    let score = board.solve(board.get_empty_count());
+    let score = board.solve(board.empty_count());
     if side_to_move == Disc::Black {
         score
     } else {
@@ -280,8 +280,8 @@ fn score_from_black_perspective(board: &Board, side_to_move: Disc) -> i32 {
 
 fn absolute_counts(board: &Board, side_to_move: Disc) -> (u32, u32) {
     if side_to_move == Disc::Black {
-        (board.get_player_count(), board.get_opponent_count())
+        (board.player_count(), board.opponent_count())
     } else {
-        (board.get_opponent_count(), board.get_player_count())
+        (board.opponent_count(), board.player_count())
     }
 }

@@ -247,7 +247,7 @@ pub mod trace {
         result: Option<ScaledScore>,
     ) {
         let one_in = ONE_IN.load(Ordering::Relaxed);
-        let empties = board.get_empty_count();
+        let empties = board.empty_count();
         if one_in != 0
             && (MIN_EMPTIES.load(Ordering::Relaxed)..=MAX_EMPTIES.load(Ordering::Relaxed))
                 .contains(&empties)

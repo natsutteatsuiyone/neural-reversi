@@ -18,7 +18,7 @@ struct NetworkBenchInput {
 
 impl NetworkBenchInput {
     fn from_board(board: &Board) -> Self {
-        let ply = INITIAL_EMPTY_COUNT - board.get_empty_count() as usize;
+        let ply = INITIAL_EMPTY_COUNT - board.empty_count() as usize;
         let pattern_features = PatternFeatures::new(board, ply);
         Self {
             pattern_feature: *pattern_features.p_feature(ply),

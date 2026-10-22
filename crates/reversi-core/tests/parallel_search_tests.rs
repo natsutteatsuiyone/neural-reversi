@@ -90,7 +90,7 @@ fn parallel_solve_matches_single_threaded() {
 fn parallel_solve_reused_search_instance_is_consistent() {
     let mut search = search(4);
     let board = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
-    assert_eq!(board.get_empty_count(), 16);
+    assert_eq!(board.empty_count(), 16);
     let options = SearchRunOptions::with_level(Level::perfect());
 
     // The second run hits a warm transposition table.
@@ -219,7 +219,7 @@ fn manual_abort_stops_midgame_and_endgame_promptly() {
             assert!(result.n_nodes() > 0);
             if endgame {
                 assert!(
-                    result.get_probability() < 100,
+                    result.probability() < 100,
                     "abort must stop before the full solve"
                 );
             }

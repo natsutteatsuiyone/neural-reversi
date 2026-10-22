@@ -145,7 +145,7 @@ impl PlayerTime {
         }
     }
 
-    fn get_time_control(&self) -> TimeControlMode {
+    fn time_control(&self) -> TimeControlMode {
         match self.mode {
             TimeMode::None => TimeControlMode::Infinite,
             TimeMode::Byoyomi => {
@@ -397,7 +397,7 @@ fn play_game(
             let elapsed_ms = start.elapsed().as_millis() as u64;
             (result, elapsed_ms)
         } else {
-            let time_control = player_time.get_time_control();
+            let time_control = player_time.time_control();
 
             // Create progress callback if verbose
             let callback: Option<Box<dyn Fn(SearchProgress) + Send + Sync>> = if args.verbose {
@@ -500,7 +500,7 @@ fn play_game(
 
             // Format depth with selectivity probability (like evaltest)
             let depth_str = {
-                let probability = result.get_probability();
+                let probability = result.probability();
                 if probability == 100 {
                     format!("{}", result.depth())
                 } else {
@@ -541,7 +541,7 @@ fn play_game(
     }
 
     // Game over - count discs
-    let (black_count, white_count) = game.get_score();
+    let (black_count, white_count) = game.score();
 
     if black_count > white_count {
         GameResult::BlackWin((black_count - white_count) as i32)

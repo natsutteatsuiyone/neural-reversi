@@ -780,7 +780,7 @@ impl App {
             if matches!(
                 self.board_edit_tab,
                 BoardEditTab::BoardString | BoardEditTab::Bitboard
-            ) && game.board().get_player_count() + game.board().get_opponent_count() < 4
+            ) && game.board().player_count() + game.board().opponent_count() < 4
             {
                 Err("At least 4 discs required".to_string())
             } else {

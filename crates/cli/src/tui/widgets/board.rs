@@ -99,7 +99,7 @@ impl Widget for BoardWidget<'_> {
 
             for col in 0..8 {
                 let sq = Square::from_file_rank(col as u8, row as u8);
-                let piece = self.board.get_disc_at(sq, self.side_to_move);
+                let piece = self.board.disc_at(sq, self.side_to_move);
                 let is_legal = legal_moves.contains(sq);
                 let is_cursor = self.cursor == (row, col);
                 let is_last_move = self.last_move == Some(sq);

@@ -64,7 +64,7 @@ impl SearchProgress {
             depth: result.depth(),
             target_depth: result.depth(),
             score: result.score().unwrap_or(0.0),
-            probability: result.get_probability(),
+            probability: result.probability(),
             best_move: result.best_move().unwrap_or(Square::None),
             nodes: result.n_nodes(),
             pv_line: result.pv_line().to_vec(),

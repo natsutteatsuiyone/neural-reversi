@@ -87,7 +87,7 @@ impl EmptyList {
         let mut nodes: [EmptyNode; 65] = [EmptyNode::default(); 65];
 
         let mut prev_sq = Square::None;
-        let empty_board = board.get_empty();
+        let empty_board = board.empty_squares();
         for &sq in PRESORTED.iter() {
             if empty_board.contains(sq) {
                 let sq_idx = sq.index();

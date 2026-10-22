@@ -123,7 +123,7 @@ impl Board {
 
     /// Returns the disc at `sq` from the perspective of `side_to_move`.
     #[inline]
-    pub fn get_disc_at(&self, sq: Square, side_to_move: Disc) -> Disc {
+    pub fn disc_at(&self, sq: Square, side_to_move: Disc) -> Disc {
         if self.player.contains(sq) {
             side_to_move
         } else if self.opponent.contains(sq) {
@@ -146,32 +146,32 @@ impl Board {
 
     /// Returns a [`Bitboard`] of empty squares.
     #[inline(always)]
-    pub fn get_empty(&self) -> Bitboard {
+    pub fn empty_squares(&self) -> Bitboard {
         !(self.player | self.opponent)
     }
 
     /// Returns the number of discs the current player has on the board.
     #[inline(always)]
-    pub fn get_player_count(&self) -> u32 {
+    pub fn player_count(&self) -> u32 {
         self.player.count()
     }
 
     /// Returns the number of discs the opponent has on the board.
     #[inline(always)]
-    pub fn get_opponent_count(&self) -> u32 {
+    pub fn opponent_count(&self) -> u32 {
         self.opponent.count()
     }
 
     /// Returns the number of empty squares on the board.
     #[inline(always)]
-    pub fn get_empty_count(&self) -> u32 {
-        self.get_empty().count()
+    pub fn empty_count(&self) -> u32 {
+        self.empty_squares().count()
     }
 
     /// Returns the disc-difference score without any assertions.
     #[inline(always)]
     fn disc_score(&self) -> Score {
-        self.get_player_count() as Score * 2 - SCORE_MAX
+        self.player_count() as Score * 2 - SCORE_MAX
     }
 
     /// Returns the final score (disc difference) from the current player's perspective.
@@ -184,7 +184,7 @@ impl Board {
     #[inline(always)]
     pub fn final_score(&self) -> Score {
         debug_assert!(
-            self.get_empty().is_empty(),
+            self.empty_squares().is_empty(),
             "final_score requires no empty squares; use solve() for boards with empties"
         );
         self.disc_score()
@@ -206,9 +206,9 @@ impl Board {
     #[inline(always)]
     pub fn solve(&self, n_empties: u32) -> Score {
         debug_assert!(
-            n_empties == self.get_empty_count(),
+            n_empties == self.empty_count(),
             "n_empties ({n_empties}) does not match actual empty count ({})",
-            self.get_empty_count()
+            self.empty_count()
         );
         let score = self.disc_score();
         let diff = score + n_empties as Score;
@@ -290,7 +290,10 @@ impl Board {
     #[inline(always)]
     pub fn make_move_with_flipped(&self, flipped: Bitboard, sq: Square) -> Board {
         debug_assert!(!flipped.is_empty(), "flipped must not be empty");
-        debug_assert!(self.get_empty().contains(sq), "sq must be an empty square");
+        debug_assert!(
+            self.empty_squares().contains(sq),
+            "sq must be an empty square"
+        );
         debug_assert!(
             (flipped & !self.opponent).is_empty(),
             "flipped must be a subset of opponent's discs"
@@ -419,7 +422,7 @@ impl Board {
             if i > 0 && i % 8 == 0 {
                 s.push('\n');
             }
-            s.push(self.get_disc_at(sq, current_player).to_char());
+            s.push(self.disc_at(sq, current_player).to_char());
         }
         s
     }
@@ -540,30 +543,18 @@ mod tests {
         let board = Board::new();
 
         // Check discs from Black's perspective (Black is the first player)
-        assert_eq!(board.get_disc_at(Square::D5, Disc::Black), Disc::Black);
-        assert_eq!(board.get_disc_at(Square::E4, Disc::Black), Disc::Black);
-        assert_eq!(board.get_disc_at(Square::D4, Disc::Black), Disc::White);
-        assert_eq!(board.get_disc_at(Square::E5, Disc::Black), Disc::White);
-        assert_eq!(board.get_disc_at(Square::A1, Disc::Black), Disc::Empty);
+        assert_eq!(board.disc_at(Square::D5, Disc::Black), Disc::Black);
+        assert_eq!(board.disc_at(Square::E4, Disc::Black), Disc::Black);
+        assert_eq!(board.disc_at(Square::D4, Disc::Black), Disc::White);
+        assert_eq!(board.disc_at(Square::E5, Disc::Black), Disc::White);
+        assert_eq!(board.disc_at(Square::A1, Disc::Black), Disc::Empty);
 
         // Switch to White's perspective
         let white_board = board.switch_players();
-        assert_eq!(
-            white_board.get_disc_at(Square::D5, Disc::White),
-            Disc::Black
-        );
-        assert_eq!(
-            white_board.get_disc_at(Square::E4, Disc::White),
-            Disc::Black
-        );
-        assert_eq!(
-            white_board.get_disc_at(Square::D4, Disc::White),
-            Disc::White
-        );
-        assert_eq!(
-            white_board.get_disc_at(Square::E5, Disc::White),
-            Disc::White
-        );
+        assert_eq!(white_board.disc_at(Square::D5, Disc::White), Disc::Black);
+        assert_eq!(white_board.disc_at(Square::E4, Disc::White), Disc::Black);
+        assert_eq!(white_board.disc_at(Square::D4, Disc::White), Disc::White);
+        assert_eq!(white_board.disc_at(Square::E5, Disc::White), Disc::White);
     }
 
     #[test]
@@ -609,8 +600,8 @@ mod tests {
         let new_board = board.make_move(Square::D3);
         assert!(new_board.opponent().contains(Square::D3));
         assert!(new_board.opponent().contains(Square::D4));
-        assert_eq!(new_board.get_opponent_count(), 4); // 2 original + 1 new + 1 flipped
-        assert_eq!(new_board.get_player_count(), 1); // 2 original - 1 flipped
+        assert_eq!(new_board.opponent_count(), 4); // 2 original + 1 new + 1 flipped
+        assert_eq!(new_board.player_count(), 1); // 2 original - 1 flipped
     }
 
     #[test]
@@ -701,8 +692,8 @@ mod tests {
         // diff = 16 + 4 = 20 > 0, so player gets all empties
         // Result = 20 + 4 = 24
         let board = Board::from_bitboards(0x000000FFFFFFFFFFu64, 0x0FFFFF0000000000u64);
-        let player_count = board.get_player_count();
-        let opponent_count = board.get_opponent_count();
+        let player_count = board.player_count();
+        let opponent_count = board.opponent_count();
         let n_empties = 64 - player_count - opponent_count;
         let score = board.solve(n_empties);
         // Player ahead: gets all empty squares (diff 20 + 4 empties).
@@ -716,8 +707,8 @@ mod tests {
         // diff = -24 + 4 = -20 < 0, so player gets no empties
         // Result = -24
         let board = Board::from_bitboards(0x00000000000FFFFFu64, 0x0FFFFFFFFFF00000u64);
-        let player_count = board.get_player_count();
-        let opponent_count = board.get_opponent_count();
+        let player_count = board.player_count();
+        let opponent_count = board.opponent_count();
         let n_empties = 64 - player_count - opponent_count;
         let score = board.solve(n_empties);
         // Opponent ahead: player gets no empty squares.

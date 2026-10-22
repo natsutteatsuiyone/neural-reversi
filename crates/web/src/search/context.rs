@@ -132,7 +132,7 @@ impl SearchContext {
 
     /// Returns the current pattern feature for neural network evaluation.
     #[inline]
-    pub fn get_pattern_feature(&self) -> &PatternFeature {
+    pub fn pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
         if self.side_to_move == SideToMove::Player {
             self.pattern_features.p_feature(ply)
@@ -166,7 +166,7 @@ impl SearchContext {
     }
 
     /// Returns the root move with the highest score.
-    pub fn get_best_root_move(&self) -> Option<RootMove> {
+    pub fn best_root_move(&self) -> Option<RootMove> {
         self.root_moves.iter().max_by_key(|rm| rm.score).cloned()
     }
 

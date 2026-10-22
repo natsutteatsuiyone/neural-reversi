@@ -155,7 +155,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 flip::flip(tt_move, board.player(), board.opponent()),
             )
         } else {
-            let mv = move_list.get_move(0);
+            let mv = move_list.move_at(0);
             (mv.sq, mv.flipped)
         };
         move_count = 1;
@@ -203,7 +203,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     if n_moves - move_count > 1 {
         move_list.evaluate_moves::<NT, SS>(ctx, board, depth, tt_move, alpha, cut_node);
         move_list.sort();
-    } else if n_moves == 2 && move_list.get_move(0).sq != tt_move {
+    } else if n_moves == 2 && move_list.move_at(0).sq != tt_move {
         move_list.swap_moves(0, 1);
     }
 
@@ -243,7 +243,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             break; // Split consumed all remaining moves
         }
 
-        let mv = move_list.get_move(move_count);
+        let mv = move_list.move_at(move_count);
         move_count += 1;
 
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -441,7 +441,7 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
 
                 if NT::PV_NODE && !NT::ROOT_NODE {
                     ctx.update_pv(mv.sq);
-                    split_point.copy_pv(ctx.get_pv());
+                    split_point.copy_pv(ctx.pv());
                 }
 
                 if NT::PV_NODE && score < beta {

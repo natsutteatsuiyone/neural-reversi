@@ -75,7 +75,7 @@ impl EndgameSolver {
         let board = Board::from_string(board_str, disc)
             .map_err(|e| JsValue::from_str(&format!("Invalid board: {}", e)))?;
 
-        let empty_count = board.get_empty_count() as Depth;
+        let empty_count = board.empty_count() as Depth;
         let level = Level {
             mid_depth: empty_count,
             end_depth: empty_count,

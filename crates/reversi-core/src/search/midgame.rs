@@ -98,7 +98,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
             let (mut alpha, mut beta, delta) = ctx
                 .root_moves
-                .get_current_pv()
+                .current_pv()
                 .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
                 .map(|rm| {
                     let delta = ASPIRATION_DELTA
@@ -130,7 +130,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 break;
             }
 
-            if let Some(rm) = ctx.root_moves.get_current_pv() {
+            if let Some(rm) = ctx.root_moves.current_pv() {
                 store_pv_in_tt(&ctx, &board, &rm.pv, rm.score, searched_depth, false);
 
                 if let Some(ref callback) = task.callback {
@@ -543,8 +543,7 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
     } else if USE_MAIN_NETWORK {
         -ctx.evaluate_main_with_key(&next, cache_key)
     } else {
-        -ctx.eval
-            .evaluate_small(ctx.get_pattern_feature(), ctx.ply())
+        -ctx.eval.evaluate_small(ctx.pattern_feature(), ctx.ply())
     };
     ctx.undo(sq);
 
@@ -567,10 +566,9 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
 
     if Eval::should_use_main_network(ctx.eval_mode, ctx.ply()) {
         ctx.eval
-            .evaluate_main(ctx.get_pattern_feature(), board, ctx.ply(), board.hash())
+            .evaluate_main(ctx.pattern_feature(), board, ctx.ply(), board.hash())
     } else {
-        ctx.eval
-            .evaluate_small(ctx.get_pattern_feature(), ctx.ply())
+        ctx.eval.evaluate_small(ctx.pattern_feature(), ctx.ply())
     }
 }
 
@@ -743,7 +741,7 @@ mod schedule_tests {
             Disc::Black,
         )
         .unwrap();
-        let n_empties = board.get_empty_count();
+        let n_empties = board.empty_count();
         let time_manager = Arc::new(TimeManager::new(
             TimeControlMode::Byoyomi {
                 time_per_move_ms: 600_000,
@@ -768,7 +766,7 @@ mod schedule_tests {
 
         assert!(result.is_endgame());
         assert_eq!(result.depth(), n_empties);
-        assert_eq!(result.get_probability(), 100);
+        assert_eq!(result.probability(), 100);
         assert_eq!(result.best_move(), Some(Square::G8));
         assert_eq!(result.score(), Some(18.0));
     }

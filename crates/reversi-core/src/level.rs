@@ -76,7 +76,7 @@ impl Level {
     /// # Panics
     ///
     /// Panics if `selectivity` is not in [`Self::ENDGAME_SELECTIVITY`].
-    pub fn get_end_depth(&self, selectivity: Selectivity) -> Depth {
+    pub fn end_depth_for(&self, selectivity: Selectivity) -> Depth {
         let index = Self::ENDGAME_SELECTIVITY
             .iter()
             .position(|&s| s == selectivity)
@@ -150,17 +150,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_end_depth() {
+    fn test_end_depth_for() {
         let level = Level {
             mid_depth: 10,
             end_depth: [20, 22, 23, 24, 25],
         };
 
-        assert_eq!(level.get_end_depth(Selectivity::Level1), 20);
-        assert_eq!(level.get_end_depth(Selectivity::Level2), 22);
-        assert_eq!(level.get_end_depth(Selectivity::Level3), 23);
-        assert_eq!(level.get_end_depth(Selectivity::Level4), 24);
-        assert_eq!(level.get_end_depth(Selectivity::None), 25);
+        assert_eq!(level.end_depth_for(Selectivity::Level1), 20);
+        assert_eq!(level.end_depth_for(Selectivity::Level2), 22);
+        assert_eq!(level.end_depth_for(Selectivity::Level3), 23);
+        assert_eq!(level.end_depth_for(Selectivity::Level4), 24);
+        assert_eq!(level.end_depth_for(Selectivity::None), 25);
     }
 
     #[test]

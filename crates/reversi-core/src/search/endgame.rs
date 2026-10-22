@@ -169,7 +169,7 @@ pub(super) fn solve_root(
         // Iterative selectivity loop
         for selectivity in Level::ENDGAME_SELECTIVITY {
             // Check depth limit when not using time control
-            if !use_time_control && task.level.get_end_depth(selectivity) < n_empties {
+            if !use_time_control && task.level.end_depth_for(selectivity) < n_empties {
                 break;
             }
 
@@ -189,7 +189,7 @@ pub(super) fn solve_root(
             // Stable sort moves from pv_idx to end, bringing best to pv_idx position
             ctx.root_moves.sort_from_pv_idx();
 
-            let pv_root_move = ctx.root_moves.get_current_pv();
+            let pv_root_move = ctx.root_moves.current_pv();
             if let Some(ref rm) = pv_root_move {
                 store_pv_in_tt(ctx, board, &rm.pv, rm.score, n_empties, true);
             }

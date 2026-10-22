@@ -57,7 +57,7 @@ impl Eval {
     pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
         let key = board.hash();
         self.cache.get_or_insert_with(key, || {
-            self.network.evaluate(ctx.get_pattern_feature(), ctx.ply())
+            self.network.evaluate(ctx.pattern_feature(), ctx.ply())
         })
     }
 

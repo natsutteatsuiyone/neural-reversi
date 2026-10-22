@@ -179,7 +179,7 @@ impl Eval {
     /// bypasses the eval cache, and returns the exact final score when the board
     /// has no empties.
     pub fn evaluate_simple(&self, board: &Board, eval_mode: EvalMode) -> ScaledScore {
-        let n_empties = board.get_empty_count() as usize;
+        let n_empties = board.empty_count() as usize;
         if n_empties == 0 {
             return board.final_score_scaled();
         }
@@ -277,7 +277,7 @@ mod tests {
         // A full board has zero empties, so the network is bypassed for the
         // exact final score.
         let board = Board::from_bitboards(u64::MAX, 0);
-        assert_eq!(board.get_empty_count(), 0);
+        assert_eq!(board.empty_count(), 0);
         assert_eq!(
             eval.evaluate_simple(&board, EvalMode::Main),
             board.final_score_scaled()
@@ -290,7 +290,7 @@ mod tests {
 
         let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
         let board = Board::new();
-        let ply = INITIAL_EMPTY_COUNT - board.get_empty_count() as usize;
+        let ply = INITIAL_EMPTY_COUNT - board.empty_count() as usize;
         let feature = PatternFeatures::new(&board, ply);
 
         // evaluate_simple bypasses the eval cache, so it pins the expected

@@ -963,7 +963,7 @@ fn search_report(
         "{game_id} {sq} {:+} | depth {}@{}% | {} nodes | {secs:.2}s{wait} | {:.1} Mnps",
         score.round() as i32,
         result.depth(),
-        result.get_probability(),
+        result.probability(),
         si_count(nodes),
         nodes / secs.max(1e-9) / 1e6,
     )
@@ -1006,7 +1006,7 @@ fn channel_report(
     let pv = report_pv(board, color, result.pv_line());
     let score = result.score().unwrap_or_default().round() as i32;
     let depth = result.depth();
-    let probability = result.get_probability();
+    let probability = result.probability();
     let nodes = result.n_nodes() as f64;
     let search = elapsed.as_secs_f64();
     let status = if timed_out {

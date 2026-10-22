@@ -101,7 +101,7 @@ fn move_chains(seed: u64) -> Vec<MoveChain> {
         let start = sources[source_index % sources.len()];
         source_index += 1;
         let mut board = start;
-        let mut steps = Vec::with_capacity(board.get_empty_count() as usize + 2);
+        let mut steps = Vec::with_capacity(board.empty_count() as usize + 2);
 
         loop {
             let moves = board.get_moves();

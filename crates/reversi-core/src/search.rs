@@ -266,7 +266,7 @@ impl Search {
     /// if the search is aborted before completing any iteration.
     pub fn run(&mut self, board: &Board, options: &SearchRunOptions) -> SearchResult {
         let callback = options.callback.clone();
-        let n_empties = board.get_empty_count();
+        let n_empties = board.empty_count();
 
         let (time_manager, mut effective_level) =
             self.build_time_controls(n_empties, &options.constraint);
@@ -549,7 +549,7 @@ pub(crate) fn store_pv_in_tt(
 /// to the endgame solver; otherwise delegates to the midgame search.
 fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let min_end_depth = task.level.min_end_depth();
-    let n_empties = task.board.get_empty_count();
+    let n_empties = task.board.empty_count();
 
     if min_end_depth >= n_empties {
         return endgame::search_root(task, thread);

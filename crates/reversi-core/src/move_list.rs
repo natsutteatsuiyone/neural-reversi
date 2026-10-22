@@ -280,7 +280,7 @@ impl MoveList {
 
     /// Returns the move at the given index by value.
     #[inline(always)]
-    pub fn get_move(&self, index: usize) -> Move {
+    pub fn move_at(&self, index: usize) -> Move {
         debug_assert!(index < self.moves.len());
         // SAFETY: caller ensures `index < self.count()`.
         unsafe { self.moves.get_unchecked(index) }

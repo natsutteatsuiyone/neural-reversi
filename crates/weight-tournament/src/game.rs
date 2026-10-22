@@ -46,14 +46,14 @@ impl OnePlyEngine {
 
     fn evaluate_position(&self, board: &Board) -> ScaledScore {
         if board.is_game_over() {
-            return ScaledScore::from_disc_diff(board.solve(board.get_empty_count()));
+            return ScaledScore::from_disc_diff(board.solve(board.empty_count()));
         }
 
         if !board.has_legal_moves() {
             return -self.evaluate_position(&board.switch_players());
         }
 
-        let ply = INITIAL_EMPTY_COUNT - board.get_empty_count() as usize;
+        let ply = INITIAL_EMPTY_COUNT - board.empty_count() as usize;
         let pattern_features = PatternFeatures::new(board, ply);
         self.network
             .evaluate(board, pattern_features.p_feature(ply), ply)
@@ -165,7 +165,7 @@ fn apply_opening(opening: &str) -> Result<GameState> {
 }
 
 fn score_from_black_perspective(board: &Board, side_to_move: Disc) -> i32 {
-    let score = board.solve(board.get_empty_count());
+    let score = board.solve(board.empty_count());
     if side_to_move == Disc::Black {
         score
     } else {
@@ -182,7 +182,7 @@ mod tests {
         let game = apply_opening("f5d6c4d3").expect("opening should be legal");
 
         let board = game.board();
-        assert_eq!(board.get_player_count() + board.get_opponent_count(), 8);
+        assert_eq!(board.player_count() + board.opponent_count(), 8);
         assert_eq!(
             *board,
             Board::from_bitboards(

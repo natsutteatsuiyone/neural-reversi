@@ -179,7 +179,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
             delta += delta / 2;
         }
 
-        let best_move = ctx.get_best_root_move().unwrap();
+        let best_move = ctx.best_root_move().unwrap();
         alpha = (best_move.average_score - INITIAL_DELTA).max(-ScaledScore::INF);
         beta = (best_move.average_score + INITIAL_DELTA).min(ScaledScore::INF);
 
@@ -190,7 +190,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
         }
     }
 
-    let rm = ctx.get_best_root_move().unwrap();
+    let rm = ctx.best_root_move().unwrap();
     ctx.notify_progress(
         max_depth,
         best_score.to_disc_diff_f32(),
@@ -246,7 +246,7 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
         beta = (best_score + ScaledScore::from_disc_diff(2)).min(ScaledScore::INF);
     }
 
-    let rm = ctx.get_best_root_move().unwrap();
+    let rm = ctx.best_root_move().unwrap();
     ctx.notify_progress(
         n_empties,
         best_score.to_disc_diff_f32(),
@@ -370,7 +370,7 @@ fn search_root_endgame_multipv(
         };
         let mut beta = if pv_idx == 0 {
             base_score + ScaledScore::from_disc_diff(5)
-        } else if let Some(rm) = ctx.get_best_root_move() {
+        } else if let Some(rm) = ctx.best_root_move() {
             rm.score
         } else {
             ScaledScore::INF

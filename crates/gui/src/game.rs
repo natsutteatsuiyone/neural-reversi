@@ -51,12 +51,12 @@ impl Position {
     pub fn cell(&self, index: usize) -> Disc {
         assert!(index < 64, "Board cell index must be below 64");
         self.board
-            .get_disc_at(Square::from_u8(index as u8).unwrap(), self.turn)
+            .disc_at(Square::from_u8(index as u8).unwrap(), self.turn)
     }
 
     pub fn scores(&self) -> (u32, u32) {
-        let player = self.board.get_player_count();
-        let opponent = self.board.get_opponent_count();
+        let player = self.board.player_count();
+        let opponent = self.board.opponent_count();
         if self.turn == Disc::Black {
             (player, opponent)
         } else {

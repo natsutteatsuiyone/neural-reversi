@@ -25,12 +25,7 @@ pub(crate) fn color(state: &GameState) -> &'static str {
 
 pub(crate) fn board_string(state: &GameState) -> String {
     Square::iter()
-        .map(|sq| {
-            state
-                .board()
-                .get_disc_at(sq, state.side_to_move())
-                .to_char()
-        })
+        .map(|sq| state.board().disc_at(sq, state.side_to_move()).to_char())
         .collect()
 }
 
@@ -98,10 +93,7 @@ pub(crate) fn random_position(discs: u8, rng: &mut impl RngExt) -> GameState {
                 side = side.opposite();
             }
             let minimum = u32::from(discs / 4).max(3);
-            if completed
-                && board.get_player_count() > minimum
-                && board.get_opponent_count() > minimum
-            {
+            if completed && board.player_count() > minimum && board.opponent_count() > minimum {
                 return GameState::from_board(board, side);
             }
         }
@@ -126,7 +118,7 @@ mod tests {
                     board_string(&random_position(discs, &mut two))
                 );
                 assert_eq!(
-                    state.board().get_player_count() + state.board().get_opponent_count(),
+                    state.board().player_count() + state.board().opponent_count(),
                     u32::from(discs)
                 );
                 assert_eq!(

@@ -89,7 +89,7 @@ impl GameState {
         let mut result = String::new();
         let board = self.core.board();
         let side_to_move = self.core.side_to_move();
-        let (black_count, white_count) = self.core.get_score();
+        let (black_count, white_count) = self.core.score();
 
         // Header
         result.push_str("   a b c d e f g h\n");
@@ -101,7 +101,7 @@ impl GameState {
 
             for x in 0..8 {
                 let sq = Square::from_file_rank(x as u8, y as u8);
-                let piece = board.get_disc_at(sq, side_to_move);
+                let piece = board.disc_at(sq, side_to_move);
                 let symbol = match piece {
                     Disc::Black => "X",
                     Disc::White => "O",
@@ -164,7 +164,7 @@ impl GameState {
 
     /// Returns the disc count as `(black_count, white_count)`.
     pub fn score(&self) -> (u32, u32) {
-        self.core.get_score()
+        self.core.score()
     }
 
     /// Returns the move history as a list of squares, excluding passes.

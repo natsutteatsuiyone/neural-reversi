@@ -153,7 +153,7 @@ impl Game {
     }
 
     pub fn empty_count(&self) -> u8 {
-        self.board.get_empty_count() as u8
+        self.board.empty_count() as u8
     }
 
     pub fn set_level(&mut self, level: u8) {
@@ -474,7 +474,7 @@ mod tests {
         // of the web search's selective Multi-PV implementation.
         fn exact_score(board: Board) -> i32 {
             if board.is_game_over() {
-                return board.solve(board.get_empty_count());
+                return board.solve(board.empty_count());
             }
             let moves = board.get_moves();
             if moves.is_empty() {

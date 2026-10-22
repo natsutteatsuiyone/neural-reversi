@@ -61,7 +61,7 @@ impl SearchStack {
 
     /// Returns the principal variation at the given ply.
     #[inline]
-    pub fn get_pv(&self, ply: usize) -> &[Square; MAX_PLY] {
+    pub fn pv(&self, ply: usize) -> &[Square; MAX_PLY] {
         &self.stack[ply].pv
     }
 
@@ -87,7 +87,7 @@ mod tests {
         // Ply 2: update_pv should copy child PV from ply 3
         stack.update_pv(Square::E3, 2);
 
-        let pv2 = stack.get_pv(2);
+        let pv2 = stack.pv(2);
         assert_eq!(pv2[0], Square::E3);
         assert_eq!(pv2[1], Square::F6); // copied from ply 3
         assert_eq!(pv2[2], Square::None); // sentinel
@@ -95,7 +95,7 @@ mod tests {
         // Ply 1: update_pv should copy child PV from ply 2
         stack.update_pv(Square::D3, 1);
 
-        let pv1 = stack.get_pv(1);
+        let pv1 = stack.pv(1);
         assert_eq!(pv1[0], Square::D3);
         assert_eq!(pv1[1], Square::E3); // copied from ply 2
         assert_eq!(pv1[2], Square::F6); // transitively from ply 3
@@ -112,10 +112,10 @@ mod tests {
 
         stack.prepare_pv(1);
 
-        assert_eq!(stack.get_pv(0)[0], Square::C4);
-        assert_eq!(stack.get_pv(1)[0], Square::None);
-        assert_eq!(stack.get_pv(2)[0], Square::None);
-        assert_eq!(stack.get_pv(3)[0], Square::F6);
+        assert_eq!(stack.pv(0)[0], Square::C4);
+        assert_eq!(stack.pv(1)[0], Square::None);
+        assert_eq!(stack.pv(2)[0], Square::None);
+        assert_eq!(stack.pv(3)[0], Square::F6);
     }
 
     #[test]
@@ -130,7 +130,7 @@ mod tests {
 
         // Other plies should remain untouched
         for (ply, record) in before.iter().enumerate().skip(1) {
-            assert_eq!(*stack.get_pv(ply), record.pv, "ply={ply}");
+            assert_eq!(*stack.pv(ply), record.pv, "ply={ply}");
         }
     }
 }

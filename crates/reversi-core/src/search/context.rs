@@ -155,7 +155,7 @@ impl SearchContext {
 
     /// Returns the current pattern feature for neural network evaluation.
     #[inline]
-    pub fn get_pattern_feature(&self) -> &PatternFeature {
+    pub fn pattern_feature(&self) -> &PatternFeature {
         let ply = self.ply();
         if self.side_to_move == SideToMove::Player {
             self.pattern_features.p_feature(ply)
@@ -186,7 +186,7 @@ impl SearchContext {
     #[inline(always)]
     pub fn evaluate_main_with_key(&self, board: &Board, key: u64) -> ScaledScore {
         self.eval
-            .evaluate_main(self.get_pattern_feature(), board, self.ply(), key)
+            .evaluate_main(self.pattern_feature(), board, self.ply(), key)
     }
 
     /// Updates a root move with its search results.
@@ -195,7 +195,7 @@ impl SearchContext {
             self.update_pv(sq);
         }
 
-        self.root_moves.update(sq, score, is_pv, self.get_pv());
+        self.root_moves.update(sq, score, is_pv, self.pv());
     }
 
     /// Updates the principal variation at the current ply.
@@ -218,8 +218,8 @@ impl SearchContext {
 
     /// Returns the principal variation at the current ply.
     #[inline]
-    pub fn get_pv(&self) -> &[Square; MAX_PLY] {
-        self.stack.get_pv(self.ply())
+    pub fn pv(&self) -> &[Square; MAX_PLY] {
+        self.stack.pv(self.ply())
     }
 
     /// Sets the principal variation at the current ply.

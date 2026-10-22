@@ -549,7 +549,7 @@ impl GtpEngine {
         };
         match reversi_core::board::Board::from_string(text, side) {
             // The search assumes at most 60 empties.
-            Ok(board) if board.get_player_count() + board.get_opponent_count() < 4 => {
+            Ok(board) if board.player_count() + board.opponent_count() < 4 => {
                 GtpResponse::Error("at least 4 discs required".to_string())
             }
             Ok(board) => {
@@ -625,7 +625,7 @@ impl GtpEngine {
         // Determine time control mode for this move. If no time control is set,
         // fall back to depth-limited search based on the configured level so
         // `genmove` returns promptly instead of thinking indefinitely.
-        let time_control = self.get_current_time_control();
+        let time_control = self.current_time_control();
         let options = match time_control {
             TimeControlMode::Infinite => {
                 let level_idx = self.level.min(MAX_LEVEL);
@@ -644,7 +644,7 @@ impl GtpEngine {
     }
 
     /// Gets the current time control mode based on remaining time.
-    fn get_current_time_control(&self) -> TimeControlMode {
+    fn current_time_control(&self) -> TimeControlMode {
         match self.time_control {
             TimeControlMode::Infinite => TimeControlMode::Infinite,
             TimeControlMode::Byoyomi { time_per_move_ms } => {
@@ -944,11 +944,11 @@ mod tests {
         ));
         assert_eq!(engine.game.side_to_move(), Disc::White);
         assert_eq!(
-            engine.game.board().get_disc_at(Square::A1, Disc::White),
+            engine.game.board().disc_at(Square::A1, Disc::White),
             Disc::Black
         );
         assert_eq!(
-            engine.game.board().get_disc_at(Square::B1, Disc::White),
+            engine.game.board().disc_at(Square::B1, Disc::White),
             Disc::White
         );
         let before = *engine.game.board();

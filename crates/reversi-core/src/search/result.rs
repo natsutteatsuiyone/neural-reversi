@@ -222,7 +222,7 @@ impl SearchResult {
 
     /// Returns the probability percentage based on selectivity.
     #[inline]
-    pub fn get_probability(&self) -> i32 {
+    pub fn probability(&self) -> i32 {
         self.selectivity().probability()
     }
 

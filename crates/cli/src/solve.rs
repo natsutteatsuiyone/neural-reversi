@@ -62,7 +62,7 @@ pub fn solve(
             }
         };
         // The search assumes at most 60 empties.
-        if pos.board.get_player_count() + pos.board.get_opponent_count() < 4 {
+        if pos.board.player_count() + pos.board.opponent_count() < 4 {
             eprintln!(
                 "Error parsing line {}: At least 4 discs required",
                 line_num + 1
@@ -185,7 +185,7 @@ fn solve_position(
     let is_pass = !board.has_legal_moves();
 
     if is_pass && !board.switch_players().has_legal_moves() {
-        let score = board.solve(board.get_empty_count());
+        let score = board.solve(board.empty_count());
         if all_moves {
             println!("Position #{}  Depth: END", position_num);
             print_all_moves_table_header();
@@ -215,10 +215,10 @@ fn solve_position(
     let result = search.run(&search_board, &options);
     let elapsed = start_time.elapsed();
 
-    let depth = if result.get_probability() == 100 {
+    let depth = if result.probability() == 100 {
         format!("{}", result.depth())
     } else {
-        format!("{}@{}%", result.depth(), result.get_probability())
+        format!("{}@{}%", result.depth(), result.probability())
     };
 
     let nodes_per_sec = if elapsed.as_secs_f64() > 0.0 {

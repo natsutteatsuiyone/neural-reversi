@@ -1215,8 +1215,8 @@ fn disc_mark(disc: Disc) -> &'static str {
 }
 
 fn absolute_counts(state: &MatchState) -> (u32, u32) {
-    let player = state.board.get_player_count();
-    let opponent = state.board.get_opponent_count();
+    let player = state.board.player_count();
+    let opponent = state.board.opponent_count();
     match state.side_to_move {
         reversi_core::disc::Disc::Black => (player, opponent),
         reversi_core::disc::Disc::White => (opponent, player),

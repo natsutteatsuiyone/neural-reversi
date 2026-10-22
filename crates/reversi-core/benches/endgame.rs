@@ -43,7 +43,7 @@ struct EndgameCase<const N_EMPTY: u32> {
 impl<const N_EMPTY: u32> EndgameCase<N_EMPTY> {
     fn from_board(name: &'static str, board: Board, alpha: Score, expected: Score) -> Self {
         assert_eq!(
-            board.get_empty_count(),
+            board.empty_count(),
             N_EMPTY,
             "benchmark case {name} must have exactly {N_EMPTY} empties"
         );

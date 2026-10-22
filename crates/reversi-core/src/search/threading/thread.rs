@@ -383,7 +383,7 @@ impl Thread {
         sp.reset_counters_locked();
         sp_state.clear_cutoff();
         sp_state.set_all_helpers_searching(true); // Must be set under lock protection
-        sp.copy_pv(ctx.get_pv());
+        sp.copy_pv(ctx.pv());
         sp_state.set_cut_node(req.cut_node);
 
         self.split_points_size.fetch_add(1, Ordering::Release);

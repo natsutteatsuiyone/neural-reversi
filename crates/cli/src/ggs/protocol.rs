@@ -866,7 +866,7 @@ mod tests {
         else {
             panic!("expected MatchState, got {ev:?}")
         };
-        assert_eq!(board.get_disc_at(Square::A1, Disc::Black), Disc::Black);
+        assert_eq!(board.disc_at(Square::A1, Disc::Black), Disc::Black);
         assert_eq!(my_clock.map(|clock| clock.main_ms), Some(56_000));
 
         let display = display_states(chunk, "alice");

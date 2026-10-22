@@ -164,17 +164,11 @@ impl GameState {
     }
 
     /// Returns the disc count as `(black_count, white_count)`.
-    pub fn get_score(&self) -> (u32, u32) {
+    pub fn score(&self) -> (u32, u32) {
         let (black_count, white_count) = if self.side_to_move == Disc::Black {
-            (
-                self.board.get_player_count(),
-                self.board.get_opponent_count(),
-            )
+            (self.board.player_count(), self.board.opponent_count())
         } else {
-            (
-                self.board.get_opponent_count(),
-                self.board.get_player_count(),
-            )
+            (self.board.opponent_count(), self.board.player_count())
         };
 
         (black_count, white_count)
@@ -362,12 +356,12 @@ mod tests {
     #[test]
     fn test_score_tracking() {
         let mut game = GameState::new();
-        let (black, white) = game.get_score();
+        let (black, white) = game.score();
         assert_eq!(black, 2);
         assert_eq!(white, 2);
 
         game.make_move(Square::D3).unwrap();
-        let (black, white) = game.get_score();
+        let (black, white) = game.score();
         assert_eq!(black, 4);
         assert_eq!(white, 1);
     }
@@ -381,7 +375,7 @@ mod tests {
         let game = GameState::from_moves(&moves).unwrap();
 
         assert!(game.is_game_over());
-        assert_eq!(game.get_score(), (57, 7));
+        assert_eq!(game.score(), (57, 7));
 
         let history = game.move_history();
         let played: Vec<Square> = history.iter().filter_map(|entry| entry.mv).collect();

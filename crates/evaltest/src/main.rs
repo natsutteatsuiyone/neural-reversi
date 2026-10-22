@@ -287,7 +287,7 @@ impl SearchStats {
         move_values: &std::collections::HashMap<Square, Scoref>,
         reference: Option<&IterationData>,
     ) {
-        let n_empties = test_case.board().get_empty_count();
+        let n_empties = test_case.board().empty_count();
         let orient = |score: Scoref| if test_case.is_pass() { -score } else { score };
         let expected = reference.map_or(test_case.expected_score() as Scoref, |exact| {
             orient(exact.score)
@@ -1100,7 +1100,7 @@ fn exact_move_values(
     reference: Option<&IterationData>,
 ) -> std::collections::HashMap<Square, Scoref> {
     let board = test_case.board();
-    let n_empties = board.get_empty_count();
+    let n_empties = board.empty_count();
     let full_depth = |it: &&IterationData| it.is_endgame && it.depth == n_empties;
     // A move whose value needs no solve: the reference's best move.
     let known = |sq: Square| match reference {
@@ -1130,7 +1130,7 @@ fn exact_move_values(
                         .expect("position has a legal move");
                     if position == child { -score } else { score }
                 }
-                None => -(child.solve(child.get_empty_count()) as Scoref),
+                None => -(child.solve(child.empty_count()) as Scoref),
             }
         };
         values.insert(iter.best_move, value);
@@ -1180,7 +1180,7 @@ fn execute_section(
         }
         // Per-level stats skip multi-PV: it reports each PV line as its own
         // iteration, which would mix lines in one level.
-        let n_empties = test_case.board().get_empty_count();
+        let n_empties = test_case.board().empty_count();
         let reference = if solve_reference {
             iterations
                 .iter()

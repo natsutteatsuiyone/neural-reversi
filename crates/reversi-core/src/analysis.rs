@@ -88,7 +88,7 @@ pub fn analyze_game(
             }
             -analysis.score
         }
-        SeedPosition::Terminal => final_board.solve(final_board.get_empty_count()) as Scoref,
+        SeedPosition::Terminal => final_board.solve(final_board.empty_count()) as Scoref,
     };
 
     for (move_index, step) in steps.iter().enumerate().rev() {

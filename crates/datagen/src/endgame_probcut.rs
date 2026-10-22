@@ -87,12 +87,12 @@ fn read_games(
         let mut ply_moves = moves.iter();
         let (final_board, final_side) = replay(&moves, |board, side| {
             let sq = *ply_moves.next().unwrap();
-            if empties.contains(&board.get_empty_count()) {
+            if empties.contains(&board.empty_count()) {
                 positions.push((*board, side, sq, 0));
             }
         })
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Line {game}: {e}")))?;
-        let final_score = final_board.solve(final_board.get_empty_count());
+        let final_score = final_board.solve(final_board.empty_count());
         for (_, side, _, result) in &mut positions {
             *result = if *side == final_side {
                 final_score
@@ -124,7 +124,7 @@ fn pick_roots(
             let position = g
                 .positions
                 .iter()
-                .find(|(board, ..)| board.get_empty_count() == target)?;
+                .find(|(board, ..)| board.empty_count() == target)?;
             Some((g.game, position))
         })
 }
@@ -146,7 +146,7 @@ pub fn export_holdout(
     let mut written = 0;
     for (_, (board, side, sq, result)) in pick_roots(&games, empties, fit_folds).take(count) {
         let cells: String = Square::iter()
-            .map(|cell| board.get_disc_at(cell, *side).to_char())
+            .map(|cell| board.disc_at(cell, *side).to_char())
             .collect();
         writeln!(writer, "{cells} {}; {sq:?}:{result:+};", side.to_char())?;
         written += 1;
@@ -230,7 +230,7 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
         Search::new(&SearchOptions::new(SEARCH_TT_MB).with_threads(Some(options.threads.max(1))));
     let mut traced: Vec<(usize, TraceRecord)> = Vec::new();
     for (index, &(game, board)) in root_boards.iter().enumerate() {
-        let n_empties = board.get_empty_count();
+        let n_empties = board.empty_count();
         // An end depth of 0 for the last level stops the ladder before the exact solve.
         let mut end_depth = [n_empties; ENDGAME_STEPS];
         end_depth[ENDGAME_STEPS - 1] = 0;
@@ -255,7 +255,7 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
     let mut unique: Vec<Board> = traced.iter().map(|(_, r)| r.board).collect();
     unique.sort_unstable_by_key(|b| {
         (
-            b.get_empty_count(),
+            b.empty_count(),
             b.hash(),
             b.player().bits(),
             b.opponent().bits(),
@@ -263,14 +263,14 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
     });
     unique.dedup();
     let unique: Vec<Board> = unique
-        .chunk_by(|a, b| a.get_empty_count() == b.get_empty_count())
+        .chunk_by(|a, b| a.empty_count() == b.empty_count())
         .flat_map(|boards| boards.iter().take(options.max_per_empties).copied())
         .collect();
     let kept: HashSet<Board> = unique.iter().copied().collect();
     traced.retain(|(_, r)| kept.contains(&r.board));
     let (large, unique): (Vec<Board>, Vec<Board>) = unique
         .into_iter()
-        .partition(|b| b.get_empty_count() >= SEQUENTIAL_LABEL_EMPTIES);
+        .partition(|b| b.empty_count() >= SEQUENTIAL_LABEL_EMPTIES);
     let labels: Mutex<HashMap<Board, ([Scoref; 2], i32)>> = Mutex::new(HashMap::new());
     let started = std::time::Instant::now();
     for (index, board) in large.iter().enumerate() {
@@ -280,7 +280,7 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
             eprintln!(
                 "Labeled {index}/{} large positions ({} empties, {:.0}s)",
                 large.len(),
-                board.get_empty_count(),
+                board.empty_count(),
                 started.elapsed().as_secs_f64()
             );
         }
@@ -317,7 +317,7 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
     let mut mismatches = 0;
     for (game, record) in &traced {
         let (scores, exact) = labels[&record.board];
-        let n_empties = record.board.get_empty_count();
+        let n_empties = record.board.empty_count();
         let replayed_cut = {
             let eval = ScaledScore::from_raw(to_raw(scores[0]));
             let window = probcut::endgame_probcut_window(

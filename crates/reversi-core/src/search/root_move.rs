@@ -101,7 +101,7 @@ impl RootMoves {
     }
 
     /// Returns the root move at the current PV index, or [`None`] if out of bounds.
-    pub fn get_current_pv(&self) -> Option<RootMove> {
+    pub fn current_pv(&self) -> Option<RootMove> {
         let moves = self.moves.lock().unwrap();
         moves.get(self.pv_idx()).cloned()
     }

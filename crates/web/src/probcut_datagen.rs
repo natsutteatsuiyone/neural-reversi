@@ -257,7 +257,7 @@ impl ProbCutDatagen {
                 }
             }
 
-            let ply = 60 - board.get_empty_count();
+            let ply = 60 - board.empty_count();
 
             // Search at multiple depths and collect scores
             let depth_scores = self.search_all_depths(&board);
@@ -319,7 +319,7 @@ impl ProbCutDatagen {
                 }
             }
 
-            let n_empties = board.get_empty_count();
+            let n_empties = board.empty_count();
             let ply = 60 - n_empties;
             if ply >= ENDGAME_START_PLY && ENDGAME_SHALLOW_DEPTH < n_empties {
                 let shallow_score = self.search_endgame_shallow(&board);
@@ -338,7 +338,7 @@ impl ProbCutDatagen {
         }
 
         // The deep score is the exact final result, oriented to each sample's side to move.
-        let final_score = board.solve(board.get_empty_count()) as f32;
+        let final_score = board.solve(board.empty_count()) as f32;
         let samples = pending
             .into_iter()
             .map(|p| {

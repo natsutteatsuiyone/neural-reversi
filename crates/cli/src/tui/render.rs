@@ -218,10 +218,10 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(vec![
             Span::raw("  Depth: "),
             Span::styled(
-                if result.get_probability() == 100 {
+                if result.probability() == 100 {
                     format!("{}", result.depth())
                 } else {
-                    format!("{}@{}%", result.depth(), result.get_probability())
+                    format!("{}@{}%", result.depth(), result.probability())
                 },
                 Style::default().fg(Color::White),
             ),

@@ -246,7 +246,7 @@ fn play_game(
         )?;
     }
 
-    let (black_count, white_count) = game_state.get_score();
+    let (black_count, white_count) = game_state.score();
     let (result, score) = match black_count.cmp(&white_count) {
         CmpOrdering::Greater => (GameResult::BlackWin, 64 - white_count as i32 * 2),
         CmpOrdering::Less => (GameResult::WhiteWin, black_count as i32 * 2 - 64),

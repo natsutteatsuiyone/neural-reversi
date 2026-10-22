@@ -348,7 +348,7 @@ fn play_game(
         } else {
             let options = SearchRunOptions::with_level(lv);
             let result = search.run(&board, &options);
-            let ply = 60 - board.get_empty_count() as u8;
+            let ply = 60 - board.empty_count() as u8;
             let score = result.score().expect("search returned no legal move");
 
             let record = GameRecord {
@@ -382,7 +382,7 @@ fn play_game(
         let options = SearchRunOptions::with_level(lv);
         let result = search.run(&board, &options);
 
-        let ply = 60 - board.get_empty_count() as u8;
+        let ply = 60 - board.empty_count() as u8;
         let best_move = result.best_move().expect("search returned no legal move");
         let score = result.score().expect("search returned no legal move");
 
@@ -405,7 +405,7 @@ fn play_game(
     if !game_records.is_empty() {
         let final_side_to_move = game.side_to_move();
         let final_board = *game.board();
-        let final_score = final_board.solve(final_board.get_empty_count()) as i8;
+        let final_score = final_board.solve(final_board.empty_count()) as i8;
 
         for record in game_records.iter_mut() {
             record.game_score = if record.side_to_move == final_side_to_move {

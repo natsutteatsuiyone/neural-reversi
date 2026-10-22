@@ -66,14 +66,14 @@ fn assert_null_window_symmetry_scores<const N_EMPTY: u32>(
     expected: Score,
 ) {
     assert_eq!(
-        base.get_empty_count(),
+        base.empty_count(),
         N_EMPTY,
         "base board must have exactly {N_EMPTY} empties"
     );
 
     for (name, board) in symmetry_cases(base) {
         assert_eq!(
-            board.get_empty_count(),
+            board.empty_count(),
             N_EMPTY,
             "{name} board must have exactly {N_EMPTY} empties"
         );
@@ -133,7 +133,7 @@ fn aborted_endgame_reports_last_completed_selectivity() {
 
     assert_eq!(result.best_move(), Some(best_move));
     assert_eq!(result.score(), Some(score));
-    assert_eq!(result.get_probability(), probability);
+    assert_eq!(result.probability(), probability);
     assert_eq!(result.pv_line(), pv_line);
 }
 
@@ -339,7 +339,7 @@ fn test_solve_9_case2() {
         Disc::Black,
     )
     .unwrap();
-    assert_eq!(board.get_empty_count(), 9);
+    assert_eq!(board.empty_count(), 9);
     let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 
@@ -354,7 +354,7 @@ fn test_solve_16() {
         Disc::Black,
     )
     .unwrap();
-    assert_eq!(board.get_empty_count(), 16);
+    assert_eq!(board.empty_count(), 16);
     let options = SearchRunOptions::with_level(Level::perfect());
     let result = search.run(&board, &options);
 

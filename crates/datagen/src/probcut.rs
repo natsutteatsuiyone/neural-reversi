@@ -118,7 +118,7 @@ fn depth_scores(
     board: &Board,
     max_depth: Depth,
 ) -> Vec<(Depth, Scoref)> {
-    let n_empties = board.get_empty_count();
+    let n_empties = board.empty_count();
 
     (0..=max_depth)
         .filter(|&depth| depth < n_empties)
@@ -229,7 +229,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
             search.init();
             let depth_scores = depth_scores(&mut search, &eval, board, MAX_SEARCH_DEPTH);
 
-            let ply = INITIAL_EMPTY_COUNT as u32 - board.get_empty_count();
+            let ply = INITIAL_EMPTY_COUNT as u32 - board.empty_count();
             for (shallow_depth, shallow_score) in depth_scores
                 .iter()
                 .filter(|(depth, _)| *depth <= MAX_SHALLOW_DEPTH)

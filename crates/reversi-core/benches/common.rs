@@ -31,7 +31,7 @@ pub(crate) fn weights_path(file_name: &str) -> PathBuf {
 }
 
 pub(crate) fn board_ply(board: &Board) -> usize {
-    INITIAL_EMPTY_COUNT - board.get_empty_count() as usize
+    INITIAL_EMPTY_COUNT - board.empty_count() as usize
 }
 
 pub(crate) fn random_disjoint_bitboards(rng: &mut StdRng) -> (u64, u64) {
@@ -52,7 +52,7 @@ pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
     mut board: Board,
     rng: &mut StdRng,
 ) -> Option<Board> {
-    while board.get_empty_count() > N_EMPTY {
+    while board.empty_count() > N_EMPTY {
         let moves = board.get_moves();
         if moves.is_empty() {
             let passed = board.switch_players();
@@ -66,7 +66,7 @@ pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
         board = board.make_move(choose_square(moves, rng));
     }
 
-    (board.get_empty_count() == N_EMPTY).then_some(board)
+    (board.empty_count() == N_EMPTY).then_some(board)
 }
 
 pub(crate) fn exact_endgame_score(board: &Board) -> Score {
@@ -84,7 +84,7 @@ pub(crate) fn exact_endgame_score(board: &Board) -> Score {
         return -exact_endgame_score(&passed);
     }
 
-    board.solve(board.get_empty_count())
+    board.solve(board.empty_count())
 }
 
 pub(crate) fn add_random_bit(rng: &mut StdRng, occupied: &mut u64) -> u64 {
