@@ -16,6 +16,7 @@ pub mod result;
 pub mod root_move;
 pub mod side_to_move;
 pub mod stack;
+mod stop;
 pub mod strategy;
 pub mod threading;
 pub mod time_control;
@@ -25,6 +26,7 @@ pub use endgame::{EndGameCaches, null_window_search, solve_last1};
 pub use options::{SearchConstraint, SearchRunOptions};
 pub use progress::{SearchProgress, SearchProgressCallback};
 pub(crate) use pvs::{LMR_MIN_DEPTH, search};
+pub use stop::StopToken;
 
 use std::sync::Arc;
 
@@ -289,7 +291,7 @@ impl Search {
             eval_mode: options.eval_mode,
         };
 
-        let mut result = self.execute_search(task);
+        let mut result = self.execute_search(task, options.stop_token.as_ref());
         self.timed_out = deadline.is_some_and(|tm| tm.timed_out());
         self.apply_fallback_if_invalid(board, &mut result);
 
@@ -391,19 +393,11 @@ impl Search {
         }
     }
 
-    fn execute_search(&mut self, task: SearchTask) -> SearchResult {
+    fn execute_search(&mut self, task: SearchTask, stop: Option<&StopToken>) -> SearchResult {
         self.tt.increment_generation();
 
         let board = task.board;
-        let time_manager = task.time_manager.clone();
-
-        let result_receiver = self.threads.start_thinking(task);
-
-        if let Some(tm) = time_manager.as_ref()
-            && tm.deadline().is_some()
-        {
-            self.threads.start_timer(tm.clone());
-        }
+        let result_receiver = self.threads.start_thinking(task, stop);
 
         let result = result_receiver.recv().unwrap_or_else(|_| {
             // Channel closed - search thread may have panicked. Return fallback.
@@ -418,7 +412,8 @@ impl Search {
     /// Returns the [`ThreadPool`] used by this search engine.
     ///
     /// [`ThreadPool`]: threading::ThreadPool
-    pub fn thread_pool(&self) -> Arc<threading::ThreadPool> {
+    #[cfg(test)]
+    pub(crate) fn thread_pool(&self) -> Arc<threading::ThreadPool> {
         self.threads.clone()
     }
 
@@ -553,8 +548,8 @@ mod tests {
     }
 
     #[test]
-    fn shared_resources_reuse_eval_but_keep_tt_and_thread_pool_per_engine() {
-        let shared = SearchSharedResources::new(&SearchOptions::new(1).with_threads(Some(1)));
+    fn shared_resources_reuse_eval_and_share_the_thread_pool_only_on_request() {
+        let mut shared = SearchSharedResources::new(&SearchOptions::new(1).with_threads(Some(1)));
 
         let first = Search::from_shared_resources(&shared);
         let second = Search::from_shared_resources(&shared);
@@ -563,6 +558,13 @@ mod tests {
         assert!(!Arc::ptr_eq(first.tt(), second.tt()));
         assert_eq!(first.tt().mb_size(), 1);
         assert!(!Arc::ptr_eq(&first.thread_pool(), &second.thread_pool()));
+
+        shared.share_thread_pool();
+        let first = Search::from_shared_resources(&shared);
+        let second = Search::from_shared_resources(&shared);
+
+        assert!(Arc::ptr_eq(&first.thread_pool(), &second.thread_pool()));
+        assert!(!Arc::ptr_eq(first.tt(), second.tt()));
     }
 
     #[test]

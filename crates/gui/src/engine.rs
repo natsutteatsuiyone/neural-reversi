@@ -10,9 +10,9 @@
 use std::any::Any;
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -21,9 +21,8 @@ use reversi_core::board::Board;
 use reversi_core::level::{ENDGAME_STEPS, Level, get_level};
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
-use reversi_core::search::threading::ThreadPool;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchProgress, SearchRunOptions};
+use reversi_core::search::{Search, SearchProgress, SearchRunOptions, StopToken};
 use reversi_core::square::Square;
 
 #[derive(Debug)]
@@ -97,7 +96,8 @@ pub struct Engine {
     // Retained so a failed worker submission can use the normal error surface.
     errors: Sender<Event>,
     generation: Arc<AtomicU64>,
-    stop_requested: Arc<AtomicU64>,
+    /// Stops the latest submitted job; `None` once it is cancelled.
+    current_stop: Mutex<Option<StopToken>>,
 }
 
 impl Engine {
@@ -110,21 +110,11 @@ impl Engine {
         let (requests, jobs) = mpsc::channel();
         let (errors, events) = mpsc::channel();
         let generation = Arc::new(AtomicU64::new(0));
-        let stop_requested = Arc::new(AtomicU64::new(u64::MAX));
-        let worker_stop = stop_requested.clone();
         let worker_generation = generation.clone();
         let worker_events = errors.clone();
         if let Err(error) = thread::Builder::new()
             .name("reversi-engine".into())
-            .spawn(move || {
-                worker(
-                    jobs,
-                    worker_events,
-                    worker_generation,
-                    worker_stop,
-                    hash_size,
-                )
-            })
+            .spawn(move || worker(jobs, worker_events, worker_generation, hash_size))
         {
             let _ = errors.send(Event {
                 id: 0,
@@ -136,7 +126,7 @@ impl Engine {
             events,
             errors,
             generation,
-            stop_requested,
+            current_stop: Mutex::new(None),
         }
     }
 
@@ -146,7 +136,11 @@ impl Engine {
             .generation
             .fetch_add(1, Ordering::AcqRel)
             .wrapping_add(1);
-        if self.requests.send(Job { id, request }).is_err() {
+        let stop = StopToken::new();
+        if let Some(previous) = self.current_stop.lock().unwrap().replace(stop.clone()) {
+            previous.stop();
+        }
+        if self.requests.send(Job { id, request, stop }).is_err() {
             let _ = self.errors.send(Event {
                 id,
                 kind: EventKind::Error("The engine worker is no longer available".into()),
@@ -155,17 +149,21 @@ impl Engine {
         id
     }
 
-    /// Invalidates queued events immediately; engine interruption is off-thread.
+    /// Invalidates queued events immediately and stops the current job.
     pub fn cancel(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
+        if let Some(stop) = self.current_stop.lock().unwrap().take() {
+            stop.stop();
+        }
     }
 
     /// Stops thinking but preserves the current generation and its best-so-far
     /// `Finished` result. Unlike `cancel`, this is suitable for an AI Move's
     /// Stop button. The core supplies a legal shallow move if no iteration ended.
     pub fn stop(&self) {
-        self.stop_requested
-            .store(self.generation.load(Ordering::Acquire), Ordering::Release);
+        if let Some(stop) = &*self.current_stop.lock().unwrap() {
+            stop.stop();
+        }
     }
 
     pub fn try_recv(&self) -> Option<Event> {
@@ -189,6 +187,9 @@ impl Drop for Engine {
 struct Job {
     id: u64,
     request: Request,
+    /// Carried by every search run of the job, so stopping it before the
+    /// worker reaches the job still takes effect.
+    stop: StopToken,
 }
 
 fn is_current(generation: &AtomicU64, id: u64) -> bool {
@@ -201,108 +202,18 @@ fn emit(events: &Sender<Event>, generation: &AtomicU64, id: u64, kind: EventKind
     }
 }
 
-/// The core begins a fresh abort generation inside `Search::run`. A one-shot
-/// abort before that point would be lost. Reassert cancellation until the job
-/// finishes, including across every position searched during game analysis.
-///
-/// The completion acknowledgement is essential: before launching a successor,
-/// the worker waits until the monitor has stopped using the previous pool/job.
-/// Otherwise a delayed abort could interrupt the successor instead. Only the
-/// background worker waits; neither cancellation nor drop waits on the UI.
-struct CancellationMonitor {
-    commands: Sender<MonitorCommand>,
-    completed: Receiver<()>,
-    active: bool,
-}
-
-enum MonitorCommand {
-    Begin { id: u64, pool: Arc<ThreadPool> },
-    End,
-}
-
-impl CancellationMonitor {
-    fn new(generation: Arc<AtomicU64>, stop_requested: Arc<AtomicU64>) -> Result<Self, String> {
-        let (commands, incoming) = mpsc::channel();
-        let (acknowledge, completed) = mpsc::channel();
-        thread::Builder::new()
-            .name("reversi-cancellation".into())
-            .spawn(move || {
-                while let Ok(MonitorCommand::Begin { id, pool }) = incoming.recv() {
-                    loop {
-                        if !is_current(&generation, id)
-                            || stop_requested.load(Ordering::Acquire) == id
-                        {
-                            pool.abort_search();
-                        }
-                        match incoming.recv_timeout(Duration::from_millis(2)) {
-                            Ok(MonitorCommand::End) => break,
-                            Err(RecvTimeoutError::Timeout) => {}
-                            // A disconnected worker must not leave a search running.
-                            Err(RecvTimeoutError::Disconnected)
-                            | Ok(MonitorCommand::Begin { .. }) => {
-                                pool.abort_search();
-                                return;
-                            }
-                        }
-                    }
-                    drop(pool);
-                    if acknowledge.send(()).is_err() {
-                        return;
-                    }
-                }
-            })
-            .map_err(|error| format!("Cannot start engine cancellation monitoring: {error}"))?;
-        Ok(Self {
-            commands,
-            completed,
-            active: false,
-        })
-    }
-
-    fn begin(&mut self, id: u64, pool: Arc<ThreadPool>) -> Result<(), String> {
-        self.commands
-            .send(MonitorCommand::Begin { id, pool })
-            .map_err(|_| "Engine cancellation monitoring is unavailable".to_string())?;
-        self.active = true;
-        Ok(())
-    }
-
-    fn finish(&mut self) -> Result<(), String> {
-        if self.active {
-            self.active = false;
-            self.commands
-                .send(MonitorCommand::End)
-                .map_err(|_| "Engine cancellation monitoring stopped".to_string())?;
-            self.completed
-                .recv()
-                .map_err(|_| "Engine cancellation monitoring stopped".to_string())?;
-        }
-        Ok(())
-    }
-}
-
 fn worker(
     jobs: Receiver<Job>,
     events: Sender<Event>,
     generation: Arc<AtomicU64>,
-    stop_requested: Arc<AtomicU64>,
     hash_size: usize,
 ) {
-    let mut monitor = match CancellationMonitor::new(generation.clone(), stop_requested) {
-        Ok(monitor) => monitor,
-        Err(error) => {
-            // Infrastructure failure affects the latest request even if initial
-            // initialization was superseded before this thread started.
-            let id = generation.load(Ordering::Acquire);
-            emit(&events, &generation, id, EventKind::Error(error));
-            return;
-        }
-    };
     let mut search = None;
     let mut initialization_error = None;
     let mut job = Job {
         id: 0,
         request: Request::Initialize { hash_size },
+        stop: StopToken::new(),
     };
     loop {
         // Initial construction is required even if a request arrived before the
@@ -316,12 +227,10 @@ fn worker(
                     job,
                     &mut search,
                     initialization_error.as_deref(),
-                    &mut monitor,
                     &events,
                     &generation,
                 )
             }));
-            let monitor_result = monitor.finish();
             let result = match result {
                 Ok(result) => result,
                 Err(payload) => {
@@ -331,11 +240,6 @@ fn worker(
                     Err(error)
                 }
             };
-            if let Err(error) = monitor_result {
-                let id = generation.load(Ordering::Acquire);
-                emit(&events, &generation, id, EventKind::Error(error));
-                return;
-            }
             match result {
                 Ok((id, kind)) => {
                     initialization_error = None;
@@ -359,11 +263,10 @@ fn execute(
     job: Job,
     search: &mut Option<Search>,
     initialization_error: Option<&str>,
-    monitor: &mut CancellationMonitor,
     events: &Sender<Event>,
     generation: &Arc<AtomicU64>,
 ) -> Result<(u64, EventKind), String> {
-    let Job { id, request } = job;
+    let Job { id, request, stop } = job;
     if let Request::Initialize { hash_size } = request {
         if let Some(search) = search {
             search.resize_tt(hash_size);
@@ -413,8 +316,7 @@ fn execute(
             moves,
             level,
         } => {
-            let options = SearchRunOptions::with_level(get_level(level));
-            monitor.begin(id, search.thread_pool())?;
+            let options = SearchRunOptions::with_level(get_level(level)).stop_token(stop);
             let search = RefCell::new(search);
             analysis::analyze_game(
                 board,
@@ -450,7 +352,7 @@ fn execute(
     };
     let callback_events = events.clone();
     let callback_generation = generation.clone();
-    let options = options.callback(move |progress| {
+    let options = options.stop_token(stop).callback(move |progress| {
         emit(
             &callback_events,
             &callback_generation,
@@ -458,7 +360,6 @@ fn execute(
             EventKind::Progress(progress_payload(progress, start.elapsed())),
         );
     });
-    monitor.begin(id, search.thread_pool())?;
     let result = search.run(&board, &options);
     Ok((id, EventKind::Finished(outcome(&result, start))))
 }
@@ -526,44 +427,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stop_before_launch_is_reasserted_without_aborting_the_successor() {
-        let mut search = Search::new(&SearchOptions::new(1).with_threads(Some(1)));
+    fn stop_before_the_worker_reaches_the_job_still_ends_its_search() {
+        let engine = Engine::new(1);
         let board = Board::new().try_make_move(Square::D3).unwrap();
-        let pool = search.thread_pool();
-        let generation = Arc::new(AtomicU64::new(1));
-        let stop_requested = Arc::new(AtomicU64::new(1));
-        let mut monitor = CancellationMonitor::new(generation.clone(), stop_requested).unwrap();
-        monitor.begin(1, pool.clone()).unwrap();
-
-        // Force the abort to occur before core's next begin_search resets its
-        // generation. A single abort would let the ensuing level-30 search run.
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !pool.main().is_search_aborted() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(1));
-        }
-        assert!(pool.main().is_search_aborted());
-
-        let (completed, result) = mpsc::channel();
-        let handle = thread::spawn(move || {
-            let outcome = search.run(&board, &SearchRunOptions::with_level(get_level(MAX_LEVEL)));
-            let _ = completed.send(outcome);
-            search
+        // The worker is still initializing, so this stop lands before the
+        // search begins; a lost stop would leave a level-max search running.
+        let id = engine.submit(Request::Move {
+            board,
+            level: MAX_LEVEL,
+            remaining_ms: None,
         });
-        let stopped = result.recv_timeout(Duration::from_secs(10));
-        monitor.finish().unwrap();
-        // Ensure a failing regression still shuts its real engine down.
-        if stopped.is_err() {
-            pool.abort_search();
-        }
-        let mut search = handle.join().unwrap();
-        let stopped = stopped.expect("stop was lost when core began a new search generation");
-        assert!(board.try_make_move(stopped.best_move().unwrap()).is_some());
+        engine.stop();
 
-        generation.store(2, Ordering::Release);
-        monitor.begin(2, pool).unwrap();
-        let result = search.run(&board, &SearchRunOptions::with_level(get_level(3)));
-        monitor.finish().unwrap();
-        assert_eq!(result.depth(), get_level(3).mid_depth);
-        assert!(board.try_make_move(result.best_move().unwrap()).is_some());
+        // Generous: the worker first loads the weights, which is slow in
+        // debug builds; a lost stop would run the level-max search far longer.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let outcome = loop {
+            match engine.try_recv() {
+                Some(Event {
+                    id: event_id,
+                    kind: EventKind::Finished(outcome),
+                }) if event_id == id => break outcome,
+                Some(Event {
+                    kind: EventKind::Error(error),
+                    ..
+                }) => panic!("{error}"),
+                _ => {}
+            }
+            assert!(Instant::now() < deadline, "the stop was lost");
+            thread::sleep(Duration::from_millis(5));
+        };
+        assert!(board.is_legal_move(outcome.best_move.unwrap()));
     }
 }

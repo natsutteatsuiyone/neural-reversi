@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::search::SearchTask;
 use crate::search::result::SearchResult;
+use crate::search::stop::{StopAttachment, StopToken};
 use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
 
@@ -22,8 +23,10 @@ const READY_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// Messages that can be sent to the main thread.
 pub(super) enum Message {
-    /// Starts a new search with the given task and returns results via the sender.
-    StartThinking(SearchTask, Sender<SearchResult>),
+    /// Starts a new search with the given task and returns results via the
+    /// sender. The attachment ties the caller's stop token to this search
+    /// until it ends.
+    StartThinking(SearchTask, Option<StopAttachment>, Sender<SearchResult>),
 
     /// Signals the thread to exit.
     Exit,
@@ -199,7 +202,15 @@ impl ThreadPool {
     }
 
     /// Starts a new search task on the thread pool and returns a receiver for the result.
-    pub fn start_thinking(&self, task: SearchTask) -> Receiver<SearchResult> {
+    ///
+    /// `stop` can end this search from another thread, even if it was
+    /// stopped before this call. A time-controlled task also gets its
+    /// deadline timer here.
+    pub fn start_thinking(
+        &self,
+        task: SearchTask,
+        stop: Option<&StopToken>,
+    ) -> Receiver<SearchResult> {
         debug_assert!(
             !self.threads.is_empty(),
             "Cannot start thinking: thread pool has been shut down"
@@ -207,15 +218,22 @@ impl ThreadPool {
 
         let (result_sender, result_receiver) = mpsc::channel();
 
-        // Start a fresh generation before publishing the active search.
-        self.abort_state.begin_search();
+        // Start a fresh generation before publishing the active search; stop
+        // requests and the deadline target only this generation.
+        let generation = self.abort_state.begin_search();
+        let stop = stop.map(|token| token.attach(&self.abort_state, generation));
+        if let Some(tm) = &task.time_manager
+            && tm.deadline().is_some()
+        {
+            self.start_timer(tm.clone(), generation);
+        }
 
         // Mark pool as actively thinking before sending message
         self.thinking.store(true, Ordering::Release);
 
         // Dispatch task to main thread
         self.sender
-            .send(Message::StartThinking(task, result_sender))
+            .send(Message::StartThinking(task, stop, result_sender))
             .expect("main thread receiver must be alive while the pool exists");
 
         result_receiver
@@ -261,7 +279,8 @@ impl ThreadPool {
     }
 
     /// Signals all threads to abort the current search.
-    pub fn abort_search(&self) {
+    #[cfg(test)]
+    pub(crate) fn abort_search(&self) {
         self.abort_state.request_abort();
     }
 
@@ -270,7 +289,8 @@ impl ThreadPool {
         self.abort_state.clone()
     }
 
-    /// Starts a timer thread that will request abort when deadline is reached.
+    /// Starts a timer thread that will abort search `generation` when the
+    /// deadline is reached.
     ///
     /// - Checks every `CHECK_INTERVAL_MS` milliseconds against the current deadline
     /// - Responds to dynamic time extensions from the [`TimeManager`]
@@ -278,7 +298,7 @@ impl ThreadPool {
     ///   - Deadline is reached (requests abort)
     ///   - [`stop_timer`](Self::stop_timer) is called (search completed early)
     ///   - No deadline is set (infinite time mode)
-    pub fn start_timer(&self, time_manager: Arc<TimeManager>) {
+    fn start_timer(&self, time_manager: Arc<TimeManager>, generation: u32) {
         // Reset stop flag before spawning new timer
         self.timer_stop.store(false, Ordering::Release);
 
@@ -288,7 +308,7 @@ impl ThreadPool {
         let handle = std::thread::Builder::new()
             .name("search-timer".to_string())
             .spawn(move || {
-                Self::timer_loop(&time_manager, &abort_state, &stop_flag);
+                Self::timer_loop(&time_manager, &abort_state, generation, &stop_flag);
             })
             .expect("failed to spawn timer thread");
 
@@ -296,7 +316,12 @@ impl ThreadPool {
     }
 
     /// Runs the timer thread loop.
-    fn timer_loop(time_manager: &TimeManager, abort_state: &AbortState, stop_flag: &AtomicBool) {
+    fn timer_loop(
+        time_manager: &TimeManager,
+        abort_state: &AbortState,
+        generation: u32,
+        stop_flag: &AtomicBool,
+    ) {
         const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
 
         loop {
@@ -309,7 +334,7 @@ impl ThreadPool {
             match time_manager.deadline() {
                 Some(deadline) if Instant::now() >= deadline => {
                     // Time's up - signal abort and exit
-                    abort_state.request_abort();
+                    abort_state.request_abort_for(generation);
                     return;
                 }
                 Some(_) => {
@@ -389,13 +414,13 @@ mod tests {
         // that disturbs the other.
         for _ in 0..3 {
             let solved = pool
-                .start_thinking(task(endgame, Level::uniform(10, 60)))
+                .start_thinking(task(endgame, Level::uniform(10, 60)), None)
                 .recv()
                 .unwrap();
             assert!(solved.is_endgame());
 
             let result = pool
-                .start_thinking(task(midgame, Level::uniform(10, 0)))
+                .start_thinking(task(midgame, Level::uniform(10, 0)), None)
                 .recv()
                 .unwrap();
             assert_eq!(result.depth(), 10);

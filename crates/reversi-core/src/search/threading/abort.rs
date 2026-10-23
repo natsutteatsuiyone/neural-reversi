@@ -15,8 +15,9 @@ const ABORT_GEN_MASK: u64 = 0x0000_0000_FFFF_FFFF;
 /// abort from a finished generation never leaks into the next one.
 ///
 /// An abort that happens strictly before `begin_search` targets the previous
-/// generation and is a no-op; callers that need "abort the search I am about
-/// to start" must serialize on their side.
+/// generation and is a no-op. To stop a search that has not started yet,
+/// target its generation with [`Self::request_abort_for`], as
+/// [`StopToken`](crate::search::StopToken) does.
 ///
 /// The search generation is 32 bits wide. A stale abort can collide with a
 /// recycled generation only after exactly 2^32 intervening searches without
@@ -30,9 +31,11 @@ impl AbortState {
         Self(AtomicU64::new(ABORT_GEN_MASK))
     }
 
-    /// Starts a new search generation and neutralizes stale abort requests.
-    pub(crate) fn begin_search(&self) {
-        self.0.fetch_add(SEARCH_GEN_INCREMENT, Ordering::AcqRel);
+    /// Starts a new search generation, neutralizes stale abort requests, and
+    /// returns the new generation.
+    pub(crate) fn begin_search(&self) -> u32 {
+        let previous = self.0.fetch_add(SEARCH_GEN_INCREMENT, Ordering::AcqRel);
+        (previous.wrapping_add(SEARCH_GEN_INCREMENT) >> 32) as u32
     }
 
     /// Records an abort request for the current search generation.
@@ -41,6 +44,17 @@ impl AbortState {
             .0
             .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 Some((state & SEARCH_GEN_MASK) | (state >> 32))
+            });
+    }
+
+    /// Records an abort request for `generation`, or does nothing once a later
+    /// search has begun.
+    pub(crate) fn request_abort_for(&self, generation: u32) {
+        let _ = self
+            .0
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                ((state >> 32) as u32 == generation)
+                    .then_some((state & SEARCH_GEN_MASK) | u64::from(generation))
             });
     }
 
@@ -92,6 +106,23 @@ mod tests {
         state.begin_search();
 
         assert!(!state.is_aborted());
+    }
+
+    #[test]
+    fn abort_for_a_generation_reaches_only_that_generation() {
+        let state = AbortState::new();
+
+        let first = state.begin_search();
+        state.request_abort_for(first);
+        assert!(state.is_aborted());
+
+        let second = state.begin_search();
+        assert_eq!(second, first.wrapping_add(1));
+        state.request_abort_for(first);
+        assert!(!state.is_aborted());
+
+        state.request_abort_for(second);
+        assert!(state.is_aborted());
     }
 
     #[test]

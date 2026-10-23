@@ -594,7 +594,7 @@ impl Thread {
             let message = receiver.recv();
 
             match message {
-                Ok(Message::StartThinking(task, result_sender)) => {
+                Ok(Message::StartThinking(task, stop, result_sender)) => {
                     // Mark this thread as actively searching
                     self.searching.store(true, Ordering::Release);
 
@@ -606,6 +606,9 @@ impl Thread {
 
                     // Execute root search - this is where the main work happens
                     let result = search::search_root(task, &self);
+
+                    // Untie the caller's stop token: this search is over.
+                    drop(stop);
 
                     // Search complete - update state and send result
                     self.searching.store(false, Ordering::Release);

@@ -9,7 +9,7 @@ use reversi_core::level::Level;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources};
+use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources, StopToken};
 use reversi_core::square::Square;
 
 const BOARD_20_EMPTIES: &str = "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--";
@@ -152,12 +152,12 @@ fn parallel_midgame_score_matches_single_threaded() {
     }
 }
 
-/// Covers the GUI's manual abort path (`ThreadPool::abort_search`), which the
-/// timer-based test does not exercise. One abort issued after observed search
-/// progress must stop both the midgame driver and a direct endgame solve.
+/// Covers a stop requested from another thread, which the timer-based test
+/// does not exercise. One stop issued after observed search progress must end
+/// both the midgame driver and a direct endgame solve.
 #[test]
-fn manual_abort_stops_midgame_and_endgame_promptly() {
-    with_watchdog("manual_abort_stops_midgame_and_endgame_promptly", || {
+fn stop_token_ends_midgame_and_endgame_promptly() {
+    with_watchdog("stop_token_ends_midgame_and_endgame_promptly", || {
         for (board, level, endgame) in [
             (
                 Board::new().make_move(Square::F5),
@@ -171,56 +171,59 @@ fn manual_abort_stops_midgame_and_endgame_promptly() {
             ),
         ] {
             let mut search = search(4);
-            let pool = search.thread_pool();
+            let stop = StopToken::new();
+            let stopper_token = stop.clone();
             let (started_tx, started_rx) = mpsc::channel();
-            let (aborted_tx, aborted_rx) = mpsc::channel();
-            let aborted_rx = Mutex::new(aborted_rx);
+            let (stopped_tx, stopped_rx) = mpsc::channel();
+            let stopped_rx = Mutex::new(stopped_rx);
             let notified = AtomicBool::new(false);
-            let options = SearchRunOptions::with_level(level).callback(move |progress| {
-                if progress.depth >= 4
-                    && progress.nodes > 0
-                    && !notified.swap(true, Ordering::Relaxed)
-                {
-                    assert_eq!(progress.is_endgame, endgame);
-                    if endgame {
-                        assert!(
-                            progress.probability < 100,
-                            "full solve must still be pending"
-                        );
+            let options = SearchRunOptions::with_level(level)
+                .stop_token(stop)
+                .callback(move |progress| {
+                    if progress.depth >= 4
+                        && progress.nodes > 0
+                        && !notified.swap(true, Ordering::Relaxed)
+                    {
+                        assert_eq!(progress.is_endgame, endgame);
+                        if endgame {
+                            assert!(
+                                progress.probability < 100,
+                                "full solve must still be pending"
+                            );
+                        }
+                        started_tx
+                            .send(())
+                            .expect("stopper must await search progress");
+                        stopped_rx
+                            .lock()
+                            .unwrap()
+                            .recv_timeout(Duration::from_secs(5))
+                            .unwrap();
                     }
-                    started_tx
-                        .send(())
-                        .expect("aborter must await search progress");
-                    aborted_rx
-                        .lock()
-                        .unwrap()
-                        .recv_timeout(Duration::from_secs(5))
-                        .unwrap();
-                }
-            });
+                });
 
-            let aborter = std::thread::spawn(move || {
+            let stopper = std::thread::spawn(move || {
                 started_rx
                     .recv_timeout(Duration::from_secs(5))
-                    .expect("search must start before abort");
-                pool.abort_search();
-                aborted_tx.send(()).unwrap();
+                    .expect("search must start before the stop");
+                stopper_token.stop();
+                stopped_tx.send(()).unwrap();
             });
 
             let start = Instant::now();
             let result = search.run(&board, &options);
             let elapsed = start.elapsed();
-            aborter.join().unwrap();
+            stopper.join().unwrap();
 
-            // Generous margin: this guards against a hung abort, not abort latency.
-            assert!(elapsed < Duration::from_secs(5), "abort took {elapsed:?}");
+            // Generous margin: this guards against a hung stop, not stop latency.
+            assert!(elapsed < Duration::from_secs(5), "stop took {elapsed:?}");
             let best = result.best_move().expect("expected fallback best move");
             assert!(board.is_legal_move(best));
             assert!(result.n_nodes() > 0);
             if endgame {
                 assert!(
                     result.probability() < 100,
-                    "abort must stop before the full solve"
+                    "stop must end the run before the full solve"
                 );
             }
         }
@@ -228,26 +231,60 @@ fn manual_abort_stops_midgame_and_endgame_promptly() {
 }
 
 /// An infinite search (GGS ponder) has no time to bank, so a forced move must
-/// keep deepening until aborted.
+/// keep deepening until stopped.
 #[test]
 fn infinite_search_keeps_deepening_a_forced_move() {
     let mut search = search(4);
-    let pool = search.thread_pool();
+    let stop = StopToken::new();
+    let callback_stop = stop.clone();
     let board = Square::parse_sequence("d3e3f6c2d2c3f2f3b2g1g2d1e1f1f4h3")
         .unwrap()
         .into_iter()
         .fold(Board::new(), |board, sq| board.make_move(sq));
     assert_eq!(board.get_moves().count(), 1);
 
-    let options =
-        SearchRunOptions::with_time(TimeControlMode::Infinite).callback(move |progress| {
+    let options = SearchRunOptions::with_time(TimeControlMode::Infinite)
+        .stop_token(stop)
+        .callback(move |progress| {
             if progress.depth > 4 {
-                pool.abort_search();
+                callback_stop.stop();
             }
         });
     let result = search.run(&board, &options);
 
     assert!(result.depth() > 4, "stopped at depth {}", result.depth());
+}
+
+/// A stop requested before the run begins must still end it with a legal
+/// move, and must not reach the next run on the shared pool, as when a GGS
+/// synchro sibling searches next.
+#[test]
+fn stop_before_the_run_ends_it_and_spares_the_next_run() {
+    with_watchdog(
+        "stop_before_the_run_ends_it_and_spares_the_next_run",
+        || {
+            let mut shared = SearchSharedResources::new(
+                &SearchOptions::new(TEST_TT_MB_SIZE).with_threads(Some(2)),
+            );
+            shared.share_thread_pool();
+            let mut first = Search::from_shared_resources(&shared);
+            let mut second = Search::from_shared_resources(&shared);
+            let board = Board::new().make_move(Square::F5);
+            let stop = StopToken::new();
+            stop.stop();
+
+            // Without the stop this would deepen far past the watchdog deadline.
+            let options =
+                SearchRunOptions::with_level(Level::uniform(60, 0)).stop_token(stop.clone());
+            let stopped = first.run(&board, &options);
+            let best = stopped.best_move().expect("expected fallback best move");
+            assert!(board.is_legal_move(best));
+
+            stop.stop();
+            let result = second.run(&board, &SearchRunOptions::with_level(Level::uniform(4, 0)));
+            assert_eq!(result.depth(), 4);
+        },
+    );
 }
 
 /// Guards against shutdown deadlocks or state leaking across pool lifetimes.
@@ -295,10 +332,6 @@ fn engines_sharing_a_pool_search_in_turn() {
     shared.share_thread_pool();
     let mut first = Search::from_shared_resources(&shared);
     let mut second = Search::from_shared_resources(&shared);
-    assert!(std::sync::Arc::ptr_eq(
-        &first.thread_pool(),
-        &second.thread_pool()
-    ));
     assert!(!std::sync::Arc::ptr_eq(first.tt(), second.tt()));
 
     let options = SearchRunOptions::with_level(Level::perfect());

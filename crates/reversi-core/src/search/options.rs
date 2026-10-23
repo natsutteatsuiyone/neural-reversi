@@ -7,8 +7,8 @@ use crate::constants::MAX_THREADS;
 use crate::eval::EvalMode;
 use crate::level::Level;
 
-use super::SearchProgressCallback;
 use super::time_control::TimeControlMode;
+use super::{SearchProgressCallback, StopToken};
 
 /// Number of CPUs available to this process, falling back to 1.
 pub(crate) fn available_cpus() -> usize {
@@ -82,6 +82,7 @@ pub struct SearchRunOptions {
     pub callback: Option<Arc<SearchProgressCallback>>,
     pub eval_mode: Option<EvalMode>,
     pub probcut_disabled: bool,
+    pub stop_token: Option<StopToken>,
 }
 
 impl SearchRunOptions {
@@ -94,6 +95,7 @@ impl SearchRunOptions {
             callback: None,
             eval_mode: None,
             probcut_disabled: false,
+            stop_token: None,
         }
     }
 
@@ -106,6 +108,7 @@ impl SearchRunOptions {
             callback: None,
             eval_mode: None,
             probcut_disabled: false,
+            stop_token: None,
         }
     }
 
@@ -138,6 +141,13 @@ impl SearchRunOptions {
     #[must_use]
     pub fn with_eval_mode(mut self, mode: EvalMode) -> Self {
         self.eval_mode = Some(mode);
+        self
+    }
+
+    /// Lets `token` stop the run from another thread.
+    #[must_use]
+    pub fn stop_token(mut self, token: StopToken) -> Self {
+        self.stop_token = Some(token);
         self
     }
 }

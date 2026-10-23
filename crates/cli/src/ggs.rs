@@ -24,7 +24,7 @@ use reversi_core::disc::Disc;
 use reversi_core::level::{MAX_LEVEL, get_level};
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{self, SearchRunOptions, options::SearchOptions};
+use reversi_core::search::{self, SearchRunOptions, StopToken, options::SearchOptions};
 use reversi_core::square::Square;
 use reversi_core::transposition_table::TranspositionTable;
 use reversi_core::types::Scoref;
@@ -36,7 +36,6 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(50);
 struct SearchPool {
     #[cfg(test)]
     progress_observer: Option<Arc<search::SearchProgressCallback>>,
-    events: Sender<connection::Event>,
     shared: search::SearchSharedResources,
     capacity: usize,
     login: String,
@@ -85,13 +84,10 @@ impl SearchTurn {
     }
 }
 
-/// One game's engine plus the thread pool it searches on, captured so the
-/// event loop never has to lock the engine mutex (which a winding-down ponder
-/// may hold) just to reach the pool.
+/// One game's engine.
 #[derive(Clone)]
 struct EngineSlot {
     search: Arc<Mutex<search::Search>>,
-    pool: Arc<search::threading::ThreadPool>,
     /// Set for synchro child games, shared with the sibling's slot.
     shared_tt: Option<Arc<Mutex<SharedTranspositionTable>>>,
 }
@@ -132,70 +128,22 @@ impl SharedTranspositionTable {
     }
 }
 
-/// Lifecycle of one search or ponder worker. `Running` holds exactly while
-/// the worker owns the search lock around its search, so an abort issued
-/// under the state mutex in `Running` can only ever hit that worker — never
-/// another search that won the search lock before it (state still
-/// `Starting`) or after it exited (`Finished`).
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum WorkerState {
-    /// Worker spawned but not yet past its cancellation check; the pool may
-    /// even be held by another search right now. No abort may be issued.
-    Starting,
-    /// Worker holds the search lock and is searching (or about to).
-    Running,
-    /// Worker exited or was never able to start. No abort may be issued.
-    Finished,
-}
-
 /// Cancellation state for one in-flight search or ponder.
 struct WorkerHandle {
+    /// Keeps a worker still waiting for the search lock from ever searching.
     cancelled: Arc<AtomicBool>,
-    state: Arc<Mutex<WorkerState>>,
-    pool: Arc<search::threading::ThreadPool>,
+    /// Stops the worker's search, even one that is just starting. It never
+    /// reaches another engine's search on the shared pool.
+    stop: StopToken,
     turn: Arc<SearchTurn>,
 }
 
 /// Cancels a worker: one that has not started never searches, and a running
-/// one is aborted until it exits.
-fn stop_worker(handle: WorkerHandle, events: &Sender<connection::Event>) {
+/// one stops at once.
+fn stop_worker(handle: WorkerHandle) {
     handle.cancelled.store(true, Ordering::Release);
+    handle.stop.stop();
     handle.turn.wake();
-    if *handle.state.lock().unwrap() != WorkerState::Running {
-        return;
-    }
-    // start_thinking resets the pool's abort flag, so an abort landing in
-    // the worker's startup window is silently lost — and a direct endgame
-    // search would then hold the search lock for a full solve while
-    // another search starves. Re-issue the abort until the worker exits;
-    // aborts fire only in `Running`, i.e. only while the worker owns the
-    // search lock, so they can never reach another search. The handle was
-    // already removed from its map, so if the retry worker cannot be
-    // spawned this is the last chance to stop the worker: retry inline.
-    if thread::Builder::new()
-        .spawn({
-            let state = Arc::clone(&handle.state);
-            let pool = Arc::clone(&handle.pool);
-            let events = events.clone();
-            move || {
-                if !retry_abort_while_running(&state, &|| pool.abort_search()) {
-                    let _ = events.send(connection::Event::Log(
-                        "worker failed to stop within 30s".into(),
-                    ));
-                }
-            }
-        })
-        .is_err()
-    {
-        let _ = events.send(connection::Event::Log(
-            "failed to spawn worker stopper; retrying inline".into(),
-        ));
-        if !retry_abort_while_running(&handle.state, &|| handle.pool.abort_search()) {
-            let _ = events.send(connection::Event::Log(
-                "worker failed to stop within 30s".into(),
-            ));
-        }
-    }
 }
 
 fn take_game_handles(handles: &mut HashMap<String, WorkerHandle>, id: &str) -> Vec<WorkerHandle> {
@@ -205,35 +153,14 @@ fn take_game_handles(handles: &mut HashMap<String, WorkerHandle>, id: &str) -> V
         .collect()
 }
 
-/// Transitions a worker out of `Starting`: to `Running` when it may
-/// search, to `Finished` when it was cancelled first. Must be called while
-/// holding the search lock; the state mutex makes the cancellation check
-/// atomic against [`stop_worker`].
-fn begin_worker(cancelled: &AtomicBool, state: &Mutex<WorkerState>) -> bool {
-    let mut state = state.lock().unwrap();
-    if cancelled.load(Ordering::Acquire) {
-        *state = WorkerState::Finished;
-        false
-    } else {
-        *state = WorkerState::Running;
-        true
-    }
-}
-
 impl SearchPool {
-    fn new(
-        options: &SearchOptions,
-        login: &str,
-        capacity: usize,
-        events: Sender<connection::Event>,
-    ) -> Self {
+    fn new(options: &SearchOptions, login: &str, capacity: usize) -> Self {
         let mut shared = search::SearchSharedResources::new(options);
         shared.share_thread_pool();
         let n_threads = shared.n_threads();
         Self {
             #[cfg(test)]
             progress_observer: None,
-            events,
             shared,
             capacity,
             login: login.to_string(),
@@ -247,7 +174,7 @@ impl SearchPool {
 
     fn stop_ponder(&self, game_id: &str) {
         if let Some(handle) = self.ponder_handles.lock().unwrap().remove(game_id) {
-            stop_worker(handle, &self.events);
+            stop_worker(handle);
         }
     }
 
@@ -284,7 +211,6 @@ impl SearchPool {
             })
         });
         let slot = EngineSlot {
-            pool: search.thread_pool(),
             search: Arc::new(Mutex::new(search)),
             shared_tt,
         };
@@ -302,7 +228,7 @@ impl SearchPool {
             .retain(|game_id, _| !session::is_game_of(id, game_id));
         let ended = take_game_handles(&mut self.search_handles.lock().unwrap(), id);
         for handle in ended {
-            stop_worker(handle, &self.events);
+            stop_worker(handle);
         }
     }
 }
@@ -388,7 +314,7 @@ fn run_ggs_inner(
     search_options.tt_mb_size = partition_tt_size(search_options.tt_mb_size, max_games)?;
     let (mut conn, event_tx) = connection::Connection::connect(host, port)
         .map_err(|e| format!("failed to connect to {host}:{port}: {e}"))?;
-    let search_pool = SearchPool::new(&search_options, user, max_game_slots, event_tx.clone());
+    let search_pool = SearchPool::new(&search_options, user, max_game_slots);
     #[cfg(test)]
     let search_pool = SearchPool {
         progress_observer,
@@ -755,7 +681,7 @@ fn apply_action(
                 &search_pool.search_handles,
                 &game_id,
                 slot,
-                move |search| {
+                move |search, stop| {
                     if let Some(shared_tt) = &shared_tt
                         && let Some(tt) = shared_tt.lock().unwrap().split_off(&job_id, &board)
                     {
@@ -767,7 +693,7 @@ fn apply_action(
                     // Our clock kept running while another game held the pool.
                     let waited = queued_at.elapsed();
                     let search_limit = deduct_wait(search_limit, waited);
-                    let options = build_search_run_options(search_limit);
+                    let options = build_search_run_options(search_limit).stop_token(stop);
                     #[cfg(test)]
                     let options = SearchRunOptions {
                         callback: progress_observer,
@@ -861,7 +787,7 @@ fn apply_action(
                 &search_pool.ponder_handles,
                 &game_id,
                 slot,
-                move |search| {
+                move |search, stop| {
                     let _ = started_tx.send(connection::Event::SearchStarted {
                         game_id: started_id,
                         search_id,
@@ -869,7 +795,7 @@ fn apply_action(
                     });
                     search.run(
                         &board,
-                        &SearchRunOptions::with_time(TimeControlMode::Infinite),
+                        &SearchRunOptions::with_time(TimeControlMode::Infinite).stop_token(stop),
                     );
                 },
                 move |_| {
@@ -896,47 +822,41 @@ fn apply_action(
 /// Runs `job` on the game's engine in a new worker thread once it holds the
 /// search lock, then hands its result to `done` after releasing the locks
 /// (`None` when the worker was cancelled before it began). The worker is
-/// registered in `handles` under `game_id` so it can be stopped.
+/// registered in `handles` under `game_id` so it can be stopped; `job` must
+/// give its search the stop token it receives.
 fn spawn_worker<T: Send + 'static>(
     search_pool: &Arc<SearchPool>,
     handles: &Mutex<HashMap<String, WorkerHandle>>,
     game_id: &str,
     slot: EngineSlot,
-    job: impl FnOnce(&mut search::Search) -> T + Send + 'static,
+    job: impl FnOnce(&mut search::Search, StopToken) -> T + Send + 'static,
     done: impl FnOnce(Option<T>) + Send + 'static,
 ) -> std::io::Result<()> {
     let cancelled = Arc::new(AtomicBool::new(false));
-    let state = Arc::new(Mutex::new(WorkerState::Starting));
+    let stop = StopToken::new();
     handles.lock().unwrap().insert(
         game_id.to_string(),
         WorkerHandle {
             cancelled: Arc::clone(&cancelled),
-            state: Arc::clone(&state),
-            pool: Arc::clone(&slot.pool),
+            stop: stop.clone(),
             turn: Arc::clone(&search_pool.search_turn),
         },
     );
     let turn = Arc::clone(&search_pool.search_turn);
-    let worker_state = Arc::clone(&state);
     let spawned = thread::Builder::new().spawn(move || {
         if !turn.acquire(&cancelled) {
-            *worker_state.lock().unwrap() = WorkerState::Finished;
             drop(slot);
             done(None);
             return;
         }
         let mut search = slot.search.lock().unwrap();
-        let result = begin_worker(&cancelled, &worker_state).then(|| job(&mut search));
-        // Publish exit while the search lock is still held: a stopper's
-        // abort retries stop before another search can acquire the pool.
-        *worker_state.lock().unwrap() = WorkerState::Finished;
+        let result = (!cancelled.load(Ordering::Acquire)).then(|| job(&mut search, stop));
         drop(search);
         turn.release();
         drop(slot);
         done(result);
     });
     if spawned.is_err() {
-        *state.lock().unwrap() = WorkerState::Finished;
         handles.lock().unwrap().remove(game_id);
     }
     spawned.map(drop)
@@ -1119,26 +1039,6 @@ fn build_search_run_options(search_limit: session::SearchLimit) -> SearchRunOpti
     }
 }
 
-/// Re-issues `abort` under the state mutex for as long as the worker is
-/// `Running` (bounded at 30s). See [`stop_worker`] for why a single abort is
-/// not enough and why aborting outside `Running` is unsafe.
-fn retry_abort_while_running(state: &Mutex<WorkerState>, abort: &dyn Fn()) -> bool {
-    for _ in 0..30_000 {
-        {
-            let state = state.lock().unwrap();
-            match *state {
-                WorkerState::Running => abort(),
-                // Finished: worker exited. Starting: the worker will see
-                // `cancelled` and never search, while the pool may belong to
-                // another search an abort would hit.
-                WorkerState::Finished | WorkerState::Starting => return true,
-            }
-        }
-        thread::sleep(Duration::from_millis(1));
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1283,28 +1183,6 @@ mod tests {
     }
 
     #[test]
-    fn ponder_stop_in_starting_never_aborts_and_worker_self_cancels() {
-        use std::sync::atomic::AtomicUsize;
-
-        // Startup race: the real search won the search lock first, so the
-        // worker is still `Starting` when the stop arrives. No abort may be
-        // issued — it would hit the real search through the shared pool.
-        let cancelled = AtomicBool::new(false);
-        let state = Mutex::new(WorkerState::Starting);
-        cancelled.store(true, Ordering::Release);
-
-        let aborts = AtomicUsize::new(0);
-        retry_abort_while_running(&state, &|| {
-            aborts.fetch_add(1, Ordering::Relaxed);
-        });
-        assert_eq!(aborts.load(Ordering::Relaxed), 0);
-
-        // The worker later observes the cancellation and never searches.
-        assert!(!begin_worker(&cancelled, &state));
-        assert_eq!(*state.lock().unwrap(), WorkerState::Finished);
-    }
-
-    #[test]
     fn synchro_pair_splits_tt_only_when_a_board_leaves_the_sibling_line() {
         let tt = Arc::new(TranspositionTable::new(0));
         let mut shared = SharedTranspositionTable {
@@ -1355,14 +1233,12 @@ mod tests {
 
     #[test]
     fn match_end_cancels_only_its_queued_searches() {
-        let pool = search::threading::ThreadPool::new(1);
         let mut handles: HashMap<String, WorkerHandle> = [".5", ".5.0", ".5.1", ".50", ".6"]
             .into_iter()
             .map(|id| {
                 let handle = WorkerHandle {
                     cancelled: Arc::new(AtomicBool::new(false)),
-                    state: Arc::new(Mutex::new(WorkerState::Starting)),
-                    pool: Arc::clone(&pool),
+                    stop: StopToken::new(),
                     turn: Arc::default(),
                 };
                 (id.to_string(), handle)
@@ -1370,56 +1246,18 @@ mod tests {
             .collect();
 
         let ended = take_game_handles(&mut handles, ".5");
-        let workers: Vec<_> = ended
+        let cancelled: Vec<_> = ended
             .iter()
-            .map(|handle| (Arc::clone(&handle.cancelled), Arc::clone(&handle.state)))
+            .map(|handle| Arc::clone(&handle.cancelled))
             .collect();
         for handle in ended {
-            stop_worker(handle, &std::sync::mpsc::channel().0);
+            stop_worker(handle);
         }
 
-        assert_eq!(workers.len(), 3);
-        for (cancelled, state) in &workers {
-            assert!(!begin_worker(cancelled, state));
-        }
+        assert_eq!(cancelled.len(), 3);
+        assert!(cancelled.iter().all(|flag| flag.load(Ordering::Acquire)));
         let mut remaining: Vec<_> = handles.keys().map(String::as_str).collect();
         remaining.sort_unstable();
         assert_eq!(remaining, [".50", ".6"]);
-    }
-
-    #[test]
-    fn ponder_stopper_aborts_only_while_running() {
-        use std::sync::atomic::AtomicUsize;
-
-        let cancelled = AtomicBool::new(false);
-        let state = Arc::new(Mutex::new(WorkerState::Starting));
-        assert!(begin_worker(&cancelled, &state));
-        assert_eq!(*state.lock().unwrap(), WorkerState::Running);
-
-        let aborts = Arc::new(AtomicUsize::new(0));
-        let (aborted_tx, aborted_rx) = std::sync::mpsc::channel();
-        let finisher = {
-            let state = Arc::clone(&state);
-            thread::spawn(move || {
-                aborted_rx
-                    .recv_timeout(Duration::from_secs(5))
-                    .expect("first abort");
-                *state.lock().unwrap() = WorkerState::Finished;
-            })
-        };
-        retry_abort_while_running(&state, &|| {
-            if aborts.fetch_add(1, Ordering::Relaxed) == 0 {
-                aborted_tx.send(()).unwrap();
-            }
-        });
-        finisher.join().unwrap();
-        assert!(aborts.load(Ordering::Relaxed) >= 1);
-
-        // Once Finished, retries must abort nothing.
-        let late_aborts = AtomicUsize::new(0);
-        retry_abort_while_running(&state, &|| {
-            late_aborts.fetch_add(1, Ordering::Relaxed);
-        });
-        assert_eq!(late_aborts.load(Ordering::Relaxed), 0);
     }
 }

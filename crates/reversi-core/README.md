@@ -354,9 +354,12 @@ Endgame:
 
 Both phases:
 
-- A shared abort flag is polled at a short fixed interval
-  (`CHECK_INTERVAL_MS`) so threads can exit on time-out or
-  `ThreadPool::abort_search`.
+- Threads poll `AbortState`, one atomic tagged with the search
+  generation. Each search starts a new generation, and an abort request
+  names the generation it targets, so a request for a finished search
+  never reaches the next one. The deadline timer checks the clock every
+  `CHECK_INTERVAL_MS`; a `StopToken` passed in `SearchRunOptions` aborts
+  every search that carries it, including one stopped before it began.
 - The physical thread count is
   `n_threads.min(available_cpus()).clamp(1, MAX_THREADS)`.
 
@@ -582,6 +585,7 @@ The integration tests in `tests/` require real weights to load.
 | Strategy / node type                 | `src/search/strategy.rs`, `src/search/node_type.rs`                       |
 | Result / root moves / Multi-PV       | `src/search/result.rs`, `src/search/root_move.rs`                         |
 | Progress reporting                   | `src/search/progress.rs`                                                  |
+| Stop requests                        | `src/search/stop.rs`, `src/search/threading/abort.rs`                     |
 | Time control                         | `src/search/time_control.rs`                                              |
 | TT / ProbCut / Stability             | `src/transposition_table.rs`, `src/probcut.rs`, `src/stability.rs`        |
 | Evaluator / cache                    | `src/eval.rs`, `src/eval/eval_cache.rs`                                   |
@@ -615,8 +619,9 @@ cargo bench -p reversi-core --bench endgame
 of endgame positions. Both require the `.zst` weight files in the
 workspace root.
 `tests/parallel_search_tests.rs` checks that parallel solves return the
-single-thread result, that a manual abort terminates the search, and that
-pool shutdown and shared-TT reuse are clean across searches.
+single-thread result, that a `StopToken` ends a search whether it is
+stopped during or before the run without reaching the next search, and
+that pool shutdown and shared-TT reuse are clean across searches.
 
 Enabling the `search-stats` Cargo feature populates extra fields in
 `SearchCounters`, exposing breakdown counters such as TT hit rate, ETC

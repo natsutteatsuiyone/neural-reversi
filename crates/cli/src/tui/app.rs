@@ -9,7 +9,7 @@ use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::level;
 use reversi_core::search::result::{PvMove, SearchResult};
-use reversi_core::search::{self, SearchRunOptions};
+use reversi_core::search::{self, SearchRunOptions, StopToken};
 use reversi_core::square::Square;
 
 use crate::config::EngineConfig;
@@ -212,6 +212,9 @@ pub struct App {
     /// receipt and on dialog dismissal; `check_hint_result` uses it to decide
     /// whether to display the incoming result or silently discard it.
     pub hint_thinking: bool,
+    /// Stops the hint search when the user dismisses the dialog, so the
+    /// worker returns the engine promptly.
+    hint_stop: Option<StopToken>,
     /// Current hint results
     pub hints: Vec<PvMove>,
     /// Status message to display
@@ -252,6 +255,7 @@ impl App {
             last_ai_result: None,
             hint_receiver: None,
             hint_thinking: false,
+            hint_stop: None,
             hints: Vec::new(),
             status_message: None,
             level_input: String::new(),
@@ -390,9 +394,13 @@ impl App {
                 self.should_quit = true;
             }
             Event::Quit | Event::Hint => {
-                // The worker still owns `self.search` and must finish so the
-                // engine can be returned. Clearing `hint_thinking` signals
-                // `check_hint_result` to discard the eventual result.
+                // The worker still owns `self.search`; stopping its search
+                // makes it return the engine promptly. Clearing
+                // `hint_thinking` signals `check_hint_result` to discard the
+                // result.
+                if let Some(stop) = self.hint_stop.take() {
+                    stop.stop();
+                }
                 self.hint_thinking = false;
                 self.ui_mode = UiMode::Normal;
             }
@@ -620,9 +628,13 @@ impl App {
             return;
         };
 
-        let options = SearchRunOptions::with_level(level::get_level(self.level)).multi_pv(true);
+        let stop = StopToken::new();
+        let options = SearchRunOptions::with_level(level::get_level(self.level))
+            .multi_pv(true)
+            .stop_token(stop.clone());
         self.hint_receiver = Some(spawn_search_worker(search, *self.game.board(), options));
         self.hint_thinking = true;
+        self.hint_stop = Some(stop);
         self.ui_mode = UiMode::HintsLoading;
     }
 
@@ -849,6 +861,7 @@ impl App {
         {
             self.search = Some(search);
             self.hint_receiver = None;
+            self.hint_stop = None;
             // `hint_thinking` is cleared both on normal receipt and on
             // dialog dismissal; only the former still wants the result.
             if self.hint_thinking {

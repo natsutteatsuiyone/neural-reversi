@@ -10,7 +10,7 @@ use reversi_core::search::context::SearchContext;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::{
-    EndGameCaches, Search, SearchRunOptions, SearchSharedResources, null_window_search,
+    EndGameCaches, Search, SearchRunOptions, SearchSharedResources, StopToken, null_window_search,
 };
 use reversi_core::square::Square;
 use reversi_core::transposition_table::TranspositionTable;
@@ -111,18 +111,21 @@ fn aborted_endgame_reports_last_completed_selectivity() {
     let abort_requested = Arc::new(AtomicBool::new(false));
     let callback_completed = completed.clone();
     let callback_abort_requested = abort_requested.clone();
-    let pool = search.thread_pool();
-    let options = SearchRunOptions::with_level(Level::perfect()).callback(move |progress| {
-        if !callback_abort_requested.swap(true, Ordering::SeqCst) {
-            *callback_completed.lock().unwrap() = Some((
-                progress.best_move,
-                progress.score,
-                progress.probability,
-                progress.pv_line,
-            ));
-            pool.abort_search();
-        }
-    });
+    let stop = StopToken::new();
+    let callback_stop = stop.clone();
+    let options = SearchRunOptions::with_level(Level::perfect())
+        .stop_token(stop)
+        .callback(move |progress| {
+            if !callback_abort_requested.swap(true, Ordering::SeqCst) {
+                *callback_completed.lock().unwrap() = Some((
+                    progress.best_move,
+                    progress.score,
+                    progress.probability,
+                    progress.pv_line,
+                ));
+                callback_stop.stop();
+            }
+        });
 
     let result = search.run(&board, &options);
     let (best_move, score, probability, pv_line) = completed
