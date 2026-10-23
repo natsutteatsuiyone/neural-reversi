@@ -227,9 +227,6 @@ pub struct SplitPointTask {
     /// Type of node (PV, NonPV, or Root) for search specialization.
     pub node_type: NodeTypeId,
 
-    /// Whether this split point uses endgame search strategy.
-    pub is_endgame: bool,
-
     /// Parent split point in the tree hierarchy.
     pub parent_split_point: Option<Arc<SplitPoint>>,
 }
@@ -257,7 +254,6 @@ impl SplitPointTask {
             depth: req.depth,
             beta: req.beta,
             node_type: req.node_type,
-            is_endgame: req.is_endgame,
             parent_split_point,
         }
     }

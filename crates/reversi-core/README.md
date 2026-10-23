@@ -12,11 +12,11 @@ The engine is split into three layers.
 ┌────────────────────────────────────────────────────────┐
 │  Search                                                │
 │   ├─ midgame:  iterative deepening + aspiration        │
+│   │            threads: Lazy SMP (helper searches)     │
 │   └─ endgame:  iterative selectivity (Level1 → None)   │
+│                threads: YBWC (split points)            │
 │        └─ Negamax PVS + (TT / ETC / ProbCut /          │
 │                          stability / LMR / wipeout)    │
-│              └─ YBWC parallel split (split point +     │
-│                                      helper threads)   │
 ├────────────────────────────────────────────────────────┤
 │  Evaluation                                            │
 │   ├─ pattern feature: 32 patterns × base-3 encoding    │
@@ -109,22 +109,25 @@ time (the `cut_node` flag is also threaded through). One node, in order:
 8. **IIR** (Internal Iterative Reductions) — reduce non-root PV/Cut midgame
    nodes by one ply when `depth >= IIR_MIN_DEPTH` (6), selectivity is enabled,
    and the TT provides no best move. All nodes, endgame nodes, and ProbCut
-   verification searches retain their depth. Move searches, parallel splits,
-   and TT stores use the reduced depth. Selective midgame PV restoration
-   caps the stored depth at the remaining line length.
+   verification searches retain their depth. Move searches, breadcrumbs,
+   and TT stores use the reduced depth.
 9. **TT move first** — in NonPV nodes with a TT move, search the TT move at
    a null window before running move ordering. A fail-high here cuts off
    without sorting the rest.
 10. **Move ordering** — `MoveList::evaluate_moves` scores the rest;
-   `MoveList::sort` arranges them. The TT move is always pinned at index 0.
+   `MoveList::sort` arranges them, and a Lazy SMP helper thread uses
+   `Helper::sort_moves` instead (see Parallel search). The TT move is always
+   pinned at index 0.
 11. **Main loop**:
     - First move (PV): full window.
     - Later moves: `compute_lmr_reduction` picks a reduction; search at a
       null window. If it fails high, re-search at full depth (still null
       window). For PV nodes, if `score > alpha`, re-search at full depth and
       full window.
-    - When the conditions are met, `Thread::split` hands the remaining moves
-      to helper threads (see below).
+    - In endgame nodes, when the conditions are met, `Thread::split` hands
+      the remaining moves to idle threads. In midgame nodes, a child that
+      another thread has marked with a breadcrumb is searched after its
+      siblings and keeps its rank for LMR (see Parallel search).
 12. **TT store** — pack `best_score / best_move / bound / depth /
     selectivity / is_endgame` and write back.
 
@@ -154,6 +157,11 @@ Iterative deepening with aspiration windows.
   the next iteration would cover all empties, the root hands its context
   to the endgame solve loop, which searches the remaining selectivity
   levels at full depth (see Endgame root).
+- In a parallel pool, the other threads run Lazy SMP helper searches on
+  the same root until the main thread returns or hands off to the endgame
+  solve loop. A time-controlled search reports the move that the
+  threads' last completed iterations vote for (`vote_best`); fixed-level
+  and Multi-PV searches report the main thread's iteration.
 
 LMR runs in non-PV midgame nodes once selectivity is enabled, from
 `LMR_MIN_DEPTH` onwards, and only for moves past the first few siblings.
@@ -305,12 +313,36 @@ to move below alpha.
   generated at compile time. It is combined with detection of fully-filled
   same-colour ranks, files, and diagonals to lower-bound the stable count.
 
-### YBWC parallel search
+### Parallel search
 
-`src/search/threading.rs`. YBWC (Young Brothers Wait Concept).
+`src/search/threading.rs`. Thread 0 is the main thread and runs the root
+search. The other threads work with it in two ways: the midgame runs
+Lazy SMP, and the endgame runs YBWC (Young Brothers Wait Concept).
+
+Midgame (`src/search/midgame/lazy_smp.rs`):
+
+- `ThreadPool::start_helpers` books every other thread for a helper search
+  of the same root. The threads share results only through the
+  transposition table.
+- Each helper walks the tree its own way, derived from its pool index: it
+  skips depths in alternating runs (`SKIP_SIZE`, `SKIP_PHASE`), widens its
+  aspiration windows (`ASPIRATION_STEP`, `ASPIRATION_CYCLE`), sorts inner
+  moves by value plus a hashed bias whose range `ORDERING_BIAS_SHIFT`
+  sets, and rotates the root moves after the first. Move values stay
+  unbiased for LMR.
+- Every thread leaves a breadcrumb (`Breadcrumbs`) on the midgame nodes it
+  is searching from `BREADCRUMB_MIN_DEPTH` on. A node another thread has
+  marked reduces its late moves by one more ply, and a child another
+  thread has marked is searched after its siblings.
+- `ThreadPool::stop_helpers` aborts the helper searches before the root
+  returns or hands off to the endgame solve loop. In `vote_best`, each
+  completed iteration votes for its best move with its score margin over
+  the lowest score plus `VOTE_MARGIN`, weighted by depth.
+
+Endgame:
 
 - A split point is published from `Thread::split` when the search is past
-  the first move, `depth >= SS::MIN_SPLIT_DEPTH`, at least two moves
+  the first move, `depth >= MIN_SPLIT_DEPTH`, at least two moves
   remain, and `Thread::can_split()` is true. Remaining moves are
   distributed through a shared `ConcurrentMoveIterator`.
 - Helper threads that pick up the split point enter `search_split_point`,
@@ -319,6 +351,9 @@ to move below alpha.
 - A single thread can own up to `MAX_SPLITPOINTS_PER_THREAD` splits at
   once, and a single split accepts up to `MAX_THREADS_PER_CUT_SPLITPOINT`
   (cut nodes) or `MAX_THREADS_PER_NON_CUT_SPLITPOINT` (non-cut) workers.
+
+Both phases:
+
 - A shared abort flag is polled at a short fixed interval
   (`CHECK_INTERVAL_MS`) so threads can exit on time-out or
   `ThreadPool::abort_search`.
@@ -542,7 +577,7 @@ The integration tests in `tests/` require real weights to load.
 | Search core                          | `src/search.rs`, `src/search/pvs.rs`                                      |
 | Midgame search                       | `src/search/midgame.rs`                                                   |
 | Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/solve.rs`, `src/search/endgame/solve/*`, `src/search/endgame/cache.rs` |
-| Parallelisation                      | `src/search/threading.rs`, `src/search/threading/*`                       |
+| Parallelisation                      | `src/search/threading.rs`, `src/search/threading/*`, `src/search/midgame/lazy_smp.rs` |
 | Search context / stack               | `src/search/context.rs`, `src/search/stack.rs`                            |
 | Strategy / node type                 | `src/search/strategy.rs`, `src/search/node_type.rs`                       |
 | Result / root moves / Multi-PV       | `src/search/result.rs`, `src/search/root_move.rs`                         |

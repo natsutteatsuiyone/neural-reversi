@@ -1,7 +1,7 @@
 use std::cell::SyncUnsafeCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use crate::board::Board;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
@@ -11,18 +11,23 @@ use crate::search::counters::SearchCounters;
 use crate::search::endgame::EndGameCaches;
 use crate::search::node_type::{NodeTypeId, NonPV, PV, Root};
 use crate::search::pvs::search_split_point;
-use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
+use crate::search::strategy::EndGameStrategy;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 use crate::util::align::Align64;
 use crate::util::spinlock;
 
 use super::AbortState;
+use super::breadcrumbs::{Breadcrumb, Breadcrumbs};
 use super::pool::{Message, ThreadPool};
 use super::split_point::{SplitPoint, SplitPointState, SplitPointTask};
 
 /// Maximum number of split points that a single thread can have active at once.
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
+
+/// Search the main thread hands to the other threads of the pool, such as a
+/// Lazy SMP helper search; each runs it until it returns or is aborted.
+pub(in crate::search) type HelperJob = Arc<dyn Fn(&Arc<Thread>) + Send + Sync>;
 
 /// A worker thread in the thread pool.
 pub struct Thread {
@@ -44,6 +49,12 @@ pub struct Thread {
     /// Shared abort state, cached to avoid `Weak::upgrade()` on every node.
     abort_state: Arc<AbortState>,
 
+    /// Helper job this thread is booked for, taken when the job starts.
+    helper_job: Mutex<Option<HelperJob>>,
+
+    /// Set by the main thread to end this thread's helper job.
+    helper_job_aborted: AtomicBool,
+
     /// Global cutoff generation shared by all threads in this pool.
     cutoff_epoch: Arc<Align64<AtomicU64>>,
 
@@ -55,6 +66,9 @@ pub struct Thread {
 
     /// Cached pool size, avoids `Weak::upgrade()` in `can_split()`.
     pool_size: usize,
+
+    /// Positions the threads of this pool are currently searching.
+    breadcrumbs: Arc<Breadcrumbs>,
 
     /// Endgame cache set owned by this search thread.
     ///
@@ -102,7 +116,6 @@ pub struct SplitRequest<'a> {
     pub move_list: MoveList,
     pub move_count: usize,
     pub node_type: NodeTypeId,
-    pub is_endgame: bool,
     pub cut_node: bool,
 }
 
@@ -113,6 +126,7 @@ impl Thread {
         thinking: Arc<AtomicBool>,
         abort_state: Arc<AbortState>,
         cutoff_epoch: Arc<Align64<AtomicU64>>,
+        breadcrumbs: Arc<Breadcrumbs>,
         pool_size: usize,
         pool: Weak<ThreadPool>,
     ) -> Thread {
@@ -125,10 +139,13 @@ impl Thread {
             idx,
             pool,
             abort_state,
+            helper_job: Mutex::new(None),
+            helper_job_aborted: AtomicBool::new(false),
             cutoff_epoch,
             local_seen_cutoff_epoch: AtomicU64::new(0),
             local_chain_cutoff: AtomicBool::new(false),
             pool_size,
+            breadcrumbs,
             endgame_caches: SyncUnsafeCell::new(EndGameCaches::for_thread_count(pool_size)),
             thinking,
             split_points_size: Align64(AtomicUsize::new(0)),
@@ -198,7 +215,8 @@ impl Thread {
     /// Returns a mutable reference to the active split point.
     ///
     /// Writes occur from the owning thread (in `initialize_split_point`,
-    /// `try_late_join`, `finalize_split_point`) and from another thread via
+    /// `try_late_join`, `finalize_split_point`, and when it leaves a split
+    /// point) and from another thread via
     /// `ThreadPool::assign_helpers_to_split_point`. Other-thread writers
     /// always hold `mutex_for_state`; the owning thread writes lock-free
     /// only while `searching` is true (which excludes those external writers).
@@ -213,6 +231,25 @@ impl Thread {
     #[inline]
     pub(in crate::search) fn has_active_split_point(&self) -> bool {
         self.active_split_point().is_some()
+    }
+
+    /// Returns this thread's index in the pool; the main thread is 0.
+    #[inline]
+    pub(in crate::search) fn idx(&self) -> usize {
+        self.idx
+    }
+
+    /// Marks the position `key` as searched by this thread until the
+    /// returned breadcrumb is dropped.
+    #[inline]
+    pub(in crate::search) fn enter_breadcrumb(&self, key: u64) -> Breadcrumb<'_> {
+        self.breadcrumbs.enter(self.idx, key)
+    }
+
+    /// Returns whether another thread is inside the position `key`.
+    #[inline]
+    pub(in crate::search) fn is_breadcrumb_marked(&self, key: u64) -> bool {
+        self.breadcrumbs.is_marked(self.idx, key)
     }
 
     /// Returns `true` when the pool has more than one search thread.
@@ -433,8 +470,8 @@ impl Thread {
     /// 1. **Owner Mode**: If called from split(), acts as the owner thread
     ///    and waits for all assigned searchers to finish before returning
     ///
-    /// 2. **Helper Mode**: If called at thread creation, waits for work assignments
-    ///    and executes search tasks when assigned to split points
+    /// 2. **Worker Mode**: If called at thread creation, waits to be booked and
+    ///    then runs a helper job or searches its share of a split point
     pub(super) fn idle_loop(self: &Arc<Self>) {
         // 'this_sp' is Some only when called from split() (not at thread creation).
         // This means we are the split point's owner.
@@ -449,48 +486,13 @@ impl Thread {
                 break;
             }
 
-            // If this thread has been assigned work, launch a search
+            // If this thread has been booked, run what it was booked for
             while self.searching.load(Ordering::Acquire) {
-                let sp = {
-                    let _guard = self.lock();
-                    self.active_split_point()
-                        .clone()
-                        .expect("searching thread must have an active split point")
-                };
-
-                // The lock acquisition synchronizes with initialize_split_point,
-                // after which the task and split parameters stay stable until
-                // every helper has finished.
-                let guard = sp.lock();
-                let task = sp.task();
-                let (board, depth, node_type) = (task.board, task.depth, task.node_type);
-                let mut ctx = SearchContext::from_split_point(&sp);
-                drop(guard);
-
-                self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
-
-                {
-                    let _guard = self.lock();
-                    self.searching.store(false, Ordering::Release);
+                let helper_job = self.helper_job.lock().unwrap().take();
+                match helper_job {
+                    Some(job) => self.run_helper_job(&job),
+                    None => self.search_active_split_point(),
                 }
-
-                // Publish counters before clearing helpers_mask: the Release on
-                // reset() pairs with the owner's Acquire in helpers_mask.none().
-                // Stay on `sp.state()` (`&`): counters live outside `state`,
-                // and the remaining writes are atomic, so this path stays
-                // aliasing-compatible with concurrent lock-free readers in
-                // `try_late_join`.
-                let guard = sp.lock();
-                let sp_state = sp.state();
-                sp.merge_counters_locked(&ctx.counters);
-                sp_state.set_all_helpers_searching(false);
-                sp_state.helpers_mask.reset(self.idx);
-
-                // After clearing our helpers_mask bit, the owner may observe none() and
-                // tear down the split point, so we must not access sp data after this.
-                drop(guard);
-
-                self.try_late_join();
             }
 
             // If search is finished then sleep, otherwise just yield
@@ -509,6 +511,63 @@ impl Thread {
                 std::thread::yield_now();
             }
         }
+    }
+
+    /// Runs the helper job this thread is booked for, then becomes idle.
+    fn run_helper_job(self: &Arc<Self>, job: &HelperJob) {
+        job(self);
+
+        let _guard = self.lock();
+        self.searching.store(false, Ordering::Release);
+    }
+
+    /// Searches this thread's share of its active split point, then tries to
+    /// join another one.
+    fn search_active_split_point(self: &Arc<Self>) {
+        let sp = {
+            let _guard = self.lock();
+            self.active_split_point()
+                .clone()
+                .expect("searching thread must have an active split point")
+        };
+
+        // The lock acquisition synchronizes with initialize_split_point,
+        // after which the task and split parameters stay stable until
+        // every helper has finished.
+        let guard = sp.lock();
+        let task = sp.task();
+        let (board, depth, node_type) = (task.board, task.depth, task.node_type);
+        let mut ctx = SearchContext::from_split_point(&sp);
+        drop(guard);
+
+        self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
+
+        {
+            let _guard = self.lock();
+            // An idle thread has no active split point, so its next search
+            // cannot see the cutoffs of this one.
+            *self.active_split_point_mut() = None;
+            self.reset_cutoff_cache();
+            self.searching.store(false, Ordering::Release);
+        }
+
+        // Publish counters before clearing helpers_mask: the Release on
+        // reset() pairs with the owner's Acquire in helpers_mask.none().
+        // Stay on `sp.state()` (`&`): counters live outside `state`,
+        // and the remaining writes are atomic, so this path stays
+        // aliasing-compatible with concurrent lock-free readers in
+        // `try_late_join`.
+        let guard = sp.lock();
+        let sp_state = sp.state();
+        sp.merge_counters_locked(&ctx.counters);
+        sp_state.set_all_helpers_searching(false);
+        sp_state.helpers_mask.reset(self.idx);
+
+        // After clearing our helpers_mask bit, the owner may observe none() and
+        // tear down the split point, so we must not access sp data after this.
+        drop(guard);
+
+        self.try_late_join();
     }
 
     /// Runs the main thread message processing loop.
@@ -571,7 +630,7 @@ impl Thread {
         }
     }
 
-    /// Dispatches to the appropriate search function based on search strategy and node type.
+    /// Dispatches to the endgame split-point search for the node type.
     fn dispatch_search(
         self: &Arc<Self>,
         ctx: &mut SearchContext,
@@ -580,26 +639,15 @@ impl Thread {
         node_type: NodeTypeId,
         sp: &Arc<SplitPoint>,
     ) {
-        match (sp.task().is_endgame, node_type) {
-            // Endgame searches
-            (true, NodeTypeId::NonPv) => {
+        match node_type {
+            NodeTypeId::NonPv => {
                 search_split_point::<NonPV, EndGameStrategy>(ctx, board, depth, self, sp);
             }
-            (true, NodeTypeId::Pv) => {
+            NodeTypeId::Pv => {
                 search_split_point::<PV, EndGameStrategy>(ctx, board, depth, self, sp);
             }
-            (true, NodeTypeId::Root) => {
+            NodeTypeId::Root => {
                 search_split_point::<Root, EndGameStrategy>(ctx, board, depth, self, sp);
-            }
-            // Midgame searches
-            (false, NodeTypeId::NonPv) => {
-                search_split_point::<NonPV, MidGameStrategy>(ctx, board, depth, self, sp);
-            }
-            (false, NodeTypeId::Pv) => {
-                search_split_point::<PV, MidGameStrategy>(ctx, board, depth, self, sp);
-            }
-            (false, NodeTypeId::Root) => {
-                search_split_point::<Root, MidGameStrategy>(ctx, board, depth, self, sp);
             }
         }
     }
@@ -673,10 +721,34 @@ impl Thread {
         }
     }
 
-    /// Returns `true` if the search has been aborted (e.g., by deadline or external request).
+    /// Books this idle thread for the helper job `job`.
+    pub(super) fn book_helper_job(&self, job: HelperJob) {
+        let _guard = self.lock();
+        debug_assert!(!self.searching.load(Ordering::Relaxed));
+        *self.helper_job.lock().unwrap() = Some(job);
+        self.searching.store(true, Ordering::Release);
+    }
+
+    /// Asks this thread to end its helper job.
+    pub(super) fn abort_helper_job(&self) {
+        self.helper_job_aborted.store(true, Ordering::Relaxed);
+    }
+
+    /// Waits until this thread has ended its helper job, then withdraws the
+    /// abort request so later searches run normally.
+    pub(super) fn wait_for_helper_job(&self) {
+        while self.searching.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
+        self.helper_job_aborted.store(false, Ordering::Relaxed);
+    }
+
+    /// Returns `true` if this thread's search has been aborted: the whole
+    /// search by a deadline or an external request, or this thread's helper
+    /// job by the main thread.
     #[inline]
     pub fn is_search_aborted(&self) -> bool {
-        self.abort_state.is_aborted()
+        self.abort_state.is_aborted() || self.helper_job_aborted.load(Ordering::Relaxed)
     }
 
     /// Returns `true` when a beta cutoff has occurred in the current or

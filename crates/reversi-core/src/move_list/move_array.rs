@@ -109,7 +109,7 @@ impl MoveArray {
     }
 
     #[inline(always)]
-    unsafe fn compare_swap_unchecked(&mut self, a: usize, b: usize) {
+    unsafe fn compare_swap_unchecked(&mut self, a: usize, b: usize, key: impl Fn(&Move) -> i32) {
         debug_assert!(a < self.len);
         debug_assert!(b < self.len);
 
@@ -118,7 +118,7 @@ impl MoveArray {
         unsafe {
             let a_ptr = ptr.add(a);
             let b_ptr = ptr.add(b);
-            if (*a_ptr).value < (*b_ptr).value {
+            if key(&*a_ptr) < key(&*b_ptr) {
                 ptr::swap(a_ptr, b_ptr);
             }
         }
@@ -136,25 +136,26 @@ impl MoveArray {
         self.len = write;
     }
 
+    /// Sorts the moves in descending order of `key`.
     #[inline]
-    pub(super) fn sort_by_value_desc(&mut self) {
+    pub(super) fn sort_by_key_desc(&mut self, key: impl Fn(&Move) -> i32) {
         match self.len {
             0 | 1 => {}
             2 => {
                 // SAFETY: match arm guarantees `len == 2`.
-                unsafe { self.compare_swap_unchecked(0, 1) };
+                unsafe { self.compare_swap_unchecked(0, 1, &key) };
             }
             3 => {
                 // SAFETY: match arm guarantees `len == 3`.
                 unsafe {
-                    self.compare_swap_unchecked(0, 1);
-                    self.compare_swap_unchecked(1, 2);
-                    self.compare_swap_unchecked(0, 1);
+                    self.compare_swap_unchecked(0, 1, &key);
+                    self.compare_swap_unchecked(1, 2, &key);
+                    self.compare_swap_unchecked(0, 1, &key);
                 }
             }
             _ => self
                 .as_mut_slice()
-                .sort_unstable_by_key(|mv| Reverse(mv.value)),
+                .sort_unstable_by_key(|mv| Reverse(key(mv))),
         }
     }
 }

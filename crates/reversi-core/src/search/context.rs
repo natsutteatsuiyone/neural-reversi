@@ -11,6 +11,7 @@ use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
 use crate::search::counters::SearchCounters;
+use crate::search::midgame::Helper;
 use crate::search::root_move::RootMoves;
 use crate::search::side_to_move::SideToMove;
 use crate::search::stack::SearchStack;
@@ -41,6 +42,9 @@ pub struct SearchContext {
     pub stack: SearchStack,
     /// Current evaluation mode (midgame vs endgame).
     pub eval_mode: EvalMode,
+    /// Lazy SMP helper thread searching with this context; `None` for the
+    /// main thread's search and for split points.
+    pub(in crate::search) helper: Option<Helper>,
 }
 
 impl SearchContext {
@@ -64,6 +68,7 @@ impl SearchContext {
             pattern_features: PatternFeatures::new(board, ply),
             stack: SearchStack::new(),
             eval_mode: EvalMode::Main,
+            helper: None,
         }
     }
 
@@ -86,6 +91,7 @@ impl SearchContext {
             pattern_features,
             stack: SearchStack::new(),
             eval_mode: task.eval_mode,
+            helper: None,
         }
     }
 

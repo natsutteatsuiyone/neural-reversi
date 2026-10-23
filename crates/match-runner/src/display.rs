@@ -68,6 +68,21 @@ pub(crate) fn update_live_visualization(
     sprt: Option<&SprtResult>,
 ) -> io::Result<()> {
     if !io::stdout().is_terminal() {
+        // Redirected runs still need progress: one plain line per update.
+        if statistics.total_games() > 0 {
+            let llr = sprt.map_or(String::new(), |s| {
+                format!(" LLR {:.2} ({:.2}, {:.2})", s.llr, s.lower, s.upper)
+            });
+            println!(
+                "games {} W {} D {} L {} disc {:+}{llr}",
+                statistics.total_games(),
+                statistics.engine1_wins,
+                statistics.draws,
+                statistics.engine2_wins,
+                statistics.total_score,
+            );
+            io::stdout().flush()?;
+        }
         return Ok(());
     }
     print!("{SAVE_CURSOR}{VISUALIZATION_START_LINE}");

@@ -209,7 +209,14 @@ impl MoveList {
     /// Sorts all moves in descending order of their evaluation values.
     #[inline]
     pub fn sort(&mut self) {
-        self.moves.sort_by_value_desc();
+        self.moves.sort_by_key_desc(|mv| mv.value);
+    }
+
+    /// Sorts all moves in descending order of their evaluation values plus
+    /// `bias`, leaving the values themselves unchanged.
+    #[inline]
+    pub fn sort_with_bias(&mut self, bias: impl Fn(&Move) -> i32) {
+        self.moves.sort_by_key_desc(|mv| mv.value + bias(mv));
     }
 }
 

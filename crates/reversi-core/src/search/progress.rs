@@ -35,14 +35,15 @@ pub struct SearchProgress {
 pub type SearchProgressCallback = dyn Fn(SearchProgress) + Send + Sync + 'static;
 
 impl SearchProgress {
-    /// Builds the progress report for a root iteration from the search context
-    /// and the iteration's best root move.
+    /// Builds the progress report for a root iteration from the search context,
+    /// the iteration's best root move, and the nodes searched by all threads.
     pub(crate) fn from_iteration(
         ctx: &SearchContext,
         rm: &RootMove,
         depth: Depth,
         target_depth: Depth,
         score: ScaledScore,
+        nodes: u64,
         is_endgame: bool,
     ) -> Self {
         Self {
@@ -51,7 +52,7 @@ impl SearchProgress {
             score: score.to_disc_diff_f32(),
             best_move: rm.sq,
             probability: ctx.selectivity.probability(),
-            nodes: ctx.counters.n_nodes,
+            nodes,
             pv_line: rm.pv.clone(),
             is_endgame,
             counters: ctx.counters.clone(),

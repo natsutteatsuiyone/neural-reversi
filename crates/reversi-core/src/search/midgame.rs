@@ -2,6 +2,8 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/midgame.c>
 
+mod lazy_smp;
+
 use std::hash::{BuildHasher, Hasher, RandomState};
 use std::sync::Arc;
 
@@ -20,10 +22,13 @@ use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::{record_abort, should_stop_iteration};
-use crate::search::{SearchProgress, SearchTask, search, store_pv_in_tt, widen_aspiration_window};
+use crate::search::{SearchProgress, SearchTask, search, widen_aspiration_window};
 use crate::square::Square;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
+
+pub(in crate::search) use lazy_smp::Helper;
+use lazy_smp::{Helpers, vote_best};
 
 /// Base aspiration window delta.
 const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(2);
@@ -51,10 +56,12 @@ const DEPTH1_MOVE_ORDER_MASKS: [Bitboard; 10] = [
 ];
 
 /// Performs the root search using iterative deepening with aspiration windows.
+///
+/// The other threads of a parallel pool run Lazy SMP helper searches on the
+/// same root until this search returns or hands the root to the endgame
+/// solver, whose split points then share the work among the same threads.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
-    let time_manager = task.time_manager.clone();
-    let use_time_control = time_manager.is_some();
 
     let mut ctx = SearchContext::new(
         &board,
@@ -76,8 +83,51 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         return SearchResult::new_random_move(random_move(&board));
     }
 
-    let pv_count = task.pv_count(ctx.root_moves.count());
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
+    let helpers = Helpers::start(&task, max_depth);
+    let outcome = iterate(&mut ctx, &board, &task, max_depth, &helpers, thread);
+    let helper_results = helpers.stop();
+    ctx.counters.merge(&helper_results.counters);
+
+    match outcome {
+        Outcome::Done(completed) => {
+            // A fixed-level search reports the depth it was asked for and a
+            // Multi-PV search every line, so both keep the main thread's
+            // iteration; a timed search lets the helpers' iterations vote.
+            if task.multi_pv || task.time_manager.is_none() {
+                completed
+            } else {
+                vote_best(completed, helper_results.completed)
+            }
+            .to_result(ctx.counters.clone())
+        }
+        Outcome::Endgame(completed, base_score) => {
+            endgame::solve_root(&mut ctx, &board, &task, thread, base_score, completed)
+        }
+    }
+}
+
+/// How the main thread's iterative deepening ended.
+enum Outcome {
+    /// Report the last completed iteration.
+    Done(CompletedState),
+    /// Solve the remaining selectivity levels exactly, centered on the score.
+    Endgame(CompletedState, ScaledScore),
+}
+
+/// Runs the main thread's iterative deepening up to `max_depth`.
+fn iterate(
+    ctx: &mut SearchContext,
+    board: &Board,
+    task: &SearchTask,
+    max_depth: Depth,
+    helpers: &Helpers<'_>,
+    thread: &Arc<Thread>,
+) -> Outcome {
+    let time_manager = &task.time_manager;
+    let use_time_control = time_manager.is_some();
+    let n_empties = ctx.empty_list.count();
+    let pv_count = task.pv_count(ctx.root_moves.count());
 
     let mut depth = compute_start_depth(max_depth);
     // Snapshot of the last fully completed iteration; aborted iterations leave
@@ -96,26 +146,10 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         for pv_idx in 0..pv_count {
             ctx.root_moves.set_pv_idx(pv_idx);
 
-            let (mut alpha, mut beta, delta) = ctx
-                .root_moves
-                .current_pv()
-                .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
-                .map(|rm| {
-                    let delta = ASPIRATION_DELTA
-                        + ScaledScore::from_raw(
-                            (rm.mean_squared_score.abs() / ASPIRATION_MSS_DIVISOR) as i32,
-                        );
-                    (
-                        (rm.average_score - delta).max(-ScaledScore::INF),
-                        (rm.average_score + delta).min(ScaledScore::INF),
-                        delta,
-                    )
-                })
-                .unwrap_or((-ScaledScore::INF, ScaledScore::INF, ASPIRATION_DELTA));
-
-            let (score, window_clean, searched_depth) = aspiration_search(
-                &mut ctx,
-                &board,
+            let (mut alpha, mut beta, delta) = aspiration_window(ctx, depth);
+            let (score, window_clean) = aspiration_search(
+                ctx,
+                board,
                 depth,
                 &mut alpha,
                 &mut beta,
@@ -130,14 +164,13 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 break;
             }
 
-            if let Some(rm) = ctx.root_moves.current_pv() {
-                store_pv_in_tt(&ctx, &board, &rm.pv, rm.score, searched_depth, false);
-
-                if let Some(ref callback) = task.callback {
-                    callback(SearchProgress::from_iteration(
-                        &ctx, &rm, depth, max_depth, score, false,
-                    ));
-                }
+            if let Some(ref callback) = task.callback
+                && let Some(rm) = ctx.root_moves.current_pv()
+            {
+                let nodes = ctx.counters.n_nodes + helpers.nodes();
+                callback(SearchProgress::from_iteration(
+                    ctx, &rm, depth, max_depth, score, nodes, false,
+                ));
             }
 
             iteration_window_clean = window_clean;
@@ -148,17 +181,17 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
 
         if completed_pv_count < pv_count && thread.is_search_aborted() {
-            record_abort(&time_manager);
-            return completed.to_result(ctx.counters.clone());
+            record_abort(time_manager);
+            return Outcome::Done(completed);
         }
 
-        completed.record(&ctx, depth, task.multi_pv, false);
+        completed.record(ctx, depth, task.multi_pv, false);
         let best_move = completed
             .root_moves
             .first()
             .expect("internal error: no completed root moves after search");
 
-        if let Some(ref tm) = time_manager {
+        if let Some(tm) = time_manager {
             let window_clean =
                 !task.multi_pv && depth >= ASPIRATION_MIN_DEPTH && iteration_window_clean;
             tm.report_iteration(
@@ -177,11 +210,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 .as_ref()
                 .is_some_and(|tm| tm.deadline().is_some())
         {
-            return completed.to_result(ctx.counters.clone());
+            return Outcome::Done(completed);
         }
 
         if thread.is_search_aborted() {
-            return completed.to_result(ctx.counters.clone());
+            return Outcome::Done(completed);
         }
 
         // Under time control the final midgame depth is never searched: once
@@ -193,17 +226,40 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
                 "time-controlled midgame searches always target all empties"
             );
             let base_score = best_move.score;
-            return endgame::solve_root(&mut ctx, &board, &task, thread, base_score, completed);
+            return Outcome::Endgame(completed, base_score);
         }
 
-        if should_stop_iteration(&time_manager) {
-            return completed.to_result(ctx.counters.clone());
+        if should_stop_iteration(time_manager) {
+            return Outcome::Done(completed);
         }
 
         depth = next_iteration_depth(depth);
     }
 
-    completed.to_result(ctx.counters.clone())
+    Outcome::Done(completed)
+}
+
+/// Returns the aspiration window `(alpha, beta, delta)` for the current PV
+/// line, centered on its running average score once deep enough.
+fn aspiration_window(ctx: &SearchContext, depth: Depth) -> (ScaledScore, ScaledScore, ScaledScore) {
+    ctx.root_moves
+        .current_pv()
+        .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
+        .map(|rm| {
+            let delta = ASPIRATION_DELTA
+                + ctx
+                    .helper
+                    .map_or(ScaledScore::ZERO, Helper::aspiration_widening)
+                + ScaledScore::from_raw(
+                    (rm.mean_squared_score.abs() / ASPIRATION_MSS_DIVISOR) as i32,
+                );
+            (
+                (rm.average_score - delta).max(-ScaledScore::INF),
+                (rm.average_score + delta).min(ScaledScore::INF),
+                delta,
+            )
+        })
+        .unwrap_or((-ScaledScore::INF, ScaledScore::INF, ASPIRATION_DELTA))
 }
 
 /// Computes the starting depth for iterative deepening.
@@ -218,10 +274,10 @@ pub(super) fn compute_start_depth(max_depth: Depth) -> Depth {
 /// is still reported at `depth`. Fixed-depth searches must not set it: their
 /// scores are used as exact depth-`depth` references (e.g. ProbCut fitting).
 ///
-/// Returns the score, whether the search completed inside its initial
-/// window (i.e. without any fail-low/fail-high re-search), and the depth the
-/// final search actually ran at. A clean window is evidence that the best
-/// score is stable across iterations and that no alternative move overtook it.
+/// Returns the score and whether the search completed inside its initial
+/// window (i.e. without any fail-low/fail-high re-search). A clean window is
+/// evidence that the best score is stable across iterations and that no
+/// alternative move overtook it.
 #[allow(clippy::too_many_arguments)]
 fn aspiration_search(
     ctx: &mut SearchContext,
@@ -232,7 +288,7 @@ fn aspiration_search(
     mut delta: ScaledScore,
     reduce_fail_high_depth: bool,
     thread: &Arc<Thread>,
-) -> (ScaledScore, bool, Depth) {
+) -> (ScaledScore, bool) {
     let mut window_clean = true;
     let mut failed_high_cnt: Depth = 0;
 
@@ -253,12 +309,12 @@ fn aspiration_search(
         );
 
         if thread.is_search_aborted() {
-            return (score, window_clean, adjusted_depth);
+            return (score, window_clean);
         }
 
         let failed_high = score >= *beta;
         if !widen_aspiration_window(score, alpha, beta, delta) {
-            return (score, window_clean, adjusted_depth);
+            return (score, window_clean);
         }
         failed_high_cnt = if failed_high { failed_high_cnt + 1 } else { 0 };
 
@@ -635,74 +691,6 @@ mod schedule_tests {
         assert_eq!(result.depth(), 1);
         assert!(result.best_move().is_some());
         assert!(!result.is_invalid_sentinel());
-    }
-
-    #[test]
-    fn completed_search_keeps_the_pv_probeable_in_the_tt() {
-        let pool = ThreadPool::new(1);
-        let board = Board::new().make_move(Square::D3);
-        // A 16-cluster table forces heavy replacement, so the PV only survives
-        // if it is re-stored after the iteration.
-        let tt = Arc::new(TranspositionTable::new(0));
-        let task = SearchTask {
-            board,
-            mid_selectivity: Selectivity::None,
-            tt: tt.clone(),
-            pool: pool.clone(),
-            eval: shared_eval(),
-            level: Level::uniform(8, 4),
-            multi_pv: false,
-            callback: None,
-            time_manager: None,
-            eval_mode: None,
-        };
-
-        let result = search_root(task, pool.main());
-
-        let pv = result.pv_line().to_vec();
-        assert_eq!(pv.len(), 8);
-        let mut walk = board;
-        for &sq in &pv {
-            if !walk.is_legal_move(sq) {
-                walk = walk.switch_players();
-            }
-            let data = tt
-                .lookup(&walk, walk.hash())
-                .unwrap_or_else(|| panic!("PV position before {sq} must stay in the TT"));
-            assert_eq!(data.best_move(), sq);
-            walk = walk.make_move(sq);
-        }
-    }
-
-    #[test]
-    fn fail_high_reduced_research_reports_the_depth_it_ran_at() {
-        let pool = ThreadPool::new(1);
-        let board = Board::new().make_move(Square::D3);
-        let search = |reduce| {
-            let mut ctx = SearchContext::new(
-                &board,
-                Selectivity::None,
-                Arc::new(TranspositionTable::new(0)),
-                shared_eval(),
-            );
-            let mut alpha = -ScaledScore::INF;
-            let mut beta = -ScaledScore::INF + ScaledScore::from_disc_diff(1);
-            let (_, window_clean, searched_depth) = aspiration_search(
-                &mut ctx,
-                &board,
-                6,
-                &mut alpha,
-                &mut beta,
-                ASPIRATION_DELTA,
-                reduce,
-                pool.main(),
-            );
-            assert!(!window_clean, "the initial window must fail high");
-            searched_depth
-        };
-
-        assert!(search(true) < 6);
-        assert_eq!(search(false), 6);
     }
 
     #[test]

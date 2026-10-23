@@ -27,12 +27,6 @@ pub trait SearchStrategy: Copy + Clone + 'static {
     /// Maximum depth for shallow search specialization.
     const DEPTH_TO_SHALLOW: Depth;
 
-    /// Minimum depth required for parallel search splitting.
-    const MIN_SPLIT_DEPTH: Depth;
-
-    /// Maximum depth at which All-nodes may split before the first child is searched.
-    const SPECULATIVE_SPLIT_MAX_DEPTH: Depth;
-
     /// Evaluates a PV leaf node position (depth == 0).
     fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore;
 
@@ -75,8 +69,6 @@ impl SearchStrategy for MidGameStrategy {
     const MIN_ETC_DEPTH: Depth = 5;
     const MIN_PROBCUT_DEPTH: Depth = 4;
     const DEPTH_TO_SHALLOW: Depth = 3;
-    const MIN_SPLIT_DEPTH: Depth = 4;
-    const SPECULATIVE_SPLIT_MAX_DEPTH: Depth = 12;
 
     #[inline(always)]
     fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
@@ -118,8 +110,6 @@ impl SearchStrategy for EndGameStrategy {
     const MIN_ETC_DEPTH: Depth = endgame::DEPTH_TO_NWS + 2;
     const MIN_PROBCUT_DEPTH: Depth = endgame::DEPTH_TO_NWS + 1;
     const DEPTH_TO_SHALLOW: Depth = endgame::DEPTH_TO_NWS;
-    const MIN_SPLIT_DEPTH: Depth = endgame::DEPTH_TO_NWS;
-    const SPECULATIVE_SPLIT_MAX_DEPTH: Depth = 24;
 
     #[inline(always)]
     fn evaluate(_ctx: &SearchContext, board: &Board) -> ScaledScore {

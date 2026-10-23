@@ -10,8 +10,9 @@ use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
 
 use super::AbortState;
+use super::breadcrumbs::Breadcrumbs;
 use super::split_point::SplitPoint;
-use super::thread::Thread;
+use super::thread::{HelperJob, Thread};
 
 /// Interval between checks for abort flag in milliseconds.
 const CHECK_INTERVAL_MS: u64 = 1;
@@ -51,6 +52,9 @@ pub struct ThreadPool {
     /// Incremented whenever a split point first records a cutoff.
     cutoff_epoch: Arc<Align64<AtomicU64>>,
 
+    /// Positions the threads are currently searching.
+    breadcrumbs: Arc<Breadcrumbs>,
+
     /// Handle for the timer thread (protected by mutex for interior mutability).
     timer_handle: Mutex<Option<JoinHandle<()>>>,
 
@@ -73,6 +77,7 @@ impl ThreadPool {
                 sender,
                 abort_state: Arc::new(AbortState::new()),
                 cutoff_epoch: Arc::new(Align64(AtomicU64::new(0))),
+                breadcrumbs: Arc::new(Breadcrumbs::new()),
                 timer_handle: Mutex::new(None),
                 timer_stop: Arc::new(AtomicBool::new(false)),
             };
@@ -96,6 +101,7 @@ impl ThreadPool {
             self.thinking.clone(),
             self.abort_state.clone(),
             self.cutoff_epoch.clone(),
+            self.breadcrumbs.clone(),
             self.size,
             pool.clone(),
         ));
@@ -215,6 +221,24 @@ impl ThreadPool {
         result_receiver
     }
 
+    /// Runs `job` on every thread but the main one.
+    pub(in crate::search) fn start_helpers(&self, job: &HelperJob) {
+        for thread in &self.threads[1..] {
+            thread.book_helper_job(job.clone());
+        }
+    }
+
+    /// Aborts the helper jobs and waits until every helper is idle.
+    pub(in crate::search) fn stop_helpers(&self) {
+        let helpers = &self.threads[1..];
+        for thread in helpers {
+            thread.abort_helper_job();
+        }
+        for thread in helpers {
+            thread.wait_for_helper_job();
+        }
+    }
+
     /// Returns a reference to the main thread (thread 0).
     pub fn main(&self) -> &Arc<Thread> {
         &self.threads[0]
@@ -319,5 +343,66 @@ impl ThreadPool {
 impl Drop for ThreadPool {
     fn drop(&mut self) {
         self.exit();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::Board;
+    use crate::disc::Disc;
+    use crate::eval::Eval;
+    use crate::level::Level;
+    use crate::probcut::{self, Selectivity};
+    use crate::transposition_table::TranspositionTable;
+
+    #[test]
+    fn threads_alternate_between_helper_searches_and_split_points() {
+        probcut::init();
+        let pool = ThreadPool::new(8);
+        let eval = Arc::new(Eval::with_weight_files(None, None).unwrap());
+        let task = |board: Board, level: Level| SearchTask {
+            board,
+            mid_selectivity: Selectivity::Level1,
+            tt: Arc::new(TranspositionTable::new(16)),
+            pool: pool.clone(),
+            eval: eval.clone(),
+            level,
+            multi_pv: false,
+            callback: None,
+            time_manager: None,
+            eval_mode: None,
+        };
+        let endgame = Board::from_string(
+            "-OOO------OOOO--XXXOOXXX-XOOOXX-XXXXOOOOOXXOOOO---OXOO---OOOO---",
+            Disc::Black,
+        )
+        .unwrap();
+        let midgame = Board::from_string(
+            "-XXX-OO---XXOO---XXXOOO--XXXXOX--OOOOOXX---OOOX-----OO----------",
+            Disc::Black,
+        )
+        .unwrap();
+
+        // The workers join split points in each endgame solve and run helper
+        // searches in each midgame search; neither may leave state behind
+        // that disturbs the other.
+        for _ in 0..3 {
+            let solved = pool
+                .start_thinking(task(endgame, Level::uniform(10, 60)))
+                .recv()
+                .unwrap();
+            assert!(solved.is_endgame());
+
+            let result = pool
+                .start_thinking(task(midgame, Level::uniform(10, 0)))
+                .recv()
+                .unwrap();
+            assert_eq!(result.depth(), 10);
+            for thread in &pool.threads {
+                assert!(!thread.searching.load(Ordering::Acquire));
+                assert!(!thread.is_search_aborted());
+            }
+        }
     }
 }
