@@ -7,6 +7,7 @@
 pub mod connection;
 mod frontend;
 pub mod protocol;
+pub mod report;
 pub mod session;
 
 use std::collections::HashMap;
@@ -17,14 +18,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
 use reversi_core::level::{MAX_LEVEL, get_level};
-use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{self, SearchRunOptions, StopToken, options::SearchOptions};
-use reversi_core::square::Square;
 use reversi_core::transposition_table::TranspositionTable;
-use reversi_core::types::Scoref;
 
 use crate::config::EngineConfig;
 
@@ -319,14 +316,13 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
     if ponder {
         session.enable_ponder();
     }
-    let log_channel = log_channel(user);
     let mut accumulator = connection::LineAccumulator::new();
     let mut finished_searches = Vec::new();
     // The server sends its first READY (ALERT when low on memory) only after
     // accepting the login; later password errors come from `passw` and must
     // not end the session.
     let mut logged_in = false;
-    frontend.draw()?;
+    frontend.draw(session.games())?;
 
     loop {
         let Some(event) = conn.recv_or_keepalive(KEEPALIVE_INTERVAL)? else {
@@ -359,16 +355,8 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
                 }
                 if let Some(chunk) = accumulator.push(line) {
                     let chunk_refs: Vec<&str> = chunk.iter().map(String::as_str).collect();
-                    for (parsed, snapshot) in protocol::parse_server_messages(&chunk_refs, user) {
-                        frontend.on_os_event(&parsed);
-                        if let Some(snapshot) = snapshot {
-                            frontend.snapshot(snapshot);
-                        }
-                        if let protocol::OsEvent::MatchEnd { id, .. } = &parsed {
-                            search_pool.end_match(id);
-                        }
+                    for parsed in protocol::parse_server_messages(&chunk_refs, user) {
                         for action in session.on_event(parsed) {
-                            frontend.on_action(&action);
                             apply_action(action, &mut conn, &search_pool, &event_tx)?;
                         }
                     }
@@ -377,37 +365,21 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
             connection::Event::Stdin(line) => {
                 submit_command(&mut conn, &mut frontend, &line)?;
             }
-            connection::Event::SearchStarted {
-                game_id,
-                search_id,
-                ponder,
-            } => {
-                frontend.worker_started(&game_id, search_id, ponder);
-            }
-            connection::Event::SearchReport {
-                game_id,
-                search_id,
-                message,
-            } => {
-                frontend.search_report(&game_id, search_id, &message);
+            connection::Event::SearchStarted { game_id, search_id } => {
+                session.on_search_started(&game_id, search_id);
             }
             connection::Event::PonderFinished { game_id, search_id } => {
-                frontend.worker_finished(&game_id, search_id);
+                session.on_ponder_finished(&game_id, search_id);
             }
             connection::Event::SearchFinished {
                 game_id,
                 search_id,
                 queued_at,
                 result,
-                broadcast,
             } => {
-                frontend.worker_finished(&game_id, search_id);
-                if let Ok(Some((_, score))) = &result {
-                    frontend.eval(&game_id, search_id, *score);
-                }
-                finished_searches.push((game_id, search_id, queued_at, result, broadcast));
+                finished_searches.push((game_id, search_id, queued_at, result));
             }
-            connection::Event::Terminal(event) => match frontend.input(event) {
+            connection::Event::Terminal(event) => match frontend.input(event, session.games()) {
                 frontend::Input::None => {}
                 frontend::Input::Quit => break,
                 frontend::Input::Commands(lines) => {
@@ -427,38 +399,15 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
             }
         }
         if !accumulator.has_pending_lines() {
-            for (game_id, search_id, queued_at, result, broadcast) in finished_searches.drain(..) {
-                let actions = match result {
-                    Ok(mv) => session.on_move_ready(&game_id, search_id, mv, queued_at.elapsed()),
-                    Err(error) => {
-                        frontend.log(&format!("search failed for game {game_id}: {error}"));
-                        session.on_search_aborted(&game_id, search_id)
-                    }
-                };
-                // The session drops stale results, so tell only a move it plays.
-                let played = actions.iter().any(|action| {
-                    matches!(action, session::SessionAction::Send(line) if line.starts_with("tell /os play "))
-                });
-                for action in actions {
-                    frontend.on_action(&action);
+            for (game_id, search_id, queued_at, result) in finished_searches.drain(..) {
+                let elapsed = queued_at.elapsed();
+                for action in session.on_search_finished(&game_id, search_id, result, elapsed) {
                     apply_action(action, &mut conn, &search_pool, &event_tx)?;
-                }
-                if let Some(broadcast) = broadcast.filter(|_| played) {
-                    // A channel tell overwrites `_send`, the target of an
-                    // operator's `tell $_send` reply; keep the private one.
-                    for line in [
-                        "var _nrsend $_send".to_string(),
-                        format!("tell {log_channel} {broadcast}"),
-                        "var _send $_nrsend".to_string(),
-                    ] {
-                        conn.send_line(&line)
-                            .map_err(|e| format!("send failed: {e}"))?;
-                    }
                 }
             }
         }
         if redraw {
-            frontend.draw()?;
+            frontend.draw(session.games())?;
         }
     }
     Ok(())
@@ -617,6 +566,19 @@ fn apply_action(
         session::SessionAction::Log(msg) => {
             let _ = event_tx.send(connection::Event::Log(msg));
         }
+        session::SessionAction::Broadcast(report) => {
+            // A channel tell overwrites `_send`, the target of an operator's
+            // `tell $_send` reply; keep the private one.
+            for line in [
+                "var _nrsend $_send".to_string(),
+                format!("tell {} {report}", log_channel(&search_pool.login)),
+                "var _send $_nrsend".to_string(),
+            ] {
+                conn.send_line(&line)
+                    .map_err(|e| format!("send failed: {e}"))?;
+            }
+        }
+        session::SessionAction::EndMatch { id } => search_pool.end_match(&id),
         session::SessionAction::StartSearch {
             game_id,
             search_id,
@@ -636,7 +598,6 @@ fn apply_action(
                         search_id,
                         queued_at,
                         result: Err(error),
-                        broadcast: None,
                     });
                     return Ok(());
                 }
@@ -669,7 +630,6 @@ fn apply_action(
                     let _ = log_tx.send(connection::Event::SearchStarted {
                         game_id: job_id.clone(),
                         search_id,
-                        ponder: false,
                     });
                     let started = Instant::now();
                     let result = search.run(&board, &options);
@@ -682,41 +642,30 @@ fn apply_action(
                             .unwrap()
                             .record_move(&job_id, board.make_move(sq));
                     }
-                    let report = mv.map(|(sq, score)| {
-                        (
-                            search_report(&job_id, sq, score, &result, elapsed, waited),
-                            channel_report(
-                                &login, &job_id, &board, color, &result, elapsed, waited,
-                                n_threads, timed_out,
-                            ),
-                        )
-                    });
-                    (mv, report)
-                },
-                move |result| {
-                    let (result, report) = match result {
-                        Some((mv, report)) => (Ok(mv), report),
-                        None => (
-                            Err("search cancelled because its match ended".to_string()),
-                            None,
+                    mv.map(|(sq, score)| session::FoundMove {
+                        report: report::SearchReport {
+                            sq,
+                            score,
+                            depth: result.depth(),
+                            probability: result.probability(),
+                            nodes: result.n_nodes(),
+                            elapsed,
+                            waited,
+                        },
+                        broadcast: report::channel_report(
+                            &login, &job_id, &board, color, &result, elapsed, waited, n_threads,
+                            timed_out,
                         ),
-                    };
-                    let (message, broadcast) = report.unzip();
+                    })
+                },
+                move |mv| {
                     let _ = tx.send(connection::Event::SearchFinished {
-                        game_id: done_id.clone(),
+                        game_id: done_id,
                         search_id,
                         queued_at,
-                        result,
-                        broadcast,
+                        result: mv
+                            .ok_or_else(|| "search cancelled because its match ended".to_string()),
                     });
-                    // Printed after the move is handed off, so it costs no clock time.
-                    if let Some(message) = message {
-                        let _ = tx.send(connection::Event::SearchReport {
-                            game_id: done_id,
-                            search_id,
-                            message,
-                        });
-                    }
                 },
             );
             if let Err(error) = spawned {
@@ -725,7 +674,6 @@ fn apply_action(
                     search_id,
                     queued_at,
                     result: Err(format!("failed to spawn search worker: {error}")),
-                    broadcast: None,
                 });
             }
         }
@@ -758,7 +706,6 @@ fn apply_action(
                     let _ = started_tx.send(connection::Event::SearchStarted {
                         game_id: started_id,
                         search_id,
-                        ponder: true,
                     });
                     search.run(
                         &board,
@@ -829,160 +776,6 @@ fn spawn_worker<T: Send + 'static>(
     spawned.map(drop)
 }
 
-/// One-line summary of a finished search, e.g.
-/// `.5 f5 +3 | depth 22@73% | 12.3M nodes | 1.84s (wait 0.20s) | 6.7 Mnps`.
-fn search_report(
-    game_id: &str,
-    sq: Square,
-    score: Scoref,
-    result: &SearchResult,
-    elapsed: Duration,
-    waited: Duration,
-) -> String {
-    let secs = elapsed.as_secs_f64();
-    let nodes = result.n_nodes() as f64;
-    let wait = if waited >= Duration::from_millis(50) {
-        format!(" (wait {:.2}s)", waited.as_secs_f64())
-    } else {
-        String::new()
-    };
-    format!(
-        "{game_id} {sq} {:+} | depth {}@{}% | {} nodes | {secs:.2}s{wait} | {:.1} Mnps",
-        score.round() as i32,
-        result.depth(),
-        result.probability(),
-        si_count(nodes),
-        nodes / secs.max(1e-9) / 1e6,
-    )
-}
-
-/// Search summary told to the spectator channel.
-/// GGS shows each `\` in a tell as a line break, so the channel prints e.g.
-///
-/// ```text
-/// .nra nra: -----------------------------------------
-/// |nra plays F2 in game .1.1 using 8 threads ;
-/// |score == -2 at 38@87% ; PV: F2 e7 B6 c7 B3 c2 F8 a2  ;
-/// |nodes:  2.149 GN ; time: search = 10.4s, move = 10.5s; speed:  205.7 MN/s.
-/// |search out of time
-/// ```
-///
-/// Black's moves are upper case and `pa` is a pass. `move` adds the wait for
-/// the shared thread pool to `search`.
-#[allow(clippy::too_many_arguments)]
-fn channel_report(
-    login: &str,
-    game_id: &str,
-    board: &Board,
-    color: Disc,
-    result: &SearchResult,
-    elapsed: Duration,
-    waited: Duration,
-    n_threads: usize,
-    timed_out: bool,
-) -> String {
-    let mv = report_square(result.best_move().unwrap_or(Square::None), color);
-    if result.depth() == 0 {
-        // The first move of a game is picked at random, without a search.
-        return format!(
-            "-----------------------------------------\\\
-             {login} plays {mv} in game {game_id}\\\
-             random opening move"
-        );
-    }
-    let pv = report_pv(board, color, result.pv_line());
-    let score = result.score().unwrap_or_default().round() as i32;
-    let depth = result.depth();
-    let probability = result.probability();
-    let nodes = result.n_nodes() as f64;
-    let search = elapsed.as_secs_f64();
-    let status = if timed_out {
-        "search out of time"
-    } else {
-        "search completed"
-    };
-    format!(
-        "-----------------------------------------\\\
-         {login} plays {mv} in game {game_id} using {n_threads} threads ;\\\
-         score == {score:+} at {depth}@{probability}% ; PV: {pv} ;\\\
-         nodes: {}N ; time: search = {search:.1}s, move = {:.1}s; speed: {}N/s.\\\
-         {status}",
-        report_count(nodes),
-        search + waited.as_secs_f64(),
-        report_count(nodes / search.max(1e-9)),
-    )
-}
-
-/// A report move: upper case for Black, `pa` for a pass.
-fn report_square(sq: Square, color: Disc) -> String {
-    let s = if sq == Square::None {
-        "pa".to_string()
-    } else {
-        sq.to_string()
-    };
-    if color == Disc::Black {
-        s.to_uppercase()
-    } else {
-        s
-    }
-}
-
-/// The first 8 moves of `pv`, each followed by a space. PV lines omit forced
-/// passes, so the line is replayed from `board` to put them back.
-fn report_pv(board: &Board, color: Disc, pv: &[Square]) -> String {
-    let mut line = String::new();
-    let mut mover = color;
-    let mut current = *board;
-    let mut tokens = 0;
-    for &sq in pv {
-        if tokens >= 8 {
-            break;
-        }
-        if !current.is_legal_move(sq) {
-            line += &report_square(Square::None, mover);
-            line.push(' ');
-            current = current.switch_players();
-            mover = mover.opposite();
-            tokens += 1;
-        }
-        if tokens >= 8 || !current.is_legal_move(sq) {
-            break;
-        }
-        line += &report_square(sq, mover);
-        line.push(' ');
-        current = current.make_move(sq);
-        mover = mover.opposite();
-        tokens += 1;
-    }
-    line
-}
-
-/// Formats a count with four significant digits and an SI prefix, e.g. ` 2.149 G` or ` 98.52 M` (right-aligned to six characters).
-fn report_count(n: f64) -> String {
-    let (value, prefix) = match n {
-        n if n >= 1e9 => (n / 1e9, "G"),
-        n if n >= 1e6 => (n / 1e6, "M"),
-        n if n >= 1e3 => (n / 1e3, "K"),
-        n => return format!("{n:6.0} "),
-    };
-    let decimals = match value {
-        v if v < 10.0 => 3,
-        v if v < 100.0 => 2,
-        _ => 1,
-    };
-    format!("{value:6.decimals$} {prefix}")
-}
-
-/// Formats a count with a K/M/G suffix, e.g. `12.3M`.
-fn si_count(n: f64) -> String {
-    match n {
-        n if n >= 1e9 => format!("{:.1}G", n / 1e9),
-        n if n >= 1e6 => format!("{:.1}M", n / 1e6),
-        n if n >= 1e3 => format!("{:.1}K", n / 1e3),
-        n => format!("{n}"),
-    }
-}
-
 /// Takes the time spent waiting for the shared pool off the clock's main time.
 fn deduct_wait(search_limit: session::SearchLimit, waited: Duration) -> session::SearchLimit {
     match search_limit {
@@ -1008,6 +801,8 @@ fn build_search_run_options(search_limit: session::SearchLimit) -> SearchRunOpti
 
 #[cfg(test)]
 mod tests {
+    use reversi_core::square::Square;
+
     use super::*;
 
     #[test]
@@ -1046,25 +841,6 @@ mod tests {
     fn log_channel_fits_ggs_name_limit() {
         assert_eq!(log_channel("Melody"), ".Melody");
         assert_eq!(log_channel("Rhapsody"), ".Rhapsod");
-    }
-
-    #[test]
-    fn report_pv_restores_forced_passes() {
-        // After Black's c1, White has no move and Black plays again.
-        let board = Board::from_string(&format!("XO------XO------{}", "-".repeat(48)), Disc::Black)
-            .unwrap();
-        assert_eq!(
-            report_pv(&board, Disc::Black, &[Square::C1, Square::C3]),
-            "C1 pa C3 "
-        );
-    }
-
-    #[test]
-    fn report_count_keeps_four_significant_digits() {
-        assert_eq!(report_count(2.149e9), " 2.149 G");
-        assert_eq!(report_count(98.52e6), " 98.52 M");
-        assert_eq!(report_count(753.8e6), " 753.8 M");
-        assert_eq!(report_count(25.0), "    25 ");
     }
 
     #[test]

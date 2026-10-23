@@ -90,8 +90,8 @@ pub enum OsEvent {
     Unknown,
 }
 
-/// Position, side to move, and our color and clock from one `/os: join` or
-/// `/os: update` chunk.
+/// Position, side to move, our color and clock, and both players' clocks
+/// from one `/os: join` or `/os: update` chunk.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchState {
     pub id: String,
@@ -107,6 +107,11 @@ pub struct MatchState {
     pub my_color: Option<Disc>,
     /// `None` when our clock line is absent or unparseable.
     pub my_clock: Option<PlayerClock>,
+    /// Both players' live clock lines, as shown to the user.
+    pub clocks: Vec<DisplayClock>,
+    /// The last numbered move listed (`f5`, `PASS`); a join lists the whole
+    /// game, an update only its last move.
+    pub last_move: Option<String>,
 }
 
 /// A match-request ("ask") offer; [`OsEvent::AskOffer`] describes the wire format.
@@ -127,28 +132,19 @@ pub struct AskOffer {
     pub mode: String,
 }
 
-/// Parses every `/os` message in one boundary-delimited receive chunk, with
-/// the board snapshot to display for each join/update that carries one
-/// (including matches we only watch).
+/// Parses every `/os` message in one boundary-delimited receive chunk.
 ///
 /// GGS can emit multiple service messages before the next boundary marker.
 /// Each `/os: ` header starts a new message; its following lines belong to it
 /// until the next header.
-pub(super) fn parse_server_messages(
-    lines: &[&str],
-    my_username: &str,
-) -> Vec<(OsEvent, Option<DisplayState>)> {
+pub(super) fn parse_server_messages(lines: &[&str], my_username: &str) -> Vec<OsEvent> {
     let first_header = lines
         .iter()
         .position(|line| line.starts_with("/os: "))
         .unwrap_or(0);
     lines[first_header..]
         .chunk_by(|_, next| !next.starts_with("/os: "))
-        .map(|message| {
-            match_state_body(message)
-                .and_then(|body| parse_match_state(body, message, my_username))
-                .unwrap_or_else(|| (parse_server_chunk(message, my_username), None))
-        })
+        .map(|message| parse_server_chunk(message, my_username))
         .collect()
 }
 
@@ -190,7 +186,7 @@ fn parse_message(lines: &[&str], my_username: &str) -> Option<OsEvent> {
         return parse_child_match_end(body, my_username);
     }
     if let Some(body) = match_state_body(lines) {
-        return parse_match_state(body, lines, my_username).map(|(event, _)| event);
+        return parse_match_state(body, lines, my_username);
     }
     if let Some(body) = rest.strip_prefix("error ") {
         return parse_server_error(body);
@@ -402,35 +398,23 @@ fn take_word(s: &str) -> Option<(&str, &str)> {
     Some((&s[..end], &s[end..]))
 }
 
-/// A board snapshot with both players' clocks and the numbered moves it lists.
-pub(super) struct DisplayState {
-    pub(super) state: MatchState,
-    pub(super) clocks: Vec<DisplayClock>,
-    /// `(move number, move)` pairs; a join lists the whole game, an update only the last move.
-    pub(super) moves: Vec<(usize, String)>,
-}
-
 /// One player's clock line as shown to the user.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct DisplayClock {
-    pub(super) name: String,
-    pub(super) color: Disc,
+pub struct DisplayClock {
+    pub name: String,
+    pub color: Disc,
     /// `None` when the clock fields are unparseable.
-    pub(super) main_ms: Option<u64>,
+    pub main_ms: Option<u64>,
 }
 
-/// Parses `|  <n>: <move>/<eval>/<time>`.
-fn parse_move_line(line: &str) -> Option<(usize, String)> {
+/// Parses the move of `|  <n>: <move>/<eval>/<time>`.
+fn parse_move_line(line: &str) -> Option<String> {
     let (number, rest) = line.strip_prefix('|')?.trim_start().split_once(": ")?;
-    let mv = rest.split('/').next()?.trim();
-    Some((number.parse().ok()?, mv.to_string()))
+    number.parse::<usize>().ok()?;
+    Some(rest.split('/').next()?.trim().to_string())
 }
 
-fn parse_match_state(
-    header_body: &str,
-    lines: &[&str],
-    my_username: &str,
-) -> Option<(OsEvent, Option<DisplayState>)> {
+fn parse_match_state(header_body: &str, lines: &[&str], my_username: &str) -> Option<OsEvent> {
     // Verbose header: `<id> <variant> K...`. Compact join/update payloads do
     // not carry a header variant and are deliberately resynced verbosely.
     let mut it = header_body.split_whitespace();
@@ -446,11 +430,11 @@ fn parse_match_state(
     let mut board_rows = Vec::with_capacity(16);
     let mut side_to_move = None;
     let mut clocks = Vec::new();
-    let mut moves = Vec::new();
+    let mut last_move = None;
 
     for &line in lines {
         if let Some(mv) = parse_move_line(line) {
-            moves.push(mv);
+            last_move = Some(mv);
         }
         if let Some(clock) = parse_clock_line(line, my_username) {
             clocks.push(DisplayClock {
@@ -476,17 +460,15 @@ fn parse_match_state(
     }
     let is_player = !matching_clocks.is_empty();
     let is_spectator = !is_player && opponent.is_some();
+    if is_spectator {
+        return Some(OsEvent::SpectatedMatchState { id, variant });
+    }
     let Some((board, stm)) = current_position(&board_rows, side_to_move) else {
-        let event = if is_spectator {
-            OsEvent::SpectatedMatchState { id, variant }
-        } else {
-            OsEvent::MatchStateUnavailable {
-                id,
-                variant,
-                is_player,
-            }
-        };
-        return Some((event, None));
+        return Some(OsEvent::MatchStateUnavailable {
+            id,
+            variant,
+            is_player,
+        });
     };
     // In a supported self-play match both player clock lines have our login.
     // Prefer the last clock for the side to move: history-bearing join chunks
@@ -503,7 +485,7 @@ fn parse_match_state(
         opponent = Some(my_username.to_string());
     }
 
-    let state = MatchState {
+    Some(OsEvent::MatchState(MatchState {
         id,
         variant,
         opponent,
@@ -511,24 +493,9 @@ fn parse_match_state(
         side_to_move: stm,
         my_color,
         my_clock,
-    };
-    let display = DisplayState {
-        state: MatchState {
-            opponent: state.opponent.clone().filter(|_| my_color.is_some()),
-            ..state.clone()
-        },
         clocks,
-        moves,
-    };
-    let event = if is_spectator {
-        OsEvent::SpectatedMatchState {
-            id: state.id,
-            variant: state.variant,
-        }
-    } else {
-        OsEvent::MatchState(state)
-    };
-    Some((event, Some(display)))
+        last_move,
+    }))
 }
 
 /// The last printed board with its side to move, or `None` if either is missing or invalid.
@@ -780,6 +747,19 @@ mod tests {
                     main_ms: 59_000,
                     increment_ms: 0,
                 }),
+                clocks: vec![
+                    DisplayClock {
+                        name: "alice".to_string(),
+                        color: Disc::Black,
+                        main_ms: Some(59_000),
+                    },
+                    DisplayClock {
+                        name: "bob".to_string(),
+                        color: Disc::White,
+                        main_ms: Some(60_000),
+                    },
+                ],
+                last_move: Some("PASS".to_string()),
             })
         );
     }
@@ -861,21 +841,19 @@ mod tests {
         ];
         let ev = parse_server_chunk(chunk, "alice");
         let OsEvent::MatchState(MatchState {
-            board, my_clock, ..
+            board,
+            my_clock,
+            clocks,
+            last_move,
+            ..
         }) = ev
         else {
             panic!("expected MatchState, got {ev:?}")
         };
         assert_eq!(board.disc_at(Square::A1, Disc::Black), Disc::Black);
         assert_eq!(my_clock.map(|clock| clock.main_ms), Some(56_000));
-
-        let display = display_states(chunk, "alice");
-        assert_eq!(
-            display[0].moves,
-            [(1, "f5".to_string()), (2, "f6".to_string())]
-        );
-        let clocks: Vec<_> = display[0]
-            .clocks
+        assert_eq!(last_move.as_deref(), Some("f6"));
+        let clocks: Vec<_> = clocks
             .iter()
             .map(|clock| (clock.name.as_str(), clock.color, clock.main_ms))
             .collect();
@@ -1266,13 +1244,6 @@ mod tests {
         );
     }
 
-    fn display_states(lines: &[&str], my_username: &str) -> Vec<DisplayState> {
-        parse_server_messages(lines, my_username)
-            .into_iter()
-            .filter_map(|(_, display)| display)
-            .collect()
-    }
-
     #[test]
     fn complete_state_naming_only_other_players_is_spectated() {
         let all = chunks();
@@ -1281,32 +1252,19 @@ mod tests {
             parse_server_chunk(chunk, "dave"),
             OsEvent::SpectatedMatchState { id, .. } if id == ".5"
         ));
-        let display = display_states(chunk, "dave");
-        assert_eq!(display.len(), 1);
-        assert_eq!(display[0].state.id, ".5");
-        assert_eq!(display[0].state.board, Board::new());
-        assert_eq!(display[0].state.my_color, None);
-        assert_eq!(display[0].state.my_clock, None);
-        assert_eq!(display[0].state.opponent, None);
-        assert_eq!(display[0].clocks.len(), 2);
     }
 
     #[test]
-    fn display_and_session_normalize_bell_and_header_whitespace_identically() {
+    fn bell_and_padding_before_join_are_ignored() {
         let all = chunks();
         let chunk = find_chunk(&all, "/os: join .5");
         let mut lines: Vec<String> = chunk.iter().map(|line| (*line).to_string()).collect();
         lines[0] = lines[0].replacen("/os: join ", "/os: \x07   join ", 1);
         let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
-        assert!(
-            matches!(parse_server_chunk(&refs, "dave"), OsEvent::SpectatedMatchState { id, .. } if id == ".5")
+        assert_eq!(
+            parse_server_chunk(&refs, "alice"),
+            parse_server_chunk(chunk, "alice")
         );
-        let display = display_states(&refs, "dave");
-        assert_eq!(display.len(), 1);
-        assert_eq!(display[0].state.board, Board::new());
-        assert_eq!(display[0].state.my_color, None);
-        assert_eq!(display[0].state.my_clock, None);
-        assert_eq!(display[0].state.opponent, None);
     }
 
     #[test]
@@ -1328,8 +1286,8 @@ mod tests {
         );
 
         assert_eq!(events.len(), 2);
-        assert!(matches!(&events[0].0, OsEvent::MatchCreated { id, .. } if id == ".5"));
-        assert!(matches!(&events[1].0, OsEvent::MatchCreated { id, .. } if id == ".7"));
+        assert!(matches!(&events[0], OsEvent::MatchCreated { id, .. } if id == ".5"));
+        assert!(matches!(&events[1], OsEvent::MatchCreated { id, .. } if id == ".7"));
     }
 
     #[test]

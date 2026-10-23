@@ -1,21 +1,22 @@
 //! Pure-logic session state machine for GGS `/os` play mode.
 //!
-//! Consumes [`OsEvent`]s from the parser plus move-ready notifications from
-//! the search thread, and produces [`SessionAction`]s describing what the
-//! caller should do (send a line, start a search, log a message). All IO,
-//! threading, and TCP plumbing happens at higher layers; this module is
-//! fully unit-testable.
+//! Consumes [`OsEvent`]s from the parser plus the search workers' start,
+//! finish, and result notifications, and produces [`SessionAction`]s
+//! describing what the caller should do (send a line, start or stop a
+//! search, log a message). It also keeps the [`GameView`] of each of our
+//! games, which the frontend draws as is. All IO, threading, and TCP plumbing
+//! happens at higher layers; this module is fully unit-testable.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::square::Square;
 use reversi_core::types::Scoref;
 
 use crate::ggs::protocol::{AskOffer, MatchState, OsEvent};
+use crate::ggs::report::SearchReport;
 
 /// Search constraint requested by the GGS session layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,13 +25,117 @@ pub enum SearchLimit {
     Level { level: usize },
 }
 
+/// A move a search chose, as its worker hands it back.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FoundMove {
+    pub report: SearchReport,
+    /// Search summary to tell the spectator channel once the move is played.
+    pub broadcast: String,
+}
+
+/// What the engine is doing for a game.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Activity {
+    #[default]
+    Idle,
+    /// A search waits for the shared thread pool.
+    SearchQueued,
+    Searching,
+    /// A ponder waits for the shared thread pool.
+    PonderQueued,
+    Pondering,
+}
+
+/// One of our games as the frontend shows it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GameView<A = Activity> {
+    /// The latest board; `None` before the first one arrives and while the
+    /// server's state is unavailable.
+    pub state: Option<MatchState>,
+    /// When `state` arrived; its clocks are as of then.
+    pub state_at: Option<Instant>,
+    /// The latest move the server listed, kept across states that list none.
+    pub last_move: Option<String>,
+    pub opponent: Option<String>,
+    pub variant: Option<String>,
+    /// What the engine is doing for the game; `()` where the session keeps
+    /// the game, since it comes from the game's search or ponder.
+    pub activity: A,
+    /// Score of the last played search, from our side.
+    pub eval: Option<Scoref>,
+    pub last_search: Option<SearchReport>,
+    /// Result text as the server prints it, once the game ended.
+    pub result: Option<String>,
+    /// Final disc difference from our side, when the result is numeric.
+    pub score: Option<f64>,
+}
+
+/// A game as the session keeps it, without its activity.
+type ListedGame = GameView<()>;
+
+impl ListedGame {
+    fn with_activity(&self, activity: Activity) -> GameView {
+        let Self {
+            state,
+            state_at,
+            last_move,
+            opponent,
+            variant,
+            activity: (),
+            eval,
+            last_search,
+            result,
+            score,
+        } = self.clone();
+        GameView {
+            state,
+            state_at,
+            last_move,
+            opponent,
+            variant,
+            activity,
+            eval,
+            last_search,
+            result,
+            score,
+        }
+    }
+}
+
+/// A search or ponder the session started, as its worker last reported it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Worker {
+    search_id: u64,
+    state: WorkerState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkerState {
+    /// Waiting for the shared thread pool.
+    Queued,
+    Running,
+    /// Ended on its own. Only a ponder stays registered after that, so that
+    /// it is neither restarted nor left without its stop.
+    Finished,
+}
+
+impl Worker {
+    fn queued(search_id: u64) -> Self {
+        Self {
+            search_id,
+            state: WorkerState::Queued,
+        }
+    }
+}
+
 /// A concrete action the session asks the caller to perform.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionAction {
     /// A single line to send to the GGS server (no trailing newline).
     Send(String),
-    /// Kick off a search on another thread. The caller MUST later call
-    /// [`Session::on_move_ready`] with the best move and score (or `None` for pass).
+    /// Kick off a search on another thread. The caller MUST report its start
+    /// to [`Session::on_search_started`] and its result to
+    /// [`Session::on_search_finished`].
     StartSearch {
         game_id: String,
         /// Identifies this worker's events and result; GGS recycles game ids.
@@ -42,7 +147,8 @@ pub enum SessionAction {
     },
     /// Warm the game's transposition table by searching the opponent-to-move
     /// board on the game's own engine. Produces no move; the caller discards
-    /// the result and never reports it back.
+    /// the result and reports only the start and end of the worker, to
+    /// [`Session::on_search_started`] and [`Session::on_ponder_finished`].
     StartPonder {
         game_id: String,
         /// Identifies this worker's events, as for [`SessionAction::StartSearch`].
@@ -52,6 +158,13 @@ pub enum SessionAction {
     /// Abort the ponder search for this game. Always emitted before any
     /// [`SessionAction::StartSearch`] so the search lock is released promptly.
     StopPonder { game_id: String },
+    /// Cancel the running and queued searches of match `id` (or synchro game
+    /// `id`) and drop its engines. Emitted first for every match end, ours or
+    /// not; a match without engines has nothing to drop.
+    EndMatch { id: String },
+    /// Tell this search report to the spectator channel. Emitted right after
+    /// the move it describes is played.
+    Broadcast(String),
     /// Informational; the caller typically prints this to stderr prefixed with `[ggs]`.
     Log(String),
 }
@@ -70,10 +183,10 @@ struct ActiveMatch {
     /// synchro match without confusing which side we are on.
     my_colors: HashMap<String, Disc>,
     opponent: String,
-    /// Game ids with a search in flight, mapped to that search's id. Set on
+    /// Game ids with a search in flight, mapped to that search. Set on
     /// [`SessionAction::StartSearch`] emit; cleared in
-    /// [`Session::on_move_ready`] when the corresponding result arrives.
-    searching_games: HashMap<String, u64>,
+    /// [`Session::on_search_finished`] when the corresponding result arrives.
+    searching_games: HashMap<String, Worker>,
     /// Games whose search failed. They remain suppressed until the server
     /// confirms resignation, but no worker is still using their slot.
     failed_games: HashSet<String>,
@@ -144,11 +257,14 @@ pub struct Session {
     ponder: bool,
     /// Latest opponent-to-move board per game id, kept while the game waits.
     waiting_boards: HashMap<String, Board>,
-    /// Game ids with a ponder search possibly running.
-    pondering_games: HashSet<String>,
+    /// Game ids with a ponder search possibly running, mapped to that ponder.
+    pondering_games: HashMap<String, Worker>,
     /// Game id we most recently sent a move for. In synchro its opponent is
     /// not on the clock yet, so the sibling is the one worth pondering.
     last_played_game: Option<String>,
+    /// The games of every active match, and finished games until another
+    /// match starts.
+    games: BTreeMap<String, ListedGame>,
 }
 
 impl Session {
@@ -166,9 +282,119 @@ impl Session {
             resync_requested: HashMap::new(),
             ponder: false,
             waiting_boards: HashMap::new(),
-            pondering_games: HashSet::new(),
+            pondering_games: HashMap::new(),
             last_played_game: None,
+            games: BTreeMap::new(),
         }
+    }
+
+    /// Our games by id, as the frontend shows them: those of every active
+    /// match, and finished games until another match starts. A synchro
+    /// match is listed as its match id until the first of its two games
+    /// appears.
+    pub fn games(&self) -> BTreeMap<String, GameView> {
+        self.games
+            .iter()
+            .map(|(id, game)| (id.clone(), game.with_activity(self.activity(id))))
+            .collect()
+    }
+
+    /// What the engine is doing for game `id`, from its current search or
+    /// ponder.
+    fn activity(&self, id: &str) -> Activity {
+        let search = self
+            .active_match(id)
+            .and_then(|active| active.searching_games.get(id));
+        match (search, self.pondering_games.get(id)) {
+            (Some(search), _) if search.state == WorkerState::Queued => Activity::SearchQueued,
+            (Some(_), _) => Activity::Searching,
+            (None, Some(ponder)) => match ponder.state {
+                WorkerState::Queued => Activity::PonderQueued,
+                WorkerState::Running => Activity::Pondering,
+                WorkerState::Finished => Activity::Idle,
+            },
+            (None, None) => Activity::Idle,
+        }
+    }
+
+    /// Records that the worker of `search_id` holds the shared thread pool,
+    /// unless the session has moved on from it.
+    pub fn on_search_started(&mut self, game_id: &str, search_id: u64) {
+        if let Some(worker) = self.current_worker(game_id, search_id) {
+            worker.state = WorkerState::Running;
+        }
+    }
+
+    /// Records that the current ponder of `game_id` ended before being
+    /// stopped: it solved the position or never started.
+    pub fn on_ponder_finished(&mut self, game_id: &str, search_id: u64) {
+        if let Some(ponder) = self
+            .pondering_games
+            .get_mut(game_id)
+            .filter(|ponder| ponder.search_id == search_id)
+        {
+            ponder.state = WorkerState::Finished;
+        }
+    }
+
+    /// The search or ponder of `game_id` if it is still `search_id`.
+    fn current_worker(&mut self, game_id: &str, search_id: u64) -> Option<&mut Worker> {
+        let search = self
+            .active_matches
+            .iter_mut()
+            .find(|active| active.contains_game(game_id))
+            .and_then(|active| active.searching_games.get_mut(game_id));
+        search
+            .or_else(|| self.pondering_games.get_mut(game_id))
+            .filter(|worker| worker.search_id == search_id)
+    }
+
+    /// The listed game `id`, a live game of an active match, created on first
+    /// use. A synchro game takes the place of its match in the list.
+    fn live_game(&mut self, id: &str) -> &mut ListedGame {
+        if !self.games.contains_key(id) {
+            if let Some(parent) = synchro_parent_id(id) {
+                self.games.remove(parent);
+            }
+            let opponent = self.active_match(id).map(|active| active.opponent.clone());
+            self.games.insert(
+                id.to_string(),
+                ListedGame {
+                    opponent,
+                    ..ListedGame::default()
+                },
+            );
+        }
+        self.games
+            .get_mut(id)
+            .expect("game was found or inserted above")
+    }
+
+    /// Shows `state`, the latest board of a live game, on its listing.
+    fn show_state(&mut self, state: MatchState) {
+        let game = self.live_game(&state.id);
+        if state.opponent.is_some() {
+            game.opponent.clone_from(&state.opponent);
+        }
+        if state.last_move.is_some() {
+            game.last_move.clone_from(&state.last_move);
+        }
+        game.state_at = Some(Instant::now());
+        game.state = Some(state);
+    }
+
+    /// Lists match `id`, which just became active, in place of the finished
+    /// games.
+    fn list_match(&mut self, id: &str, opponent: &str, variant: &str) {
+        self.games.retain(|_, game| game.result.is_none());
+        self.games.insert(
+            id.to_string(),
+            ListedGame {
+                opponent: Some(opponent.to_string()),
+                variant: Some(variant.to_string()),
+                ..ListedGame::default()
+            },
+        );
     }
 
     /// Enables pondering: once every live game has a server-confirmed
@@ -208,7 +434,7 @@ impl Session {
 
     /// Emits a [`SessionAction::StopPonder`] for every possibly running ponder.
     fn stop_all_ponders(&mut self, actions: &mut Vec<SessionAction>) {
-        for game_id in std::mem::take(&mut self.pondering_games) {
+        for game_id in std::mem::take(&mut self.pondering_games).into_keys() {
             actions.push(SessionAction::StopPonder { game_id });
         }
     }
@@ -225,7 +451,7 @@ impl Session {
     /// Drops ponder state for one game, stopping its ponder if running.
     fn clear_ponder_for_game(&mut self, id: &str, actions: &mut Vec<SessionAction>) {
         self.waiting_boards.remove(id);
-        if self.pondering_games.remove(id) {
+        if self.pondering_games.remove(id).is_some() {
             actions.push(SessionAction::StopPonder {
                 game_id: id.to_string(),
             });
@@ -266,7 +492,7 @@ impl Session {
             return;
         }
         for (id, board) in &self.waiting_boards {
-            if self.pondering_games.contains(id)
+            if self.pondering_games.contains_key(id)
                 || !self.is_ponderable_game(id)
                 || (self.last_played_game.as_ref() == Some(id)
                     && synchro_sibling(id)
@@ -274,7 +500,8 @@ impl Session {
             {
                 continue;
             }
-            self.pondering_games.insert(id.clone());
+            self.pondering_games
+                .insert(id.clone(), Worker::queued(self.next_search_id));
             actions.push(SessionAction::StartPonder {
                 game_id: id.clone(),
                 search_id: self.next_search_id,
@@ -301,7 +528,7 @@ impl Session {
             OsEvent::SpectatedMatchState { id, variant } => {
                 self.on_spectated_match_state(id, variant)
             }
-            OsEvent::MatchEnd { id, result, .. } => self.on_match_end(id, result),
+            OsEvent::MatchEnd { id, result, score } => self.on_match_end(id, result, score),
             OsEvent::Kibitz { id, from, message } => {
                 vec![SessionAction::Log(format!("[{id}] {from}: {message}"))]
             }
@@ -407,35 +634,65 @@ impl Session {
         Vec::new()
     }
 
-    /// Processes a completed search result and its elapsed turn time.
+    /// Processes a finished search: the move it chose (`None` for a pass), or
+    /// why it chose none, after `elapsed` of turn time.
     ///
     /// `elapsed` includes engine queue time and the wait to process the result.
     /// `game_id` and `search_id` come from the [`SessionAction::StartSearch`];
     /// a result for a search that is no longer current (e.g. its match ended
-    /// while we were searching) is logged and dropped.
-    pub fn on_move_ready(
+    /// while we were searching) is logged and dropped. Every chosen move's
+    /// report is logged, but only a played move is broadcast and shown on its
+    /// game. A current search that failed resigns its game.
+    pub fn on_search_finished(
         &mut self,
         game_id: &str,
         search_id: u64,
-        mv: Option<(Square, Scoref)>,
+        result: Result<Option<FoundMove>, String>,
         elapsed: Duration,
     ) -> Vec<SessionAction> {
+        match result {
+            Ok(mv) => self.play_move(game_id, search_id, mv, elapsed),
+            Err(error) => {
+                let mut actions = vec![SessionAction::Log(format!(
+                    "search failed for game {game_id}: {error}"
+                ))];
+                actions.extend(self.resign_failed_search(game_id, search_id));
+                actions
+            }
+        }
+    }
+
+    fn play_move(
+        &mut self,
+        game_id: &str,
+        search_id: u64,
+        mv: Option<FoundMove>,
+        elapsed: Duration,
+    ) -> Vec<SessionAction> {
+        // Logged after the move is sent, so printing it costs no clock time.
+        let report_line = mv
+            .as_ref()
+            .map(|mv| SessionAction::Log(format!("{game_id} {}", mv.report)));
         if self.retired_searches.remove(&search_id) {
-            let mut actions = vec![SessionAction::Log(format!(
+            let mut actions = Vec::from_iter(report_line);
+            actions.push(SessionAction::Log(format!(
                 "dropping stale move for ended game {game_id}"
-            ))];
+            )));
             self.start_ready_ponders(&mut actions);
             return actions;
         }
         if !self.take_current_search(game_id, search_id) {
-            return vec![SessionAction::Log(format!(
+            let mut actions = Vec::from_iter(report_line);
+            actions.push(SessionAction::Log(format!(
                 "dropping stale move for game {game_id}"
-            ))];
+            )));
+            return actions;
         }
-        let line = match mv {
-            Some((sq, score)) => format!(
-                "tell /os play {game_id} {sq}/{}/{:.3}",
-                score.round() as i32,
+        let line = match &mv {
+            Some(FoundMove { report, .. }) => format!(
+                "tell /os play {game_id} {}/{}/{:.3}",
+                report.sq,
+                report.score.round() as i32,
                 elapsed.as_secs_f64()
             ),
             None => format!(
@@ -444,6 +701,14 @@ impl Session {
             ),
         };
         let mut actions = vec![SessionAction::Send(line)];
+        if let Some(FoundMove { report, broadcast }) = mv {
+            actions.push(SessionAction::Broadcast(broadcast));
+            if let Some(game) = self.games.get_mut(game_id) {
+                game.eval = Some(report.score);
+                game.last_search = Some(report);
+            }
+        }
+        actions.extend(report_line);
         // The board we just played on gets a fresh opponent-to-move
         // state from the server; any stored board for it is stale.
         self.waiting_boards.remove(game_id);
@@ -455,7 +720,7 @@ impl Session {
     /// Resign a game whose search terminated without producing a move.
     /// A failure marker prevents a duplicate state from starting a failure loop
     /// before the server confirms the resignation.
-    pub fn on_search_aborted(&mut self, game_id: &str, search_id: u64) -> Vec<SessionAction> {
+    fn resign_failed_search(&mut self, game_id: &str, search_id: u64) -> Vec<SessionAction> {
         if self.retired_searches.remove(&search_id) {
             let mut actions = vec![SessionAction::Log(format!(
                 "dropping stale search failure for ended game {game_id}"
@@ -528,6 +793,7 @@ impl Session {
         let log = SessionAction::Log(format!(
             "{kind}match {id} started vs {opponent_name} ({variant}, level {level})"
         ));
+        self.list_match(&id, &opponent_name, &variant);
         self.active_matches.push(ActiveMatch {
             id,
             game_slots,
@@ -544,19 +810,16 @@ impl Session {
         actions
     }
 
-    fn on_match_state(
-        &mut self,
-        MatchState {
-            id,
-            variant,
-            opponent,
-            board,
-            side_to_move,
-            my_color,
-            my_clock,
-        }: MatchState,
-    ) -> Vec<SessionAction> {
+    fn on_match_state(&mut self, state: MatchState) -> Vec<SessionAction> {
         self.recover_expired_pending_accept();
+        let id = state.id.clone();
+        let (variant, opponent) = (state.variant.clone(), state.opponent.clone());
+        let (board, side_to_move, my_color, my_clock) = (
+            state.board,
+            state.side_to_move,
+            state.my_color,
+            state.my_clock,
+        );
         let resync_id = resync_match_id(&id, variant.as_deref());
         if self.spectator_matches.contains(&resync_id) {
             return vec![SessionAction::Log(format!(
@@ -615,6 +878,7 @@ impl Session {
                     )),
                 ];
             }
+            self.list_match(&resync_id, &opponent_name, &variant);
             self.active_matches.push(ActiveMatch {
                 id: resync_id.clone(),
                 game_slots,
@@ -661,6 +925,13 @@ impl Session {
             )));
             return actions;
         };
+        self.show_state(MatchState {
+            my_color: Some(my_color),
+            ..state
+        });
+        let cur = self
+            .active_match_mut(&id)
+            .expect("active match was found or recovered above");
 
         if side_to_move != my_color {
             if !cur.failed_games.contains(&id) && self.ponder {
@@ -677,7 +948,8 @@ impl Session {
             )));
             return actions;
         }
-        cur.searching_games.insert(id.clone(), search_id);
+        cur.searching_games
+            .insert(id.clone(), Worker::queued(search_id));
         self.next_search_id += 1;
 
         self.waiting_boards.remove(&id);
@@ -727,6 +999,20 @@ impl Session {
                 "ignoring state for spectator match {id}"
             ))];
         }
+        // Only our live games lose their board; a match whose role is still
+        // unknown is listed once its verbose state shows that it is ours.
+        if self
+            .active_match(&id)
+            .is_some_and(|active| !active.ended_games.contains(&id))
+            && (self.games.contains_key(&id) || synchro_parent_id(&id).is_some())
+        {
+            let game = self.live_game(&id);
+            game.state = None;
+            game.state_at = None;
+            if variant.is_some() {
+                game.variant.clone_from(&variant);
+            }
+        }
         if is_player
             && variant
                 .as_deref()
@@ -768,10 +1054,17 @@ impl Session {
         actions
     }
 
-    fn on_match_end(&mut self, id: String, result: String) -> Vec<SessionAction> {
+    fn on_match_end(
+        &mut self,
+        id: String,
+        result: String,
+        score: Option<f64>,
+    ) -> Vec<SessionAction> {
+        let mut actions = vec![SessionAction::EndMatch { id: id.clone() }];
         if self.spectator_matches.remove(&id) {
             self.clear_resync_for_match(&id);
-            return log_non_current_match_end(&id);
+            actions.push(non_current_match_end(&id));
+            return actions;
         }
         let Some(index) = self
             .active_matches
@@ -781,29 +1074,40 @@ impl Session {
             if !self.record_unresolved_child_end(&id) {
                 self.clear_resync_for_match(&id);
             }
-            return log_non_current_match_end(&id);
+            actions.push(non_current_match_end(&id));
+            return actions;
         };
         self.clear_resync_for_match(&id);
+        // A synchro match ends after its games; they keep their own results.
+        for (game_id, game) in &mut self.games {
+            if is_game_of(&id, game_id) && game.result.is_none() {
+                game.result = Some(result.clone());
+                game.score = score;
+            }
+        }
         let opponent = self.active_matches[index].opponent.clone();
-        let mut actions = Vec::new();
         if self.active_matches[index].id == id {
             let ended = self.active_matches.swap_remove(index);
             self.waiting_boards
                 .retain(|game_id, _| !ended.contains_game(game_id));
             actions.extend(
                 self.pondering_games
-                    .extract_if(|game_id| ended.contains_game(game_id))
-                    .map(|game_id| SessionAction::StopPonder { game_id }),
+                    .extract_if(|game_id, _| ended.contains_game(game_id))
+                    .map(|(game_id, _)| SessionAction::StopPonder { game_id }),
             );
-            self.retired_searches
-                .extend(ended.searching_games.into_values());
+            self.retired_searches.extend(
+                ended
+                    .searching_games
+                    .into_values()
+                    .map(|search| search.search_id),
+            );
         } else {
             // Synchro child game (`.<parent>.<n>`): the parent match persists.
             let cur = &mut self.active_matches[index];
             cur.ended_games.insert(id.clone());
             cur.failed_games.remove(&id);
-            if let Some(search_id) = cur.searching_games.remove(&id) {
-                self.retired_searches.insert(search_id);
+            if let Some(search) = cur.searching_games.remove(&id) {
+                self.retired_searches.insert(search.search_id);
             }
             self.clear_ponder_for_game(&id, &mut actions);
         }
@@ -844,7 +1148,10 @@ impl Session {
         let Some(cur) = self.active_match_mut(game_id) else {
             return false;
         };
-        let current = cur.searching_games.get(game_id) == Some(&search_id);
+        let current = cur
+            .searching_games
+            .get(game_id)
+            .is_some_and(|search| search.search_id == search_id);
         if current {
             cur.searching_games.remove(game_id);
         }
@@ -1071,10 +1378,8 @@ fn decline_offer(id: &str, from: &str, reason: String) -> Vec<SessionAction> {
     ]
 }
 
-fn log_non_current_match_end(id: &str) -> Vec<SessionAction> {
-    vec![SessionAction::Log(format!(
-        "match-end for non-current match {id}"
-    ))]
+fn non_current_match_end(id: &str) -> SessionAction {
+    SessionAction::Log(format!("match-end for non-current match {id}"))
 }
 
 impl ActiveMatch {
@@ -1089,6 +1394,8 @@ impl ActiveMatch {
 
 #[cfg(test)]
 mod tests {
+    use reversi_core::square::Square;
+
     use super::*;
     use crate::ggs::protocol::PlayerClock;
 
@@ -1110,6 +1417,31 @@ mod tests {
 
     fn send(line: &str) -> SessionAction {
         SessionAction::Send(line.to_string())
+    }
+
+    /// A search's choice of `sq` with a zero score, as its worker hands it back.
+    fn found(sq: Square) -> FoundMove {
+        FoundMove {
+            report: SearchReport {
+                sq,
+                score: 0.0,
+                depth: 20,
+                probability: 100,
+                nodes: 0,
+                elapsed: Duration::ZERO,
+                waited: Duration::ZERO,
+            },
+            broadcast: "report".to_string(),
+        }
+    }
+
+    /// The actions that play [`found`]'s f5 in `game_id` after `elapsed` seconds.
+    fn played(game_id: &str, elapsed: &str) -> Vec<SessionAction> {
+        vec![
+            send(&format!("tell /os play {game_id} f5/0/{elapsed}")),
+            SessionAction::Broadcast("report".to_string()),
+            SessionAction::Log(format!("{game_id} {}", found(Square::F5).report)),
+        ]
     }
 
     /// Sorted game ids of the `StartPonder` actions.
@@ -1141,6 +1473,8 @@ mod tests {
             side_to_move: Disc::White,
             my_color,
             my_clock: None,
+            clocks: Vec::new(),
+            last_move: None,
         })
     }
 
@@ -1186,6 +1520,8 @@ mod tests {
             side_to_move,
             my_color,
             my_clock,
+            clocks: Vec::new(),
+            last_move: None,
         })
     }
 
@@ -1196,7 +1532,7 @@ mod tests {
     /// tests concise.
     /// Id of `game_id`'s in-flight search.
     fn search_id(s: &Session, game_id: &str) -> u64 {
-        s.active_match(game_id).unwrap().searching_games[game_id]
+        s.active_match(game_id).unwrap().searching_games[game_id].search_id
     }
 
     fn enter_match(session: &mut Session, id: &str, color: Disc, opponent: &str) {
@@ -1207,6 +1543,29 @@ mod tests {
             .find(|active| active.id == id)
         {
             cur.my_colors.insert(id.to_string(), color);
+        }
+    }
+
+    impl Session {
+        /// Hands back a search that chose `sq` (`None` for a pass), as [`found`].
+        fn move_ready(
+            &mut self,
+            game_id: &str,
+            search_id: u64,
+            sq: Option<Square>,
+            elapsed: Duration,
+        ) -> Vec<SessionAction> {
+            self.on_search_finished(game_id, search_id, Ok(sq.map(found)), elapsed)
+        }
+
+        /// Hands back a search that failed without choosing a move.
+        fn search_failed(&mut self, game_id: &str, search_id: u64) -> Vec<SessionAction> {
+            self.on_search_finished(
+                game_id,
+                search_id,
+                Err("failed".to_string()),
+                Duration::ZERO,
+            )
         }
     }
 
@@ -1279,13 +1638,8 @@ mod tests {
 
         // .7's move is sent, but its post-move state has not come back yet —
         // it could still be our turn again (opponent pass), so no ponder.
-        let actions = s.on_move_ready(
-            ".7",
-            search_id(&s, ".7"),
-            Some((Square::F5, 0.0)),
-            Duration::ZERO,
-        );
-        assert_eq!(actions, vec![send("tell /os play .7 f5/0/0.000")]);
+        let actions = s.move_ready(".7", search_id(&s, ".7"), Some(Square::F5), Duration::ZERO);
+        assert_eq!(actions, played(".7", "0.000"));
 
         // Once the server confirms .7 is on the opponent's turn, every live
         // game is waiting and both start pondering.
@@ -1338,10 +1692,10 @@ mod tests {
             Some(Disc::White),
             None,
         ));
-        let _ = s.on_move_ready(
+        let _ = s.move_ready(
             ".5.0",
             search_id(&s, ".5.0"),
-            Some((Square::F5, 0.0)),
+            Some(Square::F5),
             Duration::ZERO,
         );
 
@@ -1406,6 +1760,8 @@ mod tests {
             side_to_move,
             my_color: Some(my_color),
             my_clock: None,
+            clocks: Vec::new(),
+            last_move: None,
         })
     }
 
@@ -1455,9 +1811,9 @@ mod tests {
 
         // Workers may finish in either order; the new search (id 1) plays and
         // the retired one (id 0) is dropped without resigning the new match.
-        let played = s.on_move_ready(".5", 1, Some((Square::F5, 0.0)), Duration::ZERO);
+        let played = s.move_ready(".5", 1, Some(Square::F5), Duration::ZERO);
         assert_eq!(played[0], send("tell /os play .5 f5/0/0.000"));
-        let stale = s.on_search_aborted(".5", 0);
+        let stale = s.search_failed(".5", 0);
         assert!(!stale.iter().any(|a| matches!(a, SessionAction::Send(_))));
     }
 
@@ -1497,13 +1853,8 @@ mod tests {
         assert_eq!(s.active_matches.len(), 1);
         assert_eq!(s.active_matches[0].id, ".7");
         assert_eq!(
-            s.on_move_ready(
-                ".7",
-                search_id(&s, ".7"),
-                Some((Square::F5, 0.0)),
-                Duration::ZERO
-            ),
-            vec![send("tell /os play .7 f5/0/0.000")]
+            s.move_ready(".7", search_id(&s, ".7"), Some(Square::F5), Duration::ZERO),
+            played(".7", "0.000")
         );
     }
 
@@ -1519,12 +1870,7 @@ mod tests {
             None,
         ));
         assert!(matches!(&black[0], SessionAction::StartSearch { .. }));
-        let _ = s.on_move_ready(
-            ".5",
-            search_id(&s, ".5"),
-            Some((Square::F5, 0.0)),
-            Duration::ZERO,
-        );
+        let _ = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
 
         let white = s.on_event(match_state_with_color(
             ".5",
@@ -1542,6 +1888,7 @@ mod tests {
             let actions = s.on_event(match_created_with_variant(".5", Some("bob"), variant));
             assert_eq!(actions[0], send("tell /os resign .5"));
             assert!(s.active_matches.is_empty());
+            assert!(s.games().is_empty());
         }
     }
 
@@ -1758,6 +2105,8 @@ mod tests {
             side_to_move: Disc::White,
             my_color: Some(Disc::Black),
             my_clock: None,
+            clocks: Vec::new(),
+            last_move: None,
         }));
         assert_eq!(s.active_match_slots(), 1);
         assert!(s.active_matches[0].ended_games.contains(".5.0"));
@@ -1783,6 +2132,8 @@ mod tests {
             side_to_move: Disc::White,
             my_color: Some(Disc::Black),
             my_clock: None,
+            clocks: Vec::new(),
+            last_move: None,
         }));
         assert!(s.resync_requested.is_empty());
         assert_eq!(s.active_matches[0].game_slots, 2);
@@ -1804,6 +2155,8 @@ mod tests {
             side_to_move: Disc::White,
             my_color: Some(Disc::Black),
             my_clock: None,
+            clocks: Vec::new(),
+            last_move: None,
         }));
 
         assert!(!actions.contains(&send("tell /os resign .5.0")));
@@ -1834,7 +2187,11 @@ mod tests {
         let ended = s.on_event(match_end(".5.1", "0.00"));
         assert_eq!(s.active_matches.len(), 1);
         assert!(!s.active_matches[0].searching_games.contains_key(".5.1"));
-        assert!(matches!(&ended[0], SessionAction::Log(msg) if msg.contains(".5.1")));
+        assert!(matches!(
+            &ended[..],
+            [SessionAction::EndMatch { id }, SessionAction::Log(msg)]
+                if id == ".5.1" && msg.contains(".5.1")
+        ));
 
         let duplicate = s.on_event(match_state_with_color(
             ".5.1",
@@ -1844,13 +2201,12 @@ mod tests {
         ));
         assert!(matches!(&duplicate[0], SessionAction::Log(msg) if msg.contains("ended")));
 
-        let stale = s.on_move_ready(".5.1", 0, Some((Square::F5, 0.0)), Duration::ZERO);
-        assert_eq!(stale.len(), 1);
-        assert!(matches!(&stale[0], SessionAction::Log(_)));
+        let stale = s.move_ready(".5.1", 0, Some(Square::F5), Duration::ZERO);
         assert!(
-            !stale
+            stale
                 .iter()
-                .any(|action| matches!(action, SessionAction::Send(_)))
+                .all(|action| matches!(action, SessionAction::Log(_))),
+            "{stale:?}"
         );
     }
 
@@ -1903,20 +2259,20 @@ mod tests {
         assert!(cur.searching_games.contains_key(".5.1"));
 
         // Per-game send should use the child id, not the parent.
-        let send0 = s.on_move_ready(
+        let send0 = s.move_ready(
             ".5.0",
             search_id(&s, ".5.0"),
-            Some((Square::F5, 0.0)),
+            Some(Square::F5),
             Duration::from_millis(1234),
         );
-        assert_eq!(send0, vec![send("tell /os play .5.0 f5/0/1.234")]);
-        let send1 = s.on_move_ready(
+        assert_eq!(send0, played(".5.0", "1.234"));
+        let send1 = s.move_ready(
             ".5.1",
             search_id(&s, ".5.1"),
-            Some((Square::F5, 0.0)),
+            Some(Square::F5),
             Duration::from_millis(5678),
         );
-        assert_eq!(send1, vec![send("tell /os play .5.1 f5/0/5.678")]);
+        assert_eq!(send1, played(".5.1", "5.678"));
     }
 
     #[test]
@@ -1971,8 +2327,10 @@ mod tests {
         enter_match(&mut s, ".5", Disc::Black, "bob");
         let actions = s.on_event(match_end(".7", "12.00"));
         assert_eq!(s.active_matches[0].id, ".5");
-        assert_eq!(actions.len(), 1);
-        assert!(matches!(&actions[0], SessionAction::Log(_)));
+        assert!(matches!(
+            &actions[..],
+            [SessionAction::EndMatch { id }, SessionAction::Log(_)] if id == ".7"
+        ));
     }
 
     #[test]
@@ -1982,8 +2340,11 @@ mod tests {
         let actions = s.on_event(match_end(".5", "alice left"));
 
         assert!(s.active_matches.is_empty());
-        assert_eq!(actions.len(), 1);
-        assert!(matches!(&actions[0], SessionAction::Log(msg) if msg.contains("alice left")));
+        assert!(matches!(
+            &actions[..],
+            [SessionAction::EndMatch { id }, SessionAction::Log(msg)]
+                if id == ".5" && msg.contains("alice left")
+        ));
     }
 
     #[test]
@@ -2007,7 +2368,7 @@ mod tests {
         let mut s = new_session();
         enter_match(&mut s, ".5", Disc::Black, "bob");
         let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
-        let actions = s.on_move_ready(".5", search_id(&s, ".5"), None, Duration::from_millis(1234));
+        let actions = s.move_ready(".5", search_id(&s, ".5"), None, Duration::from_millis(1234));
         assert_eq!(actions, vec![send("tell /os play .5 PASS/0/1.234")]);
     }
 
@@ -2016,13 +2377,129 @@ mod tests {
         let mut s = new_session();
         enter_match(&mut s, ".5", Disc::Black, "bob");
         let _ = s.on_event(match_end(".5", "-64.00"));
-        let actions = s.on_move_ready(".5", 0, Some((Square::F5, 0.0)), Duration::ZERO);
-        assert_eq!(actions.len(), 1);
-        match &actions[0] {
-            SessionAction::Log(msg) => assert!(msg.contains(".5")),
-            other => panic!("expected Log, got {other:?}"),
-        }
-        assert!(!actions.iter().any(|a| matches!(a, SessionAction::Send(_))));
+        let actions = s.move_ready(".5", 0, Some(Square::F5), Duration::ZERO);
+        // The search's report is still logged, then the move is dropped.
+        assert!(
+            matches!(
+                &actions[..],
+                [SessionAction::Log(report), SessionAction::Log(dropped)]
+                    if report.starts_with(".5 f5") && dropped.contains("dropping stale move")
+            ),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn only_a_played_move_is_broadcast() {
+        let mut s = new_session();
+        enter_match(&mut s, ".5", Disc::Black, "bob");
+        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let actions = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
+        assert_eq!(actions, played(".5", "0.000"));
+
+        // The match ends while the next search runs: nothing is told.
+        let _ = s.on_event(match_state(".5", Disc::Black, 55_000));
+        let search = search_id(&s, ".5");
+        let _ = s.on_event(match_end(".5", "-64.00"));
+        let stale = s.move_ready(".5", search, Some(Square::F5), Duration::ZERO);
+        assert!(
+            stale
+                .iter()
+                .all(|action| matches!(action, SessionAction::Log(_))),
+            "{stale:?}"
+        );
+    }
+
+    #[test]
+    fn only_our_games_are_listed() {
+        let mut s = new_session();
+        let _ = s.on_event(match_created(".6", None));
+        let _ = s.on_event(OsEvent::SpectatedMatchState {
+            id: ".7".to_string(),
+            variant: Some("8b".to_string()),
+        });
+        // Whose game an unparseable state is stays unknown until it resyncs.
+        let _ = s.on_event(unavailable(".8", Some("8b"), false));
+        assert!(s.games().is_empty());
+
+        enter_match(&mut s, ".5", Disc::Black, "bob");
+        let _ = s.on_event(match_state(".5", Disc::White, 56_000));
+        let _ = s.on_event(match_end(".5", "+4.00"));
+        // A watched match reusing the finished game's id leaves its result.
+        let _ = s.on_event(OsEvent::SpectatedMatchState {
+            id: ".5".to_string(),
+            variant: Some("8b".to_string()),
+        });
+        assert_eq!(s.games().keys().collect::<Vec<_>>(), [".5"]);
+        assert_eq!(s.games()[".5"].result.as_deref(), Some("+4.00"));
+    }
+
+    #[test]
+    fn synchro_games_keep_their_own_results_until_the_next_match() {
+        let mut s = new_session();
+        let _ = s.on_event(match_created_with_variant(".5", Some("bob"), Some("s8")));
+        assert_eq!(s.games().keys().collect::<Vec<_>>(), [".5"]);
+        // The match's own entry gives way to its two games.
+        let _ = s.on_event(synchro_state(".5.0", Disc::White, Disc::Black));
+        let _ = s.on_event(synchro_state(".5.1", Disc::Black, Disc::White));
+        assert_eq!(s.games().keys().collect::<Vec<_>>(), [".5.0", ".5.1"]);
+
+        let _ = s.on_event(OsEvent::MatchEnd {
+            id: ".5.0".to_string(),
+            result: "( bob vs. alice ) +4.00".to_string(),
+            score: Some(-4.0),
+        });
+        // A late state does not reopen the ended game.
+        let _ = s.on_event(synchro_state(".5.0", Disc::Black, Disc::Black));
+        let _ = s.on_event(OsEvent::MatchEnd {
+            id: ".5".to_string(),
+            result: "-3.00".to_string(),
+            score: Some(3.0),
+        });
+        let games = s.games();
+        let [first, second] = [".5.0", ".5.1"].map(|id| &games[id]);
+        assert_eq!(first.result.as_deref(), Some("( bob vs. alice ) +4.00"));
+        assert_eq!(first.score, Some(-4.0));
+        assert_eq!(first.state.as_ref().unwrap().side_to_move, Disc::White);
+        assert_eq!(second.result.as_deref(), Some("-3.00"));
+        assert_eq!(second.score, Some(3.0));
+
+        // The id comes back for a new match, which replaces the finished games.
+        let _ = s.on_event(match_created_with_variant(".5", Some("bob"), Some("s8")));
+        assert_eq!(s.games().keys().collect::<Vec<_>>(), [".5"]);
+        assert_eq!(s.games()[".5"].state, None);
+        assert_eq!(s.games()[".5"].result, None);
+    }
+
+    #[test]
+    fn stale_worker_events_leave_the_shown_activity() {
+        let activity = |s: &Session| s.games()[".5"].activity;
+        let mut s = new_session();
+        s.enable_ponder();
+        enter_match(&mut s, ".5", Disc::Black, "bob");
+        let _ = s.on_event(match_state(".5", Disc::White, 56_000));
+        assert_eq!(activity(&s), Activity::PonderQueued);
+        s.on_search_started(".5", 0);
+        assert_eq!(activity(&s), Activity::Pondering);
+
+        // Our turn stops ponder 0 before search 1; ponder 0's late events
+        // change nothing.
+        let _ = s.on_event(match_state(".5", Disc::Black, 55_000));
+        assert_eq!(activity(&s), Activity::SearchQueued);
+        s.on_search_started(".5", 0);
+        s.on_ponder_finished(".5", 0);
+        assert_eq!(activity(&s), Activity::SearchQueued);
+        s.on_search_started(".5", 1);
+        assert_eq!(activity(&s), Activity::Searching);
+        let _ = s.move_ready(".5", 1, Some(Square::F5), Duration::ZERO);
+        assert_eq!(activity(&s), Activity::Idle);
+        assert_eq!(s.games()[".5"].eval, Some(0.0));
+
+        // A ponder that ends by itself, e.g. one that never started.
+        let _ = s.on_event(match_state(".5", Disc::White, 54_000));
+        assert_eq!(activity(&s), Activity::PonderQueued);
+        s.on_ponder_finished(".5", 2);
+        assert_eq!(activity(&s), Activity::Idle);
     }
 
     #[test]
@@ -2035,7 +2512,7 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], SessionAction::StartSearch { .. }));
 
-        // A second identical MatchState arrives before on_move_ready fires.
+        // A second identical MatchState arrives before the search finishes.
         // We must NOT re-emit StartSearch.
         let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
         assert_eq!(actions.len(), 1);
@@ -2049,14 +2526,9 @@ mod tests {
             other => panic!("expected Log, got {other:?}"),
         }
 
-        // After on_move_ready, the flag resets and the next MatchState can
-        // kick off a fresh search.
-        let sent = s.on_move_ready(
-            ".5",
-            search_id(&s, ".5"),
-            Some((Square::F5, 0.0)),
-            Duration::ZERO,
-        );
+        // Once the search finishes, the flag resets and the next MatchState
+        // can kick off a fresh search.
+        let sent = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
         assert!(matches!(&sent[0], SessionAction::Send(_)));
         let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
         assert_eq!(actions.len(), 1);
@@ -2076,8 +2548,14 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], SessionAction::StartSearch { .. }));
 
-        let aborted = s.on_search_aborted(".5", search_id(&s, ".5"));
-        assert_eq!(aborted, vec![send("tell /os resign .5")]);
+        let aborted = s.search_failed(".5", search_id(&s, ".5"));
+        assert_eq!(
+            aborted,
+            [
+                SessionAction::Log("search failed for game .5: failed".to_string()),
+                send("tell /os resign .5")
+            ]
+        );
 
         let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
         assert_eq!(actions.len(), 1);
@@ -2098,8 +2576,10 @@ mod tests {
         let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
         let _ = s.on_event(match_end(".5", "bob left"));
 
-        let stale = s.on_search_aborted(".5", 0);
-        assert!(matches!(&stale[0], SessionAction::Log(message) if message.contains("ended")));
+        let stale = s.search_failed(".5", 0);
+        assert!(
+            matches!(stale.last(), Some(SessionAction::Log(message)) if message.contains("ended"))
+        );
         assert_eq!(
             s.on_event(ask_offer(".8", "carol", "alice"))[0],
             send("tell /os accept .8")
@@ -2131,13 +2611,8 @@ mod tests {
         }
 
         assert_eq!(
-            s.on_move_ready(
-                ".5",
-                search_id(&s, ".5"),
-                Some((Square::F5, 0.0)),
-                Duration::ZERO
-            ),
-            vec![send("tell /os play .5 f5/0/0.000")]
+            s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO),
+            played(".5", "0.000")
         );
     }
 
@@ -2146,12 +2621,7 @@ mod tests {
         let mut s = new_session();
         enter_match(&mut s, ".5", Disc::Black, "bob");
         let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
-        let _ = s.on_move_ready(
-            ".5",
-            search_id(&s, ".5"),
-            Some((Square::F5, 0.0)),
-            Duration::ZERO,
-        );
+        let _ = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
 
         let err = s.on_event(OsEvent::ServerError {
             id: ".5".to_string(),

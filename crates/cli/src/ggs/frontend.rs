@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
@@ -23,10 +23,12 @@ use ratatui::{DefaultTerminal, Frame};
 use super::connection::Event;
 use reversi_core::disc::Disc;
 use reversi_core::square::Square;
-use reversi_core::types::Scoref;
 
-use super::protocol::{DisplayClock, DisplayState, MatchState, OsEvent};
-use super::session::{self, SessionAction};
+use super::protocol::MatchState;
+use super::session::{self, Activity, GameView};
+
+/// The session's games, by game id.
+type Games = BTreeMap<String, GameView>;
 
 pub(super) enum Frontend {
     Plain,
@@ -88,65 +90,19 @@ impl Frontend {
         }
     }
 
-    pub(super) fn snapshot(&mut self, snapshot: DisplayState) {
-        if let Self::Tui(tui) = self {
-            tui.model.snapshot(snapshot);
-        }
-    }
-
-    pub(super) fn on_os_event(&mut self, event: &OsEvent) {
-        if let Self::Tui(tui) = self {
-            tui.model.on_os_event(event);
-        }
-    }
-
-    pub(super) fn on_action(&mut self, action: &SessionAction) {
-        if let Self::Tui(tui) = self {
-            tui.model.on_action(action);
-        }
-    }
-
-    pub(super) fn worker_finished(&mut self, id: &str, search_id: u64) {
-        if let Self::Tui(tui) = self {
-            tui.model.worker_finished(id, search_id);
-        }
-    }
-
-    pub(super) fn worker_started(&mut self, id: &str, search_id: u64, ponder: bool) {
-        if let Self::Tui(tui) = self {
-            tui.model.worker_started(id, search_id, ponder);
-        }
-    }
-
-    pub(super) fn eval(&mut self, id: &str, search_id: u64, score: Scoref) {
-        if let Self::Tui(tui) = self
-            && let Some(game) = tui.model.current_worker_game(id, search_id)
-        {
-            game.eval = Some(score);
-        }
-    }
-
-    pub(super) fn search_report(&mut self, id: &str, search_id: u64, message: &str) {
+    pub(super) fn input(&mut self, event: event::Event, games: Games) -> Input {
         match self {
-            Self::Plain => eprintln!("[ggs] {message}"),
+            Self::Plain => Input::None,
             Self::Tui(tui) => {
-                tui.model.push_line(format!("[ggs] {message}"));
-                if let Some(game) = tui.model.current_worker_game(id, search_id) {
-                    game.last_search = Some(message.to_string());
-                }
+                tui.model.sync(games);
+                tui.model.input(event)
             }
         }
     }
 
-    pub(super) fn input(&mut self, event: event::Event) -> Input {
-        match self {
-            Self::Plain => Input::None,
-            Self::Tui(tui) => tui.model.input(event),
-        }
-    }
-
-    pub(super) fn draw(&mut self) -> Result<(), String> {
+    pub(super) fn draw(&mut self, games: Games) -> Result<(), String> {
         if let Self::Tui(tui) = self {
+            tui.model.sync(games);
             tui.terminal
                 .draw(|frame| tui.model.draw(frame))
                 .map_err(|e| format!("terminal draw failed: {e}"))?;
@@ -232,57 +188,14 @@ impl Drop for Tui {
     }
 }
 
-#[derive(Default)]
-struct DisplayGame {
-    state: Option<MatchState>,
-    clocks: Vec<DisplayClock>,
-    /// When `clocks` arrived; shown as elapsed time since the snapshot.
-    clocks_at: Option<Instant>,
-    last_move: Option<String>,
-    opponent: Option<String>,
-    variant: Option<String>,
-    result: Option<String>,
-    /// Final disc difference from our side.
-    score: Option<f64>,
-    activity: Activity,
-    /// Search id of the game's latest worker. Events from older workers,
-    /// including those of an ended game whose id was recycled, are ignored.
-    worker: Option<u64>,
-    /// Score of the last completed search, from our side.
-    eval: Option<Scoref>,
-    last_search: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Activity {
-    #[default]
-    Waiting,
-    WaitingForBoard,
-    BoardUnavailable,
-    ServerSnapshot,
-    SearchQueued,
-    PonderQueued,
-    PonderStopping,
-    Searching,
-    Pondering,
-    WaitingForServer,
-}
-
-impl Activity {
-    /// What the engine is doing for the game; `None` while it is idle.
-    fn label(self) -> Option<&'static str> {
-        match self {
-            Self::SearchQueued => Some("Search queued"),
-            Self::PonderQueued => Some("Ponder queued"),
-            Self::Searching => Some("Searching"),
-            Self::Pondering => Some("Pondering"),
-            Self::Waiting
-            | Self::WaitingForBoard
-            | Self::BoardUnavailable
-            | Self::ServerSnapshot
-            | Self::PonderStopping
-            | Self::WaitingForServer => None,
-        }
+/// What the engine is doing for the game; `None` while it is idle.
+fn activity_label(activity: Activity) -> Option<&'static str> {
+    match activity {
+        Activity::Idle => None,
+        Activity::SearchQueued => Some("Search queued"),
+        Activity::Searching => Some("Searching"),
+        Activity::PonderQueued => Some("Ponder queued"),
+        Activity::Pondering => Some("Pondering"),
     }
 }
 
@@ -301,7 +214,8 @@ struct Model {
     scroll: Scroll,
     horizontal: usize,
     page_height: usize,
-    games: BTreeMap<String, DisplayGame>,
+    /// The session's games as of the last draw or input.
+    games: Games,
     selected: Option<String>,
     editor: Editor,
     previous_enter: bool,
@@ -314,135 +228,55 @@ struct Model {
 }
 
 impl Model {
-    fn snapshot(&mut self, snapshot: DisplayState) {
-        let DisplayState {
-            state,
-            clocks,
-            moves,
-        } = snapshot;
-        // Boards of games we do not play (watched matches) stay off the list.
-        if state.my_color.is_none() {
+    /// Takes the session's games. The selection stays on its game; once that
+    /// game is gone, it moves to a game of the same match (a synchro game
+    /// replacing its match), or else to the first game.
+    fn sync(&mut self, games: Games) {
+        self.games = games;
+        if self
+            .selected
+            .as_ref()
+            .is_some_and(|id| self.games.contains_key(id))
+        {
             return;
         }
-        let id = state.id.clone();
-        let select_board = self.selected.as_ref().is_none_or(|selected| {
-            selected != &id
-                && self
-                    .games
-                    .get(selected)
-                    .is_some_and(|game| game.state.is_none() && session::is_game_of(selected, &id))
-        });
-        let game = self.games.entry(id.clone()).or_default();
-        if state.opponent.is_some() {
-            game.opponent.clone_from(&state.opponent);
-        }
-        game.state = Some(state);
-        game.clocks = clocks;
-        game.clocks_at = Some(Instant::now());
-        if let Some((_, mv)) = moves.into_iter().last() {
-            game.last_move = Some(mv);
-        }
-        if !matches!(
-            game.activity,
-            Activity::SearchQueued
-                | Activity::PonderQueued
-                | Activity::PonderStopping
-                | Activity::Searching
-                | Activity::Pondering
-        ) {
-            game.activity = Activity::ServerSnapshot;
-        }
-        if select_board {
-            self.selected = Some(id);
-        }
+        let replacement = self
+            .selected
+            .as_ref()
+            .and_then(|old| self.games.keys().find(|id| session::is_game_of(old, id)))
+            .or_else(|| self.games.keys().next());
+        self.selected = replacement.cloned();
     }
 
-    /// The game `id`, if `search_id` is its latest worker.
-    fn current_worker_game(&mut self, id: &str, search_id: u64) -> Option<&mut DisplayGame> {
-        self.games
-            .get_mut(id)
-            .filter(|game| game.worker == Some(search_id))
-    }
-
-    fn worker_started(&mut self, id: &str, search_id: u64, ponder: bool) {
-        if let Some(game) = self.current_worker_game(id, search_id)
-            && game.result.is_none()
-        {
-            game.activity = if ponder {
-                Activity::Pondering
-            } else {
-                Activity::Searching
-            };
-        }
-    }
-
-    fn worker_finished(&mut self, id: &str, search_id: u64) {
-        if let Some(game) = self.current_worker_game(id, search_id)
-            && game.result.is_none()
-        {
-            game.activity = Activity::WaitingForServer;
-        }
-    }
-
-    fn on_action(&mut self, action: &SessionAction) {
-        let (id, worker, activity) = match action {
-            SessionAction::StartSearch {
-                game_id, search_id, ..
-            } => (game_id, Some(*search_id), Activity::SearchQueued),
-            SessionAction::StartPonder {
-                game_id, search_id, ..
-            } => (game_id, Some(*search_id), Activity::PonderQueued),
-            SessionAction::StopPonder { game_id } => (game_id, None, Activity::PonderStopping),
-            _ => return,
-        };
-        if let Some(game) = self.games.get_mut(id)
-            && game.result.is_none()
-        {
-            game.activity = activity;
-            if worker.is_some() {
-                game.worker = worker;
-            }
-        }
-    }
-
-    fn visible_game_ids(&self) -> Vec<&String> {
-        self.games
-            .iter()
-            .filter_map(|(id, game)| {
-                let child_has_board = game.state.is_none()
-                    && self.games.iter().any(|(other_id, other)| {
-                        other_id != id && other.state.is_some() && session::is_game_of(id, other_id)
-                    });
-                (!child_has_board).then_some(id)
-            })
-            .collect()
+    fn game_ids(&self) -> Vec<&String> {
+        self.games.keys().collect()
     }
 
     /// Listed games that have a board, in list order.
     fn board_ids(&self) -> Vec<&String> {
-        self.visible_game_ids()
-            .into_iter()
-            .filter(|id| self.games[*id].state.is_some())
+        self.games
+            .iter()
+            .filter_map(|(id, game)| game.state.is_some().then_some(id))
             .collect()
     }
 
     fn selected_index(&self) -> usize {
-        let games = self.visible_game_ids();
+        let games = self.game_ids();
         self.selected
             .as_ref()
             .and_then(|id| games.iter().position(|key| *key == id))
             .unwrap_or(0)
     }
 
-    fn selected_game(&self) -> Option<(&String, &DisplayGame)> {
-        let games = self.visible_game_ids();
+    fn selected_game(&self) -> Option<(&String, &GameView)> {
+        let games = self.game_ids();
         let id = games.get(self.selected_index())?;
         self.games.get_key_value(*id)
     }
 
     fn select_relative(&mut self, offset: usize) {
         let next = {
-            let games = self.visible_game_ids();
+            let games = self.game_ids();
             if games.is_empty() {
                 None
             } else {
@@ -453,64 +287,6 @@ impl Model {
         };
         if next.is_some() {
             self.selected = next;
-        }
-    }
-
-    fn on_os_event(&mut self, event: &OsEvent) {
-        match event {
-            // Other players' games are announced to every `notify + /os` client.
-            OsEvent::MatchCreated { opponent: None, .. } | OsEvent::SpectatedMatchState { .. } => {
-                return;
-            }
-            OsEvent::MatchCreated {
-                id,
-                opponent,
-                variant,
-            } => {
-                self.games.retain(|game_id, game| {
-                    game.result.is_none() && !session::is_game_of(id, game_id)
-                });
-                self.games.insert(
-                    id.clone(),
-                    DisplayGame {
-                        opponent: opponent.clone(),
-                        variant: variant.clone(),
-                        activity: Activity::WaitingForBoard,
-                        ..DisplayGame::default()
-                    },
-                );
-            }
-            OsEvent::MatchStateUnavailable { id, variant, .. } => {
-                let game = self.games.entry(id.clone()).or_default();
-                game.state = None;
-                game.clocks.clear();
-                game.clocks_at = None;
-                if variant.is_some() {
-                    game.variant.clone_from(variant);
-                }
-                game.activity = Activity::BoardUnavailable;
-            }
-            OsEvent::MatchEnd { id, result, score } => {
-                // A synchro match ends after its games; keep their own results.
-                for (game_id, game) in &mut self.games {
-                    if session::is_game_of(id, game_id) && game.result.is_none() {
-                        game.result = Some(result.clone());
-                        game.score = *score;
-                    }
-                }
-            }
-            _ => {}
-        }
-        let (selection_valid, replacement) = {
-            let visible = self.visible_game_ids();
-            let selection_valid = self
-                .selected
-                .as_ref()
-                .is_some_and(|id| visible.contains(&id));
-            (selection_valid, visible.first().map(|id| (*id).clone()))
-        };
-        if !selection_valid {
-            self.selected = replacement;
         }
     }
 
@@ -572,7 +348,7 @@ impl Model {
                 self.horizontal = self.horizontal.saturating_add(8)
             }
             MouseEventKind::ScrollUp if self.games_area.get().contains(at) => {
-                let count = self.visible_game_ids().len();
+                let count = self.game_ids().len();
                 if count > 0 {
                     self.select_relative(count - 1);
                 }
@@ -593,7 +369,7 @@ impl Model {
                 let inner = Block::bordered().inner(self.games_area.get());
                 if inner.contains(at) {
                     let index = self.games_first.get() + usize::from(mouse.row - inner.y);
-                    if let Some(id) = self.visible_game_ids().get(index) {
+                    if let Some(id) = self.game_ids().get(index) {
                         self.selected = Some((*id).clone());
                     }
                 }
@@ -670,7 +446,7 @@ impl Model {
             KeyCode::Right if alt => self.horizontal = self.horizontal.saturating_add(8),
             KeyCode::Tab | KeyCode::F(6) => self.select_relative(1),
             KeyCode::BackTab => {
-                let game_count = self.visible_game_ids().len();
+                let game_count = self.game_ids().len();
                 if game_count > 0 {
                     self.select_relative(game_count - 1);
                 }
@@ -888,11 +664,11 @@ impl Model {
 
     /// Rows for up to four games plus the border.
     fn game_list_height(&self) -> u16 {
-        self.visible_game_ids().len().clamp(1, 4) as u16 + 2
+        self.game_ids().len().clamp(1, 4) as u16 + 2
     }
 
     fn draw_game_list(&self, frame: &mut Frame<'_>, area: Rect) {
-        let game_ids = self.visible_game_ids();
+        let game_ids = self.game_ids();
         let selected_index = self.selected_index();
         let block = panel(
             format!(
@@ -1006,7 +782,7 @@ impl Model {
         frame: &mut Frame<'_>,
         area: Rect,
         id: &str,
-        game: &DisplayGame,
+        game: &GameView,
         state: &MatchState,
         selected: bool,
     ) {
@@ -1036,22 +812,21 @@ impl Model {
             fact_line("Discs", format!("● {black}  ○ {white}"), Color::White),
         ];
         lines.extend(clock_lines(state, game));
-        // `<id> <move> <score> | <search stats> | ...`
-        let report = game
-            .last_search
-            .as_deref()
-            .map(|report| report.strip_prefix(id).unwrap_or(report).trim_start());
-        let mut parts = report.map_or(vec!["None yet"], |report| report.split(" | ").collect());
-        let eval = parts.remove(0);
         let eval_color = match game.eval {
             Some(eval) if eval > 0.0 => Color::Green,
             Some(eval) if eval < 0.0 => Color::Red,
             _ => Color::White,
         };
-        lines.push(fact_line("Eval", eval, eval_color));
-        // depth · nodes, then time · speed
-        for (label, chunk) in ["Search", "Time"].into_iter().zip(parts.chunks(2)) {
-            lines.push(fact_line(label, chunk.join(" · "), Color::DarkGray));
+        match &game.last_search {
+            Some(report) => {
+                let [depth, nodes, time, speed] = report.stats();
+                lines.extend([
+                    fact_line("Eval", report.best(), eval_color),
+                    fact_line("Search", format!("{depth} · {nodes}"), Color::DarkGray),
+                    fact_line("Time", format!("{time} · {speed}"), Color::DarkGray),
+                ]);
+            }
+            None => lines.push(fact_line("Eval", "None yet", eval_color)),
         }
         frame.render_widget(block, area);
         frame.render_widget(Paragraph::new(lines), inner);
@@ -1062,7 +837,7 @@ impl Model {
         frame: &mut Frame<'_>,
         area: Rect,
         id: &str,
-        game: &DisplayGame,
+        game: &GameView,
         state: &MatchState,
     ) {
         let (black, white) = absolute_counts(state);
@@ -1098,7 +873,7 @@ impl Model {
         );
     }
 
-    fn draw_waiting_game(&self, frame: &mut Frame<'_>, area: Rect, id: &str, game: &DisplayGame) {
+    fn draw_waiting_game(&self, frame: &mut Frame<'_>, area: Rect, id: &str, game: &GameView) {
         let lines = vec![
             Line::from("No board snapshot is available yet."),
             Line::from(format!(
@@ -1165,11 +940,13 @@ impl Model {
 }
 
 /// The result, or what the engine is doing; empty while idle.
-fn game_status(game: &DisplayGame) -> String {
+fn game_status(game: &GameView) -> String {
     if game.result.is_some() {
         result_text(game)
     } else {
-        game.activity.label().unwrap_or_default().to_string()
+        activity_label(game.activity)
+            .unwrap_or_default()
+            .to_string()
     }
 }
 
@@ -1230,7 +1007,7 @@ fn absolute_counts(state: &MatchState) -> (u32, u32) {
     }
 }
 
-fn opponent_name<'a>(state: &'a MatchState, game: &'a DisplayGame) -> &'a str {
+fn opponent_name<'a>(state: &'a MatchState, game: &'a GameView) -> &'a str {
     state
         .opponent
         .as_deref()
@@ -1238,7 +1015,7 @@ fn opponent_name<'a>(state: &'a MatchState, game: &'a DisplayGame) -> &'a str {
         .unwrap_or("Unknown")
 }
 
-fn variant_name<'a>(state: &'a MatchState, game: &'a DisplayGame) -> &'a str {
+fn variant_name<'a>(state: &'a MatchState, game: &'a GameView) -> &'a str {
     state
         .variant
         .as_deref()
@@ -1249,11 +1026,11 @@ fn variant_name<'a>(state: &'a MatchState, game: &'a DisplayGame) -> &'a str {
 /// Both players' clocks as of the last server snapshot, then the time since it.
 /// Clocks are not counted down locally: a synchro game's clock stays paused
 /// until both of its pair's moves arrive (`Match::play`).
-fn clock_lines(state: &MatchState, game: &DisplayGame) -> Vec<Line<'static>> {
-    if game.clocks.is_empty() {
+fn clock_lines(state: &MatchState, game: &GameView) -> Vec<Line<'static>> {
+    if state.clocks.is_empty() {
         return vec![fact_line("Clock", "Unavailable", Color::White)];
     }
-    let mut lines: Vec<_> = game
+    let mut lines: Vec<_> = state
         .clocks
         .iter()
         .map(|clock| {
@@ -1276,7 +1053,7 @@ fn clock_lines(state: &MatchState, game: &DisplayGame) -> Vec<Line<'static>> {
         })
         .collect();
     if game.result.is_none()
-        && let Some(at) = game.clocks_at
+        && let Some(at) = game.state_at
     {
         let elapsed = format_clock(at.elapsed().as_secs() * 1_000);
         lines.push(fact_line("Elapsed", elapsed, Color::Yellow));
@@ -1284,7 +1061,7 @@ fn clock_lines(state: &MatchState, game: &DisplayGame) -> Vec<Line<'static>> {
     lines
 }
 
-fn result_text(game: &DisplayGame) -> String {
+fn result_text(game: &GameView) -> String {
     match (game.score, &game.result) {
         (Some(score), _) if score > 0.0 => format!("Win {score:+}"),
         (Some(score), _) if score < 0.0 => format!("Loss {score:+}"),
@@ -1294,7 +1071,7 @@ fn result_text(game: &DisplayGame) -> String {
     }
 }
 
-fn result_color(game: &DisplayGame) -> Color {
+fn result_color(game: &GameView) -> Color {
     match game.score {
         Some(score) if score > 0.0 => Color::Green,
         Some(score) if score < 0.0 => Color::Red,
@@ -1489,12 +1266,15 @@ fn clip(text: &str, offset: usize, maximum: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use reversi_core::board::Board;
 
-    use crate::ggs::protocol::PlayerClock;
+    use crate::ggs::protocol::{DisplayClock, PlayerClock};
+    use crate::ggs::report::SearchReport;
 
     fn key(model: &mut Model, code: KeyCode, modifiers: KeyModifiers) -> Input {
         model.input(event::Event::Key(KeyEvent::new(code, modifiers)))
@@ -1516,8 +1296,8 @@ mod tests {
             .join("\n")
     }
 
-    fn game(id: &str) -> DisplayGame {
-        DisplayGame {
+    fn game(id: &str) -> GameView {
+        GameView {
             state: Some(MatchState {
                 id: id.into(),
                 variant: Some("8b".into()),
@@ -1529,9 +1309,27 @@ mod tests {
                     main_ms: 299_125,
                     increment_ms: 5_000,
                 }),
+                clocks: Vec::new(),
+                last_move: None,
             }),
-            ..DisplayGame::default()
+            ..GameView::default()
         }
+    }
+
+    /// A synchro match as listed before either of its games has a board.
+    fn placeholder() -> GameView {
+        GameView {
+            opponent: Some("alice".into()),
+            variant: Some("s8".into()),
+            ..GameView::default()
+        }
+    }
+
+    fn games<const N: usize>(entries: [(&str, GameView); N]) -> Games {
+        entries
+            .into_iter()
+            .map(|(id, game)| (id.to_string(), game))
+            .collect()
     }
 
     #[test]
@@ -1737,102 +1535,19 @@ mod tests {
     }
 
     #[test]
-    fn synchro_selection_end_and_recycled_ids_do_not_reuse_old_boards() {
-        let mut model = Model::new("test".into());
-        for id in [".5", ".5.0", ".5.1", ".50"] {
-            model.games.insert(id.into(), game(id));
-        }
-        key(&mut model, KeyCode::F(6), KeyModifiers::NONE);
-        assert!(screen(&mut model, 110, 30).contains("Game .5.0"));
-        model.on_os_event(&OsEvent::MatchEnd {
-            id: ".5.0".into(),
-            result: "+4.00".into(),
-            score: None,
-        });
-        let ended = screen(&mut model, 110, 30);
-        assert!(ended.contains("Status   +4.00"));
-        assert!(model.games[".5.1"].result.is_none());
-        model.on_os_event(&OsEvent::MatchEnd {
-            id: ".5".into(),
-            result: "+2.00".into(),
-            score: None,
-        });
-        assert_eq!(model.games[".5.1"].result.as_deref(), Some("+2.00"));
-        assert!(model.games[".50"].result.is_none());
-        model.on_os_event(&OsEvent::MatchCreated {
-            id: ".5".into(),
-            opponent: Some("bob".into()),
-            variant: Some("s8".into()),
-        });
-        assert!(!model.games.contains_key(".5.0"));
-        assert!(!model.games.contains_key(".5.1"));
-        assert!(model.games[".5"].state.is_none());
-        assert!(model.games[".5"].result.is_none());
-    }
-
-    #[test]
-    fn other_players_games_stay_out_of_the_list() {
-        let mut model = Model::new("test".into());
-        model.games.insert(".5".into(), game(".5"));
-        model.on_os_event(&OsEvent::MatchCreated {
-            id: ".6".into(),
-            opponent: None,
-            variant: Some("8b".into()),
-        });
-        model.on_os_event(&OsEvent::SpectatedMatchState {
-            id: ".7".into(),
-            variant: Some("8b".into()),
-        });
-        assert_eq!(model.games.keys().collect::<Vec<_>>(), [".5"]);
-
-        // A watched match reusing a finished game's id leaves that result alone.
-        model.games.get_mut(".5").unwrap().result = Some("+4.00".into());
-        let mut watched = game(".5").state.unwrap();
-        watched.my_color = None;
-        watched.opponent = None;
-        model.snapshot(DisplayState {
-            state: watched,
-            clocks: Vec::new(),
-            moves: Vec::new(),
-        });
-        let kept = &model.games[".5"];
-        assert_eq!(kept.result.as_deref(), Some("+4.00"));
-        assert_eq!(kept.state.as_ref().unwrap().my_color, Some(Disc::Black));
-    }
-
-    #[test]
     fn earlier_game_arrival_keeps_the_selected_board() {
         let mut model = Model::new("test".into());
-        for id in [".5", ".6"] {
-            model.games.insert(id.into(), game(id));
-        }
+        model.sync(games([(".5", game(".5")), (".6", game(".6"))]));
         key(&mut model, KeyCode::F(6), KeyModifiers::NONE);
         assert!(screen(&mut model, 110, 30).contains("Game .6"));
-        model.on_os_event(&OsEvent::MatchCreated {
-            id: ".1".into(),
-            opponent: Some("carol".into()),
-            variant: Some("8b".into()),
-        });
+        model.sync(games([
+            (".1", placeholder()),
+            (".5", game(".5")),
+            (".6", game(".6")),
+        ]));
         assert!(screen(&mut model, 110, 30).contains("Game .6"));
         key(&mut model, KeyCode::BackTab, KeyModifiers::SHIFT);
         assert!(screen(&mut model, 110, 30).contains("Game .5"));
-    }
-
-    #[test]
-    fn completed_game_stays_ended_when_ponder_stop_arrives() {
-        let mut model = Model::new("test".into());
-        model.games.insert(".5".into(), game(".5"));
-        model.on_os_event(&OsEvent::MatchEnd {
-            id: ".5".into(),
-            result: "+4.00".into(),
-            score: None,
-        });
-        model.on_action(&SessionAction::StopPonder {
-            game_id: ".5".into(),
-        });
-        let view = screen(&mut model, 110, 30);
-        assert!(view.contains("Status   +4.00"));
-        assert!(!view.contains("Ponder stopping"));
     }
 
     #[test]
@@ -1859,36 +1574,33 @@ mod tests {
     #[test]
     fn eighty_column_game_shows_board_and_each_key_fact() {
         let mut model = Model::new("GGS alice@example:5000".into());
-        model.games.insert(".5".into(), game(".5"));
-        model.selected = Some(".5".into());
-        model.snapshot(DisplayState {
-            state: game(".5").state.unwrap(),
-            clocks: Vec::new(),
-            moves: vec![(1, "f5".into()), (2, "d6".into()), (3, "c3".into())],
-        });
-        model.snapshot(DisplayState {
-            state: game(".5").state.unwrap(),
-            clocks: vec![
-                DisplayClock {
-                    name: "alice".into(),
-                    color: Disc::Black,
-                    main_ms: Some(299_000),
-                },
-                DisplayClock {
-                    name: "bob".into(),
-                    color: Disc::White,
-                    main_ms: Some(250_000),
-                },
-            ],
-            moves: vec![(4, "d3".into())],
-        });
-        model.games.get_mut(".5").unwrap().clocks_at =
-            Instant::now().checked_sub(Duration::from_millis(1_001));
-        let game = model.games.get_mut(".5").unwrap();
+        let mut game = game(".5");
+        game.state.as_mut().unwrap().clocks = vec![
+            DisplayClock {
+                name: "alice".into(),
+                color: Disc::Black,
+                main_ms: Some(299_000),
+            },
+            DisplayClock {
+                name: "bob".into(),
+                color: Disc::White,
+                main_ms: Some(250_000),
+            },
+        ];
+        game.state_at = Instant::now().checked_sub(Duration::from_millis(1_001));
+        game.last_move = Some("d3".into());
         game.activity = Activity::Searching;
         game.eval = Some(2.0);
-        game.last_search =
-            Some(".5 D3 +2 | depth 18@87% | 123.4M nodes | 2.34s (wait 0.12s) | 52.7 Mnps".into());
+        game.last_search = Some(SearchReport {
+            sq: Square::D3,
+            score: 2.0,
+            depth: 18,
+            probability: 87,
+            nodes: 123_400_000,
+            elapsed: Duration::from_millis(2_340),
+            waited: Duration::from_millis(120),
+        });
+        model.sync(games([(".5", game)]));
         model.lines.extend([
             "> tell /os who".into(),
             "[ggs] engine search started".into(),
@@ -1907,7 +1619,7 @@ mod tests {
             "● alice  04:59 +5s/move  ◀",
             "○ bob    04:10",
             "Elapsed  00:01",
-            "Eval     D3 +2",
+            "Eval     d3 +2",
             "Search   depth 18@87% · 123.4M nodes",
             "Time     2.34s (wait 0.12s) · 52.7 Mnps",
             "tell bob good game",
@@ -1930,24 +1642,15 @@ mod tests {
     #[test]
     fn synchro_games_show_both_results_from_our_side_without_switching() {
         let mut model = Model::new("test".into());
-        for id in [".5.0", ".5.1"] {
-            model.games.insert(id.into(), game(id));
-        }
-        model.on_os_event(&OsEvent::MatchEnd {
-            id: ".5.0".into(),
-            result: "( bob vs. alice ) +4.00".into(),
-            score: Some(-4.0),
-        });
-        model.on_os_event(&OsEvent::MatchEnd {
-            id: ".5.1".into(),
-            result: "( bob vs. alice ) -10.00".into(),
-            score: Some(10.0),
-        });
-        model.on_os_event(&OsEvent::MatchEnd {
-            id: ".5".into(),
-            result: "-3.00".into(),
-            score: Some(3.0),
-        });
+        let ended = |result: &str, score| GameView {
+            result: Some(result.into()),
+            score: Some(score),
+            ..game(".5")
+        };
+        model.sync(games([
+            (".5.0", ended("( bob vs. alice ) +4.00", -4.0)),
+            (".5.1", ended("( bob vs. alice ) -10.00", 10.0)),
+        ]));
         model.lines.push_back("bob: good game".into());
         let view = screen(&mut model, 80, 24);
         assert!(view.contains("bob: good game"), "{view}");
@@ -1964,94 +1667,25 @@ mod tests {
             view.contains(".5.1   vs bob       ●  2-2  ○  you ●  Win +10"),
             "{view}"
         );
-
-        model.on_os_event(&OsEvent::MatchCreated {
-            id: ".6".into(),
-            opponent: Some("carol".into()),
-            variant: Some("8".into()),
-        });
-        assert_eq!(model.games.keys().collect::<Vec<_>>(), [".6"]);
     }
 
     #[test]
-    fn synchro_parent_yields_focus_to_children_without_stealing_it_later() {
+    fn synchro_match_yields_focus_to_its_games_without_stealing_it_later() {
         let mut model = Model::new("test".into());
-        model.on_os_event(&OsEvent::MatchCreated {
-            id: ".20".into(),
-            opponent: Some("alice".into()),
-            variant: Some("s8".into()),
-        });
+        model.sync(games([(".20", placeholder())]));
         assert_eq!(model.selected.as_deref(), Some(".20"));
 
-        let first = game(".20.0").state.unwrap();
-        model.snapshot(DisplayState {
-            state: first,
-            clocks: Vec::new(),
-            moves: Vec::new(),
-        });
-        assert_eq!(model.selected.as_deref(), Some(".20.0"));
+        model.sync(games([(".20.1", game(".20.1"))]));
+        assert_eq!(model.selected.as_deref(), Some(".20.1"));
 
-        let second = game(".20.1").state.unwrap();
-        model.snapshot(DisplayState {
-            state: second,
-            clocks: Vec::new(),
-            moves: Vec::new(),
-        });
-        assert_eq!(model.selected.as_deref(), Some(".20.0"));
+        model.sync(games([(".20.0", game(".20.0")), (".20.1", game(".20.1"))]));
+        assert_eq!(model.selected.as_deref(), Some(".20.1"));
         let view = screen(&mut model, 120, 30);
-        assert!(view.contains("▶ .20.0  vs bob       ●  2-2  ○  you ●"));
-        assert!(view.contains("  .20.1  vs bob       ●  2-2  ○  you ●"));
-        assert!(!view.contains(".20 vs alice"));
+        assert!(view.contains("  .20.0  vs bob       ●  2-2  ○  you ●"));
+        assert!(view.contains("▶ .20.1  vs bob       ●  2-2  ○  you ●"));
 
         key(&mut model, KeyCode::F(6), KeyModifiers::NONE);
-        assert_eq!(model.selected.as_deref(), Some(".20.1"));
-    }
-
-    #[test]
-    fn worker_events_and_duplicate_snapshots_preserve_newer_activity() {
-        let mut model = Model::new("test".into());
-        model.games.insert(".5".into(), game(".5"));
-        model.on_action(&SessionAction::StartPonder {
-            game_id: ".5".into(),
-            search_id: 0,
-            board: Board::new(),
-        });
-        model.worker_started(".5", 0, true);
-        model.snapshot(DisplayState {
-            state: game(".5").state.unwrap(),
-            clocks: Vec::new(),
-            moves: Vec::new(),
-        });
-        assert_eq!(model.games[".5"].activity, Activity::Pondering);
-
-        model.on_action(&SessionAction::StopPonder {
-            game_id: ".5".into(),
-        });
-        model.on_action(&SessionAction::StartSearch {
-            game_id: ".5".into(),
-            search_id: 1,
-            board: Board::new(),
-            color: Disc::Black,
-            search_limit: session::SearchLimit::Level { level: 1 },
-        });
-        model.worker_finished(".5", 0);
-        assert_eq!(model.games[".5"].activity, Activity::SearchQueued);
-
-        model.worker_started(".5", 1, false);
-        model.snapshot(DisplayState {
-            state: game(".5").state.unwrap(),
-            clocks: Vec::new(),
-            moves: Vec::new(),
-        });
-        assert_eq!(model.games[".5"].activity, Activity::Searching);
-
-        model.on_action(&SessionAction::StartPonder {
-            game_id: ".5".into(),
-            search_id: 2,
-            board: Board::new(),
-        });
-        model.worker_finished(".5", 1);
-        assert_eq!(model.games[".5"].activity, Activity::PonderQueued);
+        assert_eq!(model.selected.as_deref(), Some(".20.0"));
     }
 
     #[test]
@@ -2065,44 +1699,6 @@ mod tests {
         assert!(view.contains("▶ .8     vs bob"));
         assert!(view.contains("Game .8"));
         assert!(view.contains("Games 4/4"));
-    }
-
-    #[test]
-    fn worker_that_cannot_start_does_not_remain_queued() {
-        let mut model = Model::new("test".into());
-        model.games.insert(".5".into(), game(".5"));
-        for activity in [Activity::SearchQueued, Activity::PonderQueued] {
-            let game = model.games.get_mut(".5").unwrap();
-            game.activity = activity;
-            game.worker = Some(0);
-            model.worker_finished(".5", 0);
-            assert_eq!(model.games[".5"].activity, Activity::WaitingForServer);
-            assert!(game_status(&model.games[".5"]).is_empty());
-            let view = screen(&mut model, 80, 25);
-            assert!(view.contains("Idle"));
-            assert!(!view.contains("queued"));
-        }
-    }
-
-    #[test]
-    fn late_snapshot_and_worker_events_do_not_reopen_an_ended_game() {
-        let mut model = Model::new("test".into());
-        model.games.insert(".5".into(), game(".5"));
-        model.on_os_event(&OsEvent::MatchEnd {
-            id: ".5".into(),
-            result: "+4.00".into(),
-            score: None,
-        });
-        model.snapshot(DisplayState {
-            state: game(".5").state.unwrap(),
-            clocks: Vec::new(),
-            moves: Vec::new(),
-        });
-        model.games.get_mut(".5").unwrap().worker = Some(0);
-        model.worker_started(".5", 0, false);
-        model.worker_finished(".5", 0);
-        assert_eq!(model.games[".5"].result.as_deref(), Some("+4.00"));
-        assert_eq!(game_status(&model.games[".5"]), "+4.00");
     }
 
     #[test]

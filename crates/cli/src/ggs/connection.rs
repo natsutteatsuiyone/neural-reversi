@@ -13,8 +13,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use reversi_core::square::Square;
-use reversi_core::types::Scoref;
+use super::session::FoundMove;
 
 /// Events streamed to the main event loop in `run_ggs`.
 #[derive(Debug)]
@@ -29,30 +28,18 @@ pub enum Event {
     Tick,
     /// A diagnostic emitted by a worker.
     Log(String),
-    /// A worker acquired the engine and started searching the position.
-    SearchStarted {
-        game_id: String,
-        search_id: u64,
-        ponder: bool,
-    },
-    /// Completed search statistics, retained with the displayed game.
-    SearchReport {
-        game_id: String,
-        search_id: u64,
-        message: String,
-    },
+    /// A search or ponder worker acquired the engine and started searching.
+    SearchStarted { game_id: String, search_id: u64 },
     /// Reading interactive input failed.
     InputFailed(String),
-    /// A search for `game_id` ended: its best move and disc-difference score
-    /// (`None` means no legal move — a pass), or why it produced no move.
+    /// A search for `game_id` ended: the move it chose (`None` means no legal
+    /// move — a pass), or why it produced no move.
     SearchFinished {
         game_id: String,
         search_id: u64,
         /// The instant the turn was queued, including time waiting for the engine.
         queued_at: Instant,
-        result: Result<Option<(Square, Scoref)>, String>,
-        /// Report told to the spectator channel once the move is played.
-        broadcast: Option<String>,
+        result: Result<Option<FoundMove>, String>,
     },
     /// A ponder worker exited (aborted, completed, or never started); its
     /// engine and thread pool are idle again.
