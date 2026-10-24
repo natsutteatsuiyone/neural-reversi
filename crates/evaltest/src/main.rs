@@ -12,7 +12,7 @@
 mod test_case;
 
 use clap::Parser;
-use colored::*;
+use colored::Colorize;
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     self,

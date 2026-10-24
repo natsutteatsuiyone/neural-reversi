@@ -2,7 +2,7 @@
 
 use std::io::{self, IsTerminal, Write};
 
-use colored::*;
+use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use reversi_core::disc::Disc;
 

@@ -1,6 +1,6 @@
 use crate::colors::ThemeColor;
 use crate::sprt::{Sprt, SprtConfig, SprtResult, SprtStatus};
-use colored::*;
+use colored::Colorize;
 use reversi_core::disc::Disc;
 use std::io::{self, IsTerminal};
 
