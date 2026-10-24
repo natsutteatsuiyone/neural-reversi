@@ -133,23 +133,20 @@ struct SearchStats {
     levels: std::collections::BTreeMap<i32, LevelStats>,
 }
 
-/// Mean and population standard deviation of a slice of error samples.
-/// Returns `(0.0, 0.0)` for an empty slice.
-fn mean_stddev(samples: &[Scoref]) -> (f64, f64) {
+/// Mean absolute error and root mean squared error of a slice of absolute
+/// error samples. Returns `(0.0, 0.0)` for an empty slice.
+fn mae_rmse(samples: &[Scoref]) -> (f64, f64) {
     if samples.is_empty() {
         return (0.0, 0.0);
     }
     let n = samples.len() as f64;
-    let mean = samples.iter().map(|&d| d as f64).sum::<f64>() / n;
-    let variance = samples
+    let mae = samples.iter().map(|&d| d as f64).sum::<f64>() / n;
+    let mse = samples
         .iter()
-        .map(|&d| {
-            let diff = d as f64 - mean;
-            diff * diff
-        })
+        .map(|&d| (d as f64) * (d as f64))
         .sum::<f64>()
         / n;
-    (mean, variance.sqrt())
+    (mae, mse.sqrt())
 }
 
 /// Round duration to 0.01ms precision for consistent display
@@ -247,9 +244,9 @@ impl SearchStats {
         }
     }
 
-    /// Calculate mean and standard deviation of score differences
+    /// Calculate MAE and RMSE of score differences
     fn calculate_statistics(&self) -> (f64, f64) {
-        mean_stddev(&self.score_differences)
+        mae_rmse(&self.score_differences)
     }
 
     /// Merge another SearchStats into this one
@@ -358,7 +355,7 @@ impl SearchStats {
             return;
         }
 
-        let (mean_diff, std_dev) = self.calculate_statistics();
+        let (mae, rmse) = self.calculate_statistics();
         let nps = if self.total_time.as_secs_f64() > 0.0 {
             (self.total_nodes as f64 / self.total_time.as_secs_f64()).round() as u64
         } else {
@@ -399,8 +396,8 @@ impl SearchStats {
                 "Score ±9",
                 format_ratio(self.acceptable_score_count, self.total_count),
             ),
-            ("MAE", format!("{mean_diff:.2}")),
-            ("Std Dev.", format!("{std_dev:.2}")),
+            ("MAE", format!("{mae:.2}")),
+            ("RMSE", format!("{rmse:.2}")),
         ];
 
         let max_label_len = stats
@@ -449,17 +446,16 @@ impl SearchStats {
 
         let mpv_count = self.mpv_score_differences.len();
         if multipv && mpv_count > 0 {
-            let (mpv_mean, mpv_std) = mean_stddev(&self.mpv_score_differences);
+            let (mpv_mae, _) = mae_rmse(&self.mpv_score_differences);
             let mpv_stats = [
                 ("Moves compared", mpv_count.to_formatted_string(&Locale::en)),
-                ("Move MAE", format!("{mpv_mean:.2}")),
+                ("Move MAE", format!("{mpv_mae:.2}")),
                 ("Move ±3", format_ratio(self.mpv_perfect_count, mpv_count)),
                 ("Move ±6", format_ratio(self.mpv_good_count, mpv_count)),
                 (
                     "Move ±9",
                     format_ratio(self.mpv_acceptable_count, mpv_count),
                 ),
-                ("Move Std Dev", format!("{mpv_std:.2}")),
             ];
             let max_label_len = mpv_stats
                 .iter()

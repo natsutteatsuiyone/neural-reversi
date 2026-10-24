@@ -155,7 +155,7 @@ After each file section, aggregate statistics are displayed:
 - **Top 2/3 move**: Percentage where one of the top moves was found
 - **Score accuracy**: Percentage of positions solved within various error margins
 - **MAE**: Mean Absolute Error of scores
-- **Std Dev**: Standard deviation of score errors
+- **RMSE**: Root mean squared error of scores
 
 ### Endgame Levels
 
