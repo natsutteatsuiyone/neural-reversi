@@ -163,12 +163,12 @@ fn replay(initial: Board, moves: &[GameAnalysisMove]) -> Result<Replay, String> 
             GameAnalysisMove::Play(square) => {
                 // Validate legality here: Board::make_move only debug-asserts, so an
                 // illegal move from malformed command input would silently corrupt
-                // the Board in release. try_make_move rejects it instead.
-                let next = current
-                    .try_make_move(square)
-                    .ok_or_else(|| format!("Illegal move '{square}' in move list"))?;
+                // the Board in release.
+                if !current.is_legal_move(square) {
+                    return Err(format!("Illegal move '{square}' in move list"));
+                }
                 steps.push(Step::Play { before: current });
-                current = next;
+                current = current.make_move(square);
             }
         }
     }
@@ -283,8 +283,11 @@ mod tests {
     #[test]
     fn replay_rejects_invalid_moves() {
         let full = Board::from_string(&"X".repeat(64), Disc::Black).unwrap();
+        // Black's own a1 brackets b1 against c1, though a1 is occupied.
+        let occupied = Board::from_string(&format!("XOX{}", "-".repeat(61)), Disc::Black).unwrap();
         for (board, move_input, expected) in [
             (Board::new(), play(Square::A1), "Illegal move"),
+            (occupied, play(Square::A1), "Illegal move"),
             (
                 Board::new(),
                 pass(),

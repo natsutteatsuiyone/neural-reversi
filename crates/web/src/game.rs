@@ -88,14 +88,13 @@ impl Game {
             Some(sq) => sq,
         };
 
-        if let Some(next_board) = self.board.try_make_move(square) {
-            self.board = next_board;
-            self.current_player = self.current_player.opposite();
-            self.handle_forced_passes();
-            true
-        } else {
-            false
+        if !self.board.is_legal_move(square) {
+            return false;
         }
+        self.board = self.board.make_move(square);
+        self.current_player = self.current_player.opposite();
+        self.handle_forced_passes();
+        true
     }
 
     pub fn pass(&mut self) -> bool {
@@ -172,14 +171,13 @@ impl Game {
             Some(sq) => sq,
         };
 
-        if let Some(next_board) = self.board.try_make_move(square) {
-            self.board = next_board;
-            self.current_player = self.current_player.opposite();
-            self.handle_forced_passes();
-            true
-        } else {
-            false
+        if !self.board.is_legal_move(square) {
+            return false;
         }
+        self.board = self.board.make_move(square);
+        self.current_player = self.current_player.opposite();
+        self.handle_forced_passes();
+        true
     }
 
     /// Evaluates all legal moves for the human player and returns
@@ -339,6 +337,20 @@ mod tests {
         assert!(!game.human_move(64));
         assert!(!game.human_move(255));
         assert_initial_state(&game);
+
+        // Black's own a1 brackets b1 against c1, but a1 is occupied.
+        let occupied = Board::from_string(
+            &format!(
+                "XOX-----{}---OX------XO---{}",
+                "-".repeat(16),
+                "-".repeat(24)
+            ),
+            Disc::Black,
+        )
+        .unwrap();
+        game.board = occupied;
+        assert!(!game.human_move(0));
+        assert_eq!(game.board, occupied);
     }
 
     #[test]

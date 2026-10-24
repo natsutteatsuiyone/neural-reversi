@@ -341,6 +341,9 @@ fn format_pv_with_passes(
                 break;
             }
         }
+        if !current.is_legal_move(sq) {
+            break;
+        }
         push_token(&mut result, &format_square(sq, side));
         current = current.make_move(sq);
         side = side.opposite();

@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn stop_before_the_worker_reaches_the_job_still_ends_its_search() {
         let engine = Engine::new(1);
-        let board = Board::new().try_make_move(Square::D3).unwrap();
+        let board = Board::new().make_move(Square::D3);
         // The worker is still initializing, so this stop lands before the
         // search begins; a lost stop would leave a level-max search running.
         let id = engine.submit(Request::Move {

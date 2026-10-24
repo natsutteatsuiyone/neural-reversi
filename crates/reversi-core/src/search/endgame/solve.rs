@@ -304,6 +304,29 @@ fn solve4_eager_pass(
     best_score
 }
 
+/// Plays `sq`, an empty square, returning [`None`] if it flips no disc.
+#[cfg(not(any(
+    all(
+        target_arch = "x86_64",
+        target_feature = "avx512cd",
+        target_feature = "avx512vl"
+    ),
+    all(target_arch = "x86_64", target_feature = "avx2"),
+    all(target_arch = "aarch64", target_feature = "neon"),
+    all(target_arch = "wasm32", target_feature = "simd128")
+)))]
+#[inline(always)]
+fn try_make_move(board: &Board, sq: Square) -> Option<Board> {
+    if !board.opponent().has_adjacent_bit(sq) {
+        return None;
+    }
+    let flipped = flip::flip(sq, board.player(), board.opponent());
+    if flipped.is_empty() {
+        return None;
+    }
+    Some(board.make_move_with_flipped(flipped, sq))
+}
+
 /// Fallback `solve4` dispatch target: the original
 /// `try_make_move`-guarded, short-circuiting path, kept so the scalar
 /// fallback is not slowed by eager unguarded flips.
@@ -329,14 +352,14 @@ fn solve4_fallback(
     let beta = alpha + 1;
     let mut best_score = -SCORE_INF;
 
-    if let Some(next) = board.try_make_move(sq1) {
+    if let Some(next) = try_make_move(board, sq1) {
         best_score = -solve3(ctx, &next, -beta, sq2, sq3, sq4);
         if best_score >= beta {
             return best_score;
         }
     }
 
-    if let Some(next) = board.try_make_move(sq2) {
+    if let Some(next) = try_make_move(board, sq2) {
         let score = -solve3(ctx, &next, -beta, sq1, sq3, sq4);
         if score >= beta {
             return score;
@@ -344,7 +367,7 @@ fn solve4_fallback(
         best_score = score.max(best_score);
     }
 
-    if let Some(next) = board.try_make_move(sq3) {
+    if let Some(next) = try_make_move(board, sq3) {
         let score = -solve3(ctx, &next, -beta, sq1, sq2, sq4);
         if score >= beta {
             return score;
@@ -352,7 +375,7 @@ fn solve4_fallback(
         best_score = score.max(best_score);
     }
 
-    if let Some(next) = board.try_make_move(sq4) {
+    if let Some(next) = try_make_move(board, sq4) {
         let score = -solve3(ctx, &next, -beta, sq1, sq2, sq3);
         return score.max(best_score);
     }
@@ -361,14 +384,14 @@ fn solve4_fallback(
         let pass = board.switch_players();
         best_score = SCORE_INF;
 
-        if let Some(next) = pass.try_make_move(sq1) {
+        if let Some(next) = try_make_move(&pass, sq1) {
             best_score = solve3(ctx, &next, alpha, sq2, sq3, sq4);
             if best_score <= alpha {
                 return best_score;
             }
         }
 
-        if let Some(next) = pass.try_make_move(sq2) {
+        if let Some(next) = try_make_move(&pass, sq2) {
             let score = solve3(ctx, &next, alpha, sq1, sq3, sq4);
             if score <= alpha {
                 return score;
@@ -376,7 +399,7 @@ fn solve4_fallback(
             best_score = score.min(best_score);
         }
 
-        if let Some(next) = pass.try_make_move(sq3) {
+        if let Some(next) = try_make_move(&pass, sq3) {
             let score = solve3(ctx, &next, alpha, sq1, sq2, sq4);
             if score <= alpha {
                 return score;
@@ -384,7 +407,7 @@ fn solve4_fallback(
             best_score = score.min(best_score);
         }
 
-        if let Some(next) = pass.try_make_move(sq4) {
+        if let Some(next) = try_make_move(&pass, sq4) {
             let score = solve3(ctx, &next, alpha, sq1, sq2, sq3);
             return score.min(best_score);
         }
@@ -560,14 +583,14 @@ fn solve3_fallback(
     let mut best_score = -SCORE_INF;
 
     // player moves
-    if let Some(next) = board.try_make_move(sq1) {
+    if let Some(next) = try_make_move(board, sq1) {
         best_score = -solve2(ctx, &next, -beta, sq2, sq3);
         if best_score >= beta {
             return best_score;
         }
     }
 
-    if let Some(next) = board.try_make_move(sq2) {
+    if let Some(next) = try_make_move(board, sq2) {
         let score = -solve2(ctx, &next, -beta, sq1, sq3);
         if score >= beta {
             return score;
@@ -575,7 +598,7 @@ fn solve3_fallback(
         best_score = score.max(best_score);
     }
 
-    if let Some(next) = board.try_make_move(sq3) {
+    if let Some(next) = try_make_move(board, sq3) {
         let score = -solve2(ctx, &next, -beta, sq1, sq2);
         return score.max(best_score);
     }
@@ -589,14 +612,14 @@ fn solve3_fallback(
     best_score = SCORE_INF;
     let pass = board.switch_players();
 
-    if let Some(next) = pass.try_make_move(sq1) {
+    if let Some(next) = try_make_move(&pass, sq1) {
         best_score = solve2(ctx, &next, alpha, sq2, sq3);
         if best_score <= alpha {
             return best_score;
         }
     }
 
-    if let Some(next) = pass.try_make_move(sq2) {
+    if let Some(next) = try_make_move(&pass, sq2) {
         let score = solve2(ctx, &next, alpha, sq1, sq3);
         if score <= alpha {
             return score;
@@ -604,7 +627,7 @@ fn solve3_fallback(
         best_score = score.min(best_score);
     }
 
-    if let Some(next) = pass.try_make_move(sq3) {
+    if let Some(next) = try_make_move(&pass, sq3) {
         let score = solve2(ctx, &next, alpha, sq1, sq2);
         return score.min(best_score);
     }

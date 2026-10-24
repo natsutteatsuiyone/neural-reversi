@@ -247,29 +247,13 @@ impl Board {
         }
     }
 
-    /// Attempts to make a move at `sq`, returning [`None`] if the move is invalid.
-    #[inline(always)]
-    pub fn try_make_move(&self, sq: Square) -> Option<Board> {
-        if !self.opponent.has_adjacent_bit(sq) {
-            return None;
-        }
-
-        let flipped = flip::flip(sq, self.player, self.opponent);
-        if flipped.is_empty() {
-            return None;
-        }
-
-        Some(self.place(flipped, sq))
-    }
-
     /// Makes a move at `sq` for the current player.
     ///
     /// # Panics
     ///
     /// In debug builds only, panics if `sq` is not a valid move.
     /// In release builds, invalid moves produce an incorrect board state without panicking.
-    /// Use [`is_legal_move`](Self::is_legal_move) or [`try_make_move`](Self::try_make_move)
-    /// if validity is uncertain.
+    /// Use [`is_legal_move`](Self::is_legal_move) if validity is uncertain.
     #[inline(always)]
     pub fn make_move(&self, sq: Square) -> Board {
         let flipped = flip::flip(sq, self.player, self.opponent);
@@ -570,26 +554,6 @@ mod tests {
         // Player must pass but opponent can move - not over
         let pass_board = Board::from_bitboards(0x000000000000ff00, 0x00000000000000ff);
         assert!(!pass_board.is_game_over());
-    }
-
-    #[test]
-    fn test_try_make_move() {
-        let board = Board::new();
-
-        // Valid move
-        let result = board.try_make_move(Square::D3);
-        assert!(result.is_some());
-        let new_board = result.unwrap();
-        assert!(new_board.opponent().contains(Square::D3));
-        assert!(new_board.opponent().contains(Square::D4));
-
-        // Invalid move - no adjacent opponent discs
-        let result = board.try_make_move(Square::A1);
-        assert!(result.is_none());
-
-        // Invalid move - occupied square
-        let result = board.try_make_move(Square::D4);
-        assert!(result.is_none());
     }
 
     #[test]

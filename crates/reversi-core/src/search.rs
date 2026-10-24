@@ -31,7 +31,7 @@ pub use stop::StopToken;
 use std::sync::Arc;
 
 use crate::board::Board;
-use crate::constants::MAX_THREADS;
+use crate::constants::{INITIAL_EMPTY_COUNT, MAX_THREADS};
 use crate::eval::{Eval, EvalMode};
 use crate::level::Level;
 use crate::probcut;
@@ -265,7 +265,16 @@ impl Search {
     /// Selects the appropriate search strategy based on the constraint (fixed level
     /// or time-controlled), executes the search, and falls back to [`Search::quick_move`]
     /// if the search is aborted before completing any iteration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `board` has fewer than 4 discs.
     pub fn run(&mut self, board: &Board, options: &SearchRunOptions) -> SearchResult {
+        assert!(
+            board.empty_count() as usize <= INITIAL_EMPTY_COUNT,
+            "a search needs at most {INITIAL_EMPTY_COUNT} empty squares, got {}",
+            board.empty_count()
+        );
         let callback = options.callback.clone();
         let n_empties = board.empty_count();
 
