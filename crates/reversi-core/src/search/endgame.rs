@@ -117,12 +117,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     // Estimate initial aspiration window center
     let base_score = estimate_aspiration_base_score(&mut ctx, &board);
 
-    let completed = CompletedState {
-        root_moves: ctx.root_moves.snapshot(),
-        depth: ctx.empty_list.count(),
-        selectivity: Selectivity::None,
-        is_endgame: true,
-    };
+    let completed = CompletedState::new(task.pv_count(ctx.root_moves.count()));
     solve_root(&mut ctx, &board, &task, thread, base_score, completed)
 }
 
@@ -131,9 +126,8 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 /// Every selectivity level is searched at full depth (all empties), so the
 /// context's root moves, transposition table, and counters carry over from any
 /// preceding midgame iterations. `base_score` centers the first PV's
-/// aspiration window. `completed` is returned when the solve aborts early;
-/// single-PV searches replace it after each completed selectivity level,
-/// while multi-PV searches keep it until every PV line has been searched.
+/// aspiration window. `completed` is reported when the solve aborts before
+/// every PV line has finished the same selectivity level.
 /// Enables endgame time management on entry.
 pub(super) fn solve_root(
     ctx: &mut SearchContext,
@@ -194,12 +188,7 @@ pub(super) fn solve_root(
             // Stable sort moves from pv_idx to end, bringing best to pv_idx position
             ctx.root_moves.sort_from_pv_idx();
 
-            // Multi-PV keeps the entry fallback: mid-loop root moves hold
-            // -INF scores for lines not yet searched, so a partial pass must
-            // not become the abort result.
-            if pv_count == 1 {
-                completed.record(ctx, n_empties, false, true);
-            }
+            completed.line_completed(ctx, n_empties, true);
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(ref callback) = task.callback
@@ -224,12 +213,12 @@ pub(super) fn solve_root(
 
         // Check abort or time limit
         if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
-            return completed.to_result(ctx.counters.clone());
+            return completed.into_result(ctx, board);
         }
     }
 
-    completed.record(ctx, n_empties, task.multi_pv, true);
-    completed.to_result(ctx.counters.clone())
+    completed.iteration_completed(ctx, n_empties, true);
+    completed.into_result(ctx, board)
 }
 
 /// Estimates a base score to center the aspiration window for endgame search.
@@ -742,8 +731,10 @@ mod tests {
     use super::*;
     use crate::disc::Disc;
     use crate::eval::Eval;
+    use crate::search::result::Iteration;
     use crate::search::threading::ThreadPool;
     use crate::transposition_table::TranspositionTable;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct CutoffOccurred;
 
@@ -807,12 +798,13 @@ mod tests {
             time_manager: None,
             eval_mode: None,
         };
-        let completed = CompletedState {
+        let mut completed = CompletedState::new(task.pv_count(ctx.root_moves.count()));
+        completed.last = Some(Iteration {
             root_moves: fallback_moves,
             depth: 7,
             selectivity: Selectivity::Level2,
             is_endgame: false,
-        };
+        });
         (ctx, task, completed)
     }
 
@@ -864,6 +856,89 @@ mod tests {
         );
 
         assert_is_fallback_result(&result);
+    }
+
+    /// Returns a callback that aborts `pool` on the progress report numbered
+    /// by `abort_at` (1-based), which the test may set after building the task.
+    fn abort_on_report(
+        pool: &Arc<ThreadPool>,
+        abort_at: &Arc<AtomicUsize>,
+    ) -> Option<Arc<crate::search::SearchProgressCallback>> {
+        let (pool, abort_at, reports) = (pool.clone(), abort_at.clone(), AtomicUsize::new(0));
+        Some(Arc::new(move |_progress: SearchProgress| {
+            if reports.fetch_add(1, Ordering::Relaxed) + 1 == abort_at.load(Ordering::Relaxed) {
+                pool.abort_search();
+            }
+        }))
+    }
+
+    #[test]
+    fn single_pv_solve_reports_the_last_completed_level_on_abort() {
+        let pool = ThreadPool::new(1);
+        let abort_at = Arc::new(AtomicUsize::new(1));
+        let (mut ctx, task, completed) =
+            solve_fallback_fixture(&pool, false, abort_on_report(&pool, &abort_at));
+
+        let result = solve_root(
+            &mut ctx,
+            &task.board,
+            &task,
+            pool.main(),
+            ScaledScore::ZERO,
+            completed,
+        );
+
+        assert!(result.is_endgame());
+        assert_eq!(result.depth(), 9);
+        assert_eq!(result.selectivity(), Level::ENDGAME_SELECTIVITY[0]);
+    }
+
+    #[test]
+    fn multi_pv_solve_keeps_fallback_while_pv_lines_differ_in_selectivity() {
+        let pool = ThreadPool::new(1);
+        let abort_at = Arc::new(AtomicUsize::new(0));
+        let (mut ctx, task, completed) =
+            solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
+        // Abort once the last PV line finishes its first level, while the
+        // other lines have finished every level.
+        let n_levels = Level::ENDGAME_SELECTIVITY.len();
+        abort_at.store(
+            (ctx.root_moves.count() - 1) * n_levels + 1,
+            Ordering::Relaxed,
+        );
+
+        let result = solve_root(
+            &mut ctx,
+            &task.board,
+            &task,
+            pool.main(),
+            ScaledScore::ZERO,
+            completed,
+        );
+
+        assert_is_fallback_result(&result);
+    }
+
+    #[test]
+    fn multi_pv_solve_reports_the_iteration_once_every_pv_line_finished() {
+        let pool = ThreadPool::new(1);
+        let abort_at = Arc::new(AtomicUsize::new(0));
+        let (mut ctx, task, completed) =
+            solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
+        let n_levels = Level::ENDGAME_SELECTIVITY.len();
+        abort_at.store(ctx.root_moves.count() * n_levels, Ordering::Relaxed);
+
+        let result = solve_root(
+            &mut ctx,
+            &task.board,
+            &task,
+            pool.main(),
+            ScaledScore::ZERO,
+            completed,
+        );
+
+        assert!(result.is_endgame());
+        assert_eq!(result.pv_moves().len(), ctx.root_moves.count());
     }
 
     #[test]

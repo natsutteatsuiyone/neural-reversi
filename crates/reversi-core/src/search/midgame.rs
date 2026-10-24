@@ -90,16 +90,14 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     ctx.counters.merge(&helper_results.counters);
 
     match outcome {
-        Outcome::Done(completed) => {
+        Outcome::Done(mut completed) => {
             // A fixed-level search reports the depth it was asked for and a
             // Multi-PV search every line, so both keep the main thread's
             // iteration; a timed search lets the helpers' iterations vote.
-            if task.multi_pv || task.time_manager.is_none() {
-                completed
-            } else {
-                vote_best(completed, helper_results.completed)
+            if !task.multi_pv && task.time_manager.is_some() {
+                completed.last = vote_best(completed.last.take(), helper_results.completed);
             }
-            .to_result(ctx.counters.clone())
+            completed.into_result(&ctx, &board)
         }
         Outcome::Endgame(completed, base_score) => {
             endgame::solve_root(&mut ctx, &board, &task, thread, base_score, completed)
@@ -130,19 +128,12 @@ fn iterate(
     let pv_count = task.pv_count(ctx.root_moves.count());
 
     let mut depth = compute_start_depth(max_depth);
-    // Snapshot of the last fully completed iteration; aborted iterations leave
-    // root-move scores mixed across depths and must not be reported as reached.
-    let mut completed = CompletedState {
-        root_moves: ctx.root_moves.snapshot(),
-        depth: 0,
-        selectivity: ctx.selectivity,
-        is_endgame: false,
-    };
+    let mut completed = CompletedState::new(pv_count);
     while depth <= max_depth {
         ctx.root_moves.save_previous_scores();
 
         let mut iteration_window_clean = false;
-        let mut completed_pv_count = 0;
+        let mut best = None;
         for pv_idx in 0..pv_count {
             ctx.root_moves.set_pv_idx(pv_idx);
 
@@ -174,32 +165,24 @@ fn iterate(
             }
 
             iteration_window_clean = window_clean;
-            completed_pv_count += 1;
+            best = completed
+                .line_completed(ctx, depth, false)
+                .map(|rm| (rm.sq, rm.score));
             if thread.is_search_aborted() {
                 break;
             }
         }
 
-        if completed_pv_count < pv_count && thread.is_search_aborted() {
+        let Some((best_sq, best_score)) = best else {
             record_abort(time_manager);
             return Outcome::Done(completed);
-        }
-
-        completed.record(ctx, depth, task.multi_pv, false);
-        let best_move = completed
-            .root_moves
-            .first()
-            .expect("internal error: no completed root moves after search");
+        };
+        ctx.root_moves.sort_all();
 
         if let Some(tm) = time_manager {
             let window_clean =
                 !task.multi_pv && depth >= ASPIRATION_MIN_DEPTH && iteration_window_clean;
-            tm.report_iteration(
-                best_move.sq,
-                best_move.score.to_disc_diff_f32(),
-                depth,
-                window_clean,
-            );
+            tm.report_iteration(best_sq, best_score.to_disc_diff_f32(), depth, window_clean);
         }
 
         // A forced move needs no deep search under a deadline: answer after the
@@ -225,8 +208,7 @@ fn iterate(
                 max_depth, n_empties,
                 "time-controlled midgame searches always target all empties"
             );
-            let base_score = best_move.score;
-            return Outcome::Endgame(completed, base_score);
+            return Outcome::Endgame(completed, best_score);
         }
 
         if should_stop_iteration(time_manager) {
@@ -690,7 +672,6 @@ mod schedule_tests {
 
         assert_eq!(result.depth(), 1);
         assert!(result.best_move().is_some());
-        assert!(!result.is_invalid_sentinel());
     }
 
     #[test]

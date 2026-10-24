@@ -1,11 +1,14 @@
 //! Search result types.
 
 use crate::{
+    board::Board,
+    eval::{Eval, EvalMode},
     probcut::Selectivity,
     search::context::SearchContext,
     search::counters::SearchCounters,
     search::root_move::RootMove,
     square::Square,
+    transposition_table::TranspositionTable,
     types::{Depth, ScaledScore, Scoref},
 };
 
@@ -37,59 +40,152 @@ pub enum SearchResult {
     NoLegalMove,
 }
 
-/// Snapshot of the most recently completed root iteration.
-///
-/// Fallback result when a search is aborted before another iteration
-/// completes. The midgame handoff seeds it with the last completed midgame
-/// iteration, while endgame search seeds it with the pre-search root moves.
-pub(super) struct CompletedState {
+/// Snapshot of a completed root iteration.
+pub(super) struct Iteration {
     pub(super) root_moves: Vec<RootMove>,
     pub(super) depth: Depth,
     pub(super) selectivity: Selectivity,
     pub(super) is_endgame: bool,
 }
 
-impl CompletedState {
-    /// Replaces the fallback with a snapshot of the just-completed iteration,
-    /// taking selectivity from the context.
-    ///
-    /// Multi-PV sorts the full root move list first; single-PV lists are
-    /// already fully sorted by the pv_idx-0 sort. Multi-PV callers must not
-    /// record mid-loop: root moves of unsearched PV lines still hold
-    /// `-ScaledScore::INF` and must not become the abort fallback.
-    pub(super) fn record(
-        &mut self,
-        ctx: &SearchContext,
-        depth: Depth,
-        multi_pv: bool,
-        is_endgame: bool,
-    ) {
-        if multi_pv {
-            ctx.root_moves.sort_all();
-        }
-        *self = CompletedState {
-            root_moves: ctx.root_moves.snapshot(),
+impl Iteration {
+    /// Captures a copy of the root moves of `ctx`, sorted by score, as an
+    /// iteration of `depth` at the context's selectivity.
+    pub(super) fn capture(ctx: &SearchContext, depth: Depth, is_endgame: bool) -> Self {
+        let mut root_moves = ctx.root_moves.snapshot();
+        root_moves.sort_by_key(|rm| std::cmp::Reverse(rm.score));
+        Iteration {
+            root_moves,
             depth,
             selectivity: ctx.selectivity,
             is_endgame,
-        };
+        }
     }
 
-    /// Builds the fallback [`SearchResult`] reported when the search stops
-    /// before another iteration completes.
-    pub(super) fn to_result(&self, counters: SearchCounters) -> SearchResult {
-        let best_move = self
-            .root_moves
+    /// Returns the best root move.
+    pub(super) fn best_move(&self) -> &RootMove {
+        self.root_moves
             .first()
-            .expect("internal error: no completed root moves after search");
-        SearchResult::from_root_move_snapshot(
-            &self.root_moves,
-            best_move,
-            self.depth,
-            self.selectivity,
-            self.is_endgame,
-            counters,
-        )
+            .expect("internal error: no completed root moves after search")
+    }
+}
+
+/// The result a root search reports when it stops: the most recently
+/// completed iteration, or the TT move or [`quick_move`] when none completed.
+///
+/// An iteration completes once every PV line has been searched at the same
+/// depth and selectivity; aborted iterations leave root-move scores mixed
+/// across levels and must not be reported as reached.
+pub(super) struct CompletedState {
+    lines: Vec<Option<(Depth, Selectivity)>>,
+    pub(super) last: Option<Iteration>,
+}
+
+impl CompletedState {
+    /// Creates a state with no completed iteration for `pv_count` PV lines.
+    pub(super) fn new(pv_count: usize) -> Self {
+        CompletedState {
+            lines: vec![None; pv_count],
+            last: None,
+        }
+    }
+
+    /// Records that the current PV line of `ctx` finished `depth` at the
+    /// context's selectivity. Returns the best move if this completed the
+    /// iteration.
+    pub(super) fn line_completed(
+        &mut self,
+        ctx: &SearchContext,
+        depth: Depth,
+        is_endgame: bool,
+    ) -> Option<&RootMove> {
+        let level = Some((depth, ctx.selectivity));
+        self.lines[ctx.root_moves.pv_idx()] = level;
+        if self.lines.iter().all(|&line| line == level) {
+            Some(self.iteration_completed(ctx, depth, is_endgame))
+        } else {
+            None
+        }
+    }
+
+    /// Reports the root moves of `ctx` as completed, whatever levels its
+    /// PV lines reached, and returns the best move.
+    pub(super) fn iteration_completed(
+        &mut self,
+        ctx: &SearchContext,
+        depth: Depth,
+        is_endgame: bool,
+    ) -> &RootMove {
+        self.last
+            .insert(Iteration::capture(ctx, depth, is_endgame))
+            .best_move()
+    }
+
+    /// Builds the reported [`SearchResult`] for the root `board` of `ctx`.
+    pub(super) fn into_result(self, ctx: &SearchContext, board: &Board) -> SearchResult {
+        match self.last {
+            Some(it) => SearchResult::from_root_move_snapshot(
+                &it.root_moves,
+                it.best_move(),
+                it.depth,
+                it.selectivity,
+                it.is_endgame,
+                ctx.counters.clone(),
+            ),
+            None => tt_move(board, &ctx.tt).unwrap_or_else(|| quick_move(board, &ctx.eval)),
+        }
+    }
+}
+
+/// Returns the TT's best move for `board` as a result, if it is legal.
+fn tt_move(board: &Board, tt: &TranspositionTable) -> Option<SearchResult> {
+    let data = tt.lookup(board, board.hash())?;
+    let sq = data.best_move();
+    // `Square::None` must be rejected before the legality check.
+    (sq != Square::None && board.is_legal_move(sq)).then(|| SearchResult::BestMove {
+        sq,
+        score: data.score().to_disc_diff_f32(),
+        n_nodes: 0,
+        pv_line: vec![sq],
+        depth: data.depth(),
+        selectivity: data.selectivity(),
+        is_endgame: data.is_endgame(),
+        pv_moves: vec![],
+        counters: SearchCounters::default(),
+    })
+}
+
+/// Selects a move by a shallow 1-ply search, for when there is no time or
+/// no completed iteration to report.
+pub(super) fn quick_move(board: &Board, eval: &Eval) -> SearchResult {
+    let moves = board.get_moves();
+    if moves.is_empty() {
+        return SearchResult::NoLegalMove;
+    }
+
+    let mut best_move = Square::None;
+    let mut best_score = -ScaledScore::INF;
+
+    for sq in moves.iter() {
+        let next = board.make_move(sq);
+        let score = -eval.evaluate_simple(&next, EvalMode::Main);
+
+        if score > best_score {
+            best_score = score;
+            best_move = sq;
+        }
+    }
+
+    SearchResult::BestMove {
+        sq: best_move,
+        score: best_score.to_disc_diff_f32(),
+        n_nodes: moves.count() as u64,
+        pv_line: vec![best_move],
+        depth: 1,
+        selectivity: Selectivity::None,
+        is_endgame: false,
+        pv_moves: vec![],
+        counters: SearchCounters::default(),
     }
 }
 
@@ -225,17 +321,93 @@ impl SearchResult {
     pub fn probability(&self) -> i32 {
         self.selectivity().probability()
     }
+}
 
-    /// Returns `true` if the search was aborted before completing any iteration.
-    ///
-    /// Before the first iteration finishes, the score still carries the
-    /// `-ScaledScore::INF` sentinel propagated from the initial root move;
-    /// any completed iteration overwrites it with a real evaluation.
-    #[inline]
-    pub fn is_invalid_sentinel(&self) -> bool {
-        matches!(
-            self,
-            SearchResult::BestMove { score, .. } if *score == (-ScaledScore::INF).to_disc_diff_f32()
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::constants::MAX_PLY;
+    use crate::transposition_table::Bound;
+
+    fn context(board: &Board) -> SearchContext {
+        let eval =
+            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load");
+        SearchContext::new(
+            board,
+            Selectivity::None,
+            Arc::new(TranspositionTable::new(0)),
+            Arc::new(eval),
         )
+    }
+
+    #[test]
+    fn without_a_completed_iteration_reports_the_tt_move_then_the_quick_move() {
+        let board = Board::new();
+        let ctx = context(&board);
+        let quick = quick_move(&board, &ctx.eval).best_move().unwrap();
+        let tt_sq = board.get_moves().iter().find(|&sq| sq != quick).unwrap();
+        let probe = ctx.tt.probe(&board, board.hash());
+        ctx.tt.store(
+            probe.index(),
+            &board,
+            ScaledScore::from_disc_diff(3),
+            Bound::Exact,
+            20,
+            tt_sq,
+            Selectivity::None,
+            false,
+        );
+
+        let result = CompletedState::new(1).into_result(&ctx, &board);
+        assert_eq!(result.best_move(), Some(tt_sq));
+        assert_eq!(result.depth(), 20);
+
+        ctx.tt.clear();
+        let result = CompletedState::new(1).into_result(&ctx, &board);
+        assert_eq!(result.best_move(), Some(quick));
+    }
+
+    #[test]
+    fn completing_an_iteration_leaves_the_searched_line_order_in_place() {
+        let board = Board::new();
+        let ctx = context(&board);
+        let order: Vec<Square> = ctx.root_moves.snapshot().iter().map(|rm| rm.sq).collect();
+        let mut completed = CompletedState::new(2);
+        let pv = [Square::None; MAX_PLY];
+        for (pv_idx, discs) in [(0, -2), (1, 6)] {
+            ctx.root_moves.set_pv_idx(pv_idx);
+            ctx.root_moves
+                .update(order[pv_idx], ScaledScore::from_disc_diff(discs), true, &pv);
+            completed.line_completed(&ctx, 10, true);
+        }
+
+        assert_eq!(ctx.root_moves.current_pv().unwrap().sq, order[1]);
+        let reported: Vec<Square> = completed
+            .last
+            .unwrap()
+            .root_moves
+            .iter()
+            .map(|rm| rm.sq)
+            .collect();
+        assert_eq!(reported[..2], [order[1], order[0]]);
+    }
+
+    #[test]
+    fn quick_move_returns_legal_one_ply_result_or_no_legal_move() {
+        let board = Board::new();
+        let ctx = context(&board);
+
+        let best_move = quick_move(&board, &ctx.eval)
+            .best_move()
+            .expect("initial board has legal moves");
+        assert!(board.is_legal_move(best_move));
+
+        let no_move_board = Board::from_bitboards(Square::A1.bitboard(), 0);
+        assert!(matches!(
+            quick_move(&no_move_board, &ctx.eval),
+            SearchResult::NoLegalMove
+        ));
     }
 }

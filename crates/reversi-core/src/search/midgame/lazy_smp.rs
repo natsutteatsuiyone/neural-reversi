@@ -22,7 +22,7 @@ use crate::search::SearchTask;
 use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
 use crate::search::node_type::NodeType;
-use crate::search::result::CompletedState;
+use crate::search::result::Iteration;
 use crate::search::threading::{HelperJob, Thread, ThreadPool};
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
@@ -129,7 +129,7 @@ pub(super) struct HelperResults {
     /// Counters summed over the helpers.
     pub(super) counters: SearchCounters,
     /// Last completed iteration of every helper that completed one.
-    pub(super) completed: Vec<CompletedState>,
+    pub(super) completed: Vec<Iteration>,
 }
 
 impl<'a> Helpers<'a> {
@@ -233,12 +233,7 @@ impl HelperSearch {
                 break;
             }
             ctx.root_moves.sort_from_pv_idx();
-            last = Some(CompletedState {
-                root_moves: ctx.root_moves.snapshot(),
-                depth,
-                selectivity: ctx.selectivity,
-                is_endgame: false,
-            });
+            last = Some(Iteration::capture(&ctx, depth, false));
         }
 
         let mut results = self.report.results.lock().unwrap();
@@ -253,40 +248,26 @@ impl HelperSearch {
 /// `(score - lowest score + VOTE_MARGIN) * depth`; the iteration whose move
 /// collects the most votes wins, the deeper one on a tie, and the main
 /// thread on a full tie.
-pub(super) fn vote_best(main: CompletedState, helpers: Vec<CompletedState>) -> CompletedState {
-    // An aborted search can leave the main thread without a completed iteration.
-    let lead = |c: &CompletedState| {
-        c.root_moves
-            .first()
-            .filter(|_| c.depth > 0)
-            .map(|rm| (rm.sq, rm.score))
-    };
-    let Some(min_score) = std::iter::once(&main)
-        .chain(&helpers)
-        .filter_map(lead)
-        .map(|(_, score)| score)
-        .min()
-    else {
-        return main;
-    };
+pub(super) fn vote_best(main: Option<Iteration>, helpers: Vec<Iteration>) -> Option<Iteration> {
+    let mut candidates: Vec<Iteration> = main.into_iter().chain(helpers).collect();
+    let min_score = candidates.iter().map(|c| c.best_move().score).min()?;
 
     let mut votes = [0i64; 64];
-    for c in std::iter::once(&main).chain(&helpers) {
-        if let Some((sq, score)) = lead(c) {
-            votes[sq as usize] +=
-                i64::from((score - min_score + VOTE_MARGIN).value()) * i64::from(c.depth);
-        }
+    for c in &candidates {
+        let rm = c.best_move();
+        votes[rm.sq as usize] +=
+            i64::from((rm.score - min_score + VOTE_MARGIN).value()) * i64::from(c.depth);
     }
-    let votes_of = |c: &CompletedState| lead(c).map_or(-1, |(sq, _)| votes[sq as usize]);
+    let votes_of = |c: &Iteration| votes[c.best_move().sq as usize];
 
-    let mut best = main;
-    for c in helpers {
-        let (c_votes, best_votes) = (votes_of(&c), votes_of(&best));
-        if c_votes > best_votes || (c_votes == best_votes && c.depth > best.depth) {
-            best = c;
+    let mut best = 0;
+    for (i, c) in candidates.iter().enumerate().skip(1) {
+        let (c_votes, best_votes) = (votes_of(c), votes_of(&candidates[best]));
+        if c_votes > best_votes || (c_votes == best_votes && c.depth > candidates[best].depth) {
+            best = i;
         }
     }
-    best
+    Some(candidates.swap_remove(best))
 }
 
 #[cfg(test)]
@@ -299,38 +280,35 @@ mod tests {
         let iteration = |sq, discs, depth| {
             let mut rm = RootMove::new(sq);
             rm.score = ScaledScore::from_disc_diff(discs);
-            CompletedState {
+            Iteration {
                 root_moves: vec![rm],
                 depth,
                 selectivity: Selectivity::None,
                 is_endgame: false,
             }
         };
-        let lead = |c: &CompletedState| c.root_moves[0].sq;
+        let lead = |c: Option<Iteration>| c.unwrap().root_moves[0].sq;
 
         // Two helpers agreeing on D3 outvote a deeper lone F5.
         let best = vote_best(
-            iteration(Square::C4, 0, 12),
+            Some(iteration(Square::C4, 0, 12)),
             vec![
                 iteration(Square::D3, 0, 11),
                 iteration(Square::D3, 0, 11),
                 iteration(Square::F5, 0, 13),
             ],
         );
-        assert_eq!(lead(&best), Square::D3);
+        assert_eq!(lead(best), Square::D3);
 
         // On equal votes the deeper iteration of the same move is reported.
         let best = vote_best(
-            iteration(Square::C4, 2, 10),
+            Some(iteration(Square::C4, 2, 10)),
             vec![iteration(Square::C4, 2, 12)],
         );
-        assert_eq!(best.depth, 12);
+        assert_eq!(best.unwrap().depth, 12);
 
         // A main thread without a completed iteration never wins.
-        let best = vote_best(
-            iteration(Square::C4, 0, 0),
-            vec![iteration(Square::D3, -5, 4)],
-        );
-        assert_eq!(lead(&best), Square::D3);
+        let best = vote_best(None, vec![iteration(Square::D3, -5, 4)]);
+        assert_eq!(lead(best), Square::D3);
     }
 }

@@ -36,12 +36,10 @@ use crate::eval::{Eval, EvalMode};
 use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
-use crate::search::counters::SearchCounters;
 use crate::search::options::{SearchOptions, available_cpus};
 use crate::search::result::SearchResult;
 use crate::search::threading::{Thread, ThreadPool};
 use crate::search::time_control::TimeManager;
-use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, ScaledScore};
 
@@ -263,8 +261,7 @@ impl Search {
     /// Runs a search on the given board position.
     ///
     /// Selects the appropriate search strategy based on the constraint (fixed level
-    /// or time-controlled), executes the search, and falls back to [`Search::quick_move`]
-    /// if the search is aborted before completing any iteration.
+    /// or time-controlled) and executes the search.
     ///
     /// # Panics
     ///
@@ -300,9 +297,8 @@ impl Search {
             eval_mode: options.eval_mode,
         };
 
-        let mut result = self.execute_search(task, options.stop_token.as_ref());
+        let result = self.execute_search(task, options.stop_token.as_ref());
         self.timed_out = deadline.is_some_and(|tm| tm.timed_out());
-        self.apply_fallback_if_invalid(board, &mut result);
 
         if let Some(callback) = callback {
             callback(SearchProgress::from_result(&result));
@@ -350,42 +346,6 @@ impl Search {
         }
     }
 
-    /// Replaces an aborted-search sentinel result with the TT move, or with a
-    /// shallow [`Self::quick_move`] when the TT holds none.
-    ///
-    /// When the search is cancelled before finishing a single iteration the
-    /// result score is still the initial sentinel; in that case a minimal
-    /// best move must still be provided to the caller. This happens when an
-    /// endgame solve, which skips the midgame iterations once an earlier move
-    /// reached the endgame, cannot finish its first selectivity level; the
-    /// TT then still holds what earlier searches and pondering found.
-    fn apply_fallback_if_invalid(&self, board: &Board, result: &mut SearchResult) {
-        if !result.is_invalid_sentinel() {
-            return;
-        }
-        *result = self
-            .tt_move(board)
-            .unwrap_or_else(|| self.quick_move(board));
-    }
-
-    /// Returns the TT's best move for `board` as a result, if it is legal.
-    fn tt_move(&self, board: &Board) -> Option<SearchResult> {
-        let data = self.tt.lookup(board, board.hash())?;
-        let sq = data.best_move();
-        // `Square::None` must be rejected before the legality check.
-        (sq != Square::None && board.is_legal_move(sq)).then(|| SearchResult::BestMove {
-            sq,
-            score: data.score().to_disc_diff_f32(),
-            n_nodes: 0,
-            pv_line: vec![sq],
-            depth: data.depth(),
-            selectivity: data.selectivity(),
-            is_endgame: data.is_endgame(),
-            pv_moves: vec![],
-            counters: SearchCounters::default(),
-        })
-    }
-
     /// Records the empty count at which an endgame solve first finished
     /// [`ENDGAME_TRACKING_MIN_SELECTIVITY`]. Later time-controlled searches
     /// then skip the midgame iterations and extend their end depth.
@@ -410,7 +370,7 @@ impl Search {
 
         let result = result_receiver.recv().unwrap_or_else(|_| {
             // Channel closed - search thread may have panicked. Return fallback.
-            self.quick_move(&board)
+            result::quick_move(&board, &self.eval)
         });
 
         self.threads.stop_timer();
@@ -424,43 +384,6 @@ impl Search {
     #[cfg(test)]
     pub(crate) fn thread_pool(&self) -> Arc<threading::ThreadPool> {
         self.threads.clone()
-    }
-
-    /// Selects a move quickly for time-critical situations.
-    ///
-    /// Performs a shallow 1-ply search to find the best move when there is
-    /// not enough time for a full search. This is a fallback for situations
-    /// where the main search would return invalid results.
-    pub fn quick_move(&self, board: &Board) -> SearchResult {
-        let moves = board.get_moves();
-        if moves.is_empty() {
-            return SearchResult::NoLegalMove;
-        }
-
-        let mut best_move = Square::None;
-        let mut best_score = -ScaledScore::INF;
-
-        for sq in moves.iter() {
-            let next = board.make_move(sq);
-            let score = -self.eval.evaluate_simple(&next, EvalMode::Main);
-
-            if score > best_score {
-                best_score = score;
-                best_move = sq;
-            }
-        }
-
-        SearchResult::BestMove {
-            sq: best_move,
-            score: best_score.to_disc_diff_f32(),
-            n_nodes: moves.count() as u64,
-            pv_line: vec![best_move],
-            depth: 1,
-            selectivity: Selectivity::None,
-            is_endgame: false,
-            pv_moves: vec![],
-            counters: SearchCounters::default(),
-        }
     }
 }
 
@@ -505,8 +428,9 @@ fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::counters::SearchCounters;
     use crate::search::time_control::TimeControlMode;
-    use crate::transposition_table::Bound;
+    use crate::square::Square;
 
     fn one_thread_options() -> SearchOptions {
         SearchOptions::new(0).with_threads(Some(1))
@@ -533,27 +457,6 @@ mod tests {
 
         assert_eq!(midgame_selectivity(&fixed), Selectivity::None);
         assert_eq!(midgame_selectivity(&timed), Selectivity::None);
-    }
-
-    /// Stores an exact entry for `board` into the slot its probe selects.
-    fn seed_tt(
-        tt: &TranspositionTable,
-        board: &Board,
-        score: ScaledScore,
-        depth: Depth,
-        best_move: Square,
-    ) {
-        let probe = tt.probe(board, board.hash());
-        tt.store(
-            probe.index(),
-            board,
-            score,
-            Bound::Exact,
-            depth,
-            best_move,
-            Selectivity::None,
-            false,
-        );
     }
 
     #[test]
@@ -598,42 +501,6 @@ mod tests {
     }
 
     #[test]
-    fn aborted_search_falls_back_to_the_tt_move() {
-        let search = Search::new(&one_thread_options());
-        let board = Board::new();
-        let quick = search.quick_move(&board).best_move().unwrap();
-        let tt_sq = board.get_moves().iter().find(|&sq| sq != quick).unwrap();
-        seed_tt(
-            search.tt(),
-            &board,
-            ScaledScore::from_disc_diff(3),
-            20,
-            tt_sq,
-        );
-
-        let sentinel = || SearchResult::BestMove {
-            sq: Square::None,
-            score: (-ScaledScore::INF).to_disc_diff_f32(),
-            n_nodes: 0,
-            pv_line: vec![],
-            depth: 0,
-            selectivity: Selectivity::None,
-            is_endgame: false,
-            pv_moves: vec![],
-            counters: SearchCounters::default(),
-        };
-        let mut result = sentinel();
-        search.apply_fallback_if_invalid(&board, &mut result);
-        assert_eq!(result.best_move(), Some(tt_sq));
-        assert_eq!(result.depth(), 20);
-
-        search.tt().clear();
-        let mut result = sentinel();
-        search.apply_fallback_if_invalid(&board, &mut result);
-        assert_eq!(result.best_move(), Some(quick));
-    }
-
-    #[test]
     fn midgame_iterations_are_skipped_only_after_a_level2_endgame_solve() {
         let mut search = Search::new(&one_thread_options());
         let endgame = |selectivity| SearchResult::BestMove {
@@ -653,22 +520,5 @@ mod tests {
 
         search.update_endgame_tracking(28, &endgame(Selectivity::Level2));
         assert_eq!(search.endgame_start_n_empties, Some(27));
-    }
-
-    #[test]
-    fn quick_move_returns_legal_one_ply_result_or_no_legal_move() {
-        let search = Search::new(&one_thread_options());
-        let board = Board::new();
-
-        let result = search.quick_move(&board);
-        let best_move = result.best_move().expect("initial board has legal moves");
-
-        assert!(board.is_legal_move(best_move));
-
-        let no_move_board = Board::from_bitboards(Square::A1.bitboard(), 0);
-        assert!(matches!(
-            search.quick_move(&no_move_board),
-            SearchResult::NoLegalMove
-        ));
     }
 }
