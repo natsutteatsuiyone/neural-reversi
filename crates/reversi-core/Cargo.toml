@@ -13,7 +13,7 @@ probcut-trace = []
 [dependencies]
 byteorder = "1.5"
 rapidhash = { version = "4.4", features = ["unsafe"] }
-zstd = "0.13"
+zstd = "0.14"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
