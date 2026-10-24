@@ -137,7 +137,7 @@ pub(super) fn solve_root(
     base_score: ScaledScore,
     mut completed: CompletedState,
 ) -> SearchResult {
-    let time_manager = &task.time_manager;
+    let time_manager = task.time_manager.as_deref();
     let use_time_control = time_manager.is_some();
 
     if let Some(tm) = time_manager {
@@ -212,7 +212,7 @@ pub(super) fn solve_root(
         }
 
         // Check abort or time limit
-        if thread.is_search_aborted() || time_manager.as_ref().is_some_and(|tm| tm.check_time()) {
+        if thread.is_search_aborted() || time_manager.is_some_and(|tm| tm.check_time()) {
             return completed.into_result(ctx, board);
         }
     }

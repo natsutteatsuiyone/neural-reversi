@@ -122,7 +122,7 @@ fn iterate(
     helpers: &Helpers<'_>,
     thread: &Arc<Thread>,
 ) -> Outcome {
-    let time_manager = &task.time_manager;
+    let time_manager = task.time_manager.as_deref();
     let use_time_control = time_manager.is_some();
     let n_empties = ctx.empty_list.count();
     let pv_count = task.pv_count(ctx.root_moves.count());
@@ -188,11 +188,7 @@ fn iterate(
         // A forced move needs no deep search under a deadline: answer after the
         // first completed iteration and bank the time. Score and PV are already
         // available for reporting.
-        if ctx.root_moves.count() == 1
-            && time_manager
-                .as_ref()
-                .is_some_and(|tm| tm.deadline().is_some())
-        {
+        if ctx.root_moves.count() == 1 && time_manager.is_some_and(|tm| tm.deadline().is_some()) {
             return Outcome::Done(completed);
         }
 

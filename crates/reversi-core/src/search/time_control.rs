@@ -632,7 +632,7 @@ impl TimeManager {
 /// Records an aborted iteration as timed out when the deadline caused the
 /// abort, rather than an external stop. Call it where the search drops an
 /// iteration because of the abort.
-pub(crate) fn record_abort(time_manager: &Option<Arc<TimeManager>>) {
+pub(crate) fn record_abort(time_manager: Option<&TimeManager>) {
     if let Some(tm) = time_manager
         && tm.is_time_up()
     {
@@ -653,18 +653,16 @@ impl TimeManager {
 /// Returns `false` if no time manager is provided (unlimited search) or there
 /// is still time remaining.
 #[inline]
-pub(crate) fn should_stop_iteration(time_manager: &Option<Arc<TimeManager>>) -> bool {
-    time_manager
-        .as_ref()
-        .is_some_and(|tm| tm.check_time() || !tm.should_continue_iteration())
+pub(crate) fn should_stop_iteration(time_manager: Option<&TimeManager>) -> bool {
+    time_manager.is_some_and(|tm| tm.check_time() || !tm.should_continue_iteration())
 }
 
 #[inline]
 pub(crate) fn should_stop_endgame_iteration(
-    time_manager: &Option<Arc<TimeManager>>,
+    time_manager: Option<&TimeManager>,
     current_selectivity: Selectivity,
 ) -> bool {
-    time_manager.as_ref().is_some_and(|tm| {
+    time_manager.is_some_and(|tm| {
         tm.check_time() || !tm.should_continue_endgame_iteration(current_selectivity)
     })
 }
