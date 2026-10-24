@@ -6,9 +6,7 @@ members = [
     "crates/gui",
     "crates/match-runner",
     "crates/reversi-core",
-    "crates/time-debug",
     "crates/web",
-    "crates/weight-tournament",
 ]
 resolver = "2"
 

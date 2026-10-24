@@ -126,46 +126,6 @@ bun scripts/network-bench.js
 bun scripts/network-bench.js --iterations 50000 --warmup 1000
 ```
 
-## Weight Tournament
-
-Estimate the strongest `.zst` file in a folder with in-process one-ply matches.
-This does not use GTP or any other protocol; evaluators are loaded into the same
-WebAssembly module and play directly against each other. If an opening file is
-provided, it uses the same compact opening format as `crates/match-runner` and
-plays each opening twice with colors swapped.
-
-### Build
-
-```bash
-bun run build:wasm:node
-```
-
-### Usage
-
-```bash
-bun scripts/weight-tournament.js <weights-dir> [options]
-```
-
-Options:
-
-| Option | Description |
-|--------|-------------|
-| `-o, --opening-file` | Opening file in match-runner format |
-| `-j, --jobs` | Parallel comparisons. Default: 1 |
-| `-h, --help` | Show help message |
-
-Up to 8 weights every pair is played once. Larger folders play 4 rounds instead,
-pairing each weight with the nearest-ranked opponent it has not met yet, so the
-comparison count stays linear in the number of weights.
-
-### Examples
-
-```bash
-bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt>
-bun scripts/weight-tournament.js <weights-dir> --opening-file <openings.txt> --jobs 4
-bun scripts/weight-tournament.js ../../weights --opening-file ../../openings.txt
-```
-
 ## ProbCut Training Data Generation
 
 Generate ProbCut training data from game sequences using the WebAssembly engine.

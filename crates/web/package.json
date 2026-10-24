@@ -5,8 +5,7 @@
   "bin": {
     "probcut-datagen": "./scripts/probcut-cli.js",
     "endgame-bench": "./scripts/endgame-bench.js",
-    "network-bench": "./scripts/network-bench.js",
-    "weight-tournament": "./scripts/weight-tournament.js"
+    "network-bench": "./scripts/network-bench.js"
   },
   "scripts": {
     "build:wasm:base": "wasm-pack build --target web --out-dir pkg --release",
@@ -24,13 +23,11 @@
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check .",
     "verify": "bun run lint && bun run fmt:check && cargo test -p web",
-    "test": "bun test scripts/",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install chromium",
     "bench:network": "bun run build:wasm:node && bun scripts/network-bench.js",
     "bench:endgame": "bun run build:wasm:node && bun scripts/endgame-bench.js",
-    "match:weights:folder": "bun run build:wasm:node && bun scripts/weight-tournament.js",
     "probcut": "bun run build:wasm:node && bun scripts/probcut-cli.js",
     "preview": "vite preview"
   },

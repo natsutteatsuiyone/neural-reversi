@@ -7240,15 +7240,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
-name = "time-debug"
-version = "6.3.0"
-dependencies = [
- "clap",
- "colored",
- "reversi-core",
-]
-
-[[package]]
 name = "tiny-keccak"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8065,17 +8056,6 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
-
-[[package]]
-name = "weight-tournament"
-version = "6.3.0"
-dependencies = [
- "anyhow",
- "clap",
- "indicatif",
- "rayon",
- "reversi-core",
-]
 
 [[package]]
 name = "wezterm-bidi"
