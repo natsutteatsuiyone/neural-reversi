@@ -149,14 +149,15 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     // Midgame threads of a parallel pool leave a breadcrumb on the nodes they
-    // are searching. A node another thread has marked reduces its late moves
-    // one ply more, and a child another thread has marked waits until its
-    // siblings are searched, so the threads spread over different subtrees.
+    // are searching. A node another thread has marked at least as deep
+    // reduces its late moves one ply more, and a child marked that way waits
+    // until its siblings are searched, so the threads spread over different
+    // subtrees.
     // Children are searched at most one ply shallower, so they can carry
     // breadcrumbs only below nodes deeper than the minimum.
     let use_breadcrumbs = !SS::IS_ENDGAME && !NT::ROOT_NODE && thread.is_parallel_pool();
-    let breadcrumb =
-        (use_breadcrumbs && depth >= BREADCRUMB_MIN_DEPTH).then(|| thread.enter_breadcrumb(tt_key));
+    let breadcrumb = (use_breadcrumbs && depth >= BREADCRUMB_MIN_DEPTH)
+        .then(|| thread.enter_breadcrumb(tt_key, depth));
     let marked = breadcrumb.as_ref().is_some_and(Breadcrumb::is_marked);
     let defer_marked_children = use_breadcrumbs && depth > BREADCRUMB_MIN_DEPTH;
 
@@ -270,7 +271,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         if defer_marked_children
             && first_visit
             && idx > 0
-            && thread.is_breadcrumb_marked(next.hash())
+            && thread.is_breadcrumb_marked(next.hash(), depth - 1)
         {
             moves.defer(idx);
             continue;

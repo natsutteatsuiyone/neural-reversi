@@ -239,17 +239,18 @@ impl Thread {
         self.idx
     }
 
-    /// Marks the position `key` as searched by this thread until the
-    /// returned breadcrumb is dropped.
+    /// Marks the position `key` as searched by this thread at `depth` until
+    /// the returned breadcrumb is dropped.
     #[inline]
-    pub(in crate::search) fn enter_breadcrumb(&self, key: u64) -> Breadcrumb<'_> {
-        self.breadcrumbs.enter(self.idx, key)
+    pub(in crate::search) fn enter_breadcrumb(&self, key: u64, depth: Depth) -> Breadcrumb<'_> {
+        self.breadcrumbs.enter(self.idx, key, depth)
     }
 
-    /// Returns whether another thread is inside the position `key`.
+    /// Returns whether another thread is inside the position `key` at `depth`
+    /// or deeper.
     #[inline]
-    pub(in crate::search) fn is_breadcrumb_marked(&self, key: u64) -> bool {
-        self.breadcrumbs.is_marked(self.idx, key)
+    pub(in crate::search) fn is_breadcrumb_marked(&self, key: u64, depth: Depth) -> bool {
+        self.breadcrumbs.is_marked(self.idx, key, depth)
     }
 
     /// Returns `true` when the pool has more than one search thread.

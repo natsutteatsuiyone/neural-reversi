@@ -1,6 +1,8 @@
 //! Marks of the positions the search threads are inside.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+
+use crate::types::Depth;
 
 /// Number of slots; a power of two.
 const SLOTS: usize = 4096;
@@ -18,6 +20,8 @@ struct Slot {
     /// Pool index plus one of the owning thread, or 0 when free.
     owner: AtomicUsize,
     key: AtomicU64,
+    /// Depth the owning thread searches the position at.
+    depth: AtomicU32,
 }
 
 /// A thread's claim on a position, released on drop.
@@ -33,13 +37,14 @@ impl Breadcrumbs {
         }
     }
 
-    /// Marks `key` as searched by thread `idx`, or notes that another thread
-    /// already has it.
-    pub(super) fn enter(&self, idx: usize, key: u64) -> Breadcrumb<'_> {
+    /// Marks `key` as searched by thread `idx` at `depth`, or notes that
+    /// another thread already has it at `depth` or deeper.
+    pub(super) fn enter(&self, idx: usize, key: u64, depth: Depth) -> Breadcrumb<'_> {
         let slot = &self.slots[key as usize & (SLOTS - 1)];
         let owner = slot.owner.load(Ordering::Relaxed);
         if owner == 0 {
             slot.key.store(key, Ordering::Relaxed);
+            slot.depth.store(depth, Ordering::Relaxed);
             slot.owner.store(idx + 1, Ordering::Relaxed);
             return Breadcrumb {
                 owned: Some(slot),
@@ -48,16 +53,24 @@ impl Breadcrumbs {
         }
         Breadcrumb {
             owned: None,
-            marked: owner != idx + 1 && slot.key.load(Ordering::Relaxed) == key,
+            marked: owner != idx + 1 && slot.is_held_at(key, depth),
         }
     }
 
-    /// Returns whether a thread other than `idx` is inside `key`, without
-    /// marking it.
-    pub(super) fn is_marked(&self, idx: usize, key: u64) -> bool {
+    /// Returns whether a thread other than `idx` is inside `key` at `depth`
+    /// or deeper, without marking it.
+    pub(super) fn is_marked(&self, idx: usize, key: u64, depth: Depth) -> bool {
         let slot = &self.slots[key as usize & (SLOTS - 1)];
         let owner = slot.owner.load(Ordering::Relaxed);
-        owner != 0 && owner != idx + 1 && slot.key.load(Ordering::Relaxed) == key
+        owner != 0 && owner != idx + 1 && slot.is_held_at(key, depth)
+    }
+}
+
+impl Slot {
+    /// Returns whether the slot holds `key` at `depth` or deeper.
+    #[inline]
+    fn is_held_at(&self, key: u64, depth: Depth) -> bool {
+        self.key.load(Ordering::Relaxed) == key && self.depth.load(Ordering::Relaxed) >= depth
     }
 }
 
@@ -84,12 +97,13 @@ mod tests {
     #[test]
     fn another_thread_sees_the_mark_until_the_owner_leaves() {
         let crumbs = Breadcrumbs::new();
-        let owner = crumbs.enter(0, 42);
+        let owner = crumbs.enter(0, 42, 8);
         assert!(!owner.is_marked());
-        assert!(crumbs.enter(1, 42).is_marked());
-        assert!(!crumbs.enter(0, 42).is_marked());
-        assert!(!crumbs.enter(1, 42 + SLOTS as u64).is_marked());
+        assert!(crumbs.enter(1, 42, 8).is_marked());
+        assert!(!crumbs.enter(1, 42, 9).is_marked());
+        assert!(!crumbs.enter(0, 42, 8).is_marked());
+        assert!(!crumbs.enter(1, 42 + SLOTS as u64, 8).is_marked());
         drop(owner);
-        assert!(!crumbs.enter(1, 42).is_marked());
+        assert!(!crumbs.enter(1, 42, 8).is_marked());
     }
 }
