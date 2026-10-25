@@ -5,7 +5,10 @@
 
 use std::fmt::Write;
 
-use reversi_core::{board::Board, disc::Disc, game_state, square::Square};
+use reversi_core::board::Board;
+use reversi_core::disc::Disc;
+use reversi_core::game_state;
+use reversi_core::square::Square;
 
 /// Represents the state of a Reversi/Othello game with CLI-specific features.
 ///
@@ -172,7 +175,7 @@ impl GameState {
         self.core
             .move_history()
             .iter()
-            .filter_map(|entry| entry.mv)
+            .filter_map(|entry| entry.action.square())
             .collect()
     }
 }

@@ -8,19 +8,38 @@ use crate::board::Board;
 use crate::disc::Disc;
 use crate::square::Square;
 
+/// An action recorded in a game's history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HistoryAction {
+    /// A move that places a disc on the board.
+    Play(Square),
+    /// A pass requested through [`GameState::make_pass`].
+    ExplicitPass,
+    /// A forced pass inserted by [`GameState::make_move`].
+    AutomaticPass,
+}
+
+impl HistoryAction {
+    /// Returns the played square, or [`None`] for a pass.
+    pub fn square(self) -> Option<Square> {
+        match self {
+            HistoryAction::Play(square) => Some(square),
+            HistoryAction::ExplicitPass | HistoryAction::AutomaticPass => None,
+        }
+    }
+}
+
 /// A single recorded action in a game's history.
 ///
 /// `board` and `side_to_move` capture the state before the action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HistoryEntry {
-    /// The move played, or [`None`] for a pass.
-    pub mv: Option<Square>,
+    /// The recorded move or pass.
+    pub action: HistoryAction,
     /// Board position before the action.
     pub board: Board,
     /// Side to move before the action.
     pub side_to_move: Disc,
-    /// Whether this pass was inserted automatically by [`GameState::make_move`].
-    pub auto_pass: bool,
 }
 
 /// The state of a Reversi game.
@@ -103,21 +122,12 @@ impl GameState {
             return Err(format!("Illegal move: {sq:?}"));
         }
 
-        // Record history before making the move
-        self.history.push(HistoryEntry {
-            mv: Some(sq),
-            board: self.board,
-            side_to_move: self.side_to_move,
-            auto_pass: false,
-        });
-
-        self.board = self.board.make_move(sq);
-        self.side_to_move = self.side_to_move.opposite();
+        self.apply_action(HistoryAction::Play(sq));
 
         // Handle automatic pass if opponent has no legal moves, but avoid
         // recording a pass after the game has already ended.
         if !self.board.has_legal_moves() && self.board.switch_players().has_legal_moves() {
-            self.handle_pass(true);
+            self.apply_action(HistoryAction::AutomaticPass);
         }
 
         Ok(())
@@ -137,21 +147,24 @@ impl GameState {
             return Err("Cannot pass when legal moves are available".to_string());
         }
 
-        self.handle_pass(false);
+        self.apply_action(HistoryAction::ExplicitPass);
         Ok(())
     }
 
-    /// Records a pass in history and switches the side to move.
-    fn handle_pass(&mut self, auto_pass: bool) {
-        // Record pass in history
+    /// Records the current position and applies `action` without checking its legality.
+    fn apply_action(&mut self, action: HistoryAction) {
         self.history.push(HistoryEntry {
-            mv: None,
+            action,
             board: self.board,
             side_to_move: self.side_to_move,
-            auto_pass,
         });
 
-        self.board = self.board.switch_players();
+        self.board = match action {
+            HistoryAction::Play(square) => self.board.make_move(square),
+            HistoryAction::ExplicitPass | HistoryAction::AutomaticPass => {
+                self.board.switch_players()
+            }
+        };
         self.side_to_move = self.side_to_move.opposite();
     }
 
@@ -177,13 +190,13 @@ impl GameState {
     /// Returns the last move played, or [`None`] if the last move was a pass
     /// or no moves have been played yet.
     pub fn last_move(&self) -> Option<Square> {
-        self.history.last().and_then(|entry| entry.mv)
+        self.history.last().and_then(|entry| entry.action.square())
     }
 
     /// Returns a reference to the move history.
     ///
-    /// Each entry is a [`HistoryEntry`]; [`None`] for the move indicates a
-    /// pass.
+    /// Each [`HistoryEntry`] contains its [`HistoryAction`] and the position
+    /// before that action.
     pub fn move_history(&self) -> &[HistoryEntry] {
         &self.history
     }
@@ -194,12 +207,13 @@ impl GameState {
     /// an explicit pass ([`GameState::make_pass`]) is undone on its own.
     /// Returns `false` if there is nothing to undo.
     pub fn undo(&mut self) -> bool {
-        let Some(mut entry) = self.history.pop() else {
+        let Some(entry) = self.history.pop() else {
             return false;
         };
-        if entry.auto_pass {
-            entry = self.history.pop().unwrap_or(entry);
-        }
+        let entry = match entry.action {
+            HistoryAction::AutomaticPass => self.history.pop().unwrap_or(entry),
+            HistoryAction::Play(_) | HistoryAction::ExplicitPass => entry,
+        };
         self.board = entry.board;
         self.side_to_move = entry.side_to_move;
         true
@@ -378,7 +392,10 @@ mod tests {
         assert_eq!(game.score(), (57, 7));
 
         let history = game.move_history();
-        let played: Vec<Square> = history.iter().filter_map(|entry| entry.mv).collect();
+        let played: Vec<Square> = history
+            .iter()
+            .filter_map(|entry| entry.action.square())
+            .collect();
         assert_eq!(played, moves);
         assert_eq!(history[0].side_to_move, Disc::Black);
         assert!(
