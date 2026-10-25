@@ -119,11 +119,11 @@ impl GtpEngine {
 
         // Get name and version
         let name_response = engine.send_command(GTP_CMD_NAME)?;
-        engine.name = Self::parse_success_response(&name_response)?;
+        engine.name = Self::parse_success_response(&name_response)?.to_owned();
 
         let version_response = engine.send_command(GTP_CMD_VERSION)?;
         let version_raw = Self::parse_optional_response(&version_response)?;
-        engine.version = Self::format_version(&version_raw);
+        engine.version = Self::format_version(version_raw);
 
         Ok(engine)
     }
@@ -233,15 +233,15 @@ impl GtpEngine {
     /// engine process terminates unexpectedly.
     pub fn send_command(&mut self, command: &str) -> Result<String> {
         let engine_name = if self.name.is_empty() {
-            self.executable.clone()
+            self.executable.as_str()
         } else {
-            self.name.clone()
+            self.name.as_str()
         };
         let result = Self::communicate(
             &mut self.stdin,
             &self.responses,
             self.move_timeout,
-            &engine_name,
+            engine_name,
             command,
             crate::runner::check_interrupted,
         );
@@ -289,7 +289,7 @@ impl GtpEngine {
 
     pub(crate) fn require_setboard(&mut self) -> Result<()> {
         let response = self.send_command("known_command setboard")?;
-        if Self::parse_success_response(&response)?.trim() != "true" {
+        if Self::parse_success_response(&response)? != "true" {
             return Err(MatchRunnerError::Config(format!(
                 "{} must support setboard for GGS random openings",
                 self.name()
@@ -329,7 +329,7 @@ impl GtpEngine {
     /// * `color` - The color for which to generate a move ("black" or "white")
     pub fn genmove(&mut self, color: &str) -> Result<String> {
         let response = self.send_command(&format!("{GTP_CMD_GENMOVE} {color}"))?;
-        Self::parse_success_response(&response)
+        Ok(Self::parse_success_response(&response)?.to_owned())
     }
 
     // =============================================================================
@@ -370,16 +370,12 @@ impl GtpEngine {
     // =============================================================================
 
     /// Parse a GTP success response and extract the content.
-    fn parse_success_response(response: &str) -> Result<String> {
-        if response.starts_with(GTP_SUCCESS_PREFIX) {
-            Ok(response
-                .strip_prefix(GTP_SUCCESS_PREFIX)
-                .unwrap()
-                .trim()
-                .to_string())
+    fn parse_success_response(response: &str) -> Result<&str> {
+        if let Some(content) = response.strip_prefix(GTP_SUCCESS_PREFIX) {
+            Ok(content.trim())
         } else if response.trim() == "=" {
             // Handle empty success response (just "=")
-            Ok(String::new())
+            Ok("")
         } else {
             Err(MatchRunnerError::Engine(format!(
                 "Expected success response, got: {response}"
@@ -388,18 +384,11 @@ impl GtpEngine {
     }
 
     /// Parse a GTP response that might be unsupported (returns empty string for "?" responses).
-    fn parse_optional_response(response: &str) -> Result<String> {
-        if response.starts_with(GTP_SUCCESS_PREFIX) {
-            Ok(response
-                .strip_prefix(GTP_SUCCESS_PREFIX)
-                .unwrap()
-                .trim()
-                .to_string())
-        } else if response.trim() == "=" {
-            // Handle empty success response (just "=")
-            Ok(String::new())
-        } else if response.starts_with(GTP_FAILURE_PREFIX) {
-            Ok(String::new())
+    fn parse_optional_response(response: &str) -> Result<&str> {
+        if let Some(content) = response.strip_prefix(GTP_SUCCESS_PREFIX) {
+            Ok(content.trim())
+        } else if matches!(response.trim(), "=" | "?") || response.starts_with(GTP_FAILURE_PREFIX) {
+            Ok("")
         } else {
             Err(MatchRunnerError::Engine(format!(
                 "Invalid response: {response}"
