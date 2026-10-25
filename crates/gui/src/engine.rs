@@ -8,7 +8,6 @@
 //! `Finished`. Dropping the handle cancels without joining engine threads.
 
 use std::any::Any;
-use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -317,7 +316,6 @@ fn execute(
             level,
         } => {
             let options = SearchRunOptions::with_level(get_level(level)).stop_token(stop);
-            let search = RefCell::new(search);
             analysis::analyze_game(
                 board,
                 &moves,
@@ -325,7 +323,7 @@ fn execute(
                     if !is_current(generation, id) {
                         return Err("Game analysis cancelled".into());
                     }
-                    let result = search.borrow_mut().run(board, &options);
+                    let result = search.run(board, &options);
                     match (result.best_move(), result.score()) {
                         (Some(best_move), Some(score)) => Ok(analysis::Analysis {
                             pv: result.pv_line().to_vec(),

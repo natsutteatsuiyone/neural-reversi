@@ -60,7 +60,7 @@ pub enum GameAnalysisMove {
 pub fn analyze_game(
     initial: Board,
     moves: &[GameAnalysisMove],
-    search: impl Fn(&Board) -> Result<Analysis, String>,
+    mut search: impl FnMut(&Board) -> Result<Analysis, String>,
     is_cancelled: impl Fn() -> bool,
     mut on_progress: impl FnMut(GameAnalysisProgress),
 ) -> Result<(), String> {
@@ -321,10 +321,10 @@ mod tests {
         // d3 (Black) then c3 (White); the final board still has Legal Moves,
         // so search is called for the seed, then once per move backward.
         let moves = vec![play(Square::D3), play(Square::C3)];
-        let call = Cell::new(0usize);
+        let mut call = 0usize;
         let search = |_b: &Board| {
-            let i = call.get();
-            call.set(i + 1);
+            let i = call;
+            call += 1;
             // call 0: final board (seed); call 1: boards[1] (i=1); call 2: boards[0] (i=0)
             Ok(match i {
                 0 => analysis(Square::A1, 2.0, 5),
