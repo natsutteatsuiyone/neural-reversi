@@ -31,7 +31,7 @@ pub use endgame::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {
-    /// Midgame-only level: 73% confidence (t=1.1). Never part of the
+    /// Midgame-only level: 86% confidence (t=1.5). Never part of the
     /// endgame selectivity ladder.
     Mid = 0,
     /// Most aggressive endgame-ladder level: 73% confidence (t=1.1)
@@ -52,7 +52,7 @@ impl Selectivity {
     #[inline]
     pub fn t_value(self) -> f64 {
         match self {
-            Selectivity::Mid => 1.1,
+            Selectivity::Mid => 1.5,
             Selectivity::Level1 => 1.1,
             Selectivity::Level2 => 1.5,
             Selectivity::Level3 => 2.0,
@@ -65,7 +65,7 @@ impl Selectivity {
     #[inline]
     pub fn probability(self) -> i32 {
         match self {
-            Selectivity::Mid => 73,
+            Selectivity::Mid => 86,
             Selectivity::Level1 => 73,
             Selectivity::Level2 => 86,
             Selectivity::Level3 => 95,
