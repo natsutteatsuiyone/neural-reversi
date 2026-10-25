@@ -18,11 +18,13 @@
 //! Blank lines and lines whose only content is a `%` comment yield
 //! `Ok(None)`.
 
+use std::fmt;
+use std::num::ParseIntError;
 use std::str::FromStr;
 
-use crate::board::Board;
+use crate::board::{Board, BoardError};
 use crate::disc::Disc;
-use crate::square::Square;
+use crate::square::{Square, SquareError};
 
 /// A parsed OBF line.
 #[derive(Debug, Clone)]
@@ -48,18 +50,16 @@ impl ObfPosition {
     ///
     /// # Errors
     ///
-    /// Returns an error when the board header, side marker, move-score segment, or score is invalid.
-    pub fn parse(line: &str) -> Result<Option<Self>, String> {
+    /// Returns [`ParseObfError`] when the board header, side marker, move-score segment, or score
+    /// is invalid.
+    pub fn parse(line: &str) -> Result<Option<Self>, ParseObfError> {
         let stripped = line.split('%').next().unwrap_or("").trim();
         if stripped.is_empty() {
             return Ok(None);
         }
 
         let mut segments = stripped.split(';');
-        let header = segments
-            .next()
-            .ok_or_else(|| "Missing board header".to_string())?
-            .trim();
+        let header = segments.next().unwrap_or("").trim();
         let (board, side_to_move) = parse_board_header(header)?;
 
         let mut move_scores = Vec::new();
@@ -70,9 +70,12 @@ impl ObfPosition {
             if segment.is_empty() {
                 continue;
             }
-            let (key, value) = segment
-                .split_once(':')
-                .ok_or_else(|| format!("Invalid move:score format: '{segment}'"))?;
+            let (key, value) =
+                segment
+                    .split_once(':')
+                    .ok_or_else(|| ParseObfError::InvalidSegment {
+                        segment: segment.to_string(),
+                    })?;
             let key = key.trim();
 
             if key.eq_ignore_ascii_case("PS") {
@@ -84,7 +87,10 @@ impl ObfPosition {
                 continue;
             }
 
-            let square = Square::from_str(key).map_err(|e| format!("Invalid move '{key}': {e}"))?;
+            let square = Square::from_str(key).map_err(|source| ParseObfError::InvalidMove {
+                input: key.to_string(),
+                source,
+            })?;
             let score = parse_score(value)?;
             move_scores.push((square, score));
         }
@@ -145,16 +151,93 @@ impl ObfPosition {
     }
 }
 
-fn parse_board_header(header: &str) -> Result<(Board, Disc), String> {
+/// Error returned by [`ObfPosition::parse`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseObfError {
+    /// The board header contains non-ASCII characters.
+    NonAsciiHeader {
+        /// The offending header.
+        header: String,
+    },
+    /// The board header is shorter than 64 board characters plus a side marker.
+    HeaderTooShort {
+        /// The offending header.
+        header: String,
+    },
+    /// No side-to-move marker follows the board characters.
+    MissingSideToMove,
+    /// The side-to-move marker is neither `X` nor `O`.
+    InvalidSideToMove(char),
+    /// The 64 board characters are invalid.
+    InvalidBoard(BoardError),
+    /// A segment is not of the form `move:score`.
+    InvalidSegment {
+        /// The offending segment.
+        segment: String,
+    },
+    /// The move of a `move:score` segment is not a valid square.
+    InvalidMove {
+        /// The offending move text.
+        input: String,
+        /// The underlying square error.
+        source: SquareError,
+    },
+    /// A score is not a valid integer.
+    InvalidScore {
+        /// The offending score text.
+        input: String,
+        /// The underlying integer error.
+        source: ParseIntError,
+    },
+}
+
+impl fmt::Display for ParseObfError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseObfError::NonAsciiHeader { header } => {
+                write!(f, "Board header contains non-ASCII characters: '{header}'")
+            }
+            ParseObfError::HeaderTooShort { header } => write!(
+                f,
+                "Board header too short (need 64 board chars + side): '{header}'"
+            ),
+            ParseObfError::MissingSideToMove => write!(f, "Missing side-to-move marker"),
+            ParseObfError::InvalidSideToMove(c) => write!(f, "Invalid side to move: '{c}'"),
+            ParseObfError::InvalidBoard(e) => write!(f, "Invalid board string: {e}"),
+            ParseObfError::InvalidSegment { segment } => {
+                write!(f, "Invalid move:score format: '{segment}'")
+            }
+            ParseObfError::InvalidMove { input, source } => {
+                write!(f, "Invalid move '{input}': {source}")
+            }
+            ParseObfError::InvalidScore { input, source } => {
+                write!(f, "Invalid score '{input}': {source}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParseObfError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ParseObfError::InvalidBoard(e) => Some(e),
+            ParseObfError::InvalidMove { source, .. } => Some(source),
+            ParseObfError::InvalidScore { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+fn parse_board_header(header: &str) -> Result<(Board, Disc), ParseObfError> {
     if !header.is_ascii() {
-        return Err(format!(
-            "Board header contains non-ASCII characters: '{header}'"
-        ));
+        return Err(ParseObfError::NonAsciiHeader {
+            header: header.to_string(),
+        });
     }
     if header.len() < 65 {
-        return Err(format!(
-            "Board header too short (need 64 board chars + side): '{header}'"
-        ));
+        return Err(ParseObfError::HeaderTooShort {
+            header: header.to_string(),
+        });
     }
 
     let board_str = &header[..64];
@@ -162,25 +245,27 @@ fn parse_board_header(header: &str) -> Result<(Board, Disc), String> {
         .trim_start()
         .chars()
         .next()
-        .ok_or_else(|| "Missing side-to-move marker".to_string())?;
+        .ok_or(ParseObfError::MissingSideToMove)?;
 
     let side_to_move = match side_char {
         'X' => Disc::Black,
         'O' => Disc::White,
-        other => return Err(format!("Invalid side to move: '{other}'")),
+        other => return Err(ParseObfError::InvalidSideToMove(other)),
     };
 
-    let board = Board::from_string(board_str, side_to_move)
-        .map_err(|e| format!("Invalid board string: {e}"))?;
+    let board = Board::from_string(board_str, side_to_move).map_err(ParseObfError::InvalidBoard)?;
 
     Ok((board, side_to_move))
 }
 
-fn parse_score(s: &str) -> Result<i32, String> {
+fn parse_score(s: &str) -> Result<i32, ParseObfError> {
     s.trim()
         .trim_start_matches('+')
         .parse()
-        .map_err(|e| format!("Invalid score '{s}': {e}"))
+        .map_err(|source| ParseObfError::InvalidScore {
+            input: s.to_string(),
+            source,
+        })
 }
 
 #[cfg(test)]
@@ -254,34 +339,34 @@ mod tests {
     fn rejects_invalid_side_marker() {
         let line = format!("{INITIAL_BOARD} Z");
         let err = ObfPosition::parse(&line).unwrap_err();
-        assert!(err.contains("Invalid side to move"), "{err}");
+        assert_eq!(err, ParseObfError::InvalidSideToMove('Z'));
     }
 
     #[test]
     fn rejects_short_header() {
         let err = ObfPosition::parse("XO").unwrap_err();
-        assert!(err.contains("too short"), "{err}");
+        assert!(matches!(err, ParseObfError::HeaderTooShort { .. }), "{err}");
     }
 
     #[test]
     fn rejects_malformed_segment() {
         let line = format!("{INITIAL_BOARD} X; not_a_pair");
         let err = ObfPosition::parse(&line).unwrap_err();
-        assert!(err.contains("move:score"), "{err}");
+        assert!(matches!(err, ParseObfError::InvalidSegment { .. }), "{err}");
     }
 
     #[test]
     fn rejects_invalid_move_name() {
         let line = format!("{INITIAL_BOARD} X; z9:+10");
         let err = ObfPosition::parse(&line).unwrap_err();
-        assert!(err.contains("Invalid move"), "{err}");
+        assert!(matches!(err, ParseObfError::InvalidMove { .. }), "{err}");
     }
 
     #[test]
     fn rejects_invalid_score() {
         let line = format!("{INITIAL_BOARD} X; e6:not_a_number");
         let err = ObfPosition::parse(&line).unwrap_err();
-        assert!(err.contains("Invalid score"), "{err}");
+        assert!(matches!(err, ParseObfError::InvalidScore { .. }), "{err}");
     }
 
     #[test]
@@ -303,7 +388,7 @@ mod tests {
     fn rejects_non_ascii_header() {
         let line = format!("{}_X", "あ".repeat(64));
         let err = ObfPosition::parse(&line).unwrap_err();
-        assert!(err.contains("non-ASCII"), "{err}");
+        assert!(matches!(err, ParseObfError::NonAsciiHeader { .. }), "{err}");
     }
 
     #[test]

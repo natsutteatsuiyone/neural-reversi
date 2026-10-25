@@ -193,7 +193,7 @@ fn parse_obf_file(path: &Path) -> Result<Vec<TestCase>, String> {
     for (line_idx, line) in content.lines().enumerate() {
         let line_number = line_idx + 1;
         let report = |e: String| format!("{}:{line_number}: {e}", path.display());
-        let Some(pos) = ObfPosition::parse(line).map_err(report)? else {
+        let Some(pos) = ObfPosition::parse(line).map_err(|e| report(e.to_string()))? else {
             continue;
         };
         cases.push(TestCase::new(line_number, pos).map_err(report)?);
