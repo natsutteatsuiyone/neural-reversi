@@ -2,11 +2,12 @@
 //!
 //! The main thread runs the iterative deepening of [`search_root`]; every
 //! other thread of the pool runs a helper search on the same root. The
-//! threads share results only through the transposition table, and each
-//! helper walks the tree its own way: it skips some depths, opens wider
-//! aspiration windows, and orders moves differently, so the threads spread
-//! over different parts of the tree. A timed search reports the move that
-//! the threads' last completed iterations vote for.
+//! threads share results only through the transposition table and the
+//! evaluation cache, and each helper walks the tree its own way: it skips
+//! some depths, widens its aspiration windows by an amount taken from its
+//! index, and orders moves differently, so the threads spread over
+//! different parts of the tree. A timed search reports the move that the
+//! threads' last completed iterations vote for.
 //!
 //! [`search_root`]: super::search_root
 

@@ -10,7 +10,7 @@
   --content-pad-x: clamp(16px, 3vw, 28px);
   --panel-width: 300px;
 
-  /* Palette ported from the Tauri GUI (crates/gui App.css) */
+  /* Palette ported from the original Tauri GUI (App.css) */
   --background: #1c1c21;
   --background-secondary: #252529;
   --background-muted: #2e2e33;

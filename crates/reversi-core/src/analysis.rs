@@ -4,9 +4,9 @@
 //! The engine Search is injected at a seam (`search`), so the replay and the
 //! backward Score-Loss propagation — the bug-prone part — are exercised with a
 //! fake scorer instead of the neural-network engine. Cancellation and progress
-//! delivery are likewise injected, keeping this module free of `Arc<Mutex>`,
-//! `Level`, and Tauri. Callers own the wiring — the Tauri GUI's
-//! `analyze_game_command` is the reference consumer.
+//! delivery are likewise injected, keeping this module free of `Arc<Mutex>`
+//! and `Level`. Callers own the wiring — the GUI's `Request::AnalyzeGame`
+//! handler in `crates/gui/src/engine.rs` is the reference consumer.
 
 use crate::board::Board;
 use crate::square::Square;

@@ -1,6 +1,6 @@
 // Vanilla three.js 3D Reversi board.
 //
-// Visual design ported from the Tauri GUI (crates/gui Board3DScene + friends):
+// Visual design ported from the original Tauri GUI (Board3DScene + friends):
 // orthographic top-down camera, procedural green felt surface with grid grooves,
 // dark gunmetal frame, glossy MeshPhysical discs with drop/flip animations, gold
 // last-move ring and translucent valid-move dots. Kept framework-free so it can
@@ -234,9 +234,9 @@ export function createBoard3D(container, { onCellClick }) {
   camera.rotation.set(-Math.PI / 2, 0, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  // Match react-three-fiber's <Canvas> defaults (used by the GUI): ACES filmic
-  // tone mapping deepens the felt/disc colors that otherwise wash out flat under
-  // the bright environment map + directional lights.
+  // Match react-three-fiber's <Canvas> defaults (used by the original GUI):
+  // ACES filmic tone mapping deepens the felt/disc colors that otherwise wash
+  // out flat under the bright environment map + directional lights.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -247,7 +247,7 @@ export function createBoard3D(container, { onCellClick }) {
   renderer.domElement.style.width = "100%";
   renderer.domElement.style.height = "100%";
 
-  // --- Lights (mirrors gui Board3DScene) ---
+  // --- Lights (mirrors the original Board3DScene) ---
   scene.add(new THREE.AmbientLight(0xffffff, 0.25));
   const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
   keyLight.position.set(5, 6, 4);
