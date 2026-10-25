@@ -20,7 +20,7 @@ use crate::error::{MatchRunnerError, Result};
 use crate::opening::{Opening, board_string, color, random_position};
 use crate::sprt::{Sprt, SprtResult, SprtStatus};
 use crate::statistics::{MatchStatistics, MatchWinner};
-use crate::time_tracker::TimeTracker;
+use crate::time_tracker::{PlayerColor, TimeTracker};
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 static INTERRUPT_HANDLER: OnceLock<std::result::Result<(), String>> = OnceLock::new();
@@ -222,7 +222,12 @@ fn play_game(
             white_engine.genmove("white")?
         };
 
-        let flagged = !time_tracker.end_move(is_black) && time_tracker.is_enabled();
+        let mover = if is_black {
+            PlayerColor::Black
+        } else {
+            PlayerColor::White
+        };
+        let flagged = !time_tracker.end_move(mover) && time_tracker.is_enabled();
         if flagged || mv.eq_ignore_ascii_case("resign") {
             return Ok(if is_black {
                 MatchResult {
