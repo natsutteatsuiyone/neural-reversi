@@ -15,6 +15,7 @@ use reversi_core::{
 };
 
 use crate::config::EngineConfig;
+use crate::text::visible;
 
 const NUM_WIDTH: usize = 5;
 const DEPTH_WIDTH: usize = 6;
@@ -57,7 +58,11 @@ pub fn solve(
             Ok(Some(pos)) => pos,
             Ok(None) => continue,
             Err(e) => {
-                eprintln!("Error parsing line {}: {}", line_num + 1, e);
+                eprintln!(
+                    "Error parsing line {}: {}",
+                    line_num + 1,
+                    visible(&e.to_string())
+                );
                 continue;
             }
         };

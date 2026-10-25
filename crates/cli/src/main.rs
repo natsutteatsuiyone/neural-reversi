@@ -3,6 +3,7 @@ mod game;
 mod ggs;
 mod gtp;
 mod solve;
+mod text;
 mod tui;
 
 use std::path::PathBuf;
@@ -235,7 +236,7 @@ fn main() {
                 },
                 &config,
             ) {
-                eprintln!("GGS session error: {e}");
+                eprintln!("GGS session error: {}", text::visible(&e.to_string()));
                 // A distinct code lets reconnect loops stop on a bad login.
                 let code = match e {
                     ggs::GgsError::LoginRejected(_) => 2,

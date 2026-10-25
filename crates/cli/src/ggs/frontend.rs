@@ -26,6 +26,7 @@ use reversi_core::square::Square;
 
 use super::protocol::MatchState;
 use super::session::{self, Activity, GameView};
+use crate::text::visible;
 
 /// The session's games, by game id.
 type Games = BTreeMap<String, GameView>;
@@ -70,7 +71,7 @@ impl Frontend {
 
     pub(super) fn server_line(&mut self, line: &str) {
         match self {
-            Self::Plain => println!("{line}"),
+            Self::Plain => println!("{}", visible(line)),
             // READY / ALERT only delimit responses.
             Self::Tui(_) if matches!(line.trim(), "READY" | "ALERT") => {}
             Self::Tui(tui) => tui.model.push_line(line.to_string()),
@@ -79,7 +80,7 @@ impl Frontend {
 
     pub(super) fn log(&mut self, message: &str) {
         match self {
-            Self::Plain => eprintln!("[ggs] {message}"),
+            Self::Plain => eprintln!("[ggs] {}", visible(message)),
             Self::Tui(tui) => tui.model.push_line(format!("[ggs] {message}")),
         }
     }
@@ -1222,18 +1223,6 @@ impl Editor {
         self.history.push(text.clone());
         text.split('\n').map(str::to_string).collect()
     }
-}
-
-fn visible(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    for character in text.chars() {
-        if character.is_control() {
-            result.extend(character.escape_default());
-        } else {
-            result.push(character);
-        }
-    }
-    result
 }
 
 fn width(text: &str) -> usize {
