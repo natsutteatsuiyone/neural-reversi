@@ -161,8 +161,8 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from("─".repeat(inner_area.width as usize)));
 
     // Move history
-    let history = app.game.move_history();
-    if !history.is_empty() {
+    let mut history = app.game.move_history().peekable();
+    if history.peek().is_some() {
         lines.push(Line::from(Span::styled(
             "History:",
             Style::default().fg(Color::Cyan),
@@ -173,8 +173,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
         let mut current_spans: Vec<Span> = vec![Span::raw(" ")];
         let mut current_len = 1usize;
 
-        for (i, sq) in history.iter().enumerate() {
-            let is_black = i % 2 == 0;
+        for (side, sq) in history {
             let move_str = format!("{} ", sq);
             let move_len = move_str.len();
 
@@ -184,7 +183,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
                 current_len = 1;
             }
 
-            let color = if is_black {
+            let color = if side == Disc::Black {
                 Color::Green
             } else {
                 Color::Yellow

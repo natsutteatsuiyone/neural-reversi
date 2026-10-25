@@ -170,12 +170,11 @@ impl GameState {
         self.core.score()
     }
 
-    /// Returns the move history as a list of squares, excluding passes.
-    pub fn move_history(&self) -> Vec<Square> {
+    /// Returns the played moves with the side that played each, excluding passes.
+    pub fn move_history(&self) -> impl Iterator<Item = (Disc, Square)> + '_ {
         self.core
             .move_history()
             .iter()
-            .filter_map(|entry| entry.action.square())
-            .collect()
+            .filter_map(|entry| Some((entry.side_to_move, entry.action.square()?)))
     }
 }
