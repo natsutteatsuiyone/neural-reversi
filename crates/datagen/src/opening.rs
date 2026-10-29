@@ -5,7 +5,9 @@ use std::{
     path::Path,
 };
 
-use reversi_core::{board::Board, move_list::MoveList, square::Square, types::Depth};
+use reversi_core::{
+    board::Board, game_state::GameState, move_list::MoveList, square::Square, types::Depth,
+};
 
 /// Generates all possible Reversi opening sequences up to the specified depth.
 ///
@@ -99,13 +101,18 @@ pub fn load_openings(path: &str) -> io::Result<Vec<Vec<Square>>> {
     let reader = BufReader::new(file);
     let mut openings = Vec::new();
 
-    for line in reader.lines() {
+    for (line_no, line) in reader.lines().enumerate() {
         let line = line?;
-        let sequence = Square::parse_sequence(&line).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Invalid square notation: {e}"),
-            )
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let line_no = line_no + 1;
+        let sequence = Square::parse_sequence(line).map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("Line {line_no}: {e}"))
+        })?;
+        GameState::from_moves(&sequence).map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("Line {line_no}: {e}"))
         })?;
         openings.push(sequence);
     }
