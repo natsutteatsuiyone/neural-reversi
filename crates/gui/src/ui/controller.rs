@@ -140,7 +140,6 @@ impl ReversiApp {
                 self.license.end_drag();
                 self.menu_section = None;
                 self.notification.clear();
-                self.session.automate(&self.settings);
             }
             Action::Settings => {
                 self.menu_section = None;

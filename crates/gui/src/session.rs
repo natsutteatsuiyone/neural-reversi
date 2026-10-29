@@ -307,7 +307,7 @@ impl Session {
     }
 
     /// Starts the search the current position calls for, if idle.
-    pub fn automate(&mut self, settings: &Settings) {
+    fn automate(&mut self, settings: &Settings) {
         if !self.ready
             || self.activity.is_some()
             || self.game.position().game_over()
