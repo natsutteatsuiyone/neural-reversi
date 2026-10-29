@@ -158,7 +158,7 @@ fn clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     clipped_relu_scalar(input, output, start_idx);
 }
 
-/// Applies the Stockfish-style square-clipped activation to `input`.
+/// Applies the squared clipped ReLU activation to `input`.
 ///
 /// Negative inputs are squared just like positive ones (no rectification) before scaling and clipping.
 /// Output = min((input² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)), 255).

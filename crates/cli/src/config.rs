@@ -5,9 +5,6 @@ use std::path::PathBuf;
 use reversi_core::search::options::SearchOptions;
 
 /// Engine parameters resolved from CLI arguments.
-///
-/// Passing this one struct to each mode replaces threading six positional
-/// arguments through every entry point.
 pub struct EngineConfig {
     pub hash_size: usize,
     pub level: usize,

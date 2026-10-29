@@ -604,7 +604,7 @@ test("reveals engine stats on hovering the move-log robot icon", async ({ page }
   await evalChip.hover();
   const tooltip = page.locator(".stats-tooltip");
   await expect(tooltip).toBeVisible();
-  // Depth carries the Edax-style selectivity suffix (depth@selectivity).
+  // Depth carries the selectivity suffix (depth@selectivity).
   await expect(tooltip).toContainText("12@99");
   await expect(tooltip).toContainText("1.2M");
   await expect(tooltip).toContainText("5.0 MN/s");

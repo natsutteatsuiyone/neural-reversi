@@ -5,7 +5,7 @@ pub(super) enum ScorePrecision {
     Raw,
 }
 
-// Match the previous UI's whole-disc rounding, including negative half scores.
+// Rounds halves toward positive infinity, including negative half scores.
 pub(super) fn whole_score(score: f32) -> i32 {
     (score + 0.5).floor() as i32
 }

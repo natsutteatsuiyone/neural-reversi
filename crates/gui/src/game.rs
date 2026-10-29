@@ -268,7 +268,7 @@ impl Game {
         self.cursor = cursor.min(self.history.len());
     }
 
-    /// Exports the visible prefix, omitting passes exactly as the old UI did.
+    /// Exports the visible prefix without passes.
     pub fn transcript(&self) -> String {
         self.history[..self.cursor]
             .iter()

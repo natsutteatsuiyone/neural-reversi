@@ -282,8 +282,8 @@ fn parse_match_created(body: &str, my_username: &str) -> Option<OsEvent> {
 fn parse_match_end(body: &str, my_username: &str) -> Option<OsEvent> {
     // Expect: <id> <r1> <n1> <r2> <n2> <variant> <type> <result...>
     // The result is numeric for completed games, but can be text such as
-    // `aborted` or `<name> left` for interrupted games. The Java client and
-    // Edax both treat any `- match` as a match end, regardless of score shape.
+    // `aborted` or `<name> left` for interrupted games; any `- match` ends the
+    // match, regardless of score shape.
     // Rated matches append a global counter after the result. Logins may be
     // numeric, so `<name> left` must be ruled out before parsing a score.
     let parts: Vec<&str> = body.split_whitespace().collect();

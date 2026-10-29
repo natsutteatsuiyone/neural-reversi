@@ -790,7 +790,7 @@ function formatEngineStats(stats) {
   }
   const selectivity = Math.round(stats.selectivity);
   return {
-    // Edax-style `depth@selectivity`; the suffix is dropped for exact (100%) search.
+    // `depth@selectivity`; the suffix is dropped for exact (100%) search.
     depth: selectivity >= 100 ? String(stats.depth) : `${stats.depth}@${selectivity}`,
     nodes: formatNodes(stats.nodes),
     nps: formatNps(stats.nps),
