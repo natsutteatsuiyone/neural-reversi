@@ -210,7 +210,7 @@ impl ReversiApp {
             }
             Action::Turn(turn) => {
                 self.setup.turn = turn;
-                self.setup.error = None;
+                self.setup.refresh(cx);
             }
             Action::ClearBoard => {
                 self.setup.cells.fill(Disc::Empty);
