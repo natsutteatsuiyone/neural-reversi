@@ -164,7 +164,6 @@ const state = reactive({
   scoreBlack: 2,
   scoreWhite: 2,
   emptyCount: 60,
-  searchProgress: null,
   statsTooltip: { visible: false, stats: null, style: {} },
   isNarrow: NARROW_QUERY.matches,
   isHumanTurn: false,
@@ -312,7 +311,7 @@ worker.onmessage = async (event) => {
       if (aiMoveOccurred) {
         state.lastAiMove = payload.move;
         state.lastHumanMove = null;
-        const evaluation = state.searchProgress?.score;
+        const evaluation = payload.engineStats?.score;
         logMove(state.aiColor, payload.move, { evaluation, engineStats: payload.engineStats });
       } else if (!nextState.isGameOver && nextState.currentPlayer === state.humanColor) {
         state.lastAiMove = null;
@@ -338,9 +337,6 @@ worker.onmessage = async (event) => {
       workerApi.getState();
       break;
     }
-    case "search_progress":
-      handleSearchProgress(payload);
-      break;
     case "replay_completed":
       clearHints();
       syncStateFromGame(payload);
@@ -654,7 +650,6 @@ function runAiTurn() {
   }
 
   state.aiThinking = true;
-  state.searchProgress = null;
   workerApi.aiMove();
 }
 
@@ -734,10 +729,6 @@ function clampLevelValue(value) {
     return LEVEL_MAX;
   }
   return rounded;
-}
-
-function handleSearchProgress(update) {
-  state.searchProgress = { score: Number(update?.score ?? 0) };
 }
 
 function formatNodes(value) {

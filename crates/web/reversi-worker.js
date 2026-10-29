@@ -34,11 +34,6 @@ self.onmessage = async (event) => {
       game.set_level(payload.level);
       game.set_progress_callback((progress) => {
         lastSearchProgress = progress;
-        self.postMessage({
-          type: "search_progress",
-          payload: progress,
-          generation: currentGeneration,
-        });
       });
       self.postMessage({
         type: "initialized",
