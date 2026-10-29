@@ -1,14 +1,12 @@
 //! Serialized, off-thread access to the native engine.
 //!
-//! `new` initializes asynchronously and reports `Ready` (or `Error`) with id 0.
+//! `new` initializes asynchronously and reports `Ready` with id 0.
 //! Every submission and cancellation supersedes earlier generations. Cancelled
 //! jobs have no terminal event; `try_recv` also discards already-queued stale
 //! events. Callers should retain the returned id when associating events with UI
 //! state. Initialize completes with `Ready`; all search requests complete with
 //! `Finished`. Dropping the handle cancels without joining engine threads.
 
-use std::any::Any;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -208,7 +206,6 @@ fn worker(
     hash_size: usize,
 ) {
     let mut search = None;
-    let mut initialization_error = None;
     let mut job = Job {
         id: 0,
         request: Request::Initialize { hash_size },
@@ -219,31 +216,8 @@ fn worker(
         // worker started. Later obsolete jobs can be skipped without searching.
         if job.id == 0 || is_current(&generation, job.id) {
             let active_id = job.id;
-            // Core initialization currently exposes only a panicking constructor.
-            // This recovers unwind panics, not panic=abort builds or allocator OOM.
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                execute(
-                    job,
-                    &mut search,
-                    initialization_error.as_deref(),
-                    &events,
-                    &generation,
-                )
-            }));
-            let result = match result {
-                Ok(result) => result,
-                Err(payload) => {
-                    let error = panic_message(payload);
-                    search = None;
-                    initialization_error = Some(error.clone());
-                    Err(error)
-                }
-            };
-            match result {
-                Ok((id, kind)) => {
-                    initialization_error = None;
-                    emit(&events, &generation, id, kind);
-                }
+            match execute(job, &mut search, &events, &generation) {
+                Ok((id, kind)) => emit(&events, &generation, id, kind),
                 Err(error) => {
                     // `execute` returns only errors for the job being processed;
                     // do not retag a stale failure as a successor's result.
@@ -261,7 +235,6 @@ fn worker(
 fn execute(
     job: Job,
     search: &mut Option<Search>,
-    initialization_error: Option<&str>,
     events: &Sender<Event>,
     generation: &Arc<AtomicU64>,
 ) -> Result<(u64, EventKind), String> {
@@ -275,12 +248,9 @@ fn execute(
         }
         return Ok((id, EventKind::Ready));
     }
-    let search = search.as_mut().ok_or_else(|| {
-        format!(
-            "AI backend unavailable: {}",
-            initialization_error.unwrap_or("initialization did not complete")
-        )
-    })?;
+    let search = search
+        .as_mut()
+        .expect("the worker runs Initialize before any other job");
     let start = Instant::now();
     let (board, options) = match request {
         Request::Move {
@@ -404,17 +374,6 @@ fn outcome(result: &SearchResult, start: Instant) -> Outcome {
         score: result.score().map(round_score),
         elapsed_ms: start.elapsed().as_millis() as u64,
     }
-}
-
-fn panic_message(payload: Box<dyn Any + Send>) -> String {
-    let detail = if let Some(message) = payload.downcast_ref::<String>() {
-        message.as_str()
-    } else if let Some(message) = payload.downcast_ref::<&str>() {
-        message
-    } else {
-        "unknown engine panic"
-    };
-    format!("AI backend failed: {detail}")
 }
 
 #[cfg(test)]
