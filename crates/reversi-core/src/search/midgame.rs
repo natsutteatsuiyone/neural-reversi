@@ -78,10 +78,11 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         return SearchResult::NoLegalMove;
     }
 
-    let n_empties = ctx.empty_list.count();
-    if n_empties == INITIAL_EMPTY_COUNT as u32 && !task.multi_pv {
+    if board == Board::new() && !task.multi_pv {
         return SearchResult::new_random_move(random_move(&board));
     }
+
+    let n_empties = ctx.empty_list.count();
 
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
     let helpers = Helpers::start(&task, max_depth);
