@@ -532,18 +532,11 @@ impl App {
             return;
         }
 
-        // Undo twice if playing against AI (undo AI's move and player's move)
-        let undo_count = if matches!(self.mode, GameMode::HumanVsAi | GameMode::AiVsHuman) {
-            2
-        } else {
-            1
-        };
-
+        let vs_ai = matches!(self.mode, GameMode::HumanVsAi | GameMode::AiVsHuman);
         let mut undone = false;
-        for _ in 0..undo_count {
-            if self.game.undo() {
-                undone = true;
-            } else {
+        while self.game.undo() {
+            undone = true;
+            if !vs_ai || !self.mode.is_ai_turn(self.game.side_to_move()) {
                 break;
             }
         }
@@ -838,5 +831,33 @@ mod tests {
         assert_eq!(parse_level_input(""), None);
         assert_eq!(parse_level_input("abc"), None);
         assert_eq!(parse_level_input("-1"), None);
+    }
+
+    #[test]
+    fn undo_against_ai_returns_to_human_turn_across_forced_pass() {
+        use reversi_core::board::Board;
+
+        let start = Board::from_string(
+            "------------X---X-----O--O--O-O-O------------O----X--------X----",
+            Disc::Black,
+        )
+        .unwrap();
+        let mut app = App::new(&EngineConfig {
+            hash_size: 1,
+            level: 1,
+            threads: Some(1),
+            eval_file: None,
+            eval_sm_file: None,
+        });
+        app.game = GameState::from_board(start, Disc::Black);
+        app.game.make_move(Square::C5).unwrap();
+        app.game.make_move(Square::C3).unwrap();
+        app.game.make_move(Square::D6).unwrap();
+
+        app.undo_move();
+
+        assert_eq!(*app.game.board(), start);
+        assert_eq!(app.game.side_to_move(), Disc::Black);
+        assert!(app.game.move_history().is_empty());
     }
 }
