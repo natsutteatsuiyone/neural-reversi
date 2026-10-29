@@ -266,8 +266,8 @@ impl GtpEngine {
     ///
     /// # Returns
     /// A new `GtpEngine` instance ready to process commands
-    pub fn new(config: &EngineConfig) -> io::Result<Self> {
-        Ok(Self {
+    pub fn new(config: &EngineConfig) -> Self {
+        Self {
             game: GameState::new(),
             search: search::Search::new(&config.search_options()),
             level: config.level,
@@ -278,7 +278,7 @@ impl GtpEngine {
             white_time_ms: 0,
             black_byo_stones_left: 0,
             white_byo_stones_left: 0,
-        })
+        }
     }
 
     /// Runs the main GTP command loop.
@@ -957,7 +957,7 @@ mod tests {
             eval_file: None,
             eval_sm_file: None,
         };
-        let mut engine = GtpEngine::new(&config).unwrap();
+        let mut engine = GtpEngine::new(&config);
         // White (b1) has no move; Black can play c1.
         let text = format!("XO------X-------X-------{}", "-".repeat(40));
         assert!(matches!(
@@ -1011,7 +1011,7 @@ mod tests {
             eval_file: None,
             eval_sm_file: None,
         };
-        let mut engine = GtpEngine::new(&config).unwrap();
+        let mut engine = GtpEngine::new(&config);
         let full = format!("{}O", "X".repeat(63));
         assert!(matches!(
             engine.handle_setboard(&full, "B"),

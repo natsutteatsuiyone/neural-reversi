@@ -189,10 +189,7 @@ fn main() {
     match args.command {
         Some(SubCommands::Gtp { engine_params }) => {
             let config = EngineConfig::from(engine_params);
-            let mut gtp_engine = gtp::GtpEngine::new(&config).unwrap_or_else(|err| {
-                eprintln!("Failed to initialize engine: {err}");
-                std::process::exit(1);
-            });
+            let mut gtp_engine = gtp::GtpEngine::new(&config);
             gtp_engine.run();
         }
         Some(SubCommands::Solve {
