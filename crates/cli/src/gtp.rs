@@ -252,10 +252,6 @@ pub struct GtpEngine {
     black_time_ms: u64,
     /// Remaining time for White in milliseconds
     white_time_ms: u64,
-    /// Whether Black is currently in byo-yomi phase
-    black_in_byoyomi: bool,
-    /// Whether White is currently in byo-yomi phase
-    white_in_byoyomi: bool,
     /// Remaining stones in the current byo-yomi period for Black
     black_byo_stones_left: u32,
     /// Remaining stones in the current byo-yomi period for White
@@ -280,8 +276,6 @@ impl GtpEngine {
             time_control: TimeControlMode::Infinite,
             black_time_ms: 0,
             white_time_ms: 0,
-            black_in_byoyomi: false,
-            white_in_byoyomi: false,
             black_byo_stones_left: 0,
             white_byo_stones_left: 0,
         })
@@ -665,33 +659,18 @@ impl GtpEngine {
                 time_per_move_ms: configured_time_per_move_ms,
                 ..
             } => {
-                let (remaining_time_ms, in_byoyomi, byo_stones_left) =
-                    match self.game.side_to_move() {
-                        Disc::Black => (
-                            self.black_time_ms,
-                            self.black_in_byoyomi,
-                            self.black_byo_stones_left,
-                        ),
-                        Disc::White => (
-                            self.white_time_ms,
-                            self.white_in_byoyomi,
-                            self.white_byo_stones_left,
-                        ),
-                        _ => (0, false, 0),
-                    };
+                let (remaining_time_ms, byo_stones_left) = match self.game.side_to_move() {
+                    Disc::Black => (self.black_time_ms, self.black_byo_stones_left),
+                    Disc::White => (self.white_time_ms, self.white_byo_stones_left),
+                    _ => (0, 0),
+                };
 
-                if in_byoyomi {
+                if byo_stones_left > 0 {
                     // GTP reports the remaining time for the current byoyomi period.
                     // Convert that shared period into a per-move budget for search.
-                    let time_per_move_ms = if byo_stones_left > 0 {
-                        remaining_time_ms / byo_stones_left as u64
-                    } else {
-                        configured_time_per_move_ms
-                    };
-
                     TimeControlMode::JapaneseByo {
                         main_time_ms: 0,
-                        time_per_move_ms,
+                        time_per_move_ms: remaining_time_ms / byo_stones_left as u64,
                     }
                 } else {
                     TimeControlMode::JapaneseByo {
@@ -857,8 +836,6 @@ impl GtpEngine {
         let main_time_ms = main_time * 1000;
         let byoyomi_time_ms = byoyomi_time * 1000;
 
-        self.black_in_byoyomi = false;
-        self.white_in_byoyomi = false;
         self.black_byo_stones_left = 0;
         self.white_byo_stones_left = 0;
 
@@ -905,8 +882,6 @@ impl GtpEngine {
             };
             self.black_time_ms = byoyomi_time_ms;
             self.white_time_ms = byoyomi_time_ms;
-            self.black_in_byoyomi = true;
-            self.white_in_byoyomi = true;
             self.black_byo_stones_left = byoyomi_stones;
             self.white_byo_stones_left = byoyomi_stones;
         } else {
@@ -928,19 +903,20 @@ impl GtpEngine {
     /// * `stones` - Number of stones remaining in current period (0 if not applicable)
     fn handle_time_left(&mut self, color: &str, time: u64, stones: u32) -> GtpResponse {
         let time_ms = time * 1000;
-        let in_byoyomi =
-            matches!(self.time_control, TimeControlMode::JapaneseByo { .. }) && stones > 0;
+        let stones_left = if matches!(self.time_control, TimeControlMode::JapaneseByo { .. }) {
+            stones
+        } else {
+            0
+        };
 
         match color {
             "b" | "black" => {
                 self.black_time_ms = time_ms;
-                self.black_in_byoyomi = in_byoyomi;
-                self.black_byo_stones_left = if in_byoyomi { stones } else { 0 };
+                self.black_byo_stones_left = stones_left;
             }
             "w" | "white" => {
                 self.white_time_ms = time_ms;
-                self.white_in_byoyomi = in_byoyomi;
-                self.white_byo_stones_left = if in_byoyomi { stones } else { 0 };
+                self.white_byo_stones_left = stones_left;
             }
             _ => {
                 return GtpResponse::Error(
