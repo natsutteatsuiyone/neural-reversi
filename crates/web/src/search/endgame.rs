@@ -571,66 +571,26 @@ mod tests {
     use super::*;
     use reversi_core::empty_list::EmptyList as TestEmptyList;
 
-    fn sort_last4_reference(empty_list: &TestEmptyList) -> (Square, Square, Square, Square) {
-        let (sq1, quad_id1) = empty_list.first_and_quad_id();
-        let (sq2, quad_id2) = empty_list.next_and_quad_id(sq1);
-        let (sq3, quad_id3) = empty_list.next_and_quad_id(sq2);
-        let sq4 = empty_list.next(sq3);
-        let parity = empty_list.parity();
-
-        if parity & quad_id1 == 0 {
-            if parity & quad_id2 != 0 {
-                if parity & quad_id3 != 0 {
-                    (sq2, sq3, sq1, sq4)
-                } else {
-                    (sq2, sq4, sq1, sq3)
-                }
-            } else if parity & quad_id3 != 0 {
-                (sq3, sq4, sq1, sq2)
-            } else {
-                (sq1, sq2, sq3, sq4)
-            }
-        } else if parity & quad_id2 == 0 {
-            if parity & quad_id3 != 0 {
-                (sq1, sq3, sq2, sq4)
-            } else {
-                (sq1, sq4, sq2, sq3)
-            }
-        } else {
-            (sq1, sq2, sq3, sq4)
-        }
-    }
-
     #[test]
-    fn sort_last4_matches_branchy_reference() {
-        const POOLS: [[Square; 4]; 4] = [
-            [Square::B2, Square::C2, Square::B3, Square::D3],
-            [Square::G2, Square::F2, Square::G3, Square::E3],
-            [Square::B7, Square::C7, Square::B6, Square::D6],
-            [Square::G7, Square::F7, Square::G6, Square::E6],
+    fn sort_last4_puts_odd_quadrants_first() {
+        use Square::{A1, A3, A6, A8, C1, C8, F1, H1, H6, H8};
+
+        // Empties in list order, then the expected search order.
+        let cases = [
+            ([A1, H1, C1, F1], (A1, H1, C1, F1)), // every quadrant even
+            ([A1, H1, A8, H8], (A1, H1, A8, H8)), // every quadrant odd
+            ([A1, H1, C1, A3], (A1, H1, C1, A3)), // three empties in one quadrant
+            ([A1, C1, A6, H6], (A6, H6, A1, C1)), // even pair 1st and 2nd
+            ([A1, H1, C1, A6], (H1, A6, A1, C1)), // even pair 1st and 3rd
+            ([A1, H1, A8, C1], (H1, A8, A1, C1)), // even pair 1st and 4th
+            ([A1, H1, F1, A6], (A1, A6, H1, F1)), // even pair 2nd and 3rd
+            ([A1, H1, A8, F1], (A1, A8, H1, F1)), // even pair 2nd and 4th
+            ([A1, H1, A8, C8], (A1, H1, A8, C8)), // even pair 3rd and 4th
         ];
-
-        for pattern in 0..256usize {
-            let mut used = [0usize; 4];
-            let mut empty_bits = 0u64;
-            for i in 0..4 {
-                let quad = (pattern >> (2 * i)) & 3;
-                let sq = POOLS[quad][used[quad]];
-                used[quad] += 1;
-                empty_bits |= 1 << sq.index();
-            }
-
-            let occupied = !empty_bits;
-            let player = occupied & 0xAAAA_AAAA_AAAA_AAAA;
-            let opponent = occupied & !0xAAAA_AAAA_AAAA_AAAAu64;
-            let board = Board::from_bitboards(player, opponent);
-            let empty_list = TestEmptyList::new(&board);
-
-            assert_eq!(
-                sort_last4(&empty_list),
-                sort_last4_reference(&empty_list),
-                "pattern {pattern:#010b}"
-            );
+        for (empties, expected) in cases {
+            let empty_bits = empties.iter().fold(0u64, |bits, sq| bits | 1 << sq.index());
+            let empty_list = TestEmptyList::new(&Board::from_bitboards(!empty_bits, 0u64));
+            assert_eq!(sort_last4(&empty_list), expected, "{empties:?}");
         }
     }
 }
