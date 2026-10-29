@@ -714,7 +714,7 @@ impl App {
             BoardEditTab::BoardString => {
                 Board::from_string(&self.board_edit_input, self.board_edit_side)
                     .map(|board| GameState::from_board(board, self.board_edit_side))
-                    .map_err(|e| format!("{e:?}"))
+                    .map_err(|e| e.to_string())
             }
             BoardEditTab::Bitboard => {
                 let player = parse::parse_hex_u64(&self.board_edit_input);
