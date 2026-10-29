@@ -67,7 +67,10 @@ impl ReversiApp {
             .top(px(13.))
             .h(px(plot_height))
             .when(
-                self.session.activity() != Some(Activity::Analysis),
+                !matches!(
+                    self.session.activity(),
+                    Some(Activity::Move | Activity::Analysis)
+                ),
                 |plot| plot.cursor_pointer(),
             )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
@@ -99,8 +102,10 @@ impl ReversiApp {
                 }
             }))
             .on_click(cx.listener(|this, _, window, cx| {
-                if this.session.activity() != Some(Activity::Analysis)
-                    && let Some(index) = this.analysis_view.hover
+                if !matches!(
+                    this.session.activity(),
+                    Some(Activity::Move | Activity::Analysis)
+                ) && let Some(index) = this.analysis_view.hover
                 {
                     this.action(Action::Navigate(index + 1), window, cx);
                 }
