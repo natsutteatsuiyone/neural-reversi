@@ -298,7 +298,14 @@ impl ReversiApp {
                                     "{} {} ({})",
                                     tr!("best"),
                                     analysis.best_move,
-                                    display_score(analysis.best_score, ScorePrecision::Raw)
+                                    display_score(
+                                        if record.player == Disc::White {
+                                            -analysis.best_score
+                                        } else {
+                                            analysis.best_score
+                                        },
+                                        ScorePrecision::Raw
+                                    )
                                 ))
                             })
                             .when(!analysis.pv.is_empty(), |details| {
