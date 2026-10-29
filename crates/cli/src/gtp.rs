@@ -662,18 +662,6 @@ impl GtpEngine {
                     increment_ms,
                 }
             }
-            TimeControlMode::MovesToGo { moves, .. } => {
-                // Use remaining time for the current player
-                let remaining_time_ms = match self.game.side_to_move() {
-                    Disc::Black => self.black_time_ms,
-                    Disc::White => self.white_time_ms,
-                    _ => 0,
-                };
-                TimeControlMode::MovesToGo {
-                    time_ms: remaining_time_ms,
-                    moves,
-                }
-            }
             TimeControlMode::JapaneseByo {
                 time_per_move_ms: configured_time_per_move_ms,
                 ..
@@ -905,7 +893,7 @@ impl GtpEngine {
 
         // Note: Do not override the current time control mode here; `time_left`
         // is used only to refresh remaining time. Changing modes causes engines
-        // to misinterpret clocks (e.g., switching Fischer/Byoyomi into MovesToGo).
+        // to misinterpret clocks.
 
         GtpResponse::Success("".to_string())
     }

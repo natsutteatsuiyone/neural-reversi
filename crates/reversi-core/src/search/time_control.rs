@@ -161,10 +161,6 @@ pub enum TimeControlMode {
         increment_ms: u64,
     },
 
-    /// Fixed time for a number of moves.
-    /// `time_ms` is the total time for `moves` moves.
-    MovesToGo { time_ms: u64, moves: u32 },
-
     /// Japanese byoyomi.
     /// `main_time_ms` is the initial time bank (can be 0 to start in byoyomi).
     /// `time_per_move_ms` is the fixed time per move after main time expires.
@@ -283,17 +279,6 @@ impl TimeManager {
                     endgame_bank_budget(hard) + increment_ms
                 } else {
                     Self::allocate_budget(main_time_ms, increment_ms, n_empties)
-                };
-                (base.min(hard), hard)
-            }
-
-            TimeControlMode::MovesToGo { time_ms, moves } => {
-                let hard = time_ms.saturating_sub(TIME_BUFFER_MS);
-                let moves = moves.max(1) as u64;
-                let base = if is_endgame {
-                    endgame_bank_budget(hard)
-                } else {
-                    time_ms / moves
                 };
                 (base.min(hard), hard)
             }
@@ -693,10 +678,6 @@ mod tests {
         )
     }
 
-    fn make_moves_to_go_tm(time_ms: u64, moves: u32, n_empties: u32) -> TimeManager {
-        make_tm(TimeControlMode::MovesToGo { time_ms, moves }, n_empties)
-    }
-
     fn make_japanese_byo_tm(
         main_time_ms: u64,
         time_per_move_ms: u64,
@@ -717,14 +698,6 @@ mod tests {
             tm.maxi_time_ms(),
             tm.hard_time_limit_ms.load(Ordering::Relaxed),
         )
-    }
-
-    #[test]
-    fn moves_to_go_zero_moves_is_treated_as_one() {
-        let zero_moves = make_moves_to_go_tm(10_000, 0, 40);
-        let one_move = make_moves_to_go_tm(10_000, 1, 40);
-
-        assert_eq!(time_limits(&zero_moves), time_limits(&one_move));
     }
 
     #[test]
@@ -841,7 +814,7 @@ mod tests {
 
     #[test]
     fn optimum_capped_at_max_factor_times_base() {
-        let tm = make_moves_to_go_tm(60_000, 6, 40);
+        let tm = make_fischer_tm(60_000, 0, 40);
         let base = tm.base_time_ms.load(Ordering::Relaxed);
         let hard = tm.hard_time_limit_ms.load(Ordering::Relaxed);
         let cap = base * MAX_FACTOR;

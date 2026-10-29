@@ -506,7 +506,6 @@ distributes time across the move.
 | `Infinite`     | —                                       |
 | `Byoyomi`      | `time_per_move_ms`                      |
 | `Fischer`      | `main_time_ms` + `increment_ms`         |
-| `MovesToGo`    | `time_ms` + remaining `moves`           |
 | `JapaneseByo`  | `main_time_ms` + `time_per_move_ms`     |
 
 - An asymmetric Gaussian over the remaining empty count (peaked in the
