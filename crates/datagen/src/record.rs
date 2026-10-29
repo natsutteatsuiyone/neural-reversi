@@ -22,7 +22,7 @@ pub const PLY_OFFSET: usize = 21;
 pub const IS_RANDOM_OFFSET: usize = 22;
 
 /// Sentinel value for `game_score` when the true game outcome is unavailable
-/// (e.g. positions produced by `score-openings` rather than a full self-play game).
+/// (records written by `score-openings` before it stored the rounded score).
 pub const GAME_SCORE_UNAVAILABLE: i8 = i8::MIN;
 
 /// Represents a single position record from a self-play game.

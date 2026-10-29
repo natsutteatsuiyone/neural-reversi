@@ -33,7 +33,7 @@ pub struct GameAnalysisProgress {
     pub score_loss: Scoref,
 }
 
-/// One Game Analysis move after decoding the command's wire format.
+/// One move of the analyzed Game: a played square or a Pass.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GameAnalysisMove {
     Pass,
@@ -54,7 +54,7 @@ pub enum GameAnalysisMove {
 ///
 /// # Errors
 ///
-/// Returns `Err` if the decoded move list is illegal, or if `search` fails.
+/// Returns `Err` if the move list is illegal, or if `search` fails.
 pub fn analyze_game(
     initial: Board,
     moves: &[GameAnalysisMove],
@@ -159,7 +159,7 @@ fn replay(initial: Board, moves: &[GameAnalysisMove]) -> Result<Replay, String> 
             }
             GameAnalysisMove::Play(square) => {
                 // Validate legality here: Board::make_move only debug-asserts, so an
-                // illegal move from malformed command input would silently corrupt
+                // illegal move in `moves` would silently corrupt
                 // the Board in release.
                 if !current.is_legal_move(square) {
                     return Err(format!("Illegal move '{square}' in move list"));

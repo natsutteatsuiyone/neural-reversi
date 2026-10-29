@@ -112,8 +112,8 @@ test case prints a markdown sub-table:
   comparable.
 
 An additional `### Multi-PV Statistics` block follows the section's existing
-summary, reporting the number of compared moves, per-move MAE, per-move
-±3 / ±6 / ±9 accuracy buckets, and the standard deviation of per-move errors.
+summary, reporting the number of compared moves, per-move MAE, and per-move
+±3 / ±6 / ±9 accuracy buckets.
 Non-OBF-listed moves are excluded from the aggregate.
 
 Notes:

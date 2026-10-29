@@ -30,7 +30,7 @@ pub enum Request {
     Move {
         board: Board,
         level: usize,
-        /// Remaining Fischer main time; increment is applied by the game clock.
+        /// Remaining time on the AI's per-game clock.
         /// When present, the fixed difficulty level is intentionally ignored.
         remaining_ms: Option<u64>,
     },

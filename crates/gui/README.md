@@ -1,6 +1,6 @@
 # Reversi GUI
 
-A native Rust desktop application for playing and analyzing Reversi (Othello), built with GPUI Kit 0.6.6 (GPUI 0.3.6 and gpui-component 0.6.6). The `gui` package and binary live in `crates/gui/Cargo.toml`.
+A native Rust desktop application for playing and analyzing Reversi (Othello), built with GPUI Kit. The `gui` package and binary live in `crates/gui/Cargo.toml`.
 
 ## Architecture and functionality
 
@@ -14,7 +14,7 @@ The GPUI window renders the board, game controls, move history, analysis, solver
 - Explore positions in the solver with selectable search modes and selectivity.
 - Adjust language, engine/search settings, and view application and third-party license information.
 
-The native interface retains the original neutral palette, compact toolbar, vertically stacked player cards, tabbed analysis area, and header settings menu. The top-down board uses the original frame/grid proportions and cached material textures baked from the former Three.js scene, with native placement/flip animations; the setup editor retains its separate flat preview. On launch, an AI-first game waits for **Start**; subsequent AI turns run automatically. **Stop** commits the best move found so far. Left/right arrow keys browse the retained history when no game search is active; a new move after undo replaces the discarded continuation. Hints can be interrupted by playing a move.
+The native interface retains the original neutral palette, compact toolbar, vertically stacked player cards, tabbed analysis area, and header settings menu. The top-down board uses the original frame/grid proportions and cached material textures baked from the former Three.js scene, with native placement/flip animations; the setup editor retains its separate flat preview. AI turns run automatically. **Stop** commits the best move found so far. Left/right arrow keys browse the retained history when no game search is active; a new move after undo replaces the discarded continuation. Hints can be interrupted by playing a move.
 
 During a flip, the stone image follows the animated frame's width and height around the cell center; its intrinsic square image size must not participate in normal-flow layout.
 

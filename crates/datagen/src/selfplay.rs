@@ -26,7 +26,7 @@ use crate::record::{
 /// Minimum number of random moves at the start of each game
 const MIN_RANDOM_MOVES: u8 = 10;
 
-/// Maximum number of random moves at the start of each game
+/// Exclusive upper bound on the number of random moves at the start of each game
 const MAX_RANDOM_MOVES: u8 = 50;
 
 /// Number of digits used in output file naming

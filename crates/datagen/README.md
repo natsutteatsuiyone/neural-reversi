@@ -8,7 +8,7 @@ A tool for generating and processing Reversi AI neural network training data.
 
 Generates game data through AI self-play for neural network training. The self-play process works by having the AI play against itself. It can either generate a specified number of games or play through a list of predefined opening sequences. Key characteristics include:
 
-- Early game moves (first 10-30 plies) are selected randomly to ensure diversity in the training data when not using predefined openings.
+- Early game moves (first 10-49 plies) are selected randomly to ensure diversity in the training data when not using predefined openings.
 - Subsequent moves use the AI search algorithm to find optimal plays
 - Each position is recorded with evaluation scores and game outcome information
 
@@ -53,7 +53,7 @@ the field order matters — see `src/record.rs::write_records`.
 
 ### opening
 
-Generates all possible Reversi opening sequences up to a specified depth, starting with F5 as the first move.
+Generates all possible Reversi opening sequences of exactly a specified depth, starting with F5 as the first move.
 
 ```bash
 datagen opening --depth 9 > openings.txt

@@ -35,7 +35,7 @@ const MAX_SEARCH_DEPTH: Depth = 14;
 /// Maximum shallow depth for midgame ProbCut analysis
 const MAX_SHALLOW_DEPTH: Depth = 7;
 
-/// Minimum depth difference between shallow and deep search
+/// The deep search depth must exceed the shallow depth by more than this
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
 /// Midgame CSV header with an explicit game-blocking key.

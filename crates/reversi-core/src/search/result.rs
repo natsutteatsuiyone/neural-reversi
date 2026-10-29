@@ -31,7 +31,7 @@ pub enum SearchResult {
         depth: Depth,
         selectivity: Selectivity,
         is_endgame: bool,
-        /// All evaluated moves with scores (populated in Multi-PV mode).
+        /// Root moves of the reported iteration; only Multi-PV mode scores every move.
         pv_moves: Vec<PvMove>,
         /// Diagnostic counters accumulated during search.
         counters: SearchCounters,
@@ -298,7 +298,7 @@ impl SearchResult {
         }
     }
 
-    /// Returns all evaluated Multi-PV moves.
+    /// Returns the root moves of the reported iteration (exact scores only in Multi-PV mode).
     #[inline]
     pub fn pv_moves(&self) -> &[PvMove] {
         match self {

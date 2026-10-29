@@ -3,9 +3,9 @@
 /// Which side is to move in the current search position.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SideToMove {
-    /// The player being searched for (typically the engine).
+    /// The side to move at the search root.
     Player = 0,
-    /// The opponent (typically the human or other engine).
+    /// The side not to move at the search root.
     Opponent = 1,
 }
 
