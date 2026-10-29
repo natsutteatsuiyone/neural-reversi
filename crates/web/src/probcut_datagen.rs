@@ -107,6 +107,7 @@ pub struct ProbCutDatagen {
     score_cache: HashMap<(Board, Depth), f32>,
     cache_hits: usize,
     cache_misses: usize,
+    positions: u32,
 }
 
 #[wasm_bindgen]
@@ -129,6 +130,7 @@ impl ProbCutDatagen {
             score_cache: HashMap::new(),
             cache_hits: 0,
             cache_misses: 0,
+            positions: 0,
         })
     }
 
@@ -365,6 +367,7 @@ impl ProbCutDatagen {
     /// The transposition table is cleared first so the score reflects a clean
     /// fixed-depth search, uncontaminated by deeper entries from earlier positions.
     fn search_endgame_shallow(&mut self, board: &Board) -> f32 {
+        self.positions += 1;
         self.search.init();
         let level = Level {
             mid_depth: ENDGAME_SHALLOW_DEPTH,
@@ -378,6 +381,7 @@ impl ProbCutDatagen {
 
     /// Searches at all depths from 0 to `NUM_SEARCH_DEPTHS`.
     fn search_all_depths(&mut self, board: &Board) -> Vec<(Depth, f32)> {
+        self.positions += 1;
         (0..=NUM_SEARCH_DEPTHS)
             .map(|d| {
                 let depth = d as Depth;
@@ -425,17 +429,10 @@ impl ProbCutDatagen {
             0.0
         };
 
-        // Calculate unique positions from samples
-        let total_positions = samples
-            .iter()
-            .map(|s| s.ply)
-            .collect::<std::collections::HashSet<_>>()
-            .len() as u32;
-
         Ok(ProbCutDatagenResult {
             samples_csv,
             total_samples: samples.len() as u32,
-            total_positions,
+            total_positions: self.positions,
             cache_hit_rate,
         })
     }
