@@ -7,6 +7,7 @@ mod app;
 mod event;
 mod parse;
 mod render;
+mod search_worker;
 mod widgets;
 
 use crate::config::EngineConfig;
@@ -15,7 +16,7 @@ use app::App;
 
 /// Runs the TUI, handling user input and game state.
 pub fn run(config: &EngineConfig) -> Result<(), String> {
-    let app = App::new(config)?;
+    let app = App::new(config);
 
     let terminal = ratatui::init();
     let result = app.run(terminal);

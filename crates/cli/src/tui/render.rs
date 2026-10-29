@@ -207,7 +207,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(""));
 
     // AI status
-    if app.ai_thinking {
+    if app.ai_thinking() {
         lines.push(Line::from(Span::styled(
             "AI Thinking...",
             Style::default()
@@ -284,7 +284,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
 
 /// Renders the help bar at the bottom.
 fn render_help_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let help_items = if app.ai_thinking {
+    let help_items = if app.ai_thinking() {
         vec![("", "AI is thinking...")]
     } else {
         vec![
