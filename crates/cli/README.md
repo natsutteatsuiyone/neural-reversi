@@ -6,7 +6,7 @@ A command-line interface for playing Reversi (Othello) with an AI opponent power
 
 ### Interactive Mode
 
-Run the CLI without arguments to start in interactive mode:
+Run the CLI without a subcommand to open the terminal UI:
 
 ```bash
 cli [options]
@@ -20,24 +20,26 @@ Options:
 - `--eval-file <FILE>` - Path to the main network weight file (optional; defaults to the engine's standard weights)
 - `--eval-sm-file <FILE>` - Path to the small network weight file (optional; defaults to the engine's standard weights)
 
-In interactive mode, you can use the following commands:
+Use the following keys in the game view:
 
-- `<square>` - Make a move (e.g., `d3`, `e4`)
-- `init`, `i` - Initialize a new game
-- `new`, `n` - Start a new game
-- `undo`, `u` - Undo last move
-- `level`, `l <n>` - Set AI level
-- `mode`, `m [n]` - Show/set game mode:
-  - `0`: Black-Human, White-AI
-  - `1`: Black-AI, White-Human
-  - `2`: Black-AI, White-AI
-  - `3`: Black-Human, White-Human
-- `go` - Let AI make a move with analysis
-- `hint [n]` - Show top n move hints with evaluations (default: 3, max: 10)
-- `play <moves>` - Play a sequence of moves
-- `setboard <pos>` - Set board position (64 board chars + optional spaces + 1 side to move char)
-- `help`, `h` - Show this help
-- `quit`, `q` - Exit the program
+| Key | Action |
+| --- | --- |
+| Arrow keys, WASD, or HJKL | Move the board cursor. |
+| Enter or Space | Play at the cursor. Clicking a square also plays there. |
+| U | Undo a move, or back to your previous turn when playing against the AI. |
+| N | Start a new game. |
+| I | Search all legal moves and show hints with scores and principal variations. |
+| G | Let the AI play the current side. |
+| V | Set the AI difficulty level. |
+| M | Select a game mode: 1 for Human vs AI, 2 for AI vs Human, 3 for AI vs AI, or 4 for Human vs Human. |
+| E | Open the board editor: move sequence, board string, or bitboards. |
+| Q or Esc | Open quit confirmation. |
+| Ctrl+C | Exit immediately. |
+
+AI moves and hints share one engine and run in the background. Press Esc or I
+while hints are being computed to cancel them. The cancelled result is discarded;
+the engine stays busy until the worker returns it. Moves, undo, new games, board
+editing, and further searches remain unavailable during that interval.
 
 ### GTP Mode
 
@@ -81,7 +83,7 @@ This sets 5 seconds per move with no main time.
 **Fischer (main time + increment):**
 
 ```
-time_settings 300 5 1
+time_settings 300 5 0
 ```
 
 This sets 300 seconds main time with 5 seconds increment per move.
@@ -190,7 +192,7 @@ Where:
 - Board positions use `-` for empty, `X` for black, `O` for white
 - Side-to-move is either `X` (black) or `O` (white)
 - Lines starting with `%` are treated as comments
-- Analysis data after `;` is ignored
+- Analysis data after `;` must be `move:score` pairs; a line with a malformed pair is skipped
 
 Example position line:
 

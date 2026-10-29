@@ -55,7 +55,7 @@ pub enum Command {
     Showboard,
     /// Undoes the last move
     Undo,
-    /// Sets the engine's playing strength level (1-20)
+    /// Sets the engine's playing strength level (1 to [`MAX_LEVEL`])
     SetLevel(usize),
     /// Sets time control settings (main_time, byoyomi_time, byoyomi_stones)
     TimeSettings {
@@ -240,7 +240,7 @@ pub struct GtpEngine {
     game: GameState,
     /// Neural network search engine for move generation
     search: search::Search,
-    /// Current playing strength level (1-20)
+    /// Current playing strength level (1 to [`MAX_LEVEL`])
     level: usize,
     /// Engine name reported to GTP clients
     name: String,
@@ -765,8 +765,8 @@ impl GtpEngine {
 
     /// Handles the `set_level` command.
     ///
-    /// Sets the engine's playing strength level, which affects search depth
-    /// and time allocation.
+    /// Sets the engine's playing strength level, which sets the search depth
+    /// when no time control is set.
     ///
     /// # Arguments
     /// * `level` - The strength level (1 to [`MAX_LEVEL`])
@@ -820,12 +820,12 @@ impl GtpEngine {
     /// # Arguments
     /// * `main_time` - Main time in seconds (0 for no main time)
     /// * `byoyomi_time` - Byoyomi period time in seconds
-    /// * `byoyomi_stones` - Number of stones per byoyomi period (0 for sudden death)
+    /// * `byoyomi_stones` - Number of stones per byoyomi period (0: increment or per-move time)
     ///
     /// # Time Control Interpretation
     /// - main_time=0, byoyomi_time>0, byoyomi_stones=0: Pure byoyomi (N seconds per move)
     /// - main_time>0, byoyomi_time=0: Sudden death (main_time total)
-    /// - main_time>0, byoyomi_time>0: Main time + byoyomi overtime
+    /// - main_time>0, byoyomi_time>0, byoyomi_stones>0: Main time + byoyomi overtime
     fn handle_time_settings(
         &mut self,
         main_time: u64,
