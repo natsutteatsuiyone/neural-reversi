@@ -1,7 +1,9 @@
 use js_sys::Function;
 use std::rc::Rc;
 
-use reversi_core::{board::Board, probcut::Selectivity};
+use reversi_core::board::Board;
+
+use crate::probcut::Selectivity;
 
 use crate::transposition_table::TranspositionTable;
 

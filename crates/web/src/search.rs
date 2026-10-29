@@ -21,7 +21,6 @@ use rand::seq::IteratorRandom;
 use reversi_core::{
     board::Board,
     flip,
-    probcut::Selectivity,
     search::node_type::{NodeType, PV, Root},
     square::Square,
     types::ScaledScore,
@@ -33,7 +32,7 @@ use crate::{
     eval::Eval,
     level::Level,
     move_list::{MoveList, evaluate_moves_fast},
-    probcut,
+    probcut::{self, Selectivity},
     search::{context::SearchContext, result::SearchResult, task::SearchTask},
 };
 

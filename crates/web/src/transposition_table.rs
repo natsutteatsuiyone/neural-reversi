@@ -7,11 +7,12 @@
 use std::cell::Cell;
 
 use reversi_core::{
-    probcut::Selectivity,
     search::node_type::NodeType,
     square::Square,
     types::{Depth, ScaledScore},
 };
+
+use crate::probcut::Selectivity;
 
 /// Number of entries per cluster.
 const CLUSTER_SIZE: usize = 2;

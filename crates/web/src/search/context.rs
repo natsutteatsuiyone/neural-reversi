@@ -7,7 +7,6 @@ use reversi_core::{
     board::Board,
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
-    probcut::Selectivity,
     search::{root_move::RootMove, side_to_move::SideToMove},
     square::Square,
     types::{Depth, ScaledScore, Scoref},
@@ -15,7 +14,7 @@ use reversi_core::{
 
 use crate::transposition_table::TranspositionTable;
 
-use crate::{eval::Eval, move_list::MoveList};
+use crate::{eval::Eval, move_list::MoveList, probcut::Selectivity};
 use wasm_bindgen::JsValue;
 
 /// Maintains all mutable state during a single search operation.

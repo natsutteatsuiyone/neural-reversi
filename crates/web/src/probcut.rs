@@ -2,12 +2,72 @@ use std::sync::OnceLock;
 
 use reversi_core::{
     board::Board,
-    probcut::Selectivity,
     search::node_type::NonPV,
     types::{Depth, ScaledScore},
 };
 
 use crate::search::{self, context::SearchContext, strategy::MidGameStrategy};
+
+/// ProbCut selectivity level, ordered from most aggressive to disabled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[repr(u8)]
+pub enum Selectivity {
+    /// 73% confidence (t=1.1)
+    #[default]
+    Level1 = 0,
+    /// 95% confidence (t=2.0)
+    Level2 = 1,
+    /// 99% confidence (t=3.3)
+    Level3 = 2,
+    /// ProbCut disabled.
+    None = 3,
+}
+
+impl Selectivity {
+    /// Returns the statistical confidence multiplier (t-value).
+    #[inline]
+    pub fn t_value(self) -> f64 {
+        match self {
+            Selectivity::Level1 => 1.1,
+            Selectivity::Level2 => 2.0,
+            Selectivity::Level3 => 3.3,
+            Selectivity::None => 999.0,
+        }
+    }
+
+    /// Returns the probability percentage for this level.
+    #[inline]
+    pub fn probability(self) -> i32 {
+        match self {
+            Selectivity::Level1 => 73,
+            Selectivity::Level2 => 95,
+            Selectivity::Level3 => 99,
+            Selectivity::None => 100,
+        }
+    }
+
+    #[inline]
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    /// Creates a [`Selectivity`] from a [`u8`], clamping values above 3 to
+    /// [`Selectivity::None`].
+    #[inline]
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            0 => Selectivity::Level1,
+            1 => Selectivity::Level2,
+            2 => Selectivity::Level3,
+            _ => Selectivity::None,
+        }
+    }
+
+    #[inline]
+    pub fn is_enabled(self) -> bool {
+        self != Selectivity::None
+    }
+}
 
 /// Holds statistical parameters for ProbCut prediction models.
 ///

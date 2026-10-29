@@ -1,5 +1,6 @@
-use reversi_core::probcut::Selectivity;
 use reversi_core::types::Depth;
+
+use crate::probcut::Selectivity;
 
 pub(crate) const DEFAULT_TT_MB: usize = 128;
 pub(crate) const DEFAULT_MID_DEPTH: Depth = 12;
