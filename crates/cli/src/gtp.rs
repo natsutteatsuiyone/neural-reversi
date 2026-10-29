@@ -10,14 +10,15 @@
 
 use reversi_core::{
     disc::Disc,
+    game_state::GameState,
     level::{MAX_LEVEL, get_level},
     search::{self, SearchRunOptions, time_control::TimeControlMode},
     square::Square,
 };
 
 use crate::config::EngineConfig;
-use crate::game::GameState;
 use std::env;
+use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 
 /// Represents a parsed GTP command with its arguments.
@@ -588,14 +589,10 @@ impl GtpEngine {
         }
 
         match move_str.parse::<Square>() {
-            Ok(sq) => {
-                if self.game.board().is_legal_move(sq) {
-                    self.game.make_move(sq);
-                    GtpResponse::Success("".to_string())
-                } else {
-                    GtpResponse::Error("illegal move".to_string())
-                }
-            }
+            Ok(sq) => match self.game.make_move(sq) {
+                Ok(()) => GtpResponse::Success("".to_string()),
+                Err(_) => GtpResponse::Error("illegal move".to_string()),
+            },
             Err(_) => GtpResponse::Error("invalid move format (use a1, b2, etc.)".to_string()),
         }
     }
@@ -636,7 +633,9 @@ impl GtpEngine {
         let result = self.search.run(self.game.board(), &options);
 
         if let Some(computer_move) = result.best_move() {
-            self.game.make_move(computer_move);
+            self.game
+                .make_move(computer_move)
+                .expect("search returned an illegal move");
             GtpResponse::Success(format!("{computer_move}"))
         } else {
             GtpResponse::Error("failed to generate move".to_string())
@@ -708,8 +707,67 @@ impl GtpEngine {
     ///
     /// Returns a text representation of the current board state.
     fn handle_showboard(&self) -> GtpResponse {
-        let board_display = self.game.board_string();
-        GtpResponse::Success(format!("\n{board_display}"))
+        let mut result = String::from("\n");
+        let board = self.game.board();
+        let side_to_move = self.game.side_to_move();
+        let (black_count, white_count) = self.game.score();
+
+        // Header
+        result.push_str("   a b c d e f g h\n");
+        result.push_str("  +-+-+-+-+-+-+-+-+\n");
+
+        // Board rows
+        for y in 0..8 {
+            let _ = write!(result, "{} |", y + 1);
+
+            for x in 0..8 {
+                let sq = Square::from_file_rank(x as u8, y as u8);
+                let piece = board.disc_at(sq, side_to_move);
+                let symbol = match piece {
+                    Disc::Black => "X",
+                    Disc::White => "O",
+                    Disc::Empty => {
+                        if board.is_legal_move(sq) {
+                            "."
+                        } else {
+                            " "
+                        }
+                    }
+                };
+                let _ = write!(result, "{symbol}|");
+            }
+
+            // Side information
+            match y {
+                0 => {
+                    let _ = write!(
+                        result,
+                        " {}'s turn",
+                        if side_to_move == Disc::Black {
+                            "Black(X)"
+                        } else {
+                            "White(O)"
+                        }
+                    );
+                }
+                1 => {
+                    let _ = write!(result, " Black: {black_count}");
+                }
+                2 => {
+                    let _ = write!(result, " White: {white_count}");
+                }
+                _ => {}
+            }
+
+            result.push('\n');
+            if y < 7 {
+                result.push_str("  +-+-+-+-+-+-+-+-+\n");
+            }
+        }
+
+        // Footer
+        result.push_str("  +-+-+-+-+-+-+-+-+\n");
+        GtpResponse::Success(result)
     }
 
     /// Handles the `undo` command.

@@ -7,13 +7,13 @@ use std::time::Duration;
 use ratatui::DefaultTerminal;
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
+use reversi_core::game_state::GameState;
 use reversi_core::level;
 use reversi_core::search::result::{PvMove, SearchResult};
 use reversi_core::search::{self, SearchRunOptions, StopToken};
 use reversi_core::square::Square;
 
 use crate::config::EngineConfig;
-use crate::game::GameState;
 
 use super::event::{self, Event};
 use super::parse;
@@ -547,8 +547,7 @@ impl App {
         }
 
         let sq = Square::from_file_rank(self.cursor.1 as u8, self.cursor.0 as u8);
-        if self.game.board().is_legal_move(sq) {
-            self.game.make_move(sq);
+        if self.game.make_move(sq).is_ok() {
             self.last_ai_result = None;
             self.status_message = None;
         } else {
@@ -849,7 +848,9 @@ impl App {
             let best_move = result.best_move();
             self.last_ai_result = Some(result);
             if let Some(mv) = best_move {
-                self.game.make_move(mv);
+                self.game
+                    .make_move(mv)
+                    .expect("search returned an illegal move");
             }
         }
     }

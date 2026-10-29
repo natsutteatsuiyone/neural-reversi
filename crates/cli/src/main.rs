@@ -1,5 +1,4 @@
 mod config;
-mod game;
 mod ggs;
 mod gtp;
 mod solve;

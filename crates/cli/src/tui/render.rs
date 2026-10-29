@@ -161,7 +161,12 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from("─".repeat(inner_area.width as usize)));
 
     // Move history
-    let mut history = app.game.move_history().peekable();
+    let mut history = app
+        .game
+        .move_history()
+        .iter()
+        .filter_map(|entry| Some((entry.side_to_move, entry.action.square()?)))
+        .peekable();
     if history.peek().is_some() {
         lines.push(Line::from(Span::styled(
             "History:",
