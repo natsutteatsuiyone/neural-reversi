@@ -201,6 +201,7 @@ fn main() {
             let config = EngineConfig::from(engine_params);
             if let Err(e) = solve::solve(&file, &config, exact, all_moves) {
                 eprintln!("Error solving game: {e}");
+                std::process::exit(1);
             }
         }
         Some(SubCommands::Ggs {
@@ -259,7 +260,8 @@ fn main() {
         None => {
             let config = EngineConfig::from(args.engine_params);
             tui::run(&config).unwrap_or_else(|err| {
-                eprintln!("Failed to initialize UI: {err}");
+                eprintln!("TUI error: {err}");
+                std::process::exit(1);
             });
         }
     }
