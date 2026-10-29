@@ -164,8 +164,6 @@ pub enum ParseObfError {
         /// The offending header.
         header: String,
     },
-    /// No side-to-move marker follows the board characters.
-    MissingSideToMove,
     /// The side-to-move marker is neither `X` nor `O`.
     InvalidSideToMove(char),
     /// The 64 board characters are invalid.
@@ -201,7 +199,6 @@ impl fmt::Display for ParseObfError {
                 f,
                 "Board header too short (need 64 board chars + side): '{header}'"
             ),
-            ParseObfError::MissingSideToMove => write!(f, "Missing side-to-move marker"),
             ParseObfError::InvalidSideToMove(c) => write!(f, "Invalid side to move: '{c}'"),
             ParseObfError::InvalidBoard(e) => write!(f, "Invalid board string: {e}"),
             ParseObfError::InvalidSegment { segment } => {
@@ -241,11 +238,14 @@ fn parse_board_header(header: &str) -> Result<(Board, Disc), ParseObfError> {
     }
 
     let board_str = &header[..64];
-    let side_char = header[64..]
-        .trim_start()
-        .chars()
-        .next()
-        .ok_or(ParseObfError::MissingSideToMove)?;
+    let side_char =
+        header[64..]
+            .trim_start()
+            .chars()
+            .next()
+            .ok_or_else(|| ParseObfError::HeaderTooShort {
+                header: header.to_string(),
+            })?;
 
     let side_to_move = match side_char {
         'X' => Disc::Black,

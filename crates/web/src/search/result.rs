@@ -1,7 +1,4 @@
-use reversi_core::{
-    square::Square,
-    types::{Depth, Scoref},
-};
+use reversi_core::{square::Square, types::Scoref};
 
 /// Holds the outcome of a completed search.
 pub struct SearchResult {
@@ -9,8 +6,6 @@ pub struct SearchResult {
     pub score: Scoref,
     /// Best move, or [`None`] if no legal moves exist.
     pub best_move: Option<Square>,
-    /// Search depth reached.
-    pub depth: Depth,
     /// Total nodes visited.
     pub n_nodes: u64,
     /// Per-root-move final scores (disc diff, side-to-move perspective).

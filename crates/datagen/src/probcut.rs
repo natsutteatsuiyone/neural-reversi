@@ -8,12 +8,10 @@
 //! deep search scores from shallow search results, enabling ProbCut optimizations
 //! in the search algorithm.
 
-use clap::Parser;
 use std::{
     collections::HashSet,
     fs::File,
     io::{self, BufRead, BufReader, BufWriter, Write},
-    path::PathBuf,
 };
 
 use reversi_core::{
@@ -42,19 +40,6 @@ const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
 /// Midgame CSV header with an explicit game-blocking key.
 const CSV_HEADER: &[u8] = b"game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n";
-
-/// Command line arguments for ProbCut training data generation.
-#[derive(Parser)]
-#[command(author, version, about)]
-struct Args {
-    /// Input file containing game sequences (move sequences per line)
-    #[arg(short, long)]
-    input: PathBuf,
-
-    /// Output CSV file for ProbCut training data
-    #[arg(short, long)]
-    output: PathBuf,
-}
 
 /// Represents a single ProbCut training data sample.
 ///

@@ -443,9 +443,6 @@ const workerApi = {
       generation: gameGeneration,
     });
   },
-  setLevel(level) {
-    worker.postMessage({ type: "set_level", payload: { level }, generation: gameGeneration });
-  },
   getState() {
     worker.postMessage({ type: "get_state", generation: gameGeneration });
   },

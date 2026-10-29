@@ -4,7 +4,6 @@
 //! parsed [`ObfPosition`] in a [`TestCase`] (line number + invariant that
 //! test data is present), and handles file/directory/preset discovery.
 
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use reversi_core::{board::Board, disc::Disc, obf::ObfPosition, square::Square};
@@ -15,21 +14,6 @@ pub struct TestCase {
     pub line_number: usize,
     position: ObfPosition,
     expected_score: i32,
-}
-
-impl fmt::Display for TestCase {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let side = match self.side_to_move() {
-            Disc::Black => "Black",
-            Disc::White => "White",
-            Disc::Empty => "Empty",
-        };
-        write!(
-            f,
-            "#{} ({side} to move, score: {})",
-            self.line_number, self.expected_score
-        )
-    }
 }
 
 impl TestCase {

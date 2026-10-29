@@ -16,7 +16,6 @@ pub struct EndgameSolveResult {
     score: f32,
     best_move: String,
     n_nodes: f64,
-    depth: u32,
 }
 
 #[wasm_bindgen]
@@ -34,11 +33,6 @@ impl EndgameSolveResult {
     #[wasm_bindgen(getter)]
     pub fn n_nodes(&self) -> f64 {
         self.n_nodes
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn depth(&self) -> u32 {
-        self.depth
     }
 }
 
@@ -93,7 +87,6 @@ impl EndgameSolver {
                 .map(|sq| sq.to_string())
                 .unwrap_or_default(),
             n_nodes: result.n_nodes as f64,
-            depth: result.depth,
         })
     }
 }

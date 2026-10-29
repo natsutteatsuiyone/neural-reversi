@@ -19,7 +19,6 @@ pub struct Analysis {
     pub pv: Vec<Square>,
     pub best_move: Square,
     pub score: Scoref,
-    pub depth: u32,
 }
 
 /// One per-move Game Analysis result (CONTEXT.md → Game Analysis, Played
@@ -32,7 +31,6 @@ pub struct GameAnalysisProgress {
     pub best_score: Scoref,
     pub played_score: Scoref,
     pub score_loss: Scoref,
-    pub depth: u32,
 }
 
 /// One Game Analysis move after decoding the command's wire format.
@@ -117,7 +115,6 @@ pub fn analyze_game(
             best_score: analysis.score,
             played_score,
             score_loss,
-            depth: analysis.depth,
         });
         score = next_score;
     }
@@ -227,12 +224,11 @@ mod tests {
         GameAnalysisMove::Pass
     }
 
-    fn analysis(best_move: Square, score: Scoref, depth: u32) -> Analysis {
+    fn analysis(best_move: Square, score: Scoref) -> Analysis {
         Analysis {
             pv: Vec::new(),
             best_move,
             score,
-            depth,
         }
     }
 
@@ -327,12 +323,12 @@ mod tests {
             call += 1;
             // call 0: final board (seed); call 1: boards[1] (i=1); call 2: boards[0] (i=0)
             Ok(match i {
-                0 => analysis(Square::A1, 2.0, 5),
+                0 => analysis(Square::A1, 2.0),
                 1 => Analysis {
                     pv: vec![Square::G8, Square::H8],
-                    ..analysis(Square::D3, 3.0, 7)
+                    ..analysis(Square::D3, 3.0)
                 },
-                _ => analysis(Square::C4, 1.0, 9),
+                _ => analysis(Square::C4, 1.0),
             })
         };
 
@@ -347,7 +343,6 @@ mod tests {
         assert_eq!(emitted[0].best_score, 3.0);
         assert_eq!(emitted[0].played_score, -2.0);
         assert_eq!(emitted[0].score_loss, 5.0);
-        assert_eq!(emitted[0].depth, 7);
         assert_eq!(emitted[0].pv, vec![Square::G8, Square::H8]);
 
         // score now 3.0; i=0: played=-3.0, loss=max(1-(-3),0)=4.0
@@ -368,8 +363,8 @@ mod tests {
             call.set(i + 1);
             // call 0: final board (seed) = 4.0; call 1: boards[0] (i=0)
             Ok(match i {
-                0 => analysis(Square::A1, 4.0, 1),
-                _ => analysis(Square::C1, 0.0, 1),
+                0 => analysis(Square::A1, 4.0),
+                _ => analysis(Square::C1, 0.0),
             })
         };
         let mut emitted: Vec<GameAnalysisProgress> = Vec::new();
@@ -408,8 +403,8 @@ mod tests {
             // call 0: forced-pass seed, scored on the switched Position = 2.0;
             // call 1: the board H8 was played from = 5.0.
             Ok(match i {
-                0 => analysis(Square::A1, 2.0, 1),
-                _ => analysis(Square::D3, 5.0, 7),
+                0 => analysis(Square::A1, 2.0),
+                _ => analysis(Square::D3, 5.0),
             })
         };
 
@@ -430,7 +425,6 @@ mod tests {
         assert_eq!(emitted[0].best_score, 5.0);
         assert_eq!(emitted[0].played_score, 2.0);
         assert_eq!(emitted[0].score_loss, 3.0);
-        assert_eq!(emitted[0].depth, 7);
     }
 
     #[test]
@@ -442,7 +436,7 @@ mod tests {
         let search = |board: &Board| -> Result<Analysis, String> {
             assert_eq!(*board, initial, "terminal seed must not be searched");
             calls.set(calls.get() + 1);
-            Ok(analysis(Square::C1, 64.0, 1))
+            Ok(analysis(Square::C1, 64.0))
         };
         let mut emitted = Vec::new();
         analyze_game(
@@ -497,7 +491,7 @@ mod tests {
                     &moves,
                     |_b| {
                         searches.set(searches.get() + 1);
-                        Ok(analysis(Square::A1, 1.0, 1))
+                        Ok(analysis(Square::A1, 1.0))
                     },
                     is_cancelled,
                     |_p| emitted += 1,

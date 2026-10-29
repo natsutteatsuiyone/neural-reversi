@@ -329,7 +329,6 @@ fn execute(
                             pv: result.pv_line().to_vec(),
                             best_move,
                             score: round_score(score),
-                            depth: result.depth(),
                         }),
                         _ => Err("Search returned no legal move for game analysis position".into()),
                     }

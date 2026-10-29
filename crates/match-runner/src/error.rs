@@ -55,10 +55,4 @@ impl From<io::Error> for MatchRunnerError {
     }
 }
 
-impl From<String> for MatchRunnerError {
-    fn from(msg: String) -> Self {
-        MatchRunnerError::Game(msg)
-    }
-}
-
 pub(crate) type Result<T> = std::result::Result<T, MatchRunnerError>;

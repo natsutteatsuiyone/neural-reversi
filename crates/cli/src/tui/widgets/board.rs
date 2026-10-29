@@ -19,8 +19,6 @@ pub struct BoardWidget<'a> {
     cursor: (usize, usize),
     /// Last move played
     last_move: Option<Square>,
-    /// Whether to show legal moves
-    show_legal_moves: bool,
 }
 
 impl<'a> BoardWidget<'a> {
@@ -31,7 +29,6 @@ impl<'a> BoardWidget<'a> {
             side_to_move,
             cursor: (0, 0),
             last_move: None,
-            show_legal_moves: true,
         }
     }
 
@@ -44,13 +41,6 @@ impl<'a> BoardWidget<'a> {
     /// Sets the last move.
     pub fn last_move(mut self, sq: Option<Square>) -> Self {
         self.last_move = sq;
-        self
-    }
-
-    /// Sets whether to show legal moves.
-    #[allow(dead_code)]
-    pub fn show_legal_moves(mut self, show: bool) -> Self {
-        self.show_legal_moves = show;
         self
     }
 }
@@ -108,9 +98,7 @@ impl Widget for BoardWidget<'_> {
                 let (content, mut style) = match piece {
                     Disc::Black => (" ● ", Style::default().fg(Color::Green)),
                     Disc::White => (" ○ ", Style::default().fg(Color::Yellow)),
-                    Disc::Empty if is_legal && self.show_legal_moves => {
-                        (" · ", Style::default().fg(Color::DarkGray))
-                    }
+                    Disc::Empty if is_legal => (" · ", Style::default().fg(Color::DarkGray)),
                     Disc::Empty => ("   ", Style::default()),
                 };
 

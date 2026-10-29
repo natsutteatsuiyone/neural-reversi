@@ -24,7 +24,7 @@ use reversi_core::{
     probcut::Selectivity,
     search::node_type::{NodeType, PV, Root},
     square::Square,
-    types::{Depth, ScaledScore},
+    types::ScaledScore,
 };
 
 use crate::transposition_table::{Bound, TranspositionTable};
@@ -100,7 +100,6 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             score: 0.0,
             best_move: None,
             n_nodes: 0,
-            depth: 0,
             multi_pv_scores: Vec::new(),
         };
     }
@@ -113,7 +112,6 @@ pub fn search_root(task: SearchTask) -> SearchResult {
             score: 0.0,
             best_move: Some(mv),
             n_nodes: 0,
-            depth: 0,
             multi_pv_scores: Vec::new(),
         };
     }
@@ -145,7 +143,6 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
             score: score.to_disc_diff_f32(),
             best_move: None,
             n_nodes: ctx.n_nodes,
-            depth: 0,
             multi_pv_scores: Vec::new(),
         };
     }
@@ -201,7 +198,6 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
         score: best_score.to_disc_diff_f32(),
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
-        depth: max_depth,
         multi_pv_scores: Vec::new(),
     }
 }
@@ -257,13 +253,12 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
         score: best_score.to_disc_diff_f32(),
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
-        depth: level.end_depth,
         multi_pv_scores: Vec::new(),
     }
 }
 
 /// Builds the final Multi-PV result from the sorted root moves.
-fn finish_multipv_result(ctx: &SearchContext, depth: Depth) -> SearchResult {
+fn finish_multipv_result(ctx: &SearchContext) -> SearchResult {
     let best = &ctx.root_moves[0];
     let multi_pv_scores = ctx
         .root_moves
@@ -274,7 +269,6 @@ fn finish_multipv_result(ctx: &SearchContext, depth: Depth) -> SearchResult {
         score: best.score.to_disc_diff_f32(),
         best_move: Some(best.sq),
         n_nodes: ctx.n_nodes,
-        depth,
         multi_pv_scores,
     }
 }
@@ -340,7 +334,7 @@ fn search_root_midgame_multipv(
     }
     ctx.set_pv_idx(0);
 
-    finish_multipv_result(ctx, max_depth)
+    finish_multipv_result(ctx)
 }
 
 /// Performs the Multi-PV root search for endgame positions.
@@ -413,7 +407,7 @@ fn search_root_endgame_multipv(
     }
     ctx.set_pv_idx(0);
 
-    finish_multipv_result(ctx, level.end_depth)
+    finish_multipv_result(ctx)
 }
 
 /// Estimates a base score to center the aspiration window for endgame search.

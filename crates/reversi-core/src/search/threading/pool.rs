@@ -269,15 +269,6 @@ impl ThreadPool {
         }
     }
 
-    /// Waits for the current search to complete.
-    pub fn wait_for_think_finished(&self) {
-        const POLL_INTERVAL: Duration = Duration::from_millis(5);
-
-        while self.thinking.load(Ordering::Acquire) {
-            sleep(POLL_INTERVAL);
-        }
-    }
-
     /// Signals all threads to abort the current search.
     #[cfg(test)]
     pub(crate) fn abort_search(&self) {

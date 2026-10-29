@@ -133,10 +133,6 @@ self.onmessage = async (event) => {
       });
       break;
     }
-    case "set_level": {
-      game.set_level(payload.level);
-      break;
-    }
     case "get_state": {
       self.postMessage({
         type: "state_updated",
