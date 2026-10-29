@@ -78,12 +78,9 @@ pub struct SearchSharedResources {
     thread_pool: Option<Arc<ThreadPool>>,
 }
 
-/// Task descriptor passed to search threads.
-///
-/// Contains all shared state needed for a search thread to independently
-/// execute a search on the given board position.
+/// Position, resolved search settings, and shared resources for one root search.
 #[derive(Clone)]
-pub struct SearchTask {
+pub(crate) struct SearchTask {
     /// Board position to search.
     pub board: Board,
     /// Midgame selectivity: [`Selectivity::Level1`] (73%) for fixed-level searches,

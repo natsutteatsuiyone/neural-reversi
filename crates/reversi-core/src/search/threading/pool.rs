@@ -206,7 +206,7 @@ impl ThreadPool {
     /// `stop` can end this search from another thread, even if it was
     /// stopped before this call. A time-controlled task also gets its
     /// deadline timer here.
-    pub fn start_thinking(
+    pub(crate) fn start_thinking(
         &self,
         task: SearchTask,
         stop: Option<&StopToken>,
