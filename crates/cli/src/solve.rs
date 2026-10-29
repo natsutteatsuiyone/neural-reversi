@@ -243,9 +243,9 @@ fn solve_position(
         print_all_moves_table_header();
         for pv_move in result.pv_moves() {
             let score = if is_pass {
-                -(pv_move.score as i32)
+                -(pv_move.score.round() as i32)
             } else {
-                pv_move.score as i32
+                pv_move.score.round() as i32
             };
             let pv_string = if pv_move.pv_line.is_empty() {
                 format_root_move(pv_move.sq, move_side, is_pass, side_to_move)
@@ -260,9 +260,9 @@ fn solve_position(
     }
     let result_score = result.score().expect("search returned no legal move");
     let score = if is_pass {
-        -(result_score as i32)
+        -(result_score.round() as i32)
     } else {
-        result_score as i32
+        result_score.round() as i32
     };
     let pv_string = if result.pv_line().is_empty() {
         result
