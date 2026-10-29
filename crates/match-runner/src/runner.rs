@@ -142,8 +142,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
                     let result = statistics.update_sprt(sprt);
                     (sprt.config, result)
                 });
-                let _ =
-                    statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt);
+                statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt);
             }
             return Err(error);
         }
@@ -161,7 +160,7 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
         let result = statistics.update_sprt(sprt);
         (sprt.config, result)
     });
-    statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt)?;
+    statistics.print_final_results(&engine_names.0, &engine_names.1, final_sprt);
     Ok(())
 }
 

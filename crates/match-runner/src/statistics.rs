@@ -122,7 +122,7 @@ impl MatchStatistics {
         engine1_name: &str,
         engine2_name: &str,
         sprt: Option<(SprtConfig, SprtResult)>,
-    ) -> io::Result<()> {
+    ) {
         let total_games = self.total_games();
 
         if let Some(seed) = self.random_seed {
@@ -131,7 +131,7 @@ impl MatchStatistics {
 
         if total_games == 0 {
             println!("{}", "No games played yet.".info());
-            return Ok(());
+            return;
         }
 
         if io::stdout().is_terminal() {
@@ -152,8 +152,6 @@ impl MatchStatistics {
         println!();
 
         println!("{}", "═".repeat(80).info().bold());
-
-        Ok(())
     }
 
     fn print_sprt_summary(
@@ -639,9 +637,7 @@ mod tests {
         if case == "partial_after_pair" {
             statistics.add_game(MatchWinner::Engine2, -64, String::new(), true);
         }
-        statistics
-            .print_final_results("engine1", "engine2", None)
-            .unwrap();
+        statistics.print_final_results("engine1", "engine2", None);
     }
 
     fn play_pair(
