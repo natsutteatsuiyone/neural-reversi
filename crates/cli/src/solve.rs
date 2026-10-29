@@ -10,7 +10,7 @@ use reversi_core::{
     disc::Disc,
     level::{Level, get_level},
     obf::ObfPosition,
-    search::{Search, SearchRunOptions, options::SearchOptions},
+    search::{Search, SearchRunOptions, SearchSharedResources},
     square::Square,
 };
 
@@ -36,9 +36,11 @@ pub fn solve(
 
     let search_options = config.search_options();
 
-    print_header(file_path, &search_options);
+    let shared = SearchSharedResources::new(&search_options);
 
-    let mut search = Search::new(&search_options);
+    print_header(file_path, search_options.tt_mb_size, shared.n_threads());
+
+    let mut search = Search::from_shared_resources(&shared);
     let level_config = if exact {
         Level::perfect()
     } else {
@@ -162,7 +164,7 @@ fn print_position_stats(elapsed: Duration, nodes: u64) {
     );
 }
 
-fn print_header(file_path: &Path, options: &SearchOptions) {
+fn print_header(file_path: &Path, tt_mb_size: usize, n_threads: usize) {
     let file_name = file_path
         .file_name()
         .unwrap_or(file_path.as_os_str())
@@ -174,8 +176,8 @@ fn print_header(file_path: &Path, options: &SearchOptions) {
     );
     println!();
     println!("- File:      {file_name}");
-    println!("- Hash size: {} MB", options.tt_mb_size);
-    println!("- Threads:   {}", options.n_threads);
+    println!("- Hash size: {tt_mb_size} MB");
+    println!("- Threads:   {n_threads}");
     println!();
 }
 
