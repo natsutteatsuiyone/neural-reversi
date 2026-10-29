@@ -61,7 +61,7 @@ datagen opening --depth 9 > openings.txt
 
 #### Options
 
-- `--depth`: Maximum number of moves to include in the sequences (default: 8)
+- `--depth`: Maximum number of moves to include in the sequences (required, 1-20)
 
 ### probcut
 

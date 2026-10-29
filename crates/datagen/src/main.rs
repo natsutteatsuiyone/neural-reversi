@@ -54,7 +54,7 @@ enum SubCommands {
         resume: bool,
     },
     Opening {
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = clap::value_parser!(u32).range(1..=20))]
         depth: Depth,
     },
     Probcut {
@@ -142,7 +142,8 @@ enum SubCommands {
         #[arg(short = 'p', long, default_value = "*.bin")]
         pattern: String,
 
-        #[arg(short = 'c', long, default_value_t = 10)]
+        #[arg(short = 'c', long, default_value_t = 10,
+            value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..))]
         files_per_chunk: usize,
 
         #[arg(short = 'n', long)]
