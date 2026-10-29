@@ -365,6 +365,7 @@ fn play_game(
             record
         };
         record.game_id = game_id;
+        record.side_to_move = side_to_move;
 
         game_records.push(record);
 
