@@ -9,7 +9,7 @@ use ratatui::{
 };
 use reversi_core::disc::Disc;
 
-use super::app::{App, BoardEditTab, GameMode, UiMode};
+use super::app::{App, BitboardField, BoardEditTab, GameMode, UiMode};
 use super::widgets::BoardWidget;
 
 /// Main render function.
@@ -637,14 +637,14 @@ fn render_board_edit_dialog(frame: &mut Frame, app: &App) {
             render_side_selector(&mut lines, app.board_edit_side);
         }
         BoardEditTab::Bitboard => {
-            let player_style = if app.board_edit_focus == 0 {
+            let player_style = if app.board_edit_focus == BitboardField::Player {
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::RAPID_BLINK)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
-            let opponent_style = if app.board_edit_focus == 1 {
+            let opponent_style = if app.board_edit_focus == BitboardField::Opponent {
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::RAPID_BLINK)

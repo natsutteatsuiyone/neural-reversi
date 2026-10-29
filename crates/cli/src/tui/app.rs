@@ -93,6 +93,32 @@ pub enum BoardEditTab {
     Bitboard,
 }
 
+/// Focused field in the bitboard tab of the board editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitboardField {
+    Player,
+    Opponent,
+    Side,
+}
+
+impl BitboardField {
+    fn next(self) -> Option<Self> {
+        match self {
+            BitboardField::Player => Some(BitboardField::Opponent),
+            BitboardField::Opponent => Some(BitboardField::Side),
+            BitboardField::Side => None,
+        }
+    }
+
+    fn prev(self) -> Option<Self> {
+        match self {
+            BitboardField::Player => None,
+            BitboardField::Opponent => Some(BitboardField::Player),
+            BitboardField::Side => Some(BitboardField::Opponent),
+        }
+    }
+}
+
 impl BoardEditTab {
     /// Returns the next tab in order, wrapping around.
     pub fn next(self) -> Self {
@@ -192,8 +218,8 @@ pub struct App {
     pub board_edit_input2: String,
     /// Board editor side to move selection
     pub board_edit_side: Disc,
-    /// Board editor active field index for bitboard tab (0=player, 1=opponent, 2=side)
-    pub board_edit_focus: u8,
+    /// Board editor active field for bitboard tab
+    pub board_edit_focus: BitboardField,
     /// Board editor validation error message
     pub board_edit_error: Option<String>,
 }
@@ -220,7 +246,7 @@ impl App {
             board_edit_input: String::new(),
             board_edit_input2: String::new(),
             board_edit_side: Disc::Black,
-            board_edit_focus: 0,
+            board_edit_focus: BitboardField::Player,
             board_edit_error: None,
         }
     }
@@ -590,7 +616,7 @@ impl App {
         self.board_edit_input.clear();
         self.board_edit_input2.clear();
         self.board_edit_side = self.game.side_to_move();
-        self.board_edit_focus = 0;
+        self.board_edit_focus = BitboardField::Player;
         self.board_edit_error = None;
         self.ui_mode = UiMode::BoardEdit;
     }
@@ -605,42 +631,46 @@ impl App {
                 self.ui_mode = UiMode::Normal;
             }
             Event::Tab => {
-                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus < 2 {
-                    self.board_edit_focus += 1;
+                if self.board_edit_tab == BoardEditTab::Bitboard
+                    && let Some(next) = self.board_edit_focus.next()
+                {
+                    self.board_edit_focus = next;
                 } else {
                     self.board_edit_tab = self.board_edit_tab.next();
                     self.board_edit_input.clear();
                     self.board_edit_input2.clear();
-                    self.board_edit_focus = 0;
+                    self.board_edit_focus = BitboardField::Player;
                     self.board_edit_error = None;
                 }
             }
             Event::BackTab => {
-                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus > 0 {
-                    self.board_edit_focus -= 1;
+                if self.board_edit_tab == BoardEditTab::Bitboard
+                    && let Some(prev) = self.board_edit_focus.prev()
+                {
+                    self.board_edit_focus = prev;
                 } else {
                     self.board_edit_tab = self.board_edit_tab.prev();
                     self.board_edit_input.clear();
                     self.board_edit_input2.clear();
-                    self.board_edit_focus = 0;
+                    self.board_edit_focus = BitboardField::Player;
                     self.board_edit_error = None;
                 }
             }
-            Event::CursorUp
-                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus > 0 =>
-            {
-                self.board_edit_focus -= 1;
+            Event::CursorUp if self.board_edit_tab == BoardEditTab::Bitboard => {
+                if let Some(prev) = self.board_edit_focus.prev() {
+                    self.board_edit_focus = prev;
+                }
             }
-            Event::CursorDown
-                if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus < 2 =>
-            {
-                self.board_edit_focus += 1;
+            Event::CursorDown if self.board_edit_tab == BoardEditTab::Bitboard => {
+                if let Some(next) = self.board_edit_focus.next() {
+                    self.board_edit_focus = next;
+                }
             }
             Event::CursorLeft | Event::CursorRight => {
                 let on_side_field = match self.board_edit_tab {
                     BoardEditTab::Moves => false,
                     BoardEditTab::BoardString => true,
-                    BoardEditTab::Bitboard => self.board_edit_focus == 2,
+                    BoardEditTab::Bitboard => self.board_edit_focus == BitboardField::Side,
                 };
                 if on_side_field {
                     self.board_edit_side = if self.board_edit_side == Disc::Black {
@@ -655,25 +685,28 @@ impl App {
             }
             Event::Char(c) if !c.is_control() => {
                 self.board_edit_error = None;
-                let target = self.active_board_edit_input();
-                if target.len() < 128 {
+                if let Some(target) = self.active_board_edit_input()
+                    && target.len() < 128
+                {
                     target.push(c);
                 }
             }
             Event::Backspace => {
                 self.board_edit_error = None;
-                self.active_board_edit_input().pop();
+                if let Some(target) = self.active_board_edit_input() {
+                    target.pop();
+                }
             }
             _ => {}
         }
     }
 
-    /// Returns a mutable reference to the currently active input buffer.
-    fn active_board_edit_input(&mut self) -> &mut String {
-        if self.board_edit_tab == BoardEditTab::Bitboard && self.board_edit_focus == 1 {
-            &mut self.board_edit_input2
-        } else {
-            &mut self.board_edit_input
+    /// Returns the focused input buffer, or `None` when the side selector has focus.
+    fn active_board_edit_input(&mut self) -> Option<&mut String> {
+        match (self.board_edit_tab, self.board_edit_focus) {
+            (BoardEditTab::Bitboard, BitboardField::Opponent) => Some(&mut self.board_edit_input2),
+            (BoardEditTab::Bitboard, BitboardField::Side) => None,
+            _ => Some(&mut self.board_edit_input),
         }
     }
 
