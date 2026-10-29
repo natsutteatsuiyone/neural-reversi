@@ -521,6 +521,7 @@ test("real WASM worker keeps the same player after a forced pass", async ({ page
   expect(result.before.currentPlayer).toBe(2);
   expect(result.before.legalMoves).toContain(6);
   expect(result.after.currentPlayer).toBe(2);
+  expect(result.after.aiPassed).toBe(true);
   expect(result.after.emptyCount).toBe(42);
   expect(Array.from(result.after.score)).toEqual([10, 12]);
   expect(Array.from(result.after.legalMoves).sort((a, b) => a - b)).toEqual([
@@ -558,6 +559,24 @@ test("defensively auto-passes an injected human state with no legal move", async
       ),
     )
     .toBeGreaterThan(0);
+});
+
+test("announces an AI pass forced by the human move", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const generation = await startGameAndGetGeneration(page);
+
+  await page.evaluate((gen) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({
+      type: "state_updated",
+      payload: { ...window.__initialGameState, aiPassed: true },
+      generation: gen,
+    });
+  }, generation);
+
+  await expect(page.locator(".toast__text")).toHaveText("AIはパスしました。あなたの番です。");
 });
 
 test("reveals engine stats on hovering the move-log robot icon", async ({ page }) => {

@@ -293,6 +293,9 @@ worker.onmessage = async (event) => {
     case "state_updated":
       clearHints();
       syncStateFromGame(payload);
+      if (payload?.aiPassed) {
+        void showPassToast("ai");
+      }
       runAiTurn();
       ensureHumanPassIfNeeded();
       maybeAutoHint();
