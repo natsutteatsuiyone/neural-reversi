@@ -400,6 +400,7 @@ impl ReversiApp {
         let position = self.session.game().position();
         let waiting = !self.session.is_solving()
             && self.session.is_paused()
+            && self.session.activity().is_none()
             && self.settings.ai_color() == Some(position.turn)
             && !position.game_over();
         if !waiting {
