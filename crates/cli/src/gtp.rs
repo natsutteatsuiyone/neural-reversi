@@ -559,7 +559,8 @@ impl GtpEngine {
     /// Handles the `play` command.
     ///
     /// Executes a move for the specified color. Validates that it's the correct
-    /// player's turn and that the move is legal.
+    /// player's turn and that the move is legal, but accepts a pass for the side
+    /// that was already passed automatically.
     ///
     /// # Arguments
     /// * `color` - The color making the move ("b"/"black" or "w"/"white")
@@ -568,6 +569,9 @@ impl GtpEngine {
     /// # Returns
     /// Success if the move was played, error if invalid
     fn handle_play(&mut self, color: &str, move_str: &str) -> GtpResponse {
+        if move_str == "pass" && self.confirm_automatic_pass(color) {
+            return GtpResponse::Success("".to_string());
+        }
         if let Err(msg) = self.validate_color(color) {
             return GtpResponse::Error(msg);
         }
@@ -602,6 +606,9 @@ impl GtpEngine {
     /// # Returns
     /// The generated move in coordinate notation, or "pass" if no legal moves
     fn handle_genmove(&mut self, color: &str) -> GtpResponse {
+        if self.confirm_automatic_pass(color) {
+            return GtpResponse::Success("pass".to_string());
+        }
         if let Err(msg) = self.validate_color(color) {
             return GtpResponse::Error(msg);
         }
@@ -780,6 +787,16 @@ impl GtpEngine {
         } else {
             GtpResponse::Error(format!("level must be between 1 and {MAX_LEVEL}"))
         }
+    }
+
+    /// Records the pass of `color` if the last move already passed for it automatically.
+    fn confirm_automatic_pass(&mut self, color: &str) -> bool {
+        let side = match color {
+            "b" | "black" => Disc::Black,
+            "w" | "white" => Disc::White,
+            _ => return false,
+        };
+        self.game.confirm_automatic_pass(side)
     }
 
     /// Validates that the specified color matches the current player to move.
@@ -1000,6 +1017,63 @@ mod tests {
             engine.handle_play("black", "C1"),
             GtpResponse::Success(_)
         ));
+    }
+
+    #[test]
+    fn play_pass_and_genmove_confirm_an_automatic_pass() {
+        let config = EngineConfig {
+            hash_size: 1,
+            level: 1,
+            threads: Some(1),
+            eval_file: None,
+            eval_sm_file: None,
+        };
+        let mut engine = GtpEngine::new(&config);
+        // Black a1 leaves White without a move while Black can still play g1.
+        let text = format!("-OXOOO--{}", "-".repeat(56));
+        assert!(matches!(
+            engine.handle_setboard(&text, "B"),
+            GtpResponse::Success(_)
+        ));
+        assert!(matches!(
+            engine.handle_play("black", "a1"),
+            GtpResponse::Success(_)
+        ));
+        assert!(matches!(
+            engine.handle_play("white", "g1"),
+            GtpResponse::Error(_)
+        ));
+        assert!(matches!(
+            engine.handle_play("white", "pass"),
+            GtpResponse::Success(_)
+        ));
+        assert!(matches!(
+            engine.handle_play("white", "pass"),
+            GtpResponse::Error(_)
+        ));
+        assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
+        assert_eq!(engine.game.side_to_move(), Disc::White);
+        assert!(matches!(
+            engine.handle_play("black", "g1"),
+            GtpResponse::Error(_)
+        ));
+        assert!(matches!(
+            engine.handle_genmove("white"),
+            GtpResponse::Success(mv) if mv == "pass"
+        ));
+        assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
+        assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
+        assert!(engine.game.move_history().is_empty());
+        assert!(matches!(
+            engine.handle_play("black", "a1"),
+            GtpResponse::Success(_)
+        ));
+        assert!(matches!(
+            engine.handle_genmove("white"),
+            GtpResponse::Success(mv) if mv == "pass"
+        ));
+        assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
+        assert_eq!(engine.game.side_to_move(), Disc::White);
     }
 
     #[test]

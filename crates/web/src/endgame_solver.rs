@@ -69,6 +69,20 @@ impl EndgameSolver {
         let board = Board::from_string(board_str, disc)
             .map_err(|e| JsValue::from_str(&format!("Invalid board: {}", e)))?;
 
+        let is_pass = !board.has_legal_moves();
+        let search_board = if is_pass {
+            board.switch_players()
+        } else {
+            board
+        };
+        if !search_board.has_legal_moves() {
+            return Ok(EndgameSolveResult {
+                score: board.solve(board.empty_count()) as f32,
+                best_move: String::new(),
+                n_nodes: 0.0,
+            });
+        }
+
         let empty_count = board.empty_count() as Depth;
         let level = Level {
             mid_depth: empty_count,
@@ -78,8 +92,15 @@ impl EndgameSolver {
 
         let result = self
             .search
-            .run(&board, level, MIDGAME_SELECTIVITY, None, false);
+            .run(&search_board, level, MIDGAME_SELECTIVITY, None, false);
 
+        if is_pass {
+            return Ok(EndgameSolveResult {
+                score: -result.score,
+                best_move: String::new(),
+                n_nodes: result.n_nodes as f64,
+            });
+        }
         Ok(EndgameSolveResult {
             score: result.score,
             best_move: result
@@ -88,5 +109,26 @@ impl EndgameSolver {
                 .unwrap_or_default(),
             n_nodes: result.n_nodes as f64,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solve_scores_positions_without_a_legal_move() {
+        let mut solver = EndgameSolver::new(Some(1)).unwrap();
+
+        let full = solver.solve(&"X".repeat(64), 0).unwrap();
+        assert_eq!(full.score(), 64.0);
+        assert_eq!(full.best_move(), "");
+
+        // White must pass; Black then plays g1 and takes every disc.
+        let pass = solver
+            .solve(&format!("XXXOOO--{}", "-".repeat(56)), 1)
+            .unwrap();
+        assert_eq!(pass.score(), -64.0);
+        assert_eq!(pass.best_move(), "");
     }
 }

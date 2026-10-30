@@ -29,7 +29,7 @@ const MIN_RANDOM_MOVES: u8 = 10;
 /// Exclusive upper bound on the number of random moves at the start of each game
 const MAX_RANDOM_MOVES: u8 = 50;
 
-/// Number of digits used in output file naming
+/// Minimum number of digits used in output file naming
 const FILE_ID_DIGITS: usize = 5;
 
 /// Maximum size of the record cache
@@ -46,34 +46,27 @@ struct FileState {
 
 impl FileState {
     fn new(prefix: &str, output_dir: &str, games_per_file: u32) -> io::Result<Self> {
-        let latest_file_entry = fs::read_dir(output_dir)?
+        let latest_file = fs::read_dir(output_dir)?
             .filter_map(|entry| entry.ok())
-            .filter(|entry| {
+            .filter_map(|entry| {
                 let name = entry.file_name();
-                name.to_str()
-                    .and_then(|name| name.strip_prefix(prefix))
-                    .and_then(|name| name.strip_prefix('_'))
-                    .and_then(|name| name.strip_suffix(".bin"))
-                    .is_some_and(|id| {
-                        id.len() == FILE_ID_DIGITS && id.bytes().all(|digit| digit.is_ascii_digit())
-                    })
+                let id = name
+                    .to_str()?
+                    .strip_prefix(prefix)?
+                    .strip_prefix('_')?
+                    .strip_suffix(".bin")?;
+                if id.len() < FILE_ID_DIGITS || !id.bytes().all(|digit| digit.is_ascii_digit()) {
+                    return None;
+                }
+                Some((id.parse::<u32>().ok()?, entry.path()))
             })
-            .max_by_key(|entry| entry.file_name());
+            .max_by_key(|&(id, _)| id);
 
         let mut file_id: u32 = 0;
         let mut game_id: u16 = 0;
 
-        if let Some(entry) = latest_file_entry {
-            let path = entry.path();
-            file_id = path
-                .file_stem()
-                .and_then(|stem| {
-                    stem.to_string_lossy()
-                        .split('_')
-                        .next_back()
-                        .and_then(|id_str| id_str.parse::<u32>().ok())
-                })
-                .unwrap_or(0);
+        if let Some((latest_id, path)) = latest_file {
+            file_id = latest_id;
 
             // Remove any trailing incomplete record left by a previous interrupted run
             truncate_incomplete_record(&path)?;

@@ -13,7 +13,7 @@ use crate::square::Square;
 pub enum HistoryAction {
     /// A move that places a disc on the board.
     Play(Square),
-    /// A pass requested through [`GameState::make_pass`].
+    /// A pass requested through [`GameState::make_pass`] or [`GameState::confirm_automatic_pass`].
     ExplicitPass,
     /// A forced pass inserted by [`GameState::make_move`].
     AutomaticPass,
@@ -149,6 +149,23 @@ impl GameState {
 
         self.apply_action(HistoryAction::ExplicitPass);
         Ok(())
+    }
+
+    /// Records the automatic pass that ends the history as an explicit pass by `side`,
+    /// so that [`GameState::undo`] reverts it on its own.
+    ///
+    /// Returns `false` and changes nothing unless the last action is an automatic
+    /// pass by `side`.
+    pub fn confirm_automatic_pass(&mut self, side: Disc) -> bool {
+        match self.history.last_mut() {
+            Some(entry)
+                if entry.action == HistoryAction::AutomaticPass && entry.side_to_move == side =>
+            {
+                entry.action = HistoryAction::ExplicitPass;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Records the current position and applies `action` without checking its legality.

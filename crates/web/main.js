@@ -343,6 +343,7 @@ worker.onmessage = async (event) => {
     case "replay_completed":
       clearHints();
       syncStateFromGame(payload);
+      runAiTurn();
       maybeAutoHint();
       break;
     case "error":
@@ -922,18 +923,15 @@ async function handleUndo() {
     return;
   }
 
-  // Remove the last move(s) from history
-  // If the last move was by AI, remove both AI and human moves (2 moves)
-  // If the last move was by human, remove only that move
-  const lastMove = state.moveHistory[state.moveHistory.length - 1];
-  const movesToUndo = lastMove.player === state.aiColor ? 2 : 1;
-
-  // Remove moves from history
-  for (let i = 0; i < movesToUndo && state.moveHistory.length > 0; i++) {
-    state.moveHistory.pop();
-  }
+  // Remove the human's last move and every AI move after it. Without a human
+  // move, clear the history so the AI plays its opening move again.
+  const lastHumanIndex = state.moveHistory.findLastIndex(
+    (move) => move.player === state.humanColor,
+  );
+  state.moveHistory.splice(Math.max(lastHumanIndex, 0));
 
   // Clear visual state
+  clearToast();
   clearHints();
   state.lastHumanMove = null;
   state.lastAiMove = null;
