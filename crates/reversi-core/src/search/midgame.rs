@@ -139,16 +139,8 @@ fn iterate(
             ctx.root_moves.set_pv_idx(pv_idx);
 
             let (mut alpha, mut beta, delta) = aspiration_window(ctx, depth);
-            let (score, window_clean) = aspiration_search(
-                ctx,
-                board,
-                depth,
-                &mut alpha,
-                &mut beta,
-                delta,
-                use_time_control,
-                thread,
-            );
+            let (score, window_clean) =
+                aspiration_search(ctx, board, depth, &mut alpha, &mut beta, delta, thread);
 
             ctx.root_moves.sort_from_pv_idx();
 
@@ -248,16 +240,10 @@ pub(super) fn compute_start_depth(max_depth: Depth) -> Depth {
 
 /// Performs aspiration window search at the given depth.
 ///
-/// When `reduce_fail_high_depth` is set, consecutive fail-high re-searches run
-/// at a reduced effective depth (`depth - failed_high_cnt`) while progress
-/// is still reported at `depth`. Fixed-depth searches must not set it: their
-/// scores are used as exact depth-`depth` references (e.g. ProbCut fitting).
-///
 /// Returns the score and whether the search completed inside its initial
 /// window (i.e. without any fail-low/fail-high re-search). A clean window is
 /// evidence that the best score is stable across iterations and that no
 /// alternative move overtook it.
-#[allow(clippy::too_many_arguments)]
 fn aspiration_search(
     ctx: &mut SearchContext,
     board: &Board,
@@ -265,37 +251,21 @@ fn aspiration_search(
     alpha: &mut ScaledScore,
     beta: &mut ScaledScore,
     mut delta: ScaledScore,
-    reduce_fail_high_depth: bool,
     thread: &Arc<Thread>,
 ) -> (ScaledScore, bool) {
     let mut window_clean = true;
-    let mut failed_high_cnt: Depth = 0;
 
     loop {
-        let adjusted_depth = if reduce_fail_high_depth {
-            depth.saturating_sub(failed_high_cnt).max(1)
-        } else {
-            depth
-        };
-        let score = search::<Root, MidGameStrategy>(
-            ctx,
-            board,
-            adjusted_depth,
-            *alpha,
-            *beta,
-            thread,
-            false,
-        );
+        let score =
+            search::<Root, MidGameStrategy>(ctx, board, depth, *alpha, *beta, thread, false);
 
         if thread.is_search_aborted() {
             return (score, window_clean);
         }
 
-        let failed_high = score >= *beta;
         if !widen_aspiration_window(score, alpha, beta, delta) {
             return (score, window_clean);
         }
-        failed_high_cnt = if failed_high { failed_high_cnt + 1 } else { 0 };
 
         window_clean = false;
         delta += delta / 2;

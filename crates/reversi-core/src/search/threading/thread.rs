@@ -18,7 +18,6 @@ use crate::util::align::Align64;
 use crate::util::spinlock;
 
 use super::AbortState;
-use super::breadcrumbs::{Breadcrumb, Breadcrumbs};
 use super::pool::{Message, ThreadPool};
 use super::split_point::{SplitPoint, SplitPointState, SplitPointTask};
 
@@ -66,9 +65,6 @@ pub struct Thread {
 
     /// Cached pool size, avoids `Weak::upgrade()` in `can_split()`.
     pool_size: usize,
-
-    /// Positions the threads of this pool are currently searching.
-    breadcrumbs: Arc<Breadcrumbs>,
 
     /// Endgame cache set owned by this search thread.
     ///
@@ -126,7 +122,6 @@ impl Thread {
         thinking: Arc<AtomicBool>,
         abort_state: Arc<AbortState>,
         cutoff_epoch: Arc<Align64<AtomicU64>>,
-        breadcrumbs: Arc<Breadcrumbs>,
         pool_size: usize,
         pool: Weak<ThreadPool>,
     ) -> Thread {
@@ -145,7 +140,6 @@ impl Thread {
             local_seen_cutoff_epoch: AtomicU64::new(0),
             local_chain_cutoff: AtomicBool::new(false),
             pool_size,
-            breadcrumbs,
             endgame_caches: SyncUnsafeCell::new(EndGameCaches::for_thread_count(pool_size)),
             thinking,
             split_points_size: Align64(AtomicUsize::new(0)),
@@ -237,20 +231,6 @@ impl Thread {
     #[inline]
     pub(in crate::search) fn idx(&self) -> usize {
         self.idx
-    }
-
-    /// Marks the position `key` as searched by this thread at `depth` until
-    /// the returned breadcrumb is dropped.
-    #[inline]
-    pub(in crate::search) fn enter_breadcrumb(&self, key: u64, depth: Depth) -> Breadcrumb<'_> {
-        self.breadcrumbs.enter(self.idx, key, depth)
-    }
-
-    /// Returns whether another thread is inside the position `key` at `depth`
-    /// or deeper.
-    #[inline]
-    pub(in crate::search) fn is_breadcrumb_marked(&self, key: u64, depth: Depth) -> bool {
-        self.breadcrumbs.is_marked(self.idx, key, depth)
     }
 
     /// Returns `true` when the pool has more than one search thread.

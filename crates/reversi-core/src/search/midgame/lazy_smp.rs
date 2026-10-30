@@ -4,10 +4,10 @@
 //! other thread of the pool runs a helper search on the same root. The
 //! threads share results only through the transposition table and the
 //! evaluation cache, and each helper walks the tree its own way: it skips
-//! some depths, widens its aspiration windows by an amount taken from its
-//! index, and orders moves differently, so the threads spread over
-//! different parts of the tree. A timed search reports the move that the
-//! threads' last completed iterations vote for.
+//! some depths and widens its aspiration windows by an amount taken from its
+//! index, so the threads spread over different parts of the tree. A timed
+//! search reports the move that the threads' last completed iterations vote
+//! for.
 //!
 //! [`search_root`]: super::search_root
 
@@ -17,15 +17,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::board::Board;
 use crate::eval::{Eval, EvalMode};
-use crate::move_list::MoveList;
 use crate::probcut::Selectivity;
 use crate::search::SearchTask;
 use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
-use crate::search::node_type::NodeType;
 use crate::search::result::Iteration;
 use crate::search::threading::{HelperJob, Thread, ThreadPool};
-use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 use crate::types::{Depth, ScaledScore};
 
@@ -43,10 +40,6 @@ const ASPIRATION_STEP: ScaledScore = ScaledScore::from_raw(ScaledScore::SCALE / 
 /// Number of distinct aspiration window widths; see
 /// [`Helper::aspiration_widening`].
 const ASPIRATION_CYCLE: usize = 8;
-
-/// Right shift that turns a 64-bit hash into a move-ordering bias of 0 to
-/// 2 discs (in 1/256 disc).
-const ORDERING_BIAS_SHIFT: u32 = 55;
 
 /// Vote margin added to every score so the worst candidate still counts.
 const VOTE_MARGIN: ScaledScore = ScaledScore::from_disc_diff(1);
@@ -74,38 +67,6 @@ impl Helper {
         let steps = (self.0.get() % ASPIRATION_CYCLE) as i32;
         ScaledScore::from_raw(ASPIRATION_STEP.value() * steps)
     }
-
-    /// Sorts the moves of the node with hash `key` into this helper's order.
-    ///
-    /// Inside the tree, moves are sorted by their values plus a bias of up to
-    /// two discs hashed from the node, the move, and the helper; the values
-    /// themselves stay unbiased because LMR reads them. At the root, the moves
-    /// after the first are rotated by an offset taken from the helper's index.
-    /// The TT move stays first either way.
-    #[inline(always)]
-    pub(in crate::search) fn sort_moves<NT: NodeType>(self, move_list: &mut MoveList, key: u64) {
-        let idx = self.0.get();
-        if NT::ROOT_NODE {
-            move_list.sort();
-            let n_moves = move_list.count();
-            if n_moves > 2 {
-                move_list.rotate_left_from(1, (idx - 1) % (n_moves - 1));
-            }
-        } else {
-            move_list.sort_with_bias(|mv| ordering_bias(key, mv.sq, idx));
-        }
-    }
-}
-
-/// Returns the move-ordering bias helper `idx` gives `sq` at the node with
-/// hash `key`.
-#[inline(always)]
-fn ordering_bias(key: u64, sq: Square, idx: usize) -> i32 {
-    let h = (key
-        ^ (sq.index() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        ^ (idx as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F))
-    .wrapping_mul(0xD6E8_FEB8_6659_FD93);
-    (h >> ORDERING_BIAS_SHIFT) as i32
 }
 
 /// The helper threads of one midgame search, aborted when dropped.
@@ -146,7 +107,6 @@ impl<'a> Helpers<'a> {
                 eval: task.eval.clone(),
                 eval_mode: task.eval_mode,
                 max_depth,
-                reduce_fail_high_depth: task.time_manager.is_some(),
                 report: report.clone(),
             };
             let job: HelperJob = Arc::new(move |thread: &Arc<Thread>| search.run(thread));
@@ -186,7 +146,6 @@ struct HelperSearch {
     eval: Arc<Eval>,
     eval_mode: Option<EvalMode>,
     max_depth: Depth,
-    reduce_fail_high_depth: bool,
     report: Arc<HelperReport>,
 }
 
@@ -223,7 +182,6 @@ impl HelperSearch {
                 &mut alpha,
                 &mut beta,
                 delta,
-                self.reduce_fail_high_depth,
                 thread,
             );
             self.report
@@ -275,6 +233,7 @@ pub(super) fn vote_best(main: Option<Iteration>, helpers: Vec<Iteration>) -> Opt
 mod tests {
     use super::*;
     use crate::search::root_move::RootMove;
+    use crate::square::Square;
 
     #[test]
     fn vote_prefers_the_move_backed_by_more_and_deeper_iterations() {

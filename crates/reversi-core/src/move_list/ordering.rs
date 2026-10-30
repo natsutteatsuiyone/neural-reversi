@@ -211,13 +211,6 @@ impl MoveList {
     pub fn sort(&mut self) {
         self.moves.sort_by_key_desc(|mv| mv.value);
     }
-
-    /// Sorts all moves in descending order of their evaluation values plus
-    /// `bias`, leaving the values themselves unchanged.
-    #[inline]
-    pub fn sort_with_bias(&mut self, bias: impl Fn(&Move) -> i32) {
-        self.moves.sort_by_key_desc(|mv| mv.value + bias(mv));
-    }
 }
 
 /// Evaluates a position using a shallow search at the specified depth.

@@ -13,17 +13,13 @@ use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::SearchStrategy;
-use crate::search::threading::{Breadcrumb, SplitPoint, SplitRequest, Thread};
+use crate::search::threading::{SplitPoint, SplitRequest, Thread};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
 
 const IIR_MIN_DEPTH: Depth = 6;
-
-/// Minimum depth at which a midgame node leaves a breadcrumb for the other
-/// threads.
-const BREADCRUMB_MIN_DEPTH: Depth = 6;
 
 /// Searches both midgame and endgame positions using Principal Variation Search.
 pub fn search<NT: NodeType, SS: SearchStrategy>(
@@ -148,19 +144,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         depth -= 1;
     }
 
-    // Midgame threads of a parallel pool leave a breadcrumb on the nodes they
-    // are searching. A node another thread has marked at least as deep
-    // reduces its late moves one ply more, and a child marked that way waits
-    // until its siblings are searched, so the threads spread over different
-    // subtrees.
-    // Children are searched at most one ply shallower, so they can carry
-    // breadcrumbs only below nodes deeper than the minimum.
-    let use_breadcrumbs = !SS::IS_ENDGAME && !NT::ROOT_NODE && thread.is_parallel_pool();
-    let breadcrumb = (use_breadcrumbs && depth >= BREADCRUMB_MIN_DEPTH)
-        .then(|| thread.enter_breadcrumb(tt_key, depth));
-    let marked = breadcrumb.as_ref().is_some_and(Breadcrumb::is_marked);
-    let defer_marked_children = use_breadcrumbs && depth > BREADCRUMB_MIN_DEPTH;
-
     let n_moves = move_list.count();
     let mut best_move = Square::None;
     let mut best_score = -ScaledScore::INF;
@@ -220,17 +203,13 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     // so the main loop (starting at move_count=1) skips it correctly.
     if n_moves - move_count > 1 {
         move_list.evaluate_moves::<NT, SS>(ctx, board, depth, tt_move, alpha, cut_node);
-        match ctx.helper {
-            Some(helper) => helper.sort_moves::<NT>(&mut move_list, tt_key),
-            None => move_list.sort(),
-        }
+        move_list.sort();
     } else if n_moves == 2 && move_list.move_at(0).sq != tt_move {
         move_list.swap_moves(0, 1);
     }
 
     // Main move loop
-    let mut moves = MoveSequence::new(move_count, n_moves);
-    while let Some((idx, first_visit)) = moves.next() {
+    for idx in move_count..n_moves {
         // Endgame nodes share their remaining moves with idle threads.
         if SS::IS_ENDGAME
             && (idx >= 1 || (all_node && depth <= endgame::SPECULATIVE_SPLIT_MAX_DEPTH))
@@ -266,25 +245,13 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         let mv = move_list.move_at(idx);
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-
-        // After the first move, a child another thread has marked waits.
-        if defer_marked_children
-            && first_visit
-            && idx > 0
-            && thread.is_breadcrumb_marked(next.hash(), depth - 1)
-        {
-            moves.defer(idx);
-            continue;
-        }
-
-        // The move's 1-based rank in the sorted list, which deferral keeps.
         let move_count = idx + 1;
         ctx.update(mv.sq, mv.flipped);
 
         let mut score = -ScaledScore::INF;
 
         if !NT::PV_NODE || move_count > 1 {
-            let mut reduction = compute_lmr_reduction::<NT, SS>(
+            let reduction = compute_lmr_reduction::<NT, SS>(
                 ctx.selectivity,
                 depth,
                 move_count,
@@ -293,10 +260,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 mv.value,
                 alpha,
             );
-            // Another thread is searching this node too.
-            if marked && reduction > 0 {
-                reduction = (reduction + 1).min(depth - 2);
-            }
 
             score = -search::<NonPV, SS>(
                 ctx,
@@ -376,52 +339,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     best_score
-}
-
-/// Order in which a node visits its sorted moves: list order, then the moves
-/// put off with [`defer`](Self::defer), again in list order.
-struct MoveSequence {
-    /// Index of the next move in list order.
-    next: usize,
-    /// Number of moves in the list.
-    len: usize,
-    /// Bit `i` set while move `i` waits to be visited again.
-    deferred: u64,
-}
-
-impl MoveSequence {
-    /// Starts visiting the list at index `start`.
-    #[inline(always)]
-    fn new(start: usize, len: usize) -> Self {
-        Self {
-            next: start,
-            len,
-            deferred: 0,
-        }
-    }
-
-    /// Returns the index of the next move to visit and whether this is its
-    /// first visit.
-    #[inline(always)]
-    fn next(&mut self) -> Option<(usize, bool)> {
-        if self.next < self.len {
-            self.next += 1;
-            return Some((self.next - 1, true));
-        }
-        if self.deferred == 0 {
-            return None;
-        }
-        let idx = self.deferred.trailing_zeros() as usize;
-        self.deferred &= self.deferred - 1;
-        Some((idx, false))
-    }
-
-    /// Puts off the move at `idx`, just visited for the first time, until the
-    /// rest of the list has been visited.
-    #[inline(always)]
-    fn defer(&mut self, idx: usize) {
-        self.deferred |= 1 << idx;
-    }
 }
 
 /// Searches remaining moves at a split point in parallel search.

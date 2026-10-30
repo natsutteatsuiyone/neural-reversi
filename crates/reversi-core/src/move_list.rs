@@ -278,12 +278,6 @@ impl MoveList {
         unsafe { self.moves.swap_unchecked(a, b) };
     }
 
-    /// Rotates the moves from index `start` on to the left by `mid` places.
-    #[inline]
-    pub fn rotate_left_from(&mut self, start: usize, mid: usize) {
-        self.moves.as_mut_slice()[start..].rotate_left(mid);
-    }
-
     /// Returns the move at the given index by value.
     #[inline(always)]
     pub fn move_at(&self, index: usize) -> Move {

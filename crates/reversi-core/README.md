@@ -109,15 +109,13 @@ time (the `cut_node` flag is also threaded through). One node, in order:
 8. **IIR** (Internal Iterative Reductions) — reduce non-root PV/Cut midgame
    nodes by one ply when `depth >= IIR_MIN_DEPTH` (6), selectivity is enabled,
    and the TT provides no best move. All nodes, endgame nodes, and ProbCut
-   verification searches retain their depth. Move searches, breadcrumbs,
-   and TT stores use the reduced depth.
+   verification searches retain their depth. Move searches and TT stores
+   use the reduced depth.
 9. **TT move first** — in NonPV nodes with a TT move, search the TT move at
    a null window before running move ordering. A fail-high here cuts off
    without sorting the rest.
 10. **Move ordering** — `MoveList::evaluate_moves` scores the rest;
-   `MoveList::sort` arranges them, and a Lazy SMP helper thread uses
-   `Helper::sort_moves` instead (see Parallel search). The TT move is always
-   pinned at index 0.
+   `MoveList::sort` arranges them. The TT move is always pinned at index 0.
 11. **Main loop**:
     - First move (PV): full window.
     - Later moves: `compute_lmr_reduction` picks a reduction; search at a
@@ -125,10 +123,7 @@ time (the `cut_node` flag is also threaded through). One node, in order:
       window). For PV nodes, if `score > alpha`, re-search at full depth and
       full window.
     - In endgame nodes, when the conditions are met, `Thread::split` hands
-      the remaining moves to idle threads. In midgame nodes, a child that
-      another thread has marked with a breadcrumb at least as deep is
-      searched after its siblings and keeps its rank for LMR (see Parallel
-      search).
+      the remaining moves to idle threads.
 12. **TT store** — pack `best_score / best_move / bound / depth /
     selectivity / is_endgame` and write back.
 
@@ -326,15 +321,9 @@ Midgame (`src/search/midgame/lazy_smp.rs`):
   of the same root. The threads share results only through the
   transposition table and the evaluation cache.
 - Each helper walks the tree its own way, derived from its pool index: it
-  skips depths in alternating runs (`SKIP_SIZE`, `SKIP_PHASE`), widens its
-  aspiration windows by `ASPIRATION_STEP` times its index modulo
-  `ASPIRATION_CYCLE`, sorts inner moves by value plus a hashed bias whose
-  range `ORDERING_BIAS_SHIFT` sets, and rotates the root moves after the
-  first by its index minus one. Move values stay unbiased for LMR.
-- Every thread leaves a breadcrumb (`Breadcrumbs`) on the non-root midgame
-  nodes it is searching from `BREADCRUMB_MIN_DEPTH` on. A node another
-  thread has marked at least as deep reduces its late moves by one more
-  ply, and a child marked that way is searched after its siblings.
+  skips depths in alternating runs (`SKIP_SIZE`, `SKIP_PHASE`) and widens
+  its aspiration windows by `ASPIRATION_STEP` times its index modulo
+  `ASPIRATION_CYCLE`.
 - `ThreadPool::stop_helpers` aborts the helper searches before the root
   returns or hands off to the endgame solve loop. In `vote_best`, each
   completed iteration votes for its best move with its score margin over

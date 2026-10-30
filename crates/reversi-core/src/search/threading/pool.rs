@@ -11,7 +11,6 @@ use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
 
 use super::AbortState;
-use super::breadcrumbs::Breadcrumbs;
 use super::split_point::SplitPoint;
 use super::thread::{HelperJob, Thread};
 
@@ -55,9 +54,6 @@ pub struct ThreadPool {
     /// Incremented whenever a split point first records a cutoff.
     cutoff_epoch: Arc<Align64<AtomicU64>>,
 
-    /// Positions the threads are currently searching.
-    breadcrumbs: Arc<Breadcrumbs>,
-
     /// Handle for the timer thread (protected by mutex for interior mutability).
     timer_handle: Mutex<Option<JoinHandle<()>>>,
 
@@ -80,7 +76,6 @@ impl ThreadPool {
                 sender,
                 abort_state: Arc::new(AbortState::new()),
                 cutoff_epoch: Arc::new(Align64(AtomicU64::new(0))),
-                breadcrumbs: Arc::new(Breadcrumbs::new()),
                 timer_handle: Mutex::new(None),
                 timer_stop: Arc::new(AtomicBool::new(false)),
             };
@@ -104,7 +99,6 @@ impl ThreadPool {
             self.thinking.clone(),
             self.abort_state.clone(),
             self.cutoff_epoch.clone(),
-            self.breadcrumbs.clone(),
             self.size,
             pool.clone(),
         ));
