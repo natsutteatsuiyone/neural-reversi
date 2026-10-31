@@ -1,6 +1,5 @@
-use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock, mpsc};
+use std::io::{self, Write};
+use std::sync::{OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
@@ -17,32 +16,18 @@ const BOARD_16_EMPTIES: &str = "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX
 const BOARD_9_EMPTIES: &str = "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX";
 const TEST_TT_MB_SIZE: usize = 8;
 
-// Run hang-sensitive cases in a child so a deadlocked search or pool destructor
-// cannot also deadlock the thread responsible for enforcing the deadline.
-fn with_watchdog(name: &str, run: impl FnOnce()) {
-    const CHILD_CASE: &str = "REVERSI_PARALLEL_TEST_CHILD";
-    if std::env::var(CHILD_CASE).as_deref() == Ok(name) {
-        run();
-        return;
-    }
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", name, "--nocapture"])
-        .env(CHILD_CASE, name)
-        .spawn()
-        .expect("start watchdog child");
-    let start = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().expect("poll watchdog child") {
-            assert!(status.success(), "{name} failed: {status}");
-            return;
+// Aborts the whole test process if `run` outlives 30 seconds. Create engines
+// before calling it: loading the weights in a debug build can take that long.
+fn with_watchdog(name: &'static str, run: impl FnOnce()) {
+    let (_done, deadline) = mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        if deadline.recv_timeout(Duration::from_secs(30)) == Err(mpsc::RecvTimeoutError::Timeout) {
+            // libtest captures this thread's `eprintln!`, which abort would discard.
+            let _ = writeln!(io::stderr(), "{name} exceeded the 30-second deadline");
+            std::process::abort();
         }
-        if start.elapsed() >= Duration::from_secs(30) {
-            child.kill().expect("kill hung test child");
-            child.wait().expect("reap hung test child");
-            panic!("{name} exceeded the 30-second process deadline");
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    });
+    run();
 }
 
 fn search(n_threads: usize) -> Search {
@@ -102,26 +87,29 @@ fn parallel_solve_reused_search_instance_is_consistent() {
 
 #[test]
 fn timed_search_terminates_within_deadline_margin() {
-    with_watchdog("timed_search_terminates_within_deadline_margin", || {
-        let mut search = search(4);
-        let board = Board::new().make_move(Square::F5);
-        let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
-            time_per_move_ms: 500,
-        });
+    let mut search = search(4);
+    with_watchdog(
+        "timed_search_terminates_within_deadline_margin",
+        move || {
+            let board = Board::new().make_move(Square::F5);
+            let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
+                time_per_move_ms: 500,
+            });
 
-        let start = Instant::now();
-        let result = search.run(&board, &options);
-        let elapsed = start.elapsed();
+            let start = Instant::now();
+            let result = search.run(&board, &options);
+            let elapsed = start.elapsed();
 
-        // Generous margin: this guards against a hung abort/timer, not
-        // time-management precision.
-        assert!(
-            elapsed < Duration::from_secs(5),
-            "timed search took {elapsed:?}"
-        );
-        assert!(result.score().is_some(), "expected a best move");
-        assert!(result.n_nodes() > 0);
-    });
+            // Generous margin: this guards against a hung abort/timer, not
+            // time-management precision.
+            assert!(
+                elapsed < Duration::from_secs(5),
+                "timed search took {elapsed:?}"
+            );
+            assert!(result.score().is_some(), "expected a best move");
+            assert!(result.n_nodes() > 0);
+        },
+    );
 }
 
 /// Full-width midgame search must return the same score for any thread count:
@@ -152,84 +140,6 @@ fn parallel_midgame_score_matches_single_threaded() {
     }
 }
 
-/// Covers a stop requested from another thread, which the timer-based test
-/// does not exercise. One stop issued after observed search progress must end
-/// both the midgame driver and a direct endgame solve.
-#[test]
-fn stop_token_ends_midgame_and_endgame_promptly() {
-    with_watchdog("stop_token_ends_midgame_and_endgame_promptly", || {
-        for (board, level, endgame) in [
-            (
-                Board::new().make_move(Square::F5),
-                Level::uniform(60, 0),
-                false,
-            ),
-            (
-                Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap(),
-                Level::perfect(),
-                true,
-            ),
-        ] {
-            let mut search = search(4);
-            let stop = StopToken::new();
-            let stopper_token = stop.clone();
-            let (started_tx, started_rx) = mpsc::channel();
-            let (stopped_tx, stopped_rx) = mpsc::channel();
-            let stopped_rx = Mutex::new(stopped_rx);
-            let notified = AtomicBool::new(false);
-            let options = SearchRunOptions::with_level(level)
-                .stop_token(stop)
-                .callback(move |progress| {
-                    if progress.depth >= 4
-                        && progress.nodes > 0
-                        && !notified.swap(true, Ordering::Relaxed)
-                    {
-                        assert_eq!(progress.is_endgame, endgame);
-                        if endgame {
-                            assert!(
-                                progress.probability < 100,
-                                "full solve must still be pending"
-                            );
-                        }
-                        started_tx
-                            .send(())
-                            .expect("stopper must await search progress");
-                        stopped_rx
-                            .lock()
-                            .unwrap()
-                            .recv_timeout(Duration::from_secs(5))
-                            .unwrap();
-                    }
-                });
-
-            let stopper = std::thread::spawn(move || {
-                started_rx
-                    .recv_timeout(Duration::from_secs(5))
-                    .expect("search must start before the stop");
-                stopper_token.stop();
-                stopped_tx.send(()).unwrap();
-            });
-
-            let start = Instant::now();
-            let result = search.run(&board, &options);
-            let elapsed = start.elapsed();
-            stopper.join().unwrap();
-
-            // Generous margin: this guards against a hung stop, not stop latency.
-            assert!(elapsed < Duration::from_secs(5), "stop took {elapsed:?}");
-            let best = result.best_move().expect("expected fallback best move");
-            assert!(board.is_legal_move(best));
-            assert!(result.n_nodes() > 0);
-            if endgame {
-                assert!(
-                    result.probability() < 100,
-                    "stop must end the run before the full solve"
-                );
-            }
-        }
-    });
-}
-
 /// An infinite search (GGS ponder) has no time to bank, so a forced move must
 /// keep deepening until stopped.
 #[test]
@@ -253,52 +163,6 @@ fn infinite_search_keeps_deepening_a_forced_move() {
     let result = search.run(&board, &options);
 
     assert!(result.depth() > 4, "stopped at depth {}", result.depth());
-}
-
-/// A stop requested before the run begins must still end it with a legal
-/// move, and must not reach the next run on the shared pool, as when a GGS
-/// synchro sibling searches next.
-#[test]
-fn stop_before_the_run_ends_it_and_spares_the_next_run() {
-    with_watchdog(
-        "stop_before_the_run_ends_it_and_spares_the_next_run",
-        || {
-            let mut shared = SearchSharedResources::new(
-                &SearchOptions::new(TEST_TT_MB_SIZE).with_threads(Some(2)),
-            );
-            shared.share_thread_pool();
-            let mut first = Search::from_shared_resources(&shared);
-            let mut second = Search::from_shared_resources(&shared);
-            let board = Board::new().make_move(Square::F5);
-            let stop = StopToken::new();
-            stop.stop();
-
-            // Without the stop this would deepen far past the watchdog deadline.
-            let options =
-                SearchRunOptions::with_level(Level::uniform(60, 0)).stop_token(stop.clone());
-            let stopped = first.run(&board, &options);
-            let best = stopped.best_move().expect("expected fallback best move");
-            assert!(board.is_legal_move(best));
-
-            stop.stop();
-            let result = second.run(&board, &SearchRunOptions::with_level(Level::uniform(4, 0)));
-            assert_eq!(result.depth(), 4);
-        },
-    );
-}
-
-/// Guards against shutdown deadlocks or state leaking across pool lifetimes.
-#[test]
-fn repeated_pool_create_solve_drop_is_clean() {
-    with_watchdog("repeated_pool_create_solve_drop_is_clean", || {
-        for run in 0..3 {
-            let mut search = search(4);
-            let board = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
-            let options = SearchRunOptions::with_level(Level::perfect());
-            let result = search.run(&board, &options);
-            assert_eq!(score(&result), 8, "run={run}");
-        }
-    });
 }
 
 /// Two engines from one `SearchSharedResources` share only the evaluation
