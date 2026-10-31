@@ -797,6 +797,7 @@ mod tests {
             callback,
             time_manager: None,
             eval_mode: None,
+            corrections: Default::default(),
         };
         let mut completed = CompletedState::new(task.pv_count(ctx.root_moves.count()));
         completed.last = Some(Iteration {

@@ -85,9 +85,13 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let n_empties = ctx.empty_list.count();
 
     let max_depth = task.level.mid_depth.max(1).min(n_empties);
+    ctx.correction_history = Some(task.corrections.take(thread.idx()));
     let helpers = Helpers::start(&task, max_depth);
     let outcome = iterate(&mut ctx, &board, &task, max_depth, &helpers, thread);
     let helper_results = helpers.stop();
+    if let Some(history) = ctx.correction_history.take() {
+        task.corrections.put(thread.idx(), history);
+    }
     ctx.counters.merge(&helper_results.counters);
 
     match outcome {
@@ -289,18 +293,17 @@ fn random_move(board: &Board) -> Square {
 }
 
 /// Attempts ProbCut pruning for midgame positions.
+///
+/// `eval_score` is the corrected static evaluation of `board`.
 pub fn try_probcut(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
     beta: ScaledScore,
     cut_node: bool,
+    eval_score: ScaledScore,
     thread: &Arc<Thread>,
 ) -> Option<ScaledScore> {
-    if !ctx.selectivity.is_enabled() {
-        return None;
-    }
-
     let ply = ctx.ply();
     let pc_depth = probcut::probcut_depth(depth);
     // SAFETY: `SearchSharedResources::new` calls `probcut::init()` before any
@@ -313,7 +316,6 @@ pub fn try_probcut(
         return None;
     }
 
-    let eval_score = evaluate(ctx, board);
     let eval_beta = probcut::compute_eval_beta(beta, t, pc, cut_node);
 
     if eval_score < eval_beta {
@@ -562,7 +564,7 @@ fn search_move_in_evaluate_depth1<const USE_MAIN_NETWORK: bool>(
 /// Evaluates a leaf node position using the neural network.
 ///
 /// Selects the network via [`Eval::should_use_main_network`]; only main-network
-/// evaluations go through the eval cache.
+/// evaluations go through the eval cache and the search's corrections.
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     if ctx.ply() == INITIAL_EMPTY_COUNT {
@@ -570,8 +572,7 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
     }
 
     if Eval::should_use_main_network(ctx.eval_mode, ctx.ply()) {
-        ctx.eval
-            .evaluate_main(ctx.pattern_feature(), board, ctx.ply(), board.hash())
+        ctx.evaluate_main_with_key(board, board.hash())
     } else {
         ctx.eval.evaluate_small(ctx.pattern_feature(), ctx.ply())
     }
@@ -633,6 +634,7 @@ mod schedule_tests {
             })),
             time_manager: None,
             eval_mode: None,
+            corrections: Default::default(),
         };
 
         let result = search_root(task, pool.main());
@@ -696,6 +698,7 @@ mod schedule_tests {
             callback: None,
             time_manager: Some(time_manager),
             eval_mode: None,
+            corrections: Default::default(),
         };
 
         let result = search_root(task, pool.main());

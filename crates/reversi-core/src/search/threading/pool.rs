@@ -382,6 +382,7 @@ mod tests {
             callback: None,
             time_manager: None,
             eval_mode: None,
+            corrections: Default::default(),
         };
         let endgame = Board::from_string(
             "-OOO------OOOO--XXXOOXXX-XOOOXX-XXXXOOOOOXXOOOO---OXOO---OOOO---",

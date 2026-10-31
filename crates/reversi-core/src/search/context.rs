@@ -10,6 +10,7 @@ use crate::eval::Eval;
 use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
+use crate::search::correction_history::CorrectionHistory;
 use crate::search::counters::SearchCounters;
 use crate::search::midgame::Helper;
 use crate::search::root_move::RootMoves;
@@ -45,6 +46,9 @@ pub struct SearchContext {
     /// Lazy SMP helper thread searching with this context; `None` for the
     /// main thread's search and for split points.
     pub(in crate::search) helper: Option<Helper>,
+    /// Corrections applied to main-network evaluations; set only while a
+    /// midgame root search or a Lazy SMP helper search runs.
+    pub(in crate::search) correction_history: Option<Box<CorrectionHistory>>,
 }
 
 impl SearchContext {
@@ -69,6 +73,7 @@ impl SearchContext {
             stack: SearchStack::new(),
             eval_mode: EvalMode::Main,
             helper: None,
+            correction_history: None,
         }
     }
 
@@ -92,6 +97,7 @@ impl SearchContext {
             stack: SearchStack::new(),
             eval_mode: task.eval_mode,
             helper: None,
+            correction_history: None,
         }
     }
 
@@ -184,15 +190,20 @@ impl SearchContext {
     }
 
     /// Evaluates `board` with the main network, probing the eval cache with
-    /// `key`.
+    /// `key`, and applies the search's corrections.
     ///
     /// `key` must come from [`prefetch_eval_cache`](Self::prefetch_eval_cache)
     /// for the same board, and the [`update`](Self::update) for the move
     /// reaching `board` must already have been applied.
     #[inline(always)]
     pub fn evaluate_main_with_key(&self, board: &Board, key: u64) -> ScaledScore {
-        self.eval
-            .evaluate_main(self.pattern_feature(), board, self.ply(), key)
+        let eval = self
+            .eval
+            .evaluate_main(self.pattern_feature(), board, self.ply(), key);
+        match &self.correction_history {
+            Some(history) => history.correct(board, eval),
+            None => eval,
+        }
     }
 
     /// Updates a root move with its search results.

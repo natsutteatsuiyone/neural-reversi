@@ -20,6 +20,7 @@ use crate::eval::{Eval, EvalMode};
 use crate::probcut::Selectivity;
 use crate::search::SearchTask;
 use crate::search::context::SearchContext;
+use crate::search::correction_history::CorrectionHistories;
 use crate::search::counters::SearchCounters;
 use crate::search::result::Iteration;
 use crate::search::threading::{HelperJob, Thread, ThreadPool};
@@ -106,6 +107,7 @@ impl<'a> Helpers<'a> {
                 tt: task.tt.clone(),
                 eval: task.eval.clone(),
                 eval_mode: task.eval_mode,
+                corrections: task.corrections.clone(),
                 max_depth,
                 report: report.clone(),
             };
@@ -145,6 +147,7 @@ struct HelperSearch {
     tt: Arc<TranspositionTable>,
     eval: Arc<Eval>,
     eval_mode: Option<EvalMode>,
+    corrections: Arc<CorrectionHistories>,
     max_depth: Depth,
     report: Arc<HelperReport>,
 }
@@ -162,6 +165,7 @@ impl HelperSearch {
             self.eval.clone(),
         );
         ctx.helper = Some(helper);
+        ctx.correction_history = Some(self.corrections.take(thread.idx()));
         if let Some(mode) = self.eval_mode {
             ctx.eval_mode = mode;
         }
@@ -193,6 +197,9 @@ impl HelperSearch {
             }
             ctx.root_moves.sort_from_pv_idx();
             last = Some(Iteration::capture(&ctx, depth, false));
+        }
+        if let Some(history) = ctx.correction_history.take() {
+            self.corrections.put(thread.idx(), history);
         }
 
         let mut results = self.report.results.lock().unwrap();

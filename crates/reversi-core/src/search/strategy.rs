@@ -43,12 +43,16 @@ pub trait SearchStrategy: Copy + Clone + 'static {
     ) -> ScaledScore;
 
     /// Calls the phase-specific probcut implementation.
+    ///
+    /// `static_eval` is the corrected static evaluation, present only where
+    /// midgame ProbCut can run.
     fn try_probcut(
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
         beta: ScaledScore,
         cut_node: bool,
+        static_eval: Option<ScaledScore>,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore>;
 }
@@ -99,9 +103,10 @@ impl SearchStrategy for MidGameStrategy {
         depth: Depth,
         beta: ScaledScore,
         cut_node: bool,
+        static_eval: Option<ScaledScore>,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore> {
-        midgame::try_probcut(ctx, board, depth, beta, cut_node, thread)
+        midgame::try_probcut(ctx, board, depth, beta, cut_node, static_eval?, thread)
     }
 }
 
@@ -182,6 +187,7 @@ impl SearchStrategy for EndGameStrategy {
         depth: Depth,
         beta: ScaledScore,
         cut_node: bool,
+        _static_eval: Option<ScaledScore>,
         thread: &Arc<Thread>,
     ) -> Option<ScaledScore> {
         endgame::try_probcut(ctx, board, depth, beta, cut_node, thread)

@@ -11,6 +11,7 @@ use crate::move_list::MoveList;
 use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
 use crate::search::endgame;
+use crate::search::midgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::SearchStrategy;
 use crate::search::threading::{SplitPoint, SplitRequest, Thread};
@@ -122,14 +123,21 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 return score;
             }
         }
+    }
 
-        // ProbCut
-        if depth >= SS::MIN_PROBCUT_DEPTH {
-            ctx.counters.increment_probcut_attempt();
-            if let Some(score) = SS::try_probcut(ctx, board, depth, beta, cut_node, thread) {
-                ctx.counters.increment_probcut_cut();
-                return score;
-            }
+    let static_eval = (!SS::IS_ENDGAME
+        && !NT::ROOT_NODE
+        && ctx.selectivity.is_enabled()
+        && depth >= SS::MIN_PROBCUT_DEPTH)
+        .then(|| midgame::evaluate(ctx, board));
+
+    // ProbCut
+    if !NT::PV_NODE && depth >= SS::MIN_PROBCUT_DEPTH {
+        ctx.counters.increment_probcut_attempt();
+        if let Some(score) = SS::try_probcut(ctx, board, depth, beta, cut_node, static_eval, thread)
+        {
+            ctx.counters.increment_probcut_cut();
+            return score;
         }
     }
 
@@ -192,6 +200,11 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                     ctx.selectivity,
                     SS::IS_ENDGAME,
                 );
+                if let Some(eval) = static_eval
+                    && let Some(history) = &mut ctx.correction_history
+                {
+                    history.update(board, eval, best_score, Bound::Lower, depth);
+                }
                 return best_score;
             }
             alpha = score;
@@ -324,13 +337,20 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
     }
 
+    let bound = Bound::classify::<NT>(best_score, org_alpha, beta);
+    if let Some(eval) = static_eval
+        && let Some(history) = &mut ctx.correction_history
+    {
+        history.update(board, eval, best_score, bound, depth);
+    }
+
     // Store in transposition table
     if !NT::ROOT_NODE || ctx.root_moves.pv_idx() == 0 {
         ctx.tt.store(
             tt_probe_result.index(),
             board,
             best_score,
-            Bound::classify::<NT>(best_score, org_alpha, beta),
+            bound,
             depth,
             best_move,
             ctx.selectivity,

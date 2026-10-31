@@ -5,6 +5,7 @@
 //! `pvs` module.
 
 pub mod context;
+pub(crate) mod correction_history;
 pub mod counters;
 mod endgame;
 pub(crate) mod midgame;
@@ -36,6 +37,7 @@ use crate::eval::{Eval, EvalMode};
 use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
+use crate::search::correction_history::CorrectionHistories;
 use crate::search::options::{SearchOptions, available_cpus};
 use crate::search::result::SearchResult;
 use crate::search::threading::{Thread, ThreadPool};
@@ -59,6 +61,7 @@ pub struct Search {
     tt: Arc<TranspositionTable>,
     threads: Arc<ThreadPool>,
     eval: Arc<Eval>,
+    corrections: Arc<CorrectionHistories>,
     endgame_start_n_empties: Option<Depth>,
     timed_out: bool,
 }
@@ -104,6 +107,8 @@ pub(crate) struct SearchTask {
     pub time_manager: Option<Arc<TimeManager>>,
     /// Optional override for evaluation mode.
     pub eval_mode: Option<EvalMode>,
+    /// Evaluation corrections of this game's search threads.
+    pub corrections: Arc<CorrectionHistories>,
 }
 
 impl SearchTask {
@@ -206,6 +211,7 @@ impl Search {
                 .clone()
                 .unwrap_or_else(|| ThreadPool::new(shared.n_threads)),
             eval: shared.eval.clone(),
+            corrections: Arc::default(),
             endgame_start_n_empties: None,
             timed_out: false,
         }
@@ -230,11 +236,12 @@ impl Search {
     /// Resets the search state for a new game.
     ///
     /// Clears the transposition table, resets the TT generation counter,
-    /// flushes the evaluation cache, and resets endgame tracking.
+    /// flushes the evaluation cache and corrections, and resets endgame tracking.
     pub fn init(&mut self) {
         self.tt.clear();
         self.tt.reset_generation();
         self.eval.clear_cache();
+        self.corrections.clear();
         self.endgame_start_n_empties = None;
     }
 
@@ -292,6 +299,7 @@ impl Search {
             callback: callback.clone(),
             time_manager,
             eval_mode: options.eval_mode,
+            corrections: self.corrections.clone(),
         };
 
         let result = self.execute_search(task, options.stop_token.as_ref());
