@@ -379,12 +379,32 @@ mod tt_entry {
         );
         entry.save(
             &board,
-            raw_entry_data(60, sq(6), Bound::Upper, 2, Selectivity::Level3, 1, false),
+            raw_entry_data(60, sq(6), Bound::Upper, 8, Selectivity::Level3, 1, false),
         );
 
         let data = stable_data(&entry, &board);
         assert_eq!(data.score().value(), 60);
         assert_eq!(data.selectivity(), Selectivity::Level3);
+    }
+
+    #[test]
+    fn same_board_non_exact_update_more_selective_but_too_shallow_keeps_existing_entry() {
+        let entry = TTEntry::default();
+        let board = make_board(0x0000_0000_0000_00ff, 0x0000_0000_0000_ff00);
+
+        entry.save(
+            &board,
+            raw_entry_data(50, sq(5), Bound::Upper, 12, Selectivity::Level1, 1, false),
+        );
+        entry.save(
+            &board,
+            raw_entry_data(60, sq(6), Bound::Lower, 7, Selectivity::None, 1, false),
+        );
+
+        let data = stable_data(&entry, &board);
+        assert_eq!(data.score().value(), 50);
+        assert_eq!(data.depth(), 12);
+        assert_eq!(data.best_move(), sq(5));
     }
 
     #[test]

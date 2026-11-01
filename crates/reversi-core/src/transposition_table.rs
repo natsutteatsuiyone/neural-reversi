@@ -435,10 +435,12 @@ impl TTEntry {
             let same_board =
                 same_board_bits(new_player, new_opponent, stored_player, stored_opponent);
             let should_replace = !same_board
-                // Tolerate up to 2 plies of depth regression so aspiration re-searches
-                // and nearby-depth revisits can still overwrite the slot.
+                // Tolerate up to 2 plies of depth regression (4 for a more selective
+                // result) so aspiration re-searches and nearby-depth revisits can still
+                // overwrite the slot.
                 || data.depth as u32 + 2 >= stored_data.depth()
-                || data.selectivity > stored_data.selectivity().as_u8()
+                || (data.selectivity > stored_data.selectivity().as_u8()
+                    && data.depth as u32 + 4 >= stored_data.depth())
                 || data.generation != stored_data.generation();
 
             if !should_replace {
