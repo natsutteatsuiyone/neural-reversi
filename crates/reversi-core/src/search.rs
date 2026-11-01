@@ -335,11 +335,11 @@ impl Search {
     }
 
     /// Lifts the endgame depth cap to [`Level::perfect`] once a previous
-    /// time-controlled search has reached the endgame phase.
+    /// time-controlled search has finished an endgame solve at
+    /// [`ENDGAME_TRACKING_MIN_SELECTIVITY`] or higher.
     ///
     /// Time-controlled searches default to [`Level::unlimited`], which caps the
-    /// endgame at 14 ply. Once the endgame has been entered, subsequent searches
-    /// should instead solve all the way to the end.
+    /// endgame at 14 ply.
     fn maybe_extend_endgame_depth(&mut self, n_empties: Depth, level: &mut Level) {
         let Some(start) = self.endgame_start_n_empties else {
             return;

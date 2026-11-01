@@ -154,7 +154,7 @@ pub enum TimeControlMode {
     Byoyomi { time_per_move_ms: u64 },
 
     /// Fischer time control (increment per move).
-    /// `main_time_ms` is the initial time bank.
+    /// `main_time_ms` is the remaining time bank.
     /// `increment_ms` is the time added after each move.
     Fischer {
         main_time_ms: u64,
@@ -162,7 +162,7 @@ pub enum TimeControlMode {
     },
 
     /// Japanese byoyomi.
-    /// `main_time_ms` is the initial time bank (can be 0 to start in byoyomi).
+    /// `main_time_ms` is the remaining time bank (0 once in byoyomi).
     /// `time_per_move_ms` is the fixed time per move after main time expires.
     JapaneseByo {
         main_time_ms: u64,
@@ -327,7 +327,7 @@ impl TimeManager {
     ///
     /// `window_clean` must be true only when the iteration completed inside its
     /// initial aspiration window (no root re-search), which is evidence that the
-    /// best score is stable and no alternative move overtook it.
+    /// best score is stable.
     ///
     /// Must be called only from the search's main thread; other threads may
     /// only read.
@@ -427,7 +427,7 @@ impl TimeManager {
     }
 
     /// Returns true when the easy-move conditions are met: a stable best move
-    /// AND aspiration-window evidence that alternatives are clearly worse.
+    /// AND an iteration that stayed inside its initial aspiration window.
     fn is_easy_move(&self) -> bool {
         self.best_move_streak.load(Ordering::Relaxed) >= EASY_STREAK_THRESHOLD
             && self.window_clean.load(Ordering::Relaxed)
@@ -489,7 +489,7 @@ impl TimeManager {
         let optimum = self.maxi_time_ms();
 
         // Easy moves may stop well before the min gate: the best move is stable
-        // and provably ahead of every alternative.
+        // and the iteration stayed inside its initial aspiration window.
         if self.is_easy_move() && elapsed as f64 >= optimum as f64 * EASY_MIN_FRACTION {
             if is_debug_enabled() {
                 eprintln!(

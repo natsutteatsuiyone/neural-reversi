@@ -103,8 +103,8 @@ impl<T> AlignedBuffer<T> {
 
     /// Creates a buffer of `len` zeroed elements.
     ///
-    /// Unlike [`AlignedBuffer::from_elem`] this never writes the elements, so a
-    /// large-page buffer stays as the kernel handed it over.
+    /// Unlike [`AlignedBuffer::from_elem`] this does not write the elements;
+    /// the allocation itself is zeroed.
     ///
     /// # Safety
     ///

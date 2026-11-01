@@ -135,8 +135,6 @@ fn iterate(
     let mut depth = compute_start_depth(max_depth);
     let mut completed = CompletedState::new(pv_count);
     while depth <= max_depth {
-        ctx.root_moves.save_previous_scores();
-
         let mut iteration_window_clean = false;
         let mut best = None;
         for pv_idx in 0..pv_count {
@@ -246,8 +244,7 @@ pub(super) fn compute_start_depth(max_depth: Depth) -> Depth {
 ///
 /// Returns the score and whether the search completed inside its initial
 /// window (i.e. without any fail-low/fail-high re-search). A clean window is
-/// evidence that the best score is stable across iterations and that no
-/// alternative move overtook it.
+/// evidence that the best score is stable across iterations.
 fn aspiration_search(
     ctx: &mut SearchContext,
     board: &Board,

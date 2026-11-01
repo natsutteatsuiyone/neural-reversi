@@ -149,7 +149,7 @@ fn mae_rmse(samples: &[Scoref]) -> (f64, f64) {
     (mae, mse.sqrt())
 }
 
-/// Round duration to 0.01ms precision for consistent display
+/// Round duration to 0.1ms precision for consistent display
 fn round_duration(elapsed: std::time::Duration) -> std::time::Duration {
     let rounded_micros = (elapsed.as_secs_f64() * 10000.0).round() as u64 * 100;
     std::time::Duration::from_micros(rounded_micros)

@@ -19,7 +19,8 @@ pub struct RootMove {
     pub score: ScaledScore,
     /// Score from the previous iteration, used for aspiration windows.
     pub previous_score: ScaledScore,
-    /// Running average score across iterations (for stability analysis).
+    /// Running average score across iterations, used to center the aspiration
+    /// window.
     pub average_score: ScaledScore,
     /// Running average of score × |score| across iterations, used to size
     /// the aspiration window.
@@ -121,17 +122,6 @@ impl RootMoves {
     #[inline]
     pub fn pv_idx(&self) -> usize {
         self.pv_idx.load(Ordering::Relaxed)
-    }
-
-    /// Saves current scores as previous scores before starting a new iteration.
-    ///
-    /// This is called at the beginning of each iterative deepening iteration
-    /// to preserve scores for aspiration window calculation.
-    pub fn save_previous_scores(&self) {
-        let mut moves = self.moves.lock().unwrap();
-        for rm in moves.iter_mut() {
-            rm.previous_score = rm.score;
-        }
     }
 
     /// Returns a detached snapshot of the current root move order and scores.

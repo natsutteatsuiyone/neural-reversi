@@ -53,7 +53,7 @@ the field order matters — see `src/record.rs::write_records`.
 
 ### opening
 
-Generates all possible Reversi opening sequences of exactly a specified depth, starting with F5 as the first move.
+Generates one Reversi opening sequence per distinct position reached at exactly a specified depth, starting with F5 as the first move.
 
 ```bash
 datagen opening --depth 9 > openings.txt

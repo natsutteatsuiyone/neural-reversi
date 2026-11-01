@@ -9,10 +9,10 @@ use reversi_core::{
     board::Board, game_state::GameState, move_list::MoveList, square::Square, types::Depth,
 };
 
-/// Generates all possible Reversi opening sequences of exactly the specified depth.
+/// Generates one Reversi opening sequence per distinct position reached at exactly the specified depth.
 ///
 /// This function initiates the generation process starting with a standard opening move (F5).
-/// It outputs all unique sequences to stdout, with each line representing one opening sequence.
+/// It outputs the sequences to stdout, with each line representing one opening sequence.
 ///
 /// # Parameters
 ///
@@ -40,7 +40,7 @@ pub fn generate(max_depth: Depth) {
     writer.flush().unwrap();
 }
 
-/// Recursively generates all possible opening sequences from the given board position.
+/// Recursively generates opening sequences from the given board position, skipping positions already visited.
 ///
 /// # Parameters
 ///

@@ -396,8 +396,8 @@ impl TTEntry {
     ///
     /// Exact bounds always replace. A different board also replaces, since the
     /// caller already chose this slot as the cluster victim. For the same board,
-    /// non-exact results replace when depth regression is at most two plies, selectivity is
-    /// higher, or generation changed. If `best_move` is [`Square::None`], the
+    /// non-exact results replace when depth regression is at most two plies (four with higher
+    /// selectivity), or generation changed. If `best_move` is [`Square::None`], the
     /// existing move is preserved for same-board non-exact updates.
     #[inline(always)]
     pub(crate) fn save(&self, board: &Board, data: TTEntryData) {
@@ -435,7 +435,7 @@ impl TTEntry {
             let same_board =
                 same_board_bits(new_player, new_opponent, stored_player, stored_opponent);
             let should_replace = !same_board
-                // Tolerate up to 2 plies of depth regression (4 for a more selective
+                // Tolerate up to 2 plies of depth regression (4 for a higher-selectivity
                 // result) so aspiration re-searches and nearby-depth revisits can still
                 // overwrite the slot.
                 || data.depth as u32 + 2 >= stored_data.depth()

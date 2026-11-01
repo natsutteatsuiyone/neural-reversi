@@ -1,5 +1,5 @@
 // reversi_web/reversi-worker.js
-// trunk builds the WASM module and places it in the dist directory
+// wasm-pack builds the WASM modules into pkg*/ and the Vite build copies them into dist
 // We dynamically import it when needed
 import { importPreferredWasmModule } from "./wasm-loader.js";
 

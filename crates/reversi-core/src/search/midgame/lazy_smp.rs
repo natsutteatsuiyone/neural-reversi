@@ -177,7 +177,6 @@ impl HelperSearch {
             if helper.skips_depth(depth + root_ply) {
                 continue;
             }
-            ctx.root_moves.save_previous_scores();
             let (mut alpha, mut beta, delta) = aspiration_window(&ctx, depth);
             aspiration_search(
                 &mut ctx,

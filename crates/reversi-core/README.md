@@ -307,7 +307,7 @@ to move below alpha.
 
 - An `EDGE_STABILITY` table covering all 256 × 256 edge configurations is
   generated at compile time. It is combined with detection of fully-filled
-  same-colour ranks, files, and diagonals to lower-bound the stable count.
+  ranks, files, and diagonals to lower-bound the stable count.
 
 ### Parallel search
 
@@ -358,8 +358,9 @@ and `Eval` while keeping independent `ThreadPool`s.
 
 ## Evaluation
 
-`Eval` holds two neural networks and an evaluation cache. The entry point
-is `Eval::evaluate(ctx, board)`.
+`Eval` holds two neural networks and an evaluation cache. The search enters
+through `midgame::evaluate(ctx, board)`, which calls `Eval::evaluate_main`
+or `Eval::evaluate_small`.
 
 ```text
 ply <  ENDGAME_START_PLY : main Network always
@@ -417,8 +418,8 @@ PatternFeature ─►            │
   `forward_avx512 / forward_avx2 / forward_neon / forward_scalar`. The
   SIMD paths pre-permute the matrices (`simd_layout::permute_rows`) so
   loads stay contiguous.
-- The working buffers (`NetworkBuffers`) are stack-allocated per call; one
-  evaluation is computed in-place.
+- The working buffers (`NetworkBuffers`) are thread-local and reused across
+  calls; one evaluation is computed in-place.
 - The output is shifted right by `OUTPUT_WEIGHT_SCALE_BITS`, clamped to
   `±INF`, and saturated into `ScaledScore::MIN+1 ..= MAX-1`.
 
@@ -429,7 +430,7 @@ at or past `ENDGAME_START_PLY`).
 
 - A small fixed number of input layers, each covering a contiguous slice
   of endgame plies, drives one output layer per ply.
-- Hidden → output is a single clamped-ReLU stage; the activation clamp
+- Hidden → output is a single squared clipped ReLU stage; the activation clamp
   (`ACTIVATION_CLAMP_MAX`) gives the stage 10-bit precision.
 - Bypasses the eval cache.
 

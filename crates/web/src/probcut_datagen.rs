@@ -20,13 +20,13 @@ use crate::{
 /// Transposition table size in MB for search.
 const TT_SIZE_MB: usize = 128;
 
-/// Total number of search depths to test.
+/// Maximum search depth to test (depths 0 through this value).
 const NUM_SEARCH_DEPTHS: usize = 10;
 
 /// Maximum shallow depth for ProbCut analysis.
 const MAX_SHALLOW_DEPTH: usize = 5;
 
-/// Minimum depth difference between shallow and deep search.
+/// Depth difference that a deep search must exceed over the shallow search.
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
 /// Search selectivity level (none for accurate measurements).
