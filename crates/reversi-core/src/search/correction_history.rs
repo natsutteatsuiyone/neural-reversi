@@ -8,7 +8,7 @@ use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
 
 /// Index bits of [`CorrectionHistory`].
-const CORRECTION_BITS: u32 = 14;
+const CORRECTION_BITS: u32 = 16;
 
 /// Squares whose discs key [`CorrectionHistory`]: the outer ring of the board
 /// and the X-squares.
