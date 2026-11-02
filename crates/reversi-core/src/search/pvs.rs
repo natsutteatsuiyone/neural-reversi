@@ -22,6 +22,12 @@ use crate::types::{Depth, ScaledScore};
 
 const IIR_MIN_DEPTH: Depth = 6;
 
+/// Plies a TT lower bound may fall short of the node depth and still cut.
+const TT_PROBCUT_DEPTH_SLACK: Depth = 4;
+
+/// Margin a shallower TT lower bound must clear above beta to cut.
+const TT_PROBCUT_MARGIN: ScaledScore = ScaledScore::from_disc_diff(4);
+
 /// Searches both midgame and endgame positions using Principal Variation Search.
 pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
@@ -138,6 +144,20 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         {
             ctx.counters.increment_probcut_cut();
             return score;
+        }
+    }
+
+    if !SS::IS_ENDGAME && !NT::PV_NODE && ctx.selectivity.is_enabled() {
+        ctx.counters.increment_tt_probcut_attempt();
+        let pc_beta = beta + TT_PROBCUT_MARGIN;
+        if let Some(tt_data) = tt_probe_result.data()
+            && matches!(tt_data.bound(), Bound::Lower | Bound::Exact)
+            && tt_data.depth() + TT_PROBCUT_DEPTH_SLACK >= depth
+            && tt_data.selectivity() >= ctx.selectivity
+            && tt_data.score() >= pc_beta
+        {
+            ctx.counters.increment_tt_probcut_cut();
+            return pc_beta;
         }
     }
 

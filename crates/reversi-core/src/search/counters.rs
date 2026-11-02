@@ -52,6 +52,8 @@ search_stats! {
     tt_hits           => increment_tt_hit,
     probcut_attempts  => increment_probcut_attempt,
     probcut_cuts      => increment_probcut_cut,
+    tt_probcut_attempts => increment_tt_probcut_attempt,
+    tt_probcut_cuts   => increment_tt_probcut_cut,
     etc_attempts      => increment_etc_attempt,
     etc_cuts          => increment_etc_cut,
     stability_cuts    => increment_stability_cut,

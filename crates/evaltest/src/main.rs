@@ -430,6 +430,10 @@ impl SearchStats {
                     format_rate_with_counts(c.probcut_cuts, c.probcut_attempts),
                 ),
                 (
+                    "TT ProbCut",
+                    format_rate_with_counts(c.tt_probcut_cuts, c.tt_probcut_attempts),
+                ),
+                (
                     "ETC rate",
                     format_rate_with_counts(c.etc_cuts, c.etc_attempts),
                 ),

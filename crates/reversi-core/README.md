@@ -106,17 +106,21 @@ time (the `cut_node` flag is also threaded through). One node, in order:
 6. **ETC** (Enhanced Transposition Cutoff) — peek at children through the TT
    to claim a cutoff one ply earlier. Active when `depth >= SS::MIN_ETC_DEPTH`.
 7. **ProbCut** — `SS::try_probcut`; details below.
-8. **IIR** (Internal Iterative Reductions) — reduce non-root PV/Cut midgame
+8. **TT ProbCut** — in NonPV midgame nodes with selectivity enabled, a TT
+   lower bound up to `TT_PROBCUT_DEPTH_SLACK` plies shallower than `depth`,
+   at the node's selectivity or above, that reaches
+   `beta + TT_PROBCUT_MARGIN` returns that threshold without a search.
+9. **IIR** (Internal Iterative Reductions) — reduce non-root PV/Cut midgame
    nodes by one ply when `depth >= IIR_MIN_DEPTH` (6), selectivity is enabled,
    and the TT provides no best move. All nodes, endgame nodes, and ProbCut
    verification searches retain their depth. Move searches and TT stores
    use the reduced depth.
-9. **TT move first** — in NonPV nodes with a TT move, search the TT move at
+10. **TT move first** — in NonPV nodes with a TT move, search the TT move at
    a null window before running move ordering. A fail-high here cuts off
    without sorting the rest.
-10. **Move ordering** — `MoveList::evaluate_moves` scores the rest;
+11. **Move ordering** — `MoveList::evaluate_moves` scores the rest;
    `MoveList::sort` arranges them. The TT move is always pinned at index 0.
-11. **Main loop**:
+12. **Main loop**:
     - First move (PV): full window.
     - Later moves: `compute_lmr_reduction` picks a reduction; search at a
       null window. If it fails high, re-search at full depth (still null
@@ -124,7 +128,7 @@ time (the `cut_node` flag is also threaded through). One node, in order:
       full window.
     - In endgame nodes, when the conditions are met, `Thread::split` hands
       the remaining moves to idle threads.
-12. **TT store** — pack `best_score / best_move / bound / depth /
+13. **TT store** — pack `best_score / best_move / bound / depth /
     selectivity / is_endgame` and write back.
 
 `Bound` is `None=0 / Lower=1 / Upper=2 / Exact=3`. The bit patterns are
