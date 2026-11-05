@@ -12,6 +12,7 @@ use reversi_core::level::Level;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
+use reversi_core::types::{Depth, Scoref};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -24,7 +25,7 @@ use crate::record::{
 };
 
 /// Minimum number of random moves at the start of each game
-const MIN_RANDOM_MOVES: u8 = 10;
+const MIN_RANDOM_MOVES: u8 = 14;
 
 /// Exclusive upper bound on the number of random moves at the start of each game
 const MAX_RANDOM_MOVES: u8 = 50;
@@ -34,6 +35,20 @@ const FILE_ID_DIGITS: usize = 5;
 
 /// Maximum size of the record cache
 const MAX_CACHE_SIZE: usize = 1_000_000;
+
+/// How the random opening moves of a game are drawn.
+#[derive(Clone, Copy)]
+pub struct RandomMoveChoice {
+    /// Depth of the Multi-PV search that scores the candidates.
+    pub depth: Depth,
+    /// Maximum number of best moves to draw from.
+    pub top: usize,
+    /// Maximum score loss, in discs, of a candidate against the best move.
+    pub margin: Scoref,
+    /// Number of leading random moves drawn uniformly from all legal moves
+    /// instead.
+    pub uniform_moves: u8,
+}
 
 /// Tracks file rotation state across games to avoid re-scanning the output directory.
 struct FileState {
@@ -95,19 +110,15 @@ impl FileState {
             .join(format!("{}_{:0FILE_ID_DIGITS$}.bin", self.prefix, file_id))
     }
 
+    /// Returns the next game id, moving to a new file when the current one is full.
     fn next_game_id(&mut self) -> u16 {
+        if self.game_id as u32 >= self.games_per_file {
+            self.file_id += 1;
+            self.game_id = 0;
+        }
         let id = self.game_id;
         self.game_id += 1;
         id
-    }
-
-    fn rotate(&mut self) {
-        self.file_id += 1;
-        self.game_id = 0;
-    }
-
-    fn is_full(&self) -> bool {
-        self.game_id as u32 >= self.games_per_file
     }
 
     /// Counts the total number of games written across all files.
@@ -139,6 +150,7 @@ impl FileState {
 /// * `games_per_file` - Maximum games per output file
 /// * `hash_size` - Transposition table size in MB
 /// * `level` - Search level configuration
+/// * `random_choice` - How the random opening moves are drawn
 /// * `prefix` - Output file prefix
 /// * `output_dir` - Directory for output files
 ///
@@ -150,6 +162,7 @@ pub fn execute(
     games_per_file: u32,
     hash_size: usize,
     level: Level,
+    random_choice: RandomMoveChoice,
     prefix: &str,
     output_dir: &str,
 ) -> io::Result<()> {
@@ -162,20 +175,15 @@ pub fn execute(
     let mut file_state = FileState::new(prefix, output_dir, games_per_file)?;
 
     for _ in 0..num_games {
-        if file_state.is_full() {
-            file_state.rotate();
-        }
         let game_id = file_state.next_game_id();
 
-        // Generate random opening for this game
         let mut rng = rand::rng();
         let num_random = std::cmp::min(
             rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
             rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
         );
-        let opening_sequence = generate_random_opening(num_random);
+        let opening_sequence = generate_random_opening(num_random, &mut search, random_choice);
 
-        // Play the game using the common function
         let game_records = play_game(
             &opening_sequence,
             &mut search,
@@ -183,8 +191,6 @@ pub fn execute(
             game_id,
             &mut record_cache,
         );
-
-        // Save the game records
         file_state.write_records(&game_records)?;
     }
     Ok(())
@@ -205,7 +211,6 @@ pub fn execute(
 /// # Returns
 ///
 /// Returns `Ok(())` on success, or an error if operations fail.
-#[allow(clippy::too_many_arguments)]
 pub fn execute_with_openings(
     openings_path: &str,
     resume: bool,
@@ -245,9 +250,6 @@ pub fn execute_with_openings(
     };
 
     for opening_sequence in opening_sequences.iter().skip(start_index) {
-        if file_state.is_full() {
-            file_state.rotate();
-        }
         let game_id = file_state.next_game_id();
         let game_records = play_game(
             opening_sequence,
@@ -256,8 +258,6 @@ pub fn execute_with_openings(
             game_id,
             &mut record_cache,
         );
-
-        // Save the game records
         file_state.write_records(&game_records)?;
     }
     Ok(())
@@ -265,37 +265,37 @@ pub fn execute_with_openings(
 
 /// Generates a random opening sequence for a game.
 ///
-/// Creates a sequence of random moves for the start of a game.
+/// Creates a sequence of random moves for the start of a game: the first
+/// `choice.uniform_moves` are drawn uniformly from the legal moves and the
+/// rest by [`candidate_move`].
 /// The sequence may end with either player to move.
 ///
 /// # Arguments
 ///
 /// * `num_moves` - The number of random moves to generate. May be fewer
 ///   if the game ends before this many moves have been played.
+/// * `search` - Search engine instance
+/// * `choice` - How the random moves are drawn
 ///
 /// # Returns
 ///
 /// A `Vec<Square>` containing the sequence of moves.
-fn generate_random_opening(num_moves: u8) -> Vec<Square> {
+fn generate_random_opening(
+    num_moves: u8,
+    search: &mut search::Search,
+    choice: RandomMoveChoice,
+) -> Vec<Square> {
     let mut opening = Vec::new();
     let mut game = GameState::new();
 
-    // A helper closure to handle a single move generation.
-    // Returns `false` if the game ends.
-    let mut play_random_move = |g: &mut GameState| -> bool {
-        if g.is_game_over() {
-            return false;
-        }
-
-        let sq = random_move(g.board());
+    while opening.len() < num_moves as usize && !game.is_game_over() {
+        let sq = if opening.len() < choice.uniform_moves as usize {
+            random_move(game.board())
+        } else {
+            candidate_move(game.board(), search, choice)
+        };
+        game.make_move(sq).expect("random moves are legal");
         opening.push(sq);
-        g.make_move(sq).is_ok()
-    };
-
-    for _ in 0..num_moves {
-        if !play_random_move(&mut game) {
-            return opening;
-        }
     }
 
     opening
@@ -308,7 +308,7 @@ fn generate_random_opening(num_moves: u8) -> Vec<Square> {
 /// * `opening_sequence` - Sequence of moves to play at the start
 /// * `search` - Search engine instance
 /// * `lv` - Search level
-/// * `game_id` - Game identifier for logging
+/// * `game_id` - Game identifier written to each record
 /// * `record_cache` - Cache for game records to avoid redundant searches
 ///
 /// # Returns
@@ -333,36 +333,15 @@ fn play_game(
             break;
         }
 
-        let board = *game.board();
-        let side_to_move = game.side_to_move();
-
-        let mut record = if let Some(cached_record) = record_cache.get(&board) {
-            cached_record.clone()
-        } else {
-            let options = SearchRunOptions::with_level(lv);
-            let result = search.run(&board, &options);
-            let ply = 60 - board.empty_count() as u8;
-            let score = result.score().expect("search returned no legal move");
-
-            let record = GameRecord {
-                game_id,
-                ply,
-                board,
-                score,
-                game_score: 0,
-                side_to_move,
-                is_random: true,
-                sq: result.best_move().unwrap_or(sq),
-            };
-            record_cache.insert(board, record.clone());
-            record
-        };
+        let mut record = record_cache
+            .entry(*game.board())
+            .or_insert_with(|| search_record(search, &game, lv, game_id, true))
+            .clone();
         record.game_id = game_id;
-        record.side_to_move = side_to_move;
-
+        record.side_to_move = game.side_to_move();
         game_records.push(record);
 
-        let _ = game.make_move(sq);
+        game.make_move(sq).expect("opening moves are legal");
     }
 
     if record_cache.len() > MAX_CACHE_SIZE {
@@ -371,28 +350,10 @@ fn play_game(
 
     // Continue playing with search
     while !game.is_game_over() {
-        let board = *game.board();
-        let side_to_move = game.side_to_move();
-        let options = SearchRunOptions::with_level(lv);
-        let result = search.run(&board, &options);
-
-        let ply = 60 - board.empty_count() as u8;
-        let best_move = result.best_move().expect("search returned no legal move");
-        let score = result.score().expect("search returned no legal move");
-
-        let record = GameRecord {
-            game_id,
-            ply,
-            board,
-            score,
-            game_score: 0,
-            side_to_move,
-            is_random: false,
-            sq: best_move,
-        };
+        let record = search_record(search, &game, lv, game_id, false);
+        game.make_move(record.sq)
+            .expect("search returned an illegal move");
         game_records.push(record);
-
-        let _ = game.make_move(best_move);
     }
 
     // Calculate final game scores
@@ -426,8 +387,46 @@ fn play_game(
     game_records
 }
 
+/// Searches the current position of `game` and records the result.
+fn search_record(
+    search: &mut search::Search,
+    game: &GameState,
+    lv: Level,
+    game_id: u16,
+    is_random: bool,
+) -> GameRecord {
+    let board = *game.board();
+    let result = search.run(&board, &SearchRunOptions::with_level(lv));
+    GameRecord {
+        game_id,
+        ply: 60 - board.empty_count() as u8,
+        board,
+        score: result.score().expect("search returned no legal move"),
+        game_score: 0,
+        side_to_move: game.side_to_move(),
+        is_random,
+        sq: result.best_move().expect("search returned no legal move"),
+    }
+}
+
 /// Selects a random legal move from the current board position.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     board.get_moves().iter().choose(&mut rng).unwrap()
+}
+
+/// Draws a move uniformly from the best `choice.top` moves of a Multi-PV
+/// search that score within `choice.margin` discs of the best move.
+fn candidate_move(board: &Board, search: &mut search::Search, choice: RandomMoveChoice) -> Square {
+    let level = Level::uniform(choice.depth, choice.depth);
+    let result = search.run(board, &SearchRunOptions::with_level(level).multi_pv(true));
+    let moves = result.pv_moves();
+    let best_score = moves.first().expect("search returned no legal move").score;
+    moves
+        .iter()
+        .take(choice.top)
+        .take_while(|m| m.score >= best_score - choice.margin)
+        .choose(&mut rand::rng())
+        .expect("search returned no legal move")
+        .sq
 }

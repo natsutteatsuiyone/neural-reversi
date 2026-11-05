@@ -8,7 +8,7 @@ A tool for generating and processing Reversi AI neural network training data.
 
 Generates game data through AI self-play for neural network training. The self-play process works by having the AI play against itself. It can either generate a specified number of games or play through a list of predefined opening sequences. Key characteristics include:
 
-- Early game moves (first 10-49 plies) are selected randomly to ensure diversity in the training data when not using predefined openings.
+- Early game moves (first 14-49 plies) are selected randomly to ensure diversity in the training data when not using predefined openings: the first `--uniform-moves` uniformly from all legal moves, the rest from the best moves of a Multi-PV search.
 - Subsequent moves use the AI search algorithm to find optimal plays
 - Each position is recorded with evaluation scores and game outcome information
 
@@ -33,6 +33,10 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12
 - `--output-dir`: Required output directory where game data will be stored.
 - `--openings`: Optional path to a file containing opening sequences. If provided, selfplay will iterate through these openings instead of generating a set number of games.
 - `--resume`: Resume selfplay from the last processed opening in the `--openings` file. Requires `--openings` to be set (default: false).
+- `--uniform-moves`: Number of leading random moves drawn uniformly from all legal moves (0-60; default: 8).
+- `--random-depth`: Depth of the Multi-PV search that scores the candidates for the remaining random moves (1-60; default: 6).
+- `--random-top`: Draw each of those random moves from at most this many best moves (default: 3).
+- `--random-margin`: Draw each of those random moves from moves scoring within this many discs of the best move (default: 3).
 
 #### Data format
 

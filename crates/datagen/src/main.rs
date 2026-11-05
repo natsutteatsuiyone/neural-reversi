@@ -52,6 +52,23 @@ enum SubCommands {
 
         #[arg(long, default_value = "false")]
         resume: bool,
+
+        #[arg(long, default_value = "6", value_parser = clap::value_parser!(u32).range(1..=60),
+            help = "Depth of the Multi-PV search that scores the candidates for random moves")]
+        random_depth: Depth,
+
+        #[arg(long, default_value = "3",
+            value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..),
+            help = "Draw each random move from at most this many best moves")]
+        random_top: usize,
+
+        #[arg(long, default_value = "3", value_parser = parse_score_diff_threshold,
+            help = "Draw each random move from moves scoring within this many discs of the best move")]
+        random_margin: f32,
+
+        #[arg(long, default_value = "8", value_parser = clap::value_parser!(u8).range(0..=60),
+            help = "Number of leading random moves drawn uniformly from all legal moves")]
+        uniform_moves: u8,
     },
     Opening {
         #[arg(short, long, value_parser = clap::value_parser!(u32).range(1..=20))]
@@ -259,6 +276,10 @@ fn main() {
             output_dir,
             openings,
             resume,
+            random_depth,
+            random_top,
+            random_margin,
+            uniform_moves,
         } => {
             let prefix =
                 prefix.unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned());
@@ -275,11 +296,18 @@ fn main() {
                 )
                 .expect("Failed to execute selfplay with openings");
             } else {
+                let random_choice = selfplay::RandomMoveChoice {
+                    depth: random_depth,
+                    top: random_top,
+                    margin: random_margin,
+                    uniform_moves,
+                };
                 selfplay::execute(
                     games,
                     games_per_file,
                     hash_size,
                     level,
+                    random_choice,
                     &prefix,
                     &output_dir,
                 )
