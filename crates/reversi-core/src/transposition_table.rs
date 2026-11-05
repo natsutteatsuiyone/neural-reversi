@@ -461,6 +461,28 @@ impl TTEntry {
         }
     }
 
+    /// Lowers the stored depth by one ply if the slot still holds `expected`
+    /// for this board. Gives up on any concurrent change.
+    #[inline(always)]
+    fn penalize(&self, player: u64, opponent: u64, expected: TTEntryData) {
+        debug_assert!(expected.depth > 0, "penalize needs a positive depth");
+        let Some((stored_player, stored_opponent, seq, stored_data)) = self.try_load_snapshot()
+        else {
+            return;
+        };
+        if stored_data != expected
+            || !same_board_bits(player, opponent, stored_player, stored_opponent)
+        {
+            return;
+        }
+
+        let data = TTEntryData {
+            depth: expected.depth - 1,
+            ..expected
+        };
+        self.seqlock_write(seq, player, opponent, data);
+    }
+
     /// Stores an exact entry without loading the old board/data payload.
     #[inline(always)]
     fn save_exact(&self, player: u64, opponent: u64, data: TTEntryData) {
@@ -822,6 +844,28 @@ impl TranspositionTable {
         // indices within `entries`.
         let entry = unsafe { self.entries.get_unchecked(entry_index) };
         entry.save(board, data);
+    }
+
+    /// Lowers by one ply the depth of the entry for `board` at a slot returned
+    /// by [`probe`](Self::probe), unless the slot no longer holds `expected`.
+    ///
+    /// The shallower depth lets a later same-board store replace the entry and
+    /// makes it a cheaper victim for other boards.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if `entry_index` is out of bounds.
+    #[inline(always)]
+    pub fn penalize(&self, entry_index: usize, board: &Board, expected: TTEntryData) {
+        debug_assert!(
+            entry_index < self.entries.len(),
+            "TT penalize index {} out of bounds",
+            entry_index
+        );
+        // SAFETY: `entry_index` originates from `probe`, which only returns
+        // indices within `entries`.
+        let entry = unsafe { self.entries.get_unchecked(entry_index) };
+        entry.penalize(board.player().bits(), board.opponent().bits(), expected);
     }
 
     /// Returns the first entry index of the cluster selected by `key`.

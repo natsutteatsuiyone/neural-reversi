@@ -408,6 +408,37 @@ mod tt_entry {
     }
 
     #[test]
+    fn penalize_lowers_depth_once_per_observed_entry() {
+        let entry = TTEntry::default();
+        let board = make_board(0x0000_0000_0000_00ff, 0x0000_0000_0000_ff00);
+        let observed = raw_entry_data(50, sq(5), Bound::Upper, 12, Selectivity::Level1, 1, false);
+        entry.save(&board, observed);
+
+        entry.penalize(board.player().bits(), board.opponent().bits(), observed);
+        entry.penalize(board.player().bits(), board.opponent().bits(), observed);
+
+        let data = stable_data(&entry, &board);
+        assert_eq!(data.depth(), 11);
+        assert_eq!(data.score().value(), 50);
+        assert_eq!(data.bound(), Bound::Upper);
+        assert_eq!(data.best_move(), sq(5));
+        assert_eq!(data.selectivity(), Selectivity::Level1);
+    }
+
+    #[test]
+    fn penalize_leaves_a_different_board_untouched() {
+        let entry = TTEntry::default();
+        let stored = make_board(0x0000_0000_0000_00ff, 0x0000_0000_0000_ff00);
+        let other = make_board(0x0000_0000_0000_01ff, 0x0000_0000_0000_fe00);
+        let observed = raw_entry_data(50, sq(5), Bound::Upper, 12, Selectivity::Level1, 1, false);
+        entry.save(&stored, observed);
+
+        entry.penalize(other.player().bits(), other.opponent().bits(), observed);
+
+        assert_eq!(stable_data(&entry, &stored).depth(), 12);
+    }
+
+    #[test]
     fn same_board_non_exact_update_replaces_when_generation_changes() {
         let entry = TTEntry::default();
         let board = make_board(0x0000_0000_0000_00ff, 0x0000_0000_0000_ff00);

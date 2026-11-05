@@ -28,6 +28,9 @@ const TT_PROBCUT_DEPTH_SLACK: Depth = 4;
 /// Margin a shallower TT lower bound must clear above beta to cut.
 const TT_PROBCUT_MARGIN: ScaledScore = ScaledScore::from_disc_diff(4);
 
+/// Minimum node depth at which a TT entry whose bound cannot cut is penalized.
+const TT_PENALIZE_MIN_DEPTH: Depth = 6;
+
 /// Searches both midgame and endgame positions using Principal Variation Search.
 pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
@@ -107,11 +110,25 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // NonPV cutoffs
     if !NT::PV_NODE {
-        if let Some(tt_data) = tt_probe_result.data()
-            && tt_data.can_cut(beta, depth, ctx.selectivity, SS::IS_ENDGAME)
-        {
-            ctx.counters.increment_tt_hit();
-            return tt_data.score();
+        if let Some(tt_data) = tt_probe_result.data() {
+            if tt_data.can_cut(beta, depth, ctx.selectivity, SS::IS_ENDGAME) {
+                ctx.counters.increment_tt_hit();
+                return tt_data.score();
+            }
+
+            // Deep and selective enough, so only the bound pointing away from
+            // beta blocked the cut. Endgame entries keep `depth == empties`:
+            // one decrement would stop them cutting at this position for good,
+            // and same-board endgame stores already replace at equal depth.
+            if !SS::IS_ENDGAME
+                && !tt_data.is_endgame()
+                && depth >= TT_PENALIZE_MIN_DEPTH
+                && tt_data.depth() >= depth
+                && tt_data.selectivity() >= ctx.selectivity
+            {
+                ctx.counters.increment_tt_penalize();
+                ctx.tt.penalize(tt_probe_result.index(), board, tt_data);
+            }
         }
 
         // Enhanced Transposition Cutoff

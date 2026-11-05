@@ -102,7 +102,9 @@ time (the `cut_node` flag is also threaded through). One node, in order:
    `MAX` immediately.
 5. **TT probe** — in NonPV nodes, `TTEntryData::can_cut` may produce an
    immediate cutoff. In PV nodes only the TT best move is taken, for use in
-   move ordering.
+   move ordering. In NonPV midgame nodes with `depth >= TT_PENALIZE_MIN_DEPTH`,
+   a midgame entry deep and selective enough to cut, whose bound points away
+   from `beta`, loses one ply of stored depth.
 6. **ETC** (Enhanced Transposition Cutoff) — peek at children through the TT
    to claim a cutoff one ply earlier. Active when `depth >= SS::MIN_ETC_DEPTH`.
 7. **ProbCut** — `SS::try_probcut`; details below.

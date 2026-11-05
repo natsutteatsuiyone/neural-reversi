@@ -50,6 +50,7 @@ macro_rules! search_stats {
 search_stats! {
     tt_probes         => increment_tt_probe,
     tt_hits           => increment_tt_hit,
+    tt_penalizes      => increment_tt_penalize,
     probcut_attempts  => increment_probcut_attempt,
     probcut_cuts      => increment_probcut_cut,
     tt_probcut_attempts => increment_tt_probcut_attempt,

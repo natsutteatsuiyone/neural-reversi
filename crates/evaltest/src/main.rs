@@ -426,6 +426,10 @@ impl SearchStats {
                     format_rate_with_counts(c.tt_hits, c.tt_probes),
                 ),
                 (
+                    "TT penalize",
+                    format_rate_with_counts(c.tt_penalizes, c.tt_probes),
+                ),
+                (
                     "ProbCut rate",
                     format_rate_with_counts(c.probcut_cuts, c.probcut_attempts),
                 ),
