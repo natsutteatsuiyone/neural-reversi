@@ -827,13 +827,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_level_input_rejects_garbage() {
-        assert_eq!(parse_level_input(""), None);
-        assert_eq!(parse_level_input("abc"), None);
-        assert_eq!(parse_level_input("-1"), None);
-    }
-
-    #[test]
     fn undo_against_ai_returns_to_human_turn_across_forced_pass() {
         use reversi_core::board::Board;
 

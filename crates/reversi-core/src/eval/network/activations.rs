@@ -26,248 +26,30 @@ const HIDDEN_WEIGHT_SCALE_BITS: i32 = 6;
 /// Applies a clipped ReLU activation function to `input`.
 ///
 /// Values are right-shifted by `HIDDEN_WEIGHT_SCALE_BITS` (6) and clamped to `[0, 255]`.
-///
-/// On x86-64 with AVX2, both `input` and `output` must be 32-byte aligned (or
-/// 16-byte aligned when `SIZE` is not a multiple of 32). Misaligned buffers
-/// cause undefined behavior in the SIMD loads.
 #[inline(always)]
 #[allow(dead_code)]
-fn clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx2") => {
-            unsafe { clipped_relu_avx2::<SIZE>(input, output) };
-        }
-        all(target_arch = "aarch64", target_feature = "neon") => {
-            unsafe { clipped_relu_neon::<SIZE>(input, output) };
-        }
-        _ => {
-            clipped_relu_scalar(input, output, 0);
-        }
+fn clipped_relu_scalar(input: &[i32], output: &mut [u8]) {
+    for (out, &value) in output.iter_mut().zip(input) {
+        *out = (value >> HIDDEN_WEIGHT_SCALE_BITS).clamp(0, 255) as u8;
     }
-}
-
-/// Computes clipped ReLU using the scalar fallback.
-#[inline(always)]
-#[allow(dead_code)]
-fn clipped_relu_scalar(input: &[i32], output: &mut [u8], start_idx: usize) {
-    for i in start_idx..input.len() {
-        let val = input[i] >> HIDDEN_WEIGHT_SCALE_BITS;
-        output[i] = val.clamp(0, 255) as u8;
-    }
-}
-
-/// Computes clipped ReLU using AVX2 SIMD.
-///
-/// # Safety
-///
-/// Both `input` and `output` must be 32-byte aligned for AVX2 loads/stores.
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-#[target_feature(enable = "avx2")]
-#[inline]
-#[allow(dead_code)]
-unsafe fn clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    unsafe {
-        if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
-            let num_chunks = SIZE / AVX2_SIMD_WIDTH;
-            let shuffle: __m256i = _mm256_set_epi32(7, 3, 6, 2, 5, 1, 4, 0);
-            let input_ptr = input.as_ptr() as *const __m256i;
-            let output_ptr = output.as_mut_ptr() as *mut __m256i;
-            for i in 0..num_chunks {
-                let packed0 = _mm256_packus_epi32(
-                    _mm256_load_si256(input_ptr.add(i * 4)),
-                    _mm256_load_si256(input_ptr.add(i * 4 + 1)),
-                );
-                let packed1 = _mm256_packus_epi32(
-                    _mm256_load_si256(input_ptr.add(i * 4 + 2)),
-                    _mm256_load_si256(input_ptr.add(i * 4 + 3)),
-                );
-
-                let words0 = _mm256_srli_epi16(packed0, HIDDEN_WEIGHT_SCALE_BITS);
-                let words1 = _mm256_srli_epi16(packed1, HIDDEN_WEIGHT_SCALE_BITS);
-
-                _mm256_store_si256(
-                    output_ptr.add(i),
-                    _mm256_permutevar8x32_epi32(_mm256_packus_epi16(words0, words1), shuffle),
-                );
-            }
-            return;
-        }
-
-        let num_chunks = SIZE / SSE2_SIMD_WIDTH;
-        let input_ptr = input.as_ptr() as *const __m128i;
-        let output_ptr = output.as_mut_ptr() as *mut __m128i;
-        for i in 0..num_chunks {
-            let words0 = _mm_srli_epi16(
-                _mm_packus_epi32(
-                    _mm_load_si128(input_ptr.add(i * 4)),
-                    _mm_load_si128(input_ptr.add(i * 4 + 1)),
-                ),
-                HIDDEN_WEIGHT_SCALE_BITS,
-            );
-
-            let words1 = _mm_srli_epi16(
-                _mm_packus_epi32(
-                    _mm_load_si128(input_ptr.add(i * 4 + 2)),
-                    _mm_load_si128(input_ptr.add(i * 4 + 3)),
-                ),
-                HIDDEN_WEIGHT_SCALE_BITS,
-            );
-
-            _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
-        }
-    }
-
-    let start_idx = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
-    clipped_relu_scalar(input, output, start_idx);
-}
-
-/// Computes clipped ReLU using ARM NEON SIMD.
-///
-/// Processes 16 `i32` elements per iteration into a single `uint8x16_t` store,
-/// then hands the remainder off to `clipped_relu_scalar`.
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-#[target_feature(enable = "neon")]
-#[inline]
-fn clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    use std::arch::aarch64::*;
-    let num_chunks = SIZE / NEON_SIMD_WIDTH;
-    unsafe {
-        let input_ptr = input.as_ptr();
-        let output_ptr = output.as_mut_ptr();
-        for i in 0..num_chunks {
-            let base = i * NEON_SIMD_WIDTH;
-            let v0 = vld1q_s32(input_ptr.add(base));
-            let v1 = vld1q_s32(input_ptr.add(base + 4));
-            let v2 = vld1q_s32(input_ptr.add(base + 8));
-            let v3 = vld1q_s32(input_ptr.add(base + 12));
-
-            let w0 = vcombine_u16(
-                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v0),
-                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v1),
-            );
-            let w1 = vcombine_u16(
-                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v2),
-                vqshrun_n_s32::<HIDDEN_WEIGHT_SCALE_BITS>(v3),
-            );
-
-            let bytes = vcombine_u8(vqmovn_u16(w0), vqmovn_u16(w1));
-            vst1q_u8(output_ptr.add(base), bytes);
-        }
-    }
-    let start_idx = num_chunks * NEON_SIMD_WIDTH;
-    clipped_relu_scalar(input, output, start_idx);
 }
 
 /// Applies the squared clipped ReLU activation to `input`.
 ///
 /// Negative inputs are squared just like positive ones (no rectification) before scaling and clipping.
 /// Output = min((input² >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)), 255).
-///
-/// On x86-64 with AVX2, both `input` and `output` must be 16-byte aligned for
-/// the SSE2 loads/stores. Misaligned buffers cause undefined behavior.
 #[inline(always)]
 #[allow(dead_code)]
-fn sqr_clipped_relu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    cfg_select! {
-        all(target_arch = "x86_64", target_feature = "avx2") => {
-            unsafe { sqr_clipped_relu_avx2::<SIZE>(input, output) };
-        }
-        all(target_arch = "aarch64", target_feature = "neon") => {
-            unsafe { sqr_clipped_relu_neon::<SIZE>(input, output) };
-        }
-        _ => {
-            sqr_clipped_relu_scalar(input, output, 0);
-        }
-    }
-}
-
-/// Computes the square-clipped activation using the scalar fallback.
-#[inline(always)]
-#[allow(dead_code)]
-fn sqr_clipped_relu_scalar(input: &[i32], output: &mut [u8], start_idx: usize) {
-    for i in start_idx..input.len() {
-        let saturated = i64::from(input[i].clamp(i16::MIN as i32, i16::MAX as i32));
+fn sqr_clipped_relu_scalar(input: &[i32], output: &mut [u8]) {
+    for (out, &value) in output.iter_mut().zip(input) {
+        let saturated = i64::from(value.clamp(i16::MIN as i32, i16::MAX as i32));
         let val = ((saturated * saturated) as u64 >> (2 * HIDDEN_WEIGHT_SCALE_BITS + 8)).min(255);
-        output[i] = val as u8;
+        *out = val as u8;
     }
 }
 
-/// Computes the square-clipped activation using AVX2 SIMD.
-///
-/// Uses SSE2 instructions (128-bit) for processing.
-///
-/// # Safety
-///
-/// Both `input` and `output` must be 16-byte aligned for SSE2 loads/stores.
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-#[target_feature(enable = "avx2")]
-#[inline]
-#[allow(dead_code)]
-unsafe fn sqr_clipped_relu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    let num_chunks = SIZE / SSE2_SIMD_WIDTH;
-
-    unsafe {
-        let input_ptr = input.as_ptr() as *const __m128i;
-        let output_ptr = output.as_mut_ptr() as *mut __m128i;
-
-        for i in 0..num_chunks {
-            let mut words0 = _mm_packs_epi32(
-                _mm_load_si128(input_ptr.add(i * 4)),
-                _mm_load_si128(input_ptr.add(i * 4 + 1)),
-            );
-            let mut words1 = _mm_packs_epi32(
-                _mm_load_si128(input_ptr.add(i * 4 + 2)),
-                _mm_load_si128(input_ptr.add(i * 4 + 3)),
-            );
-
-            const SHIFT: i32 = HIDDEN_WEIGHT_SCALE_BITS * 2 + 8 - 16;
-            words0 = _mm_srli_epi16(_mm_mulhi_epi16(words0, words0), SHIFT);
-            words1 = _mm_srli_epi16(_mm_mulhi_epi16(words1, words1), SHIFT);
-            _mm_store_si128(output_ptr.add(i), _mm_packus_epi16(words0, words1));
-        }
-    }
-
-    let start_idx = num_chunks * SSE2_SIMD_WIDTH;
-    sqr_clipped_relu_scalar(input, output, start_idx);
-}
-
-/// Computes the square-clipped activation using ARM NEON SIMD.
-///
-/// Processes 16 `i32` elements per iteration. Signed-saturating pack to i16,
-/// doubling-high square (`vqdmulhq_s16`), then saturating right-shift narrow
-/// by the remaining scale bits directly to u8.
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-#[target_feature(enable = "neon")]
-#[inline]
-fn sqr_clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
-    use std::arch::aarch64::*;
-    let num_chunks = SIZE / NEON_SIMD_WIDTH;
-    unsafe {
-        let input_ptr = input.as_ptr();
-        let output_ptr = output.as_mut_ptr();
-        for i in 0..num_chunks {
-            let base = i * NEON_SIMD_WIDTH;
-            let v0 = vld1q_s32(input_ptr.add(base));
-            let v1 = vld1q_s32(input_ptr.add(base + 4));
-            let v2 = vld1q_s32(input_ptr.add(base + 8));
-            let v3 = vld1q_s32(input_ptr.add(base + 12));
-
-            let s0 = vqmovn_high_s32(vqmovn_s32(v0), v1);
-            let s1 = vqmovn_high_s32(vqmovn_s32(v2), v3);
-
-            let sqr0 = vqdmulhq_s16(s0, s0);
-            let sqr1 = vqdmulhq_s16(s1, s1);
-            let bytes =
-                vqshrun_high_n_s16::<NEON_SQR_SHIFT>(vqshrun_n_s16::<NEON_SQR_SHIFT>(sqr0), sqr1);
-            vst1q_u8(output_ptr.add(base), bytes);
-        }
-    }
-    let start_idx = num_chunks * NEON_SIMD_WIDTH;
-    sqr_clipped_relu_scalar(input, output, start_idx);
-}
-
-/// Applies [`sqr_clipped_relu::<16>`] followed by [`clipped_relu::<16>`] into a
-/// single 32-byte output buffer.
+/// Applies [`sqr_clipped_relu_scalar`] and [`clipped_relu_scalar`] to the first 16
+/// values of `input`, writing both into a single 32-byte output buffer.
 ///
 /// The first 16 bytes receive the square-clipped output, and the next 16 bytes
 /// receive the clipped-ReLU output.
@@ -275,9 +57,6 @@ fn sqr_clipped_relu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 /// On x86-64 with AVX-512, `input` must be 64-byte aligned and `output`
 /// 16-byte aligned. With AVX2, both must be 32-byte aligned. Misaligned
 /// buffers cause undefined behavior in the SIMD loads/stores.
-///
-/// [`sqr_clipped_relu::<16>`]: sqr_clipped_relu
-/// [`clipped_relu::<16>`]: clipped_relu
 #[inline(always)]
 pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
     debug_assert!(input.len() >= 16);
@@ -299,8 +78,8 @@ pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
         }
         _ => {
             let (sqr_out, relu_out) = output[..32].split_at_mut(16);
-            sqr_clipped_relu::<16>(input, sqr_out);
-            clipped_relu::<16>(input, relu_out);
+            sqr_clipped_relu_scalar(&input[..16], sqr_out);
+            clipped_relu_scalar(&input[..16], relu_out);
         }
     }
 }
@@ -669,32 +448,6 @@ mod tests {
         input
     }
 
-    fn assert_clipped_relu_matches_reference<const SIZE: usize>(input: [i32; SIZE]) {
-        let input = Align64(input);
-        let mut actual = Align64([0xA5; SIZE]);
-        let mut expected = [0; SIZE];
-
-        clipped_relu::<SIZE>(input.as_slice(), actual.as_mut_slice());
-        for (out, &value) in expected.iter_mut().zip(input.iter()) {
-            *out = reference_clipped_relu(value);
-        }
-
-        assert_eq!(actual.as_ref(), &expected);
-    }
-
-    fn assert_sqr_clipped_relu_matches_reference<const SIZE: usize>(input: [i32; SIZE]) {
-        let input = Align64(input);
-        let mut actual = Align64([0xA5; SIZE]);
-        let mut expected = [0; SIZE];
-
-        sqr_clipped_relu::<SIZE>(input.as_slice(), actual.as_mut_slice());
-        for (out, &value) in expected.iter_mut().zip(input.iter()) {
-            *out = reference_sqr_clipped_relu(value);
-        }
-
-        assert_eq!(actual.as_ref(), &expected);
-    }
-
     fn assert_screlu_matches_reference<const SIZE: usize>(input: [i32; SIZE]) {
         let input = Align64(input);
         let mut actual = Align64([0xA5; SIZE]);
@@ -706,42 +459,6 @@ mod tests {
         }
 
         assert_eq!(actual.as_ref(), &expected);
-    }
-
-    #[test]
-    fn clipped_relu_matches_shift_and_saturation_boundaries() {
-        assert_clipped_relu_matches_reference([
-            i32::MIN,
-            -65,
-            -64,
-            -1,
-            0,
-            1,
-            (1 << HIDDEN_WEIGHT_SCALE_BITS) - 1,
-            1 << HIDDEN_WEIGHT_SCALE_BITS,
-            (2 << HIDDEN_WEIGHT_SCALE_BITS) - 1,
-            2 << HIDDEN_WEIGHT_SCALE_BITS,
-            (254 << HIDDEN_WEIGHT_SCALE_BITS) + 63,
-            255 << HIDDEN_WEIGHT_SCALE_BITS,
-            (255 << HIDDEN_WEIGHT_SCALE_BITS) + 1,
-            i32::MAX,
-            1234,
-            -1234,
-        ]);
-    }
-
-    #[test]
-    fn clipped_relu_matches_reference_for_vector_chunks_and_tail() {
-        assert_clipped_relu_matches_reference(patterned_input::<32>(7, 7919, 25_000));
-        assert_clipped_relu_matches_reference(patterned_input::<37>(17, 3571, 12_000));
-    }
-
-    #[test]
-    fn sqr_clipped_relu_squares_signed_inputs_and_matches_tail_reference() {
-        assert_sqr_clipped_relu_matches_reference([
-            -32_768, -16_321, -16_320, -4096, -1024, -1, 0, 1, 1023, 1024, 4096, 16_319, 16_320,
-            16_321, 32_767, 257, -257, 8191, -8191, 12_345, -12_345, 2222, -3333,
-        ]);
     }
 
     #[test]
@@ -845,7 +562,7 @@ mod tests {
     fn sqr_clipped_relu_scalar_matches_hand_computed_values_across_the_i32_range() {
         // The scalar fallback computes `(clamp_i16(x))^2 >> SQR_SHIFT`, capped at
         // 255, widening to i64 so the square cannot overflow. The i16 clamp mirrors
-        // the SIMD backends' signed-saturating pack (e.g. AVX2 `_mm_packs_epi32`).
+        // the SIMD backends' signed-saturating pack (e.g. AVX2 `_mm256_packs_epi32`).
         // Any |x| at or above 16_352 already pins the u8 output to 255, so the
         // clamp never changes the result for out-of-i16 inputs; its job is to keep
         // the square from overflowing the way the previous `x * x` (i32) did for
@@ -869,7 +586,7 @@ mod tests {
         let input: [i32; 11] = cases.map(|(value, _)| value);
         let mut actual = [0u8; 11];
 
-        sqr_clipped_relu_scalar(&input, &mut actual, 0);
+        sqr_clipped_relu_scalar(&input, &mut actual);
 
         for (out, &(value, expected)) in actual.iter().zip(cases.iter()) {
             assert_eq!(*out, expected, "value={value}");
@@ -878,59 +595,9 @@ mod tests {
 
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn neon_activation_kernels_match_references_for_chunks_and_tails() {
-        fn run_clipped<const SIZE: usize>(input: [i32; SIZE]) {
-            let input = Align64(input);
-            let mut actual = Align64([0; SIZE]);
-            let mut expected = [0; SIZE];
-
-            unsafe { clipped_relu_neon::<SIZE>(input.as_slice(), actual.as_mut_slice()) };
-            for (out, &value) in expected.iter_mut().zip(input.iter()) {
-                *out = reference_clipped_relu(value);
-            }
-
-            assert_eq!(actual.as_ref(), &expected);
-        }
-
-        fn run_sqr<const SIZE: usize>(input: [i32; SIZE]) {
-            let input = Align64(input);
-            let mut actual = Align64([0; SIZE]);
-            let mut expected = [0; SIZE];
-
-            unsafe { sqr_clipped_relu_neon::<SIZE>(input.as_slice(), actual.as_mut_slice()) };
-            for (out, &value) in expected.iter_mut().zip(input.iter()) {
-                *out = reference_sqr_clipped_relu(value);
-            }
-
-            assert_eq!(actual.as_ref(), &expected);
-        }
-
-        fn run_screlu<const SIZE: usize>(input: [i32; SIZE]) {
-            let input = Align64(input);
-            let mut actual = Align64([0; SIZE]);
-            let mut expected = [0; SIZE];
-
-            unsafe { screlu_neon::<SIZE>(input.as_slice(), actual.as_mut_slice()) };
-            for (out, &value) in expected.iter_mut().zip(input.iter()) {
-                *out = reference_screlu(value);
-            }
-
-            assert_eq!(actual.as_ref(), &expected);
-        }
-
-        run_clipped(patterned_input::<32>(1, 257, 4096));
-        run_clipped(patterned_input::<37>(3, 509, 8192));
-        run_sqr(patterned_input::<48>(5, 97, 5000));
-        run_sqr(patterned_input::<23>(7, 211, 7000));
-        run_screlu(patterned_input::<32>(11, 1234, 20_000));
-        run_screlu(patterned_input::<37>(13, 1777, 25_000));
-    }
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     fn neon_square_paths_match_references_for_every_i16_value() {
         const CHUNK_SIZE: usize = 16;
         let mut input = Align64([0; CHUNK_SIZE]);
-        let mut sqr = Align64([0; CHUNK_SIZE]);
         let mut screlu_out = Align64([0; CHUNK_SIZE]);
         let mut fused = Align64([0; CHUNK_SIZE * 2]);
 
@@ -940,13 +607,11 @@ mod tests {
             }
 
             unsafe {
-                sqr_clipped_relu_neon::<CHUNK_SIZE>(input.as_slice(), sqr.as_mut_slice());
                 screlu_neon::<CHUNK_SIZE>(input.as_slice(), screlu_out.as_mut_slice());
                 sqr_clipped_and_clipped_relu_16_neon(input.as_slice(), fused.as_mut_slice());
             }
 
             for (idx, &value) in input.iter().enumerate() {
-                assert_eq!(sqr[idx], reference_sqr_clipped_relu(value), "sqr {value}");
                 assert_eq!(screlu_out[idx], reference_screlu(value), "screlu {value}");
             }
             assert_eq!(

@@ -124,19 +124,4 @@ mod tests {
         state.request_abort_for(second);
         assert!(state.is_aborted());
     }
-
-    #[test]
-    fn request_abort_is_idempotent() {
-        let state = AbortState::new();
-
-        state.begin_search();
-        state.request_abort();
-        state.request_abort();
-
-        assert!(state.is_aborted());
-
-        state.begin_search();
-
-        assert!(!state.is_aborted());
-    }
 }

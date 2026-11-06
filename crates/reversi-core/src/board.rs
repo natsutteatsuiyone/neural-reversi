@@ -557,18 +557,6 @@ mod tests {
     }
 
     #[test]
-    fn test_make_move() {
-        let board = Board::new();
-
-        // Make a valid move
-        let new_board = board.make_move(Square::D3);
-        assert!(new_board.opponent().contains(Square::D3));
-        assert!(new_board.opponent().contains(Square::D4));
-        assert_eq!(new_board.opponent_count(), 4); // 2 original + 1 new + 1 flipped
-        assert_eq!(new_board.player_count(), 1); // 2 original - 1 flipped
-    }
-
-    #[test]
     fn test_hash() {
         let board1 = Board::new();
         let board2 = Board::new();

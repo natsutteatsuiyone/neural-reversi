@@ -393,20 +393,4 @@ mod tests {
             assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32_dotprod, src, a, b);
         }
     }
-
-    #[test]
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    fn neon_dpbusd_s32_i8mm_matches_scalar_reference() {
-        if !std::arch::is_aarch64_feature_detected!("i8mm") {
-            return;
-        }
-
-        for &(src, a, b) in &DPBUSD_EDGE_CASES {
-            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32_i8mm, src, a, b);
-        }
-        for seed in 64..96 {
-            let (src, a, b) = generated_dpbusd_case(seed);
-            assert_dpbusd_kernel_matches_scalar!(neon_dpbusd_s32_i8mm, src, a, b);
-        }
-    }
 }

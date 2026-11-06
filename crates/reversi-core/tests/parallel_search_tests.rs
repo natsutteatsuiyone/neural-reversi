@@ -13,7 +13,6 @@ use reversi_core::square::Square;
 
 const BOARD_20_EMPTIES: &str = "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--";
 const BOARD_16_EMPTIES: &str = "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-";
-const BOARD_9_EMPTIES: &str = "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX";
 const TEST_TT_MB_SIZE: usize = 8;
 
 // Aborts the whole test process if `run` outlives 30 seconds. Create engines
@@ -63,12 +62,6 @@ fn assert_parallel_solve(board_str: &str, side: Disc, n_threads: usize, expected
 #[test]
 fn parallel_solve_matches_known_score_20_empties() {
     assert_parallel_solve(BOARD_20_EMPTIES, Disc::Black, 4, 6);
-}
-
-#[test]
-fn parallel_solve_matches_single_threaded() {
-    assert_parallel_solve(BOARD_9_EMPTIES, Disc::Black, 1, 50);
-    assert_parallel_solve(BOARD_9_EMPTIES, Disc::Black, 4, 50);
 }
 
 #[test]

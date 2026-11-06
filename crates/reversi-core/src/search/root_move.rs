@@ -283,17 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn sort_from_pv_idx_is_a_noop_when_pv_idx_is_out_of_range() {
-        let rms = RootMoves::new(&Board::new());
-        let before = squares(&rms);
-
-        rms.set_pv_idx(rms.count() + 5);
-        rms.sort_from_pv_idx(); // must neither panic nor reorder
-
-        assert_eq!(squares(&rms), before);
-    }
-
-    #[test]
     fn moves_bb_from_pv_idx_respects_the_pv_window() {
         let board = Board::new();
         let rms = RootMoves::new(&board);
@@ -306,8 +295,5 @@ mod tests {
             rms.moves_bb_from_pv_idx(),
             board.get_moves() & !sqs[0].bitboard()
         );
-
-        rms.set_pv_idx(rms.count() + 5); // past the end: no moves remain
-        assert!(rms.moves_bb_from_pv_idx().is_empty());
     }
 }

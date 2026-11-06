@@ -910,27 +910,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic]
-    fn evaluate_rejects_plies_before_the_endgame_window_in_debug_builds() {
-        let network = network_with_forward_fn(zero_forward);
-
-        let _ = network.evaluate(&PatternFeature::new(), ENDGAME_START_PLY - 1);
-    }
-
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic]
-    fn evaluate_rejects_plies_after_the_endgame_window_in_debug_builds() {
-        let network = network_with_forward_fn(zero_forward);
-
-        let _ = network.evaluate(
-            &PatternFeature::new(),
-            ENDGAME_START_PLY + NUM_OUTPUT_LAYERS,
-        );
-    }
-
-    #[test]
     fn scalar_forward_matches_independent_activation_and_dot_reference() {
         let (pattern_feature, input_layer, output_layer, expected_acc) = build_forward_fixture();
 

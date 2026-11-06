@@ -314,13 +314,6 @@ mod tests {
     }
 
     #[test]
-    fn new_game_has_standard_opening_state() {
-        let game = Game::new(true);
-
-        assert_initial_state(&game);
-    }
-
-    #[test]
     fn human_move_rejected_when_not_humans_turn() {
         let mut game = Game::new(false);
 

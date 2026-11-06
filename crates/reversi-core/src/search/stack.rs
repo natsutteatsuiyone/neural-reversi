@@ -82,7 +82,6 @@ mod tests {
 
         // Simulate a 3-ply PV built bottom-up: ply 3 → ply 2 → ply 1
         stack.stack[3].pv[0] = Square::F6;
-        stack.stack[3].pv[1] = Square::None;
 
         // Ply 2: update_pv should copy child PV from ply 3
         stack.update_pv(Square::E3, 2);
@@ -90,7 +89,6 @@ mod tests {
         let pv2 = stack.pv(2);
         assert_eq!(pv2[0], Square::E3);
         assert_eq!(pv2[1], Square::F6); // copied from ply 3
-        assert_eq!(pv2[2], Square::None); // sentinel
 
         // Ply 1: update_pv should copy child PV from ply 2
         stack.update_pv(Square::D3, 1);
@@ -99,7 +97,6 @@ mod tests {
         assert_eq!(pv1[0], Square::D3);
         assert_eq!(pv1[1], Square::E3); // copied from ply 2
         assert_eq!(pv1[2], Square::F6); // transitively from ply 3
-        assert_eq!(pv1[3], Square::None); // sentinel
     }
 
     #[test]

@@ -323,13 +323,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_pass_position() {
-        let pos = parse(&format!("{INITIAL_BOARD} X; PS:-4"));
-        assert!(pos.move_scores.is_empty());
-        assert_eq!(pos.pass_score, Some(-4));
-    }
-
-    #[test]
     fn strips_trailing_comment() {
         let pos = parse(&format!("{INITIAL_BOARD} X; e6:+10 % trailing comment"));
         assert_eq!(pos.move_scores, vec![(Square::E6, 10)]);

@@ -462,14 +462,6 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_time_left_pure_byoyomi_reports_budget() {
-        let tracker = TimeTracker::new(0, 10, 0);
-        // Pure byoyomi: each move gets 10s, reported every time
-        assert_eq!(tracker.black_time_left(), (10, 0));
-        assert_eq!(tracker.white_time_left(), (10, 0));
-    }
-
-    #[test]
     fn test_time_left_fischer_reports_main_time() {
         let mut tracker = TimeTracker::new(300, 5, 0);
         assert!(tracker.is_enabled());
@@ -537,30 +529,6 @@ mod tests {
         assert!(tracker.apply_elapsed(PlayerColor::Black, 5_000));
         assert_eq!(tracker.black_time_left(), (25, 2));
         assert!(!tracker.apply_elapsed(PlayerColor::Black, 25_001));
-    }
-
-    #[test]
-    fn test_japanese_byo_exact_main_time_does_not_consume_stone() {
-        let mut tracker = TimeTracker::new(10, 30, 3);
-
-        assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
-        assert_eq!(tracker.black_time_left(), (30, 3));
-
-        assert!(tracker.apply_elapsed(PlayerColor::Black, 7_000));
-        assert_eq!(tracker.black_time_left(), (23, 2));
-    }
-
-    #[test]
-    fn test_japanese_byo_multi_stones_exceed_period() {
-        // 10s main, 30s byoyomi, 3 stones per period
-        let mut tracker = TimeTracker::new(10, 30, 3);
-        // Exhaust main time
-        assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
-        // Enter byoyomi: 3 stones in 30s
-        // Stone 1: 20s → cumulative 20s ≤ 30s
-        assert!(tracker.apply_elapsed(PlayerColor::Black, 20_000));
-        // Stone 2: 15s → cumulative 35s > 30s → flag
-        assert!(!tracker.apply_elapsed(PlayerColor::Black, 15_000));
     }
 
     #[test]

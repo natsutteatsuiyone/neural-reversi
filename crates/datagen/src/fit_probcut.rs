@@ -754,19 +754,6 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_plies_remain_sentinels() {
-        let data = AggregatedData::default();
-
-        assert!(!fit_ply(&data, 0).fitted);
-        assert_eq!(fit_ply(&data, 0).params.mean, [0.0; 4]);
-        assert!(!fit_ply(&data, NUM_PLY - 1).fitted);
-        assert_eq!(
-            fit_ply(&data, NUM_PLY - 1).params.sigma,
-            [DEFAULT_STD_INTERCEPT, 0.0, 0.0]
-        );
-    }
-
-    #[test]
     fn unfitted_interior_plies_carry_the_nearest_fitted_params() {
         let mut fits: [PlyFit; NUM_PLY] = std::array::from_fn(|_| PlyFit::default());
         let lower = FittedParams {

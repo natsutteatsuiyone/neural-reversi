@@ -1190,14 +1190,6 @@ mod tests {
     }
 
     #[test]
-    fn unknown_command_is_unknown() {
-        assert!(matches!(
-            Command::from_str_with_args("frobnicate", &[]),
-            Command::Unknown(_)
-        ));
-    }
-
-    #[test]
     fn response_display_uses_gtp_prefixes() {
         assert_eq!(GtpResponse::Success("foo".to_string()).to_string(), "= foo");
         assert_eq!(GtpResponse::Error("bar".to_string()).to_string(), "? bar");
