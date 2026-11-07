@@ -1,5 +1,4 @@
-use std::cell::SyncUnsafeCell;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -16,6 +15,9 @@ use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 use crate::util::align::Align64;
 use crate::util::spinlock;
+use crate::util::sync::{
+    AtomicBool, AtomicU64, AtomicUsize, Condvar, SyncUnsafeCell, spin_loop, thread,
+};
 
 use super::AbortState;
 use super::pool::{Message, ThreadPool};
@@ -31,13 +33,13 @@ pub(in crate::search) type HelperJob = Arc<dyn Fn(&Arc<Thread>) + Send + Sync>;
 /// A worker thread in the thread pool.
 pub struct Thread {
     /// Mutex used with the condition variable for thread sleeping.
-    pub(super) mutex_for_sleep_condition: std::sync::Mutex<()>,
+    pub(super) mutex_for_sleep_condition: crate::util::sync::Mutex<()>,
 
     /// Spinlock protecting access to `active_split_point`.
     mutex_for_state: spinlock::SpinLock,
 
     /// Condition variable for waking up idle threads.
-    sleep_condition: std::sync::Condvar,
+    sleep_condition: Condvar,
 
     /// Unique index of this thread in the pool.
     pub(super) idx: usize,
@@ -128,9 +130,9 @@ impl Thread {
         let split_points = std::array::from_fn(|_| Arc::new(SplitPoint::default()));
 
         Thread {
-            mutex_for_sleep_condition: std::sync::Mutex::new(()),
+            mutex_for_sleep_condition: crate::util::sync::Mutex::new(()),
             mutex_for_state: spinlock::SpinLock::new(),
-            sleep_condition: std::sync::Condvar::new(),
+            sleep_condition: Condvar::new(),
             idx,
             pool,
             abort_state,
@@ -158,7 +160,7 @@ impl Thread {
         // SAFETY: endgame caches are owner-only search scratch state. Search
         // recursion receives the `Thread` for the currently executing OS thread,
         // and no cross-thread code calls this method.
-        unsafe { &mut *self.endgame_caches.get() }
+        self.endgame_caches.with_mut(|p| unsafe { &mut *p })
     }
 
     /// Acquires the thread's state lock; the returned guard releases it on drop.
@@ -203,7 +205,7 @@ impl Thread {
     #[inline]
     fn active_split_point(&self) -> &Option<Arc<SplitPoint>> {
         // SAFETY: Either called by the owning thread, or caller holds mutex_for_state.
-        unsafe { &*self.active_split_point.get() }
+        self.active_split_point.with(|p| unsafe { &*p })
     }
 
     /// Returns a mutable reference to the active split point.
@@ -218,7 +220,7 @@ impl Thread {
     #[allow(clippy::mut_from_ref)]
     pub(super) fn active_split_point_mut(&self) -> &mut Option<Arc<SplitPoint>> {
         // SAFETY: Either called by the owning thread, or caller holds mutex_for_state.
-        unsafe { &mut *self.active_split_point.get() }
+        self.active_split_point.with_mut(|p| unsafe { &mut *p })
     }
 
     /// Returns whether this thread is currently searching under a split point.
@@ -334,7 +336,6 @@ impl Thread {
     pub(super) fn book_into(&self, sp: &Arc<SplitPoint>, sp_state: &SplitPointState) {
         sp_state.helpers_mask.set(self.idx);
         *self.active_split_point_mut() = Some(sp.clone());
-        self.reset_cutoff_cache();
         self.searching.store(true, Ordering::Release);
     }
 
@@ -436,7 +437,6 @@ impl Thread {
             self.searching.store(true, Ordering::Release);
             self.split_points_size.fetch_sub(1, Ordering::Release);
             *self.active_split_point_mut() = sp.task().parent_split_point.clone();
-            self.reset_cutoff_cache();
         }
 
         // Clear task data after releasing thread lock to minimize lock duration
@@ -480,16 +480,13 @@ impl Thread {
             if !self.thinking.load(Ordering::Acquire) {
                 debug_assert!(this_sp.is_none());
 
-                let lock = self.mutex_for_sleep_condition.lock().unwrap();
+                let mut guard = self.mutex_for_sleep_condition.lock().unwrap();
                 self.ready.store(true, Ordering::Release);
-                let _guard = self
-                    .sleep_condition
-                    .wait_while(lock, |_| {
-                        !self.exit.load(Ordering::Acquire) && !self.thinking.load(Ordering::Acquire)
-                    })
-                    .unwrap();
+                while !self.exit.load(Ordering::Acquire) && !self.thinking.load(Ordering::Acquire) {
+                    guard = self.sleep_condition.wait(guard).unwrap();
+                }
             } else {
-                std::thread::yield_now();
+                thread::yield_now();
             }
         }
     }
@@ -526,7 +523,11 @@ impl Thread {
         {
             let _guard = self.lock();
             // An idle thread has no active split point, so its next search
-            // cannot see the cutoffs of this one.
+            // cannot see the cutoffs of this one. `book_into` and
+            // `finalize_split_point` change the active chain without a reset
+            // and rely on this one: until then the thread reads the cache
+            // only with no active split point, which records "no cutoff" at
+            // an epoch that every cutoff on its next chain moves past.
             *self.active_split_point_mut() = None;
             self.reset_cutoff_cache();
             self.searching.store(false, Ordering::Release);
@@ -594,8 +595,7 @@ impl Thread {
                     // Search complete - update state and send result
                     self.searching.store(false, Ordering::Release);
                     pool.thinking.store(false, Ordering::Release);
-                    // Keep ThreadPool::drop on the caller; dropping the last Arc
-                    // on this thread would make it join itself.
+                    // Leave ThreadPool::drop to the caller, which owns the pool.
                     drop(pool);
 
                     // Send result back to caller
@@ -722,7 +722,7 @@ impl Thread {
     /// abort request so later searches run normally.
     pub(super) fn wait_for_helper_job(&self) {
         while self.searching.load(Ordering::Acquire) {
-            std::hint::spin_loop();
+            spin_loop();
         }
         self.helper_job_aborted.store(false, Ordering::Relaxed);
     }

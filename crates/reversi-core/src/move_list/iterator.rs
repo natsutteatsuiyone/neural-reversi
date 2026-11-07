@@ -1,6 +1,8 @@
 //! Iterators over generated move lists.
 
-use std::sync::atomic;
+use std::sync::atomic::Ordering;
+
+use crate::util::sync::AtomicUsize;
 
 use super::{Move, MoveList};
 
@@ -15,7 +17,7 @@ impl MoveList {
 /// Thread-safe iterator for distributing moves across multiple search threads.
 pub struct ConcurrentMoveIterator {
     move_list: MoveList,
-    current: atomic::AtomicUsize,
+    current: AtomicUsize,
 }
 
 impl ConcurrentMoveIterator {
@@ -27,14 +29,14 @@ impl ConcurrentMoveIterator {
     pub fn from_offset(move_list: MoveList, start: usize) -> ConcurrentMoveIterator {
         ConcurrentMoveIterator {
             move_list,
-            current: atomic::AtomicUsize::new(start),
+            current: AtomicUsize::new(start),
         }
     }
 
     /// Returns the next move and its 1-based index atomically.
     #[inline]
     pub fn next(&self) -> Option<(&Move, usize)> {
-        let current = self.current.fetch_add(1, atomic::Ordering::Relaxed);
+        let current = self.current.fetch_add(1, Ordering::Relaxed);
         if current < self.move_list.moves.len() {
             // SAFETY: `current < len` checked above.
             Some((
@@ -55,7 +57,7 @@ impl ConcurrentMoveIterator {
     /// Returns the number of moves not yet consumed.
     #[inline]
     pub fn remaining(&self) -> usize {
-        let current = self.current.load(atomic::Ordering::Relaxed);
+        let current = self.current.load(Ordering::Relaxed);
         // Uses `saturating_sub` because concurrent `fetch_add` calls can cause
         // `current` to exceed `count` when multiple threads race past the last move.
         self.move_list.count().saturating_sub(current)

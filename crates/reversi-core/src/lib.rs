@@ -1,6 +1,8 @@
 #![cfg_attr(target_arch = "aarch64", feature(stdarch_neon_i8mm))]
 #![feature(hint_prefetch)]
-#![feature(sync_unsafe_cell)]
+#![cfg_attr(not(loom), feature(sync_unsafe_cell))]
+// Loom builds replace `pvs::search` with a stub, which leaves the search unused.
+#![cfg_attr(loom, allow(dead_code, unused_imports))]
 
 pub mod analysis;
 pub mod bitboard;

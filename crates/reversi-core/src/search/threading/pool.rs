@@ -1,7 +1,6 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
-use std::thread::{JoinHandle, sleep};
 use std::time::{Duration, Instant};
 
 use crate::search::SearchTask;
@@ -9,6 +8,8 @@ use crate::search::result::SearchResult;
 use crate::search::stop::{StopAttachment, StopToken};
 use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
+use crate::util::sync::thread::{self, JoinHandle};
+use crate::util::sync::{AtomicBool, AtomicU64};
 
 use super::AbortState;
 use super::split_point::SplitPoint;
@@ -55,10 +56,10 @@ pub struct ThreadPool {
     cutoff_epoch: Arc<Align64<AtomicU64>>,
 
     /// Handle for the timer thread (protected by mutex for interior mutability).
-    timer_handle: Mutex<Option<JoinHandle<()>>>,
+    timer_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
 
     /// Flag to signal the timer thread to stop.
-    timer_stop: Arc<AtomicBool>,
+    timer_stop: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ThreadPool {
@@ -77,7 +78,7 @@ impl ThreadPool {
                 abort_state: Arc::new(AbortState::new()),
                 cutoff_epoch: Arc::new(Align64(AtomicU64::new(0))),
                 timer_handle: Mutex::new(None),
-                timer_stop: Arc::new(AtomicBool::new(false)),
+                timer_stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             };
 
             pool.init(weak, receiver);
@@ -107,18 +108,22 @@ impl ThreadPool {
     }
 
     /// Creates and starts the main thread that handles control messages.
+    ///
+    /// Under loom no OS thread runs it: the test drives thread 0 itself.
     fn create_main_thread(&mut self, pool: &Weak<ThreadPool>, receiver: Receiver<Message>) {
         let thread = self.add_thread(0, pool);
-        let handle = std::thread::spawn(move || thread.main_thread_loop(receiver));
-
-        self.thread_handles.push(handle);
+        #[cfg(not(loom))]
+        self.thread_handles
+            .push(thread::spawn(move || thread.main_thread_loop(receiver)));
+        #[cfg(loom)]
+        drop((thread, receiver));
     }
 
     /// Creates and starts worker threads that wait in idle loops.
     fn create_worker_threads(&mut self, pool: &Weak<ThreadPool>) {
         for i in 1..self.size {
             let thread = self.add_thread(i, pool);
-            let handle = std::thread::spawn(move || thread.idle_loop());
+            let handle = thread::spawn(move || thread.idle_loop());
 
             self.thread_handles.push(handle);
         }
@@ -129,7 +134,7 @@ impl ThreadPool {
         self.main().ready.store(true, Ordering::Release);
 
         while !self.all_threads_ready() {
-            sleep(READY_POLL_INTERVAL);
+            thread::sleep(READY_POLL_INTERVAL);
         }
     }
 
@@ -164,9 +169,15 @@ impl ThreadPool {
         let _ = self.sender.send(Message::Exit);
 
         // Join all threads; panic info is absorbed (the panicking thread has
-        // already logged at the panic site).
+        // already logged at the panic site). A worker can drop the last pool
+        // reference (the one `try_late_join` upgrades), running this on the
+        // worker itself; it exits on its own once it returns, and joining it
+        // from itself would never return.
+        let current = thread::current().id();
         for handle in self.thread_handles.drain(..) {
-            let _ = handle.join();
+            if handle.thread().id() != current {
+                let _ = handle.join();
+            }
         }
 
         // Clear thread references
@@ -305,7 +316,7 @@ impl ThreadPool {
         time_manager: &TimeManager,
         abort_state: &AbortState,
         generation: u32,
-        stop_flag: &AtomicBool,
+        stop_flag: &std::sync::atomic::AtomicBool,
     ) {
         const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
 

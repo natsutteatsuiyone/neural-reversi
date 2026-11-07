@@ -31,7 +31,32 @@ const TT_PROBCUT_MARGIN: ScaledScore = ScaledScore::from_disc_diff(4);
 /// Minimum node depth at which a TT entry whose bound cannot cut is penalized.
 const TT_PENALIZE_MIN_DEPTH: Depth = 6;
 
+/// Stands in for [`search`] under loom: a fixed score per position, so the
+/// loom tests explore the split-point protocol rather than the search tree.
+#[cfg(loom)]
+#[allow(
+    clippy::extra_unused_type_parameters,
+    reason = "callers name the node type and strategy of the real search"
+)]
+pub fn search<NT: NodeType, SS: SearchStrategy>(
+    _ctx: &mut SearchContext,
+    board: &Board,
+    _depth: Depth,
+    _alpha: ScaledScore,
+    _beta: ScaledScore,
+    _thread: &Arc<Thread>,
+    _cut_node: bool,
+) -> ScaledScore {
+    let disc_diff = if board.hash().is_multiple_of(2) {
+        10
+    } else {
+        -10
+    };
+    ScaledScore::from_disc_diff(disc_diff)
+}
+
 /// Searches both midgame and endgame positions using Principal Variation Search.
+#[cfg(not(loom))]
 pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
