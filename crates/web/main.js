@@ -504,7 +504,7 @@ async function handleCellClick(index) {
   if (state.showSettingsModal) {
     return;
   }
-  if (state.aiThinking || state.isGameOver || state.currentPlayer !== state.humanColor) {
+  if (state.aiThinking || !state.isHumanTurn) {
     return;
   }
 
@@ -514,6 +514,7 @@ async function handleCellClick(index) {
 
   // Aborts an in-flight hint search so the move applies immediately.
   clearHints();
+  lockBoardUntilSync();
   state.lastHumanMove = index;
   state.lastAiMove = null;
   logMove(state.humanColor, index);
@@ -561,6 +562,14 @@ function maybeAutoHint() {
 function clearHints() {
   abortHintComputation();
   state.hints = null;
+}
+
+// The board re-renders only when the worker syncs, so until then it keeps
+// offering the old position's legal moves. A click there would reach the worker
+// after it has left that position and be logged without ever being played.
+function lockBoardUntilSync() {
+  state.isHumanTurn = false;
+  renderBoard3D();
 }
 
 // Stops an in-flight hint search. The worker blocks synchronously inside the
@@ -628,6 +637,7 @@ function handleCloseGameOverModal() {
 
 async function resetGame() {
   gameGeneration += 1;
+  lockBoardUntilSync();
   skipNextBoardAnimation = true;
   clearHints();
   workerApi.reset(state.humanIsBlack, state.level);
@@ -940,6 +950,7 @@ async function handleUndo() {
 
   // Replay moves to restore game state
   // Convert reactive array to plain array for Worker
+  lockBoardUntilSync();
   skipNextBoardAnimation = true;
   const plainMoves = state.moveHistory.map((move) => ({ player: move.player, index: move.index }));
   gameGeneration += 1;

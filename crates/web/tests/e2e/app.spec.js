@@ -579,6 +579,65 @@ test("announces an AI pass forced by the human move", async ({ page }) => {
   await expect(page.locator(".toast__text")).toHaveText("AIはパスしました。あなたの番です。");
 });
 
+// The top-down camera in board3d.js spans TOTAL_SIZE (9.5) world units across
+// the shorter canvas side, cell pitch 1.
+async function squarePoint(page, index) {
+  const box = await page.locator("#board-3d canvas").boundingBox();
+  const pitch = Math.min(box.width, box.height) / 9.5;
+  return {
+    x: box.x + box.width / 2 + ((index % 8) - 3.5) * pitch,
+    y: box.y + box.height / 2 + (Math.floor(index / 8) - 3.5) * pitch,
+  };
+}
+
+// The board shows a pointer cursor only over a square it would accept.
+async function expectPlayable(page, index) {
+  const { x, y } = await squarePoint(page, index);
+  await expect
+    .poll(async () => {
+      await page.mouse.move(x, y);
+      return page.locator("#board-3d").evaluate((el) => el.style.cursor);
+    })
+    .toBe("pointer");
+}
+
+async function clickSquare(page, index) {
+  const { x, y } = await squarePoint(page, index);
+  await page.mouse.click(x, y);
+}
+
+test("ignores board clicks until the worker answers the last request", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const generation = await startGameAndGetGeneration(page);
+  const humanMoves = () =>
+    page.evaluate(
+      () => window.__fakeWorkers[0].messages.filter((m) => m.type === "human_move").length,
+    );
+  const moveLog = page.locator("#move-log-scroll li");
+
+  // The fake worker never answers human_move or replay_moves, so each of those
+  // requests stays pending below.
+  await expectPlayable(page, 26);
+  await clickSquare(page, 19);
+  await clickSquare(page, 26);
+  expect(await humanMoves()).toBe(1);
+  await expect(moveLog).toHaveCount(1);
+
+  await page.evaluate((gen) => {
+    const worker = window.__fakeWorkers[0];
+    worker.emit({ type: "state_updated", payload: window.__aiMovedGameState, generation: gen });
+  }, generation);
+  await expectPlayable(page, 18);
+  await page.locator("#undo-button").click();
+  await expect(moveLog).toHaveCount(0);
+
+  await clickSquare(page, 18);
+  expect(await humanMoves()).toBe(1);
+  await expect(moveLog).toHaveCount(0);
+});
+
 test("reveals engine stats on hovering the move-log robot icon", async ({ page }) => {
   await installFakeWorker(page);
   await waitForAppReady(page);
