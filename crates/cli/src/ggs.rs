@@ -168,6 +168,12 @@ impl SearchPool {
         }
     }
 
+    fn stop_search(&self, game_id: &str) {
+        if let Some(handle) = self.search_handles.lock().unwrap().remove(game_id) {
+            stop_worker(handle);
+        }
+    }
+
     fn engine_for(&self, game_id: &str) -> Result<EngineSlot, String> {
         let mut engines = self.engines.lock().unwrap();
         if let Some(slot) = engines.get(game_id) {
@@ -663,8 +669,7 @@ fn apply_action(
                         game_id: done_id,
                         search_id,
                         queued_at,
-                        result: mv
-                            .ok_or_else(|| "search cancelled because its match ended".to_string()),
+                        result: mv.ok_or_else(|| "search cancelled before it started".to_string()),
                     });
                 },
             );
@@ -728,6 +733,9 @@ fn apply_action(
         }
         session::SessionAction::StopPonder { game_id } => {
             search_pool.stop_ponder(&game_id);
+        }
+        session::SessionAction::StopSearch { game_id } => {
+            search_pool.stop_search(&game_id);
         }
     }
     Ok(())
