@@ -125,8 +125,9 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 /// context's root moves, transposition table, and counters carry over from any
 /// preceding midgame iterations. `base_score` centers the first PV's
 /// aspiration window. `completed` is reported when the solve aborts before
-/// every PV line has finished the same selectivity level.
-/// Enables endgame time management on entry.
+/// every PV line has finished the same selectivity level; otherwise the result
+/// reports the lowest selectivity every PV line reached. Enables endgame time
+/// management on entry.
 pub(super) fn solve_root(
     ctx: &mut SearchContext,
     board: &Board,
@@ -215,6 +216,8 @@ pub(super) fn solve_root(
         }
     }
 
+    // The fixed budget and increasing elapsed time make each later PV stop at
+    // the same or a lower selectivity, so `ctx.selectivity` is that level.
     completed.iteration_completed(ctx, n_empties, true);
     completed.into_result(ctx, board)
 }

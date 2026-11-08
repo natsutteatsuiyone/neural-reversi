@@ -76,6 +76,8 @@ impl Iteration {
 /// An iteration completes once every PV line has been searched at the same
 /// depth and selectivity; aborted iterations leave root-move scores mixed
 /// across levels and must not be reported as reached.
+/// [`iteration_completed`](Self::iteration_completed) saves one without that
+/// check.
 pub(super) struct CompletedState {
     lines: Vec<Option<(Depth, Selectivity)>>,
     pub(super) last: Option<Iteration>,
@@ -108,8 +110,11 @@ impl CompletedState {
         }
     }
 
-    /// Reports the root moves of `ctx` as completed, whatever levels its
-    /// PV lines reached, and returns the best move.
+    /// Saves the current root moves as the completed iteration and returns
+    /// its best move.
+    ///
+    /// Every PV line must have finished at a level no lower than `depth` and
+    /// the context's selectivity.
     pub(super) fn iteration_completed(
         &mut self,
         ctx: &SearchContext,
