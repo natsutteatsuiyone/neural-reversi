@@ -638,6 +638,58 @@ test("ignores board clicks until the worker answers the last request", async ({ 
   await expect(moveLog).toHaveCount(0);
 });
 
+test("does not resume the AI from a turn the worker has not confirmed", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  const aiMoves = () =>
+    page.evaluate(
+      () => window.__fakeWorkers[0].messages.filter((m) => m.type === "ai_move").length,
+    );
+  const emitAiTurn = () =>
+    page.evaluate(() => {
+      const worker = window.__fakeWorkers[0];
+      worker.emit({
+        type: "state_updated",
+        payload: { ...window.__initialGameState, currentPlayer: 2 },
+        generation: worker.messages.at(-1).generation,
+      });
+    });
+  const reopenAndCloseSettings = async () => {
+    await page.locator("#new-game").click();
+    await expect(settingsDialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(settingsDialog).toBeHidden();
+  };
+
+  // The previous game ends on the AI's turn while settings are open.
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await page.locator("#new-game").click();
+  await emitAiTurn();
+  await page.waitForTimeout(100);
+
+  // From here the fake worker leaves reset and get_state unanswered.
+  await page.evaluate(() => {
+    const worker = window.__fakeWorkers[0];
+    const post = worker.postMessage.bind(worker);
+    worker.postMessage = (m) =>
+      m.type === "reset" || m.type === "get_state" ? worker.messages.push(m) : post(m);
+  });
+
+  // The new game's reset is pending, so the old AI turn must not resume.
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await reopenAndCloseSettings();
+  expect(await aiMoves()).toBe(0);
+
+  // The AI's move is shown but get_state is pending, so the AI must not move again.
+  await emitAiTurn();
+  await expect.poll(aiMoves).toBe(1);
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(1);
+  await reopenAndCloseSettings();
+  expect(await aiMoves()).toBe(1);
+});
+
 test("reveals engine stats on hovering the move-log robot icon", async ({ page }) => {
   await installFakeWorker(page);
   await waitForAppReady(page);

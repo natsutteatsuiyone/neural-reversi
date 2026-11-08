@@ -337,6 +337,8 @@ worker.onmessage = async (event) => {
         });
       }
 
+      // The turn after this move is known only once get_state answers.
+      state.currentPlayer = null;
       workerApi.getState();
       break;
     }
@@ -567,8 +569,11 @@ function clearHints() {
 // The board re-renders only when the worker syncs, so until then it keeps
 // offering the old position's legal moves. A click there would reach the worker
 // after it has left that position and be logged without ever being played.
+// Whose turn it is is also unknown until then, so closing the settings dialog
+// in the meantime must not start the AI on the old position's turn.
 function lockBoardUntilSync() {
   state.isHumanTurn = false;
+  state.currentPlayer = null;
   renderBoard3D();
 }
 
