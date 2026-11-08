@@ -135,11 +135,18 @@ pub struct TTEntryData {
     depth: u8,
     selectivity: u8,
     generation: u8,
-    is_endgame: u8,
+    flags: u8,
 }
 
 const _: () = assert!(mem::size_of::<TTEntryData>() == 8);
 const _: () = assert!(CLUSTER_BYTE_SIZE == CACHE_LINE_SIZE);
+
+/// [`TTEntryData::flags`] bit set by an endgame search.
+const FLAG_ENDGAME: u8 = 1;
+
+/// [`TTEntryData::flags`] bit set by a node that was a PV node or found the
+/// flag set on its own entry.
+const FLAG_PV: u8 = 2;
 
 impl TTEntryData {
     #[inline(always)]
@@ -156,6 +163,7 @@ impl TTEntryData {
         unsafe { mem::transmute(raw) }
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn new(
         score: ScaledScore,
@@ -165,6 +173,7 @@ impl TTEntryData {
         selectivity: Selectivity,
         generation: u8,
         is_endgame: bool,
+        is_pv: bool,
     ) -> Self {
         Self {
             score: score.value() as i16,
@@ -173,7 +182,7 @@ impl TTEntryData {
             depth: depth as u8,
             selectivity: selectivity.as_u8(),
             generation: generation & TTEntry::GENERATION_MASK,
-            is_endgame: is_endgame as u8,
+            flags: if is_endgame { FLAG_ENDGAME } else { 0 } | if is_pv { FLAG_PV } else { 0 },
         }
     }
 
@@ -227,7 +236,13 @@ impl TTEntryData {
     /// Returns `true` if this entry is from an endgame search.
     #[inline(always)]
     pub fn is_endgame(&self) -> bool {
-        self.is_endgame != 0
+        self.flags & FLAG_ENDGAME != 0
+    }
+
+    /// Returns `true` if this position has been on a principal variation.
+    #[inline(always)]
+    pub fn is_pv(&self) -> bool {
+        self.flags & FLAG_PV != 0
     }
 
     /// Returns whether this entry allows an immediate return in a null-window
@@ -825,6 +840,7 @@ impl TranspositionTable {
         best_move: Square,
         selectivity: Selectivity,
         is_endgame: bool,
+        is_pv: bool,
     ) {
         debug_assert!(
             entry_index < self.entries.len(),
@@ -839,6 +855,7 @@ impl TranspositionTable {
             selectivity,
             self.generation(),
             is_endgame,
+            is_pv,
         );
         // SAFETY: `entry_index` originates from `probe`, which only returns
         // indices within `entries`.

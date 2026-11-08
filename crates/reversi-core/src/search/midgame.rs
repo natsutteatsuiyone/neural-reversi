@@ -415,6 +415,7 @@ pub fn evaluate_depth3<NT: NodeType>(
         best_move,
         Selectivity::None,
         false,
+        NT::PV_NODE || tt_probe_result.data().is_some_and(|data| data.is_pv()),
     );
 
     best_score

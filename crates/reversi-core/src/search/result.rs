@@ -363,6 +363,7 @@ mod tests {
             tt_sq,
             Selectivity::None,
             false,
+            false,
         );
 
         let result = CompletedState::new(1).into_result(&ctx, &board);

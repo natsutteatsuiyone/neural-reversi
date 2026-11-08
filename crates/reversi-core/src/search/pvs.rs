@@ -132,6 +132,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     let tt_probe_result = ctx.tt.probe(board, tt_key);
     ctx.counters.increment_tt_probe();
     let tt_move = tt_probe_result.best_move();
+    let tt_pv = NT::PV_NODE || tt_probe_result.data().is_some_and(|data| data.is_pv());
 
     // NonPV cutoffs
     if !NT::PV_NODE {
@@ -166,6 +167,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 depth,
                 alpha,
                 tt_probe_result.index(),
+                tt_pv,
             ) {
                 ctx.counters.increment_etc_cut();
                 return score;
@@ -261,6 +263,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                     best_move,
                     ctx.selectivity,
                     SS::IS_ENDGAME,
+                    tt_pv,
                 );
                 if let Some(eval) = static_eval
                     && let Some(history) = &mut ctx.correction_history
@@ -332,6 +335,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 move_count,
                 n_moves,
                 cut_node,
+                tt_pv,
                 mv.value,
                 alpha,
             );
@@ -417,6 +421,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             best_move,
             ctx.selectivity,
             SS::IS_ENDGAME,
+            tt_pv,
         );
     }
 
@@ -462,6 +467,8 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
             move_count,
             n_moves,
             cut_node,
+            // Split points exist only in the endgame, where LMR is off.
+            false,
             mv.value,
             alpha,
         );
@@ -558,6 +565,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     depth: Depth,
     alpha: ScaledScore,
     tt_entry_index: usize,
+    tt_pv: bool,
 ) -> Option<ScaledScore> {
     let etc_depth = depth - 1;
 
@@ -584,6 +592,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
                     mv.sq,
                     ctx.selectivity,
                     SS::IS_ENDGAME,
+                    tt_pv,
                 );
                 return Some(score);
             }
@@ -634,6 +643,10 @@ const LMR_MARGIN_MIN: i32 = -(1 << LMR_FRAC_BITS);
 /// Reduction penalty ceiling for a move far below alpha, in 1/256 ply.
 const LMR_MARGIN_MAX: i32 = 1 << LMR_FRAC_BITS;
 
+/// Reduction given back at nodes that have been on a principal variation,
+/// in 1/256 ply.
+const LMR_TT_PV_CREDIT: i32 = 1 << LMR_FRAC_BITS;
+
 /// Reduction beyond which All nodes give one ply back, in whole plies.
 const LMR_ALLNODE_KEEP: i32 = 2;
 
@@ -647,6 +660,7 @@ const LMR_ALLNODE_KEEP: i32 = 2;
 /// [`LMR_MIN_DEPTH`], which is where the gate below admits moves: the shallow
 /// search score minus a penalty for the opponent's mobility. Below it
 /// ordering falls back to unscaled heuristics.
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     selectivity: Selectivity,
@@ -654,6 +668,7 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     move_count: usize,
     n_moves: usize,
     cut_node: bool,
+    tt_pv: bool,
     move_value: i32,
     alpha: ScaledScore,
 ) -> Depth {
@@ -670,7 +685,8 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     let shortfall = alpha.value() - move_value;
     let margin = (shortfall >> LMR_MARGIN_SHIFT).clamp(LMR_MARGIN_MIN, LMR_MARGIN_MAX);
 
-    let mut reduction = (lmr_curve(depth, move_count) + margin) >> LMR_FRAC_BITS;
+    let tt_pv_credit = if tt_pv { LMR_TT_PV_CREDIT } else { 0 };
+    let mut reduction = (lmr_curve(depth, move_count) + margin - tt_pv_credit) >> LMR_FRAC_BITS;
     if !cut_node && reduction > LMR_ALLNODE_KEEP {
         reduction -= 1;
     }
@@ -717,6 +733,7 @@ mod tests {
             move_count,
             n_moves,
             cut_node,
+            false,
             ScaledScore::ZERO.value(),
             ScaledScore::ZERO,
         )
@@ -781,6 +798,7 @@ mod tests {
                 6,
                 20,
                 true,
+                false,
                 ScaledScore::from_disc_diff(-shortfall_discs).value(),
                 ScaledScore::ZERO,
             )

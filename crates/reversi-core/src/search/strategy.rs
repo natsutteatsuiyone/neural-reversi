@@ -174,6 +174,7 @@ impl SearchStrategy for EndGameStrategy {
                 Square::None,
                 Selectivity::None,
                 true,
+                false,
             );
         }
 

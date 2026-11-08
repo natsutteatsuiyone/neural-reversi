@@ -34,6 +34,7 @@ fn raw_entry_data(
         selectivity,
         generation,
         is_endgame,
+        false,
     )
 }
 
@@ -153,13 +154,14 @@ mod tt_entry_data {
 
     #[test]
     fn packing_roundtrip_preserves_every_field() {
-        let original = raw_entry_data(
-            ScaledScore::MIN.value(),
+        let original = TTEntryData::new(
+            ScaledScore::MIN,
             sq(63),
             Bound::Exact,
             60,
             Selectivity::None,
             127,
+            true,
             true,
         );
 
@@ -172,6 +174,7 @@ mod tt_entry_data {
         assert_eq!(unpacked.selectivity(), Selectivity::None);
         assert_eq!(unpacked.generation(), 127);
         assert!(unpacked.is_endgame());
+        assert!(unpacked.is_pv());
     }
 
     #[test]
@@ -660,6 +663,7 @@ mod transposition_table {
             sq(10),
             Selectivity::Level3,
             true,
+            false,
         );
 
         let lookup = tt
@@ -694,6 +698,7 @@ mod transposition_table {
             sq(10),
             Selectivity::Level3,
             false,
+            false,
         );
 
         assert!(tt.lookup(&fixture.stored, fixture.stored.hash()).is_some());
@@ -717,6 +722,7 @@ mod transposition_table {
             sq(1),
             Selectivity::Level1,
             false,
+            false,
         );
         tt.store(
             fixture.cluster_idx + 1,
@@ -726,6 +732,7 @@ mod transposition_table {
             20,
             sq(2),
             Selectivity::Level1,
+            false,
             false,
         );
         for _ in 0..10 {
@@ -757,6 +764,7 @@ mod transposition_table {
             4,
             sq(10),
             Selectivity::Level1,
+            false,
             false,
         );
         assert_eq!(
@@ -796,6 +804,7 @@ mod transposition_table {
             sq(10),
             Selectivity::Level1,
             false,
+            false,
         );
 
         mark_slot_in_flight(&tt, fixture.cluster_idx + 1);
@@ -820,6 +829,7 @@ mod transposition_table {
             4,
             sq(10),
             Selectivity::Level1,
+            false,
             false,
         );
 
@@ -863,6 +873,7 @@ mod transposition_table {
             sq(10),
             Selectivity::Level1,
             false,
+            false,
         );
         assert!(tt.lookup(&board, key).is_some());
         assert!(tt.usage_rate() > 0.0);
@@ -889,6 +900,7 @@ mod transposition_table {
             sq(10),
             Selectivity::Level1,
             false,
+            false,
         );
 
         assert_eq!(tt.usage_rate(), 1.0 / (16.0 * CLUSTER_SIZE as f64));
@@ -909,6 +921,7 @@ mod transposition_table {
             sq(10),
             Selectivity::None,
             true,
+            false,
         );
 
         // SAFETY: no other thread touches `tt`.
@@ -929,6 +942,7 @@ mod transposition_table {
             1,
             sq(1),
             Selectivity::None,
+            false,
             false,
         );
         assert!(copy.lookup(&other, other.hash()).is_some());
