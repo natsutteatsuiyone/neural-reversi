@@ -287,6 +287,13 @@ impl Search {
         if is_time_mode {
             self.maybe_extend_endgame_depth(n_empties, &mut effective_level);
         }
+        // The timer starts with the search, so an endgame root must not run
+        // under the smaller midgame deadline even briefly.
+        if let Some(tm) = &time_manager
+            && is_endgame_root(&effective_level, n_empties)
+        {
+            tm.set_endgame_mode(true);
+        }
 
         let task = SearchTask {
             board: *board,
@@ -420,14 +427,15 @@ pub(crate) fn widen_aspiration_window(
 /// number of empty squares. If the endgame depth covers all empties, delegates
 /// to the endgame solver; otherwise delegates to the midgame search.
 fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
-    let min_end_depth = task.level.min_end_depth();
-    let n_empties = task.board.empty_count();
-
-    if min_end_depth >= n_empties {
+    if is_endgame_root(&task.level, task.board.empty_count()) {
         return endgame::search_root(task, thread);
     }
 
     midgame::search_root(task, thread)
+}
+
+fn is_endgame_root(level: &Level, n_empties: Depth) -> bool {
+    level.min_end_depth() >= n_empties
 }
 
 #[cfg(test)]

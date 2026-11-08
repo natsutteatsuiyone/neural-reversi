@@ -215,6 +215,9 @@ pub struct TimeManager {
 
     /// Whether running out of time aborted an iteration in progress.
     timed_out: AtomicBool,
+
+    /// Whether a timeout check requested an abort because the deadline passed.
+    deadline_reached: AtomicBool,
 }
 
 impl TimeManager {
@@ -245,6 +248,7 @@ impl TimeManager {
             prev_best_move: AtomicU8::new(NO_PREV_MOVE),
             window_clean: AtomicBool::new(false),
             timed_out: AtomicBool::new(false),
+            deadline_reached: AtomicBool::new(false),
         }
     }
 
@@ -538,19 +542,27 @@ impl TimeManager {
     /// Checks whether time is up and signals abort if so.
     #[inline]
     pub(crate) fn check_time(&self) -> bool {
+        self.signal_time_up(|| self.abort_state.request_abort())
+    }
+
+    /// Checks whether time is up and signals abort for `generation` if so.
+    pub(crate) fn check_time_for(&self, generation: u32) -> bool {
+        self.signal_time_up(|| self.abort_state.request_abort_for(generation))
+    }
+
+    fn signal_time_up(&self, request_abort: impl FnOnce()) -> bool {
         if !self.is_time_up() {
             return false;
         }
-        if !self.abort_state.is_aborted() {
-            if is_debug_enabled() {
-                eprintln!(
-                    "[TimeManager] Time up! elapsed={}ms, optimum={}ms",
-                    self.elapsed_ms(),
-                    self.maxi_time_ms()
-                );
-            }
-            self.abort_state.request_abort();
+        if !self.abort_state.is_aborted() && is_debug_enabled() {
+            eprintln!(
+                "[TimeManager] Time up! elapsed={}ms, optimum={}ms",
+                self.elapsed_ms(),
+                self.maxi_time_ms()
+            );
         }
+        self.deadline_reached.store(true, Ordering::Relaxed);
+        request_abort();
         true
     }
 
@@ -583,8 +595,8 @@ impl TimeManager {
     /// stability is not evidence about the endgame solve. A call that does not
     /// change the mode is a no-op.
     ///
-    /// Must be called only from the search's main thread; other threads may
-    /// only read.
+    /// Must be called only before the search starts or from the search's main
+    /// thread; other threads may only read.
     pub(crate) fn set_endgame_mode(&self, enabled: bool) {
         if self.is_endgame_mode.swap(enabled, Ordering::Relaxed) == enabled {
             return;
@@ -619,7 +631,7 @@ impl TimeManager {
 /// iteration because of the abort.
 pub(crate) fn record_abort(time_manager: Option<&TimeManager>) {
     if let Some(tm) = time_manager
-        && tm.is_time_up()
+        && tm.deadline_reached.load(Ordering::Relaxed)
     {
         tm.timed_out.store(true, Ordering::Relaxed);
     }
@@ -957,5 +969,19 @@ mod tests {
         tm.set_endgame_mode(true);
         assert!(!tm.is_easy_move());
         assert_eq!(tm.best_move_streak.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn deadline_abort_stays_timed_out_after_the_deadline_moves() {
+        let mut tm = make_fischer_tm(60_000, 0, 36);
+        let generation = tm.abort_state.begin_search();
+        tm.start_time = Instant::now() - Duration::from_millis(tm.maxi_time_ms());
+        assert!(tm.check_time_for(generation));
+
+        tm.optimum_time_ms
+            .store(tm.maxi_time_ms() * 4, Ordering::Relaxed);
+        assert!(!tm.is_time_up());
+        record_abort(Some(&tm));
+        assert!(tm.timed_out());
     }
 }

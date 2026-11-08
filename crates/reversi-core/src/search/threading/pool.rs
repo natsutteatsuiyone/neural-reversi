@@ -1,7 +1,7 @@
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::search::SearchTask;
 use crate::search::result::SearchResult;
@@ -288,23 +288,23 @@ impl ThreadPool {
     /// Starts a timer thread that will abort search `generation` when the
     /// deadline is reached.
     ///
+    /// [`start_thinking`](Self::start_thinking) skips this timer in infinite mode.
+    ///
     /// - Checks every `CHECK_INTERVAL_MS` milliseconds against the current deadline
     /// - Responds to dynamic time extensions from the [`TimeManager`]
     /// - Exits cleanly when:
     ///   - Deadline is reached (requests abort)
     ///   - [`stop_timer`](Self::stop_timer) is called (search completed early)
-    ///   - No deadline is set (infinite time mode)
     fn start_timer(&self, time_manager: Arc<TimeManager>, generation: u32) {
         // Reset stop flag before spawning new timer
         self.timer_stop.store(false, Ordering::Release);
 
-        let abort_state = self.abort_state.clone();
         let stop_flag = self.timer_stop.clone();
 
         let handle = std::thread::Builder::new()
             .name("search-timer".to_string())
             .spawn(move || {
-                Self::timer_loop(&time_manager, &abort_state, generation, &stop_flag);
+                Self::timer_loop(&time_manager, generation, &stop_flag);
             })
             .expect("failed to spawn timer thread");
 
@@ -314,34 +314,12 @@ impl ThreadPool {
     /// Runs the timer thread loop.
     fn timer_loop(
         time_manager: &TimeManager,
-        abort_state: &AbortState,
         generation: u32,
         stop_flag: &std::sync::atomic::AtomicBool,
     ) {
         const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
 
-        loop {
-            // Check if search completed early
-            if stop_flag.load(Ordering::Acquire) {
-                return;
-            }
-
-            // Recompute deadline to honor potential time extensions
-            match time_manager.deadline() {
-                Some(deadline) if Instant::now() >= deadline => {
-                    // Time's up - signal abort and exit
-                    abort_state.request_abort_for(generation);
-                    return;
-                }
-                Some(_) => {
-                    // Still have time - continue monitoring
-                }
-                None => {
-                    // No deadline (infinite mode) - timer not needed
-                    return;
-                }
-            }
-
+        while !stop_flag.load(Ordering::Acquire) && !time_manager.check_time_for(generation) {
             std::thread::sleep(CHECK_INTERVAL);
         }
     }

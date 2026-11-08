@@ -112,12 +112,6 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         return SearchResult::NoLegalMove;
     }
 
-    // Extend to the endgame allocation before any timed work: the aspiration
-    // estimate must not run under the smaller midgame deadline.
-    if let Some(tm) = &task.time_manager {
-        tm.set_endgame_mode(true);
-    }
-
     // Estimate initial aspiration window center
     let base_score = estimate_aspiration_base_score(&mut ctx, &board);
 
