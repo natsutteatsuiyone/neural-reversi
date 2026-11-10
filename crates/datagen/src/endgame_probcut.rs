@@ -163,13 +163,12 @@ pub fn export_holdout(
 /// selective pruning.
 #[cfg(feature = "trace")]
 fn label(search: &mut Search, board: &Board) -> ([Scoref; 2], i32) {
-    use reversi_core::probcut::VERIFY_DEPTH as D;
     search.init();
     let eval = search
         .eval()
         .evaluate_simple(board, EvalMode::Main)
         .to_disc_diff_f32();
-    let options = SearchRunOptions::with_level(Level::uniform(D, D))
+    let options = SearchRunOptions::with_level(Level::uniform(VERIFY_DEPTH, VERIFY_DEPTH))
         .disable_probcut()
         .with_eval_mode(EvalMode::Main);
     let score = search

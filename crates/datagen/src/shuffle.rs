@@ -153,14 +153,10 @@ pub fn execute(
 
         added_records += chunk_records.len() as u64;
         added_bytes += (chunk_records.len() * RECORD_SIZE) as u64;
-        chunk_pb.set_message(format!(
-            "added {added_records} recs / {}",
-            HumanBytes(added_bytes)
-        ));
         chunk_pb.inc(1);
     }
 
-    chunk_pb.finish_with_message("done");
+    chunk_pb.finish();
     mp.clear()?;
 
     println!("------------- Summary -------------");
