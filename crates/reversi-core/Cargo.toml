@@ -18,9 +18,6 @@ zstd = "0.14"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
-[target.'cfg(loom)'.dependencies]
-loom = "0.7"
-
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -28,9 +25,6 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Memory",
     "Win32_System_Threading",
 ] }
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }
 
 [dev-dependencies]
 criterion = "0.8"

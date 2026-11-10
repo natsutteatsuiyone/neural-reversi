@@ -1,8 +1,6 @@
 //! Iterators over generated move lists.
 
-use std::sync::atomic::Ordering;
-
-use crate::util::sync::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{Move, MoveList};
 

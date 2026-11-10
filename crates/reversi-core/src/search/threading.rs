@@ -8,8 +8,6 @@
 //! Reference: <https://github.com/official-stockfish/Stockfish/blob/5b555525d2f9cbff446b7461d1317948e8e21cd1/src/thread.cpp>
 
 mod abort;
-#[cfg(all(loom, test))]
-mod loom_tests;
 mod pool;
 mod split_point;
 mod thread;

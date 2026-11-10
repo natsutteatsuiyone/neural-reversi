@@ -1,5 +1,6 @@
+use std::cell::SyncUnsafeCell;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 
 use crate::board::Board;
 use crate::constants::MAX_PLY;
@@ -20,7 +21,6 @@ use crate::types::{Depth, ScaledScore};
 use crate::util::align::Align64;
 use crate::util::bitset::AtomicBitSet;
 use crate::util::spinlock;
-use crate::util::sync::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, SyncUnsafeCell};
 
 use super::thread::SplitRequest;
 
@@ -341,14 +341,14 @@ impl SplitPoint {
     #[inline]
     pub(in crate::search) fn move_iter(&self) -> &ConcurrentMoveIterator {
         // SAFETY: Initialized before helpers start; valid until all finish.
-        self.move_iter.with(|p| unsafe { (*p).as_ref() }).unwrap()
+        unsafe { (*self.move_iter.get()).as_ref().unwrap() }
     }
 
     /// Installs the move iterator for a new split point.
     #[inline]
     pub(super) fn set_move_iter(&self, move_iter: ConcurrentMoveIterator) {
         // SAFETY: Caller has exclusive access while initializing the split point.
-        self.move_iter.with_mut(|p| unsafe { *p = Some(move_iter) });
+        unsafe { *self.move_iter.get() = Some(move_iter) };
     }
 
     /// Clears the move iterator after the split point has finished.
@@ -356,7 +356,7 @@ impl SplitPoint {
     pub(super) fn clear_move_iter(&self) {
         // SAFETY: All `move_iter()` references are scoped to `search_split_point`,
         // which completes before the searcher resets its `helpers_mask` bit.
-        self.move_iter.with_mut(|p| unsafe { *p = None });
+        unsafe { *self.move_iter.get() = None };
     }
 
     /// Sets the task for this split point. Caller must hold the split-point lock.
@@ -364,16 +364,18 @@ impl SplitPoint {
     pub(super) fn set_task(&self, task: SplitPointTask) {
         // SAFETY: Caller holds the split-point lock; no helper reads the task
         // before the split point is published.
-        self.task.with_mut(|p| unsafe { *p = Some(task) });
+        unsafe { *self.task.get() = Some(task) };
     }
 
     /// Returns the task for the active split point.
     #[inline]
     pub(in crate::search) fn task(&self) -> &SplitPointTask {
         // SAFETY: Initialized before helpers start; valid until all finish.
-        self.task
-            .with(|p| unsafe { (*p).as_ref() })
-            .expect("active split point must have a task")
+        unsafe {
+            (*self.task.get())
+                .as_ref()
+                .expect("active split point must have a task")
+        }
     }
 
     /// Clears the task after all searchers have finished.
@@ -382,14 +384,14 @@ impl SplitPoint {
         // SAFETY: All searchers have finished (`helpers_mask` is empty), so no
         // reference to the task is live; the raw write does not form a
         // `&mut SplitPointState`.
-        self.task.with_mut(|p| unsafe { *p = None });
+        unsafe { *self.task.get() = None };
     }
 
     /// Copies PV from source to the split point's internal PV storage.
     #[inline(always)]
     pub fn copy_pv(&self, src: &[Square; MAX_PLY]) {
         // SAFETY: Caller holds the split-point lock, or no helpers are active.
-        self.pv.with_mut(|p| unsafe { (*p).copy_from_slice(src) });
+        unsafe { (*self.pv.get()).copy_from_slice(src) };
     }
 
     /// Returns a reference to the internal PV.
@@ -400,15 +402,14 @@ impl SplitPoint {
     pub(super) fn pv(&self) -> &[Square; MAX_PLY] {
         // SAFETY: Called after all searchers have finished this split point,
         // so no concurrent writer exists.
-        self.pv.with(|p| unsafe { &*p })
+        unsafe { &*self.pv.get() }
     }
 
     /// Resets counters while initializing or reusing a split point.
     #[inline]
     pub(super) fn reset_counters_locked(&self) {
         // SAFETY: Caller holds the split-point lock, or no helpers are active.
-        self.counters
-            .with_mut(|p| unsafe { *p = SearchCounters::default() });
+        unsafe { *self.counters.get() = SearchCounters::default() };
     }
 
     /// Merges helper counters into this split point's aggregate counters.
@@ -416,7 +417,7 @@ impl SplitPoint {
     pub(super) fn merge_counters_locked(&self, counters: &SearchCounters) {
         // SAFETY: Caller holds the split-point lock, so no other writer can
         // access the aggregate counters concurrently.
-        self.counters.with_mut(|p| unsafe { (*p).merge(counters) });
+        unsafe { (*self.counters.get()).merge(counters) };
     }
 
     /// Takes counters after all searchers have finished this split point.
@@ -424,8 +425,7 @@ impl SplitPoint {
     pub(super) fn take_counters_after_finished(&self) -> SearchCounters {
         // SAFETY: The owner calls this only after observing all `helpers_mask`
         // bits cleared with Acquire, so no searcher can still merge counters.
-        self.counters
-            .with_mut(|p| unsafe { std::mem::take(&mut *p) })
+        unsafe { std::mem::take(&mut *self.counters.get()) }
     }
 
     /// Acquires the split point's lock; the returned guard releases it on drop.

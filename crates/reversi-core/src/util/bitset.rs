@@ -1,8 +1,6 @@
 //! Thread-safe bitset implementation using atomic operations.
 
-use std::sync::atomic::Ordering;
-
-use crate::util::sync::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Thread-safe 64-bit bitset using atomic operations.
 #[derive(Default)]
@@ -13,7 +11,7 @@ pub struct AtomicBitSet {
 impl AtomicBitSet {
     /// Creates a new empty atomic bitset with all bits cleared.
     #[inline(always)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             data: AtomicU64::new(0),
         }

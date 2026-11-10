@@ -8,7 +8,6 @@ pub mod aligned_buffer;
 pub mod bitset;
 pub mod large_pages;
 pub(crate) mod spinlock;
-pub(crate) mod sync;
 
 /// Returns the high 64 bits of `a * b`.
 ///

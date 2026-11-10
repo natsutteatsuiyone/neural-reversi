@@ -1,6 +1,9 @@
-use std::sync::atomic::Ordering;
+use std::cell::SyncUnsafeCell;
+use std::hint::spin_loop;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::thread;
 
 use crate::board::Board;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
@@ -15,9 +18,6 @@ use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 use crate::util::align::Align64;
 use crate::util::spinlock;
-use crate::util::sync::{
-    AtomicBool, AtomicU64, AtomicUsize, Condvar, SyncUnsafeCell, spin_loop, thread,
-};
 
 use super::AbortState;
 use super::pool::{Message, ThreadPool};
@@ -33,7 +33,7 @@ pub(in crate::search) type HelperJob = Arc<dyn Fn(&Arc<Thread>) + Send + Sync>;
 /// A worker thread in the thread pool.
 pub struct Thread {
     /// Mutex used with the condition variable for thread sleeping.
-    pub(super) mutex_for_sleep_condition: crate::util::sync::Mutex<()>,
+    pub(super) mutex_for_sleep_condition: Mutex<()>,
 
     /// Spinlock protecting access to `active_split_point`.
     mutex_for_state: spinlock::SpinLock,
@@ -130,7 +130,7 @@ impl Thread {
         let split_points = std::array::from_fn(|_| Arc::new(SplitPoint::default()));
 
         Thread {
-            mutex_for_sleep_condition: crate::util::sync::Mutex::new(()),
+            mutex_for_sleep_condition: Mutex::new(()),
             mutex_for_state: spinlock::SpinLock::new(),
             sleep_condition: Condvar::new(),
             idx,
@@ -160,7 +160,7 @@ impl Thread {
         // SAFETY: endgame caches are owner-only search scratch state. Search
         // recursion receives the `Thread` for the currently executing OS thread,
         // and no cross-thread code calls this method.
-        self.endgame_caches.with_mut(|p| unsafe { &mut *p })
+        unsafe { &mut *self.endgame_caches.get() }
     }
 
     /// Acquires the thread's state lock; the returned guard releases it on drop.
@@ -205,7 +205,7 @@ impl Thread {
     #[inline]
     fn active_split_point(&self) -> &Option<Arc<SplitPoint>> {
         // SAFETY: Either called by the owning thread, or caller holds mutex_for_state.
-        self.active_split_point.with(|p| unsafe { &*p })
+        unsafe { &*self.active_split_point.get() }
     }
 
     /// Returns a mutable reference to the active split point.
@@ -220,7 +220,7 @@ impl Thread {
     #[allow(clippy::mut_from_ref)]
     pub(super) fn active_split_point_mut(&self) -> &mut Option<Arc<SplitPoint>> {
         // SAFETY: Either called by the owning thread, or caller holds mutex_for_state.
-        self.active_split_point.with_mut(|p| unsafe { &mut *p })
+        unsafe { &mut *self.active_split_point.get() }
     }
 
     /// Returns whether this thread is currently searching under a split point.

@@ -1,8 +1,8 @@
 //! Spinlock implementation with TTAS pattern and adaptive backoff.
 
-use std::sync::atomic::Ordering;
-
-use crate::util::sync::{AtomicBool, spin_loop, thread};
+use std::hint::spin_loop;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 /// Maximum spin iterations before yielding to the OS scheduler.
 const SPIN_LIMIT: u32 = 100;
@@ -22,7 +22,7 @@ pub(crate) struct SpinLockGuard<'a>(&'a SpinLock);
 
 impl SpinLock {
     /// Creates an unlocked spinlock.
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             state: AtomicBool::new(false),
         }

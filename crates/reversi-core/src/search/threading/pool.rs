@@ -1,6 +1,7 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::search::SearchTask;
@@ -8,8 +9,6 @@ use crate::search::result::SearchResult;
 use crate::search::stop::{StopAttachment, StopToken};
 use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
-use crate::util::sync::thread::{self, JoinHandle};
-use crate::util::sync::{AtomicBool, AtomicU64};
 
 use super::AbortState;
 use super::split_point::SplitPoint;
@@ -56,10 +55,10 @@ pub struct ThreadPool {
     cutoff_epoch: Arc<Align64<AtomicU64>>,
 
     /// Handle for the timer thread (protected by mutex for interior mutability).
-    timer_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
+    timer_handle: Mutex<Option<JoinHandle<()>>>,
 
     /// Flag to signal the timer thread to stop.
-    timer_stop: Arc<std::sync::atomic::AtomicBool>,
+    timer_stop: Arc<AtomicBool>,
 }
 
 impl ThreadPool {
@@ -78,7 +77,7 @@ impl ThreadPool {
                 abort_state: Arc::new(AbortState::new()),
                 cutoff_epoch: Arc::new(Align64(AtomicU64::new(0))),
                 timer_handle: Mutex::new(None),
-                timer_stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                timer_stop: Arc::new(AtomicBool::new(false)),
             };
 
             pool.init(weak, receiver);
@@ -108,15 +107,10 @@ impl ThreadPool {
     }
 
     /// Creates and starts the main thread that handles control messages.
-    ///
-    /// Under loom no OS thread runs it: the test drives thread 0 itself.
     fn create_main_thread(&mut self, pool: &Weak<ThreadPool>, receiver: Receiver<Message>) {
         let thread = self.add_thread(0, pool);
-        #[cfg(not(loom))]
         self.thread_handles
             .push(thread::spawn(move || thread.main_thread_loop(receiver)));
-        #[cfg(loom)]
-        drop((thread, receiver));
     }
 
     /// Creates and starts worker threads that wait in idle loops.
@@ -301,7 +295,7 @@ impl ThreadPool {
 
         let stop_flag = self.timer_stop.clone();
 
-        let handle = std::thread::Builder::new()
+        let handle = thread::Builder::new()
             .name("search-timer".to_string())
             .spawn(move || {
                 Self::timer_loop(&time_manager, generation, &stop_flag);
@@ -312,15 +306,11 @@ impl ThreadPool {
     }
 
     /// Runs the timer thread loop.
-    fn timer_loop(
-        time_manager: &TimeManager,
-        generation: u32,
-        stop_flag: &std::sync::atomic::AtomicBool,
-    ) {
+    fn timer_loop(time_manager: &TimeManager, generation: u32, stop_flag: &AtomicBool) {
         const CHECK_INTERVAL: Duration = Duration::from_millis(CHECK_INTERVAL_MS);
 
         while !stop_flag.load(Ordering::Acquire) && !time_manager.check_time_for(generation) {
-            std::thread::sleep(CHECK_INTERVAL);
+            thread::sleep(CHECK_INTERVAL);
         }
     }
 

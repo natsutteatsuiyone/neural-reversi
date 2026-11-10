@@ -48,11 +48,7 @@ const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 const MIN_EC_ETC_EMPTIES: u32 = 12;
 
 /// Total EC cache budget distributed across endgame search threads, in bytes.
-#[cfg(not(loom))]
 const TOTAL_EC_CACHE_BYTES: usize = 4 * 1024 * 1024;
-/// Loom rebuilds the pool on every iteration and never searches with it.
-#[cfg(loom)]
-const TOTAL_EC_CACHE_BYTES: usize = 0;
 
 /// Total shallow cache budget distributed across endgame search threads, in bytes.
 const TOTAL_SHALLOW_CACHE_BYTES: usize = 256 * 1024;
