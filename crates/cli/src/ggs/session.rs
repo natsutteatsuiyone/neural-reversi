@@ -1566,16 +1566,16 @@ mod tests {
         })
     }
 
-    /// Drive `MatchCreated` and then — simulating the authoritative clock
-    /// line of the first state chunk — resolve our color for the parent
-    /// match id. This mirrors the production flow where color is only known
-    /// after the first `join` chunk is parsed, but keeps existing non-synchro
-    /// tests concise.
     /// Id of `game_id`'s in-flight search.
     fn search_id(s: &Session, game_id: &str) -> u64 {
         s.active_match(game_id).unwrap().searching_games[game_id].search_id
     }
 
+    /// Drive `MatchCreated` and then — simulating the authoritative clock
+    /// line of the first state chunk — resolve our color for the parent
+    /// match id. This mirrors the production flow where color is only known
+    /// after the first `join` chunk is parsed, but keeps existing non-synchro
+    /// tests concise.
     fn enter_match(session: &mut Session, id: &str, color: Disc, opponent: &str) {
         let _ = session.on_event(match_created(id, Some(opponent)));
         if let Some(cur) = session

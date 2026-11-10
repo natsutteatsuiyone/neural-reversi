@@ -162,7 +162,7 @@ fn match_state_body<'a>(lines: &[&'a str]) -> Option<&'a str> {
 /// Parses one complete server chunk (the lines between boundary markers,
 /// with the marker itself NOT included). Blank lines inside the chunk are tolerated.
 /// `my_username` is used to decide `my_color` / `my_clock` by
-/// comparing against the names in `+ match` and the `|<name> (<rating> X)` clock lines.
+/// comparing against the names in the `|<name> (<rating> X)` clock lines.
 pub fn parse_server_chunk(lines: &[&str], my_username: &str) -> OsEvent {
     parse_message(lines, my_username).unwrap_or(OsEvent::Unknown)
 }
