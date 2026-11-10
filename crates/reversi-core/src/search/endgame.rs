@@ -541,7 +541,7 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
 
 /// Null window search for positions with at most [`DEPTH_TO_SHALLOW_SEARCH`] empties.
 ///
-/// Orders moves by quadrant parity and corner priority.
+/// Orders moves by isolated empties, quadrant parity, and corner priority.
 fn shallow_search(
     ctx: &mut SearchContext,
     board: &Board,
@@ -589,6 +589,28 @@ fn shallow_search(
         0xF0F0F0F000000000, 0xF0F0F0F00F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0xF0F0F0F0FFFFFFFF,
         0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
     ];
+
+    // An empty square with no empty neighbor is a one-square region: search it
+    // before the quadrant-parity groups.
+    let empties = board.empty_squares().bits();
+    let horizontal =
+        ((empties << 1) & 0xFEFE_FEFE_FEFE_FEFE) | ((empties >> 1) & 0x7F7F_7F7F_7F7F_7F7F);
+    let row = empties | horizontal;
+    let isolated_moves = moves & !Bitboard::new(horizontal | (row << 8) | (row >> 8));
+    let moves = moves & !isolated_moves;
+
+    if let Some(score) = shallow_search_moves(
+        ctx,
+        board,
+        isolated_moves,
+        cache_idx,
+        beta,
+        &mut best_score,
+        sc,
+    ) {
+        return score;
+    }
+
     let quadrant_mask = Bitboard::new(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
     let odd_moves = moves & quadrant_mask;
     let even_moves = moves & !quadrant_mask;
