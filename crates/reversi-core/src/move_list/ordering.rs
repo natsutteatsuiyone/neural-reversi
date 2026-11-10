@@ -1,5 +1,6 @@
 //! Move evaluation and ordering.
 
+use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::eval::Eval;
 use crate::search::context::SearchContext;
@@ -230,10 +231,20 @@ fn shallow_search_score(ctx: &mut SearchContext, next: &Board, sort_depth: i32) 
 fn evaluate_fast_value(ctx: &mut SearchContext, board: &Board, mv: Move) -> i32 {
     ctx.increment_nodes();
     let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+    fast_move_value(mv.sq, &next, next.get_moves())
+}
+
+/// Returns the [`MoveList::evaluate_moves_fast`] value of the move to `sq`.
+///
+/// `next` is the position after the move and `next_moves` its legal moves.
+/// `sq` must not be [`Square::None`].
+#[inline(always)]
+pub(crate) fn fast_move_value(sq: Square, next: &Board, next_moves: Bitboard) -> i32 {
+    debug_assert_ne!(sq, Square::None);
     let corner_stability = next.opponent().corner_stability() as i32;
-    let weighted_mobility = next.get_moves().corner_weighted_count() as i32;
-    // SAFETY: `mv.sq.index() < 64` since `Move::new` rejects `Square::None`.
-    let square_value = unsafe { SQUARE_VALUE.get_unchecked(mv.sq.index()) };
+    let weighted_mobility = next_moves.corner_weighted_count() as i32;
+    // SAFETY: callers pass a legal move, so `sq.index() < 64`.
+    let square_value = unsafe { SQUARE_VALUE.get_unchecked(sq.index()) };
 
     square_value * SQUARE_VALUE_WEIGHT
         + corner_stability * CORNER_STABILITY_WEIGHT

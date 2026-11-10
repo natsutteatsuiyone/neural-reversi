@@ -16,6 +16,7 @@ use crate::square::Square;
 
 pub use iterator::{BestFirstMoveIterator, ConcurrentMoveIterator};
 use move_array::MoveArray;
+pub(crate) use ordering::fast_move_value;
 
 /// Maximum number of legal moves in a Reversi position, including set-up
 /// positions unreachable from the start. 35 is the largest count found by
@@ -74,7 +75,7 @@ impl MoveList {
         // SAFETY: `fill_in_place` writes `len`, `wipeout_move`, and the
         // first `len` slots of `data` on every path.
         unsafe {
-            Self::fill_in_place::<false, false>(board, moves_bb, result.as_mut_ptr());
+            Self::fill_in_place::<false>(board, moves_bb, result.as_mut_ptr());
             result.assume_init()
         }
     }
@@ -88,49 +89,25 @@ impl MoveList {
         let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
         // SAFETY: caller guarantees `moves_bb != 0`.
         unsafe {
-            Self::fill_in_place::<true, false>(board, moves_bb, result.as_mut_ptr());
+            Self::fill_in_place::<true>(board, moves_bb, result.as_mut_ptr());
             result.assume_init()
         }
     }
 
-    /// Creates a [`MoveList`] when the caller has already handled empty and
-    /// single-move positions.
-    #[inline(always)]
-    pub(crate) fn with_at_least_two_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
-        let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
-        // SAFETY: caller guarantees >= 2 set bits.
-        unsafe {
-            Self::fill_in_place::<true, true>(board, moves_bb, result.as_mut_ptr());
-            result.assume_init()
-        }
-    }
-
-    /// Writes a fully-initialised [`MoveList`] into `out`.
+    /// Writes a fully initialized [`MoveList`] into `out`.
     ///
-    /// Kept out-of-line so the [`Self::with_moves`] /
-    /// [`Self::with_at_least_one_move`] / [`Self::with_at_least_two_moves`]
-    /// wrappers stay small enough to inline at call sites; that lets `*out`
-    /// writes hit the caller's sret slot directly instead of staging the
-    /// struct on this frame and memcpy'ing it back on return.
+    /// Kept out of line so that the [`Self::with_moves`] and
+    /// [`Self::with_at_least_one_move`] wrappers inline and this function
+    /// writes straight into the caller's return slot, without copying the
+    /// list back.
     ///
-    /// The two const generics control which dispatch shortcuts are elided
-    /// based on what the caller has already proven about `moves_bb`:
-    ///
-    /// | `SKIP_EMPTY` | `SKIP_SINGLE` | Caller precondition          |
-    /// | ------------ | ------------- | ---------------------------- |
-    /// | `false`      | `false`       | none (may be empty)          |
-    /// | `true`       | `false`       | `moves_bb != 0`              |
-    /// | `true`       | `true`        | `moves_bb.count_ones() >= 2` |
-    ///
-    /// `SKIP_EMPTY = false` with `SKIP_SINGLE = true` is unused - there is
-    /// no caller that proves "not single" without first proving "not empty".
+    /// `SKIP_EMPTY` skips the check for `moves_bb == 0`.
     ///
     /// # Safety
-    /// `out` must be a valid, properly-aligned pointer to writable memory
-    /// large enough to hold a [`MoveList`]. The const generics must match
-    /// what the caller has guaranteed about `moves_bb`.
+    /// `out` must be valid for writes of a [`MoveList`], and `moves_bb` must
+    /// not be empty when `SKIP_EMPTY` is true.
     #[inline(never)]
-    unsafe fn fill_in_place<const SKIP_EMPTY: bool, const SKIP_SINGLE: bool>(
+    unsafe fn fill_in_place<const SKIP_EMPTY: bool>(
         board: &Board,
         moves_bb: Bitboard,
         out: *mut MoveList,
@@ -151,7 +128,7 @@ impl MoveList {
             return;
         }
 
-        if !SKIP_SINGLE && bb & (bb - 1) == 0 {
+        if bb & (bb - 1) == 0 {
             let x = bb.trailing_zeros() as u8;
             // SAFETY: `x` is a bit position of a legal-move bitboard (0..=63).
             let sq = unsafe { Square::from_u8_unchecked(x) };
