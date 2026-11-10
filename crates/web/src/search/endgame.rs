@@ -194,9 +194,8 @@ fn shallow_search(
 
     let moves = board.get_moves();
     if moves.is_empty() {
-        ctx.update_pass();
+        ctx.increment_nodes();
         let next = board.switch_players();
-        ctx.undo_pass();
         if next.has_legal_moves() {
             return -shallow_search(ctx, &next, -beta, sc);
         } else {
