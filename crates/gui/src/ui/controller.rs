@@ -125,10 +125,10 @@ impl ReversiApp {
                         } else {
                             self.settings = self.draft.clone();
                             rust_i18n::set_locale(self.settings.locale());
+                            self.notification.clear();
                             self.save();
                             self.analysis_view.hover = None;
                             self.analysis_view.pointer = None;
-                            self.notification.clear();
                             self.session.new_game(position, &self.settings);
                         }
                     }
