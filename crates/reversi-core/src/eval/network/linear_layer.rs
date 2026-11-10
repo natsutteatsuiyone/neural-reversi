@@ -461,7 +461,7 @@ impl<
                 *acc_ptr.add(j) = _mm512_add_epi32(*acc_ptr.add(j), s);
             }
 
-            copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m512i, num_regs);
+            copy_nonoverlapping(acc_ptr, output.as_mut_ptr() as *mut __m512i, num_regs);
         }
     }
 
@@ -538,7 +538,7 @@ impl<
                 *acc_ptr.add(j) = _mm256_add_epi32(*acc_ptr.add(j), s);
             }
 
-            copy_nonoverlapping(acc_ptr, output.as_ptr() as *mut __m256i, num_regs);
+            copy_nonoverlapping(acc_ptr, output.as_mut_ptr() as *mut __m256i, num_regs);
         }
     }
 
