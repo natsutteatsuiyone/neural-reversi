@@ -373,7 +373,8 @@ fn format_root_move(sq: Square, move_side: Disc, is_pass: bool, side_to_move: Di
 
 fn format_time(duration: Duration) -> String {
     let total_secs = duration.as_secs();
-    let frac_secs = duration.as_secs_f64() % 60.0;
+    // Whole milliseconds, so rounding cannot print 60.000 seconds.
+    let frac_secs = (duration.as_millis() % 60_000) as f64 / 1000.0;
     if total_secs >= 3600 {
         let hours = total_secs / 3600;
         let mins = (total_secs % 3600) / 60;
