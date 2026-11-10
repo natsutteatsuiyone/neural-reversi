@@ -644,7 +644,6 @@ export function createBoard3D(container, { onCellClick }) {
         hoverMesh.visible = true;
         requestRender();
       } else {
-        hoverMesh.position.set(x, 0.0015, z);
         requestRender();
       }
       container.style.cursor = "pointer";

@@ -16,7 +16,6 @@
     "build:wasm:node:relaxed": "cross-env RUSTFLAGS=\"-C target-feature=+simd128,+relaxed-simd\" wasm-pack build --target nodejs --out-dir pkg-node-relaxed --release",
     "build:wasm:node": "bun run build:wasm:node:base && bun run build:wasm:node:relaxed",
     "dev": "bun run build:wasm:dev && vite",
-    "dev:wasm": "wasm-pack build --target web --out-dir pkg --dev",
     "dev:e2e": "vite --host 127.0.0.1 --port 8080 --strictPort",
     "build": "bun run build:wasm && vite build",
     "lint": "oxlint .",
