@@ -366,7 +366,6 @@ impl ReversiApp {
                                                 } else {
                                                     window.focus_prev(cx);
                                                 }
-                                                cx.stop_propagation();
                                             }
                                         },
                                     ))
