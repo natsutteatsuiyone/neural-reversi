@@ -17,8 +17,10 @@ use crate::square::Square;
 pub use iterator::{BestFirstMoveIterator, ConcurrentMoveIterator};
 use move_array::MoveArray;
 
-/// Maximum number of moves possible in a Reversi position.
-const MAX_MOVES: usize = 34;
+/// Maximum number of legal moves in a Reversi position, including set-up
+/// positions unreachable from the start. 35 is the largest count found by
+/// search over arbitrary boards, not a proven bound.
+const MAX_MOVES: usize = 35;
 
 /// A single move.
 ///
@@ -189,7 +191,7 @@ impl MoveList {
                     let sq0 = unsafe { Square::from_u8_unchecked(x0) };
                     let sq1 = unsafe { Square::from_u8_unchecked(x1) };
                     debug_assert!(len + 2 <= MAX_MOVES);
-                    // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
+                    // SAFETY: at most MAX_MOVES (35) legal moves per Reversi position.
                     unsafe {
                         data_ptr.add(len).write(Move::new(sq0, flipped0));
                         data_ptr.add(len + 1).write(Move::new(sq1, flipped1));
@@ -210,7 +212,7 @@ impl MoveList {
                     // SAFETY: `x` is a bit position from a legal-move bitboard (0..=63).
                     let sq = unsafe { Square::from_u8_unchecked(x) };
                     debug_assert!(len < MAX_MOVES);
-                    // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
+                    // SAFETY: at most MAX_MOVES (35) legal moves per Reversi position.
                     unsafe { data_ptr.add(len).write(Move::new(sq, flipped)) };
                     len += 1;
                     if flipped_bits == opponent_bits {
@@ -227,7 +229,7 @@ impl MoveList {
                     let sq = unsafe { Square::from_u8_unchecked(x) };
                     let flipped = flip::flip(sq, player, opponent);
                     debug_assert!(len < MAX_MOVES);
-                    // SAFETY: at most MAX_MOVES (34) legal moves per Reversi position.
+                    // SAFETY: at most MAX_MOVES (35) legal moves per Reversi position.
                     unsafe { data_ptr.add(len).write(Move::new(sq, flipped)) };
                     len += 1;
                     if flipped == opponent {

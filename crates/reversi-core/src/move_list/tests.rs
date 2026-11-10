@@ -168,32 +168,58 @@ fn generated_moves_match_legal_bitboard_and_flip_reference() {
         let p: u64 = rng.random();
         let o = rng.random::<u64>() & !p; // keep player/opponent disjoint
 
-        let board = Board::from_bitboards(p, o);
-        let move_list = MoveList::new(&board);
-
-        let legal = board.get_moves().bits();
-        assert_eq!(move_list.count() as u32, legal.count_ones());
-        if move_list.count() >= 2 {
+        if assert_moves_match_reference(&Board::from_bitboards(p, o)) >= 2 {
             saw_multi_move = true;
         }
-
-        let mut squares = 0u64;
-        for mv in move_list.iter() {
-            let bit = 1u64 << mv.sq.index();
-            assert_eq!(legal & bit, bit, "generated an illegal move {:?}", mv.sq);
-            squares |= bit;
-            assert_eq!(
-                mv.flipped.bits(),
-                reference_flip(mv.sq, p, o),
-                "flip mismatch at {:?} p={p:#018x} o={o:#018x}",
-                mv.sq
-            );
-        }
-        assert_eq!(
-            squares, legal,
-            "move set must equal the legal-move bitboard"
-        );
     }
 
     assert!(saw_multi_move, "expected to exercise multi-move positions");
+}
+
+/// A set-up position with 35 legal moves, more than the move list once held.
+#[test]
+fn set_up_position_with_35_moves() {
+    let board = Board::from_string(
+        "-OX-----\
+         -OXOOOO-\
+         ---X-XX-\
+         --O---OX\
+         -OXO-X--\
+         -XXXXXO-\
+         -OXO-OO-\
+         --------",
+        Disc::Black,
+    )
+    .unwrap();
+
+    assert_eq!(assert_moves_match_reference(&board), 35);
+}
+
+/// Checks that the move list holds exactly the legal moves of `board`, each
+/// with the flips of [`reference_flip`], and returns the move count.
+fn assert_moves_match_reference(board: &Board) -> usize {
+    let (p, o) = (board.player().bits(), board.opponent().bits());
+    let move_list = MoveList::new(board);
+
+    let legal = board.get_moves().bits();
+    assert_eq!(move_list.count() as u32, legal.count_ones());
+
+    let mut squares = 0u64;
+    for mv in move_list.iter() {
+        let bit = 1u64 << mv.sq.index();
+        assert_eq!(legal & bit, bit, "generated an illegal move {:?}", mv.sq);
+        squares |= bit;
+        assert_eq!(
+            mv.flipped.bits(),
+            reference_flip(mv.sq, p, o),
+            "flip mismatch at {:?} p={p:#018x} o={o:#018x}",
+            mv.sq
+        );
+    }
+    assert_eq!(
+        squares, legal,
+        "move set must equal the legal-move bitboard"
+    );
+
+    move_list.count()
 }
