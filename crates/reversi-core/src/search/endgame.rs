@@ -494,29 +494,15 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
 
     let mut best_score = -SCORE_INF;
     move_list.evaluate_moves_fast(ctx, board, Square::None);
-    if move_list.count() >= 4 {
-        for mv in move_list.best_first_iter() {
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc, cutoff);
+    for mv in move_list.best_first_iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+        let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc, cutoff);
 
-            if score >= beta {
-                best_score = score;
-                break;
-            }
-            best_score = best_score.max(score);
+        if score >= beta {
+            best_score = score;
+            break;
         }
-    } else {
-        move_list.sort();
-        for mv in move_list.iter() {
-            let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-            let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc, cutoff);
-
-            if score >= beta {
-                best_score = score;
-                break;
-            }
-            best_score = best_score.max(score);
-        }
+        best_score = best_score.max(score);
     }
 
     if cutoff.occurred() {
