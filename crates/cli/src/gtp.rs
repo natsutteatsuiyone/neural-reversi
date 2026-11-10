@@ -17,7 +17,6 @@ use reversi_core::{
 };
 
 use crate::config::EngineConfig;
-use std::env;
 use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 
@@ -879,11 +878,7 @@ impl GtpEngine {
             self.white_time_ms = main_time_ms;
         } else if main_time > 0 && byoyomi_time > 0 {
             // Canadian/Japanese byo yomi: main time + overtime periods
-            let time_per_move_ms = if byoyomi_stones > 0 {
-                byoyomi_time_ms / byoyomi_stones as u64
-            } else {
-                byoyomi_time_ms
-            };
+            let time_per_move_ms = byoyomi_time_ms / byoyomi_stones as u64;
             self.time_control = TimeControlMode::JapaneseByo {
                 main_time_ms,
                 time_per_move_ms,
