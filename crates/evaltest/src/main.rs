@@ -15,7 +15,6 @@ use clap::Parser;
 use colored::Colorize;
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
-    self,
     board::Board,
     disc::Disc,
     level::{ENDGAME_STEPS, Level},
