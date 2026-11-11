@@ -58,14 +58,14 @@ pub enum Command {
     SetLevel(usize),
     /// Sets time control settings (main_time, byoyomi_time, byoyomi_stones)
     TimeSettings {
-        main_time: u64,
-        byoyomi_time: u64,
+        main_time: u32,
+        byoyomi_time: u32,
         byoyomi_stones: u32,
     },
     /// Updates remaining time for a player (color, time, stones)
     TimeLeft {
         color: String,
-        time: u64,
+        time: u32,
         stones: u32,
     },
     /// Represents an unknown or malformed command
@@ -148,8 +148,8 @@ impl Command {
             "time_settings" => {
                 if args.len() == 3 {
                     if let (Ok(main_time), Ok(byoyomi_time), Ok(byoyomi_stones)) = (
-                        args[0].parse::<u64>(),
-                        args[1].parse::<u64>(),
+                        args[0].parse::<u32>(),
+                        args[1].parse::<u32>(),
                         args[2].parse::<u32>(),
                     ) {
                         Command::TimeSettings {
@@ -166,7 +166,7 @@ impl Command {
             }
             "time_left" => {
                 if args.len() == 3 {
-                    if let (Ok(time), Ok(stones)) = (args[1].parse::<u64>(), args[2].parse::<u32>())
+                    if let (Ok(time), Ok(stones)) = (args[1].parse::<u32>(), args[2].parse::<u32>())
                     {
                         Command::TimeLeft {
                             color: args[0].to_lowercase(),
@@ -844,13 +844,14 @@ impl GtpEngine {
     /// - main_time>0, byoyomi_time>0, byoyomi_stones>0: Main time + byoyomi overtime
     fn handle_time_settings(
         &mut self,
-        main_time: u64,
-        byoyomi_time: u64,
+        main_time: u32,
+        byoyomi_time: u32,
         byoyomi_stones: u32,
     ) -> GtpResponse {
-        // Convert seconds to milliseconds
-        let main_time_ms = main_time * 1000;
-        let byoyomi_time_ms = byoyomi_time * 1000;
+        // Seconds are parsed as u32 so the millisecond values stay far from
+        // overflow in the time manager's percentage arithmetic.
+        let main_time_ms = u64::from(main_time) * 1000;
+        let byoyomi_time_ms = u64::from(byoyomi_time) * 1000;
 
         self.black_byo_stones_left = 0;
         self.white_byo_stones_left = 0;
@@ -913,8 +914,8 @@ impl GtpEngine {
     /// * `color` - The player color ("b"/"black" or "w"/"white")
     /// * `time` - Remaining time in seconds
     /// * `stones` - Number of stones remaining in current period (0 if not applicable)
-    fn handle_time_left(&mut self, color: &str, time: u64, stones: u32) -> GtpResponse {
-        let time_ms = time * 1000;
+    fn handle_time_left(&mut self, color: &str, time: u32, stones: u32) -> GtpResponse {
+        let time_ms = u64::from(time) * 1000;
         let stones_left = if matches!(self.time_control, TimeControlMode::JapaneseByo { .. }) {
             stones
         } else {
