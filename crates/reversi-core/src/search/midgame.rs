@@ -17,7 +17,7 @@ use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
 use crate::search::endgame;
-use crate::search::node_type::{NodeType, NonPV, Root};
+use crate::search::node_type::{NonPV, Root};
 use crate::search::result::{CompletedState, SearchResult};
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
@@ -337,12 +337,11 @@ pub fn try_probcut(
 }
 
 /// Searches positions at depth 3 with a specialized alpha-beta routine.
-pub fn evaluate_depth3<NT: NodeType>(
+pub fn evaluate_depth3(
     ctx: &mut SearchContext,
     board: &Board,
     mut alpha: ScaledScore,
     beta: ScaledScore,
-    thread: &Arc<Thread>,
 ) -> ScaledScore {
     let org_alpha = alpha;
 
@@ -354,7 +353,7 @@ pub fn evaluate_depth3<NT: NodeType>(
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
-            let score = -evaluate_depth3::<NT>(ctx, &next, -beta, -alpha, thread);
+            let score = -evaluate_depth3(ctx, &next, -beta, -alpha);
             ctx.undo_pass();
             return score;
         } else {
@@ -365,8 +364,7 @@ pub fn evaluate_depth3<NT: NodeType>(
     let tt_probe_result = ctx.tt.probe(board, tt_key);
     let tt_move = tt_probe_result.best_move();
 
-    if !NT::PV_NODE
-        && let Some(tt_data) = tt_probe_result.data()
+    if let Some(tt_data) = tt_probe_result.data()
         && tt_data.can_cut(beta, 3, Selectivity::None, false)
     {
         return tt_data.score();
@@ -390,10 +388,6 @@ pub fn evaluate_depth3<NT: NodeType>(
         let score = -evaluate_depth2(ctx, &next, -beta, -alpha);
         ctx.undo(mv.sq);
 
-        if thread.split_point_cutoff_occurred() {
-            return ScaledScore::ZERO;
-        }
-
         if score >= beta {
             best_score = score;
             best_move = mv.sq;
@@ -410,12 +404,12 @@ pub fn evaluate_depth3<NT: NodeType>(
         tt_probe_result.index(),
         board,
         best_score,
-        Bound::classify::<NT>(best_score, org_alpha, beta),
+        Bound::classify::<NonPV>(best_score, org_alpha, beta),
         3,
         best_move,
         Selectivity::None,
         false,
-        NT::PV_NODE || tt_probe_result.data().is_some_and(|data| data.is_pv()),
+        tt_probe_result.data().is_some_and(|data| data.is_pv()),
     );
 
     best_score
