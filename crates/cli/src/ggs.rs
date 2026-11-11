@@ -314,8 +314,11 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
         conn.send_line(line)
             .map_err(|e| format!("login send failed: {e}"))?;
     }
+    // Set once we log ourselves out, after which the server closing the socket is
+    // the requested logout rather than a lost connection.
+    let mut quit_sent = false;
     for line in &startup_lines[mandatory_line_count..] {
-        submit_command(&mut conn, &mut frontend, line)?;
+        quit_sent |= submit_command(&mut conn, &mut frontend, line)?;
     }
 
     let mut session = session::Session::new(user.to_string(), config.level, max_games);
@@ -369,7 +372,7 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
                 }
             }
             connection::Event::Stdin(line) => {
-                submit_command(&mut conn, &mut frontend, &line)?;
+                quit_sent |= submit_command(&mut conn, &mut frontend, &line)?;
             }
             connection::Event::SearchStarted { game_id, search_id } => {
                 session.on_search_started(&game_id, search_id);
@@ -390,7 +393,7 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
                 frontend::Input::Quit => break,
                 frontend::Input::Commands(lines) => {
                     for line in lines {
-                        submit_command(&mut conn, &mut frontend, &line)?;
+                        quit_sent |= submit_command(&mut conn, &mut frontend, &line)?;
                     }
                 }
             },
@@ -399,7 +402,10 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
             connection::Event::InputFailed(error) => {
                 return Err(format!("input read failed: {error}").into());
             }
-            connection::Event::SocketClosed => break,
+            connection::Event::SocketClosed if quit_sent => break,
+            connection::Event::SocketClosed => {
+                return Err("server closed the connection".to_string().into());
+            }
             connection::Event::SocketReadFailed(error) => {
                 return Err(format!("socket read failed: {error}").into());
             }
@@ -419,20 +425,23 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
     Ok(())
 }
 
+/// Sends a user command and returns whether it logs us out: `quit` with no
+/// arguments or its standard GGS alias `q` (`quit <user>` disconnects another user).
 fn submit_command(
     conn: &mut connection::Connection,
     frontend: &mut frontend::Frontend,
     line: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     frontend.command(line);
     if let Some(clock) = unsupported_ask_clock(line) {
         frontend.log(&format!(
             "not sending ask with unsupported or unknown clock {clock}"
         ));
-        Ok(())
+        Ok(false)
     } else {
         conn.send_line(line)
-            .map_err(|e| format!("stdin->socket failed: {e}"))
+            .map_err(|e| format!("stdin->socket failed: {e}"))?;
+        Ok(matches!(line.trim(), "quit" | "q"))
     }
 }
 
@@ -536,7 +545,7 @@ fn unsupported_ask_clock(line: &str) -> Option<&str> {
     let mut fields = line.split_whitespace();
     if !matches!(
         (fields.next(), fields.next(), fields.next()),
-        (Some("tell"), Some("/os"), Some("ask"))
+        (Some("tell" | "t"), Some("/os"), Some("ask"))
     ) {
         return None;
     }
@@ -926,6 +935,10 @@ mod tests {
             None
         );
         assert_eq!(unsupported_ask_clock("tell /os ask .42"), Some(".42"));
+        assert_eq!(
+            unsupported_ask_clock("t /os ask 8 01:00,N0//02:00 bob"),
+            Some("01:00,N0//02:00")
+        );
         assert_eq!(
             unsupported_ask_clock("tell /os ask .42 ignored"),
             Some(".42")
