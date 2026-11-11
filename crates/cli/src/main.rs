@@ -73,7 +73,8 @@ impl From<EngineParams> for EngineConfig {
 
 #[derive(Parser, Debug)]
 #[command(
-    about = "Neural Reversi — a high-performance Reversi (Othello) engine powered by neural networks"
+    about = "Neural Reversi — a high-performance Reversi (Othello) engine powered by neural networks",
+    args_conflicts_with_subcommands = true
 )]
 struct Cli {
     #[command(subcommand)]
