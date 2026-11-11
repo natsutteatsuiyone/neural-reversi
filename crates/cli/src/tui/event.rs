@@ -115,6 +115,10 @@ pub fn poll_event(timeout: Duration, text_input: bool) -> std::io::Result<Option
 
 /// Maps a key code to an application event.
 fn map_key_event(code: KeyCode) -> Event {
+    let code = match code {
+        KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
+        code => code,
+    };
     match code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => Event::Quit,

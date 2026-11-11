@@ -18,8 +18,16 @@ use app::App;
 pub fn run(config: &EngineConfig) -> Result<(), String> {
     let app = App::new(config);
 
-    let terminal = ratatui::init();
-    let result = app.run(terminal);
+    let terminal = match ratatui::try_init() {
+        Ok(terminal) => terminal,
+        Err(err) => {
+            ratatui::restore();
+            return Err(err.to_string());
+        }
+    };
+    let result = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture)
+        .and_then(|()| app.run(terminal));
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
 
     result.map_err(|e| e.to_string())

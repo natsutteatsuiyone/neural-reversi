@@ -259,9 +259,6 @@ impl App {
 
     /// Runs the main TUI loop.
     pub fn run(mut self, mut terminal: DefaultTerminal) -> std::io::Result<()> {
-        // Enable mouse capture
-        crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture)?;
-
         loop {
             self.check_search_result();
 
@@ -301,9 +298,6 @@ impl App {
                 break;
             }
         }
-
-        // Disable mouse capture on exit
-        crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture)?;
 
         Ok(())
     }
@@ -488,7 +482,7 @@ impl App {
             Event::ForceQuit | Event::Char('y') | Event::Char('Y') => {
                 self.should_quit = true;
             }
-            Event::Char('n') | Event::Char('N') | Event::Char('q') | Event::Quit => {
+            Event::Char('n' | 'N' | 'q' | 'Q') | Event::Quit => {
                 self.ui_mode = UiMode::Normal;
             }
             _ => {}

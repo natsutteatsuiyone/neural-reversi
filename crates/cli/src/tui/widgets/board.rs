@@ -135,7 +135,10 @@ impl Widget for BoardWidget<'_> {
         let bottom_border = "  └───┴───┴───┴───┴───┴───┴───┴───┘";
         buf.set_string(area.x, area.y + 17, bottom_border, Style::default());
 
-        // Cursor position indicator
+        // The cursor line is the only row past the board, so a short area drops it.
+        if area.height < 19 {
+            return;
+        }
         let cursor_sq = Square::from_file_rank(self.cursor.1 as u8, self.cursor.0 as u8);
         let cursor_info = format!("  Cursor: {}", cursor_sq);
         buf.set_string(
