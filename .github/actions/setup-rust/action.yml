@@ -20,27 +20,36 @@ runs:
         libssl-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev \
         libxcb-shape0-dev libxcb-xfixes0-dev libvulkan-dev
 
+  # Installs the toolchain pinned in rust-toolchain.toml.
   - name: Install Rust
-    uses: dtolnay/rust-toolchain@stable
+    shell: bash
+    run: rustup toolchain install --no-self-update
 
   - name: Cache Rust dependencies
-    uses: Swatinem/rust-cache@v2
+    uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
     with:
       key: ${{ inputs.cache-key }}
 
   - name: Download weights
     shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
     run: |
-      API_URL="https://api.github.com/repos/natsutteatsuiyone/neural-reversi-weights/releases/latest"
-      ASSETS=$(curl -s $API_URL | jq -r '.assets[].browser_download_url')
-
-      # Filter matching eval*.zst
-      for url in $ASSETS; do
-        fname=$(basename "$url")
-        if [[ "$fname" == eval-*.zst || "$fname" == eval_sm-*.zst || "$fname" == eval_wasm-*.zst ]]; then
-          echo "Downloading $fname"
-          curl -L -o "$fname" "$url"
+      set -euo pipefail
+      repo=natsutteatsuiyone/neural-reversi-weights
+      names=$(grep -ohE 'eval(_sm|_wasm)?-[0-9a-f]{8}\.zst' \
+        crates/reversi-core/src/eval.rs crates/web/src/eval.rs | sort -u)
+      for name in $names; do
+        # Releases are listed newest first.
+        tags=$(gh api --paginate "repos/$repo/releases" \
+          --jq ".[] | select(any(.assets[]; .name == \"$name\")) | .tag_name")
+        tag=${tags%%$'\n'*}
+        if [[ -z "$tag" ]]; then
+          echo "::error::$name is not in any release of $repo"
+          exit 1
         fi
+        echo "Downloading $name from $tag"
+        gh release download "$tag" -R "$repo" -p "$name" --clobber
       done
 
       ls -l eval*.zst

@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -16,25 +23,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Setup Rust environment
-      uses: ./.github/actions/setup-rust
+      uses: $/.github/actions/setup-rust
 
     - name: Run tests
-      run: cargo test --all
+      run: cargo test --workspace --locked
 
   rust-test-x86-simd:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Setup Rust environment
-      uses: ./.github/actions/setup-rust
+      uses: $/.github/actions/setup-rust
       with:
         cache-key: simd
 
@@ -45,19 +56,21 @@ jobs:
 
     # Explicit --target keeps RUSTFLAGS off build scripts, which run on the
     # runner and would SIGILL if compiled with AVX-512 instructions.
-    - name: Compile-check AVX-512 tier (icelake-server, not executed)
+    - name: Compile-check AVX-512 tier (x86-64-v4, not executed)
       env:
-        RUSTFLAGS: -C target-cpu=icelake-server
+        RUSTFLAGS: -C target-cpu=x86-64-v4
       run: cargo check -p reversi-core --all-targets --target x86_64-unknown-linux-gnu
 
   lint:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Setup Rust environment
-      uses: ./.github/actions/setup-rust
+      uses: $/.github/actions/setup-rust
 
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -69,20 +82,3 @@ jobs:
       env:
         RUSTDOCFLAGS: -D warnings
       run: cargo doc --workspace --no-deps --all-features --document-private-items
-
-  gui-test:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup Rust environment
-      uses: ./.github/actions/setup-rust
-      with:
-        cache-key: gui
-
-    - name: Check native GUI targets
-      run: cargo check -p gui --all-targets --locked
-
-    - name: Test native GUI model and engine
-      run: cargo test -p gui --all-targets --locked

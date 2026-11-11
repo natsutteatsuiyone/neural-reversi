@@ -316,7 +316,7 @@ script = [
     "                if eq ${platform} windows",
     "                    filename_suffix = concat \"windows-x86_64-\" ${tier_version}",
     "                else",
-    "                    filename_suffix = concat \"linux-x86_64_\" ${tier_version}",
+    "                    filename_suffix = concat \"linux-x86_64-\" ${tier_version}",
     "                end",
     "            end",
     "        end",
