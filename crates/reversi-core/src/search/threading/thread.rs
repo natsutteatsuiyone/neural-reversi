@@ -13,7 +13,6 @@ use crate::search::counters::SearchCounters;
 use crate::search::endgame::EndGameCaches;
 use crate::search::node_type::{NodeTypeId, NonPV, PV, Root};
 use crate::search::pvs::search_split_point;
-use crate::search::strategy::EndGameStrategy;
 use crate::square::Square;
 use crate::types::{Depth, ScaledScore};
 use crate::util::align::Align64;
@@ -625,13 +624,13 @@ impl Thread {
     ) {
         match node_type {
             NodeTypeId::NonPv => {
-                search_split_point::<NonPV, EndGameStrategy>(ctx, board, depth, self, sp);
+                search_split_point::<NonPV>(ctx, board, depth, self, sp);
             }
             NodeTypeId::Pv => {
-                search_split_point::<PV, EndGameStrategy>(ctx, board, depth, self, sp);
+                search_split_point::<PV>(ctx, board, depth, self, sp);
             }
             NodeTypeId::Root => {
-                search_split_point::<Root, EndGameStrategy>(ctx, board, depth, self, sp);
+                search_split_point::<Root>(ctx, board, depth, self, sp);
             }
         }
     }

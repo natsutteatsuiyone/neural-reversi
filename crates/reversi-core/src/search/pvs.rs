@@ -13,7 +13,7 @@ use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::midgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
-use crate::search::strategy::SearchStrategy;
+use crate::search::strategy::{EndGameStrategy, SearchStrategy};
 use crate::search::threading::{SplitPoint, SplitRequest, Thread};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
@@ -410,7 +410,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 /// point's best score/move under its lock.
 ///
 /// The caller must not hold the split-point lock.
-pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
+pub(super) fn search_split_point<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
@@ -424,7 +424,6 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
     let beta = split_point.task().beta;
     let cut_node = split_point.state().cut_node();
     let move_iter = split_point.move_iter();
-    let n_moves = move_iter.count();
     drop(guard);
 
     // move_iter.next() is a lock-free fetch_add: helpers claim moves without
@@ -436,45 +435,22 @@ pub(super) fn search_split_point<NT: NodeType, SS: SearchStrategy>(
         let alpha = split_point.state().alpha();
 
         debug_assert!(!NT::PV_NODE || move_count > 1);
-        let reduction = compute_lmr_reduction::<NT, SS>(
-            ctx.selectivity,
-            depth,
-            move_count,
-            n_moves,
-            cut_node,
-            // Split points exist only in the endgame, where LMR is off.
-            false,
-            mv.value,
-            alpha,
-        );
-
-        let mut score = -search::<NonPV, SS>(
+        let mut score = -search::<NonPV, EndGameStrategy>(
             ctx,
             &next,
-            depth - 1 - reduction,
+            depth - 1,
             -(alpha + 1),
             -alpha,
             thread,
-            reduction > 0 || !cut_node,
+            !cut_node,
         );
-
-        if reduction > 0 && score > alpha {
-            score = -search::<NonPV, SS>(
-                ctx,
-                &next,
-                depth - 1,
-                -(alpha + 1),
-                -alpha,
-                thread,
-                !cut_node,
-            );
-        }
 
         // PV re-search
         if NT::PV_NODE && score > alpha {
             // A sibling may have raised the shared alpha since this move started.
             let alpha = split_point.state().alpha();
-            score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
+            score =
+                -search::<PV, EndGameStrategy>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
         }
 
         ctx.undo(mv.sq);
@@ -691,7 +667,7 @@ mod tests {
     use super::*;
     use crate::probcut::Selectivity;
     use crate::search::node_type::{NonPV, PV};
-    use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
+    use crate::search::strategy::MidGameStrategy;
 
     /// Reduction for a move whose ordering estimate sits exactly on alpha, so
     /// the ordering-margin term contributes nothing.

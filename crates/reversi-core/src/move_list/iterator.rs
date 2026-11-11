@@ -46,12 +46,6 @@ impl ConcurrentMoveIterator {
         }
     }
 
-    /// Returns the total number of moves in this iterator.
-    #[inline]
-    pub fn count(&self) -> usize {
-        self.move_list.count()
-    }
-
     /// Returns the number of moves not yet consumed.
     #[inline]
     pub fn remaining(&self) -> usize {
