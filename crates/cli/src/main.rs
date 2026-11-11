@@ -243,13 +243,18 @@ fn main() {
                 std::process::exit(code);
             }
         }
-        Some(SubCommands::Version) => {
-            println!(
+        Some(SubCommands::Version) => match env!("TARGET_CPU") {
+            "" => println!(
                 "neural-reversi {} ({})",
                 env!("CARGO_PKG_VERSION"),
                 env!("TARGET")
-            );
-        }
+            ),
+            cpu => println!(
+                "neural-reversi {} ({}, target-cpu={cpu})",
+                env!("CARGO_PKG_VERSION"),
+                env!("TARGET")
+            ),
+        },
         Some(SubCommands::ShowLicense) => {
             print!("{}", include_str!("../../../NOTICE"));
             println!();
