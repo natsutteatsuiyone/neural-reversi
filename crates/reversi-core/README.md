@@ -346,8 +346,7 @@ Endgame:
   pull moves from the iterator, and write results back into the
   split-point state (`alpha / best_score / best_move / cutoff`) atomically.
 - A single thread can own up to `MAX_SPLITPOINTS_PER_THREAD` splits at
-  once, and a single split accepts up to `MAX_THREADS_PER_CUT_SPLITPOINT`
-  (cut nodes) or `MAX_THREADS_PER_NON_CUT_SPLITPOINT` (non-cut) workers.
+  once, and a single split accepts up to `MAX_THREADS_PER_SPLITPOINT` workers.
 - A parallel pool shares an in-flight table (`threading/in_flight.rs`).
   At endgame nodes with `depth >= MIN_CLAIM_DEPTH`, a thread claims each
   child position before searching it and releases the claim when the

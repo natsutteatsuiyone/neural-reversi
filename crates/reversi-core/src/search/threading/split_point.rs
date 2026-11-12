@@ -24,11 +24,8 @@ use crate::util::spinlock;
 
 use super::thread::SplitRequest;
 
-/// Maximum number of threads recorded in a cut-node split point mask.
-const MAX_THREADS_PER_CUT_SPLITPOINT: u32 = 4;
-
-/// Maximum number of threads recorded in a non-cut-node split point mask.
-const MAX_THREADS_PER_NON_CUT_SPLITPOINT: u32 = 8;
+/// Maximum number of threads recorded in a split point mask.
+pub(super) const MAX_THREADS_PER_SPLITPOINT: u32 = 4;
 
 /// State information for a split point in the parallel search.
 pub struct SplitPointState {
@@ -65,23 +62,10 @@ pub struct SplitPointState {
     pub(super) level: AtomicUsize,
 
     /// Whether the parent expected this node to produce a beta cutoff.
-    ///
-    /// Relaxed atomic because late-join pre-checks read it lock-free as a
-    /// heuristic hint; booking is re-validated under the split-point lock.
     pub cut_node: AtomicBool,
 }
 
 impl SplitPointState {
-    /// Returns the maximum number of threads allowed at this split point.
-    #[inline]
-    pub(super) fn max_threads(&self) -> u32 {
-        if self.cut_node() {
-            MAX_THREADS_PER_CUT_SPLITPOINT
-        } else {
-            MAX_THREADS_PER_NON_CUT_SPLITPOINT
-        }
-    }
-
     /// Returns the owner thread index.
     #[inline]
     pub(super) fn owner_thread_idx(&self) -> usize {
@@ -270,7 +254,7 @@ pub struct SplitPoint {
     mutex: spinlock::SpinLock,
 
     /// Atomic state, written under the mutex and read lock-free in join
-    /// pre-checks. `level`, `owner_thread_idx`, and `cut_node` are Relaxed
+    /// pre-checks. `level` and `owner_thread_idx` are Relaxed
     /// atomics used as lock-free heuristic hints; split-point initialization is
     /// published by the owner's Release update to `split_points_size` and
     /// consumed by Acquire observers.

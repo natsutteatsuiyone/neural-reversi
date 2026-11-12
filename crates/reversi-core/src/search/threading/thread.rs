@@ -21,7 +21,7 @@ use crate::util::spinlock;
 use super::AbortState;
 use super::in_flight::{Claim, InFlightTable};
 use super::pool::{Message, ThreadPool};
-use super::split_point::{SplitPoint, SplitPointState, SplitPointTask};
+use super::split_point::{MAX_THREADS_PER_SPLITPOINT, SplitPoint, SplitPointState, SplitPointTask};
 
 /// Maximum number of split points that a single thread can have active at once.
 const MAX_SPLITPOINTS_PER_THREAD: usize = 8;
@@ -190,9 +190,9 @@ impl Thread {
 
         let cond = if let Some(sp) = self.active_split_point() {
             let sp_state = sp.state();
-            let max_threads = sp_state.max_threads();
             !sp_state.all_helpers_searching()
-                || (thread_pool_size > max_threads && sp_state.helpers_mask.count() == max_threads)
+                || (thread_pool_size > MAX_THREADS_PER_SPLITPOINT
+                    && sp_state.helpers_mask.count() == MAX_THREADS_PER_SPLITPOINT)
         } else {
             true
         };
@@ -342,7 +342,7 @@ impl Thread {
     /// Caller must hold this thread's state lock and `sp`'s split-point lock,
     /// and must have re-checked `can_join` under the thread lock. `sp` must
     /// still be accepting helpers under that same split-point lock hold (no
-    /// cutoff, `all_helpers_searching`, below `max_threads()`).
+    /// cutoff, `all_helpers_searching`, below [`MAX_THREADS_PER_SPLITPOINT`]).
     #[inline]
     pub(super) fn book_into(&self, sp: &Arc<SplitPoint>, sp_state: &SplitPointState) {
         sp_state.helpers_mask.set(self.idx);
@@ -680,7 +680,7 @@ impl Thread {
             let sp_state = sp.state();
 
             if sp_state.cutoff()
-                || sp_state.helpers_mask.count() >= sp_state.max_threads()
+                || sp_state.helpers_mask.count() >= MAX_THREADS_PER_SPLITPOINT
                 || !sp_state.all_helpers_searching()
                 || !self.can_join(sp)
             {
@@ -706,7 +706,7 @@ impl Thread {
         let sp_state = sp.state();
         if !sp_state.cutoff()
             && sp_state.all_helpers_searching()
-            && sp_state.helpers_mask.count() < sp_state.max_threads()
+            && sp_state.helpers_mask.count() < MAX_THREADS_PER_SPLITPOINT
         {
             let _thread_guard = self.lock();
 

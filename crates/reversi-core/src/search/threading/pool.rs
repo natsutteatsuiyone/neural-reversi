@@ -12,7 +12,7 @@ use crate::util::align::Align64;
 
 use super::AbortState;
 use super::in_flight::InFlightTable;
-use super::split_point::SplitPoint;
+use super::split_point::{MAX_THREADS_PER_SPLITPOINT, SplitPoint};
 use super::thread::{HelperJob, Thread};
 
 /// Interval between checks for abort flag in milliseconds.
@@ -186,10 +186,9 @@ impl ThreadPool {
     /// Assigns idle threads to work on a split point.
     pub(super) fn assign_helpers_to_split_point(&self, sp: &Arc<SplitPoint>) {
         let sp_state = sp.state();
-        let max_threads = sp_state.max_threads();
 
         for thread in &self.threads {
-            if sp_state.helpers_mask.count() >= max_threads {
+            if sp_state.helpers_mask.count() >= MAX_THREADS_PER_SPLITPOINT {
                 break;
             }
 
