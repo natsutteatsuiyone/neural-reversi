@@ -19,6 +19,7 @@ use crate::util::align::Align64;
 use crate::util::spinlock;
 
 use super::AbortState;
+use super::in_flight::{Claim, InFlightTable};
 use super::pool::{Message, ThreadPool};
 use super::split_point::{SplitPoint, SplitPointState, SplitPointTask};
 
@@ -66,6 +67,8 @@ pub struct Thread {
 
     /// Cached pool size, avoids `Weak::upgrade()` in `can_split()`.
     pool_size: usize,
+
+    in_flight: Option<Arc<InFlightTable>>,
 
     /// Endgame cache set owned by this search thread.
     ///
@@ -124,6 +127,7 @@ impl Thread {
         abort_state: Arc<AbortState>,
         cutoff_epoch: Arc<Align64<AtomicU64>>,
         pool_size: usize,
+        in_flight: Option<Arc<InFlightTable>>,
         pool: Weak<ThreadPool>,
     ) -> Thread {
         let split_points = std::array::from_fn(|_| Arc::new(SplitPoint::default()));
@@ -141,6 +145,7 @@ impl Thread {
             local_seen_cutoff_epoch: AtomicU64::new(0),
             local_chain_cutoff: AtomicBool::new(false),
             pool_size,
+            in_flight,
             endgame_caches: SyncUnsafeCell::new(EndGameCaches::for_thread_count(pool_size)),
             thinking,
             split_points_size: Align64(AtomicUsize::new(0)),
@@ -238,6 +243,13 @@ impl Thread {
     #[inline]
     pub(in crate::search) fn is_parallel_pool(&self) -> bool {
         self.pool_size > 1
+    }
+
+    #[inline]
+    pub(in crate::search) fn claim(&self, child: &Board) -> Claim<'_> {
+        self.in_flight
+            .as_ref()
+            .map_or(Claim::Untracked, |table| table.claim(child.hash()))
     }
 
     /// Wakes up this thread when there is work to do.

@@ -338,15 +338,30 @@ Midgame (`src/search/midgame/lazy_smp.rs`):
 Endgame:
 
 - A split point is published from `Thread::split` when the search is past
-  the first move, `depth >= MIN_SPLIT_DEPTH`, at least two moves
-  remain, and `Thread::can_split()` is true. Remaining moves are
-  distributed through a shared `ConcurrentMoveIterator`.
+  the first move (or at an All-node with
+  `depth <= SPECULATIVE_SPLIT_MAX_DEPTH`), `depth >= MIN_SPLIT_DEPTH`, at
+  least two moves remain, and `Thread::can_split()` is true. Remaining
+  moves are distributed through a shared `ConcurrentMoveIterator`.
 - Helper threads that pick up the split point enter `search_split_point`,
   pull moves from the iterator, and write results back into the
   split-point state (`alpha / best_score / best_move / cutoff`) atomically.
 - A single thread can own up to `MAX_SPLITPOINTS_PER_THREAD` splits at
   once, and a single split accepts up to `MAX_THREADS_PER_CUT_SPLITPOINT`
   (cut nodes) or `MAX_THREADS_PER_NON_CUT_SPLITPOINT` (non-cut) workers.
+- A parallel pool shares an in-flight table (`threading/in_flight.rs`).
+  At endgame nodes with `depth >= MIN_CLAIM_DEPTH`, a thread claims each
+  child position before searching it and releases the claim when the
+  search returns. A claim is a scheduling hint, not a score or a bound; a
+  hash collision loses the hint.
+- When a child is already claimed by another thread, the serial move loop
+  moves it to the end of its unpublished move list, at most once per move,
+  and searches a fresh sibling first. The eldest child and the last fresh
+  child are searched regardless. A later split publishes every remaining
+  move, postponed ones included.
+- A split-point helper searches each child it takes from the iterator,
+  claimed or not; its claims still steer the serial loops of other threads.
+- No thread waits on a claim: a postponed child is searched even if it is
+  still claimed.
 
 Both phases:
 

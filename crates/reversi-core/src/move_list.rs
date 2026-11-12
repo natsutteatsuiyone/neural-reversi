@@ -260,6 +260,11 @@ impl MoveList {
         unsafe { self.moves.swap_unchecked(a, b) };
     }
 
+    #[inline]
+    pub(crate) fn postpone_move(&mut self, index: usize) {
+        self.moves.as_mut_slice()[index..].rotate_left(1);
+    }
+
     /// Returns the move at the given index by value.
     #[inline(always)]
     pub fn move_at(&self, index: usize) -> Move {

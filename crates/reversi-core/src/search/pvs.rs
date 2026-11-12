@@ -14,7 +14,7 @@ use crate::search::endgame;
 use crate::search::midgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::{EndGameStrategy, SearchStrategy};
-use crate::search::threading::{SplitPoint, SplitRequest, Thread};
+use crate::search::threading::{Claim, SplitPoint, SplitRequest, Thread};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
@@ -209,6 +209,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         move_count = 1;
 
         let next = board.make_move_with_flipped(flipped, sq);
+        let _claim = claim_child::<SS>(thread, &next, depth);
         ctx.update(sq, flipped);
         let score = -search::<NonPV, SS>(
             ctx,
@@ -261,9 +262,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         move_list.swap_moves(0, 1);
     }
 
-    // Main move loop
-    for idx in move_count..n_moves {
-        // Endgame nodes share their remaining moves with idle threads.
+    let mut fresh_end = n_moves;
+    let mut idx = move_count;
+    while idx < n_moves {
         if SS::IS_ENDGAME
             && (idx >= 1 || (all_node && depth <= endgame::SPECULATIVE_SPLIT_MAX_DEPTH))
             && depth >= endgame::MIN_SPLIT_DEPTH
@@ -298,7 +299,16 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         let mv = move_list.move_at(idx);
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        let move_count = idx + 1;
+        let claim = claim_child::<SS>(thread, &next, depth);
+        let eldest = idx == 0;
+        let has_fresh_sibling = idx + 1 < fresh_end;
+        if matches!(claim, Claim::Busy) && !eldest && has_fresh_sibling {
+            move_list.postpone_move(idx);
+            fresh_end -= 1;
+            continue;
+        }
+        idx += 1;
+        let move_count = idx;
         ctx.update(mv.sq, mv.flipped);
 
         let mut score = -ScaledScore::INF;
@@ -430,6 +440,7 @@ pub(super) fn search_split_point<NT: NodeType>(
     // the lock, which is only taken to publish results.
     while let Some((mv, move_count)) = move_iter.next() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+        let _claim = claim_child::<EndGameStrategy>(thread, &next, depth);
         ctx.update(mv.sq, mv.flipped);
 
         let alpha = split_point.state().alpha();
@@ -660,6 +671,19 @@ fn lmr_curve(depth: Depth, move_count: usize) -> i32 {
 #[inline(always)]
 fn lmr_max_reduction(depth: Depth) -> Depth {
     (depth / 3).max(1).min(depth - 2)
+}
+
+#[inline(always)]
+fn claim_child<'a, SS: SearchStrategy>(
+    thread: &'a Thread,
+    child: &Board,
+    depth: Depth,
+) -> Claim<'a> {
+    if SS::IS_ENDGAME && depth >= SS::MIN_CLAIM_DEPTH {
+        thread.claim(child)
+    } else {
+        Claim::Untracked
+    }
 }
 
 #[cfg(test)]

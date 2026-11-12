@@ -11,6 +11,7 @@ use crate::search::time_control::TimeManager;
 use crate::util::align::Align64;
 
 use super::AbortState;
+use super::in_flight::InFlightTable;
 use super::split_point::SplitPoint;
 use super::thread::{HelperJob, Thread};
 
@@ -54,6 +55,8 @@ pub struct ThreadPool {
     /// Incremented whenever a split point first records a cutoff.
     cutoff_epoch: Arc<Align64<AtomicU64>>,
 
+    in_flight: Option<Arc<InFlightTable>>,
+
     /// Handle for the timer thread (protected by mutex for interior mutability).
     timer_handle: Mutex<Option<JoinHandle<()>>>,
 
@@ -76,6 +79,7 @@ impl ThreadPool {
                 sender,
                 abort_state: Arc::new(AbortState::new()),
                 cutoff_epoch: Arc::new(Align64(AtomicU64::new(0))),
+                in_flight: (n_threads > 1).then(|| Arc::new(InFlightTable::new())),
                 timer_handle: Mutex::new(None),
                 timer_stop: Arc::new(AtomicBool::new(false)),
             };
@@ -100,6 +104,7 @@ impl ThreadPool {
             self.abort_state.clone(),
             self.cutoff_epoch.clone(),
             self.size,
+            self.in_flight.clone(),
             pool.clone(),
         ));
         self.threads.push(thread.clone());
@@ -345,14 +350,16 @@ mod tests {
     use crate::probcut::{self, Selectivity};
     use crate::transposition_table::TranspositionTable;
 
-    #[test]
-    fn threads_alternate_between_helper_searches_and_split_points() {
-        probcut::init();
-        let pool = ThreadPool::new(8);
-        let eval = Arc::new(Eval::with_weight_files(None, None).unwrap());
-        let task = |board: Board, level: Level| SearchTask {
+    fn task(
+        pool: &Arc<ThreadPool>,
+        eval: &Arc<Eval>,
+        board: Board,
+        level: Level,
+        mid_selectivity: Selectivity,
+    ) -> SearchTask {
+        SearchTask {
             board,
-            mid_selectivity: Selectivity::Level1,
+            mid_selectivity,
             tt: Arc::new(TranspositionTable::new(16)),
             pool: pool.clone(),
             eval: eval.clone(),
@@ -362,7 +369,55 @@ mod tests {
             time_manager: None,
             eval_mode: None,
             corrections: Default::default(),
-        };
+        }
+    }
+
+    #[test]
+    fn children_claimed_elsewhere_are_still_searched() {
+        use crate::move_list::MoveList;
+        use crate::search::strategy::{EndGameStrategy, SearchStrategy};
+        use crate::square::Square;
+
+        fn descendants(board: Board, plies: u32, out: &mut Vec<Board>) {
+            if plies == 0 {
+                return;
+            }
+            for mv in MoveList::new(&board).iter() {
+                let child = board.make_move_with_flipped(mv.flipped, mv.sq);
+                out.push(child);
+                descendants(child, plies - 1, out);
+            }
+        }
+
+        probcut::init();
+        let pool = ThreadPool::new(2);
+        let ffo_41 = Board::from_string(
+            "-OOOOO----OOOOX--OOOOOO-XXXXXOO--XXOOX--OOXOXX----OXXO---OOO--O-",
+            Disc::Black,
+        )
+        .unwrap();
+        let mut positions = Vec::new();
+        let plies = ffo_41.empty_count() - EndGameStrategy::MIN_CLAIM_DEPTH + 1;
+        descendants(ffo_41, plies, &mut positions);
+        let table = pool.in_flight.as_deref().unwrap();
+        let claims: Vec<_> = positions.iter().map(|p| table.claim(p.hash())).collect();
+        let eval = Arc::new(Eval::with_weight_files(None, None).unwrap());
+        let task = task(&pool, &eval, ffo_41, Level::perfect(), Selectivity::None);
+        let solved = pool
+            .start_thinking(task, None)
+            .recv_timeout(Duration::from_secs(600))
+            .expect("search waited on a claimed child");
+        drop(claims);
+        assert_eq!(solved.score(), Some(0.0));
+        assert_eq!(solved.best_move(), Some(Square::H4));
+    }
+
+    #[test]
+    fn threads_alternate_between_helper_searches_and_split_points() {
+        probcut::init();
+        let pool = ThreadPool::new(8);
+        let eval = Arc::new(Eval::with_weight_files(None, None).unwrap());
+        let task = |board, level| task(&pool, &eval, board, level, Selectivity::Level1);
         let endgame = Board::from_string(
             "-OOO------OOOO--XXXOOXXX-XOOOXX-XXXXOOOOOXXOOOO---OXOO---OOOO---",
             Disc::Black,
