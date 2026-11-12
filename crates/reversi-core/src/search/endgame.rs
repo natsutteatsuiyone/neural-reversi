@@ -18,9 +18,9 @@ use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::search::context::SearchContext;
-use crate::search::node_type::{NonPV, Root};
+use crate::search::node_type::Root;
 use crate::search::result::{CompletedState, SearchResult};
-use crate::search::strategy::{EndGameStrategy, MidGameStrategy};
+use crate::search::strategy::EndGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::{record_abort, should_stop_endgame_iteration};
 use crate::search::{SearchProgress, SearchTask, midgame, search, widen_aspiration_window};
@@ -290,7 +290,6 @@ pub fn try_probcut(
     depth: Depth,
     beta: ScaledScore,
     cut_node: bool,
-    thread: &Arc<Thread>,
 ) -> Option<ScaledScore> {
     if !ctx.selectivity.is_enabled() {
         return None;
@@ -298,7 +297,7 @@ pub fn try_probcut(
     // The screen and the verification use the main network; the rest of the
     // endgame search stays on the small one.
     ctx.eval_mode = EvalMode::Main;
-    let result = probcut_decision(ctx, board, depth, beta, cut_node, thread);
+    let result = probcut_decision(ctx, board, depth, beta, cut_node);
     ctx.eval_mode = EvalMode::Small;
     #[cfg(feature = "probcut-trace")]
     probcut::trace::record(board, beta, ctx.selectivity, cut_node, result);
@@ -311,7 +310,6 @@ fn probcut_decision(
     depth: Depth,
     beta: ScaledScore,
     cut_node: bool,
-    thread: &Arc<Thread>,
 ) -> Option<ScaledScore> {
     let eval = midgame::evaluate(ctx, board);
     let window = probcut::endgame_probcut_window(depth, ctx.selectivity, cut_node, beta, eval);
@@ -320,18 +318,8 @@ fn probcut_decision(
         return None;
     }
 
-    let current_selectivity = ctx.selectivity;
-    ctx.selectivity = Selectivity::None;
-    let score = search::<NonPV, MidGameStrategy>(
-        ctx,
-        board,
-        probcut::VERIFY_DEPTH,
-        pc_beta - 1,
-        pc_beta,
-        thread,
-        true,
-    );
-    ctx.selectivity = current_selectivity;
+    const _: () = assert!(probcut::VERIFY_DEPTH == 2);
+    let score = midgame::evaluate_depth2(ctx, board, pc_beta - 1, pc_beta);
 
     (score >= pc_beta).then_some(beta)
 }

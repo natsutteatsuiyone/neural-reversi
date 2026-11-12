@@ -95,8 +95,7 @@ impl SearchStrategy for MidGameStrategy {
         match depth {
             0 => midgame::evaluate(ctx, board),
             1 => midgame::evaluate_depth1(ctx, board, alpha, beta),
-            2 => midgame::evaluate_depth2(ctx, board, alpha, beta),
-            _ => midgame::evaluate_depth3(ctx, board, alpha, beta),
+            _ => midgame::evaluate_shallow_with_tt(ctx, board, depth, alpha, beta),
         }
     }
 
@@ -194,8 +193,8 @@ impl SearchStrategy for EndGameStrategy {
         beta: ScaledScore,
         cut_node: bool,
         _static_eval: Option<ScaledScore>,
-        thread: &Arc<Thread>,
+        _thread: &Arc<Thread>,
     ) -> Option<ScaledScore> {
-        endgame::try_probcut(ctx, board, depth, beta, cut_node, thread)
+        endgame::try_probcut(ctx, board, depth, beta, cut_node)
     }
 }
