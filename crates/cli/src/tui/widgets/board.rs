@@ -52,7 +52,7 @@ impl Widget for BoardWidget<'_> {
             return;
         }
 
-        let legal_moves = self.board.get_moves();
+        let legal_moves = self.board.legal_moves();
 
         // Column headers
         let header = Line::from(vec![

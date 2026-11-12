@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use criterion::{BenchmarkGroup, BenchmarkId, measurement::WallTime};
 use rand::{RngExt, rngs::StdRng};
 
-use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
 use reversi_core::constants::INITIAL_EMPTY_COUNT;
 use reversi_core::disc::Disc;
+use reversi_core::legal_moves::LegalMoves;
 use reversi_core::square::Square;
 use reversi_core::types::Score;
 
@@ -40,12 +40,12 @@ pub(crate) fn random_disjoint_bitboards(rng: &mut StdRng) -> (u64, u64) {
     (player, opponent)
 }
 
-pub(crate) fn choose_square(squares: Bitboard, rng: &mut StdRng) -> Square {
-    let index = rng.random_range(0..squares.count()) as usize;
-    squares
+pub(crate) fn choose_square(moves: LegalMoves, rng: &mut StdRng) -> Square {
+    let index = rng.random_range(0..moves.count()) as usize;
+    moves
         .iter()
         .nth(index)
-        .expect("bitboard must contain the chosen square index")
+        .expect("moves must contain the chosen square index")
 }
 
 pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
@@ -53,10 +53,10 @@ pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
     rng: &mut StdRng,
 ) -> Option<Board> {
     while board.empty_count() > N_EMPTY {
-        let moves = board.get_moves();
+        let moves = board.legal_moves();
         if moves.is_empty() {
             let passed = board.switch_players();
-            if passed.get_moves().is_empty() {
+            if passed.legal_moves().is_empty() {
                 return None;
             }
             board = passed;
@@ -70,7 +70,7 @@ pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
 }
 
 pub(crate) fn exact_endgame_score(board: &Board) -> Score {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if !moves.is_empty() {
         return moves
             .iter()
@@ -80,7 +80,7 @@ pub(crate) fn exact_endgame_score(board: &Board) -> Score {
     }
 
     let passed = board.switch_players();
-    if !passed.get_moves().is_empty() {
+    if !passed.legal_moves().is_empty() {
         return -exact_endgame_score(&passed);
     }
 

@@ -27,7 +27,7 @@ The engine is split into three layers.
 ├────────────────────────────────────────────────────────┤
 │  Board / Bitboard                                      │
 │   └─ two u64 bitboards (player, opponent)              │
-│        flip / get_moves / hash …                       │
+│        flip / legal_moves / hash …                     │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -79,7 +79,7 @@ The disc-count update for the very last empty square is handled by the
 implementation skips work that the generic `flip` cannot avoid.
 
 Legal-move generation goes straight from the player/opponent bitboards via
-`Board::get_moves`, and `MoveList` enumerates them. `empty_list` keeps the
+`Board::legal_moves`, and `MoveList` enumerates them. `empty_list` keeps the
 empty squares in a doubly-linked list; endgame search walks it to step to
 the next empty square in O(1).
 
@@ -405,7 +405,7 @@ per ply.
 PatternFeature ─►            │
                   L1_input ──┼─ PhaseAdaptiveInput (ply-bucketed)
                              │
-                             └─ mobility (get_moves().count() · MOBILITY_SCALE)
+                             └─ mobility (legal_moves().count() · MOBILITY_SCALE)
                        │
                        ▼
                 LinearLayer L1 ─► sqr_clipped + clipped_relu
@@ -569,6 +569,7 @@ The integration tests in `tests/` require real weights to load.
 | ------------------------------------ | ------------------------------------------------------------------------- |
 | Bitboard                             | `src/bitboard.rs`                                                         |
 | Board / squares / discs              | `src/board.rs`, `src/square.rs`, `src/disc.rs`                            |
+| Legal move set                       | `src/legal_moves.rs`                                                      |
 | Flip dispatch                        | `src/flip.rs` + `src/flip/*`                                             |
 | Move list / empty list               | `src/move_list.rs`, `src/empty_list.rs`                                   |
 | Game analysis                        | `src/analysis.rs`                                                         |

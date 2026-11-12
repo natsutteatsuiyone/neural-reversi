@@ -272,14 +272,14 @@ impl Bitboard {
 
     /// Returns the legal moves for the player given the opponent's bitboard.
     #[inline(always)]
-    pub fn get_moves(self, opponent: Bitboard) -> Bitboard {
-        Bitboard(moves::get_moves(self.0, opponent.0))
+    pub fn legal_moves(self, opponent: Bitboard) -> Bitboard {
+        Bitboard(moves::legal_moves(self.0, opponent.0))
     }
 
     /// Returns both the legal moves and potential moves for the current player.
     #[inline(always)]
-    pub fn get_moves_and_potential(self, opponent: Bitboard) -> (Bitboard, Bitboard) {
-        let (m, p) = moves::get_moves_and_potential(self.0, opponent.0);
+    pub fn legal_moves_and_potential(self, opponent: Bitboard) -> (Bitboard, Bitboard) {
+        let (m, p) = moves::legal_moves_and_potential(self.0, opponent.0);
         (Bitboard(m), Bitboard(p))
     }
 }

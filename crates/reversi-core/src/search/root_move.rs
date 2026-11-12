@@ -288,12 +288,12 @@ mod tests {
         let rms = RootMoves::new(&board);
         let sqs = squares(&rms);
 
-        assert_eq!(rms.moves_bb_from_pv_idx(), board.get_moves());
+        assert_eq!(rms.moves_bb_from_pv_idx(), board.legal_moves().bitboard());
 
         rms.set_pv_idx(1);
         assert_eq!(
             rms.moves_bb_from_pv_idx(),
-            board.get_moves() & !sqs[0].bitboard()
+            board.legal_moves().bitboard() & !sqs[0].bitboard()
         );
     }
 }

@@ -11,6 +11,7 @@ pub mod empty_list;
 pub mod eval;
 pub mod flip;
 pub mod game_state;
+pub mod legal_moves;
 pub mod level;
 pub mod move_list;
 pub mod obf;

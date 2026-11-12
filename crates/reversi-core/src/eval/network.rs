@@ -193,7 +193,7 @@ impl Network {
         pattern_feature: &PatternFeature,
         ply: usize,
     ) -> ScaledScore {
-        let mobility = board.get_moves().count() as u8;
+        let mobility = board.legal_moves().count() as u8;
 
         with_network_buffers(|buffers| {
             self.base_input

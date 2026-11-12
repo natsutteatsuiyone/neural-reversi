@@ -27,7 +27,7 @@ impl ReversiApp {
         let position = self.session.game().position();
         let solver = self.session.is_solving();
         let human_turn = self.settings.ai_color() != Some(position.turn);
-        let legal = position.board.get_moves().bits();
+        let legal = position.board.legal_moves().bits();
         let show_legal = solver || human_turn;
         let idle = !matches!(
             self.session.activity(),

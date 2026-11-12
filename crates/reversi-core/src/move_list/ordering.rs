@@ -1,8 +1,8 @@
 //! Move evaluation and ordering.
 
-use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::eval::Eval;
+use crate::legal_moves::LegalMoves;
 use crate::search::context::SearchContext;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
@@ -136,7 +136,7 @@ impl MoveList {
                 } else {
                     let next = board.make_move_with_flipped(mv.flipped, mv.sq);
                     ctx.increment_nodes();
-                    mv.value = -(next.get_moves().corner_weighted_count() as i32);
+                    mv.value = -(next.legal_moves().corner_weighted_count() as i32);
                 }
             }
             return;
@@ -172,13 +172,13 @@ impl MoveList {
                 if SS::IS_ENDGAME {
                     mv.value +=
                         next.opponent().corner_stability() as i32 * CORNER_STABILITY_WEIGHT_SEARCH;
-                    let (moves, potential) = next.get_moves_and_potential();
+                    let (moves, potential) = next.legal_moves_and_potential();
                     let mobility = moves.corner_weighted_count() as i32;
                     let potential_mobility = potential.corner_weighted_count() as i32;
                     mv.value -= mobility * MOBILITY_SCALE_SEARCH;
                     mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE_SEARCH;
                 } else {
-                    let (moves, potential) = next.get_moves_and_potential();
+                    let (moves, potential) = next.legal_moves_and_potential();
                     mv.value -= moves.corner_weighted_count() as i32 * MOBILITY_SCALE_MIDGAME;
                     mv.value -=
                         potential.corner_weighted_count() as i32 * POTENTIAL_MOBILITY_SCALE_MIDGAME;
@@ -231,7 +231,7 @@ fn shallow_search_score(ctx: &mut SearchContext, next: &Board, sort_depth: i32) 
 fn evaluate_fast_value(ctx: &mut SearchContext, board: &Board, mv: Move) -> i32 {
     ctx.increment_nodes();
     let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-    fast_move_value(mv.sq, &next, next.get_moves())
+    fast_move_value(mv.sq, &next, next.legal_moves())
 }
 
 /// Returns the [`MoveList::evaluate_moves_fast`] value of the move to `sq`.
@@ -239,7 +239,7 @@ fn evaluate_fast_value(ctx: &mut SearchContext, board: &Board, mv: Move) -> i32 
 /// `next` is the position after the move and `next_moves` its legal moves.
 /// `sq` must not be [`Square::None`].
 #[inline(always)]
-pub(crate) fn fast_move_value(sq: Square, next: &Board, next_moves: Bitboard) -> i32 {
+pub(crate) fn fast_move_value(sq: Square, next: &Board, next_moves: LegalMoves) -> i32 {
     debug_assert_ne!(sq, Square::None);
     let corner_stability = next.opponent().corner_stability() as i32;
     let weighted_mobility = next_moves.corner_weighted_count() as i32;

@@ -412,7 +412,7 @@ fn search_record(
 /// Selects a random legal move from the current board position.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
-    board.get_moves().iter().choose(&mut rng).unwrap()
+    board.legal_moves().iter().choose(&mut rng).unwrap()
 }
 
 /// Draws a move uniformly from the best `choice.top` moves of a Multi-PV

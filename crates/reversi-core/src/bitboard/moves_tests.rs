@@ -180,7 +180,7 @@ fn offset_square(square: Square, file_delta: i8, rank_delta: i8) -> Square {
     Square::from_file_rank(file as u8, rank as u8)
 }
 
-fn reference_get_moves(player: u64, opponent: u64) -> u64 {
+fn reference_legal_moves(player: u64, opponent: u64) -> u64 {
     let occupied = player | opponent;
     let mut moves = 0;
 
@@ -236,7 +236,7 @@ fn reference_captures(
     false
 }
 
-fn reference_get_potential_moves(player: u64, opponent: u64) -> u64 {
+fn reference_potential_moves(player: u64, opponent: u64) -> u64 {
     let occupied = player | opponent;
     let mut potential = 0;
 
@@ -280,11 +280,11 @@ fn assert_disjoint(position: Position) {
 
 fn assert_moves_match_reference(position: Position) {
     assert_disjoint(position);
-    let expected = reference_get_moves(position.player, position.opponent);
+    let expected = reference_legal_moves(position.player, position.opponent);
     let (player, opponent) = position.bitboards();
 
     assert_eq!(
-        get_moves_portable(position.player, position.opponent),
+        legal_moves_portable(position.player, position.opponent),
         expected,
         "{}: portable moves differ from reference for player={:016x}, opponent={:016x}",
         position.name,
@@ -292,7 +292,7 @@ fn assert_moves_match_reference(position: Position) {
         position.opponent
     );
     assert_eq!(
-        player.get_moves(opponent).bits(),
+        player.legal_moves(opponent).bits(),
         expected,
         "{}: dispatched moves differ from reference for player={:016x}, opponent={:016x}",
         position.name,
@@ -303,12 +303,12 @@ fn assert_moves_match_reference(position: Position) {
 
 fn assert_combined_matches_reference(position: Position) {
     assert_disjoint(position);
-    let expected_moves = reference_get_moves(position.player, position.opponent);
-    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
+    let expected_moves = reference_legal_moves(position.player, position.opponent);
+    let expected_potential = reference_potential_moves(position.player, position.opponent);
     let (portable_moves, portable_potential) =
-        get_moves_and_potential_portable(position.player, position.opponent);
+        legal_moves_and_potential_portable(position.player, position.opponent);
     let (player, opponent) = position.bitboards();
-    let (public_moves, public_potential) = player.get_moves_and_potential(opponent);
+    let (public_moves, public_potential) = player.legal_moves_and_potential(opponent);
 
     assert_eq!(
         portable_moves, expected_moves,
@@ -340,8 +340,8 @@ fn assert_combined_matches_reference(position: Position) {
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn assert_neon_moves_match_scalar(position: Position) {
-    let expected_moves = get_moves_portable(position.player, position.opponent);
-    let moves_neon = unsafe { get_moves_neon(position.player, position.opponent) };
+    let expected_moves = legal_moves_portable(position.player, position.opponent);
+    let moves_neon = unsafe { legal_moves_neon(position.player, position.opponent) };
 
     assert_eq!(
         moves_neon, expected_moves,
@@ -356,8 +356,8 @@ fn assert_neon_moves_match_scalar(position: Position) {
     target_feature = "sha3"
 ))]
 fn assert_neon_sha3_moves_match_scalar(position: Position) {
-    let expected_moves = get_moves_portable(position.player, position.opponent);
-    let moves_neon = unsafe { get_moves_neon_sha3(position.player, position.opponent) };
+    let expected_moves = legal_moves_portable(position.player, position.opponent);
+    let moves_neon = unsafe { legal_moves_neon_sha3(position.player, position.opponent) };
 
     assert_eq!(
         moves_neon, expected_moves,
@@ -368,10 +368,10 @@ fn assert_neon_sha3_moves_match_scalar(position: Position) {
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 fn assert_neon_combined_matches_scalar(position: Position) {
-    let expected_moves = get_moves_portable(position.player, position.opponent);
-    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
+    let expected_moves = legal_moves_portable(position.player, position.opponent);
+    let expected_potential = reference_potential_moves(position.player, position.opponent);
     let (moves_neon, potential_neon) =
-        unsafe { get_moves_and_potential_neon(position.player, position.opponent) };
+        unsafe { legal_moves_and_potential_neon(position.player, position.opponent) };
 
     assert_eq!(
         moves_neon, expected_moves,
@@ -391,10 +391,10 @@ fn assert_neon_combined_matches_scalar(position: Position) {
     target_feature = "sha3"
 ))]
 fn assert_neon_sha3_combined_matches_scalar(position: Position) {
-    let expected_moves = get_moves_portable(position.player, position.opponent);
-    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
+    let expected_moves = legal_moves_portable(position.player, position.opponent);
+    let expected_potential = reference_potential_moves(position.player, position.opponent);
     let (moves_neon, potential_neon) =
-        unsafe { get_moves_and_potential_neon_sha3(position.player, position.opponent) };
+        unsafe { legal_moves_and_potential_neon_sha3(position.player, position.opponent) };
 
     assert_eq!(
         moves_neon, expected_moves,
@@ -417,13 +417,13 @@ fn detected_x86_backends() -> Option<(bool, bool)> {
 
 #[cfg(target_arch = "x86_64")]
 fn assert_x86_backends_match_scalar(position: Position, has_avx2: bool, has_avx512: bool) {
-    let expected_moves = get_moves_portable(position.player, position.opponent);
-    let expected_potential = reference_get_potential_moves(position.player, position.opponent);
+    let expected_moves = legal_moves_portable(position.player, position.opponent);
+    let expected_potential = reference_potential_moves(position.player, position.opponent);
 
     if has_avx2 {
-        let moves_avx2 = unsafe { get_moves_avx2(position.player, position.opponent) };
+        let moves_avx2 = unsafe { legal_moves_avx2(position.player, position.opponent) };
         let (combined_moves_avx2, combined_potential_avx2) =
-            unsafe { get_moves_and_potential_avx2(position.player, position.opponent) };
+            unsafe { legal_moves_and_potential_avx2(position.player, position.opponent) };
 
         assert_eq!(
             moves_avx2, expected_moves,
@@ -443,9 +443,9 @@ fn assert_x86_backends_match_scalar(position: Position, has_avx2: bool, has_avx5
     }
 
     if has_avx512 {
-        let moves_avx512 = unsafe { get_moves_avx512(position.player, position.opponent) };
+        let moves_avx512 = unsafe { legal_moves_avx512(position.player, position.opponent) };
         let (combined_moves_avx512, combined_potential_avx512) =
-            unsafe { get_moves_and_potential_avx512(position.player, position.opponent) };
+            unsafe { legal_moves_and_potential_avx512(position.player, position.opponent) };
 
         assert_eq!(
             moves_avx512, expected_moves,
@@ -487,7 +487,7 @@ fn legal_moves_are_detected_in_each_direction() {
             position_from_squares(direction.name, &[closing_player], &[adjacent_opponent]);
 
         assert_eq!(
-            Bitboard::new(reference_get_moves(position.player, position.opponent)),
+            Bitboard::new(reference_legal_moves(position.player, position.opponent)),
             expected,
             "directional fixture should have exactly one move for {}",
             direction.name
@@ -546,14 +546,14 @@ fn legal_moves_do_not_wrap_edges_or_jump_over_gaps() {
 
     for (position, expected) in cases {
         assert_eq!(
-            Bitboard::new(reference_get_moves(position.player, position.opponent)),
+            Bitboard::new(reference_legal_moves(position.player, position.opponent)),
             expected,
             "{} reference fixture mismatch",
             position.name
         );
         assert_moves_match_reference(position);
         assert_eq!(
-            Bitboard::new(get_moves_portable(position.player, position.opponent)),
+            Bitboard::new(legal_moves_portable(position.player, position.opponent)),
             expected,
             "{} portable exact moves mismatch",
             position.name
@@ -565,7 +565,7 @@ fn legal_moves_do_not_wrap_edges_or_jump_over_gaps() {
 fn initial_position_has_exact_legal_and_potential_moves() {
     let position = initial_position();
     let (player, opponent) = position.bitboards();
-    let (moves, potential) = player.get_moves_and_potential(opponent);
+    let (moves, potential) = player.legal_moves_and_potential(opponent);
 
     assert_eq!(
         moves,

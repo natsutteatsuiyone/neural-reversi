@@ -7,7 +7,8 @@ use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::ptr;
 use std::slice;
 
-use super::{MAX_MOVES, Move};
+use super::Move;
+use crate::legal_moves::LegalMoves;
 
 // `data_ptr_from` casts `*mut MoveArray` straight to `*mut Move`; pin the
 // offset-0 layout it relies on at compile time.
@@ -20,7 +21,7 @@ const _: () = assert!(offset_of!(MoveArray, data) == 0);
 /// operate by value without drop bookkeeping.
 #[repr(C)]
 pub(super) struct MoveArray {
-    data: [MaybeUninit<Move>; MAX_MOVES],
+    data: [MaybeUninit<Move>; LegalMoves::MAX_COUNT],
     pub(super) len: usize,
 }
 
@@ -28,7 +29,7 @@ impl MoveArray {
     #[inline]
     pub(super) fn new() -> Self {
         MoveArray {
-            data: [MaybeUninit::uninit(); MAX_MOVES],
+            data: [MaybeUninit::uninit(); LegalMoves::MAX_COUNT],
             len: 0,
         }
     }

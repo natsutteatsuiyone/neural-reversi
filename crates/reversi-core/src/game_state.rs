@@ -318,7 +318,7 @@ mod tests {
         .unwrap();
         let mut game = GameState::from_board(board, Disc::Black);
 
-        assert_eq!(game.board().get_moves(), Square::A1.bitboard());
+        assert_eq!(game.board().legal_moves().bitboard(), Square::A1.bitboard());
         game.make_move(Square::A1).unwrap();
 
         assert!(game.is_game_over());

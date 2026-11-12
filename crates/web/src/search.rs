@@ -446,7 +446,7 @@ fn estimate_aspiration_base_score(
 /// Selects a random legal move from the current position.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
-    board.get_moves().iter().choose(&mut rng).unwrap()
+    board.legal_moves().iter().choose(&mut rng).unwrap()
 }
 
 /// Performs alpha-beta search specialized for depth 3.
@@ -458,7 +458,7 @@ pub fn evaluate_depth3<NT: NodeType>(
 ) -> ScaledScore {
     let org_alpha = alpha;
 
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -534,7 +534,7 @@ pub fn evaluate_depth2(
     mut alpha: ScaledScore,
     beta: ScaledScore,
 ) -> ScaledScore {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -585,7 +585,7 @@ pub fn evaluate_depth1(
     alpha: ScaledScore,
     beta: ScaledScore,
 ) -> ScaledScore {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {

@@ -34,18 +34,18 @@ fn disc_cases() -> Vec<Bitboard> {
     (0..N_CASES).map(|_| Bitboard::new(rng.random())).collect()
 }
 
-fn get_moves_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
+fn legal_moves_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
     let mut acc = 0u64;
     for &(player, opponent) in cases {
-        acc ^= black_box(player).get_moves(black_box(opponent)).bits();
+        acc ^= black_box(player).legal_moves(black_box(opponent)).bits();
     }
     acc
 }
 
-fn get_moves_and_potential_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
+fn legal_moves_and_potential_checksum(cases: &[(Bitboard, Bitboard)]) -> u64 {
     let mut acc = 0u64;
     for &(player, opponent) in cases {
-        let (moves, potential) = black_box(player).get_moves_and_potential(black_box(opponent));
+        let (moves, potential) = black_box(player).legal_moves_and_potential(black_box(opponent));
         acc ^= moves.bits();
         acc ^= potential.bits().rotate_left(1);
     }
@@ -68,21 +68,21 @@ fn corner_stability_checksum(cases: &[Bitboard]) -> u64 {
     acc
 }
 
-fn bench_get_moves(c: &mut Criterion) {
+fn bench_legal_moves(c: &mut Criterion) {
     let cases = move_cases();
-    let mut group = c.benchmark_group("bitboard::get_moves");
-    bench_case_set(&mut group, "varied", &cases, get_moves_checksum);
+    let mut group = c.benchmark_group("bitboard::legal_moves");
+    bench_case_set(&mut group, "varied", &cases, legal_moves_checksum);
     group.finish();
 }
 
-fn bench_get_moves_and_potential(c: &mut Criterion) {
+fn bench_legal_moves_and_potential(c: &mut Criterion) {
     let cases = move_cases();
-    let mut group = c.benchmark_group("bitboard::get_moves_and_potential");
+    let mut group = c.benchmark_group("bitboard::legal_moves_and_potential");
     bench_case_set(
         &mut group,
         "varied",
         &cases,
-        get_moves_and_potential_checksum,
+        legal_moves_and_potential_checksum,
     );
     group.finish();
 }
@@ -103,8 +103,8 @@ fn bench_corner_stability(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_get_moves,
-    bench_get_moves_and_potential,
+    bench_legal_moves,
+    bench_legal_moves_and_potential,
     bench_corner_weighted_count,
     bench_corner_stability,
 );

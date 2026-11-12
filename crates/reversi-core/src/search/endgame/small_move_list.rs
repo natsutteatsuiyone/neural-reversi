@@ -7,6 +7,7 @@ use std::slice;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
+use crate::legal_moves::LegalMoves;
 use crate::move_list::fast_move_value;
 use crate::search::context::SearchContext;
 use crate::square::Square;
@@ -17,7 +18,7 @@ pub(super) struct SmallMove {
     /// Position after the move.
     pub(super) next: Board,
     /// Legal moves of `next`, set by [`SmallMoveList::evaluate_moves`].
-    pub(super) next_moves: Bitboard,
+    pub(super) next_moves: LegalMoves,
     /// Ordering value, set by [`SmallMoveList::evaluate_moves`]; higher is
     /// searched first.
     value: i32,
@@ -29,7 +30,7 @@ impl SmallMove {
     fn new(board: &Board, sq: Square, flipped: Bitboard) -> Self {
         SmallMove {
             next: board.make_move_with_flipped(flipped, sq),
-            next_moves: Bitboard::new(0),
+            next_moves: LegalMoves::EMPTY,
             value: 0,
             sq,
         }
@@ -66,7 +67,7 @@ impl SmallMoveList {
     ///
     /// Panics if `moves` has more than [`Self::CAPACITY`] squares.
     #[inline(always)]
-    pub(super) fn generate(&mut self, board: &Board, moves: Bitboard) -> bool {
+    pub(super) fn generate(&mut self, board: &Board, moves: LegalMoves) -> bool {
         debug_assert_eq!(self.len, 0);
         assert!(moves.count() as usize <= Self::CAPACITY);
         let opponent = board.opponent();
@@ -148,7 +149,7 @@ impl SmallMoveList {
     pub(super) fn evaluate_moves(&mut self, ctx: &mut SearchContext) {
         for mv in self.iter_mut() {
             ctx.increment_nodes();
-            mv.next_moves = mv.next.get_moves();
+            mv.next_moves = mv.next.legal_moves();
             mv.value = fast_move_value(mv.sq, &mv.next, mv.next_moves);
         }
     }

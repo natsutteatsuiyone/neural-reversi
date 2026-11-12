@@ -144,7 +144,7 @@ fn infinite_search_keeps_deepening_a_forced_move() {
         .unwrap()
         .into_iter()
         .fold(Board::new(), |board, sq| board.make_move(sq));
-    assert_eq!(board.get_moves().count(), 1);
+    assert_eq!(board.legal_moves().count(), 1);
 
     let options = SearchRunOptions::with_time(TimeControlMode::Infinite)
         .stop_token(stop)

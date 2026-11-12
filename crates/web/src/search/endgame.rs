@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use reversi_core::board::Board;
 use reversi_core::constants::{SCORE_INF, SCORE_MAX};
 use reversi_core::empty_list::EmptyList;
+use reversi_core::legal_moves::LegalMoves;
 use reversi_core::search::solve_last1;
 use reversi_core::square::Square;
 use reversi_core::types::{Depth, Score};
@@ -110,7 +111,7 @@ fn null_window_search_with_ec(
         return entry.score;
     }
 
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -192,7 +193,7 @@ fn shallow_search(
         return score;
     }
 
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         ctx.increment_nodes();
         let next = board.switch_players();
@@ -313,7 +314,7 @@ fn shallow_search_move(
 fn shallow_search_moves(
     ctx: &mut SearchContext,
     board: &Board,
-    moves: bitboard::Bitboard,
+    moves: LegalMoves,
     cache_slot: CacheSlot,
     beta: Score,
     best_score: &mut Score,

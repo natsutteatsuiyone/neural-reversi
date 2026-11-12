@@ -6,33 +6,33 @@ use super::{DIAGONAL_MASK, HORIZONTAL_MASK, VERTICAL_MASK};
 ///
 /// Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c#L822>
 #[inline(always)]
-pub(super) fn get_moves(player: u64, opponent: u64) -> u64 {
+pub(super) fn legal_moves(player: u64, opponent: u64) -> u64 {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512vl") => unsafe {
-            get_moves_avx512(player, opponent)
+            legal_moves_avx512(player, opponent)
         },
         all(target_arch = "x86_64", target_feature = "avx2") => unsafe {
-            get_moves_avx2(player, opponent)
+            legal_moves_avx2(player, opponent)
         },
         all(
             target_arch = "aarch64",
             target_feature = "neon",
             target_feature = "sha3"
-        ) => unsafe { get_moves_neon_sha3(player, opponent) },
+        ) => unsafe { legal_moves_neon_sha3(player, opponent) },
         all(target_arch = "aarch64", target_feature = "neon") => unsafe {
-            get_moves_neon(player, opponent)
+            legal_moves_neon(player, opponent)
         },
-        _ => get_moves_portable(player, opponent),
+        _ => legal_moves_portable(player, opponent),
     }
 }
 
-/// Portable scalar implementation of `get_moves`.
+/// Portable scalar implementation of `legal_moves`.
 ///
-/// Direction-specific scalar implementation used when no faster `get_moves`
+/// Direction-specific scalar implementation used when no faster `legal_moves`
 /// SIMD path is selected.
 #[inline(always)]
 #[allow(dead_code)]
-pub(super) fn get_moves_portable(player: u64, opponent: u64) -> u64 {
+pub(super) fn legal_moves_portable(player: u64, opponent: u64) -> u64 {
     let h_opp = opponent & HORIZONTAL_MASK;
 
     let mut flip7 = h_opp & (player << 7);
@@ -100,7 +100,7 @@ macro_rules! horizontal_or_u64 {
 
 /// Reduces two 256-bit vectors in parallel.
 ///
-/// Returns `(or(a lanes), or(b lanes))`. `get_moves_and_potential_*` already
+/// Returns `(or(a lanes), or(b lanes))`. `legal_moves_and_potential_*` already
 /// has both vectors live; interleaving their lanes avoids doing two independent
 /// horizontal reductions on the hot combined path.
 #[cfg(target_arch = "x86_64")]
@@ -145,12 +145,12 @@ macro_rules! horizontal_or2_zmm_u64 {
     }};
 }
 
-/// AVX-512-optimized implementation of `get_moves`.
+/// AVX-512-optimized implementation of `legal_moves`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512vl")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
+pub(super) fn legal_moves_avx512(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
 
     let sh = _mm256_set_epi64x(7, 9, 8, 1);
@@ -191,12 +191,12 @@ pub(super) fn get_moves_avx512(player: u64, opponent: u64) -> u64 {
     moves & empty
 }
 
-/// AVX2-optimized implementation of `get_moves`.
+/// AVX2-optimized implementation of `legal_moves`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
+pub(super) fn legal_moves_avx2(player: u64, opponent: u64) -> u64 {
     use std::arch::x86_64::*;
 
     let sh = _mm256_set_epi64x(7, 9, 8, 1);
@@ -236,10 +236,10 @@ pub(super) fn get_moves_avx2(player: u64, opponent: u64) -> u64 {
     moves & empty
 }
 
-/// Finishes the AArch64 NEON `get_moves` paths after diagonal move generation.
+/// Finishes the AArch64 NEON `legal_moves` paths after diagonal move generation.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
-fn finish_get_moves_neon(player: u64, opponent: u64, h_opp: u64, diag: u64) -> u64 {
+fn finish_legal_moves_neon(player: u64, opponent: u64, h_opp: u64, diag: u64) -> u64 {
     let empty = !(player | opponent);
 
     // --- Horizontal (shift 1): additive carry trick, both directions. ---
@@ -266,7 +266,7 @@ fn finish_get_moves_neon(player: u64, opponent: u64, h_opp: u64, diag: u64) -> u
     (moves | diag) & empty
 }
 
-/// AArch64 NEON implementation of `get_moves` without SHA3 instructions.
+/// AArch64 NEON implementation of `legal_moves` without SHA3 instructions.
 ///
 /// Uses NEON for the two diagonal directions and scalar code for horizontal and
 /// vertical scans.
@@ -274,7 +274,7 @@ fn finish_get_moves_neon(player: u64, opponent: u64, h_opp: u64, diag: u64) -> u
 #[target_feature(enable = "neon")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_neon(player: u64, opponent: u64) -> u64 {
+pub(super) fn legal_moves_neon(player: u64, opponent: u64) -> u64 {
     use std::arch::aarch64::*;
 
     let h_opp = opponent & HORIZONTAL_MASK;
@@ -309,10 +309,10 @@ pub(super) fn get_moves_neon(player: u64, opponent: u64) -> u64 {
     let md = vorrq_u64(vshlq_u64(fl, sh), vshlq_u64(fr, sh_neg));
     let diag = vgetq_lane_u64::<0>(md) | vgetq_lane_u64::<1>(md);
 
-    finish_get_moves_neon(player, opponent, h_opp, diag)
+    finish_legal_moves_neon(player, opponent, h_opp, diag)
 }
 
-/// AArch64 NEON implementation of `get_moves` using SHA3 `bcax`.
+/// AArch64 NEON implementation of `legal_moves` using SHA3 `bcax`.
 ///
 /// Uses NEON for the two diagonal directions and scalar code for horizontal and
 /// vertical scans.
@@ -324,7 +324,7 @@ pub(super) fn get_moves_neon(player: u64, opponent: u64) -> u64 {
 #[target_feature(enable = "neon,sha3")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_neon_sha3(player: u64, opponent: u64) -> u64 {
+pub(super) fn legal_moves_neon_sha3(player: u64, opponent: u64) -> u64 {
     use std::arch::aarch64::*;
 
     let h_opp = opponent & HORIZONTAL_MASK;
@@ -362,37 +362,37 @@ pub(super) fn get_moves_neon_sha3(player: u64, opponent: u64) -> u64 {
     let md = vorrq_u64(vshlq_u64(fl, sh), vshlq_u64(fr, sh_neg));
     let diag = vgetq_lane_u64::<0>(md) | vgetq_lane_u64::<1>(md);
 
-    finish_get_moves_neon(player, opponent, h_opp, diag)
+    finish_legal_moves_neon(player, opponent, h_opp, diag)
 }
 
 /// Returns both legal and potential moves for the current player.
 ///
 /// Dispatches to the best available implementation at compile time.
 #[inline(always)]
-pub(super) fn get_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
+pub(super) fn legal_moves_and_potential(player: u64, opponent: u64) -> (u64, u64) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512vl") => unsafe {
-            get_moves_and_potential_avx512(player, opponent)
+            legal_moves_and_potential_avx512(player, opponent)
         },
         all(target_arch = "x86_64", target_feature = "avx2") => unsafe {
-            get_moves_and_potential_avx2(player, opponent)
+            legal_moves_and_potential_avx2(player, opponent)
         },
         all(
             target_arch = "aarch64",
             target_feature = "neon",
             target_feature = "sha3"
-        ) => unsafe { get_moves_and_potential_neon_sha3(player, opponent) },
+        ) => unsafe { legal_moves_and_potential_neon_sha3(player, opponent) },
         all(target_arch = "aarch64", target_feature = "neon") => unsafe {
-            get_moves_and_potential_neon(player, opponent)
+            legal_moves_and_potential_neon(player, opponent)
         },
-        _ => get_moves_and_potential_portable(player, opponent),
+        _ => legal_moves_and_potential_portable(player, opponent),
     }
 }
 
-/// Portable scalar implementation of `get_moves_and_potential`.
+/// Portable scalar implementation of `legal_moves_and_potential`.
 #[inline(always)]
 #[allow(dead_code)]
-pub(super) fn get_moves_and_potential_portable(player: u64, opponent: u64) -> (u64, u64) {
+pub(super) fn legal_moves_and_potential_portable(player: u64, opponent: u64) -> (u64, u64) {
     let empty = !(player | opponent);
     let h_opp = opponent & HORIZONTAL_MASK;
     let v_opp = opponent & VERTICAL_MASK;
@@ -407,14 +407,14 @@ pub(super) fn get_moves_and_potential_portable(player: u64, opponent: u64) -> (u
         | (d_opp >> 9))
         & empty;
 
-    (get_moves_portable(player, opponent), potential)
+    (legal_moves_portable(player, opponent), potential)
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512vl")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
+pub(super) fn legal_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::x86_64::*;
 
     // Positive counts in the low half and their modulo-64 negatives in the
@@ -458,7 +458,7 @@ pub(super) fn get_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
+pub(super) fn legal_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::x86_64::*;
 
     let sh = _mm256_set_epi64x(7, 9, 8, 1);
@@ -502,10 +502,10 @@ pub(super) fn get_moves_and_potential_avx2(player: u64, opponent: u64) -> (u64, 
     (moves & empty, potential & empty)
 }
 
-/// Finishes the AArch64 NEON `get_moves_and_potential` paths.
+/// Finishes the AArch64 NEON `legal_moves_and_potential` paths.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
-fn finish_get_moves_and_potential_neon(
+fn finish_legal_moves_and_potential_neon(
     player: u64,
     opponent: u64,
     h_opp: u64,
@@ -542,12 +542,12 @@ fn finish_get_moves_and_potential_neon(
     ((moves | diag) & empty, (pot_hv | pot_diag) & empty)
 }
 
-/// AArch64 NEON implementation of `get_moves_and_potential` without SHA3.
+/// AArch64 NEON implementation of `legal_moves_and_potential` without SHA3.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_and_potential_neon(player: u64, opponent: u64) -> (u64, u64) {
+pub(super) fn legal_moves_and_potential_neon(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::aarch64::*;
 
     let h_opp = opponent & HORIZONTAL_MASK;
@@ -586,10 +586,10 @@ pub(super) fn get_moves_and_potential_neon(player: u64, opponent: u64) -> (u64, 
     let diag = vgetq_lane_u64::<0>(comb);
     let pot_diag = vgetq_lane_u64::<1>(comb);
 
-    finish_get_moves_and_potential_neon(player, opponent, h_opp, diag, pot_diag)
+    finish_legal_moves_and_potential_neon(player, opponent, h_opp, diag, pot_diag)
 }
 
-/// AArch64 NEON implementation of `get_moves_and_potential` using SHA3 `bcax`.
+/// AArch64 NEON implementation of `legal_moves_and_potential` using SHA3 `bcax`.
 #[cfg(all(
     target_arch = "aarch64",
     target_feature = "neon",
@@ -598,7 +598,7 @@ pub(super) fn get_moves_and_potential_neon(player: u64, opponent: u64) -> (u64, 
 #[target_feature(enable = "neon,sha3")]
 #[inline]
 #[allow(dead_code)]
-pub(super) fn get_moves_and_potential_neon_sha3(player: u64, opponent: u64) -> (u64, u64) {
+pub(super) fn legal_moves_and_potential_neon_sha3(player: u64, opponent: u64) -> (u64, u64) {
     use std::arch::aarch64::*;
 
     let h_opp = opponent & HORIZONTAL_MASK;
@@ -640,5 +640,5 @@ pub(super) fn get_moves_and_potential_neon_sha3(player: u64, opponent: u64) -> (
     let diag = vgetq_lane_u64::<0>(comb);
     let pot_diag = vgetq_lane_u64::<1>(comb);
 
-    finish_get_moves_and_potential_neon(player, opponent, h_opp, diag, pot_diag)
+    finish_legal_moves_and_potential_neon(player, opponent, h_opp, diag, pot_diag)
 }

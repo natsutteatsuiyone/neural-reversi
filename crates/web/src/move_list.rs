@@ -97,7 +97,7 @@ fn evaluate_moves_shallow<SS: SearchStrategy>(
             mv.value = score.value();
 
             if SS::IS_ENDGAME {
-                let (moves, potential) = next.get_moves_and_potential();
+                let (moves, potential) = next.legal_moves_and_potential();
                 let mobility = moves.corner_weighted_count() as i32;
                 let potential_mobility = potential.corner_weighted_count() as i32;
                 mv.value -= mobility * MOBILITY_SCALE;
@@ -158,7 +158,7 @@ pub(crate) fn evaluate_moves_fast(
             match pending.take() {
                 None => pending = Some((mv, next)),
                 Some((prev, prev_next)) => {
-                    let (prev_moves, moves) = get_moves_pair(&prev_next, &next);
+                    let (prev_moves, moves) = legal_moves_pair(&prev_next, &next);
                     prev.value = score(prev.sq, &prev_next, prev_moves);
                     mv.value = score(mv.sq, &next, moves);
                 }
@@ -166,33 +166,33 @@ pub(crate) fn evaluate_moves_fast(
         }
     }
     if let Some((mv, next)) = pending {
-        mv.value = score(mv.sq, &next, next.get_moves());
+        mv.value = score(mv.sq, &next, next.legal_moves().bitboard());
     }
 }
 
 /// Returns the legal moves of two boards.
 #[inline(always)]
-fn get_moves_pair(a: &Board, b: &Board) -> (Bitboard, Bitboard) {
+fn legal_moves_pair(a: &Board, b: &Board) -> (Bitboard, Bitboard) {
     cfg_select! {
         all(target_arch = "wasm32", target_feature = "simd128") => {
             use core::arch::wasm32::*;
 
             let player = u64x2(a.player().bits(), b.player().bits());
             let opponent = u64x2(a.opponent().bits(), b.opponent().bits());
-            let moves = get_moves_x2(player, opponent);
+            let moves = legal_moves_x2(player, opponent);
             (
                 Bitboard::new(u64x2_extract_lane::<0>(moves)),
                 Bitboard::new(u64x2_extract_lane::<1>(moves)),
             )
         }
-        _ => (a.get_moves(), b.get_moves()),
+        _ => (a.legal_moves().bitboard(), b.legal_moves().bitboard()),
     }
 }
 
-/// Lane-wise `get_moves` for two boards packed into `u64x2` lanes.
+/// Lane-wise `legal_moves` for two boards packed into `u64x2` lanes.
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 #[inline(always)]
-fn get_moves_x2(
+fn legal_moves_x2(
     player: core::arch::wasm32::v128,
     opponent: core::arch::wasm32::v128,
 ) -> core::arch::wasm32::v128 {

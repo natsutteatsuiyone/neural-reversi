@@ -191,7 +191,7 @@ enum SeedPosition {
 /// Classify how to score `board` as the backward pass's seed, making the
 /// Searchable / Pass / Terminal distinction explicit.
 fn classify_seed(board: &Board) -> SeedPosition {
-    if !board.get_moves().is_empty() {
+    if !board.legal_moves().is_empty() {
         SeedPosition::Searchable
     } else if board.is_game_over() {
         SeedPosition::Terminal
@@ -397,7 +397,7 @@ mod tests {
             let i = call.get();
             call.set(i + 1);
             assert!(
-                !b.get_moves().is_empty(),
+                !b.legal_moves().is_empty(),
                 "search must only run on a Position with Legal Moves"
             );
             // call 0: forced-pass seed, scored on the switched Position = 2.0;

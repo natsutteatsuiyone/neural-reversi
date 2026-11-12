@@ -104,7 +104,7 @@ fn move_chains(seed: u64) -> Vec<MoveChain> {
         let mut steps = Vec::with_capacity(board.empty_count() as usize + 2);
 
         loop {
-            let moves = board.get_moves();
+            let moves = board.legal_moves();
             if !moves.is_empty() {
                 let sq = choose_square(moves, &mut rng);
                 steps.push(PlayoutStep::Move(sq));
@@ -113,7 +113,7 @@ fn move_chains(seed: u64) -> Vec<MoveChain> {
             }
 
             let passed = board.switch_players();
-            if passed.get_moves().is_empty() {
+            if passed.legal_moves().is_empty() {
                 break;
             }
             steps.push(PlayoutStep::Pass);

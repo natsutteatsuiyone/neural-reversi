@@ -153,9 +153,9 @@ fn solve_branch_mix<const N_EMPTY: u32>(cases: &[EndgameCase<N_EMPTY>]) -> Solve
     let mut mix = SolveBranchMix::default();
 
     for case in cases {
-        match case.board.get_moves().count() {
+        match case.board.legal_moves().count() {
             0 => {
-                if case.board.switch_players().get_moves().is_empty() {
+                if case.board.switch_players().legal_moves().is_empty() {
                     mix.both_pass += 1;
                 } else {
                     mix.player_pass += 1;

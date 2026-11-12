@@ -12,16 +12,12 @@ use std::slice;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
+use crate::legal_moves::LegalMoves;
 use crate::square::Square;
 
 pub use iterator::{BestFirstMoveIterator, ConcurrentMoveIterator};
 use move_array::MoveArray;
 pub(crate) use ordering::fast_move_value;
-
-/// Maximum number of legal moves in a Reversi position, including set-up
-/// positions unreachable from the start. 35 is the largest count found by
-/// search over arbitrary boards, not a proven bound.
-const MAX_MOVES: usize = 35;
 
 /// A single move.
 ///
@@ -65,31 +61,40 @@ impl MoveList {
     /// Generates all legal moves for the current player.
     #[inline]
     pub fn new(board: &Board) -> MoveList {
-        Self::with_moves(board, board.get_moves())
+        Self::with_moves(board, board.legal_moves())
     }
 
-    /// Creates a [`MoveList`] from a precomputed legal moves [`Bitboard`].
+    /// Creates a [`MoveList`] from `moves`, legal moves of `board`.
+    ///
+    /// Only a [`LegalMoves`] is accepted, which keeps the list within its
+    /// capacity:
+    ///
+    /// ```compile_fail,E0308
+    /// # use reversi_core::{bitboard::Bitboard, board::Board, move_list::MoveList};
+    /// let board = Board::new();
+    /// MoveList::with_moves(&board, Bitboard::new(u64::MAX));
+    /// ```
     #[inline(always)]
-    pub fn with_moves(board: &Board, moves_bb: Bitboard) -> MoveList {
+    pub fn with_moves(board: &Board, moves: LegalMoves) -> MoveList {
         let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
         // SAFETY: `fill_in_place` writes `len`, `wipeout_move`, and the
         // first `len` slots of `data` on every path.
         unsafe {
-            Self::fill_in_place::<false>(board, moves_bb, result.as_mut_ptr());
+            Self::fill_in_place::<false>(board, moves, result.as_mut_ptr());
             result.assume_init()
         }
     }
 
     /// Creates a [`MoveList`] when the caller has already ruled out the
     /// no-move (pass) case but the position may still have only one legal
-    /// move. Skips the `moves_bb == 0` dispatch but still dispatches a
+    /// move. Skips the empty-`moves` dispatch but still dispatches a
     /// scalar single-square path when there is exactly one bit set.
     #[inline(always)]
-    pub(crate) fn with_at_least_one_move(board: &Board, moves_bb: Bitboard) -> MoveList {
+    pub(crate) fn with_at_least_one_move(board: &Board, moves: LegalMoves) -> MoveList {
         let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
-        // SAFETY: caller guarantees `moves_bb != 0`.
+        // SAFETY: caller guarantees `moves` is not empty.
         unsafe {
-            Self::fill_in_place::<true>(board, moves_bb, result.as_mut_ptr());
+            Self::fill_in_place::<true>(board, moves, result.as_mut_ptr());
             result.assume_init()
         }
     }
@@ -101,15 +106,13 @@ impl MoveList {
     /// writes straight into the caller's return slot, without copying the
     /// list back.
     ///
-    /// `SKIP_EMPTY` skips the check for `moves_bb == 0`.
-    ///
     /// # Safety
-    /// `out` must be valid for writes of a [`MoveList`], and `moves_bb` must
+    /// `out` must be valid for writes of a [`MoveList`], and `moves` must
     /// not be empty when `SKIP_EMPTY` is true.
     #[inline(never)]
     unsafe fn fill_in_place<const SKIP_EMPTY: bool>(
         board: &Board,
-        moves_bb: Bitboard,
+        moves: LegalMoves,
         out: *mut MoveList,
     ) {
         let moves_array_ptr = unsafe { &raw mut (*out).moves };
@@ -118,7 +121,7 @@ impl MoveList {
         let wipeout_ptr = unsafe { &raw mut (*out).wipeout_move };
 
         let opponent = board.opponent();
-        let mut bb = moves_bb.bits();
+        let mut bb = moves.bits();
 
         if !SKIP_EMPTY && bb == 0 {
             unsafe {
@@ -167,8 +170,8 @@ impl MoveList {
                     // SAFETY: `x0`, `x1` are bit positions from a legal-move bitboard (0..=63).
                     let sq0 = unsafe { Square::from_u8_unchecked(x0) };
                     let sq1 = unsafe { Square::from_u8_unchecked(x1) };
-                    debug_assert!(len + 2 <= MAX_MOVES);
-                    // SAFETY: at most MAX_MOVES (35) legal moves per Reversi position.
+                    debug_assert!(len + 2 <= LegalMoves::MAX_COUNT);
+                    // SAFETY: `moves` holds at most `LegalMoves::MAX_COUNT` squares.
                     unsafe {
                         data_ptr.add(len).write(Move::new(sq0, flipped0));
                         data_ptr.add(len + 1).write(Move::new(sq1, flipped1));
@@ -188,8 +191,8 @@ impl MoveList {
                     let flipped = Bitboard::new(flipped_bits);
                     // SAFETY: `x` is a bit position from a legal-move bitboard (0..=63).
                     let sq = unsafe { Square::from_u8_unchecked(x) };
-                    debug_assert!(len < MAX_MOVES);
-                    // SAFETY: at most MAX_MOVES (35) legal moves per Reversi position.
+                    debug_assert!(len < LegalMoves::MAX_COUNT);
+                    // SAFETY: `moves` holds at most `LegalMoves::MAX_COUNT` squares.
                     unsafe { data_ptr.add(len).write(Move::new(sq, flipped)) };
                     len += 1;
                     if flipped_bits == opponent_bits {
@@ -205,8 +208,8 @@ impl MoveList {
                     // SAFETY: `x` is a bit position from a legal-move bitboard (0..=63).
                     let sq = unsafe { Square::from_u8_unchecked(x) };
                     let flipped = flip::flip(sq, player, opponent);
-                    debug_assert!(len < MAX_MOVES);
-                    // SAFETY: at most MAX_MOVES (35) legal moves per Reversi position.
+                    debug_assert!(len < LegalMoves::MAX_COUNT);
+                    // SAFETY: `moves` holds at most `LegalMoves::MAX_COUNT` squares.
                     unsafe { data_ptr.add(len).write(Move::new(sq, flipped)) };
                     len += 1;
                     if flipped == opponent {

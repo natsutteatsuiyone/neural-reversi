@@ -754,8 +754,13 @@ mod tests {
         let game =
             "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8";
         session.enter_solver(Position::from_transcript(&game[..84]).unwrap(), &settings);
-        let legal: std::collections::HashSet<_> =
-            session.game().position().board.get_moves().iter().collect();
+        let legal: std::collections::HashSet<_> = session
+            .game()
+            .position()
+            .board
+            .legal_moves()
+            .iter()
+            .collect();
         assert!(!legal.is_empty());
         run_until(&mut session, &settings, |s| s.activity().is_none());
         let candidates: std::collections::HashSet<_> = session

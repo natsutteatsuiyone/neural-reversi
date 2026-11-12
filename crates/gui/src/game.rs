@@ -116,10 +116,10 @@ impl Position {
                 (column - u16::from(b'a')) as u8,
                 (row - u16::from(b'1')) as u8,
             );
-            let mut moves = position.board.get_moves();
+            let mut moves = position.board.legal_moves();
             if moves.is_empty() {
                 let passed = position.passed();
-                moves = passed.board.get_moves();
+                moves = passed.board.legal_moves();
                 if moves.is_empty() {
                     return Err(SetupError::GameOver);
                 }

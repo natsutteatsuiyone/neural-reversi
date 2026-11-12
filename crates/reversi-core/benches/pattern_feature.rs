@@ -31,7 +31,7 @@ struct UpdateCase {
 }
 
 fn advance(board: Board, rng: &mut StdRng) -> Board {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if !moves.is_empty() {
         let sq = choose_square(moves, rng);
         let flipped = flip(sq, board.player(), board.opponent());
@@ -72,7 +72,7 @@ fn cases(seed: u64) -> (Vec<InitCase>, Vec<UpdateCase>) {
 
     for i in 0..N_CASES {
         let board = playout_position(&mut rng);
-        let moves = board.get_moves();
+        let moves = board.legal_moves();
         let sq = choose_square(moves, &mut rng);
         let flipped = flip(sq, board.player(), board.opponent());
         let ply = board_ply(&board);

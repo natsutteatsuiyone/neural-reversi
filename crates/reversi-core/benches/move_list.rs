@@ -7,9 +7,9 @@ use rand::{SeedableRng, rngs::StdRng};
 mod common;
 
 use common::random_disjoint_bitboards;
-use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
 use reversi_core::eval::Eval;
+use reversi_core::legal_moves::LegalMoves;
 use reversi_core::move_list::MoveList;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::context::SearchContext;
@@ -22,7 +22,7 @@ const MIN_MOVES: u32 = 8;
 #[derive(Clone, Copy)]
 struct Case {
     board: Board,
-    moves: Bitboard,
+    moves: LegalMoves,
 }
 
 fn new_context(board: &Board) -> SearchContext {
@@ -38,7 +38,7 @@ fn random_cases(seed: u64) -> Vec<Case> {
     while out.len() < N_CASES {
         let (player, opponent) = random_disjoint_bitboards(&mut rng);
         let board = Board::from_bitboards(player, opponent);
-        let moves = board.get_moves();
+        let moves = board.legal_moves();
         if moves.count() >= MIN_MOVES {
             out.push(Case { board, moves });
         }

@@ -66,9 +66,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // Move generation
     let mut move_list = if NT::ROOT_NODE {
-        let moves_bb = ctx.root_moves.moves_bb_from_pv_idx();
-        assert!(!moves_bb.is_empty(), "pv_idx must leave a root move");
-        MoveList::with_moves(board, moves_bb)
+        let moves = board.legal_moves() & ctx.root_moves.moves_bb_from_pv_idx();
+        assert!(!moves.is_empty(), "pv_idx must leave a root move");
+        MoveList::with_moves(board, moves)
     } else {
         MoveList::new(board)
     };

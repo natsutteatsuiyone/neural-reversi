@@ -153,7 +153,7 @@ mod tests {
         let (kind, result) = wait_until_available(&mut worker).unwrap();
         assert_eq!(kind, SearchKind::Hint);
         let hints: HashSet<_> = result.pv_moves().iter().map(|pv| pv.sq).collect();
-        let legal: HashSet<_> = board.get_moves().iter().collect();
+        let legal: HashSet<_> = board.legal_moves().iter().collect();
         assert_eq!(hints, legal);
         assert!(worker.poll().is_none());
 

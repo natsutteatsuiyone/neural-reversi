@@ -12,6 +12,7 @@ use crate::board::Board;
 use crate::constants::INITIAL_EMPTY_COUNT;
 use crate::eval::Eval;
 use crate::flip;
+use crate::legal_moves::LegalMoves;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
@@ -284,7 +285,7 @@ fn next_iteration_depth(current_depth: Depth) -> Depth {
 
 /// Selects a random legal move from the current position.
 fn random_move(board: &Board) -> Square {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     let index = RandomState::new().build_hasher().finish() % u64::from(moves.count());
     moves.iter().nth(index as usize).unwrap()
 }
@@ -348,7 +349,7 @@ pub fn evaluate_depth3(
     let tt_key = board.hash();
     ctx.tt.prefetch(tt_key);
 
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -422,7 +423,7 @@ pub fn evaluate_depth2(
     mut alpha: ScaledScore,
     beta: ScaledScore,
 ) -> ScaledScore {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -469,7 +470,7 @@ pub fn evaluate_depth1(
     alpha: ScaledScore,
     beta: ScaledScore,
 ) -> ScaledScore {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
@@ -494,7 +495,7 @@ fn evaluate_depth1_moves<const USE_MAIN_NETWORK: bool>(
     ctx: &mut SearchContext,
     board: &Board,
     beta: ScaledScore,
-    moves: Bitboard,
+    moves: LegalMoves,
 ) -> ScaledScore {
     let mut best_score = -ScaledScore::INF;
 

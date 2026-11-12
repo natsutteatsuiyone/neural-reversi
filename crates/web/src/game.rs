@@ -481,7 +481,7 @@ mod tests {
             if board.is_game_over() {
                 return board.solve(board.empty_count());
             }
-            let moves = board.get_moves();
+            let moves = board.legal_moves();
             if moves.is_empty() {
                 return -exact_score(board.switch_players());
             }

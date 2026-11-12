@@ -8,10 +8,15 @@ use crate::bitboard::Bitboard;
 use crate::constants::SCORE_MAX;
 use crate::disc::Disc;
 use crate::flip;
+use crate::legal_moves::LegalMoves;
 use crate::square::Square;
 use crate::types::{ScaledScore, Score};
 
 /// A Reversi board represented as player/opponent [`Bitboard`] pairs.
+///
+/// The two bitboards never overlap, in release builds too: every constructor
+/// and every method that returns a [`Board`] keeps them disjoint. The bound
+/// of [`LegalMoves`] depends on it.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Board {
     /// Bitboard representing the player's discs.
@@ -241,9 +246,10 @@ impl Board {
     /// placed at `sq`, from the opponent's perspective.
     #[inline(always)]
     fn place(&self, flipped: Bitboard, sq: Square) -> Board {
+        let placed = sq.bitboard() & !self.opponent;
         Board {
-            player: self.opponent.apply_flip(flipped),
-            opponent: self.player.apply_move(flipped, sq),
+            player: self.opponent & !flipped,
+            opponent: (self.player | placed) | flipped,
         }
     }
 
@@ -285,28 +291,28 @@ impl Board {
         self.place(flipped, sq)
     }
 
-    /// Returns a [`Bitboard`] of legal moves for the current player.
+    /// Returns the legal moves for the current player.
     #[inline(always)]
-    pub fn get_moves(&self) -> Bitboard {
-        self.player.get_moves(self.opponent)
+    pub fn legal_moves(&self) -> LegalMoves {
+        LegalMoves::new(self)
     }
 
     /// Returns whether the current player has any legal moves.
     #[inline(always)]
     pub fn has_legal_moves(&self) -> bool {
-        !self.get_moves().is_empty()
+        !self.legal_moves().is_empty()
     }
 
     /// Returns whether placing a disc at `sq` is a legal move.
     #[inline(always)]
     pub fn is_legal_move(&self, sq: Square) -> bool {
-        self.get_moves().contains(sq)
+        self.legal_moves().contains(sq)
     }
 
     /// Returns `(legal_moves, potential_moves)` for the current player.
     #[inline(always)]
-    pub fn get_moves_and_potential(&self) -> (Bitboard, Bitboard) {
-        self.player.get_moves_and_potential(self.opponent)
+    pub fn legal_moves_and_potential(&self) -> (Bitboard, Bitboard) {
+        self.player.legal_moves_and_potential(self.opponent)
     }
 
     /// Calculates a hash of the current board position.
@@ -480,6 +486,69 @@ impl std::error::Error for BoardError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    fn reference_place(board: &Board, flipped: Bitboard, sq: Square) -> Board {
+        let placed = 1u64 << sq.index();
+        Board {
+            player: Bitboard::new(board.opponent.bits() ^ flipped.bits()),
+            opponent: Bitboard::new(board.player.bits() ^ flipped.bits() ^ placed),
+        }
+    }
+
+    #[test]
+    fn place_matches_reference_on_legal_moves() {
+        let mut rng = StdRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
+        let mut checked = 0;
+
+        for _ in 0..200 {
+            let mut board = Board::new();
+            loop {
+                let moves = board.legal_moves();
+                if moves.is_empty() {
+                    board = board.switch_players();
+                    if !board.has_legal_moves() {
+                        break;
+                    }
+                    continue;
+                }
+
+                for sq in moves.iter() {
+                    let flipped = flip::flip(sq, board.player, board.opponent);
+                    assert_eq!(
+                        board.place(flipped, sq),
+                        reference_place(&board, flipped, sq),
+                        "{sq:?} on {board:?}"
+                    );
+                    checked += 1;
+                }
+
+                let index = rng.random_range(0..moves.count()) as usize;
+                board = board.make_move(moves.iter().nth(index).unwrap());
+            }
+        }
+
+        assert!(checked > 10_000);
+    }
+
+    #[test]
+    fn place_keeps_sides_disjoint_for_any_input() {
+        let mut rng = StdRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
+
+        for _ in 0..10_000 {
+            let (a, b): (u64, u64) = (rng.random(), rng.random());
+            let board = Board::from_bitboards(a & !b, b & !a & rng.random::<u64>());
+            let flipped = Bitboard::new(rng.random());
+
+            for sq in Square::iter() {
+                let next = board.place(flipped, sq);
+                assert!(
+                    (next.player & next.opponent).is_empty(),
+                    "{sq:?} flipping {flipped:?} on {board:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     #[should_panic(expected = "player and opponent bitboards must not overlap")]

@@ -1,5 +1,6 @@
 use crate::board::Board;
 use crate::disc::Disc;
+use crate::legal_moves::LegalMoves;
 use crate::square::Square;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
@@ -176,10 +177,9 @@ fn generated_moves_match_legal_bitboard_and_flip_reference() {
     assert!(saw_multi_move, "expected to exercise multi-move positions");
 }
 
-/// A set-up position with 35 legal moves, more than the move list once held.
 #[test]
-fn set_up_position_with_35_moves() {
-    let board = Board::from_string(
+fn set_up_positions_with_35_moves() {
+    let positions = [
         "-OX-----\
          -OXOOOO-\
          ---X-XX-\
@@ -188,11 +188,21 @@ fn set_up_position_with_35_moves() {
          -XXXXXO-\
          -OXO-OO-\
          --------",
-        Disc::Black,
-    )
-    .unwrap();
+        "-----X--\
+         -O-OXOO-\
+         -OXXXO--\
+         -OXOO---\
+         -O-O--O-\
+         -XX--XXO\
+         XOO--OOX\
+         --------",
+    ];
 
-    assert_eq!(assert_moves_match_reference(&board), 35);
+    for position in positions {
+        let board = Board::from_string(position, Disc::Black).unwrap();
+        assert_eq!(assert_moves_match_reference(&board), 35, "{position}");
+        assert_eq!(board.legal_moves().count() as usize, LegalMoves::MAX_COUNT);
+    }
 }
 
 /// Checks that the move list holds exactly the legal moves of `board`, each
@@ -201,7 +211,7 @@ fn assert_moves_match_reference(board: &Board) -> usize {
     let (p, o) = (board.player().bits(), board.opponent().bits());
     let move_list = MoveList::new(board);
 
-    let legal = board.get_moves().bits();
+    let legal = board.legal_moves().bits();
     assert_eq!(move_list.count() as u32, legal.count_ones());
 
     let mut squares = 0u64;

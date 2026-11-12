@@ -163,7 +163,7 @@ fn tt_move(board: &Board, tt: &TranspositionTable) -> Option<SearchResult> {
 /// Selects a move by a shallow 1-ply search, for when there is no time or
 /// no completed iteration to report.
 pub(super) fn quick_move(board: &Board, eval: &Eval) -> SearchResult {
-    let moves = board.get_moves();
+    let moves = board.legal_moves();
     if moves.is_empty() {
         return SearchResult::NoLegalMove;
     }
@@ -352,7 +352,7 @@ mod tests {
         let board = Board::new();
         let ctx = context(&board);
         let quick = quick_move(&board, &ctx.eval).best_move().unwrap();
-        let tt_sq = board.get_moves().iter().find(|&sq| sq != quick).unwrap();
+        let tt_sq = board.legal_moves().iter().find(|&sq| sq != quick).unwrap();
         let probe = ctx.tt.probe(&board, board.hash());
         ctx.tt.store(
             probe.index(),
