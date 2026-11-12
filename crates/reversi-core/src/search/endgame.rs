@@ -50,7 +50,7 @@ const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 const MIN_EC_ETC_EMPTIES: u32 = 12;
 
 /// Total EC cache budget distributed across endgame search threads, in bytes.
-const TOTAL_EC_CACHE_BYTES: usize = 4 * 1024 * 1024;
+const TOTAL_EC_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
 /// Total shallow cache budget distributed across endgame search threads, in bytes.
 const TOTAL_SHALLOW_CACHE_BYTES: usize = 256 * 1024;
