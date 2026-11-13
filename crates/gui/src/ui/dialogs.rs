@@ -3,8 +3,8 @@ use gpui_kit::component::Icon;
 use gpui_kit::{prelude::*, *};
 
 use super::assets::icon;
-use super::new_game::DialogSliderDrag;
 use super::setup::SetupTab;
+use super::slider::SliderDrag;
 use super::widgets::{arrow_keys, interactive, shadow};
 use super::{ACCENT, Action, BACKGROUND, BLUE, Modal, PANEL, RED, ReversiApp, SECONDARY};
 use crate::settings::GameMode;
@@ -19,7 +19,7 @@ impl ReversiApp {
         };
         let viewport = window.viewport_size();
         let (width, title, body) = match modal {
-            Modal::Settings => return self.render_header_menu(cx),
+            Modal::Settings => return self.render_header_menu(window, cx),
             Modal::NewGame => (
                 448.,
                 tr!("new_game"),
@@ -183,8 +183,8 @@ impl ReversiApp {
                     cx.notify();
                 }
             }))
-            .on_drop(cx.listener(|this, drag: &DialogSliderDrag, window, cx| {
-                this.set_dialog_slider(drag.timed, window.mouse_position().x, cx);
+            .on_drop(cx.listener(|this, drag: &SliderDrag, window, cx| {
+                this.set_slider(drag.0, window.mouse_position().x, cx);
             }))
             .on_mouse_up(
                 MouseButton::Left,

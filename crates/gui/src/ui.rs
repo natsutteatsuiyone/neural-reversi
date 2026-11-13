@@ -28,6 +28,7 @@ mod new_game;
 mod notification;
 mod setup;
 mod sidebar;
+mod slider;
 mod solver;
 mod widgets;
 
@@ -36,6 +37,7 @@ use analysis::AnalysisView;
 use assets::GuiAssets;
 use notification::Notification;
 use setup::{SetupEditor, SetupTab};
+use slider::SliderKind;
 
 const BACKGROUND: u32 = 0x1c1c21;
 const PANEL: u32 = 0x252529;
@@ -46,8 +48,6 @@ const GOLD: u32 = 0xb8956c;
 const BLUE: u32 = 0x7ba0c8;
 const RED: u32 = 0xc45c5c;
 const AI_COLOR: u32 = 0x5fb3c4;
-
-const LEVEL_CHOICES: [usize; 9] = [1, 4, 8, 12, 16, 20, 24, 28, 30];
 
 #[derive(Clone, Copy)]
 enum PanelDrag {
@@ -77,7 +77,6 @@ enum Action {
     Mode(GameMode),
     Timed(bool),
     Hint,
-    HintLevel(usize),
     Analyze,
     AnalysisPanel,
     Hash(usize),
@@ -112,7 +111,7 @@ struct ReversiApp {
     menu_section: Option<usize>,
     /// Invalidates pending hover-intent submenu switches.
     menu_hover_generation: u64,
-    slider_layout: Option<(bool, Bounds<Pixels>)>,
+    slider_layout: Option<(SliderKind, Bounds<Pixels>)>,
     slider_focus: FocusHandle,
     setup: SetupEditor,
     license: LicenseViewer,

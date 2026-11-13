@@ -126,7 +126,7 @@ impl Render for ReversiApp {
                     return;
                 }
                 if this.analysis_view.level_menu {
-                    if this.level_menu_key(&event.keystroke.key) {
+                    if this.level_menu_key(&event.keystroke, cx) {
                         cx.notify();
                         cx.stop_propagation();
                     }
@@ -173,7 +173,7 @@ impl Render for ReversiApp {
                             area.child(self.render_splitter(PanelDrag::Bottom, cx))
                         })
                         .child(
-                            self.render_analysis(analysis_height, cx)
+                            self.render_analysis(analysis_height, window, cx)
                                 .when(!desktop, |panel| {
                                     panel.border_t_1().border_color(rgba(0xffffff1a))
                                 }),

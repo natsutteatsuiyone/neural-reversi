@@ -161,11 +161,6 @@ impl ReversiApp {
                 self.save();
                 self.session.hints_toggled(&self.settings);
             }
-            Action::HintLevel(level) => {
-                self.settings.hint_level = level;
-                self.save();
-                self.session.hint_level_changed(&self.settings);
-            }
             Action::Analyze => self.session.toggle_analysis(&self.settings),
             Action::AnalysisPanel => {
                 if self.compact_layout {

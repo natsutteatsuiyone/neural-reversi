@@ -6,8 +6,9 @@ use gpui_kit::{prelude::*, *};
 
 use super::assets::icon;
 use super::dialogs::{DIALOG_LINE_HEIGHT, dialog_small_shadow};
+use super::slider::SliderKind;
 use super::widgets::{interactive, shadow};
-use super::{ACCENT, Action, BACKGROUND, GOLD, LEVEL_CHOICES, Modal, PANEL, ReversiApp, SECONDARY};
+use super::{ACCENT, Action, BACKGROUND, GOLD, Modal, PANEL, ReversiApp, SECONDARY};
 use crate::settings::Language;
 
 /// Transposition table sizes offered by the settings menu, in MiB.
@@ -152,7 +153,7 @@ impl ReversiApp {
             )
     }
 
-    pub(super) fn render_header_menu(&self, cx: &Context<Self>) -> Div {
+    pub(super) fn render_header_menu(&self, window: &Window, cx: &Context<Self>) -> Div {
         let menu_row =
             |id: &'static str, label: SharedString, image: &'static str, section: usize| {
                 menu_item(id, label.clone())
@@ -279,36 +280,30 @@ impl ReversiApp {
                 .absolute()
                 .right(px(188.))
                 .top(px(1. + section as f32 * (DIALOG_LINE_HEIGHT + 8.)))
-                .w(px(96.))
                 .p_1()
                 .rounded(px(10.))
                 .bg(rgb(0x2a2a2f))
                 .shadow(menu_shadow(true));
             match section {
                 0 => {
-                    submenu = submenu.children(LEVEL_CHOICES.into_iter().map(|level| {
-                        menu_choice(
-                            ("hint-level", level),
-                            format!("Lv.{level}"),
-                            Action::HintLevel(level),
-                            self.settings.hint_level == level,
-                            cx,
-                        )
-                    }));
+                    submenu =
+                        submenu.child(self.render_level_slider(SliderKind::HintLevel, window, cx));
                 }
                 1 => {
-                    submenu = submenu.children(HASH_SIZES.into_iter().map(|size| {
-                        menu_choice(
-                            ("hash-size", size),
-                            format!("{size} MB"),
-                            Action::Hash(size),
-                            self.settings.hash_size == size,
-                            cx,
-                        )
-                    }));
+                    submenu = submenu
+                        .w(px(96.))
+                        .children(HASH_SIZES.into_iter().map(|size| {
+                            menu_choice(
+                                ("hash-size", size),
+                                format!("{size} MB"),
+                                Action::Hash(size),
+                                self.settings.hash_size == size,
+                                cx,
+                            )
+                        }));
                 }
                 2 => {
-                    submenu = submenu.children(
+                    submenu = submenu.w(px(96.)).children(
                         [
                             (Language::Auto, tr!("language_auto")),
                             (Language::English, "English".into()),

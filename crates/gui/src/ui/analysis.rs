@@ -3,8 +3,9 @@ use gpui_kit::{prelude::*, *};
 
 use super::assets::icon;
 use super::format::{ScorePrecision, compact_number, display_depth, display_score};
+use super::slider::SliderKind;
 use super::widgets::{activity_icon, interactive, shadow};
-use super::{ACCENT, Action, BACKGROUND, BLUE, LEVEL_CHOICES, PANEL, RED, ReversiApp, SECONDARY};
+use super::{ACCENT, Action, BACKGROUND, BLUE, PANEL, RED, ReversiApp, SECONDARY};
 use crate::session::Activity;
 
 /// Transient state of the analysis panel: the selected tab, the level menu,
@@ -13,7 +14,6 @@ use crate::session::Activity;
 pub(super) struct AnalysisView {
     pub(super) chart: bool,
     pub(super) level_menu: bool,
-    level_cursor: usize,
     pub(super) hover: Option<usize>,
     pub(super) bounds: Option<Bounds<Pixels>>,
     pub(super) pointer: Option<Point<Pixels>>,
@@ -31,27 +31,13 @@ impl AnalysisView {
 
 impl ReversiApp {
     /// Handles a key while the level menu is open; returns whether it was consumed.
-    pub(super) fn level_menu_key(&mut self, key: &str) -> bool {
+    pub(super) fn level_menu_key(&mut self, keystroke: &Keystroke, cx: &mut Context<Self>) -> bool {
         let view = &mut self.analysis_view;
-        match key {
-            "escape" | "tab" => view.level_menu = false,
-            "up" => view.level_cursor = view.level_cursor.saturating_sub(1),
-            "down" => view.level_cursor = (view.level_cursor + 1).min(LEVEL_CHOICES.len() - 1),
-            "home" => view.level_cursor = 0,
-            "end" => view.level_cursor = LEVEL_CHOICES.len() - 1,
-            "enter" | "space" => {
-                let level = LEVEL_CHOICES[view.level_cursor];
-                self.choose_level(level);
-            }
-            _ => return false,
+        match keystroke.key.as_str() {
+            "escape" | "tab" | "enter" | "space" => view.level_menu = false,
+            _ => return self.slider_key(SliderKind::AnalysisLevel, keystroke, cx),
         }
         true
-    }
-
-    fn choose_level(&mut self, level: usize) {
-        self.settings.analysis_level = level;
-        self.analysis_view.level_menu = false;
-        self.save();
     }
 
     /// Full-window layer that closes the open level menu on click.
@@ -193,7 +179,7 @@ impl ReversiApp {
             ))
     }
 
-    pub(super) fn render_analysis(&self, height: f32, cx: &Context<Self>) -> Div {
+    pub(super) fn render_analysis(&self, height: f32, window: &Window, cx: &Context<Self>) -> Div {
         let analyzing = self.session.activity() == Some(Activity::Analysis);
         let can_analyze = !self.session.game().history.is_empty()
             && self.session.activity() != Some(Activity::Move);
@@ -241,7 +227,6 @@ impl ReversiApp {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.analysis_view.level_menu = !this.analysis_view.level_menu;
-                        this.analysis_view.level_cursor = level_index(this.settings.analysis_level);
                         cx.notify();
                     }))
             })
@@ -249,19 +234,17 @@ impl ReversiApp {
             .child(icon("chevron-down.svg", 16., SECONDARY)),
         );
         if self.analysis_view.level_menu && self.modal.is_none() {
-            let selected = level_index(self.settings.analysis_level);
-            let row_height = 8. + 11. * 4. / 3.;
             level = level.child(
                 deferred(
                     div()
-                        // Keep a press on an item from reaching the dismiss layer
-                        // below, which would close the menu before the click lands.
+                        // Keep a press on the slider from reaching the dismiss layer
+                        // below, which would close the menu before the drag starts.
                         .occlude()
                         .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
                         .absolute()
-                        .top(px(12. - (selected as f32 + 0.5) * row_height))
-                        .left(px(2.))
-                        .w(px(144.))
+                        .top(px(28.))
+                        .right_0()
+                        .p_1()
                         .rounded(px(10.))
                         .border_1()
                         .border_color(rgba(0xffffff1a))
@@ -270,45 +253,8 @@ impl ReversiApp {
                             shadow(rgba(0x00000080), 4., 8., -2.),
                             shadow(rgba(0xffffff0f), 0., 0., 1.),
                         ])
-                        .children(LEVEL_CHOICES.into_iter().enumerate().map(|(index, value)| {
-                            interactive(
-                                div().id(("analysis-level-choice", value)),
-                                value.to_string(),
-                                true,
-                            )
-                            .role(Role::MenuItem)
-                            .aria_selected(value == self.settings.analysis_level)
-                            .relative()
-                            .flex()
-                            .items_center()
-                            .h(px(row_height))
-                            .pl(px(6.))
-                            .pr_8()
-                            .rounded(px(8.))
-                            .text_size(px(12.))
-                            .line_height(relative(1.5))
-                            .text_color(rgba(0xffffff99))
-                            .cursor_pointer()
-                            .when(index == self.analysis_view.level_cursor, |row| {
-                                row.bg(rgba(0xffffff1a)).text_color(rgba(0xffffffeb))
-                            })
-                            .on_hover(cx.listener(move |this, hovered, _, cx| {
-                                if *hovered {
-                                    this.analysis_view.level_cursor = index;
-                                    cx.notify();
-                                }
-                            }))
-                            .child(value.to_string())
-                            .when(value == self.settings.analysis_level, |row| {
-                                row.child(icon("check.svg", 16., SECONDARY).absolute().right_2())
-                            })
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.choose_level(value);
-                                    cx.notify();
-                                },
-                            ))
-                        })),
+                        .text_size(px(12.))
+                        .child(self.render_level_slider(SliderKind::AnalysisLevel, window, cx)),
                 )
                 .with_priority(2),
             );
@@ -590,13 +536,6 @@ impl ReversiApp {
                     ),
             )
     }
-}
-
-fn level_index(level: usize) -> usize {
-    LEVEL_CHOICES
-        .iter()
-        .position(|value| *value == level)
-        .unwrap_or(0)
 }
 
 fn score_color(score: f32) -> gpui_kit::Rgba {

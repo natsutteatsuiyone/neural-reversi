@@ -3,20 +3,10 @@ use gpui_kit::{prelude::*, *};
 use reversi_core::disc::Disc;
 
 use super::dialogs::{DIALOG_SMALL_LINE_HEIGHT, dialog_label, dialog_tab, dialog_tabs};
-use super::widgets::{arrow_keys, flat_stone, interactive, shadow};
+use super::slider::SliderKind;
+use super::widgets::{arrow_keys, flat_stone, interactive};
 use super::{ACCENT, Action, ReversiApp, SECONDARY};
 use crate::settings::GameMode;
-
-#[derive(Clone)]
-pub(super) struct DialogSliderDrag {
-    pub(super) timed: bool,
-}
-
-impl Render for DialogSliderDrag {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        Empty
-    }
-}
 
 impl ReversiApp {
     pub(super) fn render_new_game_dialog(&self, window: &Window, cx: &Context<Self>) -> Div {
@@ -176,7 +166,15 @@ impl ReversiApp {
                                         }),
                                 ),
                         )
-                        .child(self.render_setting_slider(window, cx))
+                        .child(self.render_slider(
+                            if self.draft.timed {
+                                SliderKind::GameTime
+                            } else {
+                                SliderKind::AiLevel
+                            },
+                            window,
+                            cx,
+                        ))
                         .child(
                             div()
                                 .relative()
@@ -217,208 +215,4 @@ impl ReversiApp {
                 )
             })
     }
-
-    fn render_setting_slider(&self, window: &Window, cx: &Context<Self>) -> Div {
-        let timed = self.draft.timed;
-        let fraction = if timed {
-            (self.draft.game_time_limit as f32 - 30.) / 570.
-        } else {
-            (self.draft.ai_level as f32 - 1.) / 29.
-        };
-        let view = cx.entity();
-        let drag = DialogSliderDrag { timed };
-        div()
-            .relative()
-            .w_full()
-            .h(px(4.))
-            .flex_shrink_0()
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .w_full()
-                    .h(px(4.))
-                    .rounded_full()
-                    .overflow_hidden()
-                    .bg(rgba(0xffffff0a))
-                    .child(
-                        div().absolute().left(px(6.)).right(px(6.)).h_full().child(
-                            div().h_full().w(relative(fraction)).bg(rgb(ACCENT)).child(
-                                div()
-                                    .absolute()
-                                    .left(px(-6.))
-                                    .w(px(6.))
-                                    .h_full()
-                                    .bg(rgb(ACCENT)),
-                            ),
-                        ),
-                    ),
-            )
-            .child(
-                div()
-                    .id("setting-slider")
-                    .role(Role::Slider)
-                    .aria_label(if timed {
-                        tr!("time_per_game")
-                    } else {
-                        tr!("ai_level")
-                    })
-                    .aria_numeric_value(if timed {
-                        self.draft.game_time_limit as f64
-                    } else {
-                        self.draft.ai_level as f64
-                    })
-                    .aria_min_numeric_value(if timed { 30. } else { 1. })
-                    .aria_max_numeric_value(if timed { 600. } else { 30. })
-                    .aria_numeric_value_step(if timed { 30. } else { 1. })
-                    .aria_orientation(Orientation::Horizontal)
-                    .track_focus(&self.slider_focus.clone().tab_stop(true))
-                    .on_a11y_action(AccessibleAction::Increment, {
-                        let view = view.clone();
-                        move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                let value = if timed {
-                                    (this.draft.game_time_limit + 30).min(600) as f32
-                                } else {
-                                    (this.draft.ai_level + 1).min(30) as f32
-                                };
-                                this.set_dialog_slider_value(timed, value, cx);
-                            })
-                        }
-                    })
-                    .on_a11y_action(AccessibleAction::Decrement, {
-                        let view = view.clone();
-                        move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                let value = if timed {
-                                    this.draft.game_time_limit.saturating_sub(30).max(30) as f32
-                                } else {
-                                    this.draft.ai_level.saturating_sub(1).max(1) as f32
-                                };
-                                this.set_dialog_slider_value(timed, value, cx);
-                            })
-                        }
-                    })
-                    .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
-                        let (value, min, max, step) = if timed {
-                            (this.draft.game_time_limit as f32, 30., 600., 30.)
-                        } else {
-                            (this.draft.ai_level as f32, 1., 30., 1.)
-                        };
-                        let rounded = min + ((value - min) / step).round() * step;
-                        let increment = if event.keystroke.modifiers.shift {
-                            10.
-                        } else {
-                            step
-                        };
-                        let value = match event.keystroke.key.as_str() {
-                            "right" | "up" => rounded + increment,
-                            "left" | "down" => rounded - increment,
-                            "pageup" => rounded + 10.,
-                            "pagedown" => rounded - 10.,
-                            "home" => min,
-                            "end" => max,
-                            _ => return,
-                        };
-                        this.set_dialog_slider_value(timed, value.clamp(min, max), cx);
-                        cx.stop_propagation();
-                    }))
-                    .absolute()
-                    .top(px(-12.))
-                    .bottom(px(-12.))
-                    .w_full()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                            this.slider_focus.focus(window, cx);
-                            this.set_dialog_slider(timed, event.position.x, cx);
-                            cx.stop_propagation();
-                        }),
-                    )
-                    .on_drag(drag, |drag, _, _, cx| {
-                        cx.stop_propagation();
-                        cx.new(|_| drag.clone())
-                    })
-                    .on_drag_move(cx.listener(
-                        |this, event: &DragMoveEvent<DialogSliderDrag>, _, cx| {
-                            let drag = event.drag(cx);
-                            this.set_dialog_slider(drag.timed, event.event.position.x, cx);
-                        },
-                    ))
-                    .child(
-                        div()
-                            .id("setting-slider-hit")
-                            .group("setting-slider-thumb")
-                            .absolute()
-                            .top_0()
-                            .left(relative(fraction))
-                            .ml(px(-8. - 12. * fraction))
-                            .size(px(28.))
-                            .cursor_pointer()
-                            .child(
-                                div()
-                                    .id("setting-slider-thumb")
-                                    .m_2()
-                                    .size(px(12.))
-                                    .rounded_full()
-                                    .border_1()
-                                    .border_color(rgb(ACCENT))
-                                    .bg(rgb(0xffffff))
-                                    .group_hover("setting-slider-thumb", |thumb| {
-                                        thumb.shadow(slider_ring())
-                                    })
-                                    .group_active("setting-slider-thumb", |thumb| {
-                                        thumb.shadow(slider_ring())
-                                    })
-                                    .when(
-                                        cx.has_active_drag()
-                                            || self.slider_focus.is_focused(window),
-                                        |thumb| thumb.shadow(slider_ring()),
-                                    ),
-                            ),
-                    ),
-            )
-            .child(
-                canvas(
-                    move |bounds, _, cx| {
-                        view.update(cx, |view, _| {
-                            view.slider_layout = Some((timed, bounds));
-                        });
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .size_full(),
-            )
-    }
-
-    /// Sets the slider from a pointer x position within its last laid-out bounds.
-    pub(super) fn set_dialog_slider(&mut self, timed: bool, x: Pixels, cx: &mut Context<Self>) {
-        let Some((layout_timed, bounds)) = self.slider_layout else {
-            return;
-        };
-        if layout_timed != timed || bounds.size.width <= px(12.) {
-            return;
-        }
-        let fraction = ((x - bounds.left() - px(6.)) / (bounds.size.width - px(12.))).clamp(0., 1.);
-        let value = if timed {
-            (1. + fraction * 19.).round() * 30.
-        } else {
-            (1. + fraction * 29.).round()
-        };
-        self.set_dialog_slider_value(timed, value, cx);
-    }
-
-    fn set_dialog_slider_value(&mut self, timed: bool, value: f32, cx: &mut Context<Self>) {
-        if timed {
-            self.draft.game_time_limit = value as u64;
-        } else {
-            self.draft.ai_level = value as usize;
-        }
-        cx.notify();
-    }
-}
-
-fn slider_ring() -> Vec<BoxShadow> {
-    vec![shadow(rgba(0x43a57580), 0., 0., 3.)]
 }
