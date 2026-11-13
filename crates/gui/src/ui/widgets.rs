@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use gpui_kit::component::{Icon, tooltip::Tooltip};
 use gpui_kit::{prelude::*, *};
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use super::assets::icon;
 use super::{ACCENT, Action, BLUE, RED, ReversiApp, SECONDARY};
@@ -199,7 +199,7 @@ pub(super) fn shadow(color: impl Into<Hsla>, y: f32, blur: f32, spread: f32) -> 
 }
 
 /// Flat stone used outside the main board; `diameter` must be 16, 21.6, or 40.
-pub(super) fn flat_stone(disc: Disc, diameter: f32) -> Div {
+pub(super) fn flat_stone(color: PlayerColor, diameter: f32) -> Div {
     // Baked from Stone.tsx and the original App.css at DPR 3. Each size
     // retains the CSS's fixed-pixel inset shadows and 12px transparent padding.
     let images = match diameter {
@@ -209,7 +209,7 @@ pub(super) fn flat_stone(disc: Disc, diameter: f32) -> Div {
         _ => unreachable!("unsupported UI stone diameter"),
     };
     div().relative().size(px(diameter)).flex_shrink_0().child(
-        img(images[usize::from(disc != Disc::Black)])
+        img(images[usize::from(color == PlayerColor::White)])
             .absolute()
             .left(px(-12.))
             .top(px(-12.))

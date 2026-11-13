@@ -1,7 +1,7 @@
 use crate::colors::ThemeColor;
 use crate::sprt::{Sprt, SprtConfig, SprtResult, SprtStatus};
 use colored::Colorize;
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 use std::io::{self, IsTerminal};
 
 const ELO_K: f64 = 400.0;
@@ -27,7 +27,7 @@ pub struct GameHistory {
     pub winner: MatchWinner,
     pub score: i32,
     pub opening: String,
-    pub engine1_color: Option<Disc>,
+    pub engine1_color: Option<PlayerColor>,
 }
 
 impl MatchStatistics {
@@ -46,9 +46,9 @@ impl MatchStatistics {
             return;
         }
         let color = if engine1_is_black {
-            Disc::Black
+            PlayerColor::Black
         } else {
-            Disc::White
+            PlayerColor::White
         };
         self.record_outcome(winner, score, opening, Some(color));
     }
@@ -81,7 +81,7 @@ impl MatchStatistics {
         winner: MatchWinner,
         score: i32,
         opening: String,
-        engine1_color: Option<Disc>,
+        engine1_color: Option<PlayerColor>,
     ) {
         match winner {
             MatchWinner::Engine1 => self.engine1_wins += 1,
@@ -698,8 +698,14 @@ mod tests {
         assert_eq!(stats.total_score, 18);
         assert_eq!(stats.paired_frequencies.wl, 1);
         assert_eq!(stats.recent_results.len(), 2);
-        assert_eq!(stats.recent_results[0].engine1_color, Some(Disc::Black));
-        assert_eq!(stats.recent_results[1].engine1_color, Some(Disc::White));
+        assert_eq!(
+            stats.recent_results[0].engine1_color,
+            Some(PlayerColor::Black)
+        );
+        assert_eq!(
+            stats.recent_results[1].engine1_color,
+            Some(PlayerColor::White)
+        );
     }
 
     #[test]

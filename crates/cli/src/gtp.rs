@@ -12,6 +12,7 @@ use reversi_core::{
     disc::Disc,
     game_state::GameState,
     level::{MAX_LEVEL, get_level},
+    player_color::PlayerColor,
     search::{self, SearchRunOptions, time_control::TimeControlMode},
     square::Square,
 };
@@ -537,8 +538,8 @@ impl GtpEngine {
 
     fn handle_setboard(&mut self, text: &str, side: &str) -> GtpResponse {
         let side = match side.to_ascii_lowercase().as_str() {
-            "b" | "black" | "x" => Disc::Black,
-            "w" | "white" | "o" => Disc::White,
+            "b" | "black" | "x" => PlayerColor::Black,
+            "w" | "white" | "o" => PlayerColor::White,
             _ => return GtpResponse::Error("invalid side to move".to_string()),
         };
         match reversi_core::board::Board::from_string(text, side) {
@@ -652,9 +653,8 @@ impl GtpEngine {
             TimeControlMode::Fischer { increment_ms, .. } => {
                 // Use remaining time for the current player
                 let remaining_time_ms = match self.game.side_to_move() {
-                    Disc::Black => self.black_time_ms,
-                    Disc::White => self.white_time_ms,
-                    _ => 0,
+                    PlayerColor::Black => self.black_time_ms,
+                    PlayerColor::White => self.white_time_ms,
                 };
                 TimeControlMode::Fischer {
                     main_time_ms: remaining_time_ms,
@@ -666,9 +666,8 @@ impl GtpEngine {
                 ..
             } => {
                 let (remaining_time_ms, byo_stones_left) = match self.game.side_to_move() {
-                    Disc::Black => (self.black_time_ms, self.black_byo_stones_left),
-                    Disc::White => (self.white_time_ms, self.white_byo_stones_left),
-                    _ => (0, 0),
+                    PlayerColor::Black => (self.black_time_ms, self.black_byo_stones_left),
+                    PlayerColor::White => (self.white_time_ms, self.white_byo_stones_left),
                 };
 
                 if byo_stones_left > 0 {
@@ -728,7 +727,7 @@ impl GtpEngine {
                     let _ = write!(
                         result,
                         " {}'s turn",
-                        if side_to_move == Disc::Black {
+                        if side_to_move == PlayerColor::Black {
                             "Black(X)"
                         } else {
                             "White(O)"
@@ -791,8 +790,8 @@ impl GtpEngine {
     /// Records the pass of `color` if the last move already passed for it automatically.
     fn confirm_automatic_pass(&mut self, color: &str) -> bool {
         let side = match color {
-            "b" | "black" => Disc::Black,
-            "w" | "white" => Disc::White,
+            "b" | "black" => PlayerColor::Black,
+            "w" | "white" => PlayerColor::White,
             _ => return false,
         };
         self.game.confirm_automatic_pass(side)
@@ -809,9 +808,8 @@ impl GtpEngine {
     /// `Ok(())` if valid, `Err(message)` if invalid or wrong player
     fn validate_color(&self, color: &str) -> Result<(), String> {
         let expected_color = match self.game.side_to_move() {
-            Disc::Black => "b",
-            Disc::White => "w",
-            _ => unreachable!(),
+            PlayerColor::Black => "b",
+            PlayerColor::White => "w",
         };
 
         if color != "b" && color != "w" && color != "black" && color != "white" {
@@ -977,13 +975,13 @@ mod tests {
             engine.handle_setboard(&text, "W"),
             GtpResponse::Success(_)
         ));
-        assert_eq!(engine.game.side_to_move(), Disc::White);
+        assert_eq!(engine.game.side_to_move(), PlayerColor::White);
         assert_eq!(
-            engine.game.board().disc_at(Square::A1, Disc::White),
+            engine.game.board().disc_at(Square::A1, PlayerColor::White),
             Disc::Black
         );
         assert_eq!(
-            engine.game.board().disc_at(Square::B1, Disc::White),
+            engine.game.board().disc_at(Square::B1, PlayerColor::White),
             Disc::White
         );
         let before = *engine.game.board();
@@ -998,7 +996,7 @@ mod tests {
                 GtpResponse::Error(_)
             ));
             assert_eq!(*engine.game.board(), before);
-            assert_eq!(engine.game.side_to_move(), Disc::White);
+            assert_eq!(engine.game.side_to_move(), PlayerColor::White);
         }
         assert!(engine.is_known_command("setboard"));
         assert!(matches!(
@@ -1048,7 +1046,7 @@ mod tests {
             GtpResponse::Error(_)
         ));
         assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
-        assert_eq!(engine.game.side_to_move(), Disc::White);
+        assert_eq!(engine.game.side_to_move(), PlayerColor::White);
         assert!(matches!(
             engine.handle_play("black", "g1"),
             GtpResponse::Error(_)
@@ -1069,7 +1067,7 @@ mod tests {
             GtpResponse::Success(mv) if mv == "pass"
         ));
         assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
-        assert_eq!(engine.game.side_to_move(), Disc::White);
+        assert_eq!(engine.game.side_to_move(), PlayerColor::White);
     }
 
     #[test]

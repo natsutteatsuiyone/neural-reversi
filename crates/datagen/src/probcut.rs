@@ -17,10 +17,10 @@ use std::{
 use reversi_core::{
     board::Board,
     constants::INITIAL_EMPTY_COUNT,
-    disc::Disc,
     eval::{Eval, EvalMode},
     game_state::GameState,
     level::Level,
+    player_color::PlayerColor,
     search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
     types::{Depth, Scoref},
@@ -68,8 +68,8 @@ struct ProbCutSample {
 /// Returns an error if a move is illegal when reached.
 pub(crate) fn replay(
     moves: &[Square],
-    mut visit: impl FnMut(&Board, Disc),
-) -> Result<(Board, Disc), String> {
+    mut visit: impl FnMut(&Board, PlayerColor),
+) -> Result<(Board, PlayerColor), String> {
     let mut game = GameState::new();
 
     for &sq in moves {

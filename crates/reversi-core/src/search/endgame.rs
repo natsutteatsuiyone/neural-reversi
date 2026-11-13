@@ -723,8 +723,8 @@ pub fn solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::disc::Disc;
     use crate::eval::Eval;
+    use crate::player_color::PlayerColor;
     use crate::search::result::Iteration;
     use crate::search::threading::ThreadPool;
     use crate::transposition_table::TranspositionTable;
@@ -742,7 +742,7 @@ mod tests {
     fn split_point_cutoff_unwinds_ec_search_without_caching_dummy_score() {
         let board = Board::from_string(
             "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         let tt = Arc::new(TranspositionTable::new(0));
@@ -770,7 +770,7 @@ mod tests {
     ) -> (SearchContext, SearchTask, CompletedState) {
         let board = Board::from_string(
             "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         let tt = Arc::new(TranspositionTable::new(0));

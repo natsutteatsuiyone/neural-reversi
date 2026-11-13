@@ -242,7 +242,7 @@ mod tests {
     fn test_flip_2() {
         let board = Board::from_string(
             "XXXXXXXOXOOXXXXOXOXXXOXOXOOXOXXOXOXOOOXOXOOOOOXOXOOOXXXO-X-OXOOO",
-            crate::disc::Disc::Black,
+            crate::player_color::PlayerColor::Black,
         )
         .unwrap();
         let flipped = flip(Square::A8, board.player(), board.opponent());

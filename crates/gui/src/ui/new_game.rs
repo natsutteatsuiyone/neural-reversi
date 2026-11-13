@@ -1,6 +1,6 @@
 use gpui_kit::component::StyledExt;
 use gpui_kit::{prelude::*, *};
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use super::dialogs::{DIALOG_SMALL_LINE_HEIGHT, dialog_label, dialog_tab, dialog_tabs};
 use super::slider::SliderKind;
@@ -50,8 +50,8 @@ impl ReversiApp {
                         .child(
                             div().flex().gap_3().children(
                                 [
-                                    (Disc::Black, GameMode::AiWhite),
-                                    (Disc::White, GameMode::AiBlack),
+                                    (PlayerColor::Black, GameMode::AiWhite),
+                                    (PlayerColor::White, GameMode::AiBlack),
                                 ]
                                 .into_iter()
                                 .enumerate()

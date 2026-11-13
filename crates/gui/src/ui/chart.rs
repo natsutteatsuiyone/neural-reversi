@@ -1,5 +1,5 @@
 use gpui_kit::{prelude::*, *};
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use super::format::{ScorePrecision, display_score};
 use super::widgets::shadow;
@@ -25,7 +25,7 @@ impl ReversiApp {
                     .map(|value| value.played_score)
                     .or(record.score)
                     .map(|score| {
-                        if record.player == Disc::White {
+                        if record.player == PlayerColor::White {
                             -score
                         } else {
                             score
@@ -304,7 +304,7 @@ impl ReversiApp {
                                     tr!("best"),
                                     analysis.best_move,
                                     display_score(
-                                        if record.player == Disc::White {
+                                        if record.player == PlayerColor::White {
                                             -analysis.best_score
                                         } else {
                                             analysis.best_score

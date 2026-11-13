@@ -532,8 +532,8 @@ mod schedule_tests {
     use super::*;
     use std::sync::{Arc, OnceLock};
 
-    use crate::disc::Disc;
     use crate::level::Level;
+    use crate::player_color::PlayerColor;
     use crate::search::threading::ThreadPool;
     use crate::search::time_control::{TimeControlMode, TimeManager};
     use crate::transposition_table::TranspositionTable;
@@ -625,7 +625,7 @@ mod schedule_tests {
         // FFO position #1: 14 empties, Black to move, exact score +18 (G8).
         let board = Board::from_string(
             "--XXXXX--OOOXX-O-OOOXXOX-OXOXOXXOXXXOXXX--XOXOXX-XXXOOO--OOOOO--",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         let n_empties = board.empty_count();

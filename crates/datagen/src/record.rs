@@ -3,7 +3,7 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::square::Square;
 use reversi_core::types::Scoref;
 use std::fs;
@@ -33,7 +33,7 @@ pub struct GameRecord {
     pub board: Board,
     pub score: Scoref,
     pub game_score: i8,
-    pub side_to_move: Disc,
+    pub side_to_move: PlayerColor,
     pub is_random: bool,
     pub sq: Square,
 }
@@ -56,7 +56,7 @@ fn write_records(writer: &mut impl Write, records: &[GameRecord]) -> io::Result<
         writer.write_u8(record.ply)?;
         writer.write_u8(if record.is_random { 1 } else { 0 })?;
         writer.write_u8(record.sq as u8)?;
-        writer.write_u8(if record.side_to_move == Disc::Black {
+        writer.write_u8(if record.side_to_move == PlayerColor::Black {
             0
         } else {
             1
@@ -140,9 +140,9 @@ pub fn read_records_from_file(path: &Path) -> io::Result<Vec<GameRecord>> {
 
         let board = Board::from_bitboards(Bitboard::new(player), Bitboard::new(opponent));
         let side_to_move = if side_to_move_byte == 0 {
-            Disc::Black
+            PlayerColor::Black
         } else {
-            Disc::White
+            PlayerColor::White
         };
         let sq = Square::from_u8(sq_byte).ok_or_else(|| {
             io::Error::new(
@@ -210,9 +210,9 @@ mod tests {
             score: f32::from(index) + 0.5,
             game_score: index as i8 - 2,
             side_to_move: if index.is_multiple_of(2) {
-                Disc::Black
+                PlayerColor::Black
             } else {
-                Disc::White
+                PlayerColor::White
             },
             is_random: index.is_multiple_of(2),
             sq: Square::from_u8(index).expect("test square is valid"),
@@ -241,7 +241,7 @@ mod tests {
             ),
             score: 1.5,
             game_score: -3,
-            side_to_move: Disc::White,
+            side_to_move: PlayerColor::White,
             is_random: true,
             sq: Square::D3,
         };

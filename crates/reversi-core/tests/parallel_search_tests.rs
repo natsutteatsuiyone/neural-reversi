@@ -3,8 +3,8 @@ use std::sync::{OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
 use reversi_core::level::Level;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
@@ -51,7 +51,7 @@ fn score(result: &SearchResult) -> i32 {
 }
 
 /// Solves `board_str` with `n_threads` and asserts the exact score.
-fn assert_parallel_solve(board_str: &str, side: Disc, n_threads: usize, expected: i32) {
+fn assert_parallel_solve(board_str: &str, side: PlayerColor, n_threads: usize, expected: i32) {
     let mut search = search(n_threads);
     let board = Board::from_string(board_str, side).unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -61,13 +61,13 @@ fn assert_parallel_solve(board_str: &str, side: Disc, n_threads: usize, expected
 
 #[test]
 fn parallel_solve_matches_known_score_20_empties() {
-    assert_parallel_solve(BOARD_20_EMPTIES, Disc::Black, 4, 6);
+    assert_parallel_solve(BOARD_20_EMPTIES, PlayerColor::Black, 4, 6);
 }
 
 #[test]
 fn parallel_solve_reused_search_instance_is_consistent() {
     let mut search = search(4);
-    let board = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
+    let board = Board::from_string(BOARD_16_EMPTIES, PlayerColor::Black).unwrap();
     assert_eq!(board.empty_count(), 16);
     let options = SearchRunOptions::with_level(Level::perfect());
 
@@ -167,12 +167,12 @@ fn concurrent_engines_from_shared_resources_solve_correctly() {
     std::thread::scope(|s| {
         let first = s.spawn(|| {
             let mut search = search(2);
-            let board = Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap();
+            let board = Board::from_string(BOARD_20_EMPTIES, PlayerColor::Black).unwrap();
             score(&search.run(&board, &options))
         });
         let second = s.spawn(|| {
             let mut search = search(2);
-            let board = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
+            let board = Board::from_string(BOARD_16_EMPTIES, PlayerColor::Black).unwrap();
             score(&search.run(&board, &options))
         });
         assert_eq!(first.join().unwrap(), 6);
@@ -192,8 +192,8 @@ fn engines_sharing_a_pool_search_in_turn() {
     assert!(!std::sync::Arc::ptr_eq(first.tt(), second.tt()));
 
     let options = SearchRunOptions::with_level(Level::perfect());
-    let board_20 = Board::from_string(BOARD_20_EMPTIES, Disc::Black).unwrap();
-    let board_16 = Board::from_string(BOARD_16_EMPTIES, Disc::Black).unwrap();
+    let board_20 = Board::from_string(BOARD_20_EMPTIES, PlayerColor::Black).unwrap();
+    let board_16 = Board::from_string(BOARD_16_EMPTIES, PlayerColor::Black).unwrap();
     for _ in 0..2 {
         assert_eq!(score(&first.run(&board_20, &options)), 6);
         assert_eq!(score(&second.run(&board_16, &options)), 8);

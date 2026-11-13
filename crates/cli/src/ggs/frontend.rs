@@ -21,7 +21,7 @@ use ratatui::widgets::{
 use ratatui::{DefaultTerminal, Frame};
 
 use super::connection::Event;
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::square::Square;
 
 use super::protocol::MatchState;
@@ -703,7 +703,7 @@ impl Model {
                     let (black, white) = absolute_counts(state);
                     label += &format!("  ● {black:>2}-{white:<2} ○");
                     if let Some(color) = state.my_color {
-                        label += &format!("  you {}", disc_mark(color));
+                        label += &format!("  you {}", color_mark(color));
                     }
                 }
                 if let Some(eval) = game.eval {
@@ -854,7 +854,7 @@ impl Model {
             )),
             Line::from(format!(
                 "You: {}   Turn: {}   Discs: X {black} O {white}",
-                disc_name(state.my_color),
+                color_name(state.my_color),
                 turn_label(state)
             )),
             Line::from(clocks.join("   ")),
@@ -975,20 +975,18 @@ fn fact_line(label: &str, value: impl AsRef<str>, value_color: Color) -> Line<'s
     ])
 }
 
-fn disc_name(disc: Option<Disc>) -> &'static str {
-    match disc {
-        Some(Disc::Black) => "● Black",
-        Some(Disc::White) => "○ White",
-        Some(Disc::Empty) => "Empty",
+fn color_name(color: Option<PlayerColor>) -> &'static str {
+    match color {
+        Some(PlayerColor::Black) => "● Black",
+        Some(PlayerColor::White) => "○ White",
         None => "Spectator / unknown",
     }
 }
 
-fn disc_mark(disc: Disc) -> &'static str {
-    match disc {
-        Disc::Black => "●",
-        Disc::White => "○",
-        Disc::Empty => "·",
+fn color_mark(color: PlayerColor) -> &'static str {
+    match color {
+        PlayerColor::Black => "●",
+        PlayerColor::White => "○",
     }
 }
 
@@ -996,15 +994,8 @@ fn absolute_counts(state: &MatchState) -> (u32, u32) {
     let player = state.board.player_count();
     let opponent = state.board.opponent_count();
     match state.side_to_move {
-        reversi_core::disc::Disc::Black => (player, opponent),
-        reversi_core::disc::Disc::White => (opponent, player),
-        reversi_core::disc::Disc::Empty => {
-            let board = state.board.to_string_as_board(state.side_to_move);
-            (
-                board.chars().filter(|cell| *cell == 'X').count() as u32,
-                board.chars().filter(|cell| *cell == 'O').count() as u32,
-            )
-        }
+        PlayerColor::Black => (player, opponent),
+        PlayerColor::White => (opponent, player),
     }
 }
 
@@ -1047,7 +1038,7 @@ fn clock_lines(state: &MatchState, game: &GameView) -> Vec<Line<'static>> {
                 value += "  ◀";
             }
             fact_line(
-                &format!("{} {}", disc_mark(clock.color), clock.name),
+                &format!("{} {}", color_mark(clock.color), clock.name),
                 value,
                 if running { Color::Yellow } else { Color::White },
             )
@@ -1101,7 +1092,7 @@ fn turn_label(state: &MatchState) -> String {
         Some(_) => " (opponent)",
         None => " (watching)",
     };
-    format!("{}{suffix}", disc_name(Some(state.side_to_move)))
+    format!("{}{suffix}", color_name(Some(state.side_to_move)))
 }
 
 fn transcript_style(line: &str) -> Style {
@@ -1292,8 +1283,8 @@ mod tests {
                 variant: Some("8b".into()),
                 opponent: Some("bob".into()),
                 board: Board::new(),
-                side_to_move: Disc::Black,
-                my_color: Some(Disc::Black),
+                side_to_move: PlayerColor::Black,
+                my_color: Some(PlayerColor::Black),
                 my_clock: Some(PlayerClock {
                     main_ms: 299_125,
                     increment_ms: 5_000,
@@ -1567,12 +1558,12 @@ mod tests {
         game.state.as_mut().unwrap().clocks = vec![
             DisplayClock {
                 name: "alice".into(),
-                color: Disc::Black,
+                color: PlayerColor::Black,
                 main_ms: Some(299_000),
             },
             DisplayClock {
                 name: "bob".into(),
-                color: Disc::White,
+                color: PlayerColor::White,
                 main_ms: Some(250_000),
             },
         ];

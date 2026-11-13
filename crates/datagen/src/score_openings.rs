@@ -7,9 +7,9 @@
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
 use reversi_core::level::Level;
 use reversi_core::move_list::MoveList;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
@@ -31,11 +31,11 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
     }
 
     println!("Enumerating positions up to depth {depth}...");
-    let mut positions: Vec<(Board, Disc)> = Vec::new();
+    let mut positions: Vec<(Board, PlayerColor)> = Vec::new();
     let mut visited = HashSet::new();
     enumerate_positions(
         &Board::new(),
-        Disc::Black,
+        PlayerColor::Black,
         depth,
         &mut visited,
         &mut positions,
@@ -124,10 +124,10 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
 /// are treated as duplicates, reducing the total count by up to 8x.
 fn enumerate_positions(
     board: &Board,
-    side_to_move: Disc,
+    side_to_move: PlayerColor,
     depth: u8,
     visited: &mut HashSet<Board>,
-    positions: &mut Vec<(Board, Disc)>,
+    positions: &mut Vec<(Board, PlayerColor)>,
 ) {
     let canonical = board.unique();
     if !visited.insert(canonical) {

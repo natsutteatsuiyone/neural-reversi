@@ -1,6 +1,7 @@
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::{prelude::*, *};
 use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use super::board::board_label;
 use super::dialogs::{
@@ -25,7 +26,7 @@ pub(super) enum SetupTab {
 pub(super) struct SetupEditor {
     pub(super) tab: SetupTab,
     pub(super) cells: [Disc; 64],
-    pub(super) turn: Disc,
+    pub(super) turn: PlayerColor,
     pub(super) error: Option<SetupError>,
     transcript_input: Entity<InputState>,
     board_input: Entity<TextareaState>,
@@ -90,7 +91,7 @@ impl SetupEditor {
         Self {
             tab: SetupTab::Manual,
             cells: std::array::from_fn(|index| Position::initial().cell(index)),
-            turn: Disc::Black,
+            turn: PlayerColor::Black,
             error: None,
             transcript_input,
             board_input,
@@ -129,7 +130,7 @@ impl SetupEditor {
                 let mut player = 0;
                 let mut opponent = 0;
                 for (index, disc) in self.cells.iter().enumerate() {
-                    if *disc == self.turn {
+                    if *disc == self.turn.into() {
                         player |= 1_u64 << index;
                     } else if *disc != Disc::Empty {
                         opponent |= 1_u64 << index;
@@ -177,7 +178,6 @@ impl ReversiApp {
             SetupError::TooFewDiscs => tr!("error_too_few_discs"),
             SetupError::NoMoves => tr!("error_no_moves"),
             SetupError::TurnHasNoMoves => tr!("error_turn_has_no_moves"),
-            SetupError::MissingTurn => tr!("error_missing_turn"),
         }
         .into()
     }
@@ -257,15 +257,15 @@ impl ReversiApp {
                 .child(dialog_label(tr!("turn")))
                 .child(
                     div().flex().gap_2().children(
-                        [Disc::Black, Disc::White]
+                        [PlayerColor::Black, PlayerColor::White]
                             .into_iter()
                             .enumerate()
-                            .map(|(index, disc)| {
-                                let selected = turn == disc;
+                            .map(|(index, color)| {
+                                let selected = turn == color;
                                 let read_only = tab == SetupTab::Transcript;
                                 interactive(
                                     div().id(("setup-turn", tab as usize * 2 + index)),
-                                    self.color(disc),
+                                    self.color(color),
                                     !read_only,
                                 )
                                 .role(Role::RadioButton)
@@ -274,13 +274,7 @@ impl ReversiApp {
                                     button.on_key_down(arrow_keys(
                                         index,
                                         2,
-                                        move |_, _| {
-                                            Action::Turn(if disc == Disc::Black {
-                                                Disc::White
-                                            } else {
-                                                Disc::Black
-                                            })
-                                        },
+                                        move |_, _| Action::Turn(color.opposite()),
                                         cx,
                                     ))
                                 })
@@ -326,11 +320,11 @@ impl ReversiApp {
                                             })
                                         })
                                         .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.action(Action::Turn(disc), window, cx)
+                                            this.action(Action::Turn(color), window, cx)
                                         }))
                                 })
-                                .child(flat_stone(disc, 16.))
-                                .child(self.color(disc))
+                                .child(flat_stone(color, 16.))
+                                .child(self.color(color))
                             }),
                     ),
                 ),
@@ -457,10 +451,9 @@ impl ReversiApp {
                         "{}{} {}",
                         (b'A' + (index % 8) as u8) as char,
                         index / 8 + 1,
-                        if disc == Disc::Empty {
-                            tr!("empty")
-                        } else {
-                            self.color(disc)
+                        match PlayerColor::try_from(disc) {
+                            Ok(color) => self.color(color),
+                            Err(_) => tr!("empty"),
                         }
                     ))
                     .when(
@@ -487,8 +480,8 @@ impl ReversiApp {
                                 this.action(Action::Cell(index), window, cx);
                             }))
                     })
-                    .when(disc != Disc::Empty, |cell| {
-                        cell.child(flat_stone(disc, 21.6))
+                    .when_some(PlayerColor::try_from(disc).ok(), |cell, color| {
+                        cell.child(flat_stone(color, 21.6))
                     }),
             );
         }

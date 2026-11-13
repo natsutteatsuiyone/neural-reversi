@@ -1,7 +1,7 @@
 use js_sys::{Function, Object, Reflect};
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
 use reversi_core::move_list::MoveList;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::square::{Square, TOTAL_SQUARES};
 use reversi_core::types::Depth;
 use std::rc::Rc;
@@ -19,9 +19,9 @@ use crate::transposition_table::TranspositionTable;
 #[wasm_bindgen]
 pub struct Game {
     board: Board,
-    current_player: Disc,
-    human_player: Disc,
-    ai_player: Disc,
+    current_player: PlayerColor,
+    human_player: PlayerColor,
+    ai_player: PlayerColor,
     search: Search,
     mid_depth: Depth,
     progress_callback: Option<Function>,
@@ -36,9 +36,9 @@ impl Game {
 
         let mut game = Game {
             board: Board::new(),
-            current_player: Disc::Black,
-            human_player: Disc::Black,
-            ai_player: Disc::White,
+            current_player: PlayerColor::Black,
+            human_player: PlayerColor::Black,
+            ai_player: PlayerColor::White,
             search: new_search(),
             mid_depth: DEFAULT_MID_DEPTH,
             progress_callback: None,
@@ -130,15 +130,15 @@ impl Game {
     }
 
     pub fn current_player(&self) -> u8 {
-        piece_to_u8(self.current_player)
+        color_to_u8(self.current_player)
     }
 
     pub fn human_color(&self) -> u8 {
-        piece_to_u8(self.human_player)
+        color_to_u8(self.human_player)
     }
 
     pub fn ai_color(&self) -> u8 {
-        piece_to_u8(self.ai_player)
+        color_to_u8(self.ai_player)
     }
 
     pub fn is_game_over(&self) -> bool {
@@ -205,21 +205,20 @@ impl Game {
     fn set_players(&mut self, human_is_black: bool) {
         self.search.init();
         self.human_player = if human_is_black {
-            Disc::Black
+            PlayerColor::Black
         } else {
-            Disc::White
+            PlayerColor::White
         };
         self.ai_player = self.human_player.opposite();
         self.board = Board::new();
-        self.current_player = Disc::Black;
+        self.current_player = PlayerColor::Black;
         self.handle_forced_passes();
     }
 
     fn color_bitboards(&self) -> (u64, u64) {
         match self.current_player {
-            Disc::Black => (self.board.player().bits(), self.board.opponent().bits()),
-            Disc::White => (self.board.opponent().bits(), self.board.player().bits()),
-            Disc::Empty => (0, 0),
+            PlayerColor::Black => (self.board.player().bits(), self.board.opponent().bits()),
+            PlayerColor::White => (self.board.opponent().bits(), self.board.player().bits()),
         }
     }
 
@@ -279,11 +278,10 @@ fn level_for_position(mid_depth: Depth) -> Level {
     }
 }
 
-fn piece_to_u8(piece: Disc) -> u8 {
-    match piece {
-        Disc::Empty => 0,
-        Disc::Black => 1,
-        Disc::White => 2,
+fn color_to_u8(color: PlayerColor) -> u8 {
+    match color {
+        PlayerColor::Black => 1,
+        PlayerColor::White => 2,
     }
 }
 
@@ -336,7 +334,7 @@ mod tests {
                 "-".repeat(16),
                 "-".repeat(24)
             ),
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         game.board = occupied;
@@ -493,10 +491,10 @@ mod tests {
         game.set_level(10);
         game.board = Board::from_string(
             "-OOOOOO-XXXXXXX---XOXXXOXXXOXXOOXXXXXOXOXXXOOOXOXOOOOXXOXOOOOOOO",
-            Disc::White,
+            PlayerColor::White,
         )
         .unwrap();
-        game.current_player = Disc::White;
+        game.current_player = PlayerColor::White;
         assert_eq!(game.empty_count(), 5);
         assert_eq!(exact_score(game.board), 32);
         let legal = game.legal_moves();

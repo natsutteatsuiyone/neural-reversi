@@ -1,5 +1,7 @@
 //! Native game timeline. Boards are always relative to `Position::turn`.
-use reversi_core::{analysis::GameAnalysisMove, board::Board, disc::Disc, square::Square};
+use reversi_core::{
+    analysis::GameAnalysisMove, board::Board, disc::Disc, player_color::PlayerColor, square::Square,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupError {
@@ -13,7 +15,6 @@ pub enum SetupError {
     TooFewDiscs,
     NoMoves,
     TurnHasNoMoves,
-    MissingTurn,
 }
 
 // Match JavaScript trim() and /\s/g, including BOM but excluding U+0085.
@@ -37,14 +38,14 @@ fn setup_whitespace(ch: char) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Position {
     pub board: Board,
-    pub turn: Disc,
+    pub turn: PlayerColor,
 }
 
 impl Position {
     pub fn initial() -> Self {
         Self {
             board: Board::new(),
-            turn: Disc::Black,
+            turn: PlayerColor::Black,
         }
     }
 
@@ -57,7 +58,7 @@ impl Position {
     pub fn scores(&self) -> (u32, u32) {
         let player = self.board.player_count();
         let opponent = self.board.opponent_count();
-        if self.turn == Disc::Black {
+        if self.turn == PlayerColor::Black {
             (player, opponent)
         } else {
             (opponent, player)
@@ -70,10 +71,7 @@ impl Position {
 
     /// Parses an editable board without requiring that it is playable yet.
     /// Whitespace and the original editor's B/W/*/. aliases are supported.
-    pub fn from_board_string(text: &str, turn: Disc) -> Result<Self, SetupError> {
-        if turn == Disc::Empty {
-            return Err(SetupError::MissingTurn);
-        }
+    pub fn from_board_string(text: &str, turn: PlayerColor) -> Result<Self, SetupError> {
         let cells = text.chars().filter(|&ch| !setup_whitespace(ch));
         let length: usize = cells.clone().map(char::len_utf16).sum();
         if length != 0 && length != 64 {
@@ -89,7 +87,7 @@ impl Position {
                 _ => return Err(SetupError::BoardCharacter),
             }
         }
-        let board = if turn == Disc::Black {
+        let board = if turn == PlayerColor::Black {
             Board::from_bitboards(black, white)
         } else {
             Board::from_bitboards(white, black)
@@ -140,9 +138,6 @@ impl Position {
     }
 
     pub fn validate_setup(&self) -> Result<(), SetupError> {
-        if self.turn == Disc::Empty {
-            return Err(SetupError::MissingTurn);
-        }
         let (black, white) = self.scores();
         if black == 0 || white == 0 {
             return Err(SetupError::MissingColors);
@@ -176,7 +171,7 @@ impl Position {
 pub struct MoveRecord {
     /// Position after this individual action, before any following pass.
     pub position: Position,
-    pub player: Disc,
+    pub player: PlayerColor,
     pub square: Option<Square>,
     pub score: Option<f32>,
     pub remaining_ms: Option<u64>,
@@ -219,7 +214,7 @@ impl Game {
         let current = self.position();
         let must_pass = current.must_pass();
         let position = if must_pass { current.passed() } else { current };
-        if position.turn == Disc::Empty || !position.board.is_legal_move(square) {
+        if !position.board.is_legal_move(square) {
             return Err(if position.game_over() {
                 "The game is over".into()
             } else {
@@ -300,24 +295,24 @@ mod tests {
     fn forced_pass_navigation_branch_and_terminal_move() {
         let initial = Position::from_board_string(
             "XO------\n--------\n--------\n--------\n--------\n--------\n--------\nXO------",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         let mut game = Game::new(initial);
         game.play(Square::C1, Some(4.0), Some(500)).unwrap();
         assert_eq!(game.history.len(), 2);
         assert_eq!(game.history[1].square, None);
-        assert_eq!(game.position().turn, Disc::Black);
+        assert_eq!(game.position().turn, PlayerColor::Black);
         assert_eq!(game.position().scores(), (4, 1));
         game.navigate(1);
-        assert_eq!(game.position().turn, Disc::White);
+        assert_eq!(game.position().turn, PlayerColor::White);
         assert!(game.play(Square::A1, None, None).is_err());
         assert_eq!(game.history.len(), 2);
         // Playing from immediately before a forced pass retains correct colors.
         game.play(Square::C8, None, None).unwrap();
         assert_eq!(game.history.len(), 3);
         assert_eq!(game.history[1].square, None);
-        assert_eq!(game.history[2].player, Disc::Black);
+        assert_eq!(game.history[2].player, PlayerColor::Black);
         assert_eq!(game.position().scores(), (6, 0));
         assert!(game.position().game_over());
         assert_eq!(game.transcript(), "c1c8");
@@ -349,20 +344,19 @@ mod tests {
     #[test]
     fn editor_preserves_absolute_colors_and_requires_playable_setup() {
         let text = "bw......\n........\n........\n........\n........\n........\n........\n*w......";
-        let black = Position::from_board_string(text, Disc::Black).unwrap();
-        let white = Position::from_board_string(text, Disc::White).unwrap();
+        let black = Position::from_board_string(text, PlayerColor::Black).unwrap();
+        let white = Position::from_board_string(text, PlayerColor::White).unwrap();
         assert_eq!(board_string(&black), board_string(&white));
         assert_eq!(white.cell(0), Disc::Black);
         assert_eq!(white.scores(), (2, 2));
         assert!(black.validate_setup().is_ok());
         assert!(white.validate_setup().is_err());
         assert!(
-            Position::from_board_string("", Disc::Black)
+            Position::from_board_string("", PlayerColor::Black)
                 .unwrap()
                 .validate_setup()
                 .is_err()
         );
-        assert!(Position::from_board_string(text, Disc::Empty).is_err());
     }
 
     #[test]
@@ -370,19 +364,19 @@ mod tests {
         let initial = Position::initial();
         let board = board_string(&initial);
         assert_eq!(
-            Position::from_board_string(&format!("\u{feff}{board}\n"), Disc::Black),
+            Position::from_board_string(&format!("\u{feff}{board}\n"), PlayerColor::Black),
             Ok(initial)
         );
         assert_eq!(
-            Position::from_board_string(&format!("\u{0085}{board}"), Disc::Black),
+            Position::from_board_string(&format!("\u{0085}{board}"), PlayerColor::Black),
             Err(SetupError::BoardLength)
         );
         assert_eq!(
-            Position::from_board_string(&"\u{10000}".repeat(32), Disc::Black),
+            Position::from_board_string(&"\u{10000}".repeat(32), PlayerColor::Black),
             Err(SetupError::BoardCharacter)
         );
         assert_eq!(
-            Position::from_board_string("?", Disc::Black),
+            Position::from_board_string("?", PlayerColor::Black),
             Err(SetupError::BoardLength)
         );
     }

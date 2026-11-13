@@ -6,8 +6,8 @@ use std::{
 };
 
 use directories::BaseDirs;
-use reversi_core::disc::Disc;
 use reversi_core::level::ENDGAME_STEPS;
+use reversi_core::player_color::PlayerColor;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -93,10 +93,10 @@ impl Settings {
         self.save_to(&Self::directory()?)
     }
 
-    pub fn ai_color(&self) -> Option<Disc> {
+    pub fn ai_color(&self) -> Option<PlayerColor> {
         match self.game_mode {
-            GameMode::AiBlack => Some(Disc::Black),
-            GameMode::AiWhite => Some(Disc::White),
+            GameMode::AiBlack => Some(PlayerColor::Black),
+            GameMode::AiWhite => Some(PlayerColor::White),
             GameMode::Human => None,
         }
     }

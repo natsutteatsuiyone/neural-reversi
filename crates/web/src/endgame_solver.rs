@@ -1,5 +1,5 @@
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::types::Depth;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -65,7 +65,11 @@ impl EndgameSolver {
     }
 
     pub fn solve(&mut self, board_str: &str, side: u8) -> Result<EndgameSolveResult, JsValue> {
-        let disc = if side == 0 { Disc::Black } else { Disc::White };
+        let disc = if side == 0 {
+            PlayerColor::Black
+        } else {
+            PlayerColor::White
+        };
         let board = Board::from_string(board_str, disc)
             .map_err(|e| JsValue::from_str(&format!("Invalid board: {}", e)))?;
 

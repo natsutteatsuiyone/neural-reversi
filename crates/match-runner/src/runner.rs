@@ -11,7 +11,7 @@ use std::{
 
 use indicatif::ProgressBar;
 use rand::{SeedableRng, rngs::StdRng};
-use reversi_core::{disc::Disc, game_state::GameState, square::Square};
+use reversi_core::{game_state::GameState, player_color::PlayerColor, square::Square};
 
 use crate::config::{Config, parse_engine_command, read_opening_file};
 use crate::display;
@@ -20,7 +20,7 @@ use crate::error::{MatchRunnerError, Result};
 use crate::opening::{Opening, board_string, color, random_position};
 use crate::sprt::{Sprt, SprtResult, SprtStatus};
 use crate::statistics::{MatchStatistics, MatchWinner};
-use crate::time_tracker::{PlayerColor, TimeTracker};
+use crate::time_tracker::TimeTracker;
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 static INTERRUPT_HANDLER: OnceLock<std::result::Result<(), String>> = OnceLock::new();
@@ -202,7 +202,8 @@ fn play_game(
 
     while !game_state.is_game_over() {
         check_interrupted()?;
-        let is_black = game_state.side_to_move() == Disc::Black;
+        let mover = game_state.side_to_move();
+        let is_black = mover == PlayerColor::Black;
         let current_color = if is_black { "black" } else { "white" };
 
         if time_tracker.is_enabled() {
@@ -221,11 +222,6 @@ fn play_game(
             white_engine.genmove("white")?
         };
 
-        let mover = if is_black {
-            PlayerColor::Black
-        } else {
-            PlayerColor::White
-        };
         let flagged = !time_tracker.end_move(mover) && time_tracker.is_enabled();
         if flagged || mv.eq_ignore_ascii_case("resign") {
             return Ok(if is_black {
@@ -269,7 +265,7 @@ fn apply_opening_moves(
         .map_err(|error| MatchRunnerError::Game(format!("Invalid opening sequence: {error}")))?;
 
     for square in moves {
-        let color = if game_state.side_to_move() == Disc::Black {
+        let color = if game_state.side_to_move() == PlayerColor::Black {
             "black"
         } else {
             "white"

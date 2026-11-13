@@ -4,7 +4,7 @@
 //! delimited by `READY` / `ALERT` markers) into structured [`OsEvent`]s.
 
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 /// Clock information parsed from our GGS clock line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,11 +100,11 @@ pub struct MatchState {
     /// Other player, when it can be recovered from the clock lines.
     pub opponent: Option<String>,
     pub board: Board,
-    pub side_to_move: Disc,
+    pub side_to_move: PlayerColor,
     /// Actual color marker for `my_username` in this game, parsed from
     /// the clock line. This is authoritative because `+ match` lists
     /// request players, not necessarily black then white.
-    pub my_color: Option<Disc>,
+    pub my_color: Option<PlayerColor>,
     /// `None` when our clock line is absent or unparseable.
     pub my_clock: Option<PlayerClock>,
     /// Both players' live clock lines, as shown to the user.
@@ -402,7 +402,7 @@ fn take_word(s: &str) -> Option<(&str, &str)> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayClock {
     pub name: String,
-    pub color: Disc,
+    pub color: PlayerColor,
     /// `None` when the clock fields are unparseable.
     pub main_ms: Option<u64>,
 }
@@ -499,7 +499,10 @@ fn parse_match_state(header_body: &str, lines: &[&str], my_username: &str) -> Op
 }
 
 /// The last printed board with its side to move, or `None` if either is missing or invalid.
-fn current_position(rows: &[[u8; 8]], side_to_move: Option<Disc>) -> Option<(Board, Disc)> {
+fn current_position(
+    rows: &[[u8; 8]],
+    side_to_move: Option<PlayerColor>,
+) -> Option<(Board, PlayerColor)> {
     let side_to_move = side_to_move?;
     // Assemble the 64 bytes in Square::iter order (A1..H1, A2..H2, ..., A8..H8).
     // `parse_board_row` already normalises cells into Board's alphabet.
@@ -517,7 +520,7 @@ fn current_position(rows: &[[u8; 8]], side_to_move: Option<Disc>) -> Option<(Boa
 struct ClockLine<'a> {
     name: &'a str,
     is_mine: bool,
-    color: Disc,
+    color: PlayerColor,
     clock: Option<PlayerClock>,
 }
 
@@ -579,10 +582,10 @@ fn parse_fischer_increment_field(field: &str) -> Option<u64> {
     parse_clock_time_field(field)
 }
 
-fn parse_color_mark(mark: &str) -> Option<Disc> {
+fn parse_color_mark(mark: &str) -> Option<PlayerColor> {
     match mark {
-        "*" | "X" => Some(Disc::Black),
-        "O" => Some(Disc::White),
+        "*" | "X" => Some(PlayerColor::Black),
+        "O" => Some(PlayerColor::White),
         _ => None,
     }
 }
@@ -656,12 +659,12 @@ fn parse_board_row(line: &str) -> Option<[u8; 8]> {
 }
 
 /// Parse `|* to move` / `|O to move`.
-fn parse_side_to_move(line: &str) -> Option<Disc> {
+fn parse_side_to_move(line: &str) -> Option<PlayerColor> {
     let body = line.strip_prefix('|')?.trim_start();
     let rest = body.strip_suffix("to move")?.trim_end();
     match rest {
-        "*" => Some(Disc::Black),
-        "O" => Some(Disc::White),
+        "*" => Some(PlayerColor::Black),
+        "O" => Some(PlayerColor::White),
         _ => None,
     }
 }
@@ -669,6 +672,7 @@ fn parse_side_to_move(line: &str) -> Option<Disc> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reversi_core::disc::Disc;
     use reversi_core::square::Square;
 
     const SAMPLE: &str = include_str!("../../tests/fixtures/ggs/session-sample.log");
@@ -741,8 +745,8 @@ mod tests {
                 variant: Some("8b".to_string()),
                 opponent: Some("bob".to_string()),
                 board: Board::new(),
-                side_to_move: Disc::Black,
-                my_color: Some(Disc::Black),
+                side_to_move: PlayerColor::Black,
+                my_color: Some(PlayerColor::Black),
                 my_clock: Some(PlayerClock {
                     main_ms: 59_000,
                     increment_ms: 0,
@@ -750,12 +754,12 @@ mod tests {
                 clocks: vec![
                     DisplayClock {
                         name: "alice".to_string(),
-                        color: Disc::Black,
+                        color: PlayerColor::Black,
                         main_ms: Some(59_000),
                     },
                     DisplayClock {
                         name: "bob".to_string(),
-                        color: Disc::White,
+                        color: PlayerColor::White,
                         main_ms: Some(60_000),
                     },
                 ],
@@ -787,7 +791,7 @@ mod tests {
             panic!("expected MatchState, got {ev:?}")
         };
         assert_eq!(id, ".5");
-        assert_eq!(side_to_move, Disc::White);
+        assert_eq!(side_to_move, PlayerColor::White);
         assert_eq!(
             board,
             Board::from_bitboards(1 << 27, (1 << 28) | (1 << 35) | (1 << 36) | (1 << 37))
@@ -850,7 +854,7 @@ mod tests {
         else {
             panic!("expected MatchState, got {ev:?}")
         };
-        assert_eq!(board.disc_at(Square::A1, Disc::Black), Disc::Black);
+        assert_eq!(board.disc_at(Square::A1, PlayerColor::Black), Disc::Black);
         assert_eq!(my_clock.map(|clock| clock.main_ms), Some(56_000));
         assert_eq!(last_move.as_deref(), Some("f6"));
         let clocks: Vec<_> = clocks
@@ -860,8 +864,8 @@ mod tests {
         assert_eq!(
             clocks,
             [
-                ("alice", Disc::Black, Some(56_000)),
-                ("bob", Disc::White, Some(58_000)),
+                ("alice", PlayerColor::Black, Some(56_000)),
+                ("bob", PlayerColor::White, Some(58_000)),
             ]
         );
     }
@@ -1048,7 +1052,7 @@ mod tests {
         else {
             panic!("expected MatchState, got {ev:?}")
         };
-        assert_eq!(my_color, Some(Disc::White));
+        assert_eq!(my_color, Some(PlayerColor::White));
         // bob's clock, NOT alice's 45_000/120_000.
         assert_eq!(
             my_clock,
@@ -1087,7 +1091,7 @@ mod tests {
         else {
             panic!("expected MatchState, got {ev:?}")
         };
-        assert_eq!(my_color, Some(Disc::Black));
+        assert_eq!(my_color, Some(PlayerColor::Black));
         assert_eq!(my_clock, None);
     }
 
@@ -1122,7 +1126,7 @@ mod tests {
         let clock = parse_clock_line("|a(b      (1720.0 *) 00:10,0:0//02:00,0:0", "a(b")
             .expect("clock line");
         assert!(clock.is_mine);
-        assert_eq!(clock.color, Disc::Black);
+        assert_eq!(clock.color, PlayerColor::Black);
     }
 
     #[test]
@@ -1299,8 +1303,8 @@ mod tests {
     #[test]
     fn self_play_uses_the_side_to_move_clock() {
         for (side_line, expected_color, expected_ms) in [
-            ("|* to move", Disc::Black, 10_000),
-            ("|O to move", Disc::White, 20_000),
+            ("|* to move", PlayerColor::Black, 10_000),
+            ("|O to move", PlayerColor::White, 20_000),
         ] {
             let event = parse_server_chunk(
                 &[

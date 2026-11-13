@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     board::Board,
-    disc::Disc,
     level::{Level, get_level},
     obf::ObfPosition,
+    player_color::PlayerColor,
     search::{Search, SearchRunOptions, SearchSharedResources},
     square::Square,
 };
@@ -184,7 +184,7 @@ fn print_header(file_path: &Path, tt_mb_size: usize, n_threads: usize) {
 fn solve_position(
     search: &mut Search,
     board: Board,
-    side_to_move: Disc,
+    side_to_move: PlayerColor,
     level: Level,
     position_num: usize,
     all_moves: bool,
@@ -319,7 +319,7 @@ fn markdown_align_left(width: usize) -> String {
 
 fn format_pv_with_passes(
     board: &Board,
-    side_to_move: Disc,
+    side_to_move: PlayerColor,
     pv_line: &[Square],
     max_tokens: usize,
 ) -> String {
@@ -360,7 +360,12 @@ fn format_pv_with_passes(
     result
 }
 
-fn format_root_move(sq: Square, move_side: Disc, is_pass: bool, side_to_move: Disc) -> String {
+fn format_root_move(
+    sq: Square,
+    move_side: PlayerColor,
+    is_pass: bool,
+    side_to_move: PlayerColor,
+) -> String {
     if !is_pass {
         return format_square(sq, move_side);
     }
@@ -385,15 +390,19 @@ fn format_time(duration: Duration) -> String {
     }
 }
 
-fn format_square(sq: Square, side: Disc) -> String {
+fn format_square(sq: Square, side: PlayerColor) -> String {
     let s = sq.to_string();
-    if side == Disc::White {
+    if side == PlayerColor::White {
         s.to_uppercase()
     } else {
         s
     }
 }
 
-fn format_pass(side: Disc) -> &'static str {
-    if side == Disc::White { "PS" } else { "ps" }
+fn format_pass(side: PlayerColor) -> &'static str {
+    if side == PlayerColor::White {
+        "PS"
+    } else {
+        "ps"
+    }
 }

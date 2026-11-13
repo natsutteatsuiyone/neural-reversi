@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal, Write};
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use crate::colors::ThemeColor;
 use crate::sprt::SprtResult;
@@ -243,14 +243,13 @@ fn format_opening(opening: &str) -> String {
     }
 }
 
-fn format_vs_display(engine1_color: Option<Disc>) -> String {
+fn format_vs_display(engine1_color: Option<PlayerColor>) -> String {
     let Some(engine1_color) = engine1_color else {
         return "Engine1 vs Engine2 (synchro)".to_string();
     };
     let (engine1_symbol, engine2_symbol) = match engine1_color {
-        Disc::Black => ("●", "○"),
-        Disc::White => ("○", "●"),
-        Disc::Empty => ("?", "?"),
+        PlayerColor::Black => ("●", "○"),
+        PlayerColor::White => ("○", "●"),
     };
     format!("{engine1_symbol} Engine1 vs Engine2 {engine2_symbol}")
 }

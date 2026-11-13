@@ -16,6 +16,7 @@ pub mod level;
 pub mod move_list;
 pub mod obf;
 pub mod perft;
+pub mod player_color;
 pub mod probcut;
 pub mod search;
 pub mod square;

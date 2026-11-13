@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::types::Scoref;
 
@@ -144,7 +144,7 @@ pub enum SessionAction {
         search_id: u64,
         board: Board,
         /// Our color on this board.
-        color: Disc,
+        color: PlayerColor,
         search_limit: SearchLimit,
     },
     /// Warm the game's transposition table by searching the opponent-to-move
@@ -187,7 +187,7 @@ struct ActiveMatch {
     /// corresponding chunk's clock line. Looking up by the event's id (not
     /// the parent id) is what lets a single `Session` play both halves of a
     /// synchro match without confusing which side we are on.
-    my_colors: HashMap<String, Disc>,
+    my_colors: HashMap<String, PlayerColor>,
     opponent: String,
     /// Game ids with a search in flight, mapped to that search. Set on
     /// [`SessionAction::StartSearch`] emit; cleared in
@@ -1505,13 +1505,13 @@ mod tests {
         }
     }
 
-    fn opponentless_state(id: &str, my_color: Option<Disc>) -> OsEvent {
+    fn opponentless_state(id: &str, my_color: Option<PlayerColor>) -> OsEvent {
         OsEvent::MatchState(MatchState {
             id: id.to_string(),
             variant: Some("8b".to_string()),
             opponent: None,
             board: Board::new(),
-            side_to_move: Disc::White,
+            side_to_move: PlayerColor::White,
             my_color,
             my_clock: None,
             clocks: Vec::new(),
@@ -1543,14 +1543,14 @@ mod tests {
         }
     }
 
-    fn match_state(id: &str, side_to_move: Disc, my_time_ms: u64) -> OsEvent {
+    fn match_state(id: &str, side_to_move: PlayerColor, my_time_ms: u64) -> OsEvent {
         match_state_with_color(id, side_to_move, None, Some(player_clock(my_time_ms)))
     }
 
     fn match_state_with_color(
         id: &str,
-        side_to_move: Disc,
-        my_color: Option<Disc>,
+        side_to_move: PlayerColor,
+        my_color: Option<PlayerColor>,
         my_clock: Option<PlayerClock>,
     ) -> OsEvent {
         OsEvent::MatchState(MatchState {
@@ -1576,7 +1576,7 @@ mod tests {
     /// match id. This mirrors the production flow where color is only known
     /// after the first `join` chunk is parsed, but keeps existing non-synchro
     /// tests concise.
-    fn enter_match(session: &mut Session, id: &str, color: Disc, opponent: &str) {
+    fn enter_match(session: &mut Session, id: &str, color: PlayerColor, opponent: &str) {
         let _ = session.on_event(match_created(id, Some(opponent)));
         if let Some(cur) = session
             .active_matches
@@ -1613,18 +1613,21 @@ mod tests {
     #[test]
     fn ponder_starts_on_opponent_turn_only_when_enabled() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        assert_eq!(s.on_event(match_state(".5", Disc::White, 56_000)), vec![]);
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        assert_eq!(
+            s.on_event(match_state(".5", PlayerColor::White, 56_000)),
+            vec![]
+        );
 
         s.enable_ponder();
-        let actions = s.on_event(match_state(".5", Disc::White, 56_000));
+        let actions = s.on_event(match_state(".5", PlayerColor::White, 56_000));
         assert!(
             matches!(&actions[0], SessionAction::StartPonder { game_id, .. } if game_id == ".5"),
             "expected StartPonder, got {actions:?}"
         );
 
         // A fresh opponent-to-move board restarts the ponder.
-        let actions = s.on_event(match_state(".5", Disc::White, 55_000));
+        let actions = s.on_event(match_state(".5", PlayerColor::White, 55_000));
         assert_eq!(
             actions,
             vec![
@@ -1644,10 +1647,10 @@ mod tests {
     fn ponder_stops_before_own_search_starts() {
         let mut s = new_session();
         s.enable_ponder();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::White, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::White, 56_000));
 
-        let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let actions = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let stop = actions
             .iter()
             .position(|a| matches!(a, SessionAction::StopPonder { game_id } if game_id == ".5"));
@@ -1664,14 +1667,14 @@ mod tests {
     fn ponder_waits_for_every_live_game_to_be_waiting() {
         let mut s = new_session();
         s.enable_ponder();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        enter_match(&mut s, ".7", Disc::White, "carol");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        enter_match(&mut s, ".7", PlayerColor::White, "carol");
 
-        let searching = s.on_event(match_state(".7", Disc::White, 56_000));
+        let searching = s.on_event(match_state(".7", PlayerColor::White, 56_000));
         assert!(matches!(&searching[0], SessionAction::StartSearch { .. }));
 
         // .5 goes to the opponent while .7 is still searching: no ponder yet.
-        let waiting = s.on_event(match_state(".5", Disc::White, 56_000));
+        let waiting = s.on_event(match_state(".5", PlayerColor::White, 56_000));
         assert!(
             ponder_ids(&waiting).is_empty(),
             "no ponder may start while a search is in flight, got {waiting:?}"
@@ -1684,7 +1687,7 @@ mod tests {
 
         // Once the server confirms .7 is on the opponent's turn, every live
         // game is waiting and both start pondering.
-        let actions = s.on_event(match_state(".7", Disc::Black, 55_000));
+        let actions = s.on_event(match_state(".7", PlayerColor::Black, 55_000));
         assert_eq!(ponder_ids(&actions), [".5", ".7"], "got {actions:?}");
     }
 
@@ -1698,8 +1701,8 @@ mod tests {
         // sibling's pending state could be our turn, so no ponder yet.
         let first = s.on_event(match_state_with_color(
             ".5.0",
-            Disc::White,
-            Some(Disc::Black),
+            PlayerColor::White,
+            Some(PlayerColor::Black),
             None,
         ));
         assert!(
@@ -1709,8 +1712,8 @@ mod tests {
 
         let second = s.on_event(match_state_with_color(
             ".5.1",
-            Disc::Black,
-            Some(Disc::White),
+            PlayerColor::Black,
+            Some(PlayerColor::White),
             None,
         ));
         assert_eq!(ponder_ids(&second), [".5.0", ".5.1"], "got {second:?}");
@@ -1723,14 +1726,14 @@ mod tests {
         let _ = s.on_event(match_created_with_variant(".5", Some("bob"), Some("s8r20")));
         let _ = s.on_event(match_state_with_color(
             ".5.0",
-            Disc::Black,
-            Some(Disc::Black),
+            PlayerColor::Black,
+            Some(PlayerColor::Black),
             None,
         ));
         let _ = s.on_event(match_state_with_color(
             ".5.1",
-            Disc::Black,
-            Some(Disc::White),
+            PlayerColor::Black,
+            Some(PlayerColor::White),
             None,
         ));
         let _ = s.move_ready(
@@ -1744,8 +1747,8 @@ mod tests {
         // clock; `.5.0` resumes after the next reveal.
         let actions = s.on_event(match_state_with_color(
             ".5.0",
-            Disc::White,
-            Some(Disc::Black),
+            PlayerColor::White,
+            Some(PlayerColor::Black),
             None,
         ));
         assert_eq!(ponder_ids(&actions), [".5.1"], "got {actions:?}");
@@ -1755,8 +1758,8 @@ mod tests {
     fn new_match_stops_running_ponder() {
         let mut s = new_session();
         s.enable_ponder();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let started = s.on_event(match_state(".5", Disc::White, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let started = s.on_event(match_state(".5", PlayerColor::White, 56_000));
         assert!(matches!(&started[0], SessionAction::StartPonder { .. }));
 
         // A new match introduces a game whose turn is unknown: ponder stops.
@@ -1773,8 +1776,8 @@ mod tests {
     fn resync_request_stops_running_ponder() {
         let mut s = new_session();
         s.enable_ponder();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let started = s.on_event(match_state(".5", Disc::White, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let started = s.on_event(match_state(".5", PlayerColor::White, 56_000));
         assert!(matches!(&started[0], SessionAction::StartPonder { .. }));
 
         let actions = s.on_event(unavailable(".9", None, false));
@@ -1785,14 +1788,14 @@ mod tests {
             "expected StopPonder on resync request, got {actions:?}"
         );
         // And no restart while the resync is pending.
-        let quiet = s.on_event(match_state(".5", Disc::White, 55_000));
+        let quiet = s.on_event(match_state(".5", PlayerColor::White, 55_000));
         assert!(
             ponder_ids(&quiet).is_empty(),
             "no ponder may start during resync, got {quiet:?}"
         );
     }
 
-    fn synchro_state(id: &str, side_to_move: Disc, my_color: Disc) -> OsEvent {
+    fn synchro_state(id: &str, side_to_move: PlayerColor, my_color: PlayerColor) -> OsEvent {
         OsEvent::MatchState(MatchState {
             id: id.to_string(),
             variant: Some("s8r20".to_string()),
@@ -1811,8 +1814,16 @@ mod tests {
         let mut s = new_session();
         s.enable_ponder();
         let _ = s.on_event(match_created_with_variant(".5", Some("bob"), Some("s8r20")));
-        let _ = s.on_event(synchro_state(".5.0", Disc::White, Disc::Black));
-        let pondering = s.on_event(synchro_state(".5.1", Disc::Black, Disc::White));
+        let _ = s.on_event(synchro_state(
+            ".5.0",
+            PlayerColor::White,
+            PlayerColor::Black,
+        ));
+        let pondering = s.on_event(synchro_state(
+            ".5.1",
+            PlayerColor::Black,
+            PlayerColor::White,
+        ));
         assert!(
             !ponder_ids(&pondering).is_empty(),
             "setup: both boards should ponder, got {pondering:?}"
@@ -1823,31 +1834,39 @@ mod tests {
 
         // `.5.1`'s next state clears the parent resync, but the stale `.5.0`
         // board must not satisfy the ponder gate.
-        let quiet = s.on_event(synchro_state(".5.1", Disc::Black, Disc::White));
+        let quiet = s.on_event(synchro_state(
+            ".5.1",
+            PlayerColor::Black,
+            PlayerColor::White,
+        ));
         assert!(
             ponder_ids(&quiet).is_empty(),
             "stale .5.0 board must not restart pondering, got {quiet:?}"
         );
 
         // A fresh `.5.0` state restores the invariant and pondering resumes.
-        let resumed = s.on_event(synchro_state(".5.0", Disc::White, Disc::Black));
+        let resumed = s.on_event(synchro_state(
+            ".5.0",
+            PlayerColor::White,
+            PlayerColor::Black,
+        ));
         assert_eq!(ponder_ids(&resumed), [".5.0", ".5.1"], "got {resumed:?}");
     }
 
     #[test]
     fn recycled_id_plays_while_the_retired_search_winds_down() {
         let mut s = session_with_max(1);
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let _ = s.on_event(match_end(".5", "0.00"));
 
-        enter_match(&mut s, ".5", Disc::Black, "bob");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
         assert_eq!(
             s.active_matches.len(),
             1,
             "the recycled match must not be resigned"
         );
-        let search = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let search = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert!(matches!(&search[0], SessionAction::StartSearch { .. }));
 
         // Workers may finish in either order; the new search (id 1) plays and
@@ -1862,8 +1881,8 @@ mod tests {
     fn match_end_stops_ponder() {
         let mut s = new_session();
         s.enable_ponder();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::White, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::White, 56_000));
 
         let actions = s.on_event(match_end(".5", "0.00"));
         assert!(
@@ -1879,13 +1898,13 @@ mod tests {
     #[test]
     fn multiple_matches_search_and_finish_independently() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        enter_match(&mut s, ".7", Disc::White, "carol");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        enter_match(&mut s, ".7", PlayerColor::White, "carol");
         assert_eq!(s.active_matches.len(), 2);
         assert!(s.active_matches.iter().any(|active| active.id == ".5"));
         assert!(s.active_matches.iter().any(|active| active.id == ".7"));
 
-        let search = s.on_event(match_state(".7", Disc::White, 56_000));
+        let search = s.on_event(match_state(".7", PlayerColor::White, 56_000));
         assert!(
             matches!(&search[0], SessionAction::StartSearch { game_id, .. } if game_id == ".7")
         );
@@ -1906,15 +1925,15 @@ mod tests {
 
         let black = s.on_event(match_state_with_color(
             ".5",
-            Disc::Black,
-            Some(Disc::Black),
+            PlayerColor::Black,
+            Some(PlayerColor::Black),
             None,
         ));
         assert!(matches!(&black[0], SessionAction::StartSearch { .. }));
         let _ = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
 
         let white = s.on_event(on_board(
-            match_state_with_color(".5", Disc::White, Some(Disc::White), None),
+            match_state_with_color(".5", PlayerColor::White, Some(PlayerColor::White), None),
             Board::new().make_move(Square::F5),
         ));
         assert!(matches!(&white[0], SessionAction::StartSearch { .. }));
@@ -1934,8 +1953,8 @@ mod tests {
     #[test]
     fn match_state_on_my_turn_emits_start_search() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let actions = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SessionAction::StartSearch {
@@ -1959,8 +1978,8 @@ mod tests {
     #[test]
     fn match_state_missing_clock_uses_level_fallback() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let actions = s.on_event(match_state_with_color(".5", Disc::Black, None, None));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let actions = s.on_event(match_state_with_color(".5", PlayerColor::Black, None, None));
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SessionAction::StartSearch {
@@ -1980,8 +1999,8 @@ mod tests {
         let mut s = session_with_max(1);
         let actions = s.on_event(match_state_with_color(
             ".5",
-            Disc::Black,
-            Some(Disc::Black),
+            PlayerColor::Black,
+            Some(PlayerColor::Black),
             Some(player_clock(56_000)),
         ));
 
@@ -2015,8 +2034,8 @@ mod tests {
         let _ = s.on_event(unavailable(".1", None, false));
         let actions = s.on_event(match_state_with_color(
             ".1",
-            Disc::Black,
-            Some(Disc::Black),
+            PlayerColor::Black,
+            Some(PlayerColor::Black),
             Some(player_clock(56_000)),
         ));
 
@@ -2061,8 +2080,8 @@ mod tests {
 
         let recovered = s.on_event(match_state_with_color(
             ".5",
-            Disc::White,
-            Some(Disc::Black),
+            PlayerColor::White,
+            Some(PlayerColor::Black),
             None,
         ));
         assert!(
@@ -2089,7 +2108,7 @@ mod tests {
     fn known_player_resync_survives_state_without_color() {
         let mut s = session_with_max(1);
         let _ = s.on_event(unavailable(".5", Some("8b"), true));
-        let actions = s.on_event(match_state_with_color(".5", Disc::White, None, None));
+        let actions = s.on_event(match_state_with_color(".5", PlayerColor::White, None, None));
 
         assert!(
             matches!(&actions[0], SessionAction::Log(message) if message.contains("recovered"))
@@ -2106,7 +2125,7 @@ mod tests {
         let mut s = session_with_max(1);
         let _ = s.on_event(ask_offer(".8", "bob", "alice"));
         let _ = s.on_event(unavailable(".5", Some("8b"), true));
-        let actions = s.on_event(opponentless_state(".5", Some(Disc::Black)));
+        let actions = s.on_event(opponentless_state(".5", Some(PlayerColor::Black)));
 
         assert!(!actions.contains(&send("tell /os resign .5")));
         assert_eq!(s.pending_accepts.len(), 1);
@@ -2141,8 +2160,8 @@ mod tests {
             variant: Some("s8".to_string()),
             opponent: Some("bob".to_string()),
             board: Board::new(),
-            side_to_move: Disc::White,
-            my_color: Some(Disc::Black),
+            side_to_move: PlayerColor::White,
+            my_color: Some(PlayerColor::Black),
             my_clock: None,
             clocks: Vec::new(),
             last_move: None,
@@ -2168,8 +2187,8 @@ mod tests {
             variant: Some("s8".to_string()),
             opponent: Some("bob".to_string()),
             board: Board::new(),
-            side_to_move: Disc::White,
-            my_color: Some(Disc::Black),
+            side_to_move: PlayerColor::White,
+            my_color: Some(PlayerColor::Black),
             my_clock: None,
             clocks: Vec::new(),
             last_move: None,
@@ -2191,8 +2210,8 @@ mod tests {
             variant: Some("s8".to_string()),
             opponent: Some("bob".to_string()),
             board: Board::new(),
-            side_to_move: Disc::White,
-            my_color: Some(Disc::Black),
+            side_to_move: PlayerColor::White,
+            my_color: Some(PlayerColor::Black),
             my_clock: None,
             clocks: Vec::new(),
             last_move: None,
@@ -2217,8 +2236,8 @@ mod tests {
         let _ = s.on_event(match_created_with_variant(".5", Some("bob"), Some("s8")));
         let search = s.on_event(match_state_with_color(
             ".5.1",
-            Disc::White,
-            Some(Disc::White),
+            PlayerColor::White,
+            Some(PlayerColor::White),
             Some(player_clock(56_000)),
         ));
         assert!(matches!(&search[0], SessionAction::StartSearch { .. }));
@@ -2234,8 +2253,8 @@ mod tests {
 
         let duplicate = s.on_event(match_state_with_color(
             ".5.1",
-            Disc::White,
-            Some(Disc::White),
+            PlayerColor::White,
+            Some(PlayerColor::White),
             None,
         ));
         assert!(matches!(&duplicate[0], SessionAction::Log(msg) if msg.contains("ended")));
@@ -2269,8 +2288,8 @@ mod tests {
         // `.5.0`: we are Black. Same side to move → search it.
         let first = s.on_event(match_state_with_color(
             ".5.0",
-            Disc::Black,
-            Some(Disc::Black),
+            PlayerColor::Black,
+            Some(PlayerColor::Black),
             Some(player_clock(60_000)),
         ));
         match &first[0] {
@@ -2282,8 +2301,8 @@ mod tests {
         // clobbering the `.5.0` color.
         let second = s.on_event(match_state_with_color(
             ".5.1",
-            Disc::White,
-            Some(Disc::White),
+            PlayerColor::White,
+            Some(PlayerColor::White),
             Some(player_clock(60_000)),
         ));
         match &second[0] {
@@ -2292,8 +2311,8 @@ mod tests {
         }
 
         let cur = &s.active_matches[0];
-        assert_eq!(cur.my_colors.get(".5.0"), Some(&Disc::Black));
-        assert_eq!(cur.my_colors.get(".5.1"), Some(&Disc::White));
+        assert_eq!(cur.my_colors.get(".5.0"), Some(&PlayerColor::Black));
+        assert_eq!(cur.my_colors.get(".5.1"), Some(&PlayerColor::White));
         assert!(cur.searching_games.contains_key(".5.0"));
         assert!(cur.searching_games.contains_key(".5.1"));
 
@@ -2324,8 +2343,8 @@ mod tests {
 
         let _ = s.on_event(match_state_with_color(
             ".5.0",
-            Disc::Black,
-            Some(Disc::Black),
+            PlayerColor::Black,
+            Some(PlayerColor::Black),
             Some(player_clock(60_000)),
         ));
 
@@ -2333,7 +2352,7 @@ mod tests {
         // reuse the `.5.0` color.
         let actions = s.on_event(match_state_with_color(
             ".5.1",
-            Disc::White,
+            PlayerColor::White,
             /* my_color */ None,
             None,
         ));
@@ -2354,8 +2373,8 @@ mod tests {
     #[test]
     fn match_state_for_other_match_is_logged_only() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let actions = s.on_event(match_state(".7", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let actions = s.on_event(match_state(".7", PlayerColor::Black, 56_000));
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], SessionAction::Log(msg) if msg.contains(".7")));
     }
@@ -2363,7 +2382,7 @@ mod tests {
     #[test]
     fn match_end_for_other_match_is_logged_only() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
         let actions = s.on_event(match_end(".7", "12.00"));
         assert_eq!(s.active_matches[0].id, ".5");
         assert!(matches!(
@@ -2375,7 +2394,7 @@ mod tests {
     #[test]
     fn interrupted_match_end_removes_active_match() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
         let actions = s.on_event(match_end(".5", "alice left"));
 
         assert!(s.active_matches.is_empty());
@@ -2405,8 +2424,8 @@ mod tests {
     #[test]
     fn move_ready_pass_emits_tell_os_play_pass() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let actions = s.move_ready(".5", search_id(&s, ".5"), None, Duration::from_millis(1234));
         assert_eq!(actions, vec![send("tell /os play .5 PASS/0/1.234")]);
     }
@@ -2414,7 +2433,7 @@ mod tests {
     #[test]
     fn stale_move_ready_is_logged_and_dropped() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
         let _ = s.on_event(match_end(".5", "-64.00"));
         let actions = s.move_ready(".5", 0, Some(Square::F5), Duration::ZERO);
         // The search's report is still logged, then the move is dropped.
@@ -2431,14 +2450,14 @@ mod tests {
     #[test]
     fn only_a_played_move_is_broadcast() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let actions = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
         assert_eq!(actions, played(".5", "0.000"));
 
         // The match ends while the next search runs: nothing is told.
         let _ = s.on_event(on_board(
-            match_state(".5", Disc::Black, 55_000),
+            match_state(".5", PlayerColor::Black, 55_000),
             Board::new().make_move(Square::F5).make_move(Square::F6),
         ));
         let search = search_id(&s, ".5");
@@ -2464,8 +2483,8 @@ mod tests {
         let _ = s.on_event(unavailable(".8", Some("8b"), false));
         assert!(s.games().is_empty());
 
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::White, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::White, 56_000));
         let _ = s.on_event(match_end(".5", "+4.00"));
         // A watched match reusing the finished game's id leaves its result.
         let _ = s.on_event(OsEvent::SpectatedMatchState {
@@ -2482,8 +2501,16 @@ mod tests {
         let _ = s.on_event(match_created_with_variant(".5", Some("bob"), Some("s8")));
         assert_eq!(s.games().keys().collect::<Vec<_>>(), [".5"]);
         // The match's own entry gives way to its two games.
-        let _ = s.on_event(synchro_state(".5.0", Disc::White, Disc::Black));
-        let _ = s.on_event(synchro_state(".5.1", Disc::Black, Disc::White));
+        let _ = s.on_event(synchro_state(
+            ".5.0",
+            PlayerColor::White,
+            PlayerColor::Black,
+        ));
+        let _ = s.on_event(synchro_state(
+            ".5.1",
+            PlayerColor::Black,
+            PlayerColor::White,
+        ));
         assert_eq!(s.games().keys().collect::<Vec<_>>(), [".5.0", ".5.1"]);
 
         let _ = s.on_event(OsEvent::MatchEnd {
@@ -2492,7 +2519,11 @@ mod tests {
             score: Some(-4.0),
         });
         // A late state does not reopen the ended game.
-        let _ = s.on_event(synchro_state(".5.0", Disc::Black, Disc::Black));
+        let _ = s.on_event(synchro_state(
+            ".5.0",
+            PlayerColor::Black,
+            PlayerColor::Black,
+        ));
         let _ = s.on_event(OsEvent::MatchEnd {
             id: ".5".to_string(),
             result: "-3.00".to_string(),
@@ -2502,7 +2533,10 @@ mod tests {
         let [first, second] = [".5.0", ".5.1"].map(|id| &games[id]);
         assert_eq!(first.result.as_deref(), Some("( bob vs. alice ) +4.00"));
         assert_eq!(first.score, Some(-4.0));
-        assert_eq!(first.state.as_ref().unwrap().side_to_move, Disc::White);
+        assert_eq!(
+            first.state.as_ref().unwrap().side_to_move,
+            PlayerColor::White
+        );
         assert_eq!(second.result.as_deref(), Some("-3.00"));
         assert_eq!(second.score, Some(3.0));
 
@@ -2518,15 +2552,15 @@ mod tests {
         let activity = |s: &Session| s.games()[".5"].activity;
         let mut s = new_session();
         s.enable_ponder();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::White, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::White, 56_000));
         assert_eq!(activity(&s), Activity::PonderQueued);
         s.on_search_started(".5", 0);
         assert_eq!(activity(&s), Activity::Pondering);
 
         // Our turn stops ponder 0 before search 1; ponder 0's late events
         // change nothing.
-        let _ = s.on_event(match_state(".5", Disc::Black, 55_000));
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 55_000));
         assert_eq!(activity(&s), Activity::SearchQueued);
         s.on_search_started(".5", 0);
         s.on_ponder_finished(".5", 0);
@@ -2538,7 +2572,7 @@ mod tests {
         assert_eq!(s.games()[".5"].eval, Some(0.0));
 
         // A ponder that ends by itself, e.g. one that never started.
-        let _ = s.on_event(match_state(".5", Disc::White, 54_000));
+        let _ = s.on_event(match_state(".5", PlayerColor::White, 54_000));
         assert_eq!(activity(&s), Activity::PonderQueued);
         s.on_ponder_finished(".5", 2);
         assert_eq!(activity(&s), Activity::Idle);
@@ -2547,16 +2581,16 @@ mod tests {
     #[test]
     fn duplicate_match_state_while_searching_does_not_re_emit_start_search() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
 
         // First MatchState on our turn emits StartSearch exactly once.
-        let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let actions = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], SessionAction::StartSearch { .. }));
 
         // A second identical MatchState arrives before the search finishes.
         // We must NOT re-emit StartSearch.
-        let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let actions = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SessionAction::Log(msg) => {
@@ -2573,7 +2607,7 @@ mod tests {
         let sent = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
         assert!(matches!(&sent[0], SessionAction::Send(_)));
         let actions = s.on_event(on_board(
-            match_state(".5", Disc::Black, 56_000),
+            match_state(".5", PlayerColor::Black, 56_000),
             Board::new().make_move(Square::F5).make_move(Square::F6),
         ));
         assert_eq!(actions.len(), 1);
@@ -2587,9 +2621,9 @@ mod tests {
     #[test]
     fn aborted_search_resigns_without_retrying() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
 
-        let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let actions = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], SessionAction::StartSearch { .. }));
 
@@ -2602,7 +2636,7 @@ mod tests {
             ]
         );
 
-        let actions = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let actions = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert_eq!(actions.len(), 1);
         assert!(
             matches!(&actions[0], SessionAction::Log(msg) if msg.contains("already in flight")),
@@ -2617,8 +2651,8 @@ mod tests {
     #[test]
     fn ended_search_failure_releases_capacity() {
         let mut s = session_with_max(1);
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let _ = s.on_event(match_end(".5", "bob left"));
 
         let stale = s.search_failed(".5", 0);
@@ -2638,8 +2672,8 @@ mod tests {
         // time out. The generic error must not discard a search that may be
         // unrelated to it.
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let first = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let first = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert!(matches!(&first[0], SessionAction::StartSearch { .. }));
 
         let err = s.on_event(OsEvent::ServerError {
@@ -2664,8 +2698,8 @@ mod tests {
     #[test]
     fn rejected_move_resync_restarts_search() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let _ = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
 
         let err = s.on_event(OsEvent::ServerError {
@@ -2674,7 +2708,7 @@ mod tests {
         });
         assert_eq!(err[0], send("tell /os moves .5"));
 
-        let retry = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let retry = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert!(matches!(&retry[0], SessionAction::StartSearch { .. }));
     }
 
@@ -2695,13 +2729,13 @@ mod tests {
     #[test]
     fn changed_board_stops_the_search_of_the_old_board() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let old = search_id(&s, ".5");
 
         // Moves played from another client while we search.
         let changed = s.on_event(on_board(
-            match_state(".5", Disc::Black, 56_000),
+            match_state(".5", PlayerColor::Black, 56_000),
             Board::new().make_move(Square::F5),
         ));
         let stop = SessionAction::StopSearch {
@@ -2722,7 +2756,7 @@ mod tests {
         )));
 
         let waiting = s.on_event(on_board(
-            match_state(".5", Disc::White, 56_000),
+            match_state(".5", PlayerColor::White, 56_000),
             Board::new().make_move(Square::C4),
         ));
         assert!(waiting.contains(&stop));
@@ -2737,12 +2771,12 @@ mod tests {
     #[test]
     fn delayed_state_of_the_played_board_is_not_searched_again() {
         let mut s = new_session();
-        enter_match(&mut s, ".5", Disc::Black, "bob");
-        let _ = s.on_event(match_state(".5", Disc::Black, 56_000));
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
+        let _ = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         let _ = s.move_ready(".5", search_id(&s, ".5"), Some(Square::F5), Duration::ZERO);
 
         // A `moves` reply the server built before processing our move.
-        let delayed = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let delayed = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert!(
             !delayed
                 .iter()
@@ -2750,11 +2784,11 @@ mod tests {
         );
 
         let _ = s.on_event(on_board(
-            match_state(".5", Disc::White, 56_000),
+            match_state(".5", PlayerColor::White, 56_000),
             Board::new().make_move(Square::F5),
         ));
         // An undo back to the played board is a new turn on it.
-        let undone = s.on_event(match_state(".5", Disc::Black, 56_000));
+        let undone = s.on_event(match_state(".5", PlayerColor::Black, 56_000));
         assert!(matches!(&undone[0], SessionAction::StartSearch { .. }));
     }
 
@@ -2893,7 +2927,7 @@ mod tests {
     #[test]
     fn full_session_declines_direct_and_ignores_global_offers() {
         let mut s = session_with_max(1);
-        enter_match(&mut s, ".5", Disc::Black, "carol");
+        enter_match(&mut s, ".5", PlayerColor::Black, "carol");
         assert_eq!(
             s.on_event(ask_offer(".8", "bob", "alice"))[0],
             send("tell /os decline .8")
@@ -2940,7 +2974,7 @@ mod tests {
     #[test]
     fn ordinary_and_synchro_matches_share_the_same_limit() {
         let mut s = session_with_max(2);
-        enter_match(&mut s, ".5", Disc::Black, "carol");
+        enter_match(&mut s, ".5", PlayerColor::Black, "carol");
         assert_eq!(
             s.on_event(ask_offer_with_game(".8", "bob", "alice", "s8", "U"))[0],
             send("tell /os accept .8")
@@ -2960,7 +2994,7 @@ mod tests {
     #[test]
     fn unexpected_match_over_capacity_is_resigned() {
         let mut s = session_with_max(1);
-        enter_match(&mut s, ".5", Disc::Black, "bob");
+        enter_match(&mut s, ".5", PlayerColor::Black, "bob");
         assert_eq!(
             s.on_event(match_created(".7", Some("carol")))[0],
             send("tell /os resign .7")
@@ -2983,7 +3017,7 @@ mod tests {
 
     #[test]
     fn opponentless_state_consumes_unique_compatible_accept() {
-        for my_color in [Some(Disc::Black), None] {
+        for my_color in [Some(PlayerColor::Black), None] {
             let mut s = session_with_max(2);
             let _ = s.on_event(ask_offer(".8", "bob", "alice"));
             let _ = s.on_event(ask_offer_with_game(".9", "carol", "alice", "8w", "U"));
@@ -3003,7 +3037,7 @@ mod tests {
         let _ = s.on_event(ask_offer(".8", "bob", "alice"));
         let _ = s.on_event(ask_offer(".9", "carol", "alice"));
 
-        let actions = s.on_event(opponentless_state(".42", Some(Disc::Black)));
+        let actions = s.on_event(opponentless_state(".42", Some(PlayerColor::Black)));
 
         assert!(!actions.contains(&send("tell /os resign .42")));
         assert_eq!(s.pending_accepts.len(), 2);
@@ -3020,8 +3054,8 @@ mod tests {
             if recovered_from_state {
                 let _ = s.on_event(match_state_with_color(
                     ".42",
-                    Disc::White,
-                    Some(Disc::Black),
+                    PlayerColor::White,
+                    Some(PlayerColor::Black),
                     None,
                 ));
             } else {

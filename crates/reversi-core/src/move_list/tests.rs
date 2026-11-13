@@ -1,6 +1,6 @@
 use crate::board::Board;
-use crate::disc::Disc;
 use crate::legal_moves::LegalMoves;
+use crate::player_color::PlayerColor;
 use crate::square::Square;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
@@ -74,7 +74,7 @@ fn test_best_first_iter_single_move() {
              XXXXXXXX\
              XXXXXXXO\
              XXXXXXO-",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
 
@@ -199,7 +199,7 @@ fn set_up_positions_with_35_moves() {
     ];
 
     for position in positions {
-        let board = Board::from_string(position, Disc::Black).unwrap();
+        let board = Board::from_string(position, PlayerColor::Black).unwrap();
         assert_eq!(assert_moves_match_reference(&board), 35, "{position}");
         assert_eq!(board.legal_moves().count() as usize, LegalMoves::MAX_COUNT);
     }

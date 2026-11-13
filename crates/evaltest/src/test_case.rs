@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use reversi_core::{board::Board, disc::Disc, obf::ObfPosition, square::Square};
+use reversi_core::{board::Board, obf::ObfPosition, player_color::PlayerColor, square::Square};
 
 /// A single test case: an [`ObfPosition`] tagged with its source line number.
 #[derive(Debug, Clone)]
@@ -38,7 +38,7 @@ impl TestCase {
         self.position.board
     }
 
-    pub fn side_to_move(&self) -> Disc {
+    pub fn side_to_move(&self) -> PlayerColor {
         self.position.side_to_move
     }
 

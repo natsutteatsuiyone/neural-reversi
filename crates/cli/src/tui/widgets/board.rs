@@ -7,14 +7,14 @@ use ratatui::{
     text::{Line, Span},
     widgets::Widget,
 };
-use reversi_core::{board::Board, disc::Disc, square::Square};
+use reversi_core::{board::Board, disc::Disc, player_color::PlayerColor, square::Square};
 
 /// Widget for rendering the Reversi game board.
 pub struct BoardWidget<'a> {
     /// The game board to render
     board: &'a Board,
     /// Current side to move
-    side_to_move: Disc,
+    side_to_move: PlayerColor,
     /// Cursor position (row, col)
     cursor: (usize, usize),
     /// Last move played
@@ -23,7 +23,7 @@ pub struct BoardWidget<'a> {
 
 impl<'a> BoardWidget<'a> {
     /// Creates a new board widget.
-    pub fn new(board: &'a Board, side_to_move: Disc) -> Self {
+    pub fn new(board: &'a Board, side_to_move: PlayerColor) -> Self {
         Self {
             board,
             side_to_move,

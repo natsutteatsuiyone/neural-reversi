@@ -9,6 +9,7 @@ use crate::constants::SCORE_MAX;
 use crate::disc::Disc;
 use crate::flip;
 use crate::legal_moves::LegalMoves;
+use crate::player_color::PlayerColor;
 use crate::square::Square;
 use crate::types::{ScaledScore, Score};
 
@@ -75,20 +76,18 @@ impl Board {
     /// Parses a [`Board`] from a 64-character string (`'X'`/`'O'`/`'-'`).
     ///
     /// `current_player` determines which character maps to `player`:
-    /// if [`Disc::Black`], `'X'` → player and `'O'` → opponent;
-    /// if [`Disc::White`], `'O'` → player and `'X'` → opponent.
+    /// if [`PlayerColor::Black`], `'X'` → player and `'O'` → opponent;
+    /// if [`PlayerColor::White`], `'O'` → player and `'X'` → opponent.
     ///
     /// # Errors
     ///
-    /// - [`BoardError::InvalidPlayer`] if `current_player` is [`Disc::Empty`].
     /// - [`BoardError::TooShort`] if the string has fewer than 64 characters.
     /// - [`BoardError::TooLong`] if the string has more than 64 characters.
     /// - [`BoardError::InvalidChar`] if the string contains an invalid character.
-    pub fn from_string(board_string: &str, current_player: Disc) -> Result<Board, BoardError> {
-        if current_player == Disc::Empty {
-            return Err(BoardError::InvalidPlayer);
-        }
-
+    pub fn from_string(
+        board_string: &str,
+        current_player: PlayerColor,
+    ) -> Result<Board, BoardError> {
         let char_count = board_string.chars().count();
 
         if char_count < 64 {
@@ -128,11 +127,11 @@ impl Board {
 
     /// Returns the disc at `sq` from the perspective of `side_to_move`.
     #[inline]
-    pub fn disc_at(&self, sq: Square, side_to_move: Disc) -> Disc {
+    pub fn disc_at(&self, sq: Square, side_to_move: PlayerColor) -> Disc {
         if self.player.contains(sq) {
-            side_to_move
+            side_to_move.into()
         } else if self.opponent.contains(sq) {
-            side_to_move.opposite()
+            side_to_move.opposite().into()
         } else {
             Disc::Empty
         }
@@ -406,7 +405,7 @@ impl Board {
     }
 
     /// Converts the board to an 8x8 string representation (`'X'`/`'O'`/`'-'`).
-    pub fn to_string_as_board(&self, current_player: Disc) -> String {
+    pub fn to_string_as_board(&self, current_player: PlayerColor) -> String {
         let mut s = String::with_capacity(64 + 8);
         for (i, sq) in Square::iter().enumerate() {
             if i > 0 && i % 8 == 0 {
@@ -421,15 +420,13 @@ impl Board {
 impl fmt::Display for Board {
     /// Formats the board for display, showing Black as the current player.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string_as_board(Disc::Black))
+        write!(f, "{}", self.to_string_as_board(PlayerColor::Black))
     }
 }
 
 /// Error type for [`Board::from_string`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoardError {
-    /// Current player is [`Disc::Empty`].
-    InvalidPlayer,
     /// String is too short (less than 64 characters).
     TooShort {
         /// Expected number of characters.
@@ -456,9 +453,6 @@ pub enum BoardError {
 impl fmt::Display for BoardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BoardError::InvalidPlayer => {
-                write!(f, "Invalid player: current_player must be Black or White")
-            }
             BoardError::TooShort { expected, actual } => {
                 write!(
                     f,
@@ -566,7 +560,7 @@ mod tests {
                             --------\
                             --------\
                             --------";
-        let board = Board::from_string(board_string, Disc::Black).unwrap();
+        let board = Board::from_string(board_string, PlayerColor::Black).unwrap();
         assert!(board.player().contains(Square::D5));
         assert!(board.player().contains(Square::E4));
         assert!(board.opponent().contains(Square::D4));
@@ -583,7 +577,7 @@ mod tests {
                             --------\
                             --------\
                             --------";
-        let board = Board::from_string(board_string, Disc::White).unwrap();
+        let board = Board::from_string(board_string, PlayerColor::White).unwrap();
         // From White's perspective, O discs are the player
         assert!(board.player().contains(Square::E4));
         assert!(board.player().contains(Square::D5));
@@ -596,18 +590,30 @@ mod tests {
         let board = Board::new();
 
         // Check discs from Black's perspective (Black is the first player)
-        assert_eq!(board.disc_at(Square::D5, Disc::Black), Disc::Black);
-        assert_eq!(board.disc_at(Square::E4, Disc::Black), Disc::Black);
-        assert_eq!(board.disc_at(Square::D4, Disc::Black), Disc::White);
-        assert_eq!(board.disc_at(Square::E5, Disc::Black), Disc::White);
-        assert_eq!(board.disc_at(Square::A1, Disc::Black), Disc::Empty);
+        assert_eq!(board.disc_at(Square::D5, PlayerColor::Black), Disc::Black);
+        assert_eq!(board.disc_at(Square::E4, PlayerColor::Black), Disc::Black);
+        assert_eq!(board.disc_at(Square::D4, PlayerColor::Black), Disc::White);
+        assert_eq!(board.disc_at(Square::E5, PlayerColor::Black), Disc::White);
+        assert_eq!(board.disc_at(Square::A1, PlayerColor::Black), Disc::Empty);
 
         // Switch to White's perspective
         let white_board = board.switch_players();
-        assert_eq!(white_board.disc_at(Square::D5, Disc::White), Disc::Black);
-        assert_eq!(white_board.disc_at(Square::E4, Disc::White), Disc::Black);
-        assert_eq!(white_board.disc_at(Square::D4, Disc::White), Disc::White);
-        assert_eq!(white_board.disc_at(Square::E5, Disc::White), Disc::White);
+        assert_eq!(
+            white_board.disc_at(Square::D5, PlayerColor::White),
+            Disc::Black
+        );
+        assert_eq!(
+            white_board.disc_at(Square::E4, PlayerColor::White),
+            Disc::Black
+        );
+        assert_eq!(
+            white_board.disc_at(Square::D4, PlayerColor::White),
+            Disc::White
+        );
+        assert_eq!(
+            white_board.disc_at(Square::E5, PlayerColor::White),
+            Disc::White
+        );
     }
 
     #[test]
@@ -760,7 +766,7 @@ mod tests {
 
     #[test]
     fn test_from_string_too_short() {
-        let result = Board::from_string("XXXXXXXX", Disc::Black);
+        let result = Board::from_string("XXXXXXXX", PlayerColor::Black);
         assert!(result.is_err());
         match result.unwrap_err() {
             BoardError::TooShort { expected, actual } => {
@@ -774,7 +780,7 @@ mod tests {
     #[test]
     fn test_from_string_too_long() {
         let board_string = "-".repeat(65);
-        let result = Board::from_string(&board_string, Disc::Black);
+        let result = Board::from_string(&board_string, PlayerColor::Black);
         assert!(result.is_err());
         match result.unwrap_err() {
             BoardError::TooLong { expected, actual } => {
@@ -789,7 +795,7 @@ mod tests {
     fn test_from_string_invalid_char() {
         // Valid start but invalid character 'Z' at position 10
         let board_string = "----------Z".to_string() + &"-".repeat(53);
-        let result = Board::from_string(&board_string, Disc::Black);
+        let result = Board::from_string(&board_string, PlayerColor::Black);
         assert!(result.is_err());
         match result.unwrap_err() {
             BoardError::InvalidChar { char, position } => {

@@ -236,9 +236,6 @@ error_no_moves:
 error_turn_has_no_moves:
   en: "The selected player has no legal moves. Change the turn or modify the board."
   ja: "指定された手番のプレイヤーには合法手がありません。手番を変更するか、盤面を修正してください。"
-error_missing_turn:
-  en: "Choose Black or White to move"
-  ja: "手番の色を選んでください"
 
 selectivity:
   en: "Selectivity"

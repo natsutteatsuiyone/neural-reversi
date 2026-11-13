@@ -20,13 +20,4 @@ impl Disc {
             Disc::White => 'O',
         }
     }
-
-    /// Returns the opposite disc (`Empty` maps to itself).
-    pub fn opposite(self) -> Disc {
-        match self {
-            Disc::Black => Disc::White,
-            Disc::White => Disc::Black,
-            Disc::Empty => Disc::Empty,
-        }
-    }
 }

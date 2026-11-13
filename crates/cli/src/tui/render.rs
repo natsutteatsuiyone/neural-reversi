@@ -7,7 +7,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use super::app::{App, BitboardField, BoardEditTab, GameMode, UiMode};
 use super::widgets::BoardWidget;
@@ -111,9 +111,8 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
 
     // Turn indicator
     let turn_text = match side_to_move {
-        Disc::Black => Span::styled("Black's turn (●)", Style::default().fg(Color::Green)),
-        Disc::White => Span::styled("White's turn (○)", Style::default().fg(Color::Yellow)),
-        _ => Span::raw(""),
+        PlayerColor::Black => Span::styled("Black's turn (●)", Style::default().fg(Color::Green)),
+        PlayerColor::White => Span::styled("White's turn (○)", Style::default().fg(Color::Yellow)),
     };
     lines.push(Line::from(turn_text));
     lines.push(Line::from(""));
@@ -188,7 +187,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
                 current_len = 1;
             }
 
-            let color = if side == Disc::Black {
+            let color = if side == PlayerColor::Black {
                 Color::Green
             } else {
                 Color::Yellow
@@ -695,15 +694,15 @@ fn render_board_edit_dialog(frame: &mut Frame, app: &App) {
 }
 
 /// Renders the side-to-move selector line.
-fn render_side_selector(lines: &mut Vec<Line<'_>>, side: Disc) {
-    let black_style = if side == Disc::Black {
+fn render_side_selector(lines: &mut Vec<Line<'_>>, side: PlayerColor) {
+    let black_style = if side == PlayerColor::Black {
         Style::default()
             .fg(Color::Green)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let white_style = if side == Disc::White {
+    let white_style = if side == PlayerColor::White {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)

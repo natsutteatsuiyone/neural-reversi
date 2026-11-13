@@ -16,8 +16,8 @@ use colored::Colorize;
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     board::Board,
-    disc::Disc,
     level::{ENDGAME_STEPS, Level},
+    player_color::PlayerColor,
     probcut::Selectivity,
     search::{
         self, SearchProgress, SearchRunOptions,
@@ -905,7 +905,7 @@ fn print_verbose_iterations(iterations: &[IterationData]) {
 }
 
 /// Format a board with coordinates for verbose display.
-fn format_board_with_coords(board: &Board, current_player: Disc) -> String {
+fn format_board_with_coords(board: &Board, current_player: PlayerColor) -> String {
     let board_str = board.to_string_as_board(current_player);
     let mut out = String::new();
     out.push_str("    A B C D E F G H\n");

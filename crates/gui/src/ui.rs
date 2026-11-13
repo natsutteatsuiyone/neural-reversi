@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::{prelude::*, *};
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use crate::session::Session;
 use crate::settings::{GameMode, Language, Settings};
@@ -89,7 +89,7 @@ enum Action {
     Selectivity(usize),
     MultiPv(bool),
     SetupTab(SetupTab),
-    Turn(Disc),
+    Turn(PlayerColor),
     ClearBoard,
     InitialBoard,
     Cell(usize),
@@ -255,11 +255,10 @@ impl ReversiApp {
         }
     }
 
-    fn color(&self, color: Disc) -> SharedString {
+    fn color(&self, color: PlayerColor) -> SharedString {
         match color {
-            Disc::Black => tr!("black"),
-            Disc::White => tr!("white"),
-            Disc::Empty => "—".into(),
+            PlayerColor::Black => tr!("black"),
+            PlayerColor::White => tr!("white"),
         }
     }
 
@@ -269,16 +268,16 @@ impl ReversiApp {
             tr!("game_draw").into()
         } else {
             let winner = self.color(if black > white {
-                Disc::Black
+                PlayerColor::Black
             } else {
-                Disc::White
+                PlayerColor::White
             });
             tr!("game_win", winner = winner).into()
         };
         let score = format!(
             "{}: {black} - {}: {white}",
-            self.color(Disc::Black),
-            self.color(Disc::White),
+            self.color(PlayerColor::Black),
+            self.color(PlayerColor::White),
         );
         (message, score)
     }

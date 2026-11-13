@@ -5,7 +5,7 @@ use std::fmt;
 use std::time::Duration;
 
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::search::result::SearchResult;
 use reversi_core::square::Square;
 use reversi_core::types::{Depth, Scoref};
@@ -86,7 +86,7 @@ pub(super) fn channel_report(
     login: &str,
     game_id: &str,
     board: &Board,
-    color: Disc,
+    color: PlayerColor,
     result: &SearchResult,
     elapsed: Duration,
     waited: Duration,
@@ -126,9 +126,9 @@ pub(super) fn channel_report(
 }
 
 /// A report move: upper case for Black, `pa` for a pass.
-fn report_square(sq: Option<Square>, color: Disc) -> String {
+fn report_square(sq: Option<Square>, color: PlayerColor) -> String {
     let s = sq.map_or_else(|| "pa".to_string(), |sq| sq.to_string());
-    if color == Disc::Black {
+    if color == PlayerColor::Black {
         s.to_uppercase()
     } else {
         s
@@ -137,7 +137,7 @@ fn report_square(sq: Option<Square>, color: Disc) -> String {
 
 /// The first 8 moves of `pv`, each followed by a space. PV lines omit forced
 /// passes, so the line is replayed from `board` to put them back.
-fn report_pv(board: &Board, color: Disc, pv: &[Square]) -> String {
+fn report_pv(board: &Board, color: PlayerColor, pv: &[Square]) -> String {
     let mut line = String::new();
     let mut mover = color;
     let mut current = *board;
@@ -188,10 +188,13 @@ mod tests {
     #[test]
     fn report_pv_restores_forced_passes() {
         // After Black's c1, White has no move and Black plays again.
-        let board = Board::from_string(&format!("XO------XO------{}", "-".repeat(48)), Disc::Black)
-            .unwrap();
+        let board = Board::from_string(
+            &format!("XO------XO------{}", "-".repeat(48)),
+            PlayerColor::Black,
+        )
+        .unwrap();
         assert_eq!(
-            report_pv(&board, Disc::Black, &[Square::C1, Square::C3]),
+            report_pv(&board, PlayerColor::Black, &[Square::C1, Square::C3]),
             "C1 pa C3 "
         );
     }

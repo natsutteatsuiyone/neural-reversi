@@ -3,9 +3,9 @@
 use std::time::Duration;
 
 use ratatui::DefaultTerminal;
-use reversi_core::disc::Disc;
 use reversi_core::game_state::GameState;
 use reversi_core::level;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::search::Search;
 use reversi_core::search::result::{PvMove, SearchResult};
 use reversi_core::square::Square;
@@ -32,11 +32,11 @@ pub enum GameMode {
 
 impl GameMode {
     /// Returns whether the AI should play for the given side.
-    pub fn is_ai_turn(&self, side: Disc) -> bool {
+    pub fn is_ai_turn(&self, side: PlayerColor) -> bool {
         matches!(
             (self, side),
-            (GameMode::HumanVsAi, Disc::White)
-                | (GameMode::AiVsHuman, Disc::Black)
+            (GameMode::HumanVsAi, PlayerColor::White)
+                | (GameMode::AiVsHuman, PlayerColor::Black)
                 | (GameMode::AiVsAi, _)
         )
     }
@@ -217,7 +217,7 @@ pub struct App {
     /// Board editor second input buffer (bitboard opponent)
     pub board_edit_input2: String,
     /// Board editor side to move selection
-    pub board_edit_side: Disc,
+    pub board_edit_side: PlayerColor,
     /// Board editor active field for bitboard tab
     pub board_edit_focus: BitboardField,
     /// Board editor validation error message
@@ -245,7 +245,7 @@ impl App {
             board_edit_tab: BoardEditTab::Moves,
             board_edit_input: String::new(),
             board_edit_input2: String::new(),
-            board_edit_side: Disc::Black,
+            board_edit_side: PlayerColor::Black,
             board_edit_focus: BitboardField::Player,
             board_edit_error: None,
         }
@@ -660,10 +660,10 @@ impl App {
                     BoardEditTab::Bitboard => self.board_edit_focus == BitboardField::Side,
                 };
                 if on_side_field {
-                    self.board_edit_side = if self.board_edit_side == Disc::Black {
-                        Disc::White
+                    self.board_edit_side = if self.board_edit_side == PlayerColor::Black {
+                        PlayerColor::White
                     } else {
-                        Disc::Black
+                        PlayerColor::Black
                     };
                 }
             }
@@ -751,7 +751,7 @@ impl App {
             {
                 Err(format!(
                     "{} has no legal moves",
-                    if self.board_edit_side == Disc::Black {
+                    if self.board_edit_side == PlayerColor::Black {
                         "Black"
                     } else {
                         "White"
@@ -826,7 +826,7 @@ mod tests {
 
         let start = Board::from_string(
             "------------X---X-----O--O--O-O-O------------O----X--------X----",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         let mut app = App::new(&EngineConfig {
@@ -836,7 +836,7 @@ mod tests {
             eval_file: None,
             eval_sm_file: None,
         });
-        app.game = GameState::from_board(start, Disc::Black);
+        app.game = GameState::from_board(start, PlayerColor::Black);
         app.game.make_move(Square::C5).unwrap();
         app.game.make_move(Square::C3).unwrap();
         app.game.make_move(Square::D6).unwrap();
@@ -844,7 +844,7 @@ mod tests {
         app.undo_move();
 
         assert_eq!(*app.game.board(), start);
-        assert_eq!(app.game.side_to_move(), Disc::Black);
+        assert_eq!(app.game.side_to_move(), PlayerColor::Black);
         assert!(app.game.move_history().is_empty());
     }
 }

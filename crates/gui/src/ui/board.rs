@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use gpui_kit::{prelude::*, *};
-use reversi_core::{disc::Disc, square::Square};
+use reversi_core::{disc::Disc, player_color::PlayerColor, square::Square};
 
 use super::assets::icon;
 use super::format::{ScorePrecision, display_score, whole_score};
@@ -178,10 +178,9 @@ impl ReversiApp {
                 .aria_label(format!(
                     "{} {} {}",
                     square.to_string().to_uppercase(),
-                    if disc == Disc::Empty {
-                        tr!("empty")
-                    } else {
-                        self.color(disc)
+                    match PlayerColor::try_from(disc) {
+                        Ok(color) => self.color(color),
+                        Err(_) => tr!("empty"),
                     },
                     if is_legal {
                         tr!("legal_move")

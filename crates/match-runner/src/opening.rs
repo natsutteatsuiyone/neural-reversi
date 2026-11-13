@@ -1,5 +1,7 @@
 use rand::{RngExt, seq::SliceRandom};
-use reversi_core::{board::Board, disc::Disc, game_state::GameState, square::Square};
+use reversi_core::{
+    board::Board, disc::Disc, game_state::GameState, player_color::PlayerColor, square::Square,
+};
 
 pub(crate) enum Opening {
     Sequence(String),
@@ -16,7 +18,7 @@ impl Opening {
 }
 
 pub(crate) fn color(state: &GameState) -> &'static str {
-    if state.side_to_move() == Disc::Black {
+    if state.side_to_move() == PlayerColor::Black {
         "B"
     } else {
         "W"
@@ -66,9 +68,9 @@ fn scattered(discs: u8, rng: &mut impl RngExt) -> GameState {
         text[sq.index()] = disc.to_char();
     }
     let side = if discs.is_multiple_of(2) {
-        Disc::Black
+        PlayerColor::Black
     } else {
-        Disc::White
+        PlayerColor::White
     };
     let board = Board::from_string(&text.iter().collect::<String>(), side).unwrap();
     GameState::from_board(board, side)
@@ -124,9 +126,9 @@ mod tests {
                 assert_eq!(
                     state.side_to_move(),
                     if discs.is_multiple_of(2) {
-                        Disc::Black
+                        PlayerColor::Black
                     } else {
-                        Disc::White
+                        PlayerColor::White
                     }
                 );
                 // GGS excludes the four 2x2 corners. This literal is independent

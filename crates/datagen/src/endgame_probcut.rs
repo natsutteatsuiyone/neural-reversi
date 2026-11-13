@@ -15,7 +15,9 @@ use std::{
     io::{self, BufRead, BufReader, BufWriter, Write},
 };
 
-use reversi_core::{board::Board, disc::Disc, probcut::VERIFY_DEPTH, square::Square};
+use reversi_core::{
+    board::Board, player_color::PlayerColor, probcut::VERIFY_DEPTH, square::Square,
+};
 #[cfg(feature = "trace")]
 use reversi_core::{
     eval::{EVAL_FILE_NAME, EvalMode},
@@ -58,7 +60,7 @@ const SEARCH_TT_MB: usize = 1024;
 /// only if the game is played perfectly from that position on.
 struct GamePositions {
     game: usize,
-    positions: Vec<(Board, Disc, Square, i32)>,
+    positions: Vec<(Board, PlayerColor, Square, i32)>,
 }
 
 /// Parses `input` into games (1-based line numbers as game ids), keeping the
@@ -114,7 +116,7 @@ fn pick_roots(
     games: &[GamePositions],
     empties: std::ops::RangeInclusive<u32>,
     fit_folds: bool,
-) -> impl Iterator<Item = (usize, &(Board, Disc, Square, i32))> {
+) -> impl Iterator<Item = (usize, &(Board, PlayerColor, Square, i32))> {
     let span = empties.end() - empties.start() + 1;
     games
         .iter()

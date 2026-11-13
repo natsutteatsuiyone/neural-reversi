@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use gpui_kit::{prelude::*, *};
-use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
 
 use super::assets::icon;
 use super::format::{ScorePrecision, display_score};
@@ -22,7 +22,10 @@ impl ReversiApp {
             .p(px(if desktop { 16. } else { 12. }))
             .border_b_1()
             .border_color(rgba(0xffffff1a));
-        for (index, color, score) in [(0_usize, Disc::Black, black), (1, Disc::White, white)] {
+        for (index, color, score) in [
+            (0_usize, PlayerColor::Black, black),
+            (1, PlayerColor::White, white),
+        ] {
             let ai = self.settings.ai_color() == Some(color);
             let active = color == position.turn && !position.game_over();
             let thinking = ai && active && self.session.activity() == Some(Activity::Move);

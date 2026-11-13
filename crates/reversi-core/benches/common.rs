@@ -10,8 +10,8 @@ use rand::{RngExt, rngs::StdRng};
 
 use reversi_core::board::Board;
 use reversi_core::constants::INITIAL_EMPTY_COUNT;
-use reversi_core::disc::Disc;
 use reversi_core::legal_moves::LegalMoves;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::square::Square;
 use reversi_core::types::Score;
 
@@ -20,7 +20,7 @@ pub(crate) fn board_from_rows(rows: [&str; 8]) -> Board {
     for row in rows {
         board_string.push_str(row);
     }
-    Board::from_string(&board_string, Disc::Black).expect("benchmark board must parse")
+    Board::from_string(&board_string, PlayerColor::Black).expect("benchmark board must parse")
 }
 
 pub(crate) fn weights_path(file_name: &str) -> PathBuf {

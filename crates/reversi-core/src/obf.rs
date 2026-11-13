@@ -23,7 +23,7 @@ use std::num::ParseIntError;
 use std::str::FromStr;
 
 use crate::board::{Board, BoardError};
-use crate::disc::Disc;
+use crate::player_color::PlayerColor;
 use crate::square::{Square, SquareError};
 
 /// A parsed OBF line.
@@ -32,7 +32,7 @@ pub struct ObfPosition {
     /// Board parsed from the 64-character field.
     pub board: Board,
     /// Side to move (`X` → Black, `O` → White).
-    pub side_to_move: Disc,
+    pub side_to_move: PlayerColor,
     /// Move-score pairs in descending score order. Entries with equal scores
     /// retain their file order. Empty when no move segments were present.
     /// Sentinel entries (`--:<score>`) are not included.
@@ -225,7 +225,7 @@ impl std::error::Error for ParseObfError {
     }
 }
 
-fn parse_board_header(header: &str) -> Result<(Board, Disc), ParseObfError> {
+fn parse_board_header(header: &str) -> Result<(Board, PlayerColor), ParseObfError> {
     if !header.is_ascii() {
         return Err(ParseObfError::NonAsciiHeader {
             header: header.to_string(),
@@ -248,8 +248,8 @@ fn parse_board_header(header: &str) -> Result<(Board, Disc), ParseObfError> {
             })?;
 
     let side_to_move = match side_char {
-        'X' => Disc::Black,
-        'O' => Disc::White,
+        'X' => PlayerColor::Black,
+        'O' => PlayerColor::White,
         other => return Err(ParseObfError::InvalidSideToMove(other)),
     };
 
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn parses_standard_obf_with_moves() {
         let pos = parse(&format!("XOOX{} X; e6:+10; d3:+8; --:-127", "-".repeat(60)));
-        assert_eq!(pos.side_to_move, Disc::Black);
+        assert_eq!(pos.side_to_move, PlayerColor::Black);
         assert_eq!(pos.board, Board::from_bitboards(0b1001, 0b0110));
         assert_eq!(pos.move_scores.len(), 2);
         assert_eq!(pos.move_scores[0], (Square::E6, 10));
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn parses_compact_header_without_separator() {
         let pos = parse(&format!("{INITIAL_BOARD}X"));
-        assert_eq!(pos.side_to_move, Disc::Black);
+        assert_eq!(pos.side_to_move, PlayerColor::Black);
         assert!(pos.move_scores.is_empty());
         assert!(pos.pass_score.is_none());
     }
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn parses_white_to_move() {
         let pos = parse(&format!("XOOX{} O", "-".repeat(60)));
-        assert_eq!(pos.side_to_move, Disc::White);
+        assert_eq!(pos.side_to_move, PlayerColor::White);
         assert_eq!(pos.board, Board::from_bitboards(0b0110, 0b1001));
     }
 

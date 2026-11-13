@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use reversi_core::{analysis::GameAnalysisProgress, disc::Disc, square::Square};
+use reversi_core::{analysis::GameAnalysisProgress, player_color::PlayerColor, square::Square};
 
 use crate::engine::{Engine, EventKind, Progress, Request};
 use crate::game::{Game, Position};
@@ -31,8 +31,8 @@ pub enum Update {
         black: u32,
         white: u32,
     },
-    /// `Disc` had to pass.
-    Passed(Disc),
+    /// `PlayerColor` had to pass.
+    Passed(PlayerColor),
     /// The history cursor moved; earlier notices are obsolete.
     Navigated,
     /// A search iteration was appended to [`Session::log`].
@@ -667,7 +667,7 @@ mod tests {
         assert_eq!(session.take_updates(), [Update::Played]);
         run_until(&mut session, &settings, |s| s.game().history.len() == 2);
         let reply = &session.game().history[1];
-        assert_eq!(reply.player, Disc::White);
+        assert_eq!(reply.player, PlayerColor::White);
         assert!(reply.score.is_some());
 
         session.navigate(0, &settings);

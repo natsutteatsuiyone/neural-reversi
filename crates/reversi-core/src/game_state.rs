@@ -5,7 +5,7 @@
 //! passing when no legal moves are available, and game termination detection.
 
 use crate::board::Board;
-use crate::disc::Disc;
+use crate::player_color::PlayerColor;
 use crate::square::Square;
 
 /// An action recorded in a game's history.
@@ -39,7 +39,7 @@ pub struct HistoryEntry {
     /// Board position before the action.
     pub board: Board,
     /// Side to move before the action.
-    pub side_to_move: Disc,
+    pub side_to_move: PlayerColor,
 }
 
 /// The state of a Reversi game.
@@ -51,7 +51,7 @@ pub struct GameState {
     /// The current board position.
     board: Board,
     /// Which player's turn it is to move.
-    side_to_move: Disc,
+    side_to_move: PlayerColor,
     /// Move history, one [`HistoryEntry`] per action.
     history: Vec<HistoryEntry>,
 }
@@ -67,13 +67,13 @@ impl GameState {
     pub fn new() -> Self {
         Self {
             board: Board::new(),
-            side_to_move: Disc::Black,
+            side_to_move: PlayerColor::Black,
             history: Vec::new(),
         }
     }
 
     /// Creates a new game state from an existing [`Board`] position.
-    pub fn from_board(board: Board, side_to_move: Disc) -> Self {
+    pub fn from_board(board: Board, side_to_move: PlayerColor) -> Self {
         Self {
             board,
             side_to_move,
@@ -106,7 +106,7 @@ impl GameState {
     }
 
     /// Returns the current side to move.
-    pub fn side_to_move(&self) -> Disc {
+    pub fn side_to_move(&self) -> PlayerColor {
         self.side_to_move
     }
 
@@ -156,7 +156,7 @@ impl GameState {
     ///
     /// Returns `false` and changes nothing unless the last action is an automatic
     /// pass by `side`.
-    pub fn confirm_automatic_pass(&mut self, side: Disc) -> bool {
+    pub fn confirm_automatic_pass(&mut self, side: PlayerColor) -> bool {
         match self.history.last_mut() {
             Some(entry)
                 if entry.action == HistoryAction::AutomaticPass && entry.side_to_move == side =>
@@ -195,7 +195,7 @@ impl GameState {
 
     /// Returns the disc count as `(black_count, white_count)`.
     pub fn score(&self) -> (u32, u32) {
-        let (black_count, white_count) = if self.side_to_move == Disc::Black {
+        let (black_count, white_count) = if self.side_to_move == PlayerColor::Black {
             (self.board.player_count(), self.board.opponent_count())
         } else {
             (self.board.opponent_count(), self.board.player_count())
@@ -270,7 +270,7 @@ mod tests {
 
         // Cannot undo when no moves have been made
         assert!(!game.undo());
-        assert_eq!(game.side_to_move(), Disc::Black);
+        assert_eq!(game.side_to_move(), PlayerColor::Black);
     }
 
     #[test]
@@ -292,14 +292,14 @@ mod tests {
     #[test]
     fn test_make_pass_rejects_game_over_position() {
         let board = Board::from_bitboards(Square::A1.bitboard(), 0);
-        let mut game = GameState::from_board(board, Disc::Black);
+        let mut game = GameState::from_board(board, PlayerColor::Black);
 
         let result = game.make_pass();
 
         assert!(result.is_err());
         assert_eq!(game.move_history().len(), 0);
         assert_eq!(*game.board(), board);
-        assert_eq!(game.side_to_move(), Disc::Black);
+        assert_eq!(game.side_to_move(), PlayerColor::Black);
     }
 
     #[test]
@@ -313,10 +313,10 @@ mod tests {
              XXXXXXXX\
              XXXXXXXX\
              XXXXXXXX",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
-        let mut game = GameState::from_board(board, Disc::Black);
+        let mut game = GameState::from_board(board, PlayerColor::Black);
 
         assert_eq!(game.board().legal_moves().bitboard(), Square::A1.bitboard());
         game.make_move(Square::A1).unwrap();
@@ -324,7 +324,7 @@ mod tests {
         assert!(game.is_game_over());
         assert_eq!(game.last_move(), Some(Square::A1));
         assert_eq!(game.move_history().len(), 1);
-        assert_eq!(game.side_to_move(), Disc::White);
+        assert_eq!(game.side_to_move(), PlayerColor::White);
     }
 
     #[test]
@@ -339,18 +339,18 @@ mod tests {
              --------\
              --------\
              XO------",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
-        let mut game = GameState::from_board(board, Disc::Black);
+        let mut game = GameState::from_board(board, PlayerColor::Black);
 
         game.make_move(Square::C1).unwrap();
         assert_eq!(game.move_history().len(), 2);
-        assert_eq!(game.side_to_move(), Disc::Black);
+        assert_eq!(game.side_to_move(), PlayerColor::Black);
 
         assert!(game.undo());
         assert_eq!(*game.board(), board);
-        assert_eq!(game.side_to_move(), Disc::Black);
+        assert_eq!(game.side_to_move(), PlayerColor::Black);
         assert!(game.move_history().is_empty());
     }
 
@@ -366,22 +366,22 @@ mod tests {
              --------\
              --------\
              XO------",
-            Disc::White,
+            PlayerColor::White,
         )
         .unwrap();
-        let mut game = GameState::from_board(board, Disc::White);
+        let mut game = GameState::from_board(board, PlayerColor::White);
 
         game.make_pass().unwrap();
         game.make_move(Square::C8).unwrap();
         assert_eq!(game.move_history().len(), 2);
 
         assert!(game.undo());
-        assert_eq!(game.side_to_move(), Disc::Black);
+        assert_eq!(game.side_to_move(), PlayerColor::Black);
         assert_eq!(game.move_history().len(), 1);
 
         assert!(game.undo());
         assert_eq!(*game.board(), board);
-        assert_eq!(game.side_to_move(), Disc::White);
+        assert_eq!(game.side_to_move(), PlayerColor::White);
     }
 
     #[test]
@@ -414,7 +414,7 @@ mod tests {
             .filter_map(|entry| entry.action.square())
             .collect();
         assert_eq!(played, moves);
-        assert_eq!(history[0].side_to_move, Disc::Black);
+        assert_eq!(history[0].side_to_move, PlayerColor::Black);
         assert!(
             history
                 .windows(2)

@@ -2,9 +2,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use reversi_core::board::Board;
-use reversi_core::disc::Disc;
 use reversi_core::eval::Eval;
 use reversi_core::level::Level;
+use reversi_core::player_color::PlayerColor;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::context::SearchContext;
 use reversi_core::search::options::SearchOptions;
@@ -90,7 +90,7 @@ fn test_solve_2_case1() {
     let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXXXXXXXXXOOXOXXXXXXOXXXXXXOXOXXXXOXOXOXXOOOOOOX--OOOOOX",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -104,7 +104,7 @@ fn aborted_endgame_reports_last_completed_selectivity() {
     let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXXXXXXXXXOOXOXXXXXXOXXXXXXOXOXXXXOXOXOXXOOOOOOX--OOOOOX",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let completed = Arc::new(Mutex::new(None));
@@ -145,7 +145,7 @@ fn multi_pv_solve_18_reports_each_legal_root_move() {
     let mut search = search();
     let board = Board::from_string(
         "--O-------OOX---OOOXXXO-OOOOXOXXXXXOOXOXXXXXXOOXX-XXXXOX--XXXX--",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect()).multi_pv(true);
@@ -185,7 +185,7 @@ fn test_solve_2_case2() {
     let mut search = search();
     let board = Board::from_string(
         "X-XXXXOXOOOOOOOXOOXXOXOOOOXXXXOOOOOXXOXOOOOOXXXOOOOOOX-OOOOOOOOO",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -199,7 +199,7 @@ fn test_solve_2_case3() {
     let mut search = search();
     let board = Board::from_string(
         "-OXOOOX-XXXXOOXXXOXOXXXXXOXXXOOXXOOXXOOXXOXOXXOXXXOOOXXXXXXXXXXX",
-        Disc::White,
+        PlayerColor::White,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -213,7 +213,7 @@ fn test_solve_3_case1() {
     let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXXXXXXXXXOOXOXXXXXXOXXXXXXOXOXXXXOXOXOX-OOOOOOX--OOOOOX",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -227,7 +227,7 @@ fn test_solve_3_case2() {
     let mut search = search();
     let board = Board::from_string(
         "X-XXXXOXOOOOOOOXOOXXOXOOOOXXXXOOOOOXXOXOOOOOXXXOOOOOOX-OOOOOOO-O",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -241,7 +241,7 @@ fn test_solve_3_case3() {
     let mut search = search();
     let board = Board::from_string(
         "-OXOOO--XXXXOOXXXOXOXXXXXOXXXOOXXOOXXOOXXOXOXXOXXXOOOXXXXXXXXXXX",
-        Disc::White,
+        PlayerColor::White,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -257,7 +257,7 @@ fn test_solve_3_pass_symmetries() {
             "OOOOOOOO", "OOOOOOOO", "OOX--OOO", "OO-XOOOO", "OOOOOOOO", "OOOOOOOO", "OOOOOOOO",
             "OOOOOOOO"
         ),
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
 
@@ -269,7 +269,7 @@ fn test_solve_4_case1() {
     let mut search = search();
     let board = Board::from_string(
         "XOOOOOO-XXOOOOOOXXXOXOOOXXOOOOOOXXXOOOOOXXOOXOOOXO-OOOOOOOO-XXX-",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -283,7 +283,7 @@ fn test_solve_4_case2() {
     let mut search = search();
     let board = Board::from_string(
         "XXXXXX-OXXXXXXOOXXXOXOOOXXXXOOOOXXXXOOOOXXXOOOOOXXXXOO-XOOOOOO--",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -297,7 +297,7 @@ fn test_solve_4_case3() {
     let mut search = search();
     let board = Board::from_string(
         "XXXXXXXXXXOXOOXXXXXXXXOXXXXXXXXOXXXXXXX-XXXXXXX-XXXXXX-XXXXXXOO-",
-        Disc::White,
+        PlayerColor::White,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -313,7 +313,7 @@ fn test_solve_4_pass_symmetries() {
             "OOOOOOOO", "OOOOOOOO", "OO---OOO", "OO-XOOOO", "OOOOOOOO", "OOOOOOOO", "OOOOOOOO",
             "OOOOOOOO"
         ),
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
 
@@ -325,7 +325,7 @@ fn test_solve_5_case1() {
     let mut search = search();
     let board = Board::from_string(
         "-OOOOOO-XXXXXXX---XOXXXOXXXOXXOOXXXXXOXOXXXOOOXOXOOOOXXOXOOOOOOO",
-        Disc::White,
+        PlayerColor::White,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -339,7 +339,7 @@ fn test_solve_9_case2() {
     let mut search = search();
     let board = Board::from_string(
         "--O--O----OOOOO-XOOOOOOOXXOOXOOOXXXXXOXXXOXXOOXXXXXXOXOXXOOOOOOX",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     assert_eq!(board.empty_count(), 9);
@@ -354,7 +354,7 @@ fn test_solve_16() {
     let mut search = search();
     let board = Board::from_string(
         "--OXXO--XOXXXX--XOOOOXXXXOOOXXXXX-OOOXXX--OOOOXX--XXOOO----XXOO-",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     assert_eq!(board.empty_count(), 16);
@@ -369,7 +369,7 @@ fn test_solve_20() {
     let mut search = search();
     let board = Board::from_string(
         "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
@@ -383,7 +383,7 @@ fn test_solve_20_case2() {
     let mut search = search();
     let board = Board::from_string(
         "----------XOO---XOOOOOX-XOOOXXXXXOOXOOXXXXOXOOXXX-OOXOO---OXX-O-",
-        Disc::Black,
+        PlayerColor::Black,
     )
     .unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());

@@ -213,7 +213,7 @@ fn propagate_step(best: Scoref, prev: Scoref) -> (Scoref, Scoref, Scoref) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::disc::Disc;
+    use crate::player_color::PlayerColor;
     use std::cell::Cell;
 
     fn play(square: Square) -> GameAnalysisMove {
@@ -278,9 +278,10 @@ mod tests {
 
     #[test]
     fn replay_rejects_invalid_moves() {
-        let full = Board::from_string(&"X".repeat(64), Disc::Black).unwrap();
+        let full = Board::from_string(&"X".repeat(64), PlayerColor::Black).unwrap();
         // Black's own a1 brackets b1 against c1, though a1 is occupied.
-        let occupied = Board::from_string(&format!("XOX{}", "-".repeat(61)), Disc::Black).unwrap();
+        let occupied =
+            Board::from_string(&format!("XOX{}", "-".repeat(61)), PlayerColor::Black).unwrap();
         for (board, move_input, expected) in [
             (Board::new(), play(Square::A1), "Illegal move"),
             (occupied, play(Square::A1), "Illegal move"),
@@ -299,7 +300,7 @@ mod tests {
     /// a1=White, b1=Black, rest empty: Black has no Legal Move, but White can
     /// play c1 (flipping b1), so the Game is not over — a forced-Pass Position.
     fn forced_pass_board() -> Board {
-        Board::from_string(&format!("OX{}", "-".repeat(62)), Disc::Black).unwrap()
+        Board::from_string(&format!("OX{}", "-".repeat(62)), PlayerColor::Black).unwrap()
     }
 
     /// H6=Black, H7/G8=White: Black can play H8, which leaves White with no
@@ -307,7 +308,7 @@ mod tests {
     fn move_then_forced_pass_board() -> Board {
         Board::from_string(
             "-----------------------------------------------X-------O------O-",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap()
     }

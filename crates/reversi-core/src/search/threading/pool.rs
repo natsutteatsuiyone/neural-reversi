@@ -343,9 +343,9 @@ impl Drop for ThreadPool {
 mod tests {
     use super::*;
     use crate::board::Board;
-    use crate::disc::Disc;
     use crate::eval::Eval;
     use crate::level::Level;
+    use crate::player_color::PlayerColor;
     use crate::probcut::{self, Selectivity};
     use crate::transposition_table::TranspositionTable;
 
@@ -392,7 +392,7 @@ mod tests {
         let pool = ThreadPool::new(2);
         let ffo_41 = Board::from_string(
             "-OOOOO----OOOOX--OOOOOO-XXXXXOO--XXOOX--OOXOXX----OXXO---OOO--O-",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         let mut positions = Vec::new();
@@ -419,12 +419,12 @@ mod tests {
         let task = |board, level| task(&pool, &eval, board, level, Selectivity::Level1);
         let endgame = Board::from_string(
             "-OOO------OOOO--XXXOOXXX-XOOOXX-XXXXOOOOOXXOOOO---OXOO---OOOO---",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
         let midgame = Board::from_string(
             "-XXX-OO---XXOO---XXXOOO--XXXXOX--OOOOOXX---OOOX-----OO----------",
-            Disc::Black,
+            PlayerColor::Black,
         )
         .unwrap();
 

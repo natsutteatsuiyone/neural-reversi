@@ -10,7 +10,7 @@ use std::rc::Rc;
 use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
-use reversi_core::{board::Board, disc::Disc, square::Square, types::Depth};
+use reversi_core::{board::Board, player_color::PlayerColor, square::Square, types::Depth};
 
 use crate::{
     eval::Eval, level::Level, probcut::Selectivity, search::Search,
@@ -59,7 +59,7 @@ struct EndgameSample {
     shallow_depth: Depth,
     shallow_score: f32,
     deep_depth: Depth,
-    side_to_move: Disc,
+    side_to_move: PlayerColor,
 }
 
 /// Result returned to JavaScript containing generated samples and statistics.
@@ -242,7 +242,7 @@ impl ProbCutDatagen {
 
         let mut samples = Vec::new();
         let mut board = Board::new();
-        let mut side_to_move = Disc::Black;
+        let mut side_to_move = PlayerColor::Black;
 
         // Parse and process each move
         for token in game_sequence.as_bytes().as_chunks::<2>().0 {
@@ -305,7 +305,7 @@ impl ProbCutDatagen {
 
         let mut pending = Vec::new();
         let mut board = Board::new();
-        let mut side_to_move = Disc::Black;
+        let mut side_to_move = PlayerColor::Black;
 
         for token in game_sequence.as_bytes().as_chunks::<2>().0 {
             let move_str = std::str::from_utf8(token)

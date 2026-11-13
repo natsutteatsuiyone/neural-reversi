@@ -5,6 +5,8 @@
 
 use std::time::Instant;
 
+use reversi_core::player_color::PlayerColor;
+
 /// Time control mode, automatically determined from GTP time_settings parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TimeControlMode {
@@ -44,15 +46,6 @@ impl PlayerClock {
             in_byoyomi,
         }
     }
-}
-
-/// Color of the player whose clock is read or updated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlayerColor {
-    /// Black player.
-    Black = 0,
-    /// White player.
-    White = 1,
 }
 
 /// Tracks time for both players during a game.
@@ -304,11 +297,19 @@ impl TimeTracker {
     }
 
     fn player(&self, color: PlayerColor) -> &PlayerClock {
-        &self.players[color as usize]
+        let [black, white] = &self.players;
+        match color {
+            PlayerColor::Black => black,
+            PlayerColor::White => white,
+        }
     }
 
     fn player_mut(&mut self, color: PlayerColor) -> &mut PlayerClock {
-        &mut self.players[color as usize]
+        let [black, white] = &mut self.players;
+        match color {
+            PlayerColor::Black => black,
+            PlayerColor::White => white,
+        }
     }
 
     /// Resets the time tracker for a new game.
