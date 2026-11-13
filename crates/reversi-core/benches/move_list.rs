@@ -13,7 +13,6 @@ use reversi_core::legal_moves::LegalMoves;
 use reversi_core::move_list::MoveList;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::context::SearchContext;
-use reversi_core::square::Square;
 use reversi_core::transposition_table::TranspositionTable;
 
 const N_CASES: usize = 256;
@@ -54,7 +53,7 @@ fn evaluated_lists(cases: &[Case]) -> Vec<MoveList> {
         .iter()
         .map(|case| {
             let mut moves = MoveList::with_moves(&case.board, case.moves);
-            moves.evaluate_moves_fast(&mut ctx, &case.board, Square::None);
+            moves.evaluate_moves_fast(&mut ctx, &case.board, None);
             moves
         })
         .collect()
@@ -93,7 +92,7 @@ fn bench_evaluate_fast(c: &mut Criterion, cases: &[Case]) {
             let mut acc = 0i32;
             for case in cases {
                 let mut moves = MoveList::with_moves(black_box(&case.board), black_box(case.moves));
-                moves.evaluate_moves_fast(&mut ctx, black_box(&case.board), Square::None);
+                moves.evaluate_moves_fast(&mut ctx, black_box(&case.board), None);
                 acc ^= moves.iter().fold(0, |sum, mv| sum ^ mv.value);
             }
             black_box(acc)

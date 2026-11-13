@@ -9,7 +9,7 @@ use crate::{
     search::root_move::RootMove,
     square::Square,
     transposition_table::TranspositionTable,
-    types::{Depth, ScaledScore, Scoref},
+    types::{Depth, Scoref},
 };
 
 /// A single move with its evaluation score for Multi-PV results.
@@ -145,9 +145,8 @@ impl CompletedState {
 /// Returns the TT's best move for `board` as a result, if it is legal.
 fn tt_move(board: &Board, tt: &TranspositionTable) -> Option<SearchResult> {
     let data = tt.lookup(board, board.hash())?;
-    let sq = data.best_move();
-    // `Square::None` must be rejected before the legality check.
-    (sq != Square::None && board.is_legal_move(sq)).then(|| SearchResult::BestMove {
+    let sq = data.best_move()?;
+    board.is_legal_move(sq).then(|| SearchResult::BestMove {
         sq,
         score: data.score().to_disc_diff_f32(),
         n_nodes: 0,
@@ -164,22 +163,18 @@ fn tt_move(board: &Board, tt: &TranspositionTable) -> Option<SearchResult> {
 /// no completed iteration to report.
 pub(super) fn quick_move(board: &Board, eval: &Eval) -> SearchResult {
     let moves = board.legal_moves();
-    if moves.is_empty() {
+    let Some((best_move, best_score)) = moves
+        .iter()
+        .map(|sq| {
+            (
+                sq,
+                -eval.evaluate_simple(&board.make_move(sq), EvalMode::Main),
+            )
+        })
+        .reduce(|best, cur| if cur.1 > best.1 { cur } else { best })
+    else {
         return SearchResult::NoLegalMove;
-    }
-
-    let mut best_move = Square::None;
-    let mut best_score = -ScaledScore::INF;
-
-    for sq in moves.iter() {
-        let next = board.make_move(sq);
-        let score = -eval.evaluate_simple(&next, EvalMode::Main);
-
-        if score > best_score {
-            best_score = score;
-            best_move = sq;
-        }
-    }
+    };
 
     SearchResult::BestMove {
         sq: best_move,
@@ -335,6 +330,7 @@ mod tests {
     use super::*;
     use crate::constants::MAX_PLY;
     use crate::transposition_table::Bound;
+    use crate::types::ScaledScore;
 
     fn context(board: &Board) -> SearchContext {
         let eval =
@@ -360,7 +356,7 @@ mod tests {
             ScaledScore::from_disc_diff(3),
             Bound::Exact,
             20,
-            tt_sq,
+            Some(tt_sq),
             Selectivity::None,
             false,
             false,
@@ -381,7 +377,7 @@ mod tests {
         let ctx = context(&board);
         let order: Vec<Square> = ctx.root_moves.snapshot().iter().map(|rm| rm.sq).collect();
         let mut completed = CompletedState::new(2);
-        let pv = [Square::None; MAX_PLY];
+        let pv = [None; MAX_PLY];
         for (pv_idx, discs) in [(0, -2), (1, 6)] {
             ctx.root_moves.set_pv_idx(pv_idx);
             ctx.root_moves

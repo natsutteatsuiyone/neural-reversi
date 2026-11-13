@@ -219,10 +219,7 @@ impl Game {
         let current = self.position();
         let must_pass = current.must_pass();
         let position = if must_pass { current.passed() } else { current };
-        if position.turn == Disc::Empty
-            || square == Square::None
-            || !position.board.is_legal_move(square)
-        {
+        if position.turn == Disc::Empty || !position.board.is_legal_move(square) {
             return Err(if position.game_over() {
                 "The game is over".into()
             } else {

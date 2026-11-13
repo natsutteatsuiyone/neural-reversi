@@ -21,9 +21,6 @@ use crate::bitboard::Bitboard;
 /// 7 48 49 50 51 52 53 54 55
 /// 8 56 57 58 59 60 61 62 63
 /// ```
-///
-/// Each variant corresponds to a specific square on the board, with an additional
-/// `None` variant representing an invalid or unspecified square.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[rustfmt::skip]
@@ -36,7 +33,6 @@ pub enum Square {
     A6, B6, C6, D6, E6, F6, G6, H6,
     A7, B7, C7, D7, E7, F7, G7, H7,
     A8, B8, C8, D8, E8, F8, G8, H8,
-    None,
 }
 
 /// Number of squares per side of the board.
@@ -49,21 +45,12 @@ impl Square {
     ///
     /// For example, `A1` returns `Bitboard(0x1)` and `H8` returns
     /// `Bitboard(0x8000_0000_0000_0000)`.
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug mode if called on [`Square::None`].
     #[inline(always)]
     pub fn bitboard(self) -> Bitboard {
-        debug_assert!(
-            (self as usize) < 64,
-            "Index out of bounds for Square enum. self: {self:?}"
-        );
         Bitboard::from_square(self)
     }
 
-    /// Returns this square's index as a `usize` (0-63 for valid squares,
-    /// 64 for [`Square::None`]).
+    /// Returns this square's index (0-63) as a `usize`.
     #[inline]
     pub fn index(self) -> usize {
         self as usize
@@ -71,15 +58,13 @@ impl Square {
 
     /// Converts a `u8` index to a [`Square`] without bounds checking.
     ///
-    /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
-    ///
     /// # Safety
     ///
-    /// `index` must be <= 64.
+    /// `index` must be < 64.
     #[inline]
     pub unsafe fn from_u8_unchecked(index: u8) -> Square {
         debug_assert!(
-            index <= 64,
+            index < 64,
             "Index out of bounds for Square enum. index: {index:?}"
         );
         unsafe { std::mem::transmute(index) }
@@ -87,12 +72,11 @@ impl Square {
 
     /// Safely converts a `u8` index to a [`Square`].
     ///
-    /// Accepts indices 0-64 (where 64 maps to [`Square::None`]).
-    /// Returns `None` for indices > 64.
+    /// Returns `None` for indices >= 64.
     #[inline]
     pub fn from_u8(index: u8) -> Option<Square> {
-        if index <= 64 {
-            // SAFETY: index is checked to be <= 64 above.
+        if index < 64 {
+            // SAFETY: index is checked to be < 64 above.
             Some(unsafe { Square::from_u8_unchecked(index) })
         } else {
             None
@@ -101,15 +85,13 @@ impl Square {
 
     /// Converts a `u32` index to a [`Square`] without bounds checking.
     ///
-    /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
-    ///
     /// # Safety
     ///
-    /// `index` must be <= 64.
+    /// `index` must be < 64.
     #[inline]
     pub unsafe fn from_u32_unchecked(index: u32) -> Square {
         debug_assert!(
-            index <= 64,
+            index < 64,
             "Index out of bounds for Square enum. index: {index:?}"
         );
         unsafe { Self::from_u8_unchecked(index as u8) }
@@ -117,15 +99,13 @@ impl Square {
 
     /// Converts a `usize` index to a [`Square`] without bounds checking.
     ///
-    /// Valid range is 0-63 for board squares, 64 for [`Square::None`].
-    ///
     /// # Safety
     ///
-    /// `index` must be <= 64.
+    /// `index` must be < 64.
     #[inline]
     pub unsafe fn from_usize_unchecked(index: usize) -> Square {
         debug_assert!(
-            index <= 64,
+            index < 64,
             "Index out of bounds for Square enum. index: {index:?}"
         );
         unsafe { Self::from_u8_unchecked(index as u8) }
@@ -133,25 +113,15 @@ impl Square {
 
     /// Returns the file (column) index of this square, where 0 is file A and
     /// 7 is file H.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called on [`Square::None`].
     #[inline]
     pub fn file(self) -> usize {
-        assert!(self != Square::None, "Square::file called on Square::None");
         self.index() % BOARD_SIZE
     }
 
     /// Returns the rank (row) index of this square, where 0 is rank 1 and
     /// 7 is rank 8.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called on [`Square::None`].
     #[inline]
     pub fn rank(self) -> usize {
-        assert!(self != Square::None, "Square::rank called on Square::None");
         self.index() / BOARD_SIZE
     }
 
@@ -168,9 +138,7 @@ impl Square {
         unsafe { Self::from_usize_unchecked(rank as usize * BOARD_SIZE + file as usize) }
     }
 
-    /// Returns an iterator over all 64 valid squares from A1 to H8.
-    ///
-    /// Does not include [`Square::None`].
+    /// Returns an iterator over all 64 squares from A1 to H8.
     #[inline]
     pub fn iter() -> impl Iterator<Item = Square> {
         // SAFETY: 0..64 are all valid square indices.
@@ -204,15 +172,6 @@ impl Square {
             moves.push(square);
         }
         Ok(moves)
-    }
-}
-
-// We want Square::None as the default value, not the first variant (A1)
-// which would be chosen by #[derive(Default)]
-#[allow(clippy::derivable_impls)]
-impl Default for Square {
-    fn default() -> Self {
-        Square::None
     }
 }
 
@@ -302,10 +261,6 @@ impl FromStr for Square {
 
 impl fmt::Display for Square {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if *self == Square::None {
-            return write!(f, "None");
-        }
-
         let file = self.file() as u8 + b'a';
         let rank = self.rank() as u8 + b'1';
 
@@ -385,20 +340,7 @@ mod tests {
     fn test_safe_conversions() {
         assert_eq!(Square::from_u8(0), Some(Square::A1));
         assert_eq!(Square::from_u8(63), Some(Square::H8));
-        assert_eq!(Square::from_u8(64), Some(Square::None));
-        assert_eq!(Square::from_u8(65), None);
-    }
-
-    #[test]
-    #[should_panic(expected = "Square::file called on Square::None")]
-    fn test_file_panics_on_none() {
-        let _ = Square::None.file();
-    }
-
-    #[test]
-    #[should_panic(expected = "Square::rank called on Square::None")]
-    fn test_rank_panics_on_none() {
-        let _ = Square::None.rank();
+        assert_eq!(Square::from_u8(64), None);
     }
 
     #[test]
@@ -436,7 +378,6 @@ mod tests {
     fn test_display() {
         assert_eq!(Square::A1.to_string(), "a1");
         assert_eq!(Square::H8.to_string(), "h8");
-        assert_eq!(Square::None.to_string(), "None"); // the special non-square branch
     }
 
     #[test]

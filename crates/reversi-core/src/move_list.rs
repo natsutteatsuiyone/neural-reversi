@@ -22,7 +22,7 @@ pub(crate) use ordering::fast_move_value;
 /// A single move.
 ///
 /// Field order is chosen to keep each entry 16 bytes in the inline move buffer.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct Move {
     /// Bitboard representing all opponent discs flipped by this move.
@@ -37,7 +37,6 @@ impl Move {
     /// Creates a new move with the specified square and flipped discs.
     #[inline]
     pub fn new(sq: Square, flipped: Bitboard) -> Move {
-        debug_assert!(sq != Square::None, "Move cannot have Square::None");
         debug_assert!(!flipped.is_empty(), "Move must flip at least one disc");
 
         Move {

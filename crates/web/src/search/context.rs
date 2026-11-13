@@ -247,19 +247,15 @@ impl SearchContext {
             &JsValue::from_str("nodes"),
             &JsValue::from_f64(self.n_nodes as f64),
         );
-        let (best_move_value, best_move_index) = if best_move == Square::None {
-            (JsValue::NULL, JsValue::NULL)
-        } else {
-            (
-                JsValue::from(best_move.to_string()),
-                JsValue::from_f64(best_move.index() as f64),
-            )
-        };
-        let _ = Reflect::set(&payload, &JsValue::from_str("bestMove"), &best_move_value);
+        let _ = Reflect::set(
+            &payload,
+            &JsValue::from_str("bestMove"),
+            &JsValue::from(best_move.to_string()),
+        );
         let _ = Reflect::set(
             &payload,
             &JsValue::from_str("bestMoveIndex"),
-            &best_move_index,
+            &JsValue::from_f64(best_move.index() as f64),
         );
 
         let _ = callback.call1(&JsValue::NULL, &payload);

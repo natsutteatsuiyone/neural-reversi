@@ -44,7 +44,7 @@ impl ReversiApp {
         let mut best_score = None;
         if show_candidates {
             for candidate in self.session.candidates() {
-                if let Some(square) = candidate.square.filter(|square| *square != Square::None)
+                if let Some(square) = candidate.square
                     && legal & (1_u64 << square.index()) != 0
                 {
                     candidates[square.index()] = Some(candidate);
@@ -72,10 +72,7 @@ impl ReversiApp {
                 .rev()
                 .filter_map(|progress| progress.square)
             {
-                if square != current
-                    && square != Square::None
-                    && !thinking_trail.contains(&Some(square))
-                {
+                if square != current && !thinking_trail.contains(&Some(square)) {
                     thinking_trail[count] = Some(square);
                     count += 1;
                     if count == thinking_trail.len() {

@@ -58,7 +58,7 @@ const STABILITY_SCALE: [f64; 5] = [1.0, 1.0, 0.90, 0.85, 0.80];
 const NO_SCORE_BITS: u32 = f32::NEG_INFINITY.to_bits();
 
 /// Sentinel value indicating no previous best move has been recorded.
-const NO_PREV_MOVE: u8 = Square::None as u8;
+const NO_PREV_MOVE: u8 = u8::MAX;
 
 /// Default next-iteration prediction factor for midgame iterative deepening.
 const DEFAULT_CONTINUE_FACTOR: f64 = 1.5;

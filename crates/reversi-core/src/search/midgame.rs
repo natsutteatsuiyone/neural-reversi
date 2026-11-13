@@ -380,7 +380,7 @@ pub fn evaluate_shallow_with_tt(
     }
 
     let mut best_score = -ScaledScore::INF;
-    let mut best_move = Square::None;
+    let mut best_move = None;
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -394,12 +394,12 @@ pub fn evaluate_shallow_with_tt(
 
         if score >= beta {
             best_score = score;
-            best_move = mv.sq;
+            best_move = Some(mv.sq);
             break;
         }
         best_score = best_score.max(score);
         if score > alpha {
-            best_move = mv.sq;
+            best_move = Some(mv.sq);
             alpha = score;
         }
     }
@@ -444,7 +444,7 @@ pub fn evaluate_depth2(
         return ScaledScore::MAX;
     }
     if move_list.count() >= 2 {
-        move_list.evaluate_moves_fast(ctx, board, Square::None);
+        move_list.evaluate_moves_fast(ctx, board, None);
     }
 
     let mut best_score = -ScaledScore::INF;

@@ -15,8 +15,8 @@ pub struct SearchProgress {
     pub target_depth: Depth,
     /// Best score found so far (in disc difference).
     pub score: Scoref,
-    /// Best move found so far.
-    pub best_move: Square,
+    /// Best move found so far, or [`None`] when there is no legal move.
+    pub best_move: Option<Square>,
     /// Probability percentage from the current [`Selectivity`] level.
     ///
     /// [`Selectivity`]: crate::probcut::Selectivity
@@ -50,7 +50,7 @@ impl SearchProgress {
             depth,
             target_depth,
             score: score.to_disc_diff_f32(),
-            best_move: rm.sq,
+            best_move: Some(rm.sq),
             probability: ctx.selectivity.probability(),
             nodes,
             pv_line: rm.pv.clone(),
@@ -66,7 +66,7 @@ impl SearchProgress {
             target_depth: result.depth(),
             score: result.score().unwrap_or(0.0),
             probability: result.probability(),
-            best_move: result.best_move().unwrap_or(Square::None),
+            best_move: result.best_move(),
             nodes: result.n_nodes(),
             pv_line: result.pv_line().to_vec(),
             is_endgame: result.is_endgame(),

@@ -75,7 +75,13 @@ impl RootMoves {
     /// # Panics
     ///
     /// Panics if `sq` is not found in the root move list.
-    pub fn update(&self, sq: Square, score: ScaledScore, is_pv: bool, pv: &[Square; MAX_PLY]) {
+    pub fn update(
+        &self,
+        sq: Square,
+        score: ScaledScore,
+        is_pv: bool,
+        pv: &[Option<Square>; MAX_PLY],
+    ) {
         let mut moves = self.moves.lock().unwrap();
         let rm = moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
         let squared = i64::from(score.value()) * i64::from(score.value().abs());
@@ -90,12 +96,7 @@ impl RootMoves {
         if is_pv {
             rm.score = score;
             rm.pv.clear();
-            for sq in pv.iter() {
-                if *sq == Square::None {
-                    break;
-                }
-                rm.pv.push(*sq);
-            }
+            rm.pv.extend(pv.iter().map_while(|&sq| sq));
         } else {
             rm.score = -ScaledScore::INF;
         }
@@ -164,9 +165,11 @@ impl RootMoves {
 mod tests {
     use super::*;
 
-    fn pv_array(line: &[Square]) -> [Square; MAX_PLY] {
-        let mut pv = [Square::None; MAX_PLY];
-        pv[..line.len()].copy_from_slice(line);
+    fn pv_array(line: &[Square]) -> [Option<Square>; MAX_PLY] {
+        let mut pv = [None; MAX_PLY];
+        for (slot, &sq) in pv.iter_mut().zip(line) {
+            *slot = Some(sq);
+        }
         pv
     }
 

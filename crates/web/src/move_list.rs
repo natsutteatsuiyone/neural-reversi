@@ -24,7 +24,7 @@ pub fn evaluate_moves<SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    tt_move: Square,
+    tt_move: Option<Square>,
 ) {
     // Minimum depth required for shallow search evaluation based on empty squares
     // When depth is below this threshold, use fast heuristic evaluation instead
@@ -57,7 +57,7 @@ fn evaluate_moves_shallow<SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    tt_move: Square,
+    tt_move: Option<Square>,
 ) {
     const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
     const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
@@ -80,7 +80,7 @@ fn evaluate_moves_shallow<SS: SearchStrategy>(
         if mv.flipped == board.opponent() {
             // Wipeout move
             mv.value = WIPEOUT_VALUE;
-        } else if mv.sq == tt_move {
+        } else if Some(mv.sq) == tt_move {
             // Transposition table move
             mv.value = TT_MOVE_VALUE;
         } else {
@@ -114,7 +114,7 @@ pub(crate) fn evaluate_moves_fast(
     move_list: &mut MoveList,
     ctx: &mut SearchContext,
     board: &Board,
-    tt_move: Square,
+    tt_move: Option<Square>,
 ) {
     // Reference: https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/move.c#L30
     #[rustfmt::skip]
@@ -149,7 +149,7 @@ pub(crate) fn evaluate_moves_fast(
         if mv.flipped == board.opponent() {
             // Wipeout move (capture all opponent pieces)
             mv.value = WIPEOUT_VALUE;
-        } else if mv.sq == tt_move {
+        } else if Some(mv.sq) == tt_move {
             // Transposition table move
             mv.value = TT_MOVE_VALUE;
         } else {

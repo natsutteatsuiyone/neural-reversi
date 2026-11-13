@@ -22,33 +22,37 @@ use crate::transposition_table::TranspositionTable;
 use crate::types::ScaledScore;
 
 /// The search context that maintains all state during search operations.
+// The field order is the layout: `counters`, `tt`, `eval` and the empty
+// list's count share the cache line after `pattern_features`. The order rustc
+// picked on its own moved them apart and made ST hard-20 1.5% slower.
+#[repr(C)]
 pub struct SearchContext {
-    /// Diagnostic counters for search statistics.
-    pub counters: SearchCounters,
-    /// Current side to move
-    pub side_to_move: SideToMove,
-    /// Selectivity level
-    pub selectivity: Selectivity,
-    /// List of empty squares on the board, optimized for quick access
-    pub empty_list: EmptyList,
-    /// Shared transposition table for storing search results
-    pub tt: Arc<TranspositionTable>,
-    /// Container for root moves and Multi-PV state
-    pub root_moves: RootMoves,
-    /// Neural network evaluator for position assessment
-    pub eval: Arc<Eval>,
     /// Pattern features for efficient neural network input
     pub pattern_features: PatternFeatures,
-    /// Search stack for maintaining PV and search state at each ply
-    pub stack: SearchStack,
-    /// Current evaluation mode (midgame vs endgame).
-    pub eval_mode: EvalMode,
+    /// Container for root moves and Multi-PV state
+    pub root_moves: RootMoves,
+    /// Diagnostic counters for search statistics.
+    pub counters: SearchCounters,
     /// Lazy SMP helper thread searching with this context; `None` for the
     /// main thread's search and for split points.
     pub(in crate::search) helper: Option<Helper>,
     /// Corrections applied to main-network evaluations; set only while a
     /// midgame root search or a Lazy SMP helper search runs.
     pub(in crate::search) correction_history: Option<Box<CorrectionHistory>>,
+    /// Shared transposition table for storing search results
+    pub tt: Arc<TranspositionTable>,
+    /// Neural network evaluator for position assessment
+    pub eval: Arc<Eval>,
+    /// List of empty squares on the board, optimized for quick access
+    pub empty_list: EmptyList,
+    /// Search stack for maintaining PV and search state at each ply
+    pub stack: SearchStack,
+    /// Selectivity level
+    pub selectivity: Selectivity,
+    /// Current side to move
+    pub side_to_move: SideToMove,
+    /// Current evaluation mode (midgame vs endgame).
+    pub eval_mode: EvalMode,
 }
 
 impl SearchContext {
@@ -235,13 +239,13 @@ impl SearchContext {
 
     /// Returns the principal variation at the current ply.
     #[inline]
-    pub fn pv(&self) -> &[Square; MAX_PLY] {
+    pub fn pv(&self) -> &[Option<Square>; MAX_PLY] {
         self.stack.pv(self.ply())
     }
 
     /// Sets the principal variation at the current ply.
     #[inline]
-    pub fn set_pv(&mut self, pv: &[Square; MAX_PLY]) {
+    pub fn set_pv(&mut self, pv: &[Option<Square>; MAX_PLY]) {
         self.stack.set_pv(self.ply(), pv);
     }
 }

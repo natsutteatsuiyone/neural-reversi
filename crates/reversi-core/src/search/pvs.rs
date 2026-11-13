@@ -15,7 +15,6 @@ use crate::search::midgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::{EndGameStrategy, SearchStrategy};
 use crate::search::threading::{Claim, SplitPoint, SplitRequest, Thread};
-use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
@@ -186,18 +185,18 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         && !all_node
         && ctx.selectivity.is_enabled()
         && depth >= IIR_MIN_DEPTH
-        && tt_move == Square::None
+        && tt_move.is_none()
     {
         depth -= 1;
     }
 
     let n_moves = move_list.count();
-    let mut best_move = Square::None;
+    let mut best_move = None;
     let mut best_score = -ScaledScore::INF;
     let mut move_count: usize = 0;
 
-    if !NT::PV_NODE && (n_moves == 1 || tt_move != Square::None) {
-        let (sq, flipped) = if tt_move != Square::None {
+    if !NT::PV_NODE && (n_moves == 1 || tt_move.is_some()) {
+        let (sq, flipped) = if let Some(tt_move) = tt_move {
             (
                 tt_move,
                 flip::flip(tt_move, board.player(), board.opponent()),
@@ -228,7 +227,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         best_score = score;
         if score > alpha {
-            best_move = sq;
+            best_move = Some(sq);
             if score >= beta {
                 ctx.tt.store(
                     tt_probe_result.index(),
@@ -258,7 +257,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     if n_moves - move_count > 1 {
         move_list.evaluate_moves::<NT, SS>(ctx, board, depth, tt_move, alpha, cut_node);
         move_list.sort();
-    } else if n_moves == 2 && move_list.move_at(0).sq != tt_move {
+    } else if n_moves == 2 && Some(move_list.move_at(0).sq) != tt_move {
         move_list.swap_moves(0, 1);
     }
 
@@ -370,7 +369,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             best_score = score;
 
             if score > alpha {
-                best_move = mv.sq;
+                best_move = Some(mv.sq);
 
                 if NT::PV_NODE && !NT::ROOT_NODE {
                     ctx.update_pv(mv.sq);
@@ -487,7 +486,7 @@ pub(super) fn search_split_point<NT: NodeType>(
             sp.set_best_score(score);
 
             if score > sp.alpha() {
-                sp.set_best_move(mv.sq);
+                sp.set_best_move(Some(mv.sq));
 
                 if NT::PV_NODE && !NT::ROOT_NODE {
                     ctx.update_pv(mv.sq);
@@ -551,7 +550,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
                     score,
                     Bound::Lower,
                     depth,
-                    mv.sq,
+                    Some(mv.sq),
                     ctx.selectivity,
                     SS::IS_ENDGAME,
                     tt_pv,

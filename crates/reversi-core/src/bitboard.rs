@@ -183,7 +183,7 @@ impl Bitboard {
         /// Pre-computed masks for bracketable adjacent squares around each board position.
         /// Reference: <https://eukaryote.hateblo.jp/entry/2020/04/26/031246>
         #[rustfmt::skip]
-        const NEIGHBOUR_MASK: [u64; 65] = [
+        const NEIGHBOUR_MASK: [u64; 64] = [
             0x0000000000000302, 0x0000000000000604, 0x0000000000000e0a, 0x0000000000001c14,
             0x0000000000003828, 0x0000000000007050, 0x0000000000006020, 0x000000000000c040,
             0x0000000000030200, 0x0000000000060400, 0x00000000000e0a00, 0x00000000001c1400,
@@ -200,7 +200,6 @@ impl Bitboard {
             0x0028380000000000, 0x0050700000000000, 0x0020600000000000, 0x0040c00000000000,
             0x0203000000000000, 0x0406000000000000, 0x0a0e000000000000, 0x141c000000000000,
             0x2838000000000000, 0x5070000000000000, 0x2060000000000000, 0x40c0000000000000,
-            0 // Square::None
         ];
 
         (self.0 & unsafe { *NEIGHBOUR_MASK.get_unchecked(sq.index()) }) != 0

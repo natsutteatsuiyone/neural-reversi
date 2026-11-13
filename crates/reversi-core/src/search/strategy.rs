@@ -9,7 +9,6 @@ use crate::search::endgame;
 use crate::search::midgame;
 use crate::search::node_type::NonPV;
 use crate::search::threading::Thread;
-use crate::square::Square;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore};
 
@@ -175,7 +174,7 @@ impl SearchStrategy for EndGameStrategy {
                 score,
                 Bound::classify::<NonPV>(score, alpha, beta),
                 depth,
-                Square::None,
+                None,
                 Selectivity::None,
                 true,
                 false,

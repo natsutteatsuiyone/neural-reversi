@@ -156,17 +156,17 @@ impl SplitPointState {
         self.best_score.store(value.value(), Ordering::Relaxed);
     }
 
-    /// Returns the best move.
+    /// Returns the best move, if one has been found.
     #[inline]
-    pub fn best_move(&self) -> Square {
-        // SAFETY: best_move is always set via `Square as u8` (0..=64).
-        unsafe { Square::from_u8_unchecked(self.best_move.load(Ordering::Relaxed)) }
+    pub fn best_move(&self) -> Option<Square> {
+        Square::from_u8(self.best_move.load(Ordering::Relaxed))
     }
 
     /// Sets the best move.
     #[inline]
-    pub fn set_best_move(&self, value: Square) {
-        self.best_move.store(value as u8, Ordering::Relaxed);
+    pub fn set_best_move(&self, value: Option<Square>) {
+        self.best_move
+            .store(value.map_or(u8::MAX, |sq| sq as u8), Ordering::Relaxed);
     }
 }
 
@@ -278,7 +278,7 @@ pub struct SplitPoint {
     ///
     /// Mutated under the split-point lock, or after all searchers finish (see
     /// struct-level teardown ordering).
-    pv: SyncUnsafeCell<[Square; MAX_PLY]>,
+    pv: SyncUnsafeCell<[Option<Square>; MAX_PLY]>,
 
     /// Accumulated search counters from all threads that searched this split point.
     ///
@@ -296,7 +296,7 @@ impl Default for SplitPoint {
                 all_helpers_searching: AtomicBool::new(false),
                 alpha: AtomicI32::new(0),
                 best_score: AtomicI32::new(0),
-                best_move: AtomicU8::new(Square::None as u8),
+                best_move: AtomicU8::new(u8::MAX),
                 cutoff: Align64(AtomicBool::new(false)),
                 owner_thread_idx: AtomicUsize::new(0),
                 helpers_mask: Align64(AtomicBitSet::new()),
@@ -305,7 +305,7 @@ impl Default for SplitPoint {
             },
             move_iter: SyncUnsafeCell::new(None),
             task: SyncUnsafeCell::new(None),
-            pv: SyncUnsafeCell::new([Square::None; MAX_PLY]),
+            pv: SyncUnsafeCell::new([None; MAX_PLY]),
             counters: SyncUnsafeCell::new(SearchCounters::default()),
         }
     }
@@ -373,7 +373,7 @@ impl SplitPoint {
 
     /// Copies PV from source to the split point's internal PV storage.
     #[inline(always)]
-    pub fn copy_pv(&self, src: &[Square; MAX_PLY]) {
+    pub fn copy_pv(&self, src: &[Option<Square>; MAX_PLY]) {
         // SAFETY: Caller holds the split-point lock, or no helpers are active.
         unsafe { (*self.pv.get()).copy_from_slice(src) };
     }
@@ -383,7 +383,7 @@ impl SplitPoint {
     /// Borrow scope must not outlive the next reuse of this split point; callers
     /// consume it immediately after `finalize_split_point`.
     #[inline]
-    pub(super) fn pv(&self) -> &[Square; MAX_PLY] {
+    pub(super) fn pv(&self) -> &[Option<Square>; MAX_PLY] {
         // SAFETY: Called after all searchers have finished this split point,
         // so no concurrent writer exists.
         unsafe { &*self.pv.get() }

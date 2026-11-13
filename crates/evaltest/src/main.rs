@@ -577,13 +577,16 @@ fn execute_test_case(
     let options = SearchRunOptions::with_level(level)
         .multi_pv(multipv)
         .callback(move |progress: SearchProgress| {
+            let Some(best_move) = progress.best_move else {
+                return;
+            };
             let elapsed = start.elapsed();
             // Usage scans the table, so only verbose output pays for it.
             let tt_fill = if verbose { tt.usage_rate() } else { 0.0 };
             iter_clone.lock().unwrap().push(IterationData {
                 depth: progress.depth,
                 score: progress.score,
-                best_move: progress.best_move,
+                best_move,
                 nodes: progress.nodes,
                 probability: progress.probability,
                 counters: progress.counters,

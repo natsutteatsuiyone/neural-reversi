@@ -112,12 +112,12 @@ impl TTProbeResult {
         }
     }
 
-    /// Returns the best move if hit, otherwise [`Square::None`].
+    /// Returns the best move if hit and one is stored, otherwise [`None`].
     #[inline(always)]
-    pub fn best_move(&self) -> Square {
+    pub fn best_move(&self) -> Option<Square> {
         match self {
             TTProbeResult::Hit { data, .. } => data.best_move(),
-            TTProbeResult::Miss { .. } => Square::None,
+            TTProbeResult::Miss { .. } => None,
         }
     }
 }
@@ -140,6 +140,9 @@ pub struct TTEntryData {
 
 const _: () = assert!(mem::size_of::<TTEntryData>() == 8);
 const _: () = assert!(CLUSTER_BYTE_SIZE == CACHE_LINE_SIZE);
+
+/// [`TTEntryData::best_move`] value of an entry without a best move.
+const NO_MOVE: u8 = u8::MAX;
 
 /// [`TTEntryData::flags`] bit set by an endgame search.
 const FLAG_ENDGAME: u8 = 1;
@@ -167,7 +170,7 @@ impl TTEntryData {
     #[inline(always)]
     fn new(
         score: ScaledScore,
-        best_move: Square,
+        best_move: Option<Square>,
         bound: Bound,
         depth: Depth,
         selectivity: Selectivity,
@@ -177,7 +180,7 @@ impl TTEntryData {
     ) -> Self {
         Self {
             score: score.value() as i16,
-            best_move: best_move as u8,
+            best_move: best_move.map_or(NO_MOVE, |sq| sq as u8),
             bound: bound as u8,
             depth: depth as u8,
             selectivity: selectivity.as_u8(),
@@ -188,9 +191,9 @@ impl TTEntryData {
 
     /// Creates a new `TTEntryData` with a substituted best move.
     #[inline(always)]
-    fn with_best_move(self, best_move: Square) -> Self {
+    fn with_best_move_of(self, other: TTEntryData) -> Self {
         Self {
-            best_move: best_move as u8,
+            best_move: other.best_move,
             ..self
         }
     }
@@ -201,11 +204,10 @@ impl TTEntryData {
         ScaledScore::from_raw(self.score as i32)
     }
 
-    /// Returns the best move found for this position.
+    /// Returns the best move found for this position, if one is stored.
     #[inline(always)]
-    pub fn best_move(&self) -> Square {
-        // SAFETY: only valid Square indices (0..=64) are stored.
-        unsafe { Square::from_u8_unchecked(self.best_move) }
+    pub fn best_move(&self) -> Option<Square> {
+        Square::from_u8(self.best_move)
     }
 
     /// Returns the [`Bound`] type of this entry.
@@ -412,7 +414,7 @@ impl TTEntry {
     /// Exact bounds always replace. A different board also replaces, since the
     /// caller already chose this slot as the cluster victim. For the same board,
     /// non-exact results replace when depth regression is at most two plies (four with higher
-    /// selectivity), or generation changed. If `best_move` is [`Square::None`], the
+    /// selectivity), or generation changed. If `data` has no best move, the
     /// existing move is preserved for same-board non-exact updates.
     #[inline(always)]
     pub(crate) fn save(&self, board: &Board, data: TTEntryData) {
@@ -426,7 +428,7 @@ impl TTEntry {
             return;
         }
 
-        let has_best_move = data.best_move != Square::None as u8;
+        let has_best_move = data.best_move != NO_MOVE;
 
         // Retry the full replacement policy if another writer wins the race
         // between snapshot acquisition and the claim CAS.
@@ -465,7 +467,7 @@ impl TTEntry {
             let write_data = if has_best_move || !same_board {
                 data
             } else {
-                data.with_best_move(stored_data.best_move())
+                data.with_best_move_of(stored_data)
             };
 
             if self.seqlock_write(stored_seq, new_player, new_opponent, write_data) {
@@ -837,7 +839,7 @@ impl TranspositionTable {
         score: ScaledScore,
         bound: Bound,
         depth: Depth,
-        best_move: Square,
+        best_move: Option<Square>,
         selectivity: Selectivity,
         is_endgame: bool,
         is_pv: bool,

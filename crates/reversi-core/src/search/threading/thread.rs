@@ -111,7 +111,7 @@ pub struct SplitRequest<'a> {
     pub alpha: ScaledScore,
     pub beta: ScaledScore,
     pub best_score: ScaledScore,
-    pub best_move: Square,
+    pub best_move: Option<Square>,
     pub depth: Depth,
     pub move_list: MoveList,
     pub move_count: usize,
@@ -365,7 +365,7 @@ impl Thread {
         self: &Arc<Self>,
         ctx: &mut SearchContext,
         req: SplitRequest,
-    ) -> (ScaledScore, Square, SearchCounters) {
+    ) -> (ScaledScore, Option<Square>, SearchCounters) {
         // Pick the next available split point
         let sp = &self.split_points[self.split_points_size.load(Ordering::Relaxed)];
 

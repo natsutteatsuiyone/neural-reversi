@@ -6,8 +6,8 @@ use crate::square::Square;
 /// A record stored for each ply in the search stack.
 #[derive(Clone, Copy)]
 pub struct StackRecord {
-    /// Principal variation line from this ply to the end of search.
-    pub pv: [Square; MAX_PLY],
+    /// Principal variation line from this ply, terminated by the first [`None`].
+    pub pv: [Option<Square>; MAX_PLY],
 }
 
 /// PV (Principal Variation) tracking across all plies.
@@ -20,7 +20,7 @@ impl SearchStack {
     pub(crate) fn new() -> Self {
         SearchStack {
             stack: [StackRecord {
-                pv: [Square::None; MAX_PLY],
+                pv: [None; MAX_PLY],
             }; MAX_PLY],
         }
     }
@@ -29,22 +29,22 @@ impl SearchStack {
     #[inline]
     pub fn update_pv(&mut self, sq: Square, ply: usize) {
         debug_assert!(ply + 1 < MAX_PLY, "ply out of range: {ply}");
-        self.stack[ply].pv[0] = sq;
+        self.stack[ply].pv[0] = Some(sq);
         let mut idx = 0;
-        while idx < self.stack[ply + 1].pv.len() && self.stack[ply + 1].pv[idx] != Square::None {
+        while idx < self.stack[ply + 1].pv.len() && self.stack[ply + 1].pv[idx].is_some() {
             self.stack[ply].pv[idx + 1] = self.stack[ply + 1].pv[idx];
             idx += 1;
         }
-        self.stack[ply].pv[idx + 1] = Square::None;
+        self.stack[ply].pv[idx + 1] = None;
     }
 
     /// Clears the principal variation at the given ply.
     ///
-    /// Sets only the sentinel at position 0; all PV consumers stop at `Square::None`,
+    /// Sets only position 0; all PV consumers stop at the first [`None`],
     /// so a full fill is unnecessary.
     #[inline]
     pub fn clear_pv(&mut self, ply: usize) {
-        self.stack[ply].pv[0] = Square::None;
+        self.stack[ply].pv[0] = None;
     }
 
     /// Clears the PV buffers for the given ply and its child ply.
@@ -61,13 +61,13 @@ impl SearchStack {
 
     /// Returns the principal variation at the given ply.
     #[inline]
-    pub fn pv(&self, ply: usize) -> &[Square; MAX_PLY] {
+    pub fn pv(&self, ply: usize) -> &[Option<Square>; MAX_PLY] {
         &self.stack[ply].pv
     }
 
     /// Sets the principal variation at the given ply.
     #[inline]
-    pub fn set_pv(&mut self, ply: usize, pv: &[Square; MAX_PLY]) {
+    pub fn set_pv(&mut self, ply: usize, pv: &[Option<Square>; MAX_PLY]) {
         self.stack[ply].pv.copy_from_slice(pv);
     }
 }
@@ -81,46 +81,46 @@ mod tests {
         let mut stack = SearchStack::new();
 
         // Simulate a 3-ply PV built bottom-up: ply 3 → ply 2 → ply 1
-        stack.stack[3].pv[0] = Square::F6;
+        stack.stack[3].pv[0] = Some(Square::F6);
 
         // Ply 2: update_pv should copy child PV from ply 3
         stack.update_pv(Square::E3, 2);
 
         let pv2 = stack.pv(2);
-        assert_eq!(pv2[0], Square::E3);
-        assert_eq!(pv2[1], Square::F6); // copied from ply 3
+        assert_eq!(pv2[0], Some(Square::E3));
+        assert_eq!(pv2[1], Some(Square::F6)); // copied from ply 3
 
         // Ply 1: update_pv should copy child PV from ply 2
         stack.update_pv(Square::D3, 1);
 
         let pv1 = stack.pv(1);
-        assert_eq!(pv1[0], Square::D3);
-        assert_eq!(pv1[1], Square::E3); // copied from ply 2
-        assert_eq!(pv1[2], Square::F6); // transitively from ply 3
+        assert_eq!(pv1[0], Some(Square::D3));
+        assert_eq!(pv1[1], Some(Square::E3)); // copied from ply 2
+        assert_eq!(pv1[2], Some(Square::F6)); // transitively from ply 3
     }
 
     #[test]
     fn prepare_pv_clears_current_and_child_only() {
         let mut stack = SearchStack::new();
-        stack.stack[0].pv[0] = Square::C4;
-        stack.stack[1].pv[0] = Square::D3;
-        stack.stack[2].pv[0] = Square::E3;
-        stack.stack[3].pv[0] = Square::F6;
+        stack.stack[0].pv[0] = Some(Square::C4);
+        stack.stack[1].pv[0] = Some(Square::D3);
+        stack.stack[2].pv[0] = Some(Square::E3);
+        stack.stack[3].pv[0] = Some(Square::F6);
 
         stack.prepare_pv(1);
 
-        assert_eq!(stack.pv(0)[0], Square::C4);
-        assert_eq!(stack.pv(1)[0], Square::None);
-        assert_eq!(stack.pv(2)[0], Square::None);
-        assert_eq!(stack.pv(3)[0], Square::F6);
+        assert_eq!(stack.pv(0)[0], Some(Square::C4));
+        assert_eq!(stack.pv(1)[0], None);
+        assert_eq!(stack.pv(2)[0], None);
+        assert_eq!(stack.pv(3)[0], Some(Square::F6));
     }
 
     #[test]
     fn update_pv_does_not_affect_other_plies() {
         let mut stack = SearchStack::new();
         for (ply, record) in stack.stack.iter_mut().enumerate().skip(1) {
-            record.pv[0] = if ply % 2 == 0 { Square::E3 } else { Square::F6 };
-            record.pv[1] = Square::C4;
+            record.pv[0] = Some(if ply % 2 == 0 { Square::E3 } else { Square::F6 });
+            record.pv[1] = Some(Square::C4);
         }
         let before = stack.stack;
         stack.update_pv(Square::D3, 0);

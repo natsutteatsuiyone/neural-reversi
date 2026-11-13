@@ -192,7 +192,6 @@ fn read_trace_section(reader: &mut FixtureReader<'_>) -> Vec<Solve1TraceCase> {
         );
 
         let sq = Square::from_u8(sq_index)
-            .filter(|&sq| sq != Square::None)
             .unwrap_or_else(|| panic!("invalid solve1 fixture square index: {sq_index}"));
         trace.push(Solve1TraceCase {
             player,

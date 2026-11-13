@@ -83,9 +83,8 @@ impl Game {
             return false;
         }
 
-        let square = match Square::from_u8(index) {
-            Some(Square::None) | None => return false,
-            Some(sq) => sq,
+        let Some(square) = Square::from_u8(index) else {
+            return false;
         };
 
         if !self.board.is_legal_move(square) {
@@ -166,9 +165,8 @@ impl Game {
             return false;
         }
 
-        let square = match Square::from_u8(index) {
-            Some(Square::None) | None => return false,
-            Some(sq) => sq,
+        let Some(square) = Square::from_u8(index) else {
+            return false;
         };
 
         if !self.board.is_legal_move(square) {

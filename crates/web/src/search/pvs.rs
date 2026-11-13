@@ -6,7 +6,6 @@
 use reversi_core::{
     board::Board,
     search::node_type::{NodeType, NonPV, PV},
-    square::Square,
     stability,
     types::{Depth, ScaledScore},
 };
@@ -28,7 +27,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     beta: ScaledScore,
 ) -> ScaledScore {
     let org_alpha = alpha;
-    let mut best_move = Square::None;
+    let mut best_move = None;
     let mut best_score = -ScaledScore::INF;
     let n_empties = ctx.empty_list.count();
 
@@ -139,7 +138,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             best_score = score;
 
             if score > alpha {
-                best_move = mv.sq;
+                best_move = Some(mv.sq);
 
                 if NT::PV_NODE && score < beta {
                     alpha = score;
@@ -204,7 +203,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
                     score,
                     Bound::Lower,
                     depth,
-                    mv.sq,
+                    Some(mv.sq),
                     ctx.selectivity,
                     SS::IS_ENDGAME,
                 );

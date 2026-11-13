@@ -55,7 +55,7 @@ impl MoveList {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        tt_move: Square,
+        tt_move: Option<Square>,
         alpha: ScaledScore,
         cut_node: bool,
     ) {
@@ -93,7 +93,7 @@ impl MoveList {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        tt_move: Square,
+        tt_move: Option<Square>,
         alpha: ScaledScore,
         cut_node: bool,
     ) {
@@ -117,7 +117,7 @@ impl MoveList {
         // beta-cut, which is a strong All-node signal; otherwise fall back to a
         // static-eval margin check.
         let skip_search_ordering = if SS::IS_ENDGAME && !NT::PV_NODE && !cut_node {
-            tt_move != Square::None || {
+            tt_move.is_some() || {
                 const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(10);
                 let static_eval = midgame::evaluate(ctx, board);
                 static_eval + SKIP_MARGIN < alpha
@@ -131,7 +131,7 @@ impl MoveList {
 
         if SS::IS_ENDGAME && skip_search_ordering {
             for mv in self.iter_mut() {
-                if mv.sq == tt_move {
+                if Some(mv.sq) == tt_move {
                     mv.value = TT_MOVE_VALUE;
                 } else {
                     let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -152,7 +152,7 @@ impl MoveList {
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
         // reaching this loop, so `mv.flipped == board.opponent()` cannot occur here.
         for mv in self.iter_mut() {
-            if mv.sq == tt_move {
+            if Some(mv.sq) == tt_move {
                 mv.value = TT_MOVE_VALUE;
             } else {
                 let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -188,15 +188,20 @@ impl MoveList {
     }
 
     /// Evaluates moves using fast heuristics for move ordering.
-    pub fn evaluate_moves_fast(&mut self, ctx: &mut SearchContext, board: &Board, tt_move: Square) {
+    pub fn evaluate_moves_fast(
+        &mut self,
+        ctx: &mut SearchContext,
+        board: &Board,
+        tt_move: Option<Square>,
+    ) {
         // Wipeout moves are filtered out by callers via `wipeout_move()` before
         // reaching this loop, so `mv.flipped == board.opponent()` cannot occur here.
-        if tt_move == Square::None {
+        let Some(tt_move) = tt_move else {
             for mv in self.iter_mut() {
                 mv.value = evaluate_fast_value(ctx, board, *mv);
             }
             return;
-        }
+        };
 
         for mv in self.iter_mut() {
             mv.value = if mv.sq == tt_move {
@@ -237,13 +242,11 @@ fn evaluate_fast_value(ctx: &mut SearchContext, board: &Board, mv: Move) -> i32 
 /// Returns the [`MoveList::evaluate_moves_fast`] value of the move to `sq`.
 ///
 /// `next` is the position after the move and `next_moves` its legal moves.
-/// `sq` must not be [`Square::None`].
 #[inline(always)]
 pub(crate) fn fast_move_value(sq: Square, next: &Board, next_moves: LegalMoves) -> i32 {
-    debug_assert_ne!(sq, Square::None);
     let corner_stability = next.opponent().corner_stability() as i32;
     let weighted_mobility = next_moves.corner_weighted_count() as i32;
-    // SAFETY: callers pass a legal move, so `sq.index() < 64`.
+    // SAFETY: `sq.index() < 64`.
     let square_value = unsafe { SQUARE_VALUE.get_unchecked(sq.index()) };
 
     square_value * SQUARE_VALUE_WEIGHT

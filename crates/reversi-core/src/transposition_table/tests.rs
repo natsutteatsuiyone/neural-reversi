@@ -9,8 +9,8 @@ fn raw_score(raw_value: i32) -> ScaledScore {
     ScaledScore::from_raw(raw_value)
 }
 
-fn sq(idx: usize) -> Square {
-    Square::from_u8(idx as u8).unwrap()
+fn sq(idx: usize) -> Option<Square> {
+    Some(Square::from_u8(idx as u8).unwrap())
 }
 
 fn make_board(player: u64, opponent: u64) -> Board {
@@ -19,7 +19,7 @@ fn make_board(player: u64, opponent: u64) -> Board {
 
 fn raw_entry_data(
     raw_value: i32,
-    best_move: Square,
+    best_move: Option<Square>,
     bound: Bound,
     depth: Depth,
     selectivity: Selectivity,
@@ -179,43 +179,12 @@ mod tt_entry_data {
 
     #[test]
     fn can_cut_uses_lower_or_exact_when_score_reaches_beta() {
-        let lower = raw_entry_data(
-            100,
-            Square::None,
-            Bound::Lower,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
-        let exact = raw_entry_data(
-            100,
-            Square::None,
-            Bound::Exact,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
-        let upper = raw_entry_data(
-            100,
-            Square::None,
-            Bound::Upper,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
+        let lower = raw_entry_data(100, None, Bound::Lower, 6, Selectivity::Level2, 0, false);
+        let exact = raw_entry_data(100, None, Bound::Exact, 6, Selectivity::Level2, 0, false);
+        let upper = raw_entry_data(100, None, Bound::Upper, 6, Selectivity::Level2, 0, false);
 
-        let lower_at_beta = raw_entry_data(
-            50,
-            Square::None,
-            Bound::Lower,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
+        let lower_at_beta =
+            raw_entry_data(50, None, Bound::Lower, 6, Selectivity::Level2, 0, false);
 
         assert!(lower_at_beta.can_cut(raw_score(50), 6, Selectivity::Level2, false));
         assert!(lower.can_cut(raw_score(50), 6, Selectivity::Level2, false));
@@ -225,33 +194,9 @@ mod tt_entry_data {
 
     #[test]
     fn can_cut_uses_upper_or_exact_when_score_is_below_beta() {
-        let lower = raw_entry_data(
-            30,
-            Square::None,
-            Bound::Lower,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
-        let exact = raw_entry_data(
-            30,
-            Square::None,
-            Bound::Exact,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
-        let upper = raw_entry_data(
-            30,
-            Square::None,
-            Bound::Upper,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
+        let lower = raw_entry_data(30, None, Bound::Lower, 6, Selectivity::Level2, 0, false);
+        let exact = raw_entry_data(30, None, Bound::Exact, 6, Selectivity::Level2, 0, false);
+        let upper = raw_entry_data(30, None, Bound::Upper, 6, Selectivity::Level2, 0, false);
 
         assert!(!lower.can_cut(raw_score(50), 6, Selectivity::Level2, false));
         assert!(exact.can_cut(raw_score(50), 6, Selectivity::Level2, false));
@@ -260,24 +205,8 @@ mod tt_entry_data {
 
     #[test]
     fn can_cut_rejects_entries_that_are_too_shallow_too_selective_or_not_endgame() {
-        let midgame = raw_entry_data(
-            100,
-            Square::None,
-            Bound::Lower,
-            6,
-            Selectivity::Level2,
-            0,
-            false,
-        );
-        let endgame = raw_entry_data(
-            100,
-            Square::None,
-            Bound::Lower,
-            6,
-            Selectivity::Level2,
-            0,
-            true,
-        );
+        let midgame = raw_entry_data(100, None, Bound::Lower, 6, Selectivity::Level2, 0, false);
+        let endgame = raw_entry_data(100, None, Bound::Lower, 6, Selectivity::Level2, 0, true);
 
         assert!(!midgame.can_cut(raw_score(50), 7, Selectivity::Level2, false));
         assert!(!midgame.can_cut(raw_score(50), 6, Selectivity::Level3, false));
@@ -287,15 +216,7 @@ mod tt_entry_data {
 
     #[test]
     fn relative_age_uses_the_seven_bit_generation_ring() {
-        let data = raw_entry_data(
-            0,
-            Square::None,
-            Bound::Exact,
-            0,
-            Selectivity::Level1,
-            126,
-            false,
-        );
+        let data = raw_entry_data(0, None, Bound::Exact, 0, Selectivity::Level1, 126, false);
 
         assert_eq!(data.relative_age(126), 0);
         assert_eq!(data.relative_age(127), 1);
@@ -304,24 +225,8 @@ mod tt_entry_data {
 
     #[test]
     fn replacement_score_penalizes_old_entries_by_age_weight() {
-        let fresh = raw_entry_data(
-            0,
-            Square::None,
-            Bound::Lower,
-            8,
-            Selectivity::Level1,
-            5,
-            false,
-        );
-        let old = raw_entry_data(
-            0,
-            Square::None,
-            Bound::Lower,
-            16,
-            Selectivity::Level1,
-            1,
-            false,
-        );
+        let fresh = raw_entry_data(0, None, Bound::Lower, 8, Selectivity::Level1, 5, false);
+        let old = raw_entry_data(0, None, Bound::Lower, 16, Selectivity::Level1, 1, false);
 
         assert_eq!(fresh.replacement_score(5), 8);
         assert_eq!(old.replacement_score(5), 16 - 4 * TTEntry::AGE_WEIGHT);
@@ -471,22 +376,14 @@ mod tt_entry {
         );
         entry.save(
             &board,
-            raw_entry_data(
-                40,
-                Square::None,
-                Bound::Exact,
-                1,
-                Selectivity::Level1,
-                1,
-                false,
-            ),
+            raw_entry_data(40, None, Bound::Exact, 1, Selectivity::Level1, 1, false),
         );
 
         let data = stable_data(&entry, &board);
         assert_eq!(data.score().value(), 40);
         assert_eq!(data.bound(), Bound::Exact);
         assert_eq!(data.depth(), 1);
-        assert_eq!(data.best_move(), Square::None);
+        assert_eq!(data.best_move(), None);
     }
 
     #[test]
@@ -500,15 +397,7 @@ mod tt_entry {
         );
         entry.save(
             &board,
-            raw_entry_data(
-                40,
-                Square::None,
-                Bound::Lower,
-                11,
-                Selectivity::Level3,
-                1,
-                false,
-            ),
+            raw_entry_data(40, None, Bound::Lower, 11, Selectivity::Level3, 1, false),
         );
 
         let data = stable_data(&entry, &board);
@@ -528,21 +417,13 @@ mod tt_entry {
         );
         entry.save(
             &new_board,
-            raw_entry_data(
-                90,
-                Square::None,
-                Bound::Upper,
-                1,
-                Selectivity::Level1,
-                0,
-                false,
-            ),
+            raw_entry_data(90, None, Bound::Upper, 1, Selectivity::Level1, 0, false),
         );
 
         assert!(read(&entry, &old_board).is_none());
         let data = stable_data(&entry, &new_board);
         assert_eq!(data.score().value(), 90);
-        assert_eq!(data.best_move(), Square::None);
+        assert_eq!(data.best_move(), None);
     }
 
     #[test]
@@ -652,7 +533,7 @@ mod transposition_table {
         let miss = tt.probe(&board, key);
         assert!(!is_hit(&miss));
         assert_eq!(miss.data(), None);
-        assert_eq!(miss.best_move(), Square::None);
+        assert_eq!(miss.best_move(), None);
 
         tt.store(
             miss.index(),

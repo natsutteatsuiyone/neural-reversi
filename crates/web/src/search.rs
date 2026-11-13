@@ -493,7 +493,7 @@ pub fn evaluate_depth3<NT: NodeType>(
     }
 
     let mut best_score = -ScaledScore::INF;
-    let mut best_move = Square::None;
+    let mut best_move = None;
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -504,11 +504,11 @@ pub fn evaluate_depth3<NT: NodeType>(
         if score > best_score {
             best_score = score;
             if score >= beta {
-                best_move = mv.sq;
+                best_move = Some(mv.sq);
                 break;
             }
             if score > alpha {
-                best_move = mv.sq;
+                best_move = Some(mv.sq);
                 alpha = score;
             }
         }
@@ -553,7 +553,7 @@ pub fn evaluate_depth2(
     }
 
     if move_list.count() >= 2 {
-        evaluate_moves_fast(&mut move_list, ctx, board, Square::None);
+        evaluate_moves_fast(&mut move_list, ctx, board, None);
     }
 
     let mut best_score = -ScaledScore::INF;

@@ -134,7 +134,7 @@ fn aborted_endgame_reports_last_completed_selectivity() {
         .clone()
         .expect("the first endgame selectivity must complete before abort");
 
-    assert_eq!(result.best_move(), Some(best_move));
+    assert_eq!(result.best_move(), best_move);
     assert_eq!(result.score(), Some(score));
     assert_eq!(result.probability(), probability);
     assert_eq!(result.pv_line(), pv_line);

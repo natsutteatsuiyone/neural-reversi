@@ -225,9 +225,7 @@ impl ReversiApp {
                     };
                     self.setup.error = None;
                 } else if self.modal.is_none() {
-                    let Some(square) =
-                        Square::from_u8(index as u8).filter(|sq| *sq != Square::None)
-                    else {
+                    let Some(square) = Square::from_u8(index as u8) else {
                         return;
                     };
                     self.session.play_move(square, &self.settings);

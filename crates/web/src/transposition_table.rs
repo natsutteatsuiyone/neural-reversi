@@ -61,7 +61,7 @@ impl Bound {
 #[repr(C)]
 struct TTData {
     score: i16,
-    best_move: Square,
+    best_move: Option<Square>,
     bound: Bound,
     depth: u8,
     selectivity: Selectivity,
@@ -76,7 +76,7 @@ const _: () = assert!(std::mem::size_of::<TTData>() == 8);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TTEntryData {
     pub score: ScaledScore,
-    pub best_move: Square,
+    pub best_move: Option<Square>,
     pub bound: Bound,
     pub depth: Depth,
     pub selectivity: Selectivity,
@@ -137,12 +137,12 @@ impl TTProbeResult {
         }
     }
 
-    /// Returns the stored best move on a hit, or [`Square::None`] on a miss.
+    /// Returns the stored best move on a hit, or [`None`] on a miss.
     #[inline(always)]
-    pub fn best_move(&self) -> Square {
+    pub fn best_move(&self) -> Option<Square> {
         match self {
             TTProbeResult::Hit { data, .. } => data.best_move,
-            TTProbeResult::Miss { .. } => Square::None,
+            TTProbeResult::Miss { .. } => None,
         }
     }
 }
@@ -279,8 +279,7 @@ impl TranspositionTable {
     /// caller already chose this slot as the cluster victim. For the same key,
     /// non-exact results replace when depth regression is at most two plies,
     /// selectivity is higher, or generation changed. If `best_move` is
-    /// [`Square::None`], the existing move is preserved for same-key non-exact
-    /// updates.
+    /// [`None`], the existing move is preserved for same-key non-exact updates.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     pub fn store(
@@ -290,7 +289,7 @@ impl TranspositionTable {
         score: ScaledScore,
         bound: Bound,
         depth: Depth,
-        best_move: Square,
+        best_move: Option<Square>,
         selectivity: Selectivity,
         is_endgame: bool,
     ) {
@@ -313,7 +312,7 @@ impl TranspositionTable {
             return;
         }
 
-        let write_best_move = if best_move != Square::None || bound == Bound::Exact || !same_key {
+        let write_best_move = if best_move.is_some() || bound == Bound::Exact || !same_key {
             best_move
         } else {
             existing.best_move
@@ -379,7 +378,7 @@ mod tests {
             score,
             Bound::Exact,
             10,
-            Square::D3,
+            Some(Square::D3),
             Selectivity::None,
             false,
         );
@@ -388,7 +387,7 @@ mod tests {
         assert!(matches!(probe, TTProbeResult::Hit { .. }));
         let data = probe.data().unwrap();
         assert_eq!(data.score, score);
-        assert_eq!(data.best_move, Square::D3);
+        assert_eq!(data.best_move, Some(Square::D3));
         assert_eq!(data.bound, Bound::Exact);
         assert_eq!(data.depth, 10);
         assert!(!data.is_endgame);
@@ -409,7 +408,7 @@ mod tests {
             score,
             Bound::Lower,
             5,
-            Square::E6,
+            Some(Square::E6),
             Selectivity::Level1,
             true,
         );
@@ -434,7 +433,7 @@ mod tests {
             ScaledScore::from_raw(10),
             Bound::Upper,
             3,
-            Square::None,
+            None,
             Selectivity::None,
             false,
         );
@@ -464,7 +463,7 @@ mod tests {
             ScaledScore::from_raw(10),
             Bound::Exact,
             5,
-            Square::A1,
+            Some(Square::A1),
             Selectivity::None,
             false,
         );
@@ -476,7 +475,7 @@ mod tests {
             ScaledScore::from_raw(20),
             Bound::Lower,
             8,
-            Square::B2,
+            Some(Square::B2),
             Selectivity::None,
             false,
         );
@@ -484,11 +483,11 @@ mod tests {
         // Both should be retrievable
         let data1 = tt.probe(base_key).data().unwrap();
         assert_eq!(data1.score, ScaledScore::from_raw(10));
-        assert_eq!(data1.best_move, Square::A1);
+        assert_eq!(data1.best_move, Some(Square::A1));
 
         let data2 = tt.probe(key2).data().unwrap();
         assert_eq!(data2.score, ScaledScore::from_raw(20));
-        assert_eq!(data2.best_move, Square::B2);
+        assert_eq!(data2.best_move, Some(Square::B2));
     }
 
     #[test]
@@ -507,7 +506,7 @@ mod tests {
                 ScaledScore::from_raw(10),
                 Bound::Exact,
                 3,
-                Square::A1,
+                Some(Square::A1),
                 Selectivity::None,
                 false,
             );
@@ -519,7 +518,7 @@ mod tests {
                 ScaledScore::from_raw(20),
                 Bound::Exact,
                 10,
-                Square::B2,
+                Some(Square::B2),
                 Selectivity::None,
                 false,
             );
@@ -535,7 +534,7 @@ mod tests {
                 ScaledScore::from_raw(30),
                 Bound::Exact,
                 7,
-                Square::C3,
+                Some(Square::C3),
                 Selectivity::None,
                 false,
             );
@@ -560,7 +559,7 @@ mod tests {
             ScaledScore::from_raw(100),
             Bound::Lower,
             15,
-            Square::D3,
+            Some(Square::D3),
             Selectivity::None,
             false,
         );
@@ -574,7 +573,7 @@ mod tests {
             ScaledScore::from_raw(50),
             Bound::Upper,
             5,
-            Square::E4,
+            Some(Square::E4),
             Selectivity::None,
             false,
         );
@@ -596,7 +595,7 @@ mod tests {
             ScaledScore::from_raw(100),
             Bound::Lower,
             10,
-            Square::D3,
+            Some(Square::D3),
             Selectivity::None,
             false,
         );
@@ -609,7 +608,7 @@ mod tests {
             ScaledScore::from_raw(50),
             Bound::Upper,
             9,
-            Square::E4,
+            Some(Square::E4),
             Selectivity::None,
             false,
         );
@@ -631,7 +630,7 @@ mod tests {
             ScaledScore::from_raw(100),
             Bound::Lower,
             15,
-            Square::D3,
+            Some(Square::D3),
             Selectivity::None,
             false,
         );
@@ -644,7 +643,7 @@ mod tests {
             ScaledScore::from_raw(50),
             Bound::Exact,
             5,
-            Square::E4,
+            Some(Square::E4),
             Selectivity::None,
             false,
         );
@@ -666,7 +665,7 @@ mod tests {
             ScaledScore::from_raw(100),
             Bound::Lower,
             10,
-            Square::D3,
+            Some(Square::D3),
             Selectivity::None,
             false,
         );
@@ -679,13 +678,13 @@ mod tests {
             ScaledScore::from_raw(80),
             Bound::Upper,
             10,
-            Square::None,
+            None,
             Selectivity::None,
             false,
         );
 
         let data = tt.lookup(key).unwrap();
-        assert_eq!(data.best_move, Square::D3);
+        assert_eq!(data.best_move, Some(Square::D3));
         assert_eq!(data.score, ScaledScore::from_raw(80));
     }
 
@@ -701,7 +700,7 @@ mod tests {
             ScaledScore::from_raw(50),
             Bound::Exact,
             8,
-            Square::A1,
+            Some(Square::A1),
             Selectivity::None,
             false,
         );
@@ -723,7 +722,7 @@ mod tests {
             ScaledScore::from_raw(100),
             Bound::Lower,
             10,
-            Square::None,
+            None,
             Selectivity::None,
             false,
         );
@@ -748,7 +747,7 @@ mod tests {
             ScaledScore::from_raw(10),
             Bound::Lower,
             20,
-            Square::A1,
+            Some(Square::A1),
             Selectivity::None,
             false,
         );
@@ -766,7 +765,7 @@ mod tests {
             ScaledScore::from_raw(20),
             Bound::Lower,
             5,
-            Square::B2,
+            Some(Square::B2),
             Selectivity::None,
             false,
         );
@@ -780,7 +779,7 @@ mod tests {
             ScaledScore::from_raw(30),
             Bound::Exact,
             1,
-            Square::C3,
+            Some(Square::C3),
             Selectivity::None,
             false,
         );
@@ -802,7 +801,7 @@ mod tests {
             ScaledScore::from_raw(100),
             Bound::Lower,
             15,
-            Square::D3,
+            Some(Square::D3),
             Selectivity::None,
             false,
         );
@@ -818,7 +817,7 @@ mod tests {
             ScaledScore::from_raw(50),
             Bound::Upper,
             5,
-            Square::E4,
+            Some(Square::E4),
             Selectivity::None,
             false,
         );

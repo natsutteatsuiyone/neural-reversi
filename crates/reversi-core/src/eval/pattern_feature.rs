@@ -24,11 +24,8 @@ use crate::square::Square;
 #[path = "pattern_table_data.rs"]
 mod pattern_table_data;
 pub use pattern_table_data::NUM_PATTERN_FEATURES;
-use pattern_table_data::{
-    EVAL_F2X_RAW, FEATURE_VECTOR_SIZE, SQ_NONE, compute_pattern_feature_index_raw,
-};
+use pattern_table_data::{EVAL_F2X_RAW, FEATURE_VECTOR_SIZE, compute_pattern_feature_index_raw};
 
-const _: () = assert!(Square::None as u8 == SQ_NONE);
 const _: () = assert!(BOARD_SQUARES == pattern_table_data::BOARD_SQUARES);
 
 // Without this, a typo in `sq::*` would silently miscompile `EVAL_F2X_RAW`
@@ -84,7 +81,7 @@ const FLIP_U16_MASK: u64 = (FLIP_U16_VALUES as u64) - 1;
 pub struct FeatureToCoordinate {
     /// Number of squares in this pattern (up to 10).
     pub n_square: usize,
-    /// Slots `n_square..` are filled with [`Square::None`].
+    /// Squares of this pattern; only the first `n_square` slots are used.
     pub squares: [Square; 10],
 }
 
@@ -221,16 +218,16 @@ impl CoordinateToFeature {
 const fn build_eval_f2x() -> [FeatureToCoordinate; NUM_PATTERN_FEATURES] {
     let mut out = [FeatureToCoordinate {
         n_square: 0,
-        squares: [Square::None; 10],
+        squares: [Square::A1; 10],
     }; NUM_PATTERN_FEATURES];
     let mut i = 0;
     while i < NUM_PATTERN_FEATURES {
         let (n_square, raw_squares) = EVAL_F2X_RAW[i];
-        let mut squares = [Square::None; 10];
+        let mut squares = [Square::A1; 10];
         let mut j = 0;
-        while j < 10 {
-            // SAFETY: `EVAL_F2X_RAW` only stores values in `0..=64`, every one
-            // of which is a valid `Square` discriminant (asserted above).
+        while j < n_square {
+            assert!(raw_squares[j] < 64);
+            // SAFETY: `raw_squares[j] < 64` is a valid `Square` discriminant.
             squares[j] = unsafe { std::mem::transmute::<u8, Square>(raw_squares[j]) };
             j += 1;
         }
@@ -519,7 +516,6 @@ impl PatternFeatures {
     /// from scratch, handling both the placed disc and all flipped discs.
     #[inline(always)]
     pub fn update(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
-        debug_assert!(sq != Square::None);
         debug_assert!(!flipped.is_empty());
         debug_assert!(ply < MAX_PLY - 1);
 
@@ -1351,20 +1347,15 @@ mod tests {
     }
 
     #[test]
-    fn pattern_definitions_have_padding_and_unique_squares() {
+    fn pattern_definitions_have_unique_squares() {
         for (idx, feature) in EVAL_F2X.iter().enumerate() {
             let mut seen = [false; BOARD_SQUARES];
-            for (pos, &sq) in feature.squares[..feature.n_square].iter().enumerate() {
-                assert_ne!(sq, Square::None, "pattern {idx} active slot {pos}");
+            for &sq in &feature.squares[..feature.n_square] {
                 assert!(
                     !seen[sq.index()],
                     "pattern {idx} contains {sq:?} more than once"
                 );
                 seen[sq.index()] = true;
-            }
-
-            for (pos, &sq) in feature.squares.iter().enumerate().skip(feature.n_square) {
-                assert_eq!(sq, Square::None, "pattern {idx} tail {pos}");
             }
         }
     }

@@ -352,7 +352,7 @@ pub fn format_pv(squares: &[Square]) -> String {
 fn progress_payload(progress: SearchProgress, elapsed: Duration) -> Progress {
     let elapsed_ms = elapsed.as_millis();
     Progress {
-        square: (progress.best_move != Square::None).then_some(progress.best_move),
+        square: progress.best_move,
         score: round_score(progress.score),
         depth: progress.depth,
         target_depth: progress.target_depth,

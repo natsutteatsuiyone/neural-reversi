@@ -93,7 +93,7 @@ pub(super) fn channel_report(
     n_threads: usize,
     timed_out: bool,
 ) -> String {
-    let mv = report_square(result.best_move().unwrap_or(Square::None), color);
+    let mv = report_square(result.best_move(), color);
     if result.depth() == 0 {
         // The first move of a game is picked at random, without a search.
         return format!(
@@ -126,12 +126,8 @@ pub(super) fn channel_report(
 }
 
 /// A report move: upper case for Black, `pa` for a pass.
-fn report_square(sq: Square, color: Disc) -> String {
-    let s = if sq == Square::None {
-        "pa".to_string()
-    } else {
-        sq.to_string()
-    };
+fn report_square(sq: Option<Square>, color: Disc) -> String {
+    let s = sq.map_or_else(|| "pa".to_string(), |sq| sq.to_string());
     if color == Disc::Black {
         s.to_uppercase()
     } else {
@@ -151,7 +147,7 @@ fn report_pv(board: &Board, color: Disc, pv: &[Square]) -> String {
             break;
         }
         if !current.is_legal_move(sq) {
-            line += &report_square(Square::None, mover);
+            line += &report_square(None, mover);
             line.push(' ');
             current = current.switch_players();
             mover = mover.opposite();
@@ -160,7 +156,7 @@ fn report_pv(board: &Board, color: Disc, pv: &[Square]) -> String {
         if tokens >= 8 || !current.is_legal_move(sq) {
             break;
         }
-        line += &report_square(sq, mover);
+        line += &report_square(Some(sq), mover);
         line.push(' ');
         current = current.make_move(sq);
         mover = mover.opposite();

@@ -17,7 +17,7 @@ use crate::square::Square;
 #[inline(always)]
 fn get_quadrant_id(sq: Square) -> u8 {
     #[rustfmt::skip]
-    const QUADRANT_ID: [u8; 65] = [
+    const QUADRANT_ID: [u8; 64] = [
         1, 1, 1, 1, 2, 2, 2, 2,
         1, 1, 1, 1, 2, 2, 2, 2,
         1, 1, 1, 1, 2, 2, 2, 2,
@@ -26,9 +26,8 @@ fn get_quadrant_id(sq: Square) -> u8 {
         4, 4, 4, 4, 8, 8, 8, 8,
         4, 4, 4, 4, 8, 8, 8, 8,
         4, 4, 4, 4, 8, 8, 8, 8,
-        0, // Square::None
     ];
-    // SAFETY: sq.index() returns 0..=64 and QUADRANT_ID has 65 elements.
+    // SAFETY: sq.index() returns 0..64 and QUADRANT_ID has 64 elements.
     unsafe { *QUADRANT_ID.get_unchecked(sq.index()) }
 }
 
@@ -59,19 +58,23 @@ const PRESORTED: [Square; 64] = [
     Square::D4, Square::E4, Square::D5, Square::E5,
 ];
 
-/// Node in the doubly-linked list of empty squares.
-#[derive(Clone, Copy, Default)]
+/// Index of the head node, which follows the 64 square nodes.
+const HEAD: u8 = 64;
+
+/// Node in the circular doubly-linked list of empty squares.
+///
+/// Links are node indices: a square index, or [`HEAD`]. Nodes of squares
+/// that were never empty link to [`HEAD`], so `contains` rejects them.
+#[derive(Clone, Copy)]
 struct EmptyNode {
-    /// Next square in the linked list ([`Square::None`] if last)
-    next: Square,
-    /// Previous square in the linked list ([`Square::None`] if first)
-    prev: Square,
+    next: u8,
+    prev: u8,
 }
 
 /// Doubly-linked list of empty squares for move generation.
 #[derive(Clone)]
 pub struct EmptyList {
-    /// Array of linked list nodes indexed by square position.
+    /// Square nodes indexed by square position, then the [`HEAD`] node.
     nodes: [EmptyNode; 65],
     /// Number of empty squares currently in the list.
     count: u32,
@@ -84,20 +87,23 @@ impl EmptyList {
     pub fn new(board: &Board) -> Self {
         let mut count = 0;
         let mut parity: u8 = 0;
-        let mut nodes: [EmptyNode; 65] = [EmptyNode::default(); 65];
+        let mut nodes = [EmptyNode {
+            next: HEAD,
+            prev: HEAD,
+        }; 65];
 
-        let mut prev_sq = Square::None;
+        let mut prev = HEAD;
         let empty_board = board.empty_squares();
         for &sq in PRESORTED.iter() {
             if empty_board.contains(sq) {
-                let sq_idx = sq.index();
-                nodes[prev_sq.index()].next = sq;
-                nodes[sq_idx].prev = prev_sq;
+                nodes[prev as usize].next = sq as u8;
+                nodes[sq.index()].prev = prev;
                 parity ^= get_quadrant_id(sq);
-                prev_sq = sq;
+                prev = sq as u8;
                 count += 1;
             }
         }
+        nodes[HEAD as usize].prev = prev;
 
         Self {
             nodes,
@@ -123,30 +129,48 @@ impl EmptyList {
         self.parity
     }
 
-    /// Returns the first empty square, or [`Square::None`] if the list is empty.
+    /// Returns the first empty square.
+    ///
+    /// The list must not be empty.
     #[inline(always)]
     pub fn first(&self) -> Square {
-        self.next(Square::None)
+        self.square_after(HEAD)
     }
 
     /// Returns the first empty square and its quadrant ID.
+    ///
+    /// The list must not be empty.
     #[inline(always)]
     pub fn first_and_quad_id(&self) -> (Square, u8) {
-        self.next_and_quad_id(Square::None)
+        let sq = self.first();
+        (sq, get_quadrant_id(sq))
     }
 
-    /// Returns the next empty square after `sq`, or [`Square::None`] if `sq` is the last.
+    /// Returns the next empty square after `sq`.
+    ///
+    /// `sq` must be in the list and must not be its last square.
     #[inline(always)]
     pub fn next(&self, sq: Square) -> Square {
-        debug_assert!(
-            sq == Square::None || self.nodes[self.nodes[sq.index()].prev.index()].next == sq,
-            "Square {sq:?} is not in the empty list"
-        );
-        // SAFETY: sq.index() returns 0..=64 and self.nodes has 65 elements.
-        unsafe { self.nodes.get_unchecked(sq.index()).next }
+        debug_assert!(self.contains(sq), "Square {sq:?} is not in the empty list");
+        self.square_after(sq as u8)
+    }
+
+    #[inline(always)]
+    fn square_after(&self, node: u8) -> Square {
+        // SAFETY: node is a square index or HEAD, both < 65 = self.nodes.len().
+        let next = unsafe { self.nodes.get_unchecked(node as usize).next };
+        debug_assert!(next != HEAD, "no empty square follows node {node}");
+        // SAFETY: next != HEAD, so it is a square index.
+        unsafe { Square::from_u8_unchecked(next) }
+    }
+
+    fn contains(&self, sq: Square) -> bool {
+        self.nodes[self.nodes[sq.index()].prev as usize].next == sq as u8
     }
 
     /// Returns the next empty square after `sq` and its quadrant ID.
+    ///
+    /// `sq` must be in the list and must not be its last square.
     #[inline(always)]
     pub fn next_and_quad_id(&self, sq: Square) -> (Square, u8) {
         let next_sq = self.next(sq);
@@ -157,26 +181,15 @@ impl EmptyList {
     /// Removes `sq` from the empty list.
     #[inline(always)]
     pub fn remove(&mut self, sq: Square) {
-        debug_assert!(sq != Square::None, "Cannot remove Square::None");
         debug_assert!(self.count > 0, "Cannot remove from an empty list");
-        debug_assert!(
-            self.nodes[self.nodes[sq.index()].prev.index()].next == sq,
-            "Square {sq:?} is not in the empty list"
-        );
+        debug_assert!(self.contains(sq), "Square {sq:?} is not in the empty list");
 
-        let sq_idx = sq.index();
-        // SAFETY: All Square indices are 0..=64 and self.nodes has 65 elements.
-        // prev and next are copied out before any mutable access, so no aliasing.
+        // SAFETY: square indices and links are all < 65 = self.nodes.len().
+        // The node is copied out before any mutable access, so no aliasing.
         unsafe {
-            let node = self.nodes.get_unchecked(sq_idx);
-            let prev = node.prev;
-            let next = node.next;
-
-            let prev_idx = prev.index();
-            let next_idx = next.index();
-
-            self.nodes.get_unchecked_mut(prev_idx).next = next;
-            self.nodes.get_unchecked_mut(next_idx).prev = prev;
+            let node = *self.nodes.get_unchecked(sq.index());
+            self.nodes.get_unchecked_mut(node.prev as usize).next = node.next;
+            self.nodes.get_unchecked_mut(node.next as usize).prev = node.prev;
         }
         self.parity ^= get_quadrant_id(sq);
         self.count -= 1;
@@ -185,26 +198,21 @@ impl EmptyList {
     /// Restores a previously removed square to the empty list.
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
-        debug_assert!(sq != Square::None, "Cannot restore Square::None");
         debug_assert!(
             self.count < INITIAL_EMPTY_COUNT as u32,
             "Cannot restore: list is already full"
         );
         debug_assert!(
-            self.nodes[self.nodes[sq.index()].prev.index()].next != sq,
+            !self.contains(sq),
             "Square {sq:?} is already in the empty list"
         );
 
-        let idx = sq.index();
-        // SAFETY: All Square indices are 0..=64 and self.nodes has 65 elements.
-        // prev_idx and next_idx are copied out before any mutable access, so no aliasing.
+        // SAFETY: square indices and links are all < 65 = self.nodes.len().
+        // The node is copied out before any mutable access, so no aliasing.
         unsafe {
-            let node = self.nodes.get_unchecked(idx);
-            let prev_idx = node.prev.index();
-            let next_idx = node.next.index();
-
-            self.nodes.get_unchecked_mut(prev_idx).next = sq;
-            self.nodes.get_unchecked_mut(next_idx).prev = sq;
+            let node = *self.nodes.get_unchecked(sq.index());
+            self.nodes.get_unchecked_mut(node.prev as usize).next = sq as u8;
+            self.nodes.get_unchecked_mut(node.next as usize).prev = sq as u8;
         }
         self.parity ^= get_quadrant_id(sq);
         self.count += 1;
@@ -241,18 +249,26 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "is not in the empty list")]
+    fn next_rejects_square_filled_at_construction() {
+        let empty_list = EmptyList::new(&Board::from_bitboards(Square::A1.bitboard(), 0u64));
+        let _ = empty_list.next(Square::A1);
+    }
+
+    #[test]
     fn test_presorted_order() {
         let board = Board::new();
         let empty_list = EmptyList::new(&board);
 
         let mut current = empty_list.first();
-        let mut count = 0;
-        while current != Square::None {
-            assert_eq!(current, PRESORTED[count]);
-            current = empty_list.next(current);
-            count += 1;
+        for (count, &sq) in PRESORTED.iter().take(60).enumerate() {
+            if count > 0 {
+                current = empty_list.next(current);
+            }
+            assert_eq!(current, sq);
         }
-        assert_eq!(count, 60);
+        assert_eq!(empty_list.count(), 60);
     }
 
     #[test]
@@ -313,26 +329,16 @@ mod tests {
         empty_list.remove(Square::C3); // 13th in presorted order
         empty_list.remove(Square::F3); // 14th in presorted order
 
-        // Verify list integrity by traversing
         let mut current = empty_list.first();
-        let mut count = 0;
-        let mut found_c3 = false;
-        let mut found_f3 = false;
-
-        while current != Square::None {
-            if current == Square::C3 {
-                found_c3 = true;
-            }
-            if current == Square::F3 {
-                found_f3 = true;
-            }
+        let mut visited = vec![current];
+        for _ in 1..empty_list.count() {
             current = empty_list.next(current);
-            count += 1;
+            visited.push(current);
         }
 
-        assert_eq!(count, 58); // 60 - 2 removed squares
-        assert!(!found_c3, "C3 should not be in list after removal");
-        assert!(!found_f3, "F3 should not be in list after removal");
+        assert_eq!(visited.len(), 58);
+        assert!(!visited.contains(&Square::C3));
+        assert!(!visited.contains(&Square::F3));
     }
 
     #[test]
@@ -349,7 +355,7 @@ mod tests {
             squares_seen[sq_idx] = true;
         }
 
-        // Should have exactly 64 squares (A1 to H8, excluding None)
+        // Should have exactly 64 squares (A1 to H8)
         let count = squares_seen.iter().filter(|&&seen| seen).count();
         assert_eq!(count, 64);
 
